@@ -5,3 +5,9 @@ html,
 body {
   @apply h-full w-full;
 }
+
+button,
+[role='button'],
+select {
+  cursor: pointer;
+}

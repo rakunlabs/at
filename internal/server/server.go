@@ -94,6 +94,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// Provider management API
 	baseGroup.GET("/api/v1/providers", s.ListProvidersAPI)
 	baseGroup.POST("/api/v1/providers", s.CreateProviderAPI)
+	baseGroup.POST("/api/v1/providers/discover-models", s.DiscoverModelsAPI)
 	baseGroup.GET("/api/v1/providers/*", s.GetProviderAPI)
 	baseGroup.PUT("/api/v1/providers/*", s.UpdateProviderAPI)
 	baseGroup.DELETE("/api/v1/providers/*", s.DeleteProviderAPI)

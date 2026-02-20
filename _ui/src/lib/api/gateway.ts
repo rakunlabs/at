@@ -41,6 +41,6 @@ export async function listModels(authToken?: string): Promise<ModelData[]> {
   if (authToken) {
     headers['Authorization'] = `Bearer ${authToken}`;
   }
-  const res = await api.get<ModelsResponse>('/../../v1/models', { headers });
+  const res = await api.get<ModelsResponse>('/models', { headers });
   return res.data.data;
 }

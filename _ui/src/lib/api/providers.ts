@@ -48,3 +48,12 @@ export async function updateProvider(key: string, config: LLMConfig): Promise<Pr
 export async function deleteProvider(key: string): Promise<void> {
   await api.delete(`/providers/${key}`);
 }
+
+interface DiscoverModelsResponse {
+  models: string[];
+}
+
+export async function discoverModels(config: Partial<LLMConfig>): Promise<string[]> {
+  const res = await api.post<DiscoverModelsResponse>('/providers/discover-models', { config });
+  return res.data.models;
+}

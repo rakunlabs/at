@@ -6,10 +6,11 @@
     createProvider,
     updateProvider,
     deleteProvider,
+    discoverModels,
     type ProviderRecord,
     type LLMConfig,
   } from '@/lib/api/providers';
-  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw } from 'lucide-svelte';
 
   storeNavbar.title = 'Providers';
 
@@ -31,10 +32,10 @@
 
   const PRESETS: Preset[] = [
     {
-      id: 'github',
-      name: 'GitHub',
-      description: 'Access models via GitHub Copilot or GitHub Models marketplace',
-      key: 'github',
+      id: 'github-models',
+      name: 'GitHub Models',
+      description: 'Access models via the GitHub Models marketplace',
+      key: 'github-models',
       config: {
         type: 'openai',
         base_url: 'https://models.github.ai/inference/chat/completions',
@@ -49,22 +50,53 @@
         'Go to github.com/settings/tokens?type=beta to create a Fine-grained Personal Access Token',
         'Click "Generate new token" and set a name (e.g., "at-gateway")',
         'Set an expiration period (recommended: 90 days)',
-        'Under "Account permissions", enable "Models: Read" (for GitHub Models) or "GitHub Copilot: Read" (for Copilot)',
+        'Under "Account permissions", enable "Models: Read"',
         'Click "Generate token" and copy the token (starts with github_pat_)',
         'Paste the token in the API Key field below',
       ],
       setupLinks: [
         { label: 'Create PAT', url: 'https://github.com/settings/tokens?type=beta' },
         { label: 'Model Catalog', url: 'https://github.com/marketplace/models' },
+      ],
+      notes: [
+        'Token must be a Fine-grained PAT (classic tokens do not work)',
+        'Rate limits: Free tier ~15 req/min, 150 req/day for standard models',
+        'Model names include the vendor prefix (e.g., openai/gpt-4.1)',
+      ],
+    },
+    {
+      id: 'github-copilot',
+      name: 'GitHub Copilot',
+      description: 'Access models via a GitHub Copilot subscription',
+      key: 'github-copilot',
+      config: {
+        type: 'openai',
+        base_url: 'https://api.githubcopilot.com/chat/completions',
+        model: 'gpt-4.1',
+        models: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o4-mini', 'claude-sonnet-4-20250514'],
+      },
+      extraHeaders: [
+        { key: 'Accept', value: 'application/vnd.github+json' },
+        { key: 'X-GitHub-Api-Version', value: '2022-11-28' },
+      ],
+      setupSteps: [
+        'You need an active GitHub Copilot subscription (Individual, Business, or Enterprise)',
+        'Go to github.com/settings/tokens?type=beta to create a Fine-grained Personal Access Token',
+        'Click "Generate new token" and set a name (e.g., "at-copilot")',
+        'Set an expiration period (recommended: 90 days)',
+        'Under "Account permissions", enable "GitHub Copilot: Read"',
+        'Click "Generate token" and copy the token (starts with github_pat_)',
+        'Paste the token in the API Key field below',
+      ],
+      setupLinks: [
+        { label: 'Create PAT', url: 'https://github.com/settings/tokens?type=beta' },
         { label: 'Copilot Plans', url: 'https://github.com/features/copilot/plans' },
       ],
       notes: [
-        'GitHub Models endpoint: models.github.ai/inference (default)',
-        'GitHub Copilot endpoint: api.githubcopilot.com (change Base URL if using Copilot)',
+        'Requires an active GitHub Copilot subscription',
         'Token must be a Fine-grained PAT (classic tokens do not work)',
-        'Rate limits: Free tier ~15 req/min, 150 req/day for standard models',
         'Some premium models require a Copilot Pro subscription',
-        'Model names include the vendor prefix (e.g., openai/gpt-4.1)',
+        'Model names do NOT include the vendor prefix (e.g., gpt-4.1, not openai/gpt-4.1)',
       ],
     },
     {
@@ -254,6 +286,7 @@
   let formModel = $state('');
   let formModels = $state('');
   let formExtraHeaders = $state<{ key: string; value: string }[]>([]);
+  let discoveringModels = $state(false);
 
   // ─── Load ───
 
@@ -389,11 +422,53 @@
   function removeHeader(index: number) {
     formExtraHeaders = formExtraHeaders.filter((_, i) => i !== index);
   }
+
+  async function handleDiscoverModels() {
+    if (!formType) {
+      addToast('Select a provider type first', 'warn');
+      return;
+    }
+
+    if (formType === 'vertex') {
+      addToast('Model discovery is not supported for Vertex AI', 'warn');
+      return;
+    }
+
+    if (formType !== 'vertex' && !formApiKey) {
+      addToast('Enter an API key first', 'warn');
+      return;
+    }
+
+    discoveringModels = true;
+    try {
+      const cfg: Record<string, any> = { type: formType };
+      if (formApiKey) cfg.api_key = formApiKey;
+      if (formBaseUrl) cfg.base_url = formBaseUrl;
+
+      const headers: Record<string, string> = {};
+      for (const h of formExtraHeaders) {
+        if (h.key && h.value) headers[h.key] = h.value;
+      }
+      if (Object.keys(headers).length > 0) cfg.extra_headers = headers;
+
+      const models = await discoverModels(cfg as any);
+      if (models.length === 0) {
+        addToast('No models found', 'warn');
+      } else {
+        formModels = models.join(', ');
+        addToast(`Found ${models.length} models`);
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to discover models', 'alert');
+    } finally {
+      discoveringModels = false;
+    }
+  }
 </script>
 
 <div class="p-6 max-w-5xl mx-auto">
   <!-- Header -->
-  <div class="flex items-center justify-between mb-6">
+  <div class="flex items-start justify-between mb-6">
     <div>
       <h1 class="text-lg font-semibold text-gray-900">Providers</h1>
       <p class="text-sm text-gray-500 mt-0.5">Configure LLM backends for the gateway</p>
@@ -539,7 +614,7 @@
             id="form-apikey"
             type="password"
             bind:value={formApiKey}
-            placeholder={activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'github' ? 'github_pat_...' : 'sk-...'}
+            placeholder={activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'github-models' || activePreset?.id === 'github-copilot' ? 'github_pat_...' : 'sk-...'}
             class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
           />
         </div>
@@ -573,13 +648,25 @@
         <!-- Models -->
         <div class="grid grid-cols-4 gap-3 items-center">
           <label for="form-models" class="text-sm font-medium text-gray-700">Models</label>
-          <input
-            id="form-models"
-            type="text"
-            bind:value={formModels}
-            placeholder="model-a, model-b (comma-separated, optional)"
-            class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
-          />
+          <div class="col-span-3 flex gap-2">
+            <input
+              id="form-models"
+              type="text"
+              bind:value={formModels}
+              placeholder="model-a, model-b (comma-separated, optional)"
+              class="flex-1 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+            />
+            <button
+              type="button"
+              onclick={handleDiscoverModels}
+              disabled={discoveringModels}
+              class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              title="Fetch available models from the provider using the API key above"
+            >
+              <RefreshCw size={13} class={discoveringModels ? 'animate-spin' : ''} />
+              {discoveringModels ? 'Fetching...' : 'Fetch'}
+            </button>
+          </div>
         </div>
 
         <!-- Extra Headers -->
