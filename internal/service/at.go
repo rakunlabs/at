@@ -3,11 +3,59 @@ package service
 import (
 	"context"
 	"fmt"
+
+	"github.com/rakunlabs/at/internal/config"
 )
 
 // Generic LLM Interface
 type LLMProvider interface {
-	Chat(ctx context.Context, messages []Message, tools []Tool) (*LLMResponse, error)
+	// Chat sends messages to the LLM and returns a response.
+	// The model parameter allows per-request model override;
+	// if empty, the provider's default model is used.
+	Chat(ctx context.Context, model string, messages []Message, tools []Tool) (*LLMResponse, error)
+}
+
+// LLMStreamProvider is optionally implemented by providers that support
+// true server-sent event (SSE) streaming. The gateway checks for this
+// interface via type assertion; if a provider doesn't implement it,
+// the gateway falls back to calling Chat() and fake-streaming the result.
+type LLMStreamProvider interface {
+	ChatStream(ctx context.Context, model string, messages []Message, tools []Tool) (<-chan StreamChunk, error)
+}
+
+// StreamChunk represents a single chunk in a streaming response.
+type StreamChunk struct {
+	// Content is the text delta for this chunk (may be empty).
+	Content string
+
+	// ToolCalls contains tool call deltas for this chunk.
+	ToolCalls []ToolCall
+
+	// FinishReason is set on the final chunk: "stop" or "tool_calls".
+	// Empty string means this is not the final chunk.
+	FinishReason string
+
+	// Error, if non-nil, indicates the stream encountered an error.
+	Error error
+}
+
+// ProviderRecord represents a provider configuration stored in the database.
+type ProviderRecord struct {
+	ID        string           `json:"id"`
+	Key       string           `json:"key"`
+	Config    config.LLMConfig `json:"config"`
+	CreatedAt string           `json:"created_at"`
+	UpdatedAt string           `json:"updated_at"`
+}
+
+// ProviderStorer defines CRUD operations for provider configurations
+// stored in a persistent backend (e.g., PostgreSQL).
+type ProviderStorer interface {
+	ListProviders(ctx context.Context) ([]ProviderRecord, error)
+	GetProvider(ctx context.Context, key string) (*ProviderRecord, error)
+	CreateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*ProviderRecord, error)
+	UpdateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*ProviderRecord, error)
+	DeleteProvider(ctx context.Context, key string) error
 }
 
 type Message struct {
@@ -78,7 +126,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) error {
 	})
 
 	for {
-		resp, err := a.provider.Chat(ctx, a.messages, a.Tools)
+		resp, err := a.provider.Chat(ctx, "", a.messages, a.Tools)
 		if err != nil {
 			return err
 		}

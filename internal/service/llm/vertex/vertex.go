@@ -1,4 +1,4 @@
-package openai
+package vertex
 
 import (
 	"bufio"
@@ -10,79 +10,79 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/worldline-go/klient"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 
 	"github.com/rakunlabs/at/internal/service"
 )
 
-const DefaultBaseURL = "https://api.openai.com/v1/chat/completions"
+// Vertex AI OpenAI-compatible endpoint format:
+// https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/endpoints/openapi/chat/completions
+
+const scope = "https://www.googleapis.com/auth/cloud-platform"
 
 type Provider struct {
-	APIKey  string
-	Model   string
-	BaseURL string
+	Model       string
+	EndpointURL string
 
-	client *klient.Client
+	tokenSource oauth2.TokenSource
 }
 
-// New creates an OpenAI-compatible provider.
+// New creates a Vertex AI provider.
 //
-// extraHeaders allows setting additional HTTP headers for providers that
-// require them (e.g., GitHub Models recommends Accept and X-GitHub-Api-Version).
-func New(apiKey, model, baseURL string, extraHeaders map[string]string) (*Provider, error) {
-	if baseURL == "" {
-		baseURL = DefaultBaseURL
+// endpointURL is the full OpenAI-compatible chat completions endpoint, e.g.:
+//
+//	https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/endpoints/openapi/chat/completions
+//
+// Authentication uses Google Application Default Credentials (ADC).
+// Set GOOGLE_APPLICATION_CREDENTIALS env var to your service account key file,
+// or run on GCE/Cloud Run/GKE where ADC is automatically available.
+func New(model, endpointURL string) (*Provider, error) {
+	if endpointURL == "" {
+		return nil, fmt.Errorf("vertex provider requires a base_url with the full endpoint URL, e.g.: " +
+			"https://us-central1-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/endpoints/openapi/chat/completions")
 	}
 
-	headers := http.Header{
-		"Content-Type": []string{"application/json"},
-	}
-	if apiKey != "" {
-		headers["Authorization"] = []string{"Bearer " + apiKey}
-	}
-	for k, v := range extraHeaders {
-		headers[k] = []string{v}
-	}
-
-	client, err := klient.New(klient.WithBaseURL(baseURL), klient.WithHeaderSet(headers))
+	// Use Application Default Credentials for automatic token refresh.
+	ts, err := google.DefaultTokenSource(context.Background(), scope)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get Google credentials (set GOOGLE_APPLICATION_CREDENTIALS or run on GCE): %w", err)
 	}
 
 	return &Provider{
-		APIKey:  apiKey,
-		Model:   model,
-		BaseURL: baseURL,
-		client:  client,
+		Model:       model,
+		EndpointURL: endpointURL,
+		tokenSource: ts,
 	}, nil
 }
 
-type OpenAIResponse struct {
-	Error   *OpenAIError `json:"error,omitempty"`
-	Choices []Choice     `json:"choices"`
+// Response types matching the OpenAI-compatible format returned by Vertex AI.
+type vertexResponse struct {
+	Error   *vertexError `json:"error,omitempty"`
+	Choices []choice     `json:"choices"`
 }
 
-type OpenAIError struct {
+type vertexError struct {
 	Message string `json:"message"`
-	Type    string `json:"type"`
+	Code    int    `json:"code"`
 }
 
-type Choice struct {
-	Message      ChoiceMessage `json:"message"`
+type choice struct {
+	Message      choiceMessage `json:"message"`
 	FinishReason string        `json:"finish_reason"`
 }
 
-type ChoiceMessage struct {
+type choiceMessage struct {
 	Content   string     `json:"content"`
-	ToolCalls []ToolCall `json:"tool_calls"`
+	ToolCalls []toolCall `json:"tool_calls"`
 }
 
-type ToolCall struct {
+type toolCall struct {
 	ID       string       `json:"id"`
-	Function FunctionCall `json:"function"`
+	Function functionCall `json:"function"`
 }
 
-type FunctionCall struct {
+type functionCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
@@ -92,6 +92,12 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		model = p.Model
 	}
 
+	// Get a fresh access token (auto-refreshes when expired).
+	token, err := p.tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get access token: %w", err)
+	}
+
 	reqBody := p.buildRequestBody(model, messages, tools)
 
 	jsonData, err := json.Marshal(reqBody)
@@ -99,45 +105,47 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.EndpointURL, bytes.NewBuffer(jsonData))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	bodyData, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
 
-	var result OpenAIResponse
-	if err := p.client.Do(req, func(r *http.Response) error {
-		bodyData, err := io.ReadAll(r.Body)
-		if err != nil {
-			return err
-		}
-
-		if err := json.Unmarshal(bodyData, &result); err != nil {
-			return fmt.Errorf("failed to decode response: %w (body: %s)", err, string(bodyData))
-		}
-
-		return nil
-	}); err != nil {
-		return nil, err
+	var result vertexResponse
+	if err := json.Unmarshal(bodyData, &result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(bodyData))
 	}
 
 	if result.Error != nil {
 		return &service.LLMResponse{
-			Content:  fmt.Sprintf("Error from provider: %s", result.Error.Message),
+			Content:  fmt.Sprintf("Error from Vertex AI: %s (code: %d)", result.Error.Message, result.Error.Code),
 			Finished: true,
 		}, nil
 	}
 
 	if len(result.Choices) == 0 {
-		return nil, fmt.Errorf("no response choices from provider")
+		return nil, fmt.Errorf("no response choices from Vertex AI")
 	}
 
-	choice := result.Choices[0]
+	ch := result.Choices[0]
 	llmResp := &service.LLMResponse{
-		Content:  choice.Message.Content,
-		Finished: choice.FinishReason != "tool_calls",
+		Content:  ch.Message.Content,
+		Finished: ch.FinishReason != "tool_calls",
 	}
 
-	for _, tc := range choice.Message.ToolCalls {
+	for _, tc := range ch.Message.ToolCalls {
 		var args map[string]any
 		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
 			return nil, fmt.Errorf("failed to parse tool call arguments: %w", err)
@@ -155,7 +163,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 // ─── Streaming ───
 
-// streamChoice is the SSE chunk format returned by OpenAI-compatible APIs.
+// streamChoice is the SSE chunk format from Vertex AI (OpenAI-compatible).
 type streamChoice struct {
 	Delta        streamDelta `json:"delta"`
 	FinishReason *string     `json:"finish_reason"`
@@ -164,18 +172,24 @@ type streamChoice struct {
 type streamDelta struct {
 	Role      string     `json:"role,omitempty"`
 	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	ToolCalls []toolCall `json:"tool_calls,omitempty"`
 }
 
 type streamResponse struct {
-	Error   *OpenAIError   `json:"error,omitempty"`
+	Error   *vertexError   `json:"error,omitempty"`
 	Choices []streamChoice `json:"choices"`
 }
 
-// ChatStream implements service.LLMStreamProvider for true SSE streaming.
+// ChatStream implements service.LLMStreamProvider for Vertex AI's
+// OpenAI-compatible SSE streaming format.
 func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, error) {
 	if model == "" {
 		model = p.Model
+	}
+
+	token, err := p.tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
 	reqBody := p.buildRequestBody(model, messages, tools)
@@ -186,13 +200,14 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.EndpointURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
-	// Use the klient's HTTP client which has transport with headers and base URL.
-	resp, err := p.client.HTTP.Do(req)
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("streaming request failed: %w", err)
 	}
@@ -200,7 +215,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		bodyData, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("provider returned status %d: %s", resp.StatusCode, string(bodyData))
+		return nil, fmt.Errorf("vertex returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
 	ch := make(chan service.StreamChunk, 64)
@@ -213,19 +228,16 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		for scanner.Scan() {
 			line := scanner.Text()
 
-			// Skip empty lines and SSE comments
 			if line == "" || strings.HasPrefix(line, ":") {
 				continue
 			}
 
-			// SSE data lines
 			if !strings.HasPrefix(line, "data: ") {
 				continue
 			}
 
 			data := strings.TrimPrefix(line, "data: ")
 
-			// End of stream
 			if data == "[DONE]" {
 				return
 			}
@@ -237,7 +249,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			}
 
 			if sr.Error != nil {
-				ch <- service.StreamChunk{Error: fmt.Errorf("provider error: %s", sr.Error.Message)}
+				ch <- service.StreamChunk{Error: fmt.Errorf("vertex error: %s (code: %d)", sr.Error.Message, sr.Error.Code)}
 				return
 			}
 
@@ -245,13 +257,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				continue
 			}
 
-			choice := sr.Choices[0]
+			sChoice := sr.Choices[0]
 			chunk := service.StreamChunk{
-				Content: choice.Delta.Content,
+				Content: sChoice.Delta.Content,
 			}
 
-			// Parse tool calls from delta
-			for _, tc := range choice.Delta.ToolCalls {
+			for _, tc := range sChoice.Delta.ToolCalls {
 				var args map[string]any
 				if tc.Function.Arguments != "" {
 					json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -263,8 +274,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				})
 			}
 
-			if choice.FinishReason != nil {
-				chunk.FinishReason = *choice.FinishReason
+			if sChoice.FinishReason != nil {
+				chunk.FinishReason = *sChoice.FinishReason
 			}
 
 			ch <- chunk

@@ -1,18 +1,20 @@
 package main
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/server"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
+	"github.com/rakunlabs/at/internal/service/llm/openai"
+	"github.com/rakunlabs/at/internal/service/llm/vertex"
+	"github.com/rakunlabs/at/internal/store"
 )
 
 var (
@@ -31,68 +33,82 @@ func main() {
 
 // ///////////////////////////////////////////////////////////////////
 
+func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
+	switch cfg.Type {
+	case "anthropic":
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("anthropic provider requires an api_key")
+		}
+
+		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL)
+	case "openai":
+		return openai.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.ExtraHeaders)
+	case "vertex":
+		return vertex.New(cfg.Model, cfg.BaseURL)
+	default:
+		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex)", cfg.Type)
+	}
+}
+
 func run(ctx context.Context) error {
 	cfg, err := config.Load(ctx, name)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	slog.Info("connecting to MCP server", "url", cfg.MCPServerURL)
-	mcpClient, err := service.NewHTTPMCPClient(ctx, cfg.MCPServerURL)
-	if err != nil {
-		return fmt.Errorf("failed to connect to MCP server: %w", err)
-	}
-	defer mcpClient.Close()
-
-	// Choose your LLM provider
-	var provider service.LLMProvider
-
-	switch cfg.SelectLLM {
-	case "antropic":
-		if cfg.LLM.Antropic.APIKey == "" {
-			return fmt.Errorf("Antropic API key is not configured")
-		}
-
-		slog.Info("using Antropic LLM provider")
-		provider, err = antropic.New(cfg.LLM.Antropic.APIKey, cfg.LLM.Antropic.Model)
+	// Build all providers from YAML config.
+	providers := make(map[string]server.ProviderInfo, len(cfg.Providers))
+	for key, provCfg := range cfg.Providers {
+		provider, err := newProvider(provCfg)
 		if err != nil {
-			return fmt.Errorf("failed to create Antropic provider: %w", err)
+			slog.Warn("failed to create provider, skipping", "key", key, "error", err)
+			continue
 		}
-	default:
-		return fmt.Errorf("no LLM provider configured")
+
+		providers[key] = server.NewProviderInfo(provider, provCfg.Type, provCfg.Model, provCfg.Models)
+		slog.Info("provider created from config", "key", key, "type", provCfg.Type, "model", provCfg.Model)
 	}
 
-	// Create agent
-	agent := service.NewAgent(mcpClient, provider)
-	if err := agent.SetTools(ctx); err != nil {
-		return fmt.Errorf("failed to set tools: %w", err)
-	}
+	// Initialize store (optional — only if postgres is configured).
+	var providerStore service.ProviderStorer
+	if cfg.Store.Postgres != nil {
+		st, err := store.New(ctx, cfg.Store)
+		if err != nil {
+			return fmt.Errorf("failed to create store: %w", err)
+		}
+		defer st.Close()
 
-	// Run conversation loop
-BREAK_LOOP:
-	for {
-		fmt.Print("Enter your message (or 'quit' to exit): ")
-		inputChan := make(chan string, 1)
-		go func() {
-			scanner := bufio.NewScanner(os.Stdin)
-			if scanner.Scan() {
-				inputChan <- scanner.Text()
-			} else {
-				inputChan <- ""
+		providerStore = st
+
+		// Load DB providers on top of YAML providers (DB overrides YAML).
+		dbRecords, err := st.ListProviders(ctx)
+		if err != nil {
+			return fmt.Errorf("failed to load providers from DB: %w", err)
+		}
+
+		for _, rec := range dbRecords {
+			provider, err := newProvider(rec.Config)
+			if err != nil {
+				slog.Warn("failed to create DB provider, skipping", "key", rec.Key, "error", err)
+				continue
 			}
-		}()
-		select {
-		case message := <-inputChan:
-			if message == "quit" {
-				break BREAK_LOOP
-			}
-			if err := agent.Run(ctx, message); err != nil {
-				return fmt.Errorf("agent run failed: %w", err)
-			}
-		case <-ctx.Done():
-			return ctx.Err()
+
+			providers[rec.Key] = server.NewProviderInfo(provider, rec.Config.Type, rec.Config.Model, rec.Config.Models)
+			slog.Info("provider loaded from DB (overrides YAML)", "key", rec.Key, "type", rec.Config.Type)
 		}
 	}
 
-	return nil
+	if len(providers) == 0 {
+		slog.Warn("no providers configured; gateway will have no backends until providers are added via API")
+	}
+
+	// Create and start HTTP server.
+	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, providerStore, newProvider)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	slog.Info("starting gateway server", "host", cfg.Server.Host, "port", cfg.Server.Port)
+
+	return srv.Start(ctx)
 }

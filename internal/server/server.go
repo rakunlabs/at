@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"embed"
+	"fmt"
 	"io/fs"
+	"log/slog"
 	"net"
 	"net/http"
 	"sync"
@@ -24,18 +26,40 @@ import (
 // go:embed dist/*
 var uiFS embed.FS
 
+// ProviderInfo holds a provider instance along with its metadata.
+type ProviderInfo struct {
+	provider     service.LLMProvider
+	providerType string // "anthropic", "openai", "vertex"
+	defaultModel string
+	models       []string // all supported models; if empty, only defaultModel is advertised
+}
+
+// ProviderFactory is a function that creates an LLMProvider from an LLMConfig.
+// This is injected from main.go so the server can hot-reload providers.
+type ProviderFactory func(cfg config.LLMConfig) (service.LLMProvider, error)
+
 type Server struct {
 	config config.Server
 
-	server  *ada.Server
-	service *service.Service
+	server *ada.Server
+
+	// Provider registry for the gateway (protected by providerMu).
+	providers  map[string]ProviderInfo
+	providerMu sync.RWMutex
+
+	// Store is the optional persistent store for provider CRUD.
+	store service.ProviderStorer
+
+	// providerFactory creates an LLMProvider from config (for hot reload).
+	providerFactory ProviderFactory
+
+	authToken string
 
 	m        sync.RWMutex
-	key      string
 	channels map[string]chan MessageChannel
 }
 
-func New(ctx context.Context, cfg config.Server, svc *service.Service) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, factory ProviderFactory) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -47,27 +71,32 @@ func New(ctx context.Context, cfg config.Server, svc *service.Service) (*Server,
 	)
 
 	s := &Server{
-		config:  cfg,
-		server:  mux,
-		service: svc,
+		config:          cfg,
+		server:          mux,
+		providers:       providers,
+		store:           store,
+		providerFactory: factory,
+		authToken:       gatewayCfg.AuthToken,
+		channels:        make(map[string]chan MessageChannel),
 	}
 
 	// ////////////////////////////////////////////
 
 	baseGroup := mux.Group(cfg.BasePath)
-	// baseGroup.POST("/api/v1/run", baseGroup.Wrap(s.run))
-	// baseGroup.POST("/api/v1/run/{note}", baseGroup.Wrap(s.runNote))
-	// baseGroup.GET("/api/v1/run/{note}", baseGroup.Wrap(s.runNote))
 
-	// baseGroup.POST("/api/v1/run/{note}/{cell}", baseGroup.Wrap(s.runNoteCell))
-	// baseGroup.GET("/api/v1/run/{note}/{cell}", baseGroup.Wrap(s.runNoteCell))
+	// OpenAI-compatible gateway API
+	baseGroup.POST("/api/v1/chat/completions", s.ChatCompletions)
+	baseGroup.GET("/api/v1/models", s.ListModels)
 
-	// baseGroup.GET("/api/v1/info", baseGroup.Wrap(s.info))
-	// baseGroup.GET("/api/v1/notes", baseGroup.Wrap(s.getNotes))
-	// baseGroup.GET("/api/v1/notes/{id}", baseGroup.Wrap(s.getNote))
-	// baseGroup.PUT("/api/v1/notes/{id}", baseGroup.Wrap(s.putNote))
-	// baseGroup.DELETE("/api/v1/notes/{id}", baseGroup.Wrap(s.deleteNote))
-	// baseGroup.POST("/api/v1/render", baseGroup.Wrap(s.render))
+	// Gateway info API
+	baseGroup.GET("/api/v1/info", s.InfoAPI)
+
+	// Provider management API
+	baseGroup.GET("/api/v1/providers", s.ListProvidersAPI)
+	baseGroup.POST("/api/v1/providers", s.CreateProviderAPI)
+	baseGroup.GET("/api/v1/providers/*", s.GetProviderAPI)
+	baseGroup.PUT("/api/v1/providers/*", s.UpdateProviderAPI)
+	baseGroup.DELETE("/api/v1/providers/*", s.DeleteProviderAPI)
 
 	// ////////////////////////////////////////////
 
@@ -99,9 +128,66 @@ func New(ctx context.Context, cfg config.Server, svc *service.Service) (*Server,
 
 	// ////////////////////////////////////////////
 
+	if gatewayCfg.AuthToken != "" {
+		slog.Info("gateway auth enabled")
+	} else {
+		slog.Info("gateway auth disabled (no auth_token configured)")
+	}
+
+	slog.Info("gateway providers registered", "count", len(providers))
+
+	for k, info := range providers {
+		slog.Info("  provider", "key", k, "type", info.providerType, "default_model", info.defaultModel, "models", len(info.models))
+	}
+
 	return s, nil
+}
+
+// NewProviderInfo creates a ProviderInfo from a provider and its config.
+func NewProviderInfo(provider service.LLMProvider, providerType, defaultModel string, models []string) ProviderInfo {
+	return ProviderInfo{
+		provider:     provider,
+		providerType: providerType,
+		defaultModel: defaultModel,
+		models:       models,
+	}
 }
 
 func (s *Server) Start(ctx context.Context) error {
 	return s.server.StartWithContext(ctx, net.JoinHostPort(s.config.Host, s.config.Port))
+}
+
+// ─── Hot Reload ───
+
+// reloadProvider creates a new LLMProvider from config and updates the
+// in-memory provider registry. Called after DB create/update operations.
+func (s *Server) reloadProvider(key string, cfg config.LLMConfig) error {
+	if s.providerFactory == nil {
+		return fmt.Errorf("no provider factory configured")
+	}
+
+	provider, err := s.providerFactory(cfg)
+	if err != nil {
+		return fmt.Errorf("create provider %q: %w", key, err)
+	}
+
+	info := NewProviderInfo(provider, cfg.Type, cfg.Model, cfg.Models)
+
+	s.providerMu.Lock()
+	s.providers[key] = info
+	s.providerMu.Unlock()
+
+	slog.Info("provider hot-reloaded", "key", key, "type", cfg.Type)
+
+	return nil
+}
+
+// removeProvider removes a provider from the in-memory registry.
+// Called after DB delete operations.
+func (s *Server) removeProvider(key string) {
+	s.providerMu.Lock()
+	delete(s.providers, key)
+	s.providerMu.Unlock()
+
+	slog.Info("provider removed from registry", "key", key)
 }

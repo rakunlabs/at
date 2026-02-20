@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS at_providers (
+    id TEXT PRIMARY KEY,
+    key TEXT NOT NULL UNIQUE,
+    config JSONB NOT NULL DEFAULT '{}',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

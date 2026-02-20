@@ -1,8 +1,27 @@
+PROJECT    := at
+MAIN_FILE := cmd/$(PROJECT)/main.go
+
+LOCAL_BIN_DIR := $(PWD)/bin
+
+BUILD_DATE := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+BUILD_COMMIT := $(shell git rev-parse --short HEAD || echo "unknown")
+VERSION := $(or $(IMAGE_TAG),$(shell git describe --tags --first-parent --match "v*" 2> /dev/null || echo v0.0.0))
+
 .DEFAULT_GOAL := help
 
 .PHONY: run
 run: ## Run the at command-line tool
-	@go run ./cmd/at
+	@go run $(MAIN_FILE)
+
+.PHONY: env
+env: ## Create environment
+	@echo "> Creating environment $(PROJECT)"
+	docker compose --project-name=$(PROJECT) --file=env/compose.yaml up -d
+
+.PHONY: env-down
+env-down: ## Destroy environment
+	@echo "> Destroying environment $(PROJECT)"
+	docker compose --project-name=$(PROJECT) down --volumes
 
 .PHONY: lint
 lint: ## Lint Go files
