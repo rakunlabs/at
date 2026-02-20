@@ -62,6 +62,7 @@ func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
 	}
 
 	migrate.DBTable = cfg.TablePrefix + migrate.DBTable
+	migrate.Values["TABLE_PREFIX"] = cfg.TablePrefix
 
 	if err := MigrateDB(ctx, &migrate, db); err != nil {
 		db.Close()

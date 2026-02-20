@@ -23,6 +23,11 @@ env-down: ## Destroy environment
 	@echo "> Destroying environment $(PROJECT)"
 	docker compose --project-name=$(PROJECT) down --volumes
 
+.PHONY: build-ui
+build-ui: ## Build the UI assets
+	@echo "> Building UI assets"
+	cd _ui && pnpm install && pnpm run build
+
 .PHONY: lint
 lint: ## Lint Go files
 	@GOPATH="$(shell dirname $(PWD))" golangci-lint run ./...

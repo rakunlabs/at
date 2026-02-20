@@ -29,6 +29,7 @@ func MigrateDB(ctx context.Context, cfg *config.Migrate, db *sql.DB) error {
 		Path:      "migrations",
 		FS:        migrationFS,
 		Extension: ".sql",
+		Values:    cfg.Values,
 	}
 
 	driver := muz.NewPostgresDriver(db, table, slog.Default())

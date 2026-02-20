@@ -17,7 +17,7 @@ require (
 	github.com/rakunlabs/chu v0.2.6
 	github.com/rakunlabs/into v0.4.2
 	github.com/rakunlabs/logi v0.4.5
-	github.com/rakunlabs/muz v0.2.2
+	github.com/rakunlabs/muz v0.2.4
 	github.com/rakunlabs/tell v0.1.1
 	github.com/worldline-go/klient v0.9.17
 	golang.org/x/oauth2 v0.35.0
