@@ -26,7 +26,9 @@ env-down: ## Destroy environment
 .PHONY: build-ui
 build-ui: ## Build the UI assets
 	@echo "> Building UI assets"
-	cd _ui && pnpm install && pnpm run build
+	@cd _ui && pnpm install && pnpm run build
+	@rm -rf internal/server/dist && mv _ui/dist internal/server/dist
+	@echo > internal/server/dist/.gitkeep
 
 .PHONY: lint
 lint: ## Lint Go files

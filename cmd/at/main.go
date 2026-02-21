@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
@@ -46,9 +47,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 
 		// Clone extra headers so we don't mutate the original config map.
 		headers := make(map[string]string, len(cfg.ExtraHeaders)+4)
-		for k, v := range cfg.ExtraHeaders {
-			headers[k] = v
-		}
+		maps.Copy(headers, cfg.ExtraHeaders)
 
 		switch cfg.AuthType {
 		case "copilot":

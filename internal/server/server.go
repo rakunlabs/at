@@ -23,7 +23,7 @@ import (
 	mtelemetry "github.com/rakunlabs/ada/middleware/telemetry"
 )
 
-// go:embed dist/*
+//go:embed dist/*
 var uiFS embed.FS
 
 // ProviderInfo holds a provider instance along with its metadata.
