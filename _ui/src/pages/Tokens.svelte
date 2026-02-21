@@ -1,9 +1,9 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listTokens, createToken, deleteToken, type APIToken, type CreateTokenResponse } from '@/lib/api/tokens';
+  import { listTokens, createToken, deleteToken, updateToken, type APIToken, type CreateTokenResponse } from '@/lib/api/tokens';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
-  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown } from 'lucide-svelte';
+  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil } from 'lucide-svelte';
 
   storeNavbar.title = 'API Tokens';
 
@@ -15,7 +15,7 @@
   // Create form
   let showCreate = $state(false);
   let formName = $state('');
-  let formExpiresIn = $state('');
+  let formExpiresAt = $state('');
   let formSelectedProviders = $state<string[]>([]);
   let formSelectedModels = $state<string[]>([]);
   let creating = $state(false);
@@ -26,6 +26,14 @@
 
   // Delete confirmation
   let deleteConfirmId = $state<string | null>(null);
+
+  // Edit state
+  let editingTokenId = $state<string | null>(null);
+  let editName = $state('');
+  let editExpiresAt = $state('');
+  let editSelectedProviders = $state<string[]>([]);
+  let editSelectedModels = $state<string[]>([]);
+  let saving = $state(false);
 
   // ─── Data Loading ───
   async function loadTokens() {
@@ -64,7 +72,7 @@
   // ─── Actions ───
   function resetForm() {
     formName = '';
-    formExpiresIn = '';
+    formExpiresAt = '';
     formSelectedProviders = [];
     formSelectedModels = [];
   }
@@ -85,9 +93,8 @@
       if (formSelectedModels.length > 0) {
         req.allowed_models = formSelectedModels;
       }
-      if (formExpiresIn) {
-        const seconds = parseExpiryToSeconds(formExpiresIn);
-        if (seconds > 0) req.expires_in = seconds;
+      if (formExpiresAt) {
+        req.expires_at = new Date(formExpiresAt).toISOString();
       }
 
       const resp: CreateTokenResponse = await createToken(req);
@@ -120,12 +127,6 @@
     setTimeout(() => (copied = false), 2000);
   }
 
-  function parseExpiryToSeconds(value: string): number {
-    const num = parseInt(value);
-    if (isNaN(num) || num <= 0) return 0;
-    return num * 86400; // days to seconds
-  }
-
   function formatDate(dateStr: string | null): string {
     if (!dateStr) return '-';
     const d = new Date(dateStr);
@@ -150,6 +151,77 @@
       formSelectedModels = formSelectedModels.filter((m) => m !== model);
     } else {
       formSelectedModels = [...formSelectedModels, model];
+    }
+  }
+
+  // ─── Edit Actions ───
+  function startEditing(token: APIToken) {
+    editingTokenId = token.id;
+    editName = token.name;
+    editSelectedProviders = token.allowed_providers ? [...token.allowed_providers] : [];
+    editSelectedModels = token.allowed_models ? [...token.allowed_models] : [];
+    // Convert expires_at to datetime-local format for the input
+    if (token.expires_at) {
+      const d = new Date(token.expires_at);
+      editExpiresAt = d.toISOString().slice(0, 16); // "YYYY-MM-DDTHH:MM"
+    } else {
+      editExpiresAt = '';
+    }
+  }
+
+  function cancelEditing() {
+    editingTokenId = null;
+    editName = '';
+    editExpiresAt = '';
+    editSelectedProviders = [];
+    editSelectedModels = [];
+  }
+
+  function toggleEditProvider(key: string) {
+    if (editSelectedProviders.includes(key)) {
+      editSelectedProviders = editSelectedProviders.filter((p) => p !== key);
+    } else {
+      editSelectedProviders = [...editSelectedProviders, key];
+    }
+  }
+
+  function toggleEditModel(model: string) {
+    if (editSelectedModels.includes(model)) {
+      editSelectedModels = editSelectedModels.filter((m) => m !== model);
+    } else {
+      editSelectedModels = [...editSelectedModels, model];
+    }
+  }
+
+  async function handleSaveEdit() {
+    if (!editingTokenId) return;
+    if (!editName.trim()) {
+      addToast('Token name is required', 'alert');
+      return;
+    }
+
+    saving = true;
+    try {
+      const req: any = { name: editName.trim() };
+
+      if (editSelectedProviders.length > 0) {
+        req.allowed_providers = editSelectedProviders;
+      }
+      if (editSelectedModels.length > 0) {
+        req.allowed_models = editSelectedModels;
+      }
+      if (editExpiresAt) {
+        req.expires_at = new Date(editExpiresAt).toISOString();
+      }
+
+      await updateToken(editingTokenId, req);
+      addToast('Token updated', 'info');
+      cancelEditing();
+      await loadTokens();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to update token', 'alert');
+    } finally {
+      saving = false;
     }
   }
 </script>
@@ -222,14 +294,24 @@
       </div>
 
       <div class="grid grid-cols-4 gap-3 mb-3">
-        <label class="text-xs text-gray-600 py-2">Expires (days)</label>
-        <input
-          type="number"
-          bind:value={formExpiresIn}
-          placeholder="Leave empty for no expiry"
-          min="1"
-          class="col-span-3 border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
-        />
+        <label class="text-xs text-gray-600 py-2">Expires At</label>
+        <div class="col-span-3 flex items-center gap-2">
+          <input
+            type="datetime-local"
+            bind:value={formExpiresAt}
+            class="border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
+          />
+          {#if formExpiresAt}
+            <button
+              onclick={() => (formExpiresAt = '')}
+              class="text-xs text-gray-400 hover:text-gray-600"
+            >
+              Clear (no expiry)
+            </button>
+          {:else}
+            <span class="text-xs text-gray-400">No expiry</span>
+          {/if}
+        </div>
       </div>
 
       <!-- Provider restrictions -->
@@ -330,6 +412,120 @@
         </thead>
         <tbody class="divide-y divide-gray-50">
           {#each tokens as token}
+            {#if editingTokenId === token.id}
+              <!-- Edit form row -->
+              <tr class="bg-blue-50/30">
+                <td colspan="6" class="px-4 py-3">
+                  <div class="space-y-3">
+                    <div class="flex items-center gap-2 mb-1">
+                      <Pencil size={12} class="text-gray-400" />
+                      <span class="text-xs font-medium text-gray-600">Editing token</span>
+                      <code class="text-xs font-mono text-gray-400 bg-gray-100 px-1.5 py-0.5">{token.token_prefix}...</code>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-3">
+                      <label class="text-xs text-gray-600 py-2">Name</label>
+                      <input
+                        type="text"
+                        bind:value={editName}
+                        class="col-span-3 border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
+                      />
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-3">
+                      <label class="text-xs text-gray-600 py-2">Expires At</label>
+                      <div class="col-span-3 flex items-center gap-2">
+                        <input
+                          type="datetime-local"
+                          bind:value={editExpiresAt}
+                          class="border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
+                        />
+                        {#if editExpiresAt}
+                          <button
+                            onclick={() => (editExpiresAt = '')}
+                            class="text-xs text-gray-400 hover:text-gray-600"
+                          >
+                            Clear (no expiry)
+                          </button>
+                        {:else}
+                          <span class="text-xs text-gray-400">No expiry</span>
+                        {/if}
+                      </div>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-3">
+                      <label class="text-xs text-gray-600 py-2">Allowed Providers</label>
+                      <div class="col-span-3">
+                        {#if allProviderKeys.length > 0}
+                          <div class="flex flex-wrap gap-1.5">
+                            {#each allProviderKeys as key}
+                              <button
+                                onclick={() => toggleEditProvider(key)}
+                                class={[
+                                  'px-2 py-1 text-xs border transition-colors',
+                                  editSelectedProviders.includes(key)
+                                    ? 'bg-gray-900 text-white border-gray-900'
+                                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                                ]}
+                              >
+                                {key}
+                              </button>
+                            {/each}
+                          </div>
+                          <p class="text-xs text-gray-400 mt-1">None selected = all providers allowed</p>
+                        {:else}
+                          <span class="text-xs text-gray-400">No providers available</span>
+                        {/if}
+                      </div>
+                    </div>
+
+                    <div class="grid grid-cols-4 gap-3">
+                      <label class="text-xs text-gray-600 py-2">Allowed Models</label>
+                      <div class="col-span-3">
+                        {#if allModels.length > 0}
+                          <div class="max-h-32 overflow-y-auto border border-gray-200 p-2">
+                            <div class="flex flex-wrap gap-1.5">
+                              {#each allModels as model}
+                                <button
+                                  onclick={() => toggleEditModel(model)}
+                                  class={[
+                                    'px-2 py-0.5 text-xs border font-mono transition-colors',
+                                    editSelectedModels.includes(model)
+                                      ? 'bg-gray-900 text-white border-gray-900'
+                                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                                  ]}
+                                >
+                                  {model}
+                                </button>
+                              {/each}
+                            </div>
+                          </div>
+                          <p class="text-xs text-gray-400 mt-1">None selected = all models allowed</p>
+                        {:else}
+                          <span class="text-xs text-gray-400">No models available</span>
+                        {/if}
+                      </div>
+                    </div>
+
+                    <div class="flex items-center gap-2 pt-1">
+                      <button
+                        onclick={handleSaveEdit}
+                        disabled={saving}
+                        class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+                      >
+                        {saving ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        onclick={cancelEditing}
+                        class="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+            {:else}
             <tr class="hover:bg-gray-50/50 transition-colors">
               <td class="px-4 py-2.5 font-medium text-gray-900 text-sm">{token.name}</td>
               <td class="px-4 py-2.5">
@@ -384,16 +580,26 @@
                     </button>
                   </div>
                 {:else}
-                  <button
-                    onclick={() => (deleteConfirmId = token.id)}
-                    class="p-1 text-gray-300 hover:text-red-500 transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 size={14} />
-                  </button>
+                  <div class="flex items-center gap-1 justify-end">
+                    <button
+                      onclick={() => startEditing(token)}
+                      class="p-1 text-gray-300 hover:text-gray-600 transition-colors"
+                      title="Edit"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      onclick={() => (deleteConfirmId = token.id)}
+                      class="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
                 {/if}
               </td>
             </tr>
+            {/if}
           {/each}
         </tbody>
       </table>

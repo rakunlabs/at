@@ -19,7 +19,14 @@ export interface CreateTokenRequest {
   name: string;
   allowed_providers?: string[];
   allowed_models?: string[];
-  expires_in?: number; // seconds
+  expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
+}
+
+export interface UpdateTokenRequest {
+  name: string;
+  allowed_providers?: string[];
+  allowed_models?: string[];
+  expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
 }
 
 export interface CreateTokenResponse {
@@ -43,4 +50,9 @@ export async function createToken(req: CreateTokenRequest): Promise<CreateTokenR
 
 export async function deleteToken(id: string): Promise<void> {
   await api.delete(`/api-tokens/${id}`);
+}
+
+export async function updateToken(id: string, req: UpdateTokenRequest): Promise<APIToken> {
+  const res = await api.put<APIToken>(`/api-tokens/${id}`, req);
+  return res.data;
 }

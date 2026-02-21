@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/oklog/ulid/v2"
 
@@ -129,12 +130,19 @@ func translateOpenAIMessages(msgs []OpenAIMessage) []service.Message {
 			"role": msg.Role,
 		}
 
-		content := extractContentString(msg.Content)
-		if content != "" {
-			m["content"] = content
-		} else if msg.Role != "assistant" {
-			// For non-assistant roles, always include content even if empty
-			m["content"] = ""
+		// If the content contains image blocks, pass the full content array
+		// through as-is. OpenAI and Vertex both natively accept the multi-part
+		// content format [{type:"text",...},{type:"image_url",...}].
+		if hasImageContent(msg.Content) {
+			m["content"] = parseContentParts(msg.Content)
+		} else {
+			content := extractContentString(msg.Content)
+			if content != "" {
+				m["content"] = content
+			} else if msg.Role != "assistant" {
+				// For non-assistant roles, always include content even if empty
+				m["content"] = ""
+			}
 		}
 
 		if msg.ToolCallID != "" {
@@ -177,10 +185,19 @@ func translateOpenAIToAnthropic(msgs []OpenAIMessage) (systemPrompt string, mess
 			systemPrompt = extractContentString(msg.Content)
 
 		case "user":
-			messages = append(messages, service.Message{
-				Role:    "user",
-				Content: extractContentString(msg.Content),
-			})
+			if hasImageContent(msg.Content) {
+				// Convert OpenAI image_url blocks to Anthropic image blocks
+				blocks := convertOpenAIContentToAnthropic(msg.Content)
+				messages = append(messages, service.Message{
+					Role:    "user",
+					Content: blocks,
+				})
+			} else {
+				messages = append(messages, service.Message{
+					Role:    "user",
+					Content: extractContentString(msg.Content),
+				})
+			}
 
 		case "assistant":
 			if len(msg.ToolCalls) > 0 {
@@ -309,6 +326,98 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 }
 
 // ─── Helpers ───
+
+// parseDataURL splits a data URI (e.g. "data:image/png;base64,iVBOR...") into
+// its MIME type and base64-encoded data. Returns empty strings if not a data URI.
+func parseDataURL(url string) (mimeType, data string) {
+	if !strings.HasPrefix(url, "data:") {
+		return "", ""
+	}
+	rest := strings.TrimPrefix(url, "data:")
+	parts := strings.SplitN(rest, ",", 2)
+	if len(parts) != 2 {
+		return "", ""
+	}
+	meta := strings.TrimSuffix(parts[0], ";base64")
+	return meta, parts[1]
+}
+
+// hasImageContent checks whether a raw OpenAI message content contains any
+// image_url content blocks.
+func hasImageContent(raw json.RawMessage) bool {
+	if len(raw) == 0 || raw[0] != '[' {
+		return false
+	}
+	var parts []struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return false
+	}
+	for _, p := range parts {
+		if p.Type == "image_url" {
+			return true
+		}
+	}
+	return false
+}
+
+// parseContentParts parses a raw OpenAI content array into []any, preserving
+// all content part types (text, image_url, etc.) as maps.
+func parseContentParts(raw json.RawMessage) []any {
+	var parts []any
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return nil
+	}
+	return parts
+}
+
+// convertOpenAIContentToAnthropic converts an OpenAI content array (containing
+// text and image_url blocks) to Anthropic-format content blocks.
+// OpenAI:    {type:"image_url", image_url:{url:"data:image/png;base64,..."}}
+// Anthropic: {type:"image", source:{type:"base64", media_type:"image/png", data:"..."}}
+func convertOpenAIContentToAnthropic(raw json.RawMessage) []service.ContentBlock {
+	var parts []map[string]any
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return []service.ContentBlock{{Type: "text", Text: string(raw)}}
+	}
+
+	var blocks []service.ContentBlock
+	for _, p := range parts {
+		partType, _ := p["type"].(string)
+		switch partType {
+		case "text":
+			text, _ := p["text"].(string)
+			blocks = append(blocks, service.ContentBlock{
+				Type: "text",
+				Text: text,
+			})
+		case "image_url":
+			imageURL, _ := p["image_url"].(map[string]any)
+			if imageURL == nil {
+				continue
+			}
+			url, _ := imageURL["url"].(string)
+			mimeType, data := parseDataURL(url)
+			if data == "" {
+				continue
+			}
+			blocks = append(blocks, service.ContentBlock{
+				Type: "image",
+				Source: &service.ImageSource{
+					Type:      "base64",
+					MediaType: mimeType,
+					Data:      data,
+				},
+			})
+		}
+	}
+
+	if len(blocks) == 0 {
+		return []service.ContentBlock{{Type: "text", Text: string(raw)}}
+	}
+	return blocks
+}
 
 // extractContentString extracts a plain string from OpenAI message content.
 // Content can be a JSON string or an array of content parts.

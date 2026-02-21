@@ -16,7 +16,7 @@
 
   storeNavbar.title = 'Providers';
 
-  const PROVIDER_TYPES = ['openai', 'anthropic', 'vertex'] as const;
+  const PROVIDER_TYPES = ['openai', 'anthropic', 'vertex', 'gemini'] as const;
 
   // ─── Presets ───
 
@@ -207,6 +207,36 @@
         'Common locations: us-central1, europe-west4, asia-northeast1',
         'Find your project ID: gcloud config get-value project',
         'If running in GKE/Cloud Run, ADC uses the service account automatically',
+      ],
+    },
+    {
+      id: 'google-ai',
+      name: 'Google AI',
+      description: 'Google Gemini models with simple API key authentication',
+      key: 'google-ai',
+      config: {
+        type: 'gemini',
+        model: 'gemini-2.5-flash',
+        models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
+      },
+      setupSteps: [
+        'Go to aistudio.google.com and sign in with your Google account',
+        'Click "Get API key" in the left sidebar',
+        'Click "Create API key" and select or create a Google Cloud project',
+        'Copy the generated API key (starts with AIza)',
+        'Paste the key in the API Key field below',
+      ],
+      setupLinks: [
+        { label: 'Get API Key', url: 'https://aistudio.google.com/apikey' },
+        { label: 'Model List', url: 'https://ai.google.dev/gemini-api/docs/models/gemini' },
+        { label: 'Pricing', url: 'https://ai.google.dev/pricing' },
+      ],
+      notes: [
+        'Much simpler than Vertex AI - no GCP project setup, billing, or gcloud CLI needed',
+        'Just an API key from Google AI Studio is all you need',
+        'Uses the native Gemini API (generativelanguage.googleapis.com)',
+        'Base URL is auto-configured - leave the Base URL field empty',
+        'Free tier available with generous rate limits for experimentation',
       ],
     },
     {
@@ -812,7 +842,7 @@
               id="form-apikey"
               type="password"
               bind:value={formApiKey}
-              placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
+              placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'google-ai' ? 'AIza...' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
               class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
             />
           </div>
@@ -827,6 +857,8 @@
             bind:value={formBaseUrl}
             placeholder={activePreset?.id === 'vertex'
               ? 'https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi/chat/completions'
+              : activePreset?.id === 'google-ai'
+              ? '(default: https://generativelanguage.googleapis.com)'
               : 'https://api.example.com/v1/chat/completions'}
             class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
           />

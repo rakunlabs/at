@@ -20,7 +20,7 @@ type Config struct {
 	LogLevel string `cfg:"log_level" default:"info"`
 
 	// Providers is a map of named provider configurations.
-	// Each provider has a type ("anthropic", "openai", or "vertex"), along with
+	// Each provider has a type ("anthropic", "openai", "vertex", or "gemini"), along with
 	// api_key, base_url, model, and extra_headers fields.
 	//
 	// Supported types:
@@ -30,6 +30,8 @@ type Config struct {
 	//   - "anthropic":  Anthropic Claude API
 	//   - "vertex":     Google Vertex AI (Gemini) via OpenAI-compatible endpoint
 	//                   with automatic Google ADC authentication
+	//   - "gemini":     Google AI (Gemini) via generativelanguage.googleapis.com
+	//                   with API key authentication (from AI Studio)
 	//
 	// Example YAML:
 	//
@@ -63,6 +65,10 @@ type Config struct {
 	//       type: vertex
 	//       base_url: "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/endpoints/openapi/chat/completions"
 	//       model: "google/gemini-2.5-flash"
+	//     gemini:
+	//       type: gemini
+	//       api_key: "AIzaSy..."
+	//       model: "gemini-2.5-flash"
 	Providers map[string]LLMConfig `cfg:"providers"`
 
 	// Gateway configures the OpenAI-compatible gateway server.
@@ -93,7 +99,7 @@ type Store struct {
 }
 
 type StorePostgres struct {
-	TablePrefix     string         `cfg:"table_prefix"  default:"at_"`
+	TablePrefix     *string        `cfg:"table_prefix"`
 	Datasource      string         `cfg:"datasource" log:"-"`
 	Schema          string         `cfg:"schema"`
 	ConnMaxLifetime *time.Duration `cfg:"conn_max_lifetime"`
@@ -112,13 +118,15 @@ type Migrate struct {
 
 // LLMConfig describes a single LLM provider configuration.
 type LLMConfig struct {
-	// Type is the provider type: "anthropic", "openai", or "vertex".
+	// Type is the provider type: "anthropic", "openai", "vertex", or "gemini".
 	// The "openai" type works with any OpenAI-compatible API.
 	// The "vertex" type uses Google Application Default Credentials (ADC).
+	// The "gemini" type uses API key authentication with generativelanguage.googleapis.com.
 	Type string `cfg:"type" json:"type"`
 
 	// APIKey is the authentication key for the provider.
 	// Optional for local providers like Ollama and for "vertex" type (uses ADC).
+	// Required for "gemini" type (get one from https://aistudio.google.com/apikey).
 	APIKey string `cfg:"api_key" json:"api_key" log:"-"`
 
 	// BaseURL is the full endpoint URL for the provider's chat completions API.
@@ -126,6 +134,7 @@ type LLMConfig struct {
 	// For "anthropic" type, defaults to "https://api.anthropic.com".
 	// For "vertex" type, required. Format:
 	//   https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi/chat/completions
+	// For "gemini" type, defaults to "https://generativelanguage.googleapis.com".
 	BaseURL string `cfg:"base_url" json:"base_url"`
 
 	// Model is the default model identifier to use (e.g., "gpt-4o", "claude-haiku-4-5").

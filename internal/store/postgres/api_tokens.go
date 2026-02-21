@@ -116,6 +116,53 @@ func (p *Postgres) DeleteAPIToken(ctx context.Context, id string) error {
 	return nil
 }
 
+func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.APIToken) (*service.APIToken, error) {
+	record := goqu.Record{
+		"name":              token.Name,
+		"allowed_providers": token.AllowedProviders,
+		"allowed_models":    token.AllowedModels,
+		"expires_at":        token.ExpiresAt,
+	}
+
+	query, _, err := p.goqu.Update(p.tableAPITokens).Set(record).
+		Where(goqu.I("id").Eq(id)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build update api_token query: %w", err)
+	}
+
+	res, err := p.db.ExecContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("update api_token %q: %w", id, err)
+	}
+
+	rows, _ := res.RowsAffected()
+	if rows == 0 {
+		return nil, fmt.Errorf("api_token %q not found", id)
+	}
+
+	// Re-fetch the updated token.
+	fetchQuery, _, err := p.goqu.From(p.tableAPITokens).
+		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "expires_at", "created_at", "last_used_at").
+		Where(goqu.I("id").Eq(id)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build fetch api_token query: %w", err)
+	}
+
+	var t service.APIToken
+	err = p.db.QueryRowContext(ctx, fetchQuery).Scan(
+		&t.ID, &t.Name, &t.TokenPrefix,
+		&t.AllowedProviders, &t.AllowedModels,
+		&t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("fetch updated api_token %q: %w", id, err)
+	}
+
+	return &t, nil
+}
+
 func (p *Postgres) UpdateLastUsed(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 

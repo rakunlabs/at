@@ -9,6 +9,14 @@
   let providers = $state<InfoProvider[]>([]);
   let loading = $state(true);
   let copiedId = $state<string | null>(null);
+  let activeTab = $state('python');
+
+  const tabs = [
+    { id: 'python', label: 'Python' },
+    { id: 'js', label: 'JavaScript' },
+    { id: 'go', label: 'Go' },
+    { id: 'curl', label: 'curl' },
+  ];
 
   async function load() {
     loading = true;
@@ -47,7 +55,7 @@
     return `from openai import OpenAI
 
 client = OpenAI(
-    base_url="${url}/api/v1",
+    base_url="${url}/gateway/v1",
     api_key="at_your_token_here",
 )
 
@@ -65,7 +73,7 @@ print(response.choices[0].message.content)`;
     return `import OpenAI from "openai";
 
 const client = new OpenAI({
-  baseURL: "${url}/api/v1",
+  baseURL: "${url}/gateway/v1",
   apiKey: "at_your_token_here",
 });
 
@@ -79,8 +87,41 @@ const response = await client.chat.completions.create({
 console.log(response.choices[0].message.content);`;
   }
 
+  function goExample(model: string, url: string): string {
+    return `package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+)
+
+func main() {
+	client := openai.NewClient(
+		option.WithBaseURL("${url}/gateway/v1"),
+		option.WithAPIKey("at_your_token_here"),
+	)
+
+	resp, err := client.Chat.Completions.New(context.TODO(),
+		openai.ChatCompletionNewParams{
+			Model: "${model}",
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage("Hello!"),
+			},
+		},
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println(resp.Choices[0].Message.Content)
+}`;
+  }
+
   function curlExample(model: string, url: string): string {
-    return `curl ${url}/api/v1/chat/completions \\
+    return `curl ${url}/gateway/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer at_your_token_here" \\
   -d '{
@@ -92,8 +133,18 @@ console.log(response.choices[0].message.content);`;
   }
 
   function curlModelsExample(url: string): string {
-    return `curl ${url}/api/v1/models \\
+    return `curl ${url}/gateway/v1/models \\
   -H "Authorization: Bearer at_your_token_here"`;
+  }
+
+  function getActiveExample(tab: string, model: string, url: string): string {
+    switch (tab) {
+      case 'python': return pythonExample(model, url);
+      case 'js': return jsExample(model, url);
+      case 'go': return goExample(model, url);
+      case 'curl': return curlExample(model, url);
+      default: return '';
+    }
   }
 </script>
 
@@ -131,14 +182,14 @@ console.log(response.choices[0].message.content);`;
       <div>
         <div class="flex items-center gap-2 mb-1">
           <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-green-50 border border-green-200 text-green-700 font-medium font-mono">POST</span>
-          <code class="font-mono text-gray-700">{baseUrl}/api/v1/chat/completions</code>
+          <code class="font-mono text-gray-700">{baseUrl}/gateway/v1/chat/completions</code>
         </div>
         <p class="text-xs text-gray-500 ml-14">Send chat messages. Compatible with OpenAI Chat Completions API.</p>
       </div>
       <div>
         <div class="flex items-center gap-2 mb-1">
           <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-blue-50 border border-blue-200 text-blue-700 font-medium font-mono">GET</span>
-          <code class="font-mono text-gray-700">{baseUrl}/api/v1/models</code>
+          <code class="font-mono text-gray-700">{baseUrl}/gateway/v1/models</code>
         </div>
         <p class="text-xs text-gray-500 ml-14">List all available models.</p>
       </div>
@@ -164,69 +215,51 @@ console.log(response.choices[0].message.content);`;
 
   <!-- Code Examples -->
   <div class="border border-gray-200 bg-white mb-4">
-    <div class="px-4 py-3 border-b border-gray-200">
+    <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
       <h3 class="text-sm font-medium text-gray-900">Code Examples</h3>
+      <button
+        onclick={() => copyCode(activeTab, getActiveExample(activeTab, exampleModel, baseUrl))}
+        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+      >
+        <Copy size={12} />
+        {copiedId === activeTab ? 'Copied' : 'Copy'}
+      </button>
     </div>
 
-    <!-- Python -->
-    <div class="border-b border-gray-100">
-      <div class="px-4 py-2 bg-gray-50/50 flex items-center justify-between">
-        <span class="text-xs font-medium text-gray-600">Python (openai SDK)</span>
+    <!-- Tabs -->
+    <div class="flex border-b border-gray-200">
+      {#each tabs as tab}
         <button
-          onclick={() => copyCode('python', pythonExample(exampleModel, baseUrl))}
-          class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+          onclick={() => (activeTab = tab.id)}
+          class={[
+            'px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px',
+            activeTab === tab.id
+              ? 'border-gray-900 text-gray-900'
+              : 'border-transparent text-gray-400 hover:text-gray-600'
+          ]}
         >
-          <Copy size={12} />
-          {copiedId === 'python' ? 'Copied' : 'Copy'}
+          {tab.label}
         </button>
-      </div>
-      <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{pythonExample(exampleModel, baseUrl)}</pre>
+      {/each}
     </div>
 
-    <!-- JavaScript / TypeScript -->
-    <div class="border-b border-gray-100">
-      <div class="px-4 py-2 bg-gray-50/50 flex items-center justify-between">
-        <span class="text-xs font-medium text-gray-600">JavaScript / TypeScript (openai SDK)</span>
-        <button
-          onclick={() => copyCode('js', jsExample(exampleModel, baseUrl))}
-          class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <Copy size={12} />
-          {copiedId === 'js' ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{jsExample(exampleModel, baseUrl)}</pre>
-    </div>
+    <!-- Tab content -->
+    <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{getActiveExample(activeTab, exampleModel, baseUrl)}</pre>
+  </div>
 
-    <!-- curl -->
-    <div class="border-b border-gray-100">
-      <div class="px-4 py-2 bg-gray-50/50 flex items-center justify-between">
-        <span class="text-xs font-medium text-gray-600">curl</span>
-        <button
-          onclick={() => copyCode('curl', curlExample(exampleModel, baseUrl))}
-          class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <Copy size={12} />
-          {copiedId === 'curl' ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{curlExample(exampleModel, baseUrl)}</pre>
+  <!-- List Models -->
+  <div class="border border-gray-200 bg-white mb-4">
+    <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
+      <h3 class="text-sm font-medium text-gray-900">List Models</h3>
+      <button
+        onclick={() => copyCode('models', curlModelsExample(baseUrl))}
+        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+      >
+        <Copy size={12} />
+        {copiedId === 'models' ? 'Copied' : 'Copy'}
+      </button>
     </div>
-
-    <!-- List models -->
-    <div>
-      <div class="px-4 py-2 bg-gray-50/50 flex items-center justify-between">
-        <span class="text-xs font-medium text-gray-600">List Models (curl)</span>
-        <button
-          onclick={() => copyCode('models', curlModelsExample(baseUrl))}
-          class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-        >
-          <Copy size={12} />
-          {copiedId === 'models' ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{curlModelsExample(baseUrl)}</pre>
-    </div>
+    <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{curlModelsExample(baseUrl)}</pre>
   </div>
 
   <!-- Available Models -->

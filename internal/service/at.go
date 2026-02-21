@@ -78,6 +78,7 @@ type APITokenStorer interface {
 	ListAPITokens(ctx context.Context) ([]APIToken, error)
 	GetAPITokenByHash(ctx context.Context, hash string) (*APIToken, error)
 	CreateAPIToken(ctx context.Context, token APIToken, tokenHash string) (*APIToken, error)
+	UpdateAPIToken(ctx context.Context, id string, token APIToken) (*APIToken, error)
 	DeleteAPIToken(ctx context.Context, id string) error
 	UpdateLastUsed(ctx context.Context, id string) error
 }
@@ -95,6 +96,14 @@ type ContentBlock struct {
 	Input     map[string]any `json:"input,omitempty"`
 	ToolUseID string         `json:"tool_use_id,omitempty"`
 	Content   string         `json:"content,omitempty"`
+	Source    *ImageSource   `json:"source,omitempty"` // For image content blocks (Anthropic format)
+}
+
+// ImageSource represents an image source for vision/image content blocks.
+type ImageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // e.g. "image/png", "image/jpeg"
+	Data      string `json:"data"`       // base64-encoded image data
 }
 
 type LLMResponse struct {

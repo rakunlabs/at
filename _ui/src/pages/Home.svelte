@@ -191,11 +191,11 @@
     <div class="p-4 space-y-2.5 text-sm font-mono">
       <div class="flex items-center gap-2.5">
         <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-green-50 border border-green-200 text-green-700 font-medium">POST</span>
-        <span class="text-gray-700">/api/v1/chat/completions</span>
+        <span class="text-gray-700">/gateway/v1/chat/completions</span>
       </div>
       <div class="flex items-center gap-2.5">
         <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-blue-50 border border-blue-200 text-blue-700 font-medium">GET</span>
-        <span class="text-gray-700">/api/v1/models</span>
+        <span class="text-gray-700">/gateway/v1/models</span>
       </div>
       <div class="border-t border-gray-100 pt-2.5 mt-2.5 text-xs text-gray-500 font-sans leading-relaxed">
         Use the model format <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-gray-700">provider_key/model_name</code> (e.g., <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-gray-700">anthropic/claude-haiku-4-5</code>)

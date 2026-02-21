@@ -2,16 +2,29 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
-  import { Send, Trash2, ChevronDown, Square, Settings } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw } from 'lucide-svelte';
 
   storeNavbar.title = 'Test';
 
-  // ─── State ───
+  // ─── Types ───
+
+  interface ContentPart {
+    type: 'text' | 'image_url';
+    text?: string;
+    image_url?: { url: string };
+  }
+
+  interface PendingImage {
+    name: string;
+    dataUrl: string;
+  }
 
   interface ChatMessage {
     role: 'user' | 'assistant' | 'system';
-    content: string;
+    content: string | ContentPart[];
   }
+
+  // ─── State ───
 
   let providers = $state<InfoProvider[]>([]);
   let models = $state<string[]>([]);
@@ -25,6 +38,9 @@
   let abortController = $state<AbortController | null>(null);
   let chatContainer: HTMLDivElement | undefined = $state();
   let showSystemPrompt = $state(false);
+  let pendingImages = $state<PendingImage[]>([]);
+  let fileInput: HTMLInputElement | undefined = $state();
+  let dragging = $state(false);
 
   // ─── Load providers/models ───
 
@@ -68,20 +84,129 @@
     }
   }
 
+  // ─── Image handling ───
+
+  function readFileAsDataURL(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error('Failed to read file'));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function addImageFiles(files: FileList | File[]) {
+    for (const file of files) {
+      if (!file.type.startsWith('image/')) continue;
+      if (file.size > 20 * 1024 * 1024) {
+        addToast(`Image "${file.name}" is too large (max 20MB)`, 'alert');
+        continue;
+      }
+      try {
+        const dataUrl = await readFileAsDataURL(file);
+        pendingImages = [...pendingImages, { name: file.name, dataUrl }];
+      } catch {
+        addToast(`Failed to read "${file.name}"`, 'alert');
+      }
+    }
+  }
+
+  function removeImage(index: number) {
+    pendingImages = pendingImages.filter((_, i) => i !== index);
+  }
+
+  function handlePaste(e: ClipboardEvent) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    const imageFiles: File[] = [];
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) imageFiles.push(file);
+      }
+    }
+    if (imageFiles.length > 0) {
+      e.preventDefault();
+      addImageFiles(imageFiles);
+    }
+  }
+
+  function handleFilePick(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      addImageFiles(input.files);
+      input.value = '';
+    }
+  }
+
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+    dragging = true;
+  }
+
+  function handleDragLeave(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    dragging = false;
+    if (e.dataTransfer?.files) {
+      addImageFiles(e.dataTransfer.files);
+    }
+  }
+
+  // ─── Content helpers ───
+
+  /** Get the display text from a ChatMessage's content */
+  function getTextContent(content: string | ContentPart[]): string {
+    if (typeof content === 'string') return content;
+    return content
+      .filter((p) => p.type === 'text')
+      .map((p) => p.text || '')
+      .join('');
+  }
+
+  /** Get image URLs from a ChatMessage's content */
+  function getImageUrls(content: string | ContentPart[]): string[] {
+    if (typeof content === 'string') return [];
+    return content
+      .filter((p) => p.type === 'image_url' && p.image_url?.url)
+      .map((p) => p.image_url!.url);
+  }
+
   // ─── Send message ───
 
   async function sendMessage() {
     const text = userInput.trim();
-    if (!text || !selectedModel) return;
+    if ((!text && pendingImages.length === 0) || !selectedModel) return;
     if (streaming) return;
 
-    // Add user message
-    messages = [...messages, { role: 'user', content: text }];
+    // Build user message content
+    let userContent: string | ContentPart[];
+    if (pendingImages.length > 0) {
+      const parts: ContentPart[] = [];
+      for (const img of pendingImages) {
+        parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
+      }
+      if (text) {
+        parts.push({ type: 'text', text });
+      }
+      userContent = parts;
+    } else {
+      userContent = text;
+    }
+
+    // Add user message to chat
+    messages = [...messages, { role: 'user', content: userContent }];
     userInput = '';
+    pendingImages = [];
     scrollToBottom();
 
     // Build request body
-    const reqMessages: { role: string; content: string }[] = [];
+    const reqMessages: { role: string; content: string | ContentPart[] }[] = [];
     if (systemPrompt.trim()) {
       reqMessages.push({ role: 'system', content: systemPrompt.trim() });
     }
@@ -109,7 +234,7 @@
         headers['Authorization'] = `Bearer ${authToken.trim()}`;
       }
 
-      const response = await fetch('/api/v1/chat/completions', {
+      const response = await fetch('/gateway/v1/chat/completions', {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -156,9 +281,11 @@
             if (delta?.content) {
               // Update the last assistant message
               const lastIdx = messages.length - 1;
+              const prev = messages[lastIdx];
+              const prevText = typeof prev.content === 'string' ? prev.content : '';
               messages[lastIdx] = {
-                ...messages[lastIdx],
-                content: messages[lastIdx].content + delta.content,
+                ...prev,
+                content: prevText + delta.content,
               };
               scrollToBottom();
             }
@@ -174,7 +301,7 @@
         addToast(e.message || 'Chat request failed', 'alert');
         // Remove empty assistant message on error
         const lastIdx = messages.length - 1;
-        if (messages[lastIdx]?.role === 'assistant' && !messages[lastIdx]?.content) {
+        if (messages[lastIdx]?.role === 'assistant' && !getTextContent(messages[lastIdx].content)) {
           messages = messages.slice(0, -1);
         }
       }
@@ -193,6 +320,119 @@
   function clearChat() {
     messages = [];
     systemPrompt = '';
+    pendingImages = [];
+  }
+
+  /** Retry from a specific user message index.
+   *  Keeps messages up to and including the user message at `index`,
+   *  removes everything after it, then re-sends to get a fresh response. */
+  async function retryFromIndex(index: number) {
+    if (streaming) return;
+    // Keep messages up to and including the user message
+    messages = messages.slice(0, index + 1);
+    scrollToBottom();
+
+    // Build request body from remaining messages
+    const reqMessages: { role: string; content: string | ContentPart[] }[] = [];
+    if (systemPrompt.trim()) {
+      reqMessages.push({ role: 'system', content: systemPrompt.trim() });
+    }
+    for (const m of messages) {
+      reqMessages.push({ role: m.role, content: m.content });
+    }
+
+    const body = {
+      model: selectedModel,
+      messages: reqMessages,
+      stream: true,
+    };
+
+    // Add assistant placeholder
+    messages = [...messages, { role: 'assistant', content: '' }];
+    streaming = true;
+    const controller = new AbortController();
+    abortController = controller;
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (authToken.trim()) {
+        headers['Authorization'] = `Bearer ${authToken.trim()}`;
+      }
+
+      const response = await fetch('/gateway/v1/chat/completions', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        let errMsg = `HTTP ${response.status}`;
+        try {
+          const errJson = JSON.parse(errBody);
+          errMsg = errJson?.error?.message || errMsg;
+        } catch {
+          errMsg = errBody || errMsg;
+        }
+        throw new Error(errMsg);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed || !trimmed.startsWith('data: ')) continue;
+
+          const data = trimmed.slice(6);
+          if (data === '[DONE]') continue;
+
+          try {
+            const chunk = JSON.parse(data);
+            const delta = chunk.choices?.[0]?.delta;
+            if (delta?.content) {
+              const lastIdx = messages.length - 1;
+              const prev = messages[lastIdx];
+              const prevText = typeof prev.content === 'string' ? prev.content : '';
+              messages[lastIdx] = {
+                ...prev,
+                content: prevText + delta.content,
+              };
+              scrollToBottom();
+            }
+          } catch {
+            // Skip unparseable chunks
+          }
+        }
+      }
+    } catch (e: any) {
+      if (e.name === 'AbortError') {
+        // User cancelled
+      } else {
+        addToast(e.message || 'Retry failed', 'alert');
+        const lastIdx = messages.length - 1;
+        if (messages[lastIdx]?.role === 'assistant' && !getTextContent(messages[lastIdx].content)) {
+          messages = messages.slice(0, -1);
+        }
+      }
+    } finally {
+      streaming = false;
+      abortController = null;
+    }
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -203,7 +443,20 @@
   }
 </script>
 
-<div class="flex flex-col h-full">
+<div
+  class="flex flex-col h-full"
+  ondragover={handleDragOver}
+  ondragleave={handleDragLeave}
+  ondrop={handleDrop}
+  role="application"
+>
+  <!-- Drag overlay -->
+  {#if dragging}
+    <div class="absolute inset-0 z-50 bg-gray-900/10 border-2 border-dashed border-gray-400 flex items-center justify-center pointer-events-none">
+      <div class="bg-white px-4 py-2 text-sm text-gray-600 shadow-sm">Drop images here</div>
+    </div>
+  {/if}
+
   <!-- Toolbar -->
   <div class="border-b border-gray-200 bg-white px-4 py-2 flex items-center gap-2 shrink-0">
     <!-- Model selector -->
@@ -248,7 +501,7 @@
     <!-- Clear -->
     <button
       onclick={clearChat}
-      disabled={messages.length === 0 && !systemPrompt}
+      disabled={messages.length === 0 && !systemPrompt && pendingImages.length === 0}
       class="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 transition-colors"
       title="Clear chat"
     >
@@ -292,15 +545,39 @@
     {:else}
       {#each messages as msg, i}
         <div class="flex {msg.role === 'user' ? 'justify-end' : 'justify-start'}">
-          <div
-            class="max-w-[75%] px-4 py-2.5 text-sm whitespace-pre-wrap leading-relaxed {msg.role === 'user'
-              ? 'bg-gray-900 text-white'
-              : 'bg-white border border-gray-200 shadow-sm text-gray-800'}"
-          >
-            {#if msg.role === 'assistant' && !msg.content && streaming && i === messages.length - 1}
-              <span class="text-gray-400 italic">Thinking...</span>
-            {:else}
-              {msg.content}
+          <div class="max-w-[75%]">
+            <div
+              class="px-4 py-2.5 text-sm leading-relaxed {msg.role === 'user'
+                ? 'bg-gray-900 text-white'
+                : 'bg-white border border-gray-200 shadow-sm text-gray-800'}"
+            >
+              <!-- Images -->
+              {#each getImageUrls(msg.content) as imgUrl}
+                <img
+                  src={imgUrl}
+                  alt=""
+                  class="max-w-full max-h-64 mb-2 border {msg.role === 'user' ? 'border-gray-600' : 'border-gray-200'}"
+                />
+              {/each}
+              <!-- Text -->
+              {#if msg.role === 'assistant' && !getTextContent(msg.content) && streaming && i === messages.length - 1}
+                <span class="text-gray-400 italic">Thinking...</span>
+              {:else}
+                <span class="whitespace-pre-wrap">{getTextContent(msg.content)}</span>
+              {/if}
+            </div>
+            <!-- Retry button for user messages -->
+            {#if msg.role === 'user' && !streaming}
+              <div class="mt-1 flex justify-end">
+                <button
+                  onclick={() => retryFromIndex(i)}
+                  class="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1 transition-colors"
+                  title="Retry from this message"
+                >
+                  <RotateCcw size={11} />
+                  Retry
+                </button>
+              </div>
             {/if}
           </div>
         </div>
@@ -310,10 +587,56 @@
 
   <!-- Input area -->
   <div class="border-t border-gray-200 bg-white px-4 py-3 shrink-0">
+    <!-- Pending image previews -->
+    {#if pendingImages.length > 0}
+      <div class="flex gap-2 mb-2 flex-wrap">
+        {#each pendingImages as img, i}
+          <div class="relative group">
+            <img
+              src={img.dataUrl}
+              alt={img.name}
+              class="w-16 h-16 object-cover border border-gray-300"
+            />
+            <button
+              onclick={() => removeImage(i)}
+              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Remove"
+            >
+              <X size={12} />
+            </button>
+            <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] px-1 truncate">
+              {img.name}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
     <div class="flex gap-2">
+      <!-- Hidden file input -->
+      <input
+        bind:this={fileInput}
+        type="file"
+        accept="image/*"
+        multiple
+        class="hidden"
+        onchange={handleFilePick}
+      />
+
+      <!-- Image attach button -->
+      <button
+        onclick={() => fileInput?.click()}
+        disabled={models.length === 0}
+        class="px-2.5 py-2 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 transition-colors"
+        title="Attach image"
+      >
+        <ImagePlus size={14} />
+      </button>
+
       <textarea
         bind:value={userInput}
         onkeydown={handleKeydown}
+        onpaste={handlePaste}
         placeholder={models.length === 0 ? 'No models available' : 'Type a message... (Enter to send, Shift+Enter for new line)'}
         disabled={models.length === 0}
         rows={1}
@@ -330,7 +653,7 @@
       {:else}
         <button
           onclick={sendMessage}
-          disabled={!userInput.trim() || !selectedModel || models.length === 0}
+          disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0}
           class="px-3 py-2 bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-gray-900 flex items-center gap-1.5 transition-colors"
           title="Send"
         >

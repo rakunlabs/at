@@ -50,6 +50,8 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 		models, err = discoverOpenAIModels(ctx, req.Config)
 	case "anthropic":
 		models, err = discoverAnthropicModels(ctx, req.Config)
+	case "gemini":
+		models, err = discoverGeminiModels(ctx, req.Config)
 	default:
 		httpResponse(w, fmt.Sprintf("model discovery is not supported for provider type %q", req.Config.Type), http.StatusBadRequest)
 		return
@@ -239,4 +241,73 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// discoverGeminiModels calls GET /v1beta/models on the Google Generative Language API.
+func discoverGeminiModels(ctx context.Context, cfg config.LLMConfig) ([]string, error) {
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = "https://generativelanguage.googleapis.com"
+	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	modelsURL := baseURL + "/v1beta/models"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+
+	if cfg.APIKey != "" {
+		req.Header.Set("x-goog-api-key", cfg.APIKey)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+
+	// Google's /v1beta/models returns: { "models": [{ "name": "models/gemini-2.5-flash", ... }] }
+	var modelsResp struct {
+		Models []struct {
+			Name                       string   `json:"name"`
+			SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(body, &modelsResp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	var models []string
+	for _, m := range modelsResp.Models {
+		// Only include models that support generateContent (chat).
+		supportsChat := false
+		for _, method := range m.SupportedGenerationMethods {
+			if method == "generateContent" {
+				supportsChat = true
+				break
+			}
+		}
+		if !supportsChat {
+			continue
+		}
+
+		// Strip the "models/" prefix to get the model ID.
+		id := strings.TrimPrefix(m.Name, "models/")
+		if id != "" {
+			models = append(models, id)
+		}
+	}
+
+	return models, nil
 }

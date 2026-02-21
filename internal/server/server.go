@@ -29,7 +29,7 @@ var uiFS embed.FS
 // ProviderInfo holds a provider instance along with its metadata.
 type ProviderInfo struct {
 	provider     service.LLMProvider
-	providerType string // "anthropic", "openai", "vertex"
+	providerType string // "anthropic", "openai", "vertex", "gemini"
 	defaultModel string
 	models       []string // all supported models; if empty, only defaultModel is advertised
 }
@@ -60,6 +60,14 @@ type Server struct {
 
 	m        sync.RWMutex
 	channels map[string]chan MessageChannel
+
+	// tokenLastUsed tracks when each token's last_used_at was last written to
+	// the DB, so we can throttle updates to at most once per 5 minutes.
+	tokenLastUsed sync.Map // map[string]time.Time
+
+	// tokenLastUsedMu holds a per-token mutex so concurrent requests for the
+	// same token don't fire redundant DB writes.
+	tokenLastUsedMu sync.Map // map[string]*sync.Mutex
 }
 
 func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, factory ProviderFactory) (*Server, error) {
@@ -88,9 +96,10 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 
 	baseGroup := mux.Group(cfg.BasePath)
 
-	// OpenAI-compatible gateway API
-	baseGroup.POST("/api/v1/chat/completions", s.ChatCompletions)
-	baseGroup.GET("/api/v1/models", s.ListModels)
+	// OpenAI-compatible gateway API (separate prefix so clients use /gateway/v1/ as base URL)
+	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
+	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
+	gatewayGroup.GET("/v1/models", s.ListModels)
 
 	// Gateway info API
 	baseGroup.GET("/api/v1/info", s.InfoAPI)
@@ -108,6 +117,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// API Token management
 	baseGroup.GET("/api/v1/api-tokens", s.ListAPITokensAPI)
 	baseGroup.POST("/api/v1/api-tokens", s.CreateAPITokenAPI)
+	baseGroup.PUT("/api/v1/api-tokens/*", s.UpdateAPITokenAPI)
 	baseGroup.DELETE("/api/v1/api-tokens/*", s.DeleteAPITokenAPI)
 
 	// ////////////////////////////////////////////

@@ -17,20 +17,23 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
+	"github.com/doug-martin/goqu/v9/exp"
 )
 
 var (
 	ConnMaxLifetime = 15 * time.Minute
 	MaxIdleConns    = 3
 	MaxOpenConns    = 3
+
+	DefaultTablePrefix = "at_"
 )
 
 type Postgres struct {
 	db   *sql.DB
 	goqu *goqu.Database
 
-	tableProviders string
-	tableAPITokens string
+	tableProviders exp.IdentifierExpression
+	tableAPITokens exp.IdentifierExpression
 }
 
 func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
@@ -40,6 +43,11 @@ func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
 
 	if cfg.Datasource == "" {
 		return nil, errors.New("postgres datasource is required")
+	}
+
+	tablePrefix := DefaultTablePrefix
+	if cfg.TablePrefix != nil {
+		tablePrefix = *cfg.TablePrefix
 	}
 
 	// /////////////////////////////////////////////
@@ -57,11 +65,11 @@ func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
 		migrate.Schema = cfg.Schema
 	}
 
-	migrate.Table = cfg.TablePrefix + migrate.Table
+	migrate.Table = tablePrefix + migrate.Table
 	if migrate.Values == nil {
 		migrate.Values = make(map[string]string)
 	}
-	migrate.Values["TABLE_PREFIX"] = cfg.TablePrefix
+	migrate.Values["TABLE_PREFIX"] = tablePrefix
 
 	if err := MigrateDB(ctx, &migrate); err != nil {
 		return nil, fmt.Errorf("migrate store postgres: %w", err)
@@ -109,8 +117,8 @@ func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
 	return &Postgres{
 		db:             db,
 		goqu:           dbGoqu,
-		tableProviders: cfg.TablePrefix + "providers",
-		tableAPITokens: cfg.TablePrefix + "tokens",
+		tableProviders: goqu.T(tablePrefix + "providers"),
+		tableAPITokens: goqu.T(tablePrefix + "tokens"),
 	}, nil
 }
 

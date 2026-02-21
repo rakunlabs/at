@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -8,10 +9,15 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
+
+// tokenLastUsedThreshold is the minimum interval between DB writes for a
+// token's last_used_at field. Updates within this window are skipped.
+const tokenLastUsedThreshold = 5 * time.Minute
 
 // authResult holds the outcome of authenticating a request.
 // A nil token means the YAML auth token was used (full access).
@@ -54,7 +60,7 @@ func (a *authResult) isModelAllowed(providerKey, fullModelID string) bool {
 	return false
 }
 
-// ChatCompletions handles POST /v1/chat/completions.
+// ChatCompletions handles POST /gateway/v1/chat/completions.
 // It accepts an OpenAI-compatible request, routes it to the correct backend
 // provider based on the model prefix (e.g., "anthropic/claude-haiku-4-5"),
 // and returns an OpenAI-compatible response.
@@ -166,7 +172,8 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
 		}
 	default:
-		// OpenAI-compatible providers (openai, vertex): pass through
+		// OpenAI-compatible providers (openai, vertex) and gemini: pass through.
+		// The gemini provider handles its own format translation internally.
 		messages = translateOpenAIMessages(req.Messages)
 	}
 
@@ -193,7 +200,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, chatResp, http.StatusOK)
 }
 
-// ListModels handles GET /v1/models.
+// ListModels handles GET /gateway/v1/models.
 // It returns all configured provider/model combinations in OpenAI format.
 // If a provider has a models list, each model is advertised. Otherwise,
 // only the default model is shown.
@@ -310,12 +317,24 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 				return nil, "token has expired"
 			}
 
-			// Update last_used_at (fire-and-forget).
-			go func() {
-				if err := s.tokenStore.UpdateLastUsed(r.Context(), token.ID); err != nil {
-					slog.Error("failed to update token last_used_at", "id", token.ID, "error", err)
-				}
-			}()
+			// Throttled update of last_used_at (fire-and-forget).
+			if last, ok := s.tokenLastUsed.Load(token.ID); !ok || time.Since(last.(time.Time)) >= tokenLastUsedThreshold {
+				s.tokenLastUsed.Store(token.ID, time.Now())
+
+				v, _ := s.tokenLastUsedMu.LoadOrStore(token.ID, &sync.Mutex{})
+				mu := v.(*sync.Mutex)
+
+				go func() {
+					if !mu.TryLock() {
+						return // another goroutine is already updating this token
+					}
+					defer mu.Unlock()
+
+					if err := s.tokenStore.UpdateLastUsed(context.WithoutCancel(r.Context()), token.ID); err != nil {
+						slog.Error("failed to update token last_used_at", "id", token.ID, "error", err)
+					}
+				}()
+			}
 
 			return &authResult{token: token}, ""
 		}

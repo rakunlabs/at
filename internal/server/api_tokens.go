@@ -22,7 +22,15 @@ type createTokenRequest struct {
 	Name             string   `json:"name"`
 	AllowedProviders []string `json:"allowed_providers,omitempty"` // nil = all
 	AllowedModels    []string `json:"allowed_models,omitempty"`    // nil = all
-	ExpiresIn        *int     `json:"expires_in,omitempty"`        // seconds from now, nil = no expiry
+	ExpiresAt        *string  `json:"expires_at,omitempty"`        // RFC3339 timestamp, nil/empty = no expiry
+}
+
+// updateTokenRequest is the JSON body for PUT /api/v1/api-tokens/{id}.
+type updateTokenRequest struct {
+	Name             string   `json:"name"`
+	AllowedProviders []string `json:"allowed_providers,omitempty"` // nil = all
+	AllowedModels    []string `json:"allowed_models,omitempty"`    // nil = all
+	ExpiresAt        *string  `json:"expires_at,omitempty"`        // RFC3339 timestamp, nil/empty = no expiry
 }
 
 // createTokenResponse is returned once on creation (the only time the full token is shown).
@@ -93,9 +101,13 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Compute expiry.
 	var expiresAt types.Null[types.Time]
-	if req.ExpiresIn != nil && *req.ExpiresIn > 0 {
-		t := time.Now().UTC().Add(time.Duration(*req.ExpiresIn) * time.Second)
-		expiresAt = types.NewTimeNull(t)
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			httpResponse(w, fmt.Sprintf("invalid expires_at: %v", err), http.StatusBadRequest)
+			return
+		}
+		expiresAt = types.NewTimeNull(t.UTC())
 	}
 
 	token := service.APIToken{
@@ -139,6 +151,61 @@ func (s *Server) DeleteAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponse(w, "deleted", http.StatusOK)
+}
+
+// UpdateAPITokenAPI handles PUT /api/v1/api-tokens/:id.
+func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
+	if s.tokenStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := extractAPITokenID(r)
+	if id == "" {
+		httpResponse(w, "token id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req updateTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Name == "" {
+		httpResponse(w, "name is required", http.StatusBadRequest)
+		return
+	}
+
+	var expiresAt types.Null[types.Time]
+	if req.ExpiresAt != nil && *req.ExpiresAt != "" {
+		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
+		if err != nil {
+			httpResponse(w, fmt.Sprintf("invalid expires_at: %v", err), http.StatusBadRequest)
+			return
+		}
+		expiresAt = types.NewTimeNull(t.UTC())
+	}
+
+	token := service.APIToken{
+		Name:             req.Name,
+		AllowedProviders: req.AllowedProviders,
+		AllowedModels:    req.AllowedModels,
+		ExpiresAt:        expiresAt,
+	}
+
+	updated, err := s.tokenStore.UpdateAPIToken(r.Context(), id, token)
+	if err != nil {
+		slog.Error("update api token failed", "id", id, "error", err)
+		if strings.Contains(err.Error(), "not found") {
+			httpResponse(w, "token not found", http.StatusNotFound)
+			return
+		}
+		httpResponse(w, fmt.Sprintf("failed to update token: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	httpResponseJSON(w, updated, http.StatusOK)
 }
 
 // ─── Helpers ───
