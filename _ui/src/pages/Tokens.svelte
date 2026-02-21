@@ -1,0 +1,402 @@
+<script lang="ts">
+  import { storeNavbar } from '@/lib/store/store.svelte';
+  import { addToast } from '@/lib/store/toast.svelte';
+  import { listTokens, createToken, deleteToken, type APIToken, type CreateTokenResponse } from '@/lib/api/tokens';
+  import { getInfo, type InfoProvider } from '@/lib/api/gateway';
+  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown } from 'lucide-svelte';
+
+  storeNavbar.title = 'API Tokens';
+
+  // ─── State ───
+  let tokens = $state<APIToken[]>([]);
+  let loading = $state(true);
+  let providers = $state<InfoProvider[]>([]);
+
+  // Create form
+  let showCreate = $state(false);
+  let formName = $state('');
+  let formExpiresIn = $state('');
+  let formSelectedProviders = $state<string[]>([]);
+  let formSelectedModels = $state<string[]>([]);
+  let creating = $state(false);
+
+  // Created token modal
+  let createdToken = $state<string | null>(null);
+  let copied = $state(false);
+
+  // Delete confirmation
+  let deleteConfirmId = $state<string | null>(null);
+
+  // ─── Data Loading ───
+  async function loadTokens() {
+    loading = true;
+    try {
+      tokens = await listTokens();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load tokens', 'alert');
+    } finally {
+      loading = false;
+    }
+  }
+
+  async function loadProviders() {
+    try {
+      const info = await getInfo();
+      providers = info.providers;
+    } catch (_) {}
+  }
+
+  loadTokens();
+  loadProviders();
+
+  // ─── Computed ───
+  let allModels = $derived(
+    providers.flatMap((p) => {
+      if (p.models && p.models.length > 0) {
+        return p.models.map((m) => `${p.key}/${m}`);
+      }
+      return [`${p.key}/${p.default_model}`];
+    })
+  );
+
+  let allProviderKeys = $derived(providers.map((p) => p.key));
+
+  // ─── Actions ───
+  function resetForm() {
+    formName = '';
+    formExpiresIn = '';
+    formSelectedProviders = [];
+    formSelectedModels = [];
+  }
+
+  async function handleCreate() {
+    if (!formName.trim()) {
+      addToast('Token name is required', 'alert');
+      return;
+    }
+
+    creating = true;
+    try {
+      const req: any = { name: formName.trim() };
+
+      if (formSelectedProviders.length > 0) {
+        req.allowed_providers = formSelectedProviders;
+      }
+      if (formSelectedModels.length > 0) {
+        req.allowed_models = formSelectedModels;
+      }
+      if (formExpiresIn) {
+        const seconds = parseExpiryToSeconds(formExpiresIn);
+        if (seconds > 0) req.expires_in = seconds;
+      }
+
+      const resp: CreateTokenResponse = await createToken(req);
+      createdToken = resp.token;
+      copied = false;
+      showCreate = false;
+      resetForm();
+      await loadTokens();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to create token', 'alert');
+    } finally {
+      creating = false;
+    }
+  }
+
+  async function handleDelete(id: string) {
+    try {
+      await deleteToken(id);
+      deleteConfirmId = null;
+      addToast('Token deleted', 'info');
+      await loadTokens();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to delete token', 'alert');
+    }
+  }
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text);
+    copied = true;
+    setTimeout(() => (copied = false), 2000);
+  }
+
+  function parseExpiryToSeconds(value: string): number {
+    const num = parseInt(value);
+    if (isNaN(num) || num <= 0) return 0;
+    return num * 86400; // days to seconds
+  }
+
+  function formatDate(dateStr: string | null): string {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function isExpired(expiresAt: string | null): boolean {
+    if (!expiresAt) return false;
+    return new Date(expiresAt) < new Date();
+  }
+
+  function toggleProvider(key: string) {
+    if (formSelectedProviders.includes(key)) {
+      formSelectedProviders = formSelectedProviders.filter((p) => p !== key);
+    } else {
+      formSelectedProviders = [...formSelectedProviders, key];
+    }
+  }
+
+  function toggleModel(model: string) {
+    if (formSelectedModels.includes(model)) {
+      formSelectedModels = formSelectedModels.filter((m) => m !== model);
+    } else {
+      formSelectedModels = [...formSelectedModels, model];
+    }
+  }
+</script>
+
+<div class="p-6 max-w-5xl mx-auto">
+  <!-- Header -->
+  <div class="flex items-center justify-between mb-4">
+    <div class="flex items-center gap-2">
+      <Key size={16} class="text-gray-500" />
+      <h2 class="text-sm font-medium text-gray-900">API Tokens</h2>
+      <span class="text-xs text-gray-400">({tokens.length})</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button
+        onclick={loadTokens}
+        class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+        title="Refresh"
+      >
+        <RefreshCw size={14} />
+      </button>
+      <button
+        onclick={() => { showCreate = !showCreate; if (!showCreate) resetForm(); }}
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+      >
+        <Plus size={12} />
+        New Token
+      </button>
+    </div>
+  </div>
+
+  <!-- Created token modal -->
+  {#if createdToken}
+    <div class="mb-4 border border-green-200 bg-green-50 p-4">
+      <div class="flex items-center justify-between mb-2">
+        <span class="text-sm font-medium text-green-800">Token Created</span>
+        <button onclick={() => (createdToken = null)} class="text-green-600 hover:text-green-800">
+          <X size={14} />
+        </button>
+      </div>
+      <p class="text-xs text-green-700 mb-2">Copy this token now. It won't be shown again.</p>
+      <div class="flex items-center gap-2">
+        <code class="flex-1 bg-white border border-green-200 px-3 py-2 text-xs font-mono text-green-900 break-all select-all">{createdToken}</code>
+        <button
+          onclick={() => copyToClipboard(createdToken!)}
+          class="shrink-0 p-2 bg-white border border-green-200 hover:bg-green-100 transition-colors"
+          title="Copy"
+        >
+          <Copy size={14} class={copied ? 'text-green-600' : 'text-green-500'} />
+        </button>
+      </div>
+      {#if copied}
+        <span class="text-xs text-green-600 mt-1 block">Copied!</span>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Create form -->
+  {#if showCreate}
+    <div class="mb-4 border border-gray-200 bg-white p-4">
+      <h3 class="text-sm font-medium text-gray-900 mb-3">Create API Token</h3>
+
+      <div class="grid grid-cols-4 gap-3 mb-3">
+        <label class="text-xs text-gray-600 py-2">Name</label>
+        <input
+          type="text"
+          bind:value={formName}
+          placeholder="e.g. my-app-token"
+          class="col-span-3 border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
+        />
+      </div>
+
+      <div class="grid grid-cols-4 gap-3 mb-3">
+        <label class="text-xs text-gray-600 py-2">Expires (days)</label>
+        <input
+          type="number"
+          bind:value={formExpiresIn}
+          placeholder="Leave empty for no expiry"
+          min="1"
+          class="col-span-3 border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
+        />
+      </div>
+
+      <!-- Provider restrictions -->
+      <div class="grid grid-cols-4 gap-3 mb-3">
+        <label class="text-xs text-gray-600 py-2">Allowed Providers</label>
+        <div class="col-span-3">
+          {#if allProviderKeys.length > 0}
+            <div class="flex flex-wrap gap-1.5">
+              {#each allProviderKeys as key}
+                <button
+                  onclick={() => toggleProvider(key)}
+                  class={[
+                    'px-2 py-1 text-xs border transition-colors',
+                    formSelectedProviders.includes(key)
+                      ? 'bg-gray-900 text-white border-gray-900'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                  ]}
+                >
+                  {key}
+                </button>
+              {/each}
+            </div>
+            <p class="text-xs text-gray-400 mt-1">None selected = all providers allowed</p>
+          {:else}
+            <span class="text-xs text-gray-400">No providers available</span>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Model restrictions -->
+      <div class="grid grid-cols-4 gap-3 mb-4">
+        <label class="text-xs text-gray-600 py-2">Allowed Models</label>
+        <div class="col-span-3">
+          {#if allModels.length > 0}
+            <div class="max-h-32 overflow-y-auto border border-gray-200 p-2">
+              <div class="flex flex-wrap gap-1.5">
+                {#each allModels as model}
+                  <button
+                    onclick={() => toggleModel(model)}
+                    class={[
+                      'px-2 py-0.5 text-xs border font-mono transition-colors',
+                      formSelectedModels.includes(model)
+                        ? 'bg-gray-900 text-white border-gray-900'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                    ]}
+                  >
+                    {model}
+                  </button>
+                {/each}
+              </div>
+            </div>
+            <p class="text-xs text-gray-400 mt-1">None selected = all models allowed</p>
+          {:else}
+            <span class="text-xs text-gray-400">No models available</span>
+          {/if}
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button
+          onclick={handleCreate}
+          disabled={creating}
+          class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+        >
+          {creating ? 'Creating...' : 'Create Token'}
+        </button>
+        <button
+          onclick={() => { showCreate = false; resetForm(); }}
+          class="px-3 py-1.5 text-xs text-gray-600 hover:text-gray-900 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Token list -->
+  <div class="border border-gray-200 bg-white shadow-sm overflow-hidden">
+    {#if loading}
+      <div class="px-4 py-10 text-center text-gray-400 text-sm">Loading...</div>
+    {:else if tokens.length === 0}
+      <div class="px-4 py-10 text-center">
+        <Key size={24} class="mx-auto text-gray-300 mb-2" />
+        <div class="text-gray-400 mb-1">No API tokens</div>
+        <div class="text-xs text-gray-400">Create a token to authenticate API requests</div>
+      </div>
+    {:else}
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-100 bg-gray-50/50">
+            <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Name</th>
+            <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Token</th>
+            <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Scope</th>
+            <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Expires</th>
+            <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Last Used</th>
+            <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider w-16"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-50">
+          {#each tokens as token}
+            <tr class="hover:bg-gray-50/50 transition-colors">
+              <td class="px-4 py-2.5 font-medium text-gray-900 text-sm">{token.name}</td>
+              <td class="px-4 py-2.5">
+                <code class="text-xs font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5">{token.token_prefix}...</code>
+              </td>
+              <td class="px-4 py-2.5 text-xs text-gray-500">
+                {#if !token.allowed_providers && !token.allowed_models}
+                  <span class="text-gray-400">All access</span>
+                {:else}
+                  <div class="space-y-0.5">
+                    {#if token.allowed_providers && token.allowed_providers.length > 0}
+                      <div>
+                        <span class="text-gray-400">Providers:</span>
+                        {token.allowed_providers.join(', ')}
+                      </div>
+                    {/if}
+                    {#if token.allowed_models && token.allowed_models.length > 0}
+                      <div>
+                        <span class="text-gray-400">Models:</span>
+                        {token.allowed_models.slice(0, 3).join(', ')}{token.allowed_models.length > 3 ? ` +${token.allowed_models.length - 3}` : ''}
+                      </div>
+                    {/if}
+                  </div>
+                {/if}
+              </td>
+              <td class="px-4 py-2.5 text-xs">
+                {#if token.expires_at}
+                  <span class={isExpired(token.expires_at) ? 'text-red-500' : 'text-gray-500'}>
+                    {isExpired(token.expires_at) ? 'Expired' : formatDate(token.expires_at)}
+                  </span>
+                {:else}
+                  <span class="text-gray-400">Never</span>
+                {/if}
+              </td>
+              <td class="px-4 py-2.5 text-xs text-gray-500">
+                {formatDate(token.last_used_at)}
+              </td>
+              <td class="px-4 py-2.5 text-right">
+                {#if deleteConfirmId === token.id}
+                  <div class="flex items-center gap-1 justify-end">
+                    <button
+                      onclick={() => handleDelete(token.id)}
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onclick={() => (deleteConfirmId = null)}
+                      class="px-2 py-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                {:else}
+                  <button
+                    onclick={() => (deleteConfirmId = token.id)}
+                    class="p-1 text-gray-300 hover:text-red-500 transition-colors"
+                    title="Delete"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                {/if}
+              </td>
+            </tr>
+          {/each}
+        </tbody>
+      </table>
+    {/if}
+  </div>
+</div>

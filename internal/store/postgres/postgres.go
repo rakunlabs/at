@@ -19,11 +19,18 @@ import (
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres"
 )
 
+var (
+	ConnMaxLifetime = 15 * time.Minute
+	MaxIdleConns    = 3
+	MaxOpenConns    = 3
+)
+
 type Postgres struct {
 	db   *sql.DB
 	goqu *goqu.Database
 
 	tableProviders string
+	tableAPITokens string
 }
 
 func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
@@ -31,11 +38,37 @@ func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
 		return nil, errors.New("postgres configuration is nil")
 	}
 
-	if cfg.DBDatasource == "" {
-		return nil, errors.New("postgres db_datasource is required")
+	if cfg.Datasource == "" {
+		return nil, errors.New("postgres datasource is required")
 	}
 
-	db, err := sql.Open("pgx", cfg.DBDatasource)
+	// /////////////////////////////////////////////
+	// Run migrations.
+	migrate := cfg.Migrate
+	if migrate.Table == "" {
+		migrate.Table = "migrations"
+	}
+
+	if migrate.Datasource == "" {
+		migrate.Datasource = cfg.Datasource
+	}
+
+	if migrate.Schema == "" {
+		migrate.Schema = cfg.Schema
+	}
+
+	migrate.Table = cfg.TablePrefix + migrate.Table
+	if migrate.Values == nil {
+		migrate.Values = make(map[string]string)
+	}
+	migrate.Values["TABLE_PREFIX"] = cfg.TablePrefix
+
+	if err := MigrateDB(ctx, &migrate); err != nil {
+		return nil, fmt.Errorf("migrate store postgres: %w", err)
+	}
+	// /////////////////////////////////////////////
+
+	db, err := sql.Open("pgx", cfg.Datasource)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres connection: %w", err)
 	}
@@ -47,28 +80,27 @@ func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
 	}
 
 	// Set schema search path if configured.
-	if cfg.DBSchema != "" {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", cfg.DBSchema)); err != nil {
+	if cfg.Schema != "" {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", cfg.Schema)); err != nil {
 			db.Close()
 
 			return nil, fmt.Errorf("set search_path: %w", err)
 		}
 	}
 
-	// Run migrations.
-	migrate := cfg.Migrate
-	if migrate.DBTable == "" {
-		migrate.DBTable = "migrations"
+	if cfg.ConnMaxLifetime != nil {
+		ConnMaxLifetime = *cfg.ConnMaxLifetime
+	}
+	if cfg.MaxIdleConns != nil {
+		MaxIdleConns = *cfg.MaxIdleConns
+	}
+	if cfg.MaxOpenConns != nil {
+		MaxOpenConns = *cfg.MaxOpenConns
 	}
 
-	migrate.DBTable = cfg.TablePrefix + migrate.DBTable
-	migrate.Values["TABLE_PREFIX"] = cfg.TablePrefix
-
-	if err := MigrateDB(ctx, &migrate, db); err != nil {
-		db.Close()
-
-		return nil, fmt.Errorf("migrate store postgres: %w", err)
-	}
+	db.SetConnMaxLifetime(ConnMaxLifetime)
+	db.SetMaxIdleConns(MaxIdleConns)
+	db.SetMaxOpenConns(MaxOpenConns)
 
 	slog.Info("connected to store postgres")
 
@@ -78,6 +110,7 @@ func New(ctx context.Context, cfg *config.StorePostgres) (*Postgres, error) {
 		db:             db,
 		goqu:           dbGoqu,
 		tableProviders: cfg.TablePrefix + "providers",
+		tableAPITokens: cfg.TablePrefix + "tokens",
 	}, nil
 }
 

@@ -9,9 +9,10 @@ import (
 	"github.com/rakunlabs/at/internal/store/postgres"
 )
 
-// StorerClose combines the ProviderStorer interface with a Close method.
+// StorerClose combines the ProviderStorer and APITokenStorer interfaces with a Close method.
 type StorerClose interface {
 	service.ProviderStorer
+	service.APITokenStorer
 	Close()
 }
 

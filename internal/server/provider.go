@@ -91,6 +91,11 @@ func (s *Server) ListProvidersAPI(w http.ResponseWriter, r *http.Request) {
 		records = []service.ProviderRecord{}
 	}
 
+	// Redact secrets before sending to the client.
+	for i := range records {
+		redactProviderRecord(&records[i])
+	}
+
 	httpResponseJSON(w, providersResponse{Providers: records}, http.StatusOK)
 }
 
@@ -118,6 +123,9 @@ func (s *Server) GetProviderAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("provider %q not found", key), http.StatusNotFound)
 		return
 	}
+
+	// Redact secrets before sending to the client.
+	redactProviderRecord(record)
 
 	httpResponseJSON(w, providerResponse{ProviderRecord: *record}, http.StatusOK)
 }
@@ -199,6 +207,21 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Preserve the existing api_key when the request doesn't provide one.
+	// This prevents the UI (which redacts/hides secrets) from accidentally
+	// wiping the stored token on every update.
+	if req.Config.APIKey == "" {
+		existing, err := s.store.GetProvider(r.Context(), key)
+		if err != nil {
+			slog.Error("update provider: failed to read existing config", "key", key, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to read existing provider: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if existing != nil {
+			req.Config.APIKey = existing.Config.APIKey
+		}
+	}
+
 	record, err := s.store.UpdateProvider(r.Context(), key, req.Config)
 	if err != nil {
 		slog.Error("update provider failed", "key", key, "error", err)
@@ -261,4 +284,13 @@ func extractProviderKey(r *http.Request) string {
 	key = strings.TrimSuffix(key, "/")
 
 	return key
+}
+
+// redactProviderRecord replaces secret fields with a sentinel value so the
+// UI can tell whether a key is set without exposing the actual secret.
+// The sentinel value "***" is recognized by the UI.
+func redactProviderRecord(rec *service.ProviderRecord) {
+	if rec.Config.APIKey != "" {
+		rec.Config.APIKey = "***"
+	}
 }

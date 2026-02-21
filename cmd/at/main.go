@@ -42,7 +42,41 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 
 		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL)
 	case "openai":
-		return openai.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.ExtraHeaders)
+		var opts []openai.Option
+
+		// Clone extra headers so we don't mutate the original config map.
+		headers := make(map[string]string, len(cfg.ExtraHeaders)+4)
+		for k, v := range cfg.ExtraHeaders {
+			headers[k] = v
+		}
+
+		switch cfg.AuthType {
+		case "copilot":
+			if cfg.APIKey == "" {
+				return nil, fmt.Errorf("openai provider with auth_type=copilot requires an api_key (authorize via device flow)")
+			}
+			opts = append(opts, openai.WithTokenSource(openai.NewCopilotTokenSource(cfg.APIKey)))
+
+			// Copilot API requires editor identification headers on every request.
+			if _, ok := headers["Editor-Version"]; !ok {
+				headers["Editor-Version"] = "vscode/1.95.0"
+			}
+			if _, ok := headers["Editor-Plugin-Version"]; !ok {
+				headers["Editor-Plugin-Version"] = "copilot/1.0.0"
+			}
+			if _, ok := headers["User-Agent"]; !ok {
+				headers["User-Agent"] = "GithubCopilot/1.0"
+			}
+			if _, ok := headers["Copilot-Integration-Id"]; !ok {
+				headers["Copilot-Integration-Id"] = "vscode-chat"
+			}
+		case "":
+			// Default: use static APIKey as Bearer token (handled by klient).
+		default:
+			return nil, fmt.Errorf("unknown auth_type %q for openai provider (supported: copilot)", cfg.AuthType)
+		}
+
+		return openai.New(cfg.APIKey, cfg.Model, cfg.BaseURL, headers, opts...)
 	case "vertex":
 		return vertex.New(cfg.Model, cfg.BaseURL)
 	default:
@@ -71,6 +105,7 @@ func run(ctx context.Context) error {
 
 	// Initialize store (optional — only if postgres is configured).
 	var providerStore service.ProviderStorer
+	var tokenStore service.APITokenStorer
 	if cfg.Store.Postgres != nil {
 		st, err := store.New(ctx, cfg.Store)
 		if err != nil {
@@ -79,6 +114,7 @@ func run(ctx context.Context) error {
 		defer st.Close()
 
 		providerStore = st
+		tokenStore = st
 
 		// Load DB providers on top of YAML providers (DB overrides YAML).
 		dbRecords, err := st.ListProviders(ctx)
@@ -103,7 +139,7 @@ func run(ctx context.Context) error {
 	}
 
 	// Create and start HTTP server.
-	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, providerStore, newProvider)
+	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, providerStore, tokenStore, newProvider)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}

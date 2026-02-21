@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	_ "github.com/rakunlabs/chu/loader/loaderconsul"
 	_ "github.com/rakunlabs/chu/loader/loadervault"
@@ -92,17 +93,21 @@ type Store struct {
 }
 
 type StorePostgres struct {
-	TablePrefix  string  `cfg:"table_prefix"  default:"at_"`
-	DBDatasource string  `cfg:"db_datasource" log:"-"`
-	DBSchema     string  `cfg:"db_schema"`
-	Migrate      Migrate `cfg:"migrate"`
+	TablePrefix     string         `cfg:"table_prefix"  default:"at_"`
+	Datasource      string         `cfg:"datasource" log:"-"`
+	Schema          string         `cfg:"schema"`
+	ConnMaxLifetime *time.Duration `cfg:"conn_max_lifetime"`
+	MaxIdleConns    *int           `cfg:"max_idle_conns"`
+	MaxOpenConns    *int           `cfg:"max_open_conns"`
+
+	Migrate Migrate `cfg:"migrate"`
 }
 
 type Migrate struct {
-	DBDatasource string            `cfg:"db_datasource" log:"-"`
-	DBSchema     string            `cfg:"db_schema"`
-	DBTable      string            `cfg:"db_table"`
-	Values       map[string]string `cfg:"values"`
+	Datasource string            `cfg:"datasource" log:"-"`
+	Schema     string            `cfg:"schema"`
+	Table      string            `cfg:"table"`
+	Values     map[string]string `cfg:"values"`
 }
 
 // LLMConfig describes a single LLM provider configuration.
@@ -110,31 +115,40 @@ type LLMConfig struct {
 	// Type is the provider type: "anthropic", "openai", or "vertex".
 	// The "openai" type works with any OpenAI-compatible API.
 	// The "vertex" type uses Google Application Default Credentials (ADC).
-	Type string `cfg:"type"`
+	Type string `cfg:"type" json:"type"`
 
 	// APIKey is the authentication key for the provider.
 	// Optional for local providers like Ollama and for "vertex" type (uses ADC).
-	APIKey string `cfg:"api_key" log:"-"`
+	APIKey string `cfg:"api_key" json:"api_key" log:"-"`
 
 	// BaseURL is the full endpoint URL for the provider's chat completions API.
 	// For "openai" type, defaults to "https://api.openai.com/v1/chat/completions".
 	// For "anthropic" type, defaults to "https://api.anthropic.com".
 	// For "vertex" type, required. Format:
 	//   https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi/chat/completions
-	BaseURL string `cfg:"base_url"`
+	BaseURL string `cfg:"base_url" json:"base_url"`
 
 	// Model is the default model identifier to use (e.g., "gpt-4o", "claude-haiku-4-5").
-	Model string `cfg:"model"`
+	Model string `cfg:"model" json:"model"`
 
 	// Models is the list of all models this provider supports.
 	// When set, the gateway will reject requests for models not in this list (404).
 	// The /v1/models endpoint will advertise all models in this list.
 	// If empty, only the default Model is advertised and no strict validation is applied.
-	Models []string `cfg:"models"`
+	Models []string `cfg:"models" json:"models"`
 
 	// ExtraHeaders allows setting additional HTTP headers sent with each request.
 	// Useful for providers that require custom headers (e.g., GitHub Models).
-	ExtraHeaders map[string]string `cfg:"extra_headers"`
+	ExtraHeaders map[string]string `cfg:"extra_headers" json:"extra_headers"`
+
+	// AuthType selects the authentication mechanism for the provider.
+	// Supported values (only applies to "openai" type):
+	//   - "" (empty):  Use APIKey directly as a static Bearer token (default).
+	//   - "copilot":   GitHub Copilot authentication. Use the device-auth API endpoint
+	//                  to authorize via the GitHub OAuth device flow. The resulting OAuth
+	//                  token is stored in APIKey and exchanged for short-lived Copilot
+	//                  JWTs that are cached and automatically refreshed before expiry.
+	AuthType string `cfg:"auth_type" json:"auth_type"`
 }
 
 func Load(ctx context.Context, path string) (*Config, error) {

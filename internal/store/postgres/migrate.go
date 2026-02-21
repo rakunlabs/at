@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"embed"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -15,14 +14,14 @@ import (
 //go:embed migrations/*
 var migrationFS embed.FS
 
-func MigrateDB(ctx context.Context, cfg *config.Migrate, db *sql.DB) error {
-	if db == nil {
-		return errors.New("migrate database connection is nil")
+func MigrateDB(ctx context.Context, cfg *config.Migrate) error {
+	if cfg.Datasource == "" {
+		return fmt.Errorf("migrate datasource is required")
 	}
 
-	table := cfg.DBTable
-	if table == "" {
-		table = "migrations"
+	db, err := sql.Open("pgx", cfg.Datasource)
+	if err != nil {
+		return fmt.Errorf("open postgres connection: %w", err)
 	}
 
 	m := muz.Migrate{
@@ -32,7 +31,7 @@ func MigrateDB(ctx context.Context, cfg *config.Migrate, db *sql.DB) error {
 		Values:    cfg.Values,
 	}
 
-	driver := muz.NewPostgresDriver(db, table, slog.Default())
+	driver := muz.NewPostgresDriver(db, cfg.Table, slog.Default())
 
 	if err := m.Migrate(ctx, driver); err != nil {
 		return fmt.Errorf("run migrations: %w", err)

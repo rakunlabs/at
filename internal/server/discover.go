@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -71,16 +72,29 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 		baseURL = "https://api.openai.com/v1/chat/completions"
 	}
 
-	// Derive the models endpoint from the chat completions URL.
-	// e.g., "https://api.openai.com/v1/chat/completions" -> "https://api.openai.com/v1/models"
-	// e.g., "https://models.github.ai/inference/chat/completions" -> "https://models.github.ai/inference/models"
-	modelsURL := baseURL
-	if idx := strings.Index(modelsURL, "/chat/completions"); idx != -1 {
-		modelsURL = modelsURL[:idx] + "/models"
-	} else {
-		// Fallback: append /models to the base URL
-		modelsURL = strings.TrimSuffix(modelsURL, "/") + "/models"
+	// Parse the base URL properly to preserve query parameters.
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}
+
+	// Check if this is a GitHub Copilot endpoint which does not support model listing.
+	if strings.Contains(parsedURL.Host, "githubcopilot.com") {
+		return nil, fmt.Errorf("GitHub Copilot API does not support model discovery; please enter models manually or use the preset list")
+	}
+
+	// Derive the models endpoint from the chat completions URL path.
+	// e.g., "/v1/chat/completions" -> "/v1/models"
+	// e.g., "/inference/chat/completions" -> "/inference/models"
+	path := parsedURL.Path
+	if idx := strings.Index(path, "/chat/completions"); idx != -1 {
+		parsedURL.Path = path[:idx] + "/models"
+	} else {
+		// Fallback: append /models to the path
+		parsedURL.Path = strings.TrimSuffix(path, "/") + "/models"
+	}
+
+	modelsURL := parsedURL.String()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
 	if err != nil {
@@ -111,7 +125,7 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 		return nil, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, truncate(string(body), 200))
 	}
 
-	// Parse OpenAI-compatible /v1/models response.
+	// Try OpenAI-compatible /v1/models response first: { "data": [{ "id": "..." }] }
 	var modelsResp struct {
 		Data []struct {
 			ID string `json:"id"`
@@ -121,8 +135,27 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
-	models := make([]string, 0, len(modelsResp.Data))
-	for _, m := range modelsResp.Data {
+	// If "data" field is present and non-empty, use it (standard OpenAI format).
+	if len(modelsResp.Data) > 0 {
+		models := make([]string, 0, len(modelsResp.Data))
+		for _, m := range modelsResp.Data {
+			if m.ID != "" {
+				models = append(models, m.ID)
+			}
+		}
+		return models, nil
+	}
+
+	// Fallback: try flat array format [{ "id": "..." }] (e.g., GitHub Models catalog).
+	var flatModels []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &flatModels); err != nil {
+		return nil, fmt.Errorf("parse response: unexpected format")
+	}
+
+	models := make([]string, 0, len(flatModels))
+	for _, m := range flatModels {
 		if m.ID != "" {
 			models = append(models, m.ID)
 		}

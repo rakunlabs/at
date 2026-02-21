@@ -20,6 +20,7 @@ require (
 	github.com/rakunlabs/muz v0.2.4
 	github.com/rakunlabs/tell v0.1.1
 	github.com/worldline-go/klient v0.9.17
+	github.com/worldline-go/types v0.5.6
 	golang.org/x/oauth2 v0.35.0
 )
 
@@ -65,6 +66,7 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/rs/zerolog v1.34.0 // indirect
 	github.com/ryanuber/go-glob v1.0.0 // indirect
+	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/twmb/tlscfg v1.2.1 // indirect
 	github.com/worldline-go/logz v0.5.5 // indirect

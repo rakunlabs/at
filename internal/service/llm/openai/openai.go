@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -22,14 +23,27 @@ type Provider struct {
 	Model   string
 	BaseURL string
 
-	client *klient.Client
+	client      *klient.Client
+	tokenSource TokenSource
+}
+
+// Option configures the Provider.
+type Option func(*Provider)
+
+// WithTokenSource sets a token source for per-request authentication.
+// When set, the token source is called before each request and the returned
+// token is used as the Bearer token, overriding the static APIKey.
+func WithTokenSource(ts TokenSource) Option {
+	return func(p *Provider) {
+		p.tokenSource = ts
+	}
 }
 
 // New creates an OpenAI-compatible provider.
 //
 // extraHeaders allows setting additional HTTP headers for providers that
 // require them (e.g., GitHub Models recommends Accept and X-GitHub-Api-Version).
-func New(apiKey, model, baseURL string, extraHeaders map[string]string) (*Provider, error) {
+func New(apiKey, model, baseURL string, extraHeaders map[string]string, opts ...Option) (*Provider, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
@@ -44,17 +58,27 @@ func New(apiKey, model, baseURL string, extraHeaders map[string]string) (*Provid
 		headers[k] = []string{v}
 	}
 
-	client, err := klient.New(klient.WithBaseURL(baseURL), klient.WithHeaderSet(headers))
+	client, err := klient.New(
+		klient.WithBaseURL(baseURL),
+		klient.WithLogger(slog.Default()),
+		klient.WithHeaderSet(headers),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Provider{
+	p := &Provider{
 		APIKey:  apiKey,
 		Model:   model,
 		BaseURL: baseURL,
 		client:  client,
-	}, nil
+	}
+
+	for _, o := range opts {
+		o(p)
+	}
+
+	return p, nil
 }
 
 type OpenAIResponse struct {
@@ -102,6 +126,17 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
+	}
+
+	// If a token source is configured, get a fresh token and set it on the
+	// request. klient's TransportKlient only applies default headers when they
+	// are not already present, so this overrides the static APIKey header.
+	if p.tokenSource != nil {
+		token, err := p.tokenSource.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get auth token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	var result OpenAIResponse
@@ -189,6 +224,15 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
+	}
+
+	// Override auth header when a token source is configured (see Chat() comment).
+	if p.tokenSource != nil {
+		token, err := p.tokenSource.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get auth token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	// Use the klient's HTTP client which has transport with headers and base URL.

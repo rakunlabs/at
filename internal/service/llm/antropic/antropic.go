@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -59,11 +60,15 @@ func New(apiKey, model, baseURL string) (*Provider, error) {
 		baseURL = DefaultBaseURL
 	}
 
-	client, err := klient.New(klient.WithBaseURL(baseURL), klient.WithHeaderSet(http.Header{
-		"X-Api-Key":         []string{apiKey},
-		"Anthropic-Version": []string{"2023-06-01"},
-		"Content-Type":      []string{"application/json"},
-	}))
+	client, err := klient.New(
+		klient.WithBaseURL(baseURL),
+		klient.WithLogger(slog.Default()),
+		klient.WithHeaderSet(http.Header{
+			"X-Api-Key":         []string{apiKey},
+			"Anthropic-Version": []string{"2023-06-01"},
+			"Content-Type":      []string{"application/json"},
+		}),
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -7,10 +7,12 @@
     updateProvider,
     deleteProvider,
     discoverModels,
+    startDeviceAuth,
+    getDeviceAuthStatus,
     type ProviderRecord,
     type LLMConfig,
   } from '@/lib/api/providers';
-  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn } from 'lucide-svelte';
 
   storeNavbar.title = 'Providers';
 
@@ -71,30 +73,50 @@
       key: 'github-copilot',
       config: {
         type: 'openai',
-        base_url: 'https://api.githubcopilot.com/chat/completions',
+        auth_type: 'copilot',
+        base_url: 'https://api.githubcopilot.com/chat/completions?api-version=2025-04-01',
         model: 'gpt-4.1',
-        models: ['gpt-4.1', 'gpt-4o', 'gpt-4o-mini', 'o3-mini', 'o4-mini', 'claude-sonnet-4-20250514'],
+        models: [
+          'gpt-4.1',
+          'gpt-5-mini',
+          'gpt-5.1',
+          'gpt-5.1-codex',
+          'gpt-5.1-codex-mini',
+          'gpt-5.1-codex-max',
+          'gpt-5.2',
+          'gpt-5.2-codex',
+          'gpt-5.3-codex',
+          'claude-haiku-4.5',
+          'claude-sonnet-4',
+          'claude-sonnet-4.5',
+          'claude-sonnet-4.6',
+          'claude-opus-4.5',
+          'claude-opus-4.6',
+          'gemini-2.5-pro',
+          'gemini-3-flash',
+          'gemini-3-pro',
+          'gemini-3.1-pro',
+          'grok-code-fast-1',
+        ],
       },
       extraHeaders: [
         { key: 'Accept', value: 'application/vnd.github+json' },
-        { key: 'X-GitHub-Api-Version', value: '2022-11-28' },
       ],
       setupSteps: [
         'You need an active GitHub Copilot subscription (Individual, Business, or Enterprise)',
-        'Go to github.com/settings/tokens?type=beta to create a Fine-grained Personal Access Token',
-        'Click "Generate new token" and set a name (e.g., "at-copilot")',
-        'Set an expiration period (recommended: 90 days)',
-        'Under "Account permissions", enable "GitHub Copilot: Read"',
-        'Click "Generate token" and copy the token (starts with github_pat_)',
-        'Paste the token in the API Key field below',
+        'Click "Create" to save the provider configuration',
+        'Edit the provider and click "Authorize with GitHub"',
+        'A code will appear - copy it and open the GitHub link',
+        'Enter the code at github.com/login/device and authorize the application',
+        'The provider will be ready to use once authorization completes',
       ],
       setupLinks: [
-        { label: 'Create PAT', url: 'https://github.com/settings/tokens?type=beta' },
         { label: 'Copilot Plans', url: 'https://github.com/features/copilot/plans' },
       ],
       notes: [
         'Requires an active GitHub Copilot subscription',
-        'Token must be a Fine-grained PAT (classic tokens do not work)',
+        'Authorization is done via your browser - no tokens to copy/paste',
+        'The OAuth token is stored securely and refreshed automatically',
         'Some premium models require a Copilot Pro subscription',
         'Model names do NOT include the vendor prefix (e.g., gpt-4.1, not openai/gpt-4.1)',
       ],
@@ -284,9 +306,20 @@
   let formApiKey = $state('');
   let formBaseUrl = $state('');
   let formModel = $state('');
-  let formModels = $state('');
+  let formModels = $state<string[]>([]);
+  let newModelInput = $state('');
+  let formAuthType = $state('');
+  let formHasStoredKey = $state(false);
   let formExtraHeaders = $state<{ key: string; value: string }[]>([]);
   let discoveringModels = $state(false);
+
+  // Device auth state (GitHub OAuth Device Flow for Copilot)
+  let deviceAuthPending = $state(false);
+  let deviceAuthCode = $state('');
+  let deviceAuthURI = $state('');
+  let deviceAuthInterval = $state(5);
+  let deviceAuthPolling = $state(false);
+  let deviceAuthTimer = $state<ReturnType<typeof setInterval> | null>(null);
 
   // ─── Load ───
 
@@ -306,12 +339,16 @@
   // ─── Form ───
 
   function resetForm() {
+    stopDeviceAuthPolling();
     formKey = '';
     formType = 'openai';
     formApiKey = '';
     formBaseUrl = '';
     formModel = '';
-    formModels = '';
+    formModels = [];
+    newModelInput = '';
+    formAuthType = '';
+    formHasStoredKey = false;
     formExtraHeaders = [];
     editingKey = null;
     activePreset = null;
@@ -338,7 +375,8 @@
     formApiKey = '';
     formBaseUrl = preset.config.base_url || '';
     formModel = preset.config.model || '';
-    formModels = (preset.config.models || []).join(', ');
+    formModels = [...(preset.config.models || [])];
+    formAuthType = preset.config.auth_type || '';
     formExtraHeaders = preset.extraHeaders ? [...preset.extraHeaders] : [];
     showPresets = false;
     showForm = true;
@@ -349,10 +387,14 @@
     editingKey = rec.key;
     formKey = rec.key;
     formType = rec.config.type;
-    formApiKey = rec.config.api_key || '';
+    // The API redacts secrets as "***". Don't load the sentinel into the form —
+    // leave it empty so buildConfig() omits it and the backend preserves the real value.
+    formApiKey = rec.config.api_key === '***' ? '' : (rec.config.api_key || '');
+    formHasStoredKey = !!rec.config.api_key;
     formBaseUrl = rec.config.base_url || '';
     formModel = rec.config.model;
-    formModels = (rec.config.models || []).join(', ');
+    formModels = [...(rec.config.models || [])];
+    formAuthType = rec.config.auth_type || '';
     formExtraHeaders = Object.entries(rec.config.extra_headers || {}).map(
       ([key, value]) => ({ key, value })
     );
@@ -366,11 +408,9 @@
     };
     if (formApiKey) cfg.api_key = formApiKey;
     if (formBaseUrl) cfg.base_url = formBaseUrl;
+    if (formAuthType) cfg.auth_type = formAuthType;
 
-    const models = formModels
-      .split(',')
-      .map((m) => m.trim())
-      .filter(Boolean);
+    const models = formModels.filter(Boolean);
     if (models.length > 0) cfg.models = models;
 
     const headers: Record<string, string> = {};
@@ -423,6 +463,75 @@
     formExtraHeaders = formExtraHeaders.filter((_, i) => i !== index);
   }
 
+  function addModel() {
+    const model = newModelInput.trim();
+    if (!model) return;
+    if (formModels.includes(model)) {
+      addToast(`"${model}" is already in the list`, 'warn');
+      return;
+    }
+    formModels = [...formModels, model];
+    newModelInput = '';
+  }
+
+  function removeModel(index: number) {
+    formModels = formModels.filter((_, i) => i !== index);
+  }
+
+  // ─── Device Auth ───
+
+  function stopDeviceAuthPolling() {
+    if (deviceAuthTimer) {
+      clearInterval(deviceAuthTimer);
+      deviceAuthTimer = null;
+    }
+    deviceAuthPolling = false;
+    deviceAuthPending = false;
+    deviceAuthCode = '';
+    deviceAuthURI = '';
+  }
+
+  async function handleDeviceAuth() {
+    if (!editingKey) {
+      addToast('Save the provider first, then click Authorize', 'warn');
+      return;
+    }
+
+    try {
+      deviceAuthPending = true;
+      const resp = await startDeviceAuth(editingKey);
+      deviceAuthCode = resp.user_code;
+      deviceAuthURI = resp.verification_uri;
+      deviceAuthInterval = resp.interval || 5;
+      deviceAuthPolling = true;
+
+      // Start polling for authorization status
+      deviceAuthTimer = setInterval(async () => {
+        try {
+          const status = await getDeviceAuthStatus(editingKey!);
+          if (status.status === 'authorized') {
+            stopDeviceAuthPolling();
+            addToast('GitHub Copilot authorized successfully');
+            await load();
+          } else if (status.status === 'expired') {
+            stopDeviceAuthPolling();
+            addToast('Authorization expired - please try again', 'alert');
+          } else if (status.status === 'error') {
+            stopDeviceAuthPolling();
+            addToast(status.error || 'Authorization failed', 'alert');
+          }
+          // 'pending' and 'none' — keep polling
+        } catch {
+          stopDeviceAuthPolling();
+          addToast('Failed to check authorization status', 'alert');
+        }
+      }, deviceAuthInterval * 1000);
+    } catch (e: any) {
+      deviceAuthPending = false;
+      addToast(e?.response?.data?.message || 'Failed to start device authorization', 'alert');
+    }
+  }
+
   async function handleDiscoverModels() {
     if (!formType) {
       addToast('Select a provider type first', 'warn');
@@ -430,11 +539,11 @@
     }
 
     if (formType === 'vertex') {
-      addToast('Model discovery is not supported for Vertex AI', 'warn');
+      addToast('Model discovery is not supported for this provider type', 'warn');
       return;
     }
 
-    if (formType !== 'vertex' && !formApiKey) {
+    if (!formApiKey) {
       addToast('Enter an API key first', 'warn');
       return;
     }
@@ -455,7 +564,7 @@
       if (models.length === 0) {
         addToast('No models found', 'warn');
       } else {
-        formModels = models.join(', ');
+        formModels = models;
         addToast(`Found ${models.length} models`);
       }
     } catch (e: any) {
@@ -607,17 +716,107 @@
           </div>
         </div>
 
-        <!-- API Key -->
-        <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-apikey" class="text-sm font-medium text-gray-700">API Key</label>
-          <input
-            id="form-apikey"
-            type="password"
-            bind:value={formApiKey}
-            placeholder={activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'github-models' || activePreset?.id === 'github-copilot' ? 'github_pat_...' : 'sk-...'}
-            class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
-          />
-        </div>
+        <!-- Auth Type (only for openai) -->
+        {#if formType === 'openai'}
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-authtype" class="text-sm font-medium text-gray-700">Auth Type</label>
+            <div class="col-span-3 relative">
+              <select
+                id="form-authtype"
+                bind:value={formAuthType}
+                class="w-full border border-gray-300 px-3 py-1.5 text-sm appearance-none bg-white pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+              >
+                <option value="">(none)</option>
+                <option value="copilot">copilot</option>
+              </select>
+              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
+            </div>
+          </div>
+        {/if}
+
+        <!-- API Key / Device Auth -->
+        {#if formAuthType === 'copilot'}
+          <div class="grid grid-cols-4 gap-3 items-start">
+            <span class="text-sm font-medium text-gray-700 pt-1.5">Authorization</span>
+            <div class="col-span-3">
+              {#if deviceAuthPending}
+                <!-- Device flow in progress -->
+                <div class="border border-blue-200 bg-blue-50/50 p-4 space-y-3">
+                  <div class="text-sm text-gray-700">
+                    Open <a href={deviceAuthURI} target="_blank" rel="noopener noreferrer" class="font-medium text-blue-600 hover:text-blue-800 underline">{deviceAuthURI}</a> and enter the code:
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <code class="text-2xl font-bold font-mono tracking-widest text-gray-900 bg-white border border-gray-200 px-4 py-2 select-all">{deviceAuthCode}</code>
+                    <button
+                      type="button"
+                      onclick={() => { navigator.clipboard.writeText(deviceAuthCode); addToast('Code copied to clipboard'); }}
+                      class="px-2.5 py-1.5 text-xs border border-gray-300 hover:bg-gray-50 text-gray-600 transition-colors"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div class="flex items-center gap-2 text-xs text-gray-500">
+                    <RefreshCw size={12} class="animate-spin" />
+                    Waiting for authorization...
+                  </div>
+                  <button
+                    type="button"
+                    onclick={stopDeviceAuthPolling}
+                    class="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              {:else if editingKey && formHasStoredKey}
+                <!-- Already authorized -->
+                <div class="flex items-center gap-3">
+                  <span class="inline-flex items-center gap-1.5 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    Authorized via GitHub
+                  </span>
+                  <button
+                    type="button"
+                    onclick={handleDeviceAuth}
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors"
+                  >
+                    <LogIn size={13} />
+                    Re-authorize
+                  </button>
+                </div>
+              {:else if editingKey}
+                <!-- Not yet authorized, editing existing provider -->
+                <div class="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onclick={handleDeviceAuth}
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+                  >
+                    <LogIn size={14} />
+                    Authorize with GitHub
+                  </button>
+                  <span class="text-xs text-gray-500">Opens github.com in your browser</span>
+                </div>
+              {:else}
+                <!-- New provider, not yet saved -->
+                <div class="text-sm text-gray-500 py-1.5">
+                  Save the provider first, then click Authorize to sign in via GitHub.
+                </div>
+              {/if}
+            </div>
+          </div>
+        {:else}
+          <!-- Standard API Key input -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-apikey" class="text-sm font-medium text-gray-700">API Key</label>
+            <input
+              id="form-apikey"
+              type="password"
+              bind:value={formApiKey}
+              placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
+              class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+            />
+          </div>
+        {/if}
 
         <!-- Base URL -->
         <div class="grid grid-cols-4 gap-3 items-center">
@@ -646,26 +845,47 @@
         </div>
 
         <!-- Models -->
-        <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-models" class="text-sm font-medium text-gray-700">Models</label>
-          <div class="col-span-3 flex gap-2">
-            <input
-              id="form-models"
-              type="text"
-              bind:value={formModels}
-              placeholder="model-a, model-b (comma-separated, optional)"
-              class="flex-1 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
-            />
-            <button
-              type="button"
-              onclick={handleDiscoverModels}
-              disabled={discoveringModels}
-              class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              title="Fetch available models from the provider using the API key above"
-            >
-              <RefreshCw size={13} class={discoveringModels ? 'animate-spin' : ''} />
-              {discoveringModels ? 'Fetching...' : 'Fetch'}
-            </button>
+        <div class="grid grid-cols-4 gap-3">
+          <span class="text-sm font-medium text-gray-700 pt-1.5">Models</span>
+          <div class="col-span-3 space-y-2">
+            {#each formModels as model, i}
+              <div class="flex gap-2 items-center">
+                <span class="flex-1 border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-mono text-gray-700">{model}</span>
+                <button
+                  type="button"
+                  onclick={() => removeModel(i)}
+                  class="p-1.5 border border-gray-300 hover:bg-red-50 hover:border-red-300 hover:text-red-600 text-gray-400 transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            {/each}
+            <div class="flex gap-2">
+              <input
+                type="text"
+                bind:value={newModelInput}
+                placeholder="model name"
+                onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }}
+                class="flex-1 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+              />
+              <button
+                type="button"
+                onclick={addModel}
+                class="px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors shrink-0"
+              >
+                + Add
+              </button>
+              <button
+                type="button"
+                onclick={handleDiscoverModels}
+                disabled={discoveringModels}
+                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                title="Fetch available models from the provider using the API key above"
+              >
+                <RefreshCw size={13} class={discoveringModels ? 'animate-spin' : ''} />
+                {discoveringModels ? 'Fetching...' : 'Fetch'}
+              </button>
+            </div>
           </div>
         </div>
 

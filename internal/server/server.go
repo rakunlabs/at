@@ -50,6 +50,9 @@ type Server struct {
 	// Store is the optional persistent store for provider CRUD.
 	store service.ProviderStorer
 
+	// tokenStore is the optional persistent store for API token management.
+	tokenStore service.APITokenStorer
+
 	// providerFactory creates an LLMProvider from config (for hot reload).
 	providerFactory ProviderFactory
 
@@ -59,7 +62,7 @@ type Server struct {
 	channels map[string]chan MessageChannel
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, factory ProviderFactory) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, factory ProviderFactory) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -75,6 +78,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		server:          mux,
 		providers:       providers,
 		store:           store,
+		tokenStore:      tokenStore,
 		providerFactory: factory,
 		authToken:       gatewayCfg.AuthToken,
 		channels:        make(map[string]chan MessageChannel),
@@ -95,9 +99,16 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	baseGroup.GET("/api/v1/providers", s.ListProvidersAPI)
 	baseGroup.POST("/api/v1/providers", s.CreateProviderAPI)
 	baseGroup.POST("/api/v1/providers/discover-models", s.DiscoverModelsAPI)
+	baseGroup.POST("/api/v1/providers/device-auth", s.DeviceAuthAPI)
+	baseGroup.GET("/api/v1/providers/device-auth-status", s.DeviceAuthStatusAPI)
 	baseGroup.GET("/api/v1/providers/*", s.GetProviderAPI)
 	baseGroup.PUT("/api/v1/providers/*", s.UpdateProviderAPI)
 	baseGroup.DELETE("/api/v1/providers/*", s.DeleteProviderAPI)
+
+	// API Token management
+	baseGroup.GET("/api/v1/api-tokens", s.ListAPITokensAPI)
+	baseGroup.POST("/api/v1/api-tokens", s.CreateAPITokenAPI)
+	baseGroup.DELETE("/api/v1/api-tokens/*", s.DeleteAPITokenAPI)
 
 	// ////////////////////////////////////////////
 

@@ -11,6 +11,7 @@ export interface LLMConfig {
   model: string;
   models?: string[];
   extra_headers?: Record<string, string>;
+  auth_type?: string;
 }
 
 export interface ProviderRecord {
@@ -56,4 +57,30 @@ interface DiscoverModelsResponse {
 export async function discoverModels(config: Partial<LLMConfig>): Promise<string[]> {
   const res = await api.post<DiscoverModelsResponse>('/providers/discover-models', { config });
   return res.data.models;
+}
+
+// ─── Device Auth (GitHub OAuth Device Flow) ───
+
+export interface DeviceAuthResponse {
+  user_code: string;
+  verification_uri: string;
+  expires_in: number;
+  interval: number;
+}
+
+export interface DeviceAuthStatusResponse {
+  status: 'pending' | 'authorized' | 'expired' | 'error' | 'none';
+  error?: string;
+}
+
+export async function startDeviceAuth(key: string): Promise<DeviceAuthResponse> {
+  const res = await api.post<DeviceAuthResponse>('/providers/device-auth', { key });
+  return res.data;
+}
+
+export async function getDeviceAuthStatus(key: string): Promise<DeviceAuthStatusResponse> {
+  const res = await api.get<DeviceAuthStatusResponse>('/providers/device-auth-status', {
+    params: { key },
+  });
+  return res.data;
 }

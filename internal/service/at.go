@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/worldline-go/types"
 )
 
 // Generic LLM Interface
@@ -56,6 +57,29 @@ type ProviderStorer interface {
 	CreateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*ProviderRecord, error)
 	UpdateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*ProviderRecord, error)
 	DeleteProvider(ctx context.Context, key string) error
+}
+
+// ─── API Token Management ───
+
+// APIToken represents a bearer token stored in the database for gateway auth.
+type APIToken struct {
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	TokenPrefix      string                 `json:"token_prefix"`      // first 8 chars for display (e.g. "at_xxxx…")
+	AllowedProviders types.Slice[string]    `json:"allowed_providers"` // nil = all providers allowed
+	AllowedModels    types.Slice[string]    `json:"allowed_models"`    // nil = all models allowed ("provider/model" format)
+	ExpiresAt        types.Null[types.Time] `json:"expires_at"`        // zero value = no expiry
+	CreatedAt        types.Time             `json:"created_at"`
+	LastUsedAt       types.Null[types.Time] `json:"last_used_at"`
+}
+
+// APITokenStorer defines CRUD operations for API tokens.
+type APITokenStorer interface {
+	ListAPITokens(ctx context.Context) ([]APIToken, error)
+	GetAPITokenByHash(ctx context.Context, hash string) (*APIToken, error)
+	CreateAPIToken(ctx context.Context, token APIToken, tokenHash string) (*APIToken, error)
+	DeleteAPIToken(ctx context.Context, id string) error
+	UpdateLastUsed(ctx context.Context, id string) error
 }
 
 type Message struct {

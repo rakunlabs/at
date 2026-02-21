@@ -1,14 +1,58 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
+
+// authResult holds the outcome of authenticating a request.
+// A nil token means the YAML auth token was used (full access).
+type authResult struct {
+	token *service.APIToken // nil = YAML token (unrestricted)
+}
+
+// isModelAllowed checks whether the given "provider/model" is permitted by this token.
+// YAML tokens (token == nil) always have full access.
+func (a *authResult) isModelAllowed(providerKey, fullModelID string) bool {
+	if a.token == nil {
+		return true // YAML token = full access
+	}
+
+	hasProviderRestrictions := len(a.token.AllowedProviders) > 0
+	hasModelRestrictions := len(a.token.AllowedModels) > 0
+
+	if !hasProviderRestrictions && !hasModelRestrictions {
+		return true // no restrictions
+	}
+
+	// Check provider-level access (OR logic with model-level).
+	if hasProviderRestrictions {
+		for _, p := range a.token.AllowedProviders {
+			if p == providerKey {
+				return true
+			}
+		}
+	}
+
+	// Check model-level access.
+	if hasModelRestrictions {
+		for _, m := range a.token.AllowedModels {
+			if m == fullModelID {
+				return true
+			}
+		}
+	}
+
+	return false
+}
 
 // ChatCompletions handles POST /v1/chat/completions.
 // It accepts an OpenAI-compatible request, routes it to the correct backend
@@ -16,10 +60,11 @@ import (
 // and returns an OpenAI-compatible response.
 func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Auth check
-	if !s.checkAuth(r) {
+	auth, authErr := s.authenticateRequest(r)
+	if authErr != "" {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": "invalid or missing Authorization header",
+				"message": authErr,
 				"type":    "invalid_request_error",
 				"code":    "invalid_api_key",
 			},
@@ -49,6 +94,18 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 				"code":    "model_not_found",
 			},
 		}, http.StatusBadRequest)
+		return
+	}
+
+	// Token-level access check.
+	if !auth.isModelAllowed(providerKey, req.Model) {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": fmt.Sprintf("token does not have access to model %q", req.Model),
+				"type":    "invalid_request_error",
+				"code":    "model_not_found",
+			},
+		}, http.StatusForbidden)
 		return
 	}
 
@@ -140,11 +197,13 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 // It returns all configured provider/model combinations in OpenAI format.
 // If a provider has a models list, each model is advertised. Otherwise,
 // only the default model is shown.
+// When authenticated via a DB token with restrictions, models are filtered.
 func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
-	if !s.checkAuth(r) {
+	auth, authErr := s.authenticateRequest(r)
+	if authErr != "" {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": "invalid or missing Authorization header",
+				"message": authErr,
 				"type":    "invalid_request_error",
 				"code":    "invalid_api_key",
 			},
@@ -157,18 +216,24 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	for key, info := range s.providers {
 		if len(info.models) > 0 {
 			for _, m := range info.models {
+				fullID := key + "/" + m
+				if auth.isModelAllowed(key, fullID) {
+					models = append(models, ModelData{
+						ID:      fullID,
+						Object:  "model",
+						OwnedBy: key,
+					})
+				}
+			}
+		} else {
+			fullID := key + "/" + info.defaultModel
+			if auth.isModelAllowed(key, fullID) {
 				models = append(models, ModelData{
-					ID:      key + "/" + m,
+					ID:      fullID,
 					Object:  "model",
 					OwnedBy: key,
 				})
 			}
-		} else {
-			models = append(models, ModelData{
-				ID:      key + "/" + info.defaultModel,
-				Object:  "model",
-				OwnedBy: key,
-			})
 		}
 	}
 	s.providerMu.RUnlock()
@@ -207,15 +272,63 @@ func parseModelID(model string) (providerKey, actualModel string, err error) {
 	return providerKey, actualModel, nil
 }
 
-// checkAuth validates the Authorization header if auth is configured.
-// Returns true if auth passes (or no auth is configured).
-func (s *Server) checkAuth(r *http.Request) bool {
-	if s.authToken == "" {
-		return true
+// authenticateRequest validates the Authorization header.
+// Returns an authResult on success, or an error message string on failure.
+// When no auth is configured at all (no YAML token and no token store), all requests pass.
+func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
+	auth := r.Header.Get("Authorization")
+	bearerToken := strings.TrimPrefix(auth, "Bearer ")
+
+	// If no auth is configured at all, allow everything.
+	if s.authToken == "" && s.tokenStore == nil {
+		return &authResult{}, ""
 	}
 
-	auth := r.Header.Get("Authorization")
-	return auth == "Bearer "+s.authToken
+	if auth == "" || bearerToken == "" {
+		return nil, "missing Authorization header"
+	}
+
+	// 1. Check YAML auth token (full access).
+	if s.authToken != "" && bearerToken == s.authToken {
+		return &authResult{}, ""
+	}
+
+	// 2. Check DB token.
+	if s.tokenStore != nil {
+		hash := sha256.Sum256([]byte(bearerToken))
+		tokenHash := hex.EncodeToString(hash[:])
+
+		token, err := s.tokenStore.GetAPITokenByHash(r.Context(), tokenHash)
+		if err != nil {
+			slog.Error("token lookup failed", "error", err)
+			return nil, "internal error during authentication"
+		}
+
+		if token != nil {
+			// Check expiry.
+			if token.ExpiresAt.Valid && token.ExpiresAt.V.Time.Before(time.Now().UTC()) {
+				return nil, "token has expired"
+			}
+
+			// Update last_used_at (fire-and-forget).
+			go func() {
+				if err := s.tokenStore.UpdateLastUsed(r.Context(), token.ID); err != nil {
+					slog.Error("failed to update token last_used_at", "id", token.ID, "error", err)
+				}
+			}()
+
+			return &authResult{token: token}, ""
+		}
+	}
+
+	return nil, "invalid or missing Authorization header"
+}
+
+// checkAuth is a simple boolean auth check for backward compatibility.
+// Used by endpoints that don't need token restriction info.
+func (s *Server) checkAuth(r *http.Request) bool {
+	_, errMsg := s.authenticateRequest(r)
+	return errMsg == ""
 }
 
 // getProviderInfo looks up a provider by key, returning the full ProviderInfo.
