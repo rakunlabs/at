@@ -57,8 +57,8 @@ type Server struct {
 	// providerFactory creates an LLMProvider from config (for hot reload).
 	providerFactory ProviderFactory
 
-	storeType string // "postgres", "sqlite", or "none"
-	authToken string
+	storeType  string // "postgres", "sqlite", or "none"
+	authTokens []config.AuthTokenConfig
 
 	// tokenLastUsed tracks when each token's last_used_at was last written to
 	// the DB, so we can throttle updates to at most once per 5 minutes.
@@ -88,7 +88,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		tokenStore:      tokenStore,
 		providerFactory: factory,
 		storeType:       storeType,
-		authToken:       gatewayCfg.AuthToken,
+		authTokens:      gatewayCfg.AuthTokens,
 	}
 
 	// ////////////////////////////////////////////
@@ -159,8 +159,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 
 	// ////////////////////////////////////////////
 
-	if gatewayCfg.AuthToken != "" {
-		slog.Info("gateway master auth enabled")
+	if len(gatewayCfg.AuthTokens) > 0 {
+		slog.Info("gateway config auth tokens loaded", "count", len(gatewayCfg.AuthTokens))
 	}
 
 	slog.Info("gateway providers registered", "count", len(providers))

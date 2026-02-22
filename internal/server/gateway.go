@@ -20,16 +20,16 @@ import (
 const tokenLastUsedThreshold = 5 * time.Minute
 
 // authResult holds the outcome of authenticating a request.
-// A nil token means the YAML auth token was used (full access).
+// A nil token means unrestricted access (config token with no restrictions).
 type authResult struct {
-	token *service.APIToken // nil = YAML token (unrestricted)
+	token *service.APIToken // nil = unrestricted access
 }
 
 // isModelAllowed checks whether the given "provider/model" is permitted by this token.
-// YAML tokens (token == nil) always have full access.
+// Unrestricted tokens (token == nil) always have full access.
 func (a *authResult) isModelAllowed(providerKey, fullModelID string) bool {
 	if a.token == nil {
-		return true // YAML token = full access
+		return true // unrestricted access
 	}
 
 	hasProviderRestrictions := len(a.token.AllowedProviders) > 0
@@ -281,23 +281,57 @@ func parseModelID(model string) (providerKey, actualModel string, err error) {
 
 // authenticateRequest validates the Authorization header.
 // Returns an authResult on success, or an error message string on failure.
-// When no auth is configured at all (no YAML token and no token store), all requests pass.
+// When no auth is configured at all (no config tokens and no token store),
+// all requests are rejected — at least one token must be configured.
 func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 	auth := r.Header.Get("Authorization")
 	bearerToken := strings.TrimPrefix(auth, "Bearer ")
 
-	// If no auth is configured at all, allow everything.
-	if s.authToken == "" && s.tokenStore == nil {
-		return &authResult{}, ""
+	// If no auth is configured at all, reject everything.
+	if len(s.authTokens) == 0 && s.tokenStore == nil {
+		return nil, "no authentication configured; add a token via config or UI"
 	}
 
 	if auth == "" || bearerToken == "" {
 		return nil, "missing Authorization header"
 	}
 
-	// 1. Check YAML auth token (full access).
-	if s.authToken != "" && bearerToken == s.authToken {
-		return &authResult{}, ""
+	// 1. Check config auth tokens.
+	for _, cfgToken := range s.authTokens {
+		if cfgToken.Token == "" || bearerToken != cfgToken.Token {
+			continue
+		}
+
+		// Token matched — check expiry if set.
+		if cfgToken.ExpiresAt != "" {
+			expiresAt, err := time.Parse(time.RFC3339, cfgToken.ExpiresAt)
+			if err != nil {
+				slog.Error("invalid expires_at in config auth token, rejecting", "name", cfgToken.Name, "error", err)
+				return nil, "config token has invalid expires_at"
+			}
+
+			if expiresAt.Before(time.Now().UTC()) {
+				return nil, "token has expired"
+			}
+		}
+
+		// If no scoping is configured, return unrestricted access.
+		if len(cfgToken.AllowedProviders) == 0 && len(cfgToken.AllowedModels) == 0 {
+			return &authResult{}, ""
+		}
+
+		// Build a synthetic APIToken for scope checking.
+		syntheticToken := &service.APIToken{
+			Name: cfgToken.Name,
+		}
+		if len(cfgToken.AllowedProviders) > 0 {
+			syntheticToken.AllowedProviders = cfgToken.AllowedProviders
+		}
+		if len(cfgToken.AllowedModels) > 0 {
+			syntheticToken.AllowedModels = cfgToken.AllowedModels
+		}
+
+		return &authResult{token: syntheticToken}, ""
 	}
 
 	// 2. Check DB token.

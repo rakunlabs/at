@@ -12,7 +12,8 @@
     type ProviderRecord,
     type LLMConfig,
   } from '@/lib/api/providers';
-  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check } from 'lucide-svelte';
+  import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
 
   storeNavbar.title = 'Providers';
 
@@ -330,6 +331,11 @@
   let deleteConfirm = $state<string | null>(null);
   let activePreset = $state<Preset | null>(null);
 
+  // Config viewer state
+  let configViewProvider = $state<ProviderRecord | null>(null);
+  let configFormat = $state<'yaml' | 'json'>('yaml');
+  let configCopied = $state(false);
+
   // Form fields
   let formKey = $state('');
   let formType = $state<string>('openai');
@@ -603,6 +609,35 @@
     } finally {
       discoveringModels = false;
     }
+  }
+
+  // ─── Config Viewer ───
+
+  function openConfigView(rec: ProviderRecord) {
+    configViewProvider = rec;
+    configFormat = 'yaml';
+    configCopied = false;
+  }
+
+  function closeConfigView() {
+    configViewProvider = null;
+    configCopied = false;
+  }
+
+  function getConfigSnippet(): string {
+    if (!configViewProvider) return '';
+    if (configFormat === 'yaml') {
+      return generateYamlSnippet(configViewProvider.key, configViewProvider.config);
+    }
+    return generateJsonSnippet(configViewProvider.key, configViewProvider.config);
+  }
+
+  function copyConfigSnippet() {
+    const snippet = getConfigSnippet();
+    navigator.clipboard.writeText(snippet);
+    configCopied = true;
+    addToast('Config copied to clipboard');
+    setTimeout(() => { configCopied = false; }, 2000);
   }
 </script>
 
@@ -1048,6 +1083,13 @@
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
                   <button
+                    onclick={() => openConfigView(rec)}
+                    class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                    title="View Config"
+                  >
+                    <FileCode size={14} />
+                  </button>
+                  <button
                     onclick={() => openEdit(rec)}
                     class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
                     title="Edit"
@@ -1082,6 +1124,71 @@
           {/each}
         </tbody>
       </table>
+    </div>
+  {/if}
+
+  <!-- Config Viewer Modal -->
+  {#if configViewProvider}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      onkeydown={(e) => { if (e.key === 'Escape') closeConfigView(); }}
+      onclick={(e) => { if (e.target === e.currentTarget) closeConfigView(); }}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="bg-white shadow-xl w-full max-w-xl overflow-hidden" onclick={(e) => e.stopPropagation()}>
+        <!-- Header -->
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <span class="text-sm font-medium text-gray-900">
+            Config: <span class="font-mono">{configViewProvider.key}</span>
+          </span>
+          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+
+        <!-- Format Toggle + Copy -->
+        <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100">
+          <div class="flex gap-1">
+            <button
+              onclick={() => { configFormat = 'yaml'; configCopied = false; }}
+              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'yaml' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
+            >
+              YAML
+            </button>
+            <button
+              onclick={() => { configFormat = 'json'; configCopied = false; }}
+              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'json' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
+            >
+              JSON
+            </button>
+          </div>
+          <button
+            onclick={copyConfigSnippet}
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors"
+          >
+            {#if configCopied}
+              <Check size={12} class="text-green-600" />
+              <span class="text-green-600">Copied</span>
+            {:else}
+              <Copy size={12} />
+              Copy
+            {/if}
+          </button>
+        </div>
+
+        <!-- Code Block -->
+        <div class="p-4 bg-gray-50 max-h-96 overflow-auto">
+          <pre class="text-xs font-mono text-gray-800 whitespace-pre leading-relaxed">{getConfigSnippet()}</pre>
+        </div>
+
+        <!-- Hint -->
+        <div class="px-4 py-2.5 border-t border-gray-100 bg-white">
+          <p class="text-xs text-gray-500">
+            Add this to your <span class="font-mono font-medium">at.yaml</span> configuration file to define this provider.
+          </p>
+        </div>
+      </div>
     </div>
   {/if}
 </div>

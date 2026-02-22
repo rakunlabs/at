@@ -92,11 +92,54 @@ type Server struct {
 }
 
 // Gateway configures the OpenAI-compatible gateway server endpoints.
+//
+// Example YAML:
+//
+//	gateway:
+//	  auth_tokens:
+//	    - token: "sk-master-key"
+//	      name: "Master Key"
+//	      # no restrictions = full access
+//	    - token: "sk-ci-token"
+//	      name: "CI Pipeline"
+//	      allowed_providers:
+//	        - openai
+//	      allowed_models:
+//	        - openai/gpt-4o
+//	      expires_at: "2026-12-31T23:59:59Z"
 type Gateway struct {
-	// AuthToken, if set, requires clients to send
-	// "Authorization: Bearer <token>" to access the gateway endpoints.
-	// If empty, need to be set in UI a token.
-	AuthToken string `cfg:"auth_token" log:"-"`
+	// AuthTokens is a list of bearer tokens for gateway authentication.
+	// Each token can optionally be scoped to specific providers/models and
+	// can have an expiration date. If the list is empty, tokens can still
+	// be managed via the UI/API (stored in the database).
+	// If no auth tokens are configured at all (neither here nor in DB),
+	// the gateway allows unauthenticated access.
+	AuthTokens []AuthTokenConfig `cfg:"auth_tokens"`
+}
+
+// AuthTokenConfig describes a single bearer token for gateway authentication,
+// with optional scoping and expiration.
+type AuthTokenConfig struct {
+	// Token is the bearer token value that clients send in the
+	// "Authorization: Bearer <token>" header.
+	Token string `cfg:"token" json:"token" log:"-"`
+
+	// Name is an optional human-readable label for this token
+	// (e.g., "CI Pipeline", "Dev Team").
+	Name string `cfg:"name" json:"name"`
+
+	// AllowedProviders restricts this token to specific provider keys.
+	// If empty/nil, all providers are accessible.
+	AllowedProviders []string `cfg:"allowed_providers" json:"allowed_providers"`
+
+	// AllowedModels restricts this token to specific models in
+	// "provider/model" format (e.g., "openai/gpt-4o").
+	// If empty/nil, all models are accessible.
+	AllowedModels []string `cfg:"allowed_models" json:"allowed_models"`
+
+	// ExpiresAt is an optional RFC3339 expiration timestamp.
+	// After this time the token is rejected. If empty, the token never expires.
+	ExpiresAt string `cfg:"expires_at" json:"expires_at"`
 }
 
 type Store struct {
