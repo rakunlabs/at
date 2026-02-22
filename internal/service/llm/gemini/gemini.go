@@ -424,6 +424,55 @@ func convertToParts(msg service.Message) []part {
 						InlineData: &inlineData{MimeType: mimeType, Data: data},
 					})
 				}
+			case "input_audio":
+				// OpenAI-format audio block: {type:"input_audio", input_audio:{data:"<base64>", format:"wav"|"mp3"}}
+				audio, _ := block["input_audio"].(map[string]any)
+				if audio == nil {
+					continue
+				}
+				data, _ := audio["data"].(string)
+				format, _ := audio["format"].(string)
+				if data == "" {
+					continue
+				}
+				mimeType := "audio/" + format
+				if format == "" {
+					mimeType = "audio/wav"
+				}
+				parts = append(parts, part{
+					InlineData: &inlineData{MimeType: mimeType, Data: data},
+				})
+			case "file":
+				// OpenAI-format file block: {type:"file", file:{filename:"...", file_data:{mime_type:"...", data:"<base64>"}}}
+				file, _ := block["file"].(map[string]any)
+				if file == nil {
+					continue
+				}
+				fileData, _ := file["file_data"].(map[string]any)
+				if fileData == nil {
+					continue
+				}
+				mimeType, _ := fileData["mime_type"].(string)
+				data, _ := fileData["data"].(string)
+				if data == "" {
+					continue
+				}
+				parts = append(parts, part{
+					InlineData: &inlineData{MimeType: mimeType, Data: data},
+				})
+			case "video_url":
+				// OpenAI-format video block: {type:"video_url", video_url:{url:"data:video/mp4;base64,..."}}
+				videoURL, _ := block["video_url"].(map[string]any)
+				if videoURL == nil {
+					continue
+				}
+				url, _ := videoURL["url"].(string)
+				mimeType, data := parseGeminiDataURL(url)
+				if data != "" {
+					parts = append(parts, part{
+						InlineData: &inlineData{MimeType: mimeType, Data: data},
+					})
+				}
 			case "tool_use":
 				// Assistant's tool call -> functionCall part.
 				name, _ := block["name"].(string)
@@ -474,6 +523,36 @@ func convertToParts(msg service.Message) []part {
 						},
 					})
 				}
+			case "document":
+				// Anthropic-format document block (e.g. PDF) with Source field
+				if block.Source != nil && block.Source.Data != "" {
+					parts = append(parts, part{
+						InlineData: &inlineData{
+							MimeType: block.Source.MediaType,
+							Data:     block.Source.Data,
+						},
+					})
+				}
+			case "audio":
+				// Audio content block with Source field
+				if block.Source != nil && block.Source.Data != "" {
+					parts = append(parts, part{
+						InlineData: &inlineData{
+							MimeType: block.Source.MediaType,
+							Data:     block.Source.Data,
+						},
+					})
+				}
+			case "video":
+				// Video content block with Source field
+				if block.Source != nil && block.Source.Data != "" {
+					parts = append(parts, part{
+						InlineData: &inlineData{
+							MimeType: block.Source.MediaType,
+							Data:     block.Source.Data,
+						},
+					})
+				}
 			case "tool_use":
 				if block.Name != "" {
 					parts = append(parts, part{
@@ -504,7 +583,7 @@ func convertToParts(msg service.Message) []part {
 		// Single pre-built message (passthrough from gateway).
 		// Extract role/content if present.
 		if contentArr, ok := c["content"].([]any); ok {
-			// Content may be an array of content blocks (multi-part with images).
+			// Content may be an array of content blocks (multi-part with media).
 			var parts []part
 			hasNonText := false
 			for _, item := range contentArr {
@@ -536,6 +615,52 @@ func convertToParts(msg service.Message) []part {
 							continue
 						}
 						url, _ := imageURL["url"].(string)
+						mimeType, data := parseGeminiDataURL(url)
+						if data != "" {
+							parts = append(parts, part{
+								InlineData: &inlineData{MimeType: mimeType, Data: data},
+							})
+						}
+					case "input_audio":
+						audio, _ := block["input_audio"].(map[string]any)
+						if audio == nil {
+							continue
+						}
+						data, _ := audio["data"].(string)
+						format, _ := audio["format"].(string)
+						if data == "" {
+							continue
+						}
+						mimeType := "audio/" + format
+						if format == "" {
+							mimeType = "audio/wav"
+						}
+						parts = append(parts, part{
+							InlineData: &inlineData{MimeType: mimeType, Data: data},
+						})
+					case "file":
+						file, _ := block["file"].(map[string]any)
+						if file == nil {
+							continue
+						}
+						fileData, _ := file["file_data"].(map[string]any)
+						if fileData == nil {
+							continue
+						}
+						mimeType, _ := fileData["mime_type"].(string)
+						data, _ := fileData["data"].(string)
+						if data == "" {
+							continue
+						}
+						parts = append(parts, part{
+							InlineData: &inlineData{MimeType: mimeType, Data: data},
+						})
+					case "video_url":
+						videoURL, _ := block["video_url"].(map[string]any)
+						if videoURL == nil {
+							continue
+						}
+						url, _ := videoURL["url"].(string)
 						mimeType, data := parseGeminiDataURL(url)
 						if data != "" {
 							parts = append(parts, part{

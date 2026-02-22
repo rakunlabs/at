@@ -5,6 +5,10 @@
   storeNavbar.title = '404';
 </script>
 
+<svelte:head>
+  <title>AT | 404</title>
+</svelte:head>
+
 <div class="flex items-center justify-center h-full">
   <div class="text-center">
     <div class="text-6xl font-bold text-gray-200 mb-2">404</div>

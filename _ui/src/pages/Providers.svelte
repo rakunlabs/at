@@ -641,6 +641,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>AT | Providers</title>
+</svelte:head>
+
 <div class="p-6 max-w-5xl mx-auto">
   <!-- Header -->
   <div class="flex items-start justify-between mb-6">

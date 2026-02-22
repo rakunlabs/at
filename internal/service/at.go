@@ -96,14 +96,17 @@ type ContentBlock struct {
 	Input     map[string]any `json:"input,omitempty"`
 	ToolUseID string         `json:"tool_use_id,omitempty"`
 	Content   string         `json:"content,omitempty"`
-	Source    *ImageSource   `json:"source,omitempty"` // For image content blocks (Anthropic format)
+	Source    *MediaSource   `json:"source,omitempty"` // For media content blocks (images, documents, audio, video — Anthropic format)
 }
 
-// ImageSource represents an image source for vision/image content blocks.
-type ImageSource struct {
-	Type      string `json:"type"`       // "base64"
-	MediaType string `json:"media_type"` // e.g. "image/png", "image/jpeg"
-	Data      string `json:"data"`       // base64-encoded image data
+// MediaSource represents a media source for content blocks (images, documents, audio, video).
+// Used by Anthropic-format content blocks where the source contains base64-encoded data
+// or a URL reference.
+type MediaSource struct {
+	Type      string `json:"type"`                 // "base64" or "url"
+	MediaType string `json:"media_type,omitempty"` // e.g. "image/png", "application/pdf", "audio/wav"
+	Data      string `json:"data,omitempty"`       // base64-encoded data (when type="base64")
+	URL       string `json:"url,omitempty"`        // URL reference (when type="url")
 }
 
 type LLMResponse struct {

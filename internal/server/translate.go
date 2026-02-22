@@ -130,10 +130,10 @@ func translateOpenAIMessages(msgs []OpenAIMessage) []service.Message {
 			"role": msg.Role,
 		}
 
-		// If the content contains image blocks, pass the full content array
-		// through as-is. OpenAI and Vertex both natively accept the multi-part
-		// content format [{type:"text",...},{type:"image_url",...}].
-		if hasImageContent(msg.Content) {
+		// If the content contains non-text blocks (images, audio, files, video),
+		// pass the full content array through as-is. OpenAI and Vertex both
+		// natively accept the multi-part content format.
+		if hasMultiPartContent(msg.Content) {
 			m["content"] = parseContentParts(msg.Content)
 		} else {
 			content := extractContentString(msg.Content)
@@ -185,8 +185,8 @@ func translateOpenAIToAnthropic(msgs []OpenAIMessage) (systemPrompt string, mess
 			systemPrompt = extractContentString(msg.Content)
 
 		case "user":
-			if hasImageContent(msg.Content) {
-				// Convert OpenAI image_url blocks to Anthropic image blocks
+			if hasMultiPartContent(msg.Content) {
+				// Convert OpenAI multi-part content blocks to Anthropic format
 				blocks := convertOpenAIContentToAnthropic(msg.Content)
 				messages = append(messages, service.Message{
 					Role:    "user",
@@ -342,9 +342,9 @@ func parseDataURL(url string) (mimeType, data string) {
 	return meta, parts[1]
 }
 
-// hasImageContent checks whether a raw OpenAI message content contains any
-// image_url content blocks.
-func hasImageContent(raw json.RawMessage) bool {
+// hasMultiPartContent checks whether a raw OpenAI message content contains any
+// non-text content blocks (image_url, input_audio, file, video_url, etc.).
+func hasMultiPartContent(raw json.RawMessage) bool {
 	if len(raw) == 0 || raw[0] != '[' {
 		return false
 	}
@@ -355,7 +355,7 @@ func hasImageContent(raw json.RawMessage) bool {
 		return false
 	}
 	for _, p := range parts {
-		if p.Type == "image_url" {
+		if p.Type != "" && p.Type != "text" {
 			return true
 		}
 	}
@@ -363,7 +363,7 @@ func hasImageContent(raw json.RawMessage) bool {
 }
 
 // parseContentParts parses a raw OpenAI content array into []any, preserving
-// all content part types (text, image_url, etc.) as maps.
+// all content part types (text, image_url, input_audio, file, video_url, etc.) as maps.
 func parseContentParts(raw json.RawMessage) []any {
 	var parts []any
 	if err := json.Unmarshal(raw, &parts); err != nil {
@@ -373,9 +373,15 @@ func parseContentParts(raw json.RawMessage) []any {
 }
 
 // convertOpenAIContentToAnthropic converts an OpenAI content array (containing
-// text and image_url blocks) to Anthropic-format content blocks.
-// OpenAI:    {type:"image_url", image_url:{url:"data:image/png;base64,..."}}
-// Anthropic: {type:"image", source:{type:"base64", media_type:"image/png", data:"..."}}
+// text, image_url, input_audio, file, and video_url blocks) to Anthropic-format
+// content blocks.
+//
+// Supported conversions:
+//
+//	OpenAI image_url  → Anthropic image    (base64 source)
+//	OpenAI file       → Anthropic document (base64 source)
+//	OpenAI input_audio → passed through as-is (let Anthropic decide)
+//	OpenAI video_url   → passed through as-is (let Anthropic decide)
 func convertOpenAIContentToAnthropic(raw json.RawMessage) []service.ContentBlock {
 	var parts []map[string]any
 	if err := json.Unmarshal(raw, &parts); err != nil {
@@ -392,7 +398,10 @@ func convertOpenAIContentToAnthropic(raw json.RawMessage) []service.ContentBlock
 				Type: "text",
 				Text: text,
 			})
+
 		case "image_url":
+			// OpenAI: {type:"image_url", image_url:{url:"data:image/png;base64,..."}}
+			// Anthropic: {type:"image", source:{type:"base64", media_type:"image/png", data:"..."}}
 			imageURL, _ := p["image_url"].(map[string]any)
 			if imageURL == nil {
 				continue
@@ -400,11 +409,92 @@ func convertOpenAIContentToAnthropic(raw json.RawMessage) []service.ContentBlock
 			url, _ := imageURL["url"].(string)
 			mimeType, data := parseDataURL(url)
 			if data == "" {
+				// Non-data URI (e.g. https:// URL) — pass through via url source type
+				if url != "" {
+					blocks = append(blocks, service.ContentBlock{
+						Type: "image",
+						Source: &service.MediaSource{
+							Type: "url",
+							URL:  url,
+						},
+					})
+				}
 				continue
 			}
 			blocks = append(blocks, service.ContentBlock{
 				Type: "image",
-				Source: &service.ImageSource{
+				Source: &service.MediaSource{
+					Type:      "base64",
+					MediaType: mimeType,
+					Data:      data,
+				},
+			})
+
+		case "input_audio":
+			// OpenAI: {type:"input_audio", input_audio:{data:"<base64>", format:"wav"|"mp3"}}
+			// Anthropic: pass through as content block — let the provider decide.
+			audio, _ := p["input_audio"].(map[string]any)
+			if audio == nil {
+				continue
+			}
+			data, _ := audio["data"].(string)
+			format, _ := audio["format"].(string)
+			if data == "" {
+				continue
+			}
+			mimeType := "audio/" + format
+			if format == "" {
+				mimeType = "audio/wav"
+			}
+			blocks = append(blocks, service.ContentBlock{
+				Type: "audio",
+				Source: &service.MediaSource{
+					Type:      "base64",
+					MediaType: mimeType,
+					Data:      data,
+				},
+			})
+
+		case "file":
+			// OpenAI: {type:"file", file:{filename:"doc.pdf", file_data:{mime_type:"application/pdf", data:"<base64>"}}}
+			// Anthropic: {type:"document", source:{type:"base64", media_type:"application/pdf", data:"..."}}
+			file, _ := p["file"].(map[string]any)
+			if file == nil {
+				continue
+			}
+			fileData, _ := file["file_data"].(map[string]any)
+			if fileData == nil {
+				continue
+			}
+			mimeType, _ := fileData["mime_type"].(string)
+			data, _ := fileData["data"].(string)
+			if data == "" {
+				continue
+			}
+			blocks = append(blocks, service.ContentBlock{
+				Type: "document",
+				Source: &service.MediaSource{
+					Type:      "base64",
+					MediaType: mimeType,
+					Data:      data,
+				},
+			})
+
+		case "video_url":
+			// OpenAI: {type:"video_url", video_url:{url:"data:video/mp4;base64,..."}}
+			// Pass through as video content block — let the provider decide.
+			videoURL, _ := p["video_url"].(map[string]any)
+			if videoURL == nil {
+				continue
+			}
+			url, _ := videoURL["url"].(string)
+			mimeType, data := parseDataURL(url)
+			if data == "" {
+				continue
+			}
+			blocks = append(blocks, service.ContentBlock{
+				Type: "video",
+				Source: &service.MediaSource{
 					Type:      "base64",
 					MediaType: mimeType,
 					Data:      data,

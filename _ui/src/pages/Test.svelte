@@ -443,6 +443,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>AT | Test</title>
+</svelte:head>
+
 <div
   class="flex flex-col h-full"
   ondragover={handleDragOver}

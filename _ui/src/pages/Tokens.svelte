@@ -261,6 +261,10 @@
   }
 </script>
 
+<svelte:head>
+  <title>AT | API Tokens</title>
+</svelte:head>
+
 <div class="p-6 max-w-5xl mx-auto">
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
