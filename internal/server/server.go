@@ -57,6 +57,7 @@ type Server struct {
 	// providerFactory creates an LLMProvider from config (for hot reload).
 	providerFactory ProviderFactory
 
+	storeType string // "postgres", "sqlite", or "none"
 	authToken string
 
 	// tokenLastUsed tracks when each token's last_used_at was last written to
@@ -68,7 +69,7 @@ type Server struct {
 	tokenLastUsedMu sync.Map // map[string]*sync.Mutex
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, factory ProviderFactory) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, storeType string, factory ProviderFactory) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -86,6 +87,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		store:           store,
 		tokenStore:      tokenStore,
 		providerFactory: factory,
+		storeType:       storeType,
 		authToken:       gatewayCfg.AuthToken,
 	}
 

@@ -16,7 +16,7 @@ import (
 // infoResponse is returned by GET /api/v1/info.
 type infoResponse struct {
 	Providers []infoProvider `json:"providers"`
-	StoreType string         `json:"store_type"` // "postgres" or "none"
+	StoreType string         `json:"store_type"` // "postgres", "sqlite", or "none"
 }
 
 type infoProvider struct {
@@ -45,10 +45,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	s.providerMu.RUnlock()
 
-	storeType := "none"
-	if s.store != nil {
-		storeType = "postgres"
-	}
+	storeType := s.storeType
 
 	httpResponseJSON(w, infoResponse{
 		Providers: providerList,

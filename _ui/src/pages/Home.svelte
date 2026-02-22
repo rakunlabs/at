@@ -88,7 +88,7 @@
       {:else}
         <div class="text-2xl font-bold text-gray-900 capitalize">{storeType}</div>
         <div class="text-xs text-gray-500 mt-1">
-          {storeType === 'postgres' ? 'persistent storage active' : 'YAML config only'}
+          {storeType === 'postgres' || storeType === 'sqlite' ? 'persistent storage active' : storeType === 'memory' ? 'in-memory (non-persistent)' : 'YAML config only'}
         </div>
       {/if}
     </div>

@@ -9,8 +9,6 @@ LLM gateway with an OpenAI-compatible API. Route requests to multiple providers 
 ## Usage
 
 ```sh
-## create test environment (postgres)
-make env
 ## build-ui or in the UI pnpm run dev to start UI in development mode
 make install-ui run-ui
 ## run at server
@@ -21,7 +19,7 @@ Open http://localhost:3000 to access the web UI for UI development mode.
 
 ## Configuration
 
-Providers can be configured via YAML config file or the web UI (stored in PostgreSQL). Database entries override YAML.
+Providers can be configured via YAML config file or the web UI (stored in SQLite, Postgres). Database entries override YAML.
 
 ```yaml
 providers:
@@ -106,3 +104,41 @@ server:
 ```
 
 When `forward_auth` is set, all management API requests are forwarded to the specified authentication service for verification before being handled. If the auth service returns a 2xx response the request proceeds; otherwise it is rejected or redirected.
+
+### Store configuration
+
+Providers and API tokens can be managed through the web UI and persisted in a database. If no store is configured, an **in-memory** store is used automatically (data will not survive restarts).
+
+#### SQLite (recommended for single-instance deployments)
+
+```yaml
+store:
+  sqlite:
+    datasource: "at.db"
+    # table_prefix: "at_"  # optional, defaults to "at_"
+```
+
+WAL mode and foreign keys are enabled automatically.
+
+#### PostgreSQL
+
+```yaml
+store:
+  postgres:
+    datasource: "postgres://user:pass@localhost:5432/at?sslmode=disable"
+    # schema: "public"              # optional
+    # table_prefix: "at_"           # optional, defaults to "at_"
+    # conn_max_lifetime: "15m"      # optional
+    # max_idle_conns: 3             # optional
+    # max_open_conns: 3             # optional
+```
+
+A Docker Compose file is provided for local development:
+
+```sh
+make env
+```
+
+#### In-memory (default)
+
+When neither `sqlite` nor `postgres` is configured, the store falls back to an in-memory backend. All CRUD APIs work normally but data is lost on restart.

@@ -101,6 +101,7 @@ type Gateway struct {
 
 type Store struct {
 	Postgres *StorePostgres `cfg:"postgres"`
+	SQLite   *StoreSQLite   `cfg:"sqlite"`
 }
 
 type StorePostgres struct {
@@ -110,6 +111,13 @@ type StorePostgres struct {
 	ConnMaxLifetime *time.Duration `cfg:"conn_max_lifetime"`
 	MaxIdleConns    *int           `cfg:"max_idle_conns"`
 	MaxOpenConns    *int           `cfg:"max_open_conns"`
+
+	Migrate Migrate `cfg:"migrate"`
+}
+
+type StoreSQLite struct {
+	TablePrefix *string `cfg:"table_prefix"`
+	Datasource  string  `cfg:"datasource"`
 
 	Migrate Migrate `cfg:"migrate"`
 }

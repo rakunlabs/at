@@ -110,43 +110,45 @@ func run(ctx context.Context) error {
 		slog.Info("provider created from config", "key", key, "type", provCfg.Type, "model", provCfg.Model)
 	}
 
-	// Initialize store (optional — only if postgres is configured).
-	var providerStore service.ProviderStorer
-	var tokenStore service.APITokenStorer
-	if cfg.Store.Postgres != nil {
-		st, err := store.New(ctx, cfg.Store)
+	// Initialize store (falls back to in-memory if no backend is configured).
+	st, err := store.New(ctx, cfg.Store)
+	if err != nil {
+		return fmt.Errorf("failed to create store: %w", err)
+	}
+	defer st.Close()
+
+	// Load DB providers on top of YAML providers (DB overrides YAML).
+	dbRecords, err := st.ListProviders(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to load providers from DB: %w", err)
+	}
+
+	for _, rec := range dbRecords {
+		provider, err := newProvider(rec.Config)
 		if err != nil {
-			return fmt.Errorf("failed to create store: %w", err)
-		}
-		defer st.Close()
-
-		providerStore = st
-		tokenStore = st
-
-		// Load DB providers on top of YAML providers (DB overrides YAML).
-		dbRecords, err := st.ListProviders(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to load providers from DB: %w", err)
+			slog.Warn("failed to create DB provider, skipping", "key", rec.Key, "error", err)
+			continue
 		}
 
-		for _, rec := range dbRecords {
-			provider, err := newProvider(rec.Config)
-			if err != nil {
-				slog.Warn("failed to create DB provider, skipping", "key", rec.Key, "error", err)
-				continue
-			}
-
-			providers[rec.Key] = server.NewProviderInfo(provider, rec.Config.Type, rec.Config.Model, rec.Config.Models)
-			slog.Info("provider loaded from DB (overrides YAML)", "key", rec.Key, "type", rec.Config.Type)
-		}
+		providers[rec.Key] = server.NewProviderInfo(provider, rec.Config.Type, rec.Config.Model, rec.Config.Models)
+		slog.Info("provider loaded from DB (overrides YAML)", "key", rec.Key, "type", rec.Config.Type)
 	}
 
 	if len(providers) == 0 {
 		slog.Warn("no providers configured; gateway will have no backends until providers are added via API")
 	}
 
+	// Determine store type for info API.
+	storeType := "memory"
+	switch {
+	case cfg.Store.Postgres != nil:
+		storeType = "postgres"
+	case cfg.Store.SQLite != nil:
+		storeType = "sqlite"
+	}
+
 	// Create and start HTTP server.
-	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, providerStore, tokenStore, newProvider)
+	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, st, st, storeType, newProvider)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}

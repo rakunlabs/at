@@ -2,11 +2,12 @@ package store
 
 import (
 	"context"
-	"errors"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/store/memory"
 	"github.com/rakunlabs/at/internal/store/postgres"
+	"github.com/rakunlabs/at/internal/store/sqlite3"
 )
 
 // StorerClose combines the ProviderStorer and APITokenStorer interfaces with a Close method.
@@ -17,7 +18,7 @@ type StorerClose interface {
 }
 
 // New creates a StorerClose based on the given store configuration.
-// Currently only PostgreSQL is supported.
+// Falls back to an in-memory store if no backend is configured.
 func New(ctx context.Context, cfg config.Store) (StorerClose, error) {
 	var store StorerClose
 	var err error
@@ -29,8 +30,15 @@ func New(ctx context.Context, cfg config.Store) (StorerClose, error) {
 		}
 	}
 
+	if store == nil && cfg.SQLite != nil {
+		store, err = sqlite3.New(ctx, cfg.SQLite)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	if store == nil {
-		return nil, errors.New("no store configured")
+		store = memory.New()
 	}
 
 	return store, nil
