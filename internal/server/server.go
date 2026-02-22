@@ -16,6 +16,7 @@ import (
 
 	mfolder "github.com/rakunlabs/ada/handler/folder"
 	mcors "github.com/rakunlabs/ada/middleware/cors"
+	mforwardauth "github.com/rakunlabs/ada/middleware/forwardauth"
 	mlog "github.com/rakunlabs/ada/middleware/log"
 	mrecover "github.com/rakunlabs/ada/middleware/recover"
 	mrequestid "github.com/rakunlabs/ada/middleware/requestid"
@@ -58,8 +59,6 @@ type Server struct {
 
 	authToken string
 
-	m sync.RWMutex
-
 	// tokenLastUsed tracks when each token's last_used_at was last written to
 	// the DB, so we can throttle updates to at most once per 5 minutes.
 	tokenLastUsed sync.Map // map[string]time.Time
@@ -99,24 +98,34 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
 
+	// ////////////////////////////////////////////
+	apiGroup := baseGroup.Group("/api")
+
+	if cfg.ForwardAuth != nil {
+		slog.Info("forward auth enabled", "url", cfg.ForwardAuth.Address)
+		apiGroup.Use(mforwardauth.Middleware(mforwardauth.WithConfig(*cfg.ForwardAuth)))
+	} else {
+		slog.Info("forward auth disabled (no forward_auth config)")
+	}
+
 	// Gateway info API
-	baseGroup.GET("/api/v1/info", s.InfoAPI)
+	apiGroup.GET("/api/v1/info", s.InfoAPI)
 
 	// Provider management API
-	baseGroup.GET("/api/v1/providers", s.ListProvidersAPI)
-	baseGroup.POST("/api/v1/providers", s.CreateProviderAPI)
-	baseGroup.POST("/api/v1/providers/discover-models", s.DiscoverModelsAPI)
-	baseGroup.POST("/api/v1/providers/device-auth", s.DeviceAuthAPI)
-	baseGroup.GET("/api/v1/providers/device-auth-status", s.DeviceAuthStatusAPI)
-	baseGroup.GET("/api/v1/providers/*", s.GetProviderAPI)
-	baseGroup.PUT("/api/v1/providers/*", s.UpdateProviderAPI)
-	baseGroup.DELETE("/api/v1/providers/*", s.DeleteProviderAPI)
+	apiGroup.GET("/v1/providers", s.ListProvidersAPI)
+	apiGroup.POST("/v1/providers", s.CreateProviderAPI)
+	apiGroup.POST("/v1/providers/discover-models", s.DiscoverModelsAPI)
+	apiGroup.POST("/v1/providers/device-auth", s.DeviceAuthAPI)
+	apiGroup.GET("/v1/providers/device-auth-status", s.DeviceAuthStatusAPI)
+	apiGroup.GET("/v1/providers/*", s.GetProviderAPI)
+	apiGroup.PUT("/v1/providers/*", s.UpdateProviderAPI)
+	apiGroup.DELETE("/v1/providers/*", s.DeleteProviderAPI)
 
 	// API Token management
-	baseGroup.GET("/api/v1/api-tokens", s.ListAPITokensAPI)
-	baseGroup.POST("/api/v1/api-tokens", s.CreateAPITokenAPI)
-	baseGroup.PUT("/api/v1/api-tokens/*", s.UpdateAPITokenAPI)
-	baseGroup.DELETE("/api/v1/api-tokens/*", s.DeleteAPITokenAPI)
+	apiGroup.GET("/v1/api-tokens", s.ListAPITokensAPI)
+	apiGroup.POST("/v1/api-tokens", s.CreateAPITokenAPI)
+	apiGroup.PUT("/v1/api-tokens/*", s.UpdateAPITokenAPI)
+	apiGroup.DELETE("/v1/api-tokens/*", s.DeleteAPITokenAPI)
 
 	// ////////////////////////////////////////////
 
@@ -149,9 +158,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// ////////////////////////////////////////////
 
 	if gatewayCfg.AuthToken != "" {
-		slog.Info("gateway auth enabled")
-	} else {
-		slog.Info("gateway auth disabled (no auth_token configured)")
+		slog.Info("gateway master auth enabled")
 	}
 
 	slog.Info("gateway providers registered", "count", len(providers))

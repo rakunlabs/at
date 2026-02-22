@@ -13,6 +13,10 @@ VERSION := $(or $(IMAGE_TAG),$(shell git describe --tags --first-parent --match 
 run: ## Run the at command-line tool
 	@go run $(MAIN_FILE)
 
+.PHONY: run-ui
+run-ui: ## Run the UI in development mode
+	@cd _ui && pnpm run dev
+
 .PHONY: env
 env: ## Create environment
 	@echo "> Creating environment $(PROJECT)"
@@ -23,10 +27,15 @@ env-down: ## Destroy environment
 	@echo "> Destroying environment $(PROJECT)"
 	docker compose --project-name=$(PROJECT) down --volumes
 
+.PHONY: install-ui
+install-ui: ## Install UI dependencies
+	@echo "> Installing UI dependencies"
+	@cd _ui && pnpm install
+
 .PHONY: build-ui
-build-ui: ## Build the UI assets
+build-ui: install-ui ## Build the UI assets
 	@echo "> Building UI assets"
-	@cd _ui && pnpm install && pnpm run build
+	@cd _ui && pnpm run build
 	@rm -rf internal/server/dist && mv _ui/dist internal/server/dist
 	@echo > internal/server/dist/.gitkeep
 

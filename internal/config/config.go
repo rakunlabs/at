@@ -10,6 +10,7 @@ import (
 	_ "github.com/rakunlabs/chu/loader/loadervault"
 	"github.com/rakunlabs/logi"
 
+	mforwardauth "github.com/rakunlabs/ada/middleware/forwardauth"
 	"github.com/rakunlabs/chu"
 	"github.com/rakunlabs/tell"
 )
@@ -84,13 +85,17 @@ type Server struct {
 
 	Port string `cfg:"port" default:"8080"`
 	Host string `cfg:"host"`
+
+	// ForwardAuth, if set, configures the API to forward auth requests to an external
+	// authentication service.
+	ForwardAuth *mforwardauth.ForwardAuth `cfg:"forward_auth"`
 }
 
 // Gateway configures the OpenAI-compatible gateway server endpoints.
 type Gateway struct {
 	// AuthToken, if set, requires clients to send
 	// "Authorization: Bearer <token>" to access the gateway endpoints.
-	// If empty, no authentication is required.
+	// If empty, need to be set in UI a token.
 	AuthToken string `cfg:"auth_token" log:"-"`
 }
 
