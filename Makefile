@@ -39,6 +39,11 @@ build-ui: install-ui ## Build the UI assets
 	@rm -rf internal/server/dist && mv _ui/dist internal/server/dist
 	@echo > internal/server/dist/.gitkeep
 
+.PHONY: build
+build: build-ui ## Build the Go binary
+	@echo "> Building $(PROJECT) binary with goreleaser"
+	goreleaser build --snapshot --clean --single-target
+
 .PHONY: lint
 lint: ## Lint Go files
 	@GOPATH="$(shell dirname $(PWD))" golangci-lint run ./...

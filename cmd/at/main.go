@@ -22,6 +22,8 @@ import (
 var (
 	name    = "at"
 	version = "v0.0.0"
+	commit  = "-"
+	date    = "-"
 )
 
 func main() {
@@ -29,7 +31,7 @@ func main() {
 
 	into.Init(run,
 		into.WithLogger(logi.InitializeLog(logi.WithCaller(false))),
-		into.WithMsgf("%s [%s]", name, version),
+		into.WithMsgf("%s [%s] commit=%s date=%s", name, version, commit, date),
 	)
 }
 

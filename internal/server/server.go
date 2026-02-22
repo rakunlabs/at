@@ -109,7 +109,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	}
 
 	// Gateway info API
-	apiGroup.GET("/api/v1/info", s.InfoAPI)
+	apiGroup.GET("/v1/info", s.InfoAPI)
 
 	// Provider management API
 	apiGroup.GET("/v1/providers", s.ListProvidersAPI)
