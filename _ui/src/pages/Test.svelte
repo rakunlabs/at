@@ -169,12 +169,46 @@
       .join('');
   }
 
-  /** Get image URLs from a ChatMessage's content */
-  function getImageUrls(content: string | ContentPart[]): string[] {
-    if (typeof content === 'string') return [];
-    return content
-      .filter((p) => p.type === 'image_url' && p.image_url?.url)
-      .map((p) => p.image_url!.url);
+  /** Merge an SSE delta.content into the current assistant message content.
+   *  delta.content may be a plain string (text-only) or an array of
+   *  content parts (multimodal, e.g. text + image_url from Gemini). */
+  function mergeDeltaContent(
+    prev: string | ContentPart[],
+    deltaContent: string | ContentPart[],
+  ): string | ContentPart[] {
+    // Simple text-only delta: append to existing string or last text part.
+    if (typeof deltaContent === 'string') {
+      if (typeof prev === 'string') return prev + deltaContent;
+      // prev is already ContentPart[] — append to last text part or add one.
+      const parts = [...prev];
+      const lastText = parts.findLast((p) => p.type === 'text');
+      if (lastText) {
+        lastText.text = (lastText.text || '') + deltaContent;
+      } else {
+        parts.push({ type: 'text', text: deltaContent });
+      }
+      return parts;
+    }
+
+    // Multimodal delta (array of parts): convert prev to array and merge.
+    let parts: ContentPart[] =
+      typeof prev === 'string'
+        ? prev ? [{ type: 'text', text: prev }] : []
+        : [...prev];
+
+    for (const part of deltaContent) {
+      if (part.type === 'text' && part.text) {
+        const lastText = parts.findLast((p) => p.type === 'text');
+        if (lastText) {
+          lastText.text = (lastText.text || '') + part.text;
+        } else {
+          parts.push({ type: 'text', text: part.text });
+        }
+      } else if (part.type === 'image_url') {
+        parts.push(part);
+      }
+    }
+    return parts;
   }
 
   // ─── Send message ───
@@ -282,10 +316,9 @@
               // Update the last assistant message
               const lastIdx = messages.length - 1;
               const prev = messages[lastIdx];
-              const prevText = typeof prev.content === 'string' ? prev.content : '';
               messages[lastIdx] = {
                 ...prev,
-                content: prevText + delta.content,
+                content: mergeDeltaContent(prev.content, delta.content),
               };
               scrollToBottom();
             }
@@ -407,10 +440,9 @@
             if (delta?.content) {
               const lastIdx = messages.length - 1;
               const prev = messages[lastIdx];
-              const prevText = typeof prev.content === 'string' ? prev.content : '';
               messages[lastIdx] = {
                 ...prev,
-                content: prevText + delta.content,
+                content: mergeDeltaContent(prev.content, delta.content),
               };
               scrollToBottom();
             }
@@ -555,19 +587,25 @@
                 ? 'bg-gray-900 text-white'
                 : 'bg-white border border-gray-200 shadow-sm text-gray-800'}"
             >
-              <!-- Images -->
-              {#each getImageUrls(msg.content) as imgUrl}
-                <img
-                  src={imgUrl}
-                  alt=""
-                  class="max-w-full max-h-64 mb-2 border {msg.role === 'user' ? 'border-gray-600' : 'border-gray-200'}"
-                />
-              {/each}
-              <!-- Text -->
-              {#if msg.role === 'assistant' && !getTextContent(msg.content) && streaming && i === messages.length - 1}
-                <span class="text-gray-400 italic">Thinking...</span>
+              <!-- Images & Text -->
+              {#if typeof msg.content === 'string'}
+                {#if msg.role === 'assistant' && !msg.content && streaming && i === messages.length - 1}
+                  <span class="text-gray-400 italic">Thinking...</span>
+                {:else}
+                  <span class="whitespace-pre-wrap">{msg.content}</span>
+                {/if}
               {:else}
-                <span class="whitespace-pre-wrap">{getTextContent(msg.content)}</span>
+                {#each msg.content as part}
+                  {#if part.type === 'image_url' && part.image_url?.url}
+                    <img
+                      src={part.image_url.url}
+                      alt=""
+                      class="max-w-full max-h-64 mb-2 border {msg.role === 'user' ? 'border-gray-600' : 'border-gray-200'}"
+                    />
+                  {:else if part.type === 'text' && part.text}
+                    <span class="whitespace-pre-wrap">{part.text}</span>
+                  {/if}
+                {/each}
               {/if}
             </div>
             <!-- Retry button for user messages -->

@@ -107,7 +107,7 @@ func run(ctx context.Context) error {
 		}
 
 		providers[key] = server.NewProviderInfo(provider, provCfg.Type, provCfg.Model, provCfg.Models)
-		slog.Info("provider created from config", "key", key, "type", provCfg.Type, "model", provCfg.Model)
+		slog.Debug("provider created from config", "key", key, "type", provCfg.Type, "model", provCfg.Model)
 	}
 
 	// Initialize store (falls back to in-memory if no backend is configured).
@@ -131,11 +131,7 @@ func run(ctx context.Context) error {
 		}
 
 		providers[rec.Key] = server.NewProviderInfo(provider, rec.Config.Type, rec.Config.Model, rec.Config.Models)
-		slog.Info("provider loaded from DB (overrides YAML)", "key", rec.Key, "type", rec.Config.Type)
-	}
-
-	if len(providers) == 0 {
-		slog.Warn("no providers configured; gateway will have no backends until providers are added via API")
+		slog.Debug("provider loaded from DB (overrides YAML)", "key", rec.Key, "type", rec.Config.Type)
 	}
 
 	// Determine store type for info API.

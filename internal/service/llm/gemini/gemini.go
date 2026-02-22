@@ -287,6 +287,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 					if p.Text != "" {
 						chunk.Content += p.Text
 					}
+					if p.InlineData != nil {
+						chunk.InlineImages = append(chunk.InlineImages, service.InlineImage{
+							MimeType: p.InlineData.MimeType,
+							Data:     p.InlineData.Data,
+						})
+					}
 					if p.FunctionCall != nil {
 						chunk.ToolCalls = append(chunk.ToolCalls, service.ToolCall{
 							ID:        generateToolCallID(p.FunctionCall.Name),
@@ -772,6 +778,12 @@ func parseResponse(resp *generateContentResponse) (*service.LLMResponse, error) 
 		for _, p := range cand.Content.Parts {
 			if p.Text != "" {
 				llmResp.Content += p.Text
+			}
+			if p.InlineData != nil {
+				llmResp.InlineImages = append(llmResp.InlineImages, service.InlineImage{
+					MimeType: p.InlineData.MimeType,
+					Data:     p.InlineData.Data,
+				})
 			}
 			if p.FunctionCall != nil {
 				llmResp.ToolCalls = append(llmResp.ToolCalls, service.ToolCall{

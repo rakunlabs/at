@@ -157,18 +157,6 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 
 	baseGroup.Handle("/*", folderM)
 
-	// ////////////////////////////////////////////
-
-	if len(gatewayCfg.AuthTokens) > 0 {
-		slog.Info("gateway config auth tokens loaded", "count", len(gatewayCfg.AuthTokens))
-	}
-
-	slog.Info("gateway providers registered", "count", len(providers))
-
-	for k, info := range providers {
-		slog.Info("provider", "key", k, "type", info.providerType, "default_model", info.defaultModel, "models", len(info.models))
-	}
-
 	return s, nil
 }
 

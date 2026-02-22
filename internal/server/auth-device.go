@@ -234,7 +234,7 @@ func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCode
 		}
 
 		// Got the token. Save it to the provider config.
-		slog.Info("device auth: authorized", "key", providerKey)
+		slog.Debug("device auth: authorized", "key", providerKey)
 
 		if err := s.saveDeviceAuthToken(providerKey, token); err != nil {
 			slog.Error("device auth: failed to save token", "key", providerKey, "error", err)

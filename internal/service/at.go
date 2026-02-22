@@ -24,10 +24,19 @@ type LLMStreamProvider interface {
 	ChatStream(ctx context.Context, model string, messages []Message, tools []Tool) (<-chan StreamChunk, error)
 }
 
+// InlineImage represents a base64-encoded image returned by a provider (e.g. Gemini).
+type InlineImage struct {
+	MimeType string // e.g. "image/png"
+	Data     string // base64-encoded
+}
+
 // StreamChunk represents a single chunk in a streaming response.
 type StreamChunk struct {
 	// Content is the text delta for this chunk (may be empty).
 	Content string
+
+	// InlineImages contains any base64-encoded images in this chunk (e.g. from Gemini image generation).
+	InlineImages []InlineImage
 
 	// ToolCalls contains tool call deltas for this chunk.
 	ToolCalls []ToolCall
@@ -110,9 +119,10 @@ type MediaSource struct {
 }
 
 type LLMResponse struct {
-	Content   string
-	ToolCalls []ToolCall
-	Finished  bool
+	Content      string
+	InlineImages []InlineImage
+	ToolCalls    []ToolCall
+	Finished     bool
 }
 
 type ToolCall struct {

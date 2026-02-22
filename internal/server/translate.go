@@ -111,7 +111,7 @@ type ChunkChoice struct {
 // ChunkDelta represents the incremental content in a streaming chunk.
 type ChunkDelta struct {
 	Role      string           `json:"role,omitempty"`
-	Content   string           `json:"content,omitempty"`
+	Content   any              `json:"content,omitempty"`
 	ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 

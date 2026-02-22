@@ -145,7 +145,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	provider := info.provider
 	providerType := info.providerType
 
-	slog.Info("gateway request",
+	slog.Debug("gateway request",
 		"provider", providerKey,
 		"model", actualModel,
 		"provider_type", providerType,
@@ -440,7 +440,7 @@ func (s *Server) handleStreamingChat(
 
 	// Try true streaming if the provider supports it.
 	if sp, ok := provider.(service.LLMStreamProvider); ok {
-		slog.Info("streaming via provider", "provider", providerKey, "model", actualModel)
+		slog.Debug("streaming via provider", "provider", providerKey, "model", actualModel)
 
 		chunks, err := sp.ChatStream(r.Context(), actualModel, messages, tools)
 		if err != nil {
@@ -475,7 +475,7 @@ func (s *Server) handleStreamingChat(
 				Model:  fullModel,
 				Choices: []ChunkChoice{{
 					Index: 0,
-					Delta: ChunkDelta{Content: chunk.Content},
+					Delta: ChunkDelta{Content: buildDeltaContent(chunk.Content, chunk.InlineImages)},
 				}},
 			}
 
@@ -503,7 +503,7 @@ func (s *Server) handleStreamingChat(
 		}
 	} else {
 		// Fallback: fake streaming via non-streaming Chat call.
-		slog.Info("fake streaming (provider doesn't support streaming)", "provider", providerKey, "model", actualModel)
+		slog.Debug("fake streaming (provider doesn't support streaming)", "provider", providerKey, "model", actualModel)
 
 		resp, err := provider.Chat(r.Context(), actualModel, messages, tools)
 		if err != nil {
@@ -524,14 +524,15 @@ func (s *Server) handleStreamingChat(
 		})
 
 		// Chunk 2: content (if any)
-		if resp.Content != "" {
+		deltaContent := buildDeltaContent(resp.Content, resp.InlineImages)
+		if deltaContent != nil {
 			writeSSEChunk(w, flusher, ChatCompletionChunk{
 				ID:     chatID,
 				Object: "chat.completion.chunk",
 				Model:  fullModel,
 				Choices: []ChunkChoice{{
 					Index: 0,
-					Delta: ChunkDelta{Content: resp.Content},
+					Delta: ChunkDelta{Content: deltaContent},
 				}},
 			})
 		}
@@ -581,6 +582,37 @@ func (s *Server) handleStreamingChat(
 	// End the stream
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// buildDeltaContent constructs the delta content for an SSE chunk.
+// When inline images are present, it returns an array of content parts
+// (OpenAI multimodal format); otherwise it returns the text string as-is.
+// Returns nil when there is no content to send.
+func buildDeltaContent(text string, images []service.InlineImage) any {
+	if len(images) == 0 {
+		if text == "" {
+			return nil
+		}
+		return text
+	}
+
+	// Build multimodal content array with text (if any) followed by image parts.
+	var parts []map[string]any
+	if text != "" {
+		parts = append(parts, map[string]any{
+			"type": "text",
+			"text": text,
+		})
+	}
+	for _, img := range images {
+		parts = append(parts, map[string]any{
+			"type": "image_url",
+			"image_url": map[string]string{
+				"url": "data:" + img.MimeType + ";base64," + img.Data,
+			},
+		})
+	}
+	return parts
 }
 
 // writeSSEChunk writes a single SSE data line with the JSON-encoded chunk.
