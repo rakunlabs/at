@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 
+	"github.com/worldline-go/klient"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
@@ -26,6 +28,7 @@ type Provider struct {
 	EndpointURL string
 
 	tokenSource oauth2.TokenSource
+	client      *klient.Client
 }
 
 // New creates a Vertex AI provider.
@@ -34,10 +37,11 @@ type Provider struct {
 //
 //	https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/endpoints/openapi/chat/completions
 //
+// proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL. If empty, no proxy is used.
 // Authentication uses Google Application Default Credentials (ADC).
 // Set GOOGLE_APPLICATION_CREDENTIALS env var to your service account key file,
 // or run on GCE/Cloud Run/GKE where ADC is automatically available.
-func New(model, endpointURL string) (*Provider, error) {
+func New(model, endpointURL, proxy string) (*Provider, error) {
 	if endpointURL == "" {
 		return nil, fmt.Errorf("vertex provider requires a base_url with the full endpoint URL, e.g.: " +
 			"https://us-central1-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/endpoints/openapi/chat/completions")
@@ -49,10 +53,24 @@ func New(model, endpointURL string) (*Provider, error) {
 		return nil, fmt.Errorf("failed to get Google credentials (set GOOGLE_APPLICATION_CREDENTIALS or run on GCE): %w", err)
 	}
 
+	klientOpts := []klient.OptionClientFn{
+		klient.WithDisableBaseURLCheck(true),
+		klient.WithLogger(slog.Default()),
+	}
+	if proxy != "" {
+		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+
+	client, err := klient.New(klientOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create http client: %w", err)
+	}
+
 	return &Provider{
 		Model:       model,
 		EndpointURL: endpointURL,
 		tokenSource: ts,
+		client:      client,
 	}, nil
 }
 
@@ -112,20 +130,20 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bodyData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
 	var result vertexResponse
-	if err := json.Unmarshal(bodyData, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(bodyData))
+	if err := p.client.Do(req, func(r *http.Response) error {
+		bodyData, err := io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+
+		if err := json.Unmarshal(bodyData, &result); err != nil {
+			return fmt.Errorf("failed to decode response: %w (body: %s)", err, string(bodyData))
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	if result.Error != nil {
@@ -207,7 +225,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("streaming request failed: %w", err)
 	}

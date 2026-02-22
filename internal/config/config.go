@@ -158,6 +158,13 @@ type LLMConfig struct {
 	//                  token is stored in APIKey and exchanged for short-lived Copilot
 	//                  JWTs that are cached and automatically refreshed before expiry.
 	AuthType string `cfg:"auth_type" json:"auth_type"`
+
+	// Proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL to route all requests
+	// through before reaching the provider. For example:
+	//   - "http://proxy.example.com:8080"
+	//   - "socks5://127.0.0.1:1080"
+	// If empty, no proxy is used (requests go directly to the provider).
+	Proxy string `cfg:"proxy" json:"proxy"`
 }
 
 func Load(ctx context.Context, path string) (*Config, error) {

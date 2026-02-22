@@ -339,6 +339,7 @@
   let formModels = $state<string[]>([]);
   let newModelInput = $state('');
   let formAuthType = $state('');
+  let formProxy = $state('');
   let formHasStoredKey = $state(false);
   let formExtraHeaders = $state<{ key: string; value: string }[]>([]);
   let discoveringModels = $state(false);
@@ -378,6 +379,7 @@
     formModels = [];
     newModelInput = '';
     formAuthType = '';
+    formProxy = '';
     formHasStoredKey = false;
     formExtraHeaders = [];
     editingKey = null;
@@ -407,6 +409,7 @@
     formModel = preset.config.model || '';
     formModels = [...(preset.config.models || [])];
     formAuthType = preset.config.auth_type || '';
+    formProxy = '';
     formExtraHeaders = preset.extraHeaders ? [...preset.extraHeaders] : [];
     showPresets = false;
     showForm = true;
@@ -425,6 +428,7 @@
     formModel = rec.config.model;
     formModels = [...(rec.config.models || [])];
     formAuthType = rec.config.auth_type || '';
+    formProxy = rec.config.proxy || '';
     formExtraHeaders = Object.entries(rec.config.extra_headers || {}).map(
       ([key, value]) => ({ key, value })
     );
@@ -439,6 +443,7 @@
     if (formApiKey) cfg.api_key = formApiKey;
     if (formBaseUrl) cfg.base_url = formBaseUrl;
     if (formAuthType) cfg.auth_type = formAuthType;
+    if (formProxy) cfg.proxy = formProxy;
 
     const models = formModels.filter(Boolean);
     if (models.length > 0) cfg.models = models;
@@ -583,6 +588,7 @@
       const cfg: Record<string, any> = { type: formType };
       if (formApiKey) cfg.api_key = formApiKey;
       if (formBaseUrl) cfg.base_url = formBaseUrl;
+      if (formProxy) cfg.proxy = formProxy;
 
       const headers: Record<string, string> = {};
       for (const h of formExtraHeaders) {
@@ -860,6 +866,18 @@
               : activePreset?.id === 'google-ai'
               ? '(default: https://generativelanguage.googleapis.com)'
               : 'https://api.example.com/v1/chat/completions'}
+            class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+          />
+        </div>
+
+        <!-- Proxy -->
+        <div class="grid grid-cols-4 gap-3 items-center">
+          <label for="form-proxy" class="text-sm font-medium text-gray-700">Proxy</label>
+          <input
+            id="form-proxy"
+            type="text"
+            bind:value={formProxy}
+            placeholder="e.g., http://proxy:8080 or socks5://127.0.0.1:1080"
             class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
           />
         </div>

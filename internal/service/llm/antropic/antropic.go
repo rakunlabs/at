@@ -55,12 +55,12 @@ type Usage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-func New(apiKey, model, baseURL string) (*Provider, error) {
+func New(apiKey, model, baseURL, proxy string) (*Provider, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 
-	client, err := klient.New(
+	klientOpts := []klient.OptionClientFn{
 		klient.WithBaseURL(baseURL),
 		klient.WithLogger(slog.Default()),
 		klient.WithHeaderSet(http.Header{
@@ -68,7 +68,12 @@ func New(apiKey, model, baseURL string) (*Provider, error) {
 			"Anthropic-Version": []string{"2023-06-01"},
 			"Content-Type":      []string{"application/json"},
 		}),
-	)
+	}
+	if proxy != "" {
+		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+
+	client, err := klient.New(klientOpts...)
 	if err != nil {
 		return nil, err
 	}

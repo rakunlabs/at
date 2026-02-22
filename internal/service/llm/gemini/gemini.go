@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
+
+	"github.com/worldline-go/klient"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -27,6 +30,7 @@ type Provider struct {
 	Model   string
 	BaseURL string
 	APIKey  string
+	client  *klient.Client
 }
 
 // New creates a Google AI (Gemini) provider.
@@ -34,7 +38,8 @@ type Provider struct {
 // apiKey is the API key from Google AI Studio (aistudio.google.com).
 // model is the default model (e.g., "gemini-2.5-flash").
 // baseURL optionally overrides the default "https://generativelanguage.googleapis.com".
-func New(apiKey, model, baseURL string) (*Provider, error) {
+// proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL. If empty, no proxy is used.
+func New(apiKey, model, baseURL, proxy string) (*Provider, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
 	}
@@ -44,10 +49,29 @@ func New(apiKey, model, baseURL string) (*Provider, error) {
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
+	klientOpts := []klient.OptionClientFn{
+		klient.WithBaseURL(baseURL),
+		klient.WithDisableBaseURLCheck(true),
+		klient.WithLogger(slog.Default()),
+		klient.WithHeaderSet(http.Header{
+			"Content-Type":   []string{"application/json"},
+			"x-goog-api-key": []string{apiKey},
+		}),
+	}
+	if proxy != "" {
+		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+
+	client, err := klient.New(klientOpts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create http client: %w", err)
+	}
+
 	return &Provider{
 		Model:   model,
 		BaseURL: baseURL,
 		APIKey:  apiKey,
+		client:  client,
 	}, nil
 }
 
@@ -141,40 +165,43 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent", p.BaseURL, model)
+	path := fmt.Sprintf("/v1beta/models/%s:generateContent", model)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", p.APIKey)
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	bodyData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, err
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		var errResp generateContentResponse
-		if json.Unmarshal(bodyData, &errResp) == nil && errResp.Error != nil {
-			return &service.LLMResponse{
-				Content:  fmt.Sprintf("Error from Gemini API: %s (code: %d, status: %s)", errResp.Error.Message, errResp.Error.Code, errResp.Error.Status),
-				Finished: true,
-			}, nil
-		}
-		return nil, fmt.Errorf("gemini returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
 	var result generateContentResponse
-	if err := json.Unmarshal(bodyData, &result); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w (body: %s)", err, string(bodyData))
+	if err := p.client.Do(req, func(r *http.Response) error {
+		bodyData, err := io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+
+		if r.StatusCode != http.StatusOK {
+			var errResp generateContentResponse
+			if json.Unmarshal(bodyData, &errResp) == nil && errResp.Error != nil {
+				result = errResp
+				return nil
+			}
+			return fmt.Errorf("gemini returned status %d: %s", r.StatusCode, string(bodyData))
+		}
+
+		if err := json.Unmarshal(bodyData, &result); err != nil {
+			return fmt.Errorf("failed to decode response: %w (body: %s)", err, string(bodyData))
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	if result.Error != nil {
+		return &service.LLMResponse{
+			Content:  fmt.Sprintf("Error from Gemini API: %s (code: %d, status: %s)", result.Error.Message, result.Error.Code, result.Error.Status),
+			Finished: true,
+		}, nil
 	}
 
 	return parseResponse(&result)
@@ -196,16 +223,15 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	url := fmt.Sprintf("%s/v1beta/models/%s:streamGenerateContent?alt=sse", p.BaseURL, model)
+	path := fmt.Sprintf("/v1beta/models/%s:streamGenerateContent?alt=sse", model)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewBuffer(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("x-goog-api-key", p.APIKey)
 
-	resp, err := http.DefaultClient.Do(req)
+	// Use the klient's HTTP client directly for streaming.
+	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("streaming request failed: %w", err)
 	}

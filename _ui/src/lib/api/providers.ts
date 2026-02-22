@@ -12,6 +12,7 @@ export interface LLMConfig {
   models?: string[];
   extra_headers?: Record<string, string>;
   auth_type?: string;
+  proxy?: string;
 }
 
 export interface ProviderRecord {

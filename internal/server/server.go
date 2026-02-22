@@ -58,8 +58,7 @@ type Server struct {
 
 	authToken string
 
-	m        sync.RWMutex
-	channels map[string]chan MessageChannel
+	m sync.RWMutex
 
 	// tokenLastUsed tracks when each token's last_used_at was last written to
 	// the DB, so we can throttle updates to at most once per 5 minutes.
@@ -89,7 +88,6 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		tokenStore:      tokenStore,
 		providerFactory: factory,
 		authToken:       gatewayCfg.AuthToken,
-		channels:        make(map[string]chan MessageChannel),
 	}
 
 	// ////////////////////////////////////////////

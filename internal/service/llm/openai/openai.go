@@ -43,7 +43,8 @@ func WithTokenSource(ts TokenSource) Option {
 //
 // extraHeaders allows setting additional HTTP headers for providers that
 // require them (e.g., GitHub Models recommends Accept and X-GitHub-Api-Version).
-func New(apiKey, model, baseURL string, extraHeaders map[string]string, opts ...Option) (*Provider, error) {
+// proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL (e.g., "http://proxy:8080").
+func New(apiKey, model, baseURL, proxy string, extraHeaders map[string]string, opts ...Option) (*Provider, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
@@ -58,11 +59,16 @@ func New(apiKey, model, baseURL string, extraHeaders map[string]string, opts ...
 		headers[k] = []string{v}
 	}
 
-	client, err := klient.New(
+	klientOpts := []klient.OptionClientFn{
 		klient.WithBaseURL(baseURL),
 		klient.WithLogger(slog.Default()),
 		klient.WithHeaderSet(headers),
-	)
+	}
+	if proxy != "" {
+		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+
+	client, err := klient.New(klientOpts...)
 	if err != nil {
 		return nil, err
 	}

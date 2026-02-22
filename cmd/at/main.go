@@ -42,7 +42,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			return nil, fmt.Errorf("anthropic provider requires an api_key")
 		}
 
-		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL)
+		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy)
 	case "openai":
 		var opts []openai.Option
 
@@ -76,14 +76,14 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			return nil, fmt.Errorf("unknown auth_type %q for openai provider (supported: copilot)", cfg.AuthType)
 		}
 
-		return openai.New(cfg.APIKey, cfg.Model, cfg.BaseURL, headers, opts...)
+		return openai.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, headers, opts...)
 	case "vertex":
-		return vertex.New(cfg.Model, cfg.BaseURL)
+		return vertex.New(cfg.Model, cfg.BaseURL, cfg.Proxy)
 	case "gemini":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
 		}
-		return gemini.New(cfg.APIKey, cfg.Model, cfg.BaseURL)
+		return gemini.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex, gemini)", cfg.Type)
 	}

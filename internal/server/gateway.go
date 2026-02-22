@@ -343,13 +343,6 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 	return nil, "invalid or missing Authorization header"
 }
 
-// checkAuth is a simple boolean auth check for backward compatibility.
-// Used by endpoints that don't need token restriction info.
-func (s *Server) checkAuth(r *http.Request) bool {
-	_, errMsg := s.authenticateRequest(r)
-	return errMsg == ""
-}
-
 // getProviderInfo looks up a provider by key, returning the full ProviderInfo.
 func (s *Server) getProviderInfo(key string) (ProviderInfo, bool) {
 	s.providerMu.RLock()

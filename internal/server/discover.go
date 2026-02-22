@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/worldline-go/klient"
+
 	"github.com/rakunlabs/at/internal/config"
 )
 
@@ -25,7 +27,7 @@ type discoverResponse struct {
 }
 
 // DiscoverModelsAPI handles POST /api/v1/providers/discover-models.
-// It uses the provided config (type, api_key, base_url, extra_headers) to
+// It uses the provided config (type, api_key, base_url, extra_headers, proxy) to
 // call the upstream provider's model listing API and returns available model IDs.
 func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	var req discoverRequest
@@ -112,7 +114,12 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client, err := klientForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -175,6 +182,11 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 
 	modelsURL := strings.TrimSuffix(baseURL, "/") + "/v1/models"
 
+	client, err := klientForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
 	var allModels []string
 	afterID := ""
 
@@ -194,7 +206,7 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 		}
 		req.Header.Set("anthropic-version", "2023-06-01")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := client.HTTP.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
@@ -243,6 +255,19 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
+// klientForConfig returns a *klient.Client that routes through cfg.Proxy
+// when configured, with WithDisableBaseURLCheck so full URLs can be used directly.
+func klientForConfig(cfg config.LLMConfig) (*klient.Client, error) {
+	klientOpts := []klient.OptionClientFn{
+		klient.WithDisableBaseURLCheck(true),
+		klient.WithLogger(slog.Default()),
+	}
+	if cfg.Proxy != "" {
+		klientOpts = append(klientOpts, klient.WithProxy(cfg.Proxy))
+	}
+	return klient.New(klientOpts...)
+}
+
 // discoverGeminiModels calls GET /v1beta/models on the Google Generative Language API.
 func discoverGeminiModels(ctx context.Context, cfg config.LLMConfig) ([]string, error) {
 	baseURL := cfg.BaseURL
@@ -262,7 +287,12 @@ func discoverGeminiModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 		req.Header.Set("x-goog-api-key", cfg.APIKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client, err := klientForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
