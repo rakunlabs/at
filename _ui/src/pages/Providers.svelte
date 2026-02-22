@@ -578,11 +578,6 @@
       return;
     }
 
-    if (!formApiKey) {
-      addToast('Enter an API key first', 'warn');
-      return;
-    }
-
     discoveringModels = true;
     try {
       const cfg: Record<string, any> = { type: formType };

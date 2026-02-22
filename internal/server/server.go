@@ -157,7 +157,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	slog.Info("gateway providers registered", "count", len(providers))
 
 	for k, info := range providers {
-		slog.Info("  provider", "key", k, "type", info.providerType, "default_model", info.defaultModel, "models", len(info.models))
+		slog.Info("provider", "key", k, "type", info.providerType, "default_model", info.defaultModel, "models", len(info.models))
 	}
 
 	return s, nil
