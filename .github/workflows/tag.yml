@@ -36,6 +36,7 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: _ui/pnpm-lock.yaml
           registry-url: https://registry.npmjs.org
       - name: Build package
         run: make build-ui
