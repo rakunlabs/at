@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -158,7 +159,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		model = p.Model
 	}
 
-	reqBody := p.buildRequest(messages, tools)
+	reqBody := p.buildRequest(ctx, messages, tools)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -216,7 +217,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		model = p.Model
 	}
 
-	reqBody := p.buildRequest(messages, tools)
+	reqBody := p.buildRequest(ctx, messages, tools)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -331,7 +332,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 // ─── Request building ───
 
 // buildRequest translates internal service types to Google's native API format.
-func (p *Provider) buildRequest(messages []service.Message, tools []service.Tool) *generateContentRequest {
+func (p *Provider) buildRequest(ctx context.Context, messages []service.Message, tools []service.Tool) *generateContentRequest {
 	req := &generateContentRequest{}
 
 	// Convert tools to Google's functionDeclarations format.
@@ -360,7 +361,7 @@ func (p *Provider) buildRequest(messages []service.Message, tools []service.Tool
 			}
 
 		case "user":
-			parts := convertToParts(msg)
+			parts := convertToParts(ctx, msg)
 			if len(parts) > 0 {
 				req.Contents = append(req.Contents, content{
 					Role:  "user",
@@ -369,7 +370,7 @@ func (p *Provider) buildRequest(messages []service.Message, tools []service.Tool
 			}
 
 		case "assistant":
-			parts := convertToParts(msg)
+			parts := convertToParts(ctx, msg)
 			if len(parts) > 0 {
 				req.Contents = append(req.Contents, content{
 					Role:  "model",
@@ -394,7 +395,7 @@ func (p *Provider) buildRequest(messages []service.Message, tools []service.Tool
 }
 
 // convertToParts converts a service.Message's content to Google API parts.
-func convertToParts(msg service.Message) []part {
+func convertToParts(ctx context.Context, msg service.Message) []part {
 	switch c := msg.Content.(type) {
 	case string:
 		if c == "" {
@@ -429,6 +430,13 @@ func convertToParts(msg service.Message) []part {
 					parts = append(parts, part{
 						InlineData: &inlineData{MimeType: mimeType, Data: data},
 					})
+				} else if url != "" {
+					// Remote URL — fetch and convert to inline base64.
+					if id, err := fetchImageAsInlineData(ctx, url); err == nil {
+						parts = append(parts, part{InlineData: id})
+					} else {
+						slog.Warn("failed to fetch remote image for Gemini", "url", url, "error", err)
+					}
 				}
 			case "input_audio":
 				// OpenAI-format audio block: {type:"input_audio", input_audio:{data:"<base64>", format:"wav"|"mp3"}}
@@ -626,6 +634,12 @@ func convertToParts(msg service.Message) []part {
 							parts = append(parts, part{
 								InlineData: &inlineData{MimeType: mimeType, Data: data},
 							})
+						} else if url != "" {
+							if id, err := fetchImageAsInlineData(ctx, url); err == nil {
+								parts = append(parts, part{InlineData: id})
+							} else {
+								slog.Warn("failed to fetch remote image for Gemini", "url", url, "error", err)
+							}
 						}
 					case "input_audio":
 						audio, _ := block["input_audio"].(map[string]any)
@@ -823,6 +837,47 @@ func extractText(content any) string {
 // Google's API doesn't provide tool call IDs like OpenAI does, so we generate one.
 func generateToolCallID(name string) string {
 	return "call_" + name
+}
+
+// fetchImageAsInlineData downloads a remote image URL and returns it as
+// base64-encoded inlineData suitable for the Gemini API. This handles the case
+// where an OpenAI SDK user sends a regular https:// image URL instead of a
+// data: URI. The download is limited to 20 MB.
+func fetchImageAsInlineData(ctx context.Context, url string) (*inlineData, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("fetch image: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("fetch image: status %d", resp.StatusCode)
+	}
+
+	const maxSize = 20 << 20 // 20 MB
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
+	if err != nil {
+		return nil, fmt.Errorf("read image body: %w", err)
+	}
+
+	mimeType := resp.Header.Get("Content-Type")
+	if mimeType == "" || !strings.HasPrefix(mimeType, "image/") {
+		mimeType = "image/jpeg"
+	}
+	// Strip any parameters (e.g. "image/png; charset=utf-8" → "image/png")
+	if idx := strings.Index(mimeType, ";"); idx != -1 {
+		mimeType = strings.TrimSpace(mimeType[:idx])
+	}
+
+	return &inlineData{
+		MimeType: mimeType,
+		Data:     base64.StdEncoding.EncodeToString(body),
+	}, nil
 }
 
 // parseGeminiDataURL splits a data URI (e.g. "data:image/png;base64,iVBOR...")
