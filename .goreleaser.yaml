@@ -46,7 +46,7 @@ archives:
       {{- if .Arm }}v{{ .Arm }}{{ end }}
     format_overrides:
       - goos: windows
-        formats: zip
+        format: zip
 checksum:
   name_template: '{{ .ProjectName }}-{{ .Version }}-checksums.txt'
 changelog:

@@ -323,8 +323,9 @@
       <h3 class="text-sm font-medium text-gray-900 mb-3">Create API Token</h3>
 
       <div class="grid grid-cols-4 gap-3 mb-3">
-        <label class="text-xs text-gray-600 py-2">Name</label>
+        <label for="create-token-name" class="text-xs text-gray-600 py-2">Name</label>
         <input
+          id="create-token-name"
           type="text"
           bind:value={formName}
           placeholder="e.g. my-app-token"
@@ -333,9 +334,10 @@
       </div>
 
       <div class="grid grid-cols-4 gap-3 mb-3">
-        <label class="text-xs text-gray-600 py-2">Expires At</label>
+        <label for="create-token-expires" class="text-xs text-gray-600 py-2">Expires At</label>
         <div class="col-span-3 flex items-center gap-2">
           <input
+            id="create-token-expires"
             type="datetime-local"
             bind:value={formExpiresAt}
             class="border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
@@ -355,7 +357,7 @@
 
       <!-- Provider restrictions -->
       <div class="grid grid-cols-4 gap-3 mb-3">
-        <label class="text-xs text-gray-600 py-2">Allowed Providers</label>
+        <span class="text-xs text-gray-600 py-2">Allowed Providers</span>
         <div class="col-span-3">
           {#if allProviderKeys.length > 0}
             <div class="flex flex-wrap gap-1.5">
@@ -382,7 +384,7 @@
 
       <!-- Model restrictions -->
       <div class="grid grid-cols-4 gap-3 mb-4">
-        <label class="text-xs text-gray-600 py-2">Allowed Models</label>
+        <span class="text-xs text-gray-600 py-2">Allowed Models</span>
         <div class="col-span-3">
           {#if allModels.length > 0}
             <div class="max-h-32 overflow-y-auto border border-gray-200 p-2">
@@ -463,8 +465,9 @@
                     </div>
 
                     <div class="grid grid-cols-4 gap-3">
-                      <label class="text-xs text-gray-600 py-2">Name</label>
+                      <label for="edit-token-name" class="text-xs text-gray-600 py-2">Name</label>
                       <input
+                        id="edit-token-name"
                         type="text"
                         bind:value={editName}
                         class="col-span-3 border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
@@ -472,9 +475,10 @@
                     </div>
 
                     <div class="grid grid-cols-4 gap-3">
-                      <label class="text-xs text-gray-600 py-2">Expires At</label>
+                      <label for="edit-token-expires" class="text-xs text-gray-600 py-2">Expires At</label>
                       <div class="col-span-3 flex items-center gap-2">
                         <input
+                          id="edit-token-expires"
                           type="datetime-local"
                           bind:value={editExpiresAt}
                           class="border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400"
@@ -493,7 +497,7 @@
                     </div>
 
                     <div class="grid grid-cols-4 gap-3">
-                      <label class="text-xs text-gray-600 py-2">Allowed Providers</label>
+                      <span class="text-xs text-gray-600 py-2">Allowed Providers</span>
                       <div class="col-span-3">
                         {#if allProviderKeys.length > 0}
                           <div class="flex flex-wrap gap-1.5">
@@ -519,7 +523,7 @@
                     </div>
 
                     <div class="grid grid-cols-4 gap-3">
-                      <label class="text-xs text-gray-600 py-2">Allowed Models</label>
+                      <span class="text-xs text-gray-600 py-2">Allowed Models</span>
                       <div class="col-span-3">
                         {#if allModels.length > 0}
                           <div class="max-h-32 overflow-y-auto border border-gray-200 p-2">
