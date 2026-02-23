@@ -32,7 +32,9 @@
 
   load();
 
-  let baseUrl = $derived(window.location.origin);
+  let baseUrl = $derived(
+    (window.location.origin + window.location.pathname).replace(/\/+$/, '')
+  );
 
   let allModels = $derived(
     providers.flatMap((p) => {

@@ -268,7 +268,7 @@
         headers['Authorization'] = `Bearer ${authToken.trim()}`;
       }
 
-      const response = await fetch('/gateway/v1/chat/completions', {
+      const response = await fetch('gateway/v1/chat/completions', {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -394,7 +394,7 @@
         headers['Authorization'] = `Bearer ${authToken.trim()}`;
       }
 
-      const response = await fetch('/gateway/v1/chat/completions', {
+      const response = await fetch('gateway/v1/chat/completions', {
         method: 'POST',
         headers,
         body: JSON.stringify(body),

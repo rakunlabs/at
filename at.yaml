@@ -1,3 +1,5 @@
+server:
+  # base_path: "/at"
 store:
   # sqlite:
   #   datasource: "file:at.db?cache=shared&mode=rwc"

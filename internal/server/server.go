@@ -93,6 +93,10 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 
 	// ////////////////////////////////////////////
 
+	if cfg.BasePath != "" {
+		slog.Info("configuring server with base path", "base_path", cfg.BasePath)
+	}
+
 	baseGroup := mux.Group(cfg.BasePath)
 
 	// OpenAI-compatible gateway API (separate prefix so clients use /gateway/v1/ as base URL)
