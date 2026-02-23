@@ -9,7 +9,7 @@ require (
 	github.com/rakunlabs/ada v0.2.11
 	github.com/rakunlabs/ada/handler/folder v0.1.1
 	github.com/rakunlabs/ada/middleware/cors v0.1.3
-	github.com/rakunlabs/ada/middleware/forwardauth v0.1.0
+	github.com/rakunlabs/ada/middleware/forwardauth v0.1.1
 	github.com/rakunlabs/ada/middleware/log v0.1.7
 	github.com/rakunlabs/ada/middleware/recover v0.1.3
 	github.com/rakunlabs/ada/middleware/requestid v0.1.3

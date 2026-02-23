@@ -96,7 +96,7 @@ server:
     insecure_skip_verify: false
     timeout: "30s" # default 30s
     request_method: "GET" # default GET, can be set to POST or other HTTP methods supported by the auth service
-    redirect_url: "https://login.example.com?rd={url}" # default empty (no redirect). Supports `{url}` placeholder which will be replaced with the original request URL. Only applied for GET/HEAD requests.
+    redirect_url: "https://login.example.com?rd={url}" # default empty (no redirect). Supports `{url} or {uri}` placeholder which will be replaced with the original request URL. Only applied for GET/HEAD requests.
     redirect_code: 302 # default 302
     redirect_status_codes: # default [401]
       - 401
