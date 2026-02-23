@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/rakunlabs/alan"
 	_ "github.com/rakunlabs/chu/loader/external/loaderconsul"
 	_ "github.com/rakunlabs/chu/loader/external/loadervault"
 	"github.com/rakunlabs/chu/loader/loaderenv"
@@ -90,6 +91,16 @@ type Server struct {
 	// ForwardAuth, if set, configures the API to forward auth requests to an external
 	// authentication service.
 	ForwardAuth *mforwardauth.ForwardAuth `cfg:"forward_auth"`
+
+	// AdminToken, if set, protects the /api/v1/admin/* endpoints with bearer
+	// token authentication. Requests must include "Authorization: Bearer <token>".
+	// If not set, all admin endpoints are disabled (403 Forbidden).
+	AdminToken string `cfg:"admin_token" log:"-"`
+
+	// Alan, if set, enables distributed clustering via UDP peer discovery.
+	// This allows multiple AT instances to coordinate encryption key rotation
+	// and other admin operations across the cluster.
+	Alan *alan.Config `cfg:"alan"`
 }
 
 // Gateway configures the OpenAI-compatible gateway server endpoints.
@@ -146,6 +157,12 @@ type AuthTokenConfig struct {
 type Store struct {
 	Postgres *StorePostgres `cfg:"postgres"`
 	SQLite   *StoreSQLite   `cfg:"sqlite"`
+
+	// EncryptionKey, if set, enables AES-256-GCM encryption for sensitive
+	// provider fields (api_key, extra_headers values) stored in the database.
+	// The key can be any non-empty string; it is zero-padded or truncated to
+	// 32 bytes internally. When empty, no encryption is applied.
+	EncryptionKey string `cfg:"encryption_key" log:"-"`
 }
 
 type StorePostgres struct {

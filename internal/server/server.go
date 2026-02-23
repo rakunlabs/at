@@ -8,9 +8,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/rakunlabs/ada"
+	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 
@@ -60,6 +62,10 @@ type Server struct {
 	storeType  string // "postgres", "sqlite", or "none"
 	authTokens []config.AuthTokenConfig
 
+	// cluster is the optional distributed coordination layer (alan).
+	// nil when clustering is not configured (single-instance mode).
+	cluster *cluster.Cluster
+
 	// tokenLastUsed tracks when each token's last_used_at was last written to
 	// the DB, so we can throttle updates to at most once per 5 minutes.
 	tokenLastUsed sync.Map // map[string]time.Time
@@ -69,7 +75,7 @@ type Server struct {
 	tokenLastUsedMu sync.Map // map[string]*sync.Mutex
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, storeType string, factory ProviderFactory) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -89,6 +95,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		providerFactory: factory,
 		storeType:       storeType,
 		authTokens:      gatewayCfg.AuthTokens,
+		cluster:         cl,
 	}
 
 	// ////////////////////////////////////////////
@@ -105,14 +112,14 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	gatewayGroup.GET("/v1/models", s.ListModels)
 
 	// ////////////////////////////////////////////
-	apiGroup := baseGroup.Group("/api")
-
 	if cfg.ForwardAuth != nil {
 		slog.Info("forward auth enabled", "url", cfg.ForwardAuth.Address)
-		apiGroup.Use(mforwardauth.Middleware(mforwardauth.WithConfig(*cfg.ForwardAuth)))
+		baseGroup.Use(mforwardauth.Middleware(mforwardauth.WithConfig(*cfg.ForwardAuth)))
 	} else {
 		slog.Info("forward auth disabled (no forward_auth config)")
 	}
+
+	apiGroup := baseGroup.Group("/api")
 
 	// Gateway info API
 	apiGroup.GET("/v1/info", s.InfoAPI)
@@ -132,6 +139,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.POST("/v1/api-tokens", s.CreateAPITokenAPI)
 	apiGroup.PUT("/v1/api-tokens/*", s.UpdateAPITokenAPI)
 	apiGroup.DELETE("/v1/api-tokens/*", s.DeleteAPITokenAPI)
+
+	// Admin API (protected by admin token)
+	adminGroup := apiGroup.Group("/v1/admin")
+	adminGroup.Use(s.adminAuthMiddleware())
+	adminGroup.POST("/rotate-key", s.RotateKeyAPI)
 
 	// ////////////////////////////////////////////
 
@@ -211,4 +223,32 @@ func (s *Server) removeProvider(key string) {
 	s.providerMu.Unlock()
 
 	slog.Info("provider removed from registry", "key", key)
+}
+
+// adminAuthMiddleware returns middleware that protects admin endpoints.
+// If no admin_token is configured, all admin requests are rejected with 403.
+// If configured, requests must provide a matching Authorization: Bearer <token> header.
+func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if s.config.AdminToken == "" {
+				httpResponse(w, "admin token not configured", http.StatusForbidden)
+				return
+			}
+
+			auth := r.Header.Get("Authorization")
+			if auth == "" {
+				httpResponse(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			token := strings.TrimPrefix(auth, "Bearer ")
+			if token == auth || token != s.config.AdminToken {
+				httpResponse(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
 }

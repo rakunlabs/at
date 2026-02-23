@@ -9,6 +9,7 @@ import (
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
 
+	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/server"
 	"github.com/rakunlabs/at/internal/service"
@@ -143,13 +144,43 @@ func run(ctx context.Context) error {
 		storeType = "sqlite"
 	}
 
+	// Initialize optional cluster (distributed coordination via alan).
+	cl, err := cluster.New(cfg.Server.Alan)
+	if err != nil {
+		return fmt.Errorf("failed to create cluster: %w", err)
+	}
+
+	if cl != nil {
+		// The onNewKey callback is invoked when a peer broadcasts a new
+		// encryption key. We update the store's in-memory key so future
+		// decrypt operations use the rotated key. The in-memory provider
+		// configs already contain plaintext, so no reload is needed.
+		onNewKey := func(newKey []byte) {
+			if updater, ok := st.(service.EncryptionKeyUpdater); ok {
+				updater.SetEncryptionKey(newKey)
+				slog.Info("encryption key updated from cluster peer broadcast")
+			}
+		}
+
+		go func() {
+			if err := cl.Start(ctx, onNewKey); err != nil {
+				slog.Error("cluster stopped with error", "error", err)
+			}
+		}()
+		defer func() {
+			if err := cl.Stop(); err != nil {
+				slog.Error("cluster shutdown error", "error", err)
+			}
+		}()
+
+		slog.Info("cluster enabled, waiting for peers", "dns_addr", cfg.Server.Alan.DNSAddr)
+	}
+
 	// Create and start HTTP server.
-	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, st, st, storeType, newProvider)
+	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, st, st, storeType, newProvider, cl)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}
-
-	slog.Info("starting gateway server", "host", cfg.Server.Host, "port", cfg.Server.Port)
 
 	return srv.Start(ctx)
 }

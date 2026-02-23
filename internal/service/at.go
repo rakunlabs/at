@@ -68,6 +68,23 @@ type ProviderStorer interface {
 	DeleteProvider(ctx context.Context, key string) error
 }
 
+// KeyRotator is optionally implemented by stores that support encryption
+// key rotation for provider credentials. The method decrypts all provider
+// configs with the current key, re-encrypts them with newKey, and updates
+// the rows atomically within a transaction. Passing nil as newKey disables
+// encryption (all values are stored as plaintext).
+type KeyRotator interface {
+	RotateEncryptionKey(ctx context.Context, newKey []byte) error
+}
+
+// EncryptionKeyUpdater is optionally implemented by stores that support
+// updating the in-memory encryption key without re-encrypting database rows.
+// This is used by peer instances in a cluster when they receive a key rotation
+// broadcast from the instance that performed the actual DB rotation.
+type EncryptionKeyUpdater interface {
+	SetEncryptionKey(newKey []byte)
+}
+
 // ─── API Token Management ───
 
 // APIToken represents a bearer token stored in the database for gateway auth.
