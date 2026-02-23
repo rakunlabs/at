@@ -1,6 +1,6 @@
 module github.com/rakunlabs/at
 
-go 1.25
+go 1.26
 
 require (
 	github.com/doug-martin/goqu/v9 v9.19.0
@@ -15,8 +15,10 @@ require (
 	github.com/rakunlabs/ada/middleware/requestid v0.1.3
 	github.com/rakunlabs/ada/middleware/server v0.1.0
 	github.com/rakunlabs/ada/middleware/telemetry v0.1.0
-	github.com/rakunlabs/chu v0.2.6
-	github.com/rakunlabs/into v0.4.2
+	github.com/rakunlabs/chu v0.4.2
+	github.com/rakunlabs/chu/loader/external/loaderconsul v0.0.0-20260221211926-78c53578dddb
+	github.com/rakunlabs/chu/loader/external/loadervault v0.0.0-20260221211926-78c53578dddb
+	github.com/rakunlabs/into v0.5.3
 	github.com/rakunlabs/logi v0.4.5
 	github.com/rakunlabs/muz v0.2.4
 	github.com/rakunlabs/tell v0.1.1
@@ -40,10 +42,11 @@ require (
 	github.com/go-jose/go-jose/v4 v4.1.1 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.2 // indirect
-	github.com/hashicorp/consul/api v1.32.0 // indirect
+	github.com/hashicorp/consul/api v1.33.0 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-envparse v0.1.0 // indirect
@@ -75,7 +78,7 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/twmb/tlscfg v1.2.1 // indirect
 	github.com/worldline-go/logz v0.5.5 // indirect
-	github.com/worldline-go/struct2 v1.3.1 // indirect
+	github.com/worldline-go/struct2 v1.4.0 // indirect
 	github.com/xhit/go-str2duration/v2 v2.1.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.62.0 // indirect

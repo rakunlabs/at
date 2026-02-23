@@ -6,18 +6,16 @@ LLM gateway with an OpenAI-compatible API. Route requests to multiple providers 
 
 > Highly on development stage, expect breaking changes. Feedback and contributions are very welcome!
 
-## Usage
-
 ```sh
-## build-ui or in the UI pnpm run dev to start UI in development mode
-make install-ui run-ui
-## run at server
-make run
+docker run -d --name at -p 8080:8080 ghcr.io/rakunlabs/at:latest
 ```
 
-Open http://localhost:3000 to access the web UI for UI development mode.
-
 ## Configuration
+
+> `at.yaml` config file is automatically loaded if present in the current working directory or use `AT_CONFIG_FILE`.
+> Uses [chu](https://github.com/rakunlabs/chu) loader which supports get config from multiple sources.
+
+### Providers
 
 Providers can be configured via YAML config file or the web UI (stored in SQLite, Postgres). Database entries override YAML.
 
@@ -50,7 +48,7 @@ providers:
     model: "gemini-2.5-flash"
 ```
 
-### Supported provider types
+#### Supported provider types
 
 | Type        | Description                                                                                                     |
 | ----------- | --------------------------------------------------------------------------------------------------------------- |
@@ -59,7 +57,7 @@ providers:
 | `vertex`    | Google Vertex AI via OpenAI-compatible endpoint with automatic ADC authentication                               |
 | `gemini`    | Google AI (Gemini) via generativelanguage.googleapis.com with API key                                           |
 
-### Proxy support
+#### Proxy support
 
 All provider types support routing requests through an HTTP, HTTPS, or SOCKS5 proxy:
 
@@ -142,3 +140,14 @@ make env
 #### In-memory (default)
 
 When neither `sqlite` nor `postgres` is configured, the store falls back to an in-memory backend. All CRUD APIs work normally but data is lost on restart.
+
+## Development
+
+```sh
+## build-ui or in the UI pnpm run dev to start UI in development mode
+make install-ui run-ui
+## run at server
+make run
+```
+
+Open http://localhost:3000 to access the web UI for UI development mode.

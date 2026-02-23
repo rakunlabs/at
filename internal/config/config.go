@@ -6,8 +6,9 @@ import (
 	"log/slog"
 	"time"
 
-	_ "github.com/rakunlabs/chu/loader/loaderconsul"
-	_ "github.com/rakunlabs/chu/loader/loadervault"
+	_ "github.com/rakunlabs/chu/loader/external/loaderconsul"
+	_ "github.com/rakunlabs/chu/loader/external/loadervault"
+	"github.com/rakunlabs/chu/loader/loaderenv"
 	"github.com/rakunlabs/logi"
 
 	mforwardauth "github.com/rakunlabs/ada/middleware/forwardauth"
@@ -18,7 +19,7 @@ import (
 var Service = ""
 
 type Config struct {
-	LogLevel string `cfg:"log_level" default:"info"`
+	LogLevel string `cfg:"log_level,no_prefix" default:"info"`
 
 	// Providers is a map of named provider configurations.
 	// Each provider has a type ("anthropic", "openai", "vertex", or "gemini"), along with
@@ -77,7 +78,7 @@ type Config struct {
 
 	Store     Store       `cfg:"store"`
 	Server    Server      `cfg:"server"`
-	Telemetry tell.Config `cfg:"telemetry"`
+	Telemetry tell.Config `cfg:"telemetry,noprefix"`
 }
 
 type Server struct {
@@ -225,7 +226,7 @@ type LLMConfig struct {
 
 func Load(ctx context.Context, path string) (*Config, error) {
 	var cfg Config
-	if err := chu.Load(ctx, path, &cfg); err != nil {
+	if err := chu.Load(ctx, path, &cfg, chu.WithLoaderOption(loaderenv.New(loaderenv.WithPrefix("MY_APP_")))); err != nil {
 		return nil, err
 	}
 
