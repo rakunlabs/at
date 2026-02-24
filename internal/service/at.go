@@ -146,6 +146,11 @@ type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments map[string]any
+	// ThoughtSignature is an opaque token from Gemini thinking models that
+	// preserves the model's reasoning state across function-calling turns.
+	// It must be echoed back in the subsequent request for the model to
+	// maintain context continuity.
+	ThoughtSignature string
 }
 
 // Agent orchestrates MCP and LLM

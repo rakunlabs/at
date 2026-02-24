@@ -107,7 +107,7 @@ func run(ctx context.Context) error {
 			continue
 		}
 
-		providers[key] = server.NewProviderInfo(provider, provCfg.Type, provCfg.Model, provCfg.Models)
+		providers[key] = server.NewProviderInfo(provider, provCfg)
 		slog.Debug("provider created from config", "key", key, "type", provCfg.Type, "model", provCfg.Model)
 	}
 
@@ -131,7 +131,7 @@ func run(ctx context.Context) error {
 			continue
 		}
 
-		providers[rec.Key] = server.NewProviderInfo(provider, rec.Config.Type, rec.Config.Model, rec.Config.Models)
+		providers[rec.Key] = server.NewProviderInfo(provider, rec.Config)
 		slog.Debug("provider loaded from DB (overrides YAML)", "key", rec.Key, "type", rec.Config.Type)
 	}
 

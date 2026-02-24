@@ -47,6 +47,19 @@
 
   let exampleModel = $derived(allModels.length > 0 ? allModels[0] : 'provider/model-name');
 
+  // Native proxy: providers that support native passthrough (gemini, anthropic).
+  let nativeProviders = $derived(
+    providers.filter((p) => p.type === 'gemini' || p.type === 'anthropic')
+  );
+
+  // Pick example providers for native proxy docs.
+  let exampleGeminiProvider = $derived(
+    providers.find((p) => p.type === 'gemini')
+  );
+  let exampleAnthropicProvider = $derived(
+    providers.find((p) => p.type === 'anthropic')
+  );
+
   function copyCode(id: string, text: string) {
     navigator.clipboard.writeText(text);
     copiedId = id;
@@ -139,6 +152,55 @@ func main() {
   -H "Authorization: Bearer at_your_token_here"`;
   }
 
+  function curlNativeGeminiExample(url: string, providerKey: string, model: string): string {
+    return `curl ${url}/gateway/v1/native/${providerKey}/v1beta/models/${model}:generateContent \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer at_your_token_here" \\
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [{"text": "Hello!"}]}
+    ]
+  }'`;
+  }
+
+  function curlNativeGeminiStreamExample(url: string, providerKey: string, model: string): string {
+    return `curl ${url}/gateway/v1/native/${providerKey}/v1beta/models/${model}:streamGenerateContent?alt=sse \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer at_your_token_here" \\
+  -d '{
+    "contents": [
+      {"role": "user", "parts": [{"text": "Hello!"}]}
+    ]
+  }'`;
+  }
+
+  function curlNativeAnthropicExample(url: string, providerKey: string, model: string): string {
+    return `curl ${url}/gateway/v1/native/${providerKey}/v1/messages \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer at_your_token_here" \\
+  -d '{
+    "model": "${model}",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'`;
+  }
+
+  function curlNativeAnthropicStreamExample(url: string, providerKey: string, model: string): string {
+    return `curl ${url}/gateway/v1/native/${providerKey}/v1/messages \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer at_your_token_here" \\
+  -d '{
+    "model": "${model}",
+    "max_tokens": 1024,
+    "stream": true,
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'`;
+  }
+
   function getActiveExample(tab: string, model: string, url: string): string {
     switch (tab) {
       case 'python': return pythonExample(model, url);
@@ -198,6 +260,13 @@ func main() {
           <code class="font-mono text-gray-700">{baseUrl}/gateway/v1/models</code>
         </div>
         <p class="text-xs text-gray-500 ml-14">List all available models.</p>
+      </div>
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-amber-50 border border-amber-200 text-amber-700 font-medium font-mono">POST</span>
+          <code class="font-mono text-gray-700">{baseUrl}/gateway/v1/native/<span class="text-amber-600">{'{provider_key}'}</span>/...</code>
+        </div>
+        <p class="text-xs text-gray-500 ml-14">Native proxy. Passes requests unchanged to the upstream provider's API (Gemini, Anthropic).</p>
       </div>
     </div>
   </div>
@@ -266,6 +335,97 @@ func main() {
       </button>
     </div>
     <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{curlModelsExample(baseUrl)}</pre>
+  </div>
+
+  <!-- Native Proxy -->
+  <div class="border border-gray-200 bg-white mb-4">
+    <div class="px-4 py-3 border-b border-gray-200">
+      <h3 class="text-sm font-medium text-gray-900">Native Proxy</h3>
+    </div>
+    <div class="p-4 text-sm text-gray-600 leading-relaxed">
+      <p class="mb-3">
+        The native proxy passes requests <strong>unchanged</strong> to the upstream provider's API.
+        Use this when you need full access to provider-specific features (thinking, grounding, caching, etc.)
+        without the OpenAI translation layer.
+      </p>
+      <p class="mb-3 text-xs text-gray-500">
+        URL pattern: <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-gray-700">/gateway/v1/native/{'{provider_key}'}/{'{upstream_path}'}</code>
+      </p>
+      <p class="text-xs text-gray-500">
+        The gateway authenticates with your token, checks model access, then proxies the request to the upstream provider with its own API key.
+        Supported provider types: <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-gray-700">gemini</code>, <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-gray-700">anthropic</code>.
+      </p>
+    </div>
+
+    {#if nativeProviders.length > 0}
+      <div class="border-t border-gray-200">
+        {#if exampleGeminiProvider}
+          {@const geminiModel = exampleGeminiProvider.models && exampleGeminiProvider.models.length > 0 ? exampleGeminiProvider.models[0] : exampleGeminiProvider.default_model}
+          <div class="p-4 border-b border-gray-100">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 font-mono">gemini</span>
+                <span class="text-xs text-gray-500">provider: <code class="font-mono text-gray-700">{exampleGeminiProvider.key}</code></span>
+              </div>
+              <button
+                onclick={() => copyCode('native-gemini', curlNativeGeminiExample(baseUrl, exampleGeminiProvider!.key, geminiModel))}
+                class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <Copy size={12} />
+                {copiedId === 'native-gemini' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre class="bg-gray-50 border border-gray-200 p-3 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{curlNativeGeminiExample(baseUrl, exampleGeminiProvider.key, geminiModel)}</pre>
+            <div class="mt-2 flex items-center justify-between">
+              <span class="text-xs text-gray-400">Streaming:</span>
+              <button
+                onclick={() => copyCode('native-gemini-stream', curlNativeGeminiStreamExample(baseUrl, exampleGeminiProvider!.key, geminiModel))}
+                class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <Copy size={12} />
+                {copiedId === 'native-gemini-stream' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre class="bg-gray-50 border border-gray-200 p-3 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed mt-1">{curlNativeGeminiStreamExample(baseUrl, exampleGeminiProvider.key, geminiModel)}</pre>
+          </div>
+        {/if}
+
+        {#if exampleAnthropicProvider}
+          {@const anthropicModel = exampleAnthropicProvider.models && exampleAnthropicProvider.models.length > 0 ? exampleAnthropicProvider.models[0] : exampleAnthropicProvider.default_model}
+          <div class="p-4">
+            <div class="flex items-center justify-between mb-2">
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 font-mono">anthropic</span>
+                <span class="text-xs text-gray-500">provider: <code class="font-mono text-gray-700">{exampleAnthropicProvider.key}</code></span>
+              </div>
+              <button
+                onclick={() => copyCode('native-anthropic', curlNativeAnthropicExample(baseUrl, exampleAnthropicProvider!.key, anthropicModel))}
+                class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <Copy size={12} />
+                {copiedId === 'native-anthropic' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre class="bg-gray-50 border border-gray-200 p-3 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{curlNativeAnthropicExample(baseUrl, exampleAnthropicProvider.key, anthropicModel)}</pre>
+            <div class="mt-2 flex items-center justify-between">
+              <span class="text-xs text-gray-400">Streaming:</span>
+              <button
+                onclick={() => copyCode('native-anthropic-stream', curlNativeAnthropicStreamExample(baseUrl, exampleAnthropicProvider!.key, anthropicModel))}
+                class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <Copy size={12} />
+                {copiedId === 'native-anthropic-stream' ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+            <pre class="bg-gray-50 border border-gray-200 p-3 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed mt-1">{curlNativeAnthropicStreamExample(baseUrl, exampleAnthropicProvider.key, anthropicModel)}</pre>
+          </div>
+        {/if}
+      </div>
+    {:else}
+      <div class="border-t border-gray-200 p-4 text-xs text-gray-400 text-center">
+        No Gemini or Anthropic providers configured. Add one from the <a href="#/providers" class="text-gray-500 underline underline-offset-2 hover:text-gray-700">Providers</a> page.
+      </div>
+    {/if}
   </div>
 
   <!-- Available Models -->

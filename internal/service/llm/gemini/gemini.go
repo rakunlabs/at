@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/worldline-go/klient"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -96,6 +97,11 @@ type part struct {
 	InlineData       *inlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *functionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *functionResponse `json:"functionResponse,omitempty"`
+	// ThoughtSignature is an encrypted representation of the model's internal
+	// reasoning state. Gemini thinking models (2.5+, 3.x) return this on parts
+	// containing functionCall. It MUST be echoed back on the corresponding
+	// functionCall part in subsequent requests to maintain reasoning continuity.
+	ThoughtSignature string `json:"thoughtSignature,omitempty"`
 }
 
 type inlineData struct {
@@ -249,6 +255,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		defer close(ch)
 		defer resp.Body.Close()
 
+		// Track whether any tool calls have been seen across all SSE events.
+		// Gemini may send functionCall parts and finishReason in separate events.
+		// When finishReason arrives we need to know if the response contained
+		// tool calls so we can emit "tool_calls" instead of "stop".
+		hasToolCalls := false
+
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
 		for scanner.Scan() {
@@ -296,25 +308,24 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 					}
 					if p.FunctionCall != nil {
 						chunk.ToolCalls = append(chunk.ToolCalls, service.ToolCall{
-							ID:        generateToolCallID(p.FunctionCall.Name),
-							Name:      p.FunctionCall.Name,
-							Arguments: p.FunctionCall.Args,
+							ID:               generateToolCallID(p.FunctionCall.Name),
+							Name:             p.FunctionCall.Name,
+							Arguments:        p.FunctionCall.Args,
+							ThoughtSignature: p.ThoughtSignature,
 						})
 					}
 				}
 			}
 
+			if len(chunk.ToolCalls) > 0 {
+				hasToolCalls = true
+			}
+
 			if cand.FinishReason != "" {
-				switch cand.FinishReason {
-				case "STOP", "MAX_TOKENS":
-					chunk.FinishReason = "stop"
-				default:
-					// Other reasons like SAFETY, RECITATION, etc.
-					chunk.FinishReason = "stop"
-				}
-				// If there are tool calls, mark it as tool_calls finish reason.
-				if len(chunk.ToolCalls) > 0 {
+				if hasToolCalls {
 					chunk.FinishReason = "tool_calls"
+				} else {
+					chunk.FinishReason = "stop"
 				}
 			}
 
@@ -342,10 +353,44 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 			decls[i] = functionDeclaration{
 				Name:        tool.Name,
 				Description: tool.Description,
-				Parameters:  tool.InputSchema,
+				Parameters:  service.SanitizeSchema(tool.InputSchema),
 			}
 		}
 		req.Tools = []googleTool{{FunctionDeclarations: decls}}
+	}
+
+	// Build a mapping from tool_call_id -> function name by scanning assistant
+	// messages that contain tool_calls. This lets us recover the original function
+	// name when processing role="tool" result messages, since the OpenAI protocol
+	// only includes tool_call_id (not the function name) in tool result messages.
+	toolCallNames := make(map[string]string)
+	for _, msg := range messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		m, ok := msg.Content.(map[string]any)
+		if !ok {
+			continue
+		}
+		tcs, ok := m["tool_calls"].([]any)
+		if !ok {
+			continue
+		}
+		for _, tc := range tcs {
+			tcMap, ok := tc.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := tcMap["id"].(string)
+			fn, ok := tcMap["function"].(map[string]any)
+			if !ok {
+				continue
+			}
+			name, _ := fn["name"].(string)
+			if id != "" && name != "" {
+				toolCallNames[id] = name
+			}
+		}
 	}
 
 	// Convert messages to Google's contents format.
@@ -381,12 +426,19 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 		case "tool":
 			// Tool results: in the OpenAI format these come as role=tool messages.
 			// In Google's format, they become user messages with functionResponse parts.
-			parts := convertToolResultToParts(msg)
+			// Multiple consecutive tool results must be merged into a single
+			// "user" content entry because Gemini rejects consecutive same-role messages.
+			parts := convertToolResultToParts(msg, toolCallNames)
 			if len(parts) > 0 {
-				req.Contents = append(req.Contents, content{
-					Role:  "user",
-					Parts: parts,
-				})
+				if n := len(req.Contents); n > 0 && req.Contents[n-1].Role == "user" {
+					// Merge into the previous user message.
+					req.Contents[n-1].Parts = append(req.Contents[n-1].Parts, parts...)
+				} else {
+					req.Contents = append(req.Contents, content{
+						Role:  "user",
+						Parts: parts,
+					})
+				}
 			}
 		}
 	}
@@ -692,11 +744,10 @@ func convertToParts(ctx context.Context, msg service.Message) []part {
 				return parts
 			}
 		}
-		if text, ok := c["content"].(string); ok && text != "" {
-			return []part{{Text: text}}
-		}
 		// Handle OpenAI-style tool_calls in assistant messages.
-		if toolCalls, ok := c["tool_calls"].([]any); ok {
+		// Check this before plain text to avoid dropping tool_calls when
+		// both content and tool_calls are present.
+		if toolCalls, ok := c["tool_calls"].([]any); ok && len(toolCalls) > 0 {
 			var parts []part
 			// Add text content if present.
 			if text, ok := c["content"].(string); ok && text != "" {
@@ -717,14 +768,19 @@ func convertToParts(ctx context.Context, msg service.Message) []part {
 				if argsStr != "" {
 					json.Unmarshal([]byte(argsStr), &args)
 				}
+				thoughtSig, _ := tcMap["thought_signature"].(string)
 				parts = append(parts, part{
 					FunctionCall: &functionCall{
 						Name: name,
 						Args: args,
 					},
+					ThoughtSignature: thoughtSig,
 				})
 			}
 			return parts
+		}
+		if text, ok := c["content"].(string); ok && text != "" {
+			return []part{{Text: text}}
 		}
 		return nil
 
@@ -734,11 +790,12 @@ func convertToParts(ctx context.Context, msg service.Message) []part {
 }
 
 // convertToolResultToParts converts a role=tool message to functionResponse parts.
-func convertToolResultToParts(msg service.Message) []part {
+// toolCallNames maps tool_call_id → function name, built from preceding assistant messages.
+func convertToolResultToParts(msg service.Message, toolCallNames map[string]string) []part {
 	switch c := msg.Content.(type) {
 	case string:
-		// OpenAI style: role=tool with string content. We need the tool name
-		// but it's typically encoded in the message. Use a generic name.
+		// Unlikely path: role=tool with bare string content (no tool_call_id
+		// available since Message only has Role+Content). Use a generic name.
 		return []part{{
 			FunctionResponse: &functionResponse{
 				Name:     "tool",
@@ -750,7 +807,11 @@ func convertToolResultToParts(msg service.Message) []part {
 		// Passthrough message that includes tool_call_id, content, etc.
 		name, _ := c["name"].(string)
 		if name == "" {
-			name, _ = c["tool_call_id"].(string)
+			// Look up the function name from the toolCallNames map using tool_call_id.
+			toolCallID, _ := c["tool_call_id"].(string)
+			if toolCallID != "" {
+				name = toolCallNames[toolCallID]
+			}
 		}
 		if name == "" {
 			name = "tool"
@@ -801,9 +862,10 @@ func parseResponse(resp *generateContentResponse) (*service.LLMResponse, error) 
 			}
 			if p.FunctionCall != nil {
 				llmResp.ToolCalls = append(llmResp.ToolCalls, service.ToolCall{
-					ID:        generateToolCallID(p.FunctionCall.Name),
-					Name:      p.FunctionCall.Name,
-					Arguments: p.FunctionCall.Args,
+					ID:               generateToolCallID(p.FunctionCall.Name),
+					Name:             p.FunctionCall.Name,
+					Arguments:        p.FunctionCall.Args,
+					ThoughtSignature: p.ThoughtSignature,
 				})
 			}
 		}
@@ -833,10 +895,12 @@ func extractText(content any) string {
 	return ""
 }
 
-// generateToolCallID creates a deterministic tool call ID from the function name.
+// generateToolCallID creates a unique tool call ID from the function name.
 // Google's API doesn't provide tool call IDs like OpenAI does, so we generate one.
+// The format is "call_<ulid>" to ensure uniqueness across multiple calls to the
+// same function.
 func generateToolCallID(name string) string {
-	return "call_" + name
+	return "call_" + ulid.Make().String()
 }
 
 // fetchImageAsInlineData downloads a remote image URL and returns it as

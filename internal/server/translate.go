@@ -30,9 +30,15 @@ type OpenAIMessage struct {
 }
 
 type OpenAIToolCall struct {
+	Index    *int               `json:"index,omitempty"`
 	ID       string             `json:"id"`
 	Type     string             `json:"type"`
 	Function OpenAIFunctionCall `json:"function"`
+	// ThoughtSignature is a Gemini-specific extension: an opaque token that
+	// preserves the model's reasoning state across function-calling turns.
+	// Clients must echo it back on assistant messages so the gateway can
+	// restore it when rebuilding the Gemini request.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 type OpenAIFunctionCall struct {
@@ -121,7 +127,12 @@ type ChunkDelta struct {
 // for providers that use the OpenAI-compatible format (openai, vertex).
 // Since these providers serialize messages directly via json.Marshal, we need to
 // preserve the full OpenAI message structure as map[string]any.
-func translateOpenAIMessages(msgs []OpenAIMessage) []service.Message {
+//
+// thoughtSigLookup, when non-nil, is called for tool calls that are missing a
+// thought_signature. It returns the cached signature (if any) for the given
+// tool call ID.  This is needed because many OpenAI-compatible clients strip
+// unknown fields like thought_signature when echoing back assistant messages.
+func translateOpenAIMessages(msgs []OpenAIMessage, thoughtSigLookup func(string) string) []service.Message {
 	result := make([]service.Message, 0, len(msgs))
 	for _, msg := range msgs {
 		// Rebuild each message as a map to preserve the full OpenAI structure
@@ -150,7 +161,31 @@ func translateOpenAIMessages(msgs []OpenAIMessage) []service.Message {
 		}
 
 		if len(msg.ToolCalls) > 0 {
-			m["tool_calls"] = msg.ToolCalls
+			// Convert []OpenAIToolCall to []any so that downstream providers
+			// (e.g. Gemini) can type-assert with .([]any) on the stored value.
+			// Go does not allow asserting []ConcreteType to []any directly.
+			tcs := make([]any, len(msg.ToolCalls))
+			for i, tc := range msg.ToolCalls {
+				tcMap := map[string]any{
+					"id":   tc.ID,
+					"type": tc.Type,
+					"function": map[string]any{
+						"name":      tc.Function.Name,
+						"arguments": tc.Function.Arguments,
+					},
+				}
+				sig := tc.ThoughtSignature
+				// If the client omitted thought_signature, try to restore it
+				// from the server-side cache.
+				if sig == "" && thoughtSigLookup != nil {
+					sig = thoughtSigLookup(tc.ID)
+				}
+				if sig != "" {
+					tcMap["thought_signature"] = sig
+				}
+				tcs[i] = tcMap
+			}
+			m["tool_calls"] = tcs
 		}
 
 		if msg.Name != "" {
@@ -298,11 +333,14 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 		msg.Content = &content
 	}
 
-	for _, tc := range resp.ToolCalls {
+	for i, tc := range resp.ToolCalls {
+		idx := i
 		argsJSON, _ := json.Marshal(tc.Arguments)
 		msg.ToolCalls = append(msg.ToolCalls, OpenAIToolCall{
-			ID:   tc.ID,
-			Type: "function",
+			Index:            &idx,
+			ID:               tc.ID,
+			Type:             "function",
+			ThoughtSignature: tc.ThoughtSignature,
 			Function: OpenAIFunctionCall{
 				Name:      tc.Name,
 				Arguments: string(argsJSON),

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/at/internal/cluster"
@@ -34,7 +35,8 @@ type ProviderInfo struct {
 	provider     service.LLMProvider
 	providerType string // "anthropic", "openai", "vertex", "gemini"
 	defaultModel string
-	models       []string // all supported models; if empty, only defaultModel is advertised
+	models       []string         // all supported models; if empty, only defaultModel is advertised
+	config       config.LLMConfig // raw config for native proxy passthrough
 }
 
 // ProviderFactory is a function that creates an LLMProvider from an LLMConfig.
@@ -73,6 +75,66 @@ type Server struct {
 	// tokenLastUsedMu holds a per-token mutex so concurrent requests for the
 	// same token don't fire redundant DB writes.
 	tokenLastUsedMu sync.Map // map[string]*sync.Mutex
+
+	// thoughtSigCache caches Gemini thought_signature tokens keyed by tool
+	// call ID.  Many OpenAI-compatible clients (e.g. Vercel AI SDK) strip
+	// unknown fields from tool calls when echoing them back.  Gemini 2.5+
+	// thinking models require thought_signature on every functionCall part,
+	// so the gateway caches signatures from outbound responses and restores
+	// them on inbound requests when the client omits them.
+	// map key: tool-call ID (string), value: thoughtSigEntry
+	thoughtSigCache sync.Map
+}
+
+// thoughtSigTTL is how long cached thought_signature entries are kept.
+// Conversations rarely exceed this duration between tool-call turns.
+const thoughtSigTTL = 30 * time.Minute
+
+// thoughtSigEntry is a cache entry for a single thought_signature.
+type thoughtSigEntry struct {
+	signature string
+	expiresAt time.Time
+}
+
+// cacheThoughtSignatures stores thought_signature values from outbound tool
+// calls so they can be restored on subsequent inbound requests.
+func (s *Server) cacheThoughtSignatures(toolCalls []service.ToolCall) {
+	now := time.Now()
+	for _, tc := range toolCalls {
+		if tc.ThoughtSignature != "" && tc.ID != "" {
+			s.thoughtSigCache.Store(tc.ID, thoughtSigEntry{
+				signature: tc.ThoughtSignature,
+				expiresAt: now.Add(thoughtSigTTL),
+			})
+		}
+	}
+}
+
+// lookupThoughtSignature returns a cached thought_signature for a tool call ID,
+// or "" if not found or expired.
+func (s *Server) lookupThoughtSignature(toolCallID string) string {
+	v, ok := s.thoughtSigCache.Load(toolCallID)
+	if !ok {
+		return ""
+	}
+	entry := v.(thoughtSigEntry)
+	if time.Now().After(entry.expiresAt) {
+		s.thoughtSigCache.Delete(toolCallID)
+		return ""
+	}
+	return entry.signature
+}
+
+// sweepThoughtSigCache removes expired entries from the thought_signature cache.
+// Called periodically from a background goroutine.
+func (s *Server) sweepThoughtSigCache() {
+	now := time.Now()
+	s.thoughtSigCache.Range(func(key, value any) bool {
+		if entry := value.(thoughtSigEntry); now.After(entry.expiresAt) {
+			s.thoughtSigCache.Delete(key)
+		}
+		return true
+	})
 }
 
 func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
@@ -98,6 +160,20 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		cluster:         cl,
 	}
 
+	// Start background sweep for expired thought_signature cache entries.
+	go func() {
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				s.sweepThoughtSigCache()
+			}
+		}
+	}()
+
 	// ////////////////////////////////////////////
 
 	if cfg.BasePath != "" {
@@ -110,6 +186,10 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
+
+	// Native proxy: passes requests to upstream providers unchanged.
+	// URL pattern: POST /gateway/v1/native/{provider_key}/{remaining_path...}
+	gatewayGroup.POST("/v1/native/{provider_key}/*", s.NativeProxy)
 
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
@@ -177,12 +257,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 }
 
 // NewProviderInfo creates a ProviderInfo from a provider and its config.
-func NewProviderInfo(provider service.LLMProvider, providerType, defaultModel string, models []string) ProviderInfo {
+func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) ProviderInfo {
 	return ProviderInfo{
 		provider:     provider,
-		providerType: providerType,
-		defaultModel: defaultModel,
-		models:       models,
+		providerType: cfg.Type,
+		defaultModel: cfg.Model,
+		models:       cfg.Models,
+		config:       cfg,
 	}
 }
 
@@ -204,7 +285,7 @@ func (s *Server) reloadProvider(key string, cfg config.LLMConfig) error {
 		return fmt.Errorf("create provider %q: %w", key, err)
 	}
 
-	info := NewProviderInfo(provider, cfg.Type, cfg.Model, cfg.Models)
+	info := NewProviderInfo(provider, cfg)
 
 	s.providerMu.Lock()
 	s.providers[key] = info

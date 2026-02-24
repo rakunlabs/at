@@ -174,7 +174,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	default:
 		// OpenAI-compatible providers (openai, vertex) and gemini: pass through.
 		// The gemini provider handles its own format translation internally.
-		messages = translateOpenAIMessages(req.Messages)
+		messages = translateOpenAIMessages(req.Messages, s.lookupThoughtSignature)
 	}
 
 	if req.Stream {
@@ -196,6 +196,8 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build OpenAI-compatible response
+	// Cache thought_signatures before sending the response to the client.
+	s.cacheThoughtSignatures(resp.ToolCalls)
 	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
 	httpResponseJSON(w, chatResp, http.StatusOK)
 }
@@ -481,11 +483,17 @@ func (s *Server) handleStreamingChat(
 
 			// Add tool calls to the delta if present
 			if len(chunk.ToolCalls) > 0 {
-				for _, tc := range chunk.ToolCalls {
+				// Cache thought_signatures for later restoration.
+				s.cacheThoughtSignatures(chunk.ToolCalls)
+
+				for i, tc := range chunk.ToolCalls {
+					idx := i
 					argsJSON, _ := json.Marshal(tc.Arguments)
 					cc.Choices[0].Delta.ToolCalls = append(cc.Choices[0].Delta.ToolCalls, OpenAIToolCall{
-						ID:   tc.ID,
-						Type: "function",
+						Index:            &idx,
+						ID:               tc.ID,
+						Type:             "function",
+						ThoughtSignature: tc.ThoughtSignature,
 						Function: OpenAIFunctionCall{
 							Name:      tc.Name,
 							Arguments: string(argsJSON),
@@ -494,12 +502,33 @@ func (s *Server) handleStreamingChat(
 				}
 			}
 
-			if chunk.FinishReason != "" {
+			// Match OpenAI's wire format: tool call data and finish_reason
+			// are sent in separate SSE chunks. Many clients (e.g. OpenCode)
+			// depend on this ordering — they accumulate tool call deltas and
+			// only finalize when finish_reason arrives in a subsequent chunk.
+			hasData := len(chunk.ToolCalls) > 0 || chunk.Content != "" || len(chunk.InlineImages) > 0
+			if chunk.FinishReason != "" && hasData {
+				// Send the data chunk first (without finish_reason).
+				writeSSEChunk(w, flusher, cc)
+				// Then send a separate chunk with just the finish_reason.
 				fr := chunk.FinishReason
-				cc.Choices[0].FinishReason = &fr
+				writeSSEChunk(w, flusher, ChatCompletionChunk{
+					ID:     chatID,
+					Object: "chat.completion.chunk",
+					Model:  fullModel,
+					Choices: []ChunkChoice{{
+						Index:        0,
+						Delta:        ChunkDelta{},
+						FinishReason: &fr,
+					}},
+				})
+			} else {
+				if chunk.FinishReason != "" {
+					fr := chunk.FinishReason
+					cc.Choices[0].FinishReason = &fr
+				}
+				writeSSEChunk(w, flusher, cc)
 			}
-
-			writeSSEChunk(w, flusher, cc)
 		}
 	} else {
 		// Fallback: fake streaming via non-streaming Chat call.
@@ -539,12 +568,18 @@ func (s *Server) handleStreamingChat(
 
 		// Chunk 3: tool calls (if any)
 		if len(resp.ToolCalls) > 0 {
+			// Cache thought_signatures for later restoration.
+			s.cacheThoughtSignatures(resp.ToolCalls)
+
 			var toolCalls []OpenAIToolCall
-			for _, tc := range resp.ToolCalls {
+			for i, tc := range resp.ToolCalls {
+				idx := i
 				argsJSON, _ := json.Marshal(tc.Arguments)
 				toolCalls = append(toolCalls, OpenAIToolCall{
-					ID:   tc.ID,
-					Type: "function",
+					Index:            &idx,
+					ID:               tc.ID,
+					Type:             "function",
+					ThoughtSignature: tc.ThoughtSignature,
 					Function: OpenAIFunctionCall{
 						Name:      tc.Name,
 						Arguments: string(argsJSON),
