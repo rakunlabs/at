@@ -881,6 +881,7 @@
             <input
               id="form-apikey"
               type="password"
+              autocomplete="off"
               bind:value={formApiKey}
               placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'google-ai' ? 'AIza...' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
               class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"

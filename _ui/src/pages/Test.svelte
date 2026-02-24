@@ -515,8 +515,9 @@
     <!-- Auth token -->
     <input
       type="password"
+      autocomplete="off"
       bind:value={authToken}
-      placeholder="Auth token (optional)"
+      placeholder="Auth token"
       class="border border-gray-300 px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
     />
 
