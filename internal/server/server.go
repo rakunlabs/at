@@ -35,8 +35,7 @@ type ProviderInfo struct {
 	provider     service.LLMProvider
 	providerType string // "anthropic", "openai", "vertex", "gemini"
 	defaultModel string
-	models       []string         // all supported models; if empty, only defaultModel is advertised
-	config       config.LLMConfig // raw config for native proxy passthrough
+	models       []string // all supported models; if empty, only defaultModel is advertised
 }
 
 // ProviderFactory is a function that creates an LLMProvider from an LLMConfig.
@@ -187,10 +186,6 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
 
-	// Native proxy: passes requests to upstream providers unchanged.
-	// URL pattern: POST /gateway/v1/native/{provider_key}/{remaining_path...}
-	gatewayGroup.POST("/v1/native/{provider_key}/*", s.NativeProxy)
-
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
 		slog.Info("forward auth enabled", "url", cfg.ForwardAuth.Address)
@@ -220,10 +215,10 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.PUT("/v1/api-tokens/*", s.UpdateAPITokenAPI)
 	apiGroup.DELETE("/v1/api-tokens/*", s.DeleteAPITokenAPI)
 
-	// Admin API (protected by admin token)
-	adminGroup := apiGroup.Group("/v1/admin")
-	adminGroup.Use(s.adminAuthMiddleware())
-	adminGroup.POST("/rotate-key", s.RotateKeyAPI)
+	// Settings API (protected by admin token)
+	settingsGroup := apiGroup.Group("/v1/settings")
+	settingsGroup.Use(s.adminAuthMiddleware())
+	settingsGroup.POST("/rotate-key", s.RotateKeyAPI)
 
 	// ////////////////////////////////////////////
 
@@ -263,7 +258,6 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 		providerType: cfg.Type,
 		defaultModel: cfg.Model,
 		models:       cfg.Models,
-		config:       cfg,
 	}
 }
 

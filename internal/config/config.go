@@ -92,9 +92,9 @@ type Server struct {
 	// authentication service.
 	ForwardAuth *mforwardauth.ForwardAuth `cfg:"forward_auth"`
 
-	// AdminToken, if set, protects the /api/v1/admin/* endpoints with bearer
+	// AdminToken, if set, protects the /api/v1/settings/* endpoints with bearer
 	// token authentication. Requests must include "Authorization: Bearer <token>".
-	// If not set, all admin endpoints are disabled (403 Forbidden).
+	// If not set, all settings endpoints are disabled (403 Forbidden).
 	AdminToken string `cfg:"admin_token" log:"-"`
 
 	// Alan, if set, enables distributed clustering via UDP peer discovery.
@@ -239,6 +239,11 @@ type LLMConfig struct {
 	//   - "socks5://127.0.0.1:1080"
 	// If empty, no proxy is used (requests go directly to the provider).
 	Proxy string `cfg:"proxy" json:"proxy"`
+
+	// InsecureSkipVerify disables TLS certificate verification when
+	// connecting to the provider. Use this for self-signed certificates
+	// or internal endpoints that don't have valid TLS certs.
+	InsecureSkipVerify bool `cfg:"insecure_skip_verify" json:"insecure_skip_verify"`
 }
 
 func Load(ctx context.Context, path string) (*Config, error) {

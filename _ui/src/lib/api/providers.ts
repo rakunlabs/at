@@ -13,6 +13,7 @@ export interface LLMConfig {
   extra_headers?: Record<string, string>;
   auth_type?: string;
   proxy?: string;
+  insecure_skip_verify?: boolean;
 }
 
 export interface ProviderRecord {

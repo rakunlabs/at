@@ -55,7 +55,7 @@ type Usage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-func New(apiKey, model, baseURL, proxy string) (*Provider, error) {
+func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provider, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
@@ -71,6 +71,9 @@ func New(apiKey, model, baseURL, proxy string) (*Provider, error) {
 	}
 	if proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+	if insecureSkipVerify {
+		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
 	}
 
 	client, err := klient.New(klientOpts...)
@@ -124,6 +127,13 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		return llmResp, nil
 	}
 
+	// Map upstream usage to the internal Usage struct.
+	llmResp.Usage = service.Usage{
+		PromptTokens:     result.Usage.InputTokens,
+		CompletionTokens: result.Usage.OutputTokens,
+		TotalTokens:      result.Usage.InputTokens + result.Usage.OutputTokens,
+	}
+
 	for _, block := range result.Content {
 		switch block.Type {
 		case "text":
@@ -163,6 +173,17 @@ type toolInputDelta struct {
 
 type messageDelta struct {
 	StopReason string `json:"stop_reason"`
+	Usage      *Usage `json:"usage,omitempty"` // output_tokens on message_delta
+}
+
+// messageStartBody is the top-level structure of an Anthropic message_start event.
+type messageStartBody struct {
+	Type    string               `json:"type"`
+	Message *messageStartMessage `json:"message,omitempty"`
+}
+
+type messageStartMessage struct {
+	Usage *Usage `json:"usage,omitempty"` // input_tokens on message_start
 }
 
 // ChatStream implements service.LLMStreamProvider for Anthropic's SSE format.
@@ -209,6 +230,10 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		var currentToolName string
 		var toolInputBuf strings.Builder
 
+		// Accumulate token usage from message_start and message_delta events.
+		var usageInputTokens int
+		var usageOutputTokens int
+
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
 		for scanner.Scan() {
@@ -233,6 +258,13 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			}
 
 			switch event.Type {
+			case "message_start":
+				// message_start contains initial usage (input_tokens).
+				var msb messageStartBody
+				if err := json.Unmarshal([]byte(data), &msb); err == nil && msb.Message != nil && msb.Message.Usage != nil {
+					usageInputTokens = msb.Message.Usage.InputTokens
+				}
+
 			case "content_block_start":
 				// A new content block is starting. If it's a tool_use block,
 				// track its ID and name for accumulating input fragments.
@@ -284,15 +316,29 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 					continue
 				}
 				var md messageDelta
-				if err := json.Unmarshal(event.Delta, &md); err == nil && md.StopReason != "" {
-					finishReason := "stop"
-					if md.StopReason == "tool_use" {
-						finishReason = "tool_calls"
+				if err := json.Unmarshal(event.Delta, &md); err == nil {
+					if md.Usage != nil {
+						usageOutputTokens = md.Usage.OutputTokens
 					}
-					ch <- service.StreamChunk{FinishReason: finishReason}
+					if md.StopReason != "" {
+						finishReason := "stop"
+						if md.StopReason == "tool_use" {
+							finishReason = "tool_calls"
+						}
+						ch <- service.StreamChunk{FinishReason: finishReason}
+					}
 				}
 
 			case "message_stop":
+				// Emit accumulated usage on the final event.
+				total := usageInputTokens + usageOutputTokens
+				ch <- service.StreamChunk{
+					Usage: &service.Usage{
+						PromptTokens:     usageInputTokens,
+						CompletionTokens: usageOutputTokens,
+						TotalTokens:      total,
+					},
+				}
 				return
 
 			case "error":

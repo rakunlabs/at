@@ -14,11 +14,17 @@ import (
 
 // ChatCompletionRequest is the OpenAI-compatible request body.
 type ChatCompletionRequest struct {
-	Model     string          `json:"model"`
-	Messages  []OpenAIMessage `json:"messages"`
-	Tools     []OpenAITool    `json:"tools,omitempty"`
-	Stream    bool            `json:"stream,omitempty"`
-	MaxTokens *int            `json:"max_tokens,omitempty"`
+	Model         string          `json:"model"`
+	Messages      []OpenAIMessage `json:"messages"`
+	Tools         []OpenAITool    `json:"tools,omitempty"`
+	Stream        bool            `json:"stream,omitempty"`
+	StreamOptions *StreamOptions  `json:"stream_options,omitempty"`
+	MaxTokens     *int            `json:"max_tokens,omitempty"`
+}
+
+// StreamOptions controls optional streaming behaviour.
+type StreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type OpenAIMessage struct {
@@ -101,10 +107,11 @@ type ModelData struct {
 
 // ChatCompletionChunk is the OpenAI-compatible streaming chunk response.
 type ChatCompletionChunk struct {
-	ID      string        `json:"id"`
-	Object  string        `json:"object"` // "chat.completion.chunk"
-	Model   string        `json:"model"`
-	Choices []ChunkChoice `json:"choices"`
+	ID      string               `json:"id"`
+	Object  string               `json:"object"` // "chat.completion.chunk"
+	Model   string               `json:"model"`
+	Choices []ChunkChoice        `json:"choices"`
+	Usage   *ChatCompletionUsage `json:"usage,omitempty"`
 }
 
 // ChunkChoice represents a single choice in a streaming chunk.
@@ -359,7 +366,11 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 				FinishReason: finishReason,
 			},
 		},
-		Usage: ChatCompletionUsage{},
+		Usage: ChatCompletionUsage{
+			PromptTokens:     resp.Usage.PromptTokens,
+			CompletionTokens: resp.Usage.CompletionTokens,
+			TotalTokens:      resp.Usage.TotalTokens,
+		},
 	}
 }
 

@@ -41,7 +41,7 @@ type Provider struct {
 // model is the default model (e.g., "gemini-2.5-flash").
 // baseURL optionally overrides the default "https://generativelanguage.googleapis.com".
 // proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL. If empty, no proxy is used.
-func New(apiKey, model, baseURL, proxy string) (*Provider, error) {
+func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provider, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
 	}
@@ -62,6 +62,9 @@ func New(apiKey, model, baseURL, proxy string) (*Provider, error) {
 	}
 	if proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+	if insecureSkipVerify {
+		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
 	}
 
 	client, err := klient.New(klientOpts...)
@@ -261,6 +264,10 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		// tool calls so we can emit "tool_calls" instead of "stop".
 		hasToolCalls := false
 
+		// Track the last usage metadata seen. Gemini may include usageMetadata
+		// in multiple chunks; the last one seen has the final totals.
+		var lastUsage *service.Usage
+
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
 		for scanner.Scan() {
@@ -286,6 +293,15 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			if sr.Error != nil {
 				ch <- service.StreamChunk{Error: fmt.Errorf("gemini error: %s (code: %d)", sr.Error.Message, sr.Error.Code)}
 				return
+			}
+
+			// Capture usage metadata from each chunk; the last one has final totals.
+			if sr.UsageMetadata != nil {
+				lastUsage = &service.Usage{
+					PromptTokens:     sr.UsageMetadata.PromptTokenCount,
+					CompletionTokens: sr.UsageMetadata.CandidatesTokenCount,
+					TotalTokens:      sr.UsageMetadata.TotalTokenCount,
+				}
 			}
 
 			if len(sr.Candidates) == 0 {
@@ -327,6 +343,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				} else {
 					chunk.FinishReason = "stop"
 				}
+				// Attach accumulated usage to the final chunk.
+				chunk.Usage = lastUsage
 			}
 
 			ch <- chunk
@@ -847,6 +865,15 @@ func parseResponse(resp *generateContentResponse) (*service.LLMResponse, error) 
 	cand := resp.Candidates[0]
 	llmResp := &service.LLMResponse{
 		Finished: true,
+	}
+
+	// Map upstream usage metadata to the internal Usage struct.
+	if resp.UsageMetadata != nil {
+		llmResp.Usage = service.Usage{
+			PromptTokens:     resp.UsageMetadata.PromptTokenCount,
+			CompletionTokens: resp.UsageMetadata.CandidatesTokenCount,
+			TotalTokens:      resp.UsageMetadata.TotalTokenCount,
+		}
 	}
 
 	if cand.Content != nil {

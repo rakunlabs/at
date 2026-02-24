@@ -44,7 +44,7 @@ func WithTokenSource(ts TokenSource) Option {
 // extraHeaders allows setting additional HTTP headers for providers that
 // require them (e.g., GitHub Models recommends Accept and X-GitHub-Api-Version).
 // proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL (e.g., "http://proxy:8080").
-func New(apiKey, model, baseURL, proxy string, extraHeaders map[string]string, opts ...Option) (*Provider, error) {
+func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHeaders map[string]string, opts ...Option) (*Provider, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
@@ -66,6 +66,9 @@ func New(apiKey, model, baseURL, proxy string, extraHeaders map[string]string, o
 	}
 	if proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+	if insecureSkipVerify {
+		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
 	}
 
 	client, err := klient.New(klientOpts...)
@@ -90,11 +93,18 @@ func New(apiKey, model, baseURL, proxy string, extraHeaders map[string]string, o
 type OpenAIResponse struct {
 	Error   *OpenAIError `json:"error,omitempty"`
 	Choices []Choice     `json:"choices"`
+	Usage   *OpenAIUsage `json:"usage,omitempty"`
 }
 
 type OpenAIError struct {
 	Message string `json:"message"`
 	Type    string `json:"type"`
+}
+
+type OpenAIUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 type Choice struct {
@@ -178,6 +188,14 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		Finished: choice.FinishReason != "tool_calls",
 	}
 
+	if result.Usage != nil {
+		llmResp.Usage = service.Usage{
+			PromptTokens:     result.Usage.PromptTokens,
+			CompletionTokens: result.Usage.CompletionTokens,
+			TotalTokens:      result.Usage.TotalTokens,
+		}
+	}
+
 	for _, tc := range choice.Message.ToolCalls {
 		var args map[string]any
 		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
@@ -211,6 +229,7 @@ type streamDelta struct {
 type streamResponse struct {
 	Error   *OpenAIError   `json:"error,omitempty"`
 	Choices []streamChoice `json:"choices"`
+	Usage   *OpenAIUsage   `json:"usage,omitempty"`
 }
 
 // ChatStream implements service.LLMStreamProvider for true SSE streaming.
@@ -221,6 +240,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	reqBody := p.buildRequestBody(model, messages, tools)
 	reqBody["stream"] = true
+	reqBody["stream_options"] = map[string]any{"include_usage": true}
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -292,7 +312,18 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				return
 			}
 
+			// OpenAI sends a final chunk with empty choices but populated
+			// usage when stream_options.include_usage is set. Capture it.
 			if len(sr.Choices) == 0 {
+				if sr.Usage != nil {
+					ch <- service.StreamChunk{
+						Usage: &service.Usage{
+							PromptTokens:     sr.Usage.PromptTokens,
+							CompletionTokens: sr.Usage.CompletionTokens,
+							TotalTokens:      sr.Usage.TotalTokens,
+						},
+					}
+				}
 				continue
 			}
 

@@ -18,7 +18,7 @@ type rotateKeyRequest struct {
 	EncryptionKey string `json:"encryption_key"`
 }
 
-// RotateKeyAPI handles POST /api/v1/admin/rotate-key.
+// RotateKeyAPI handles POST /api/v1/settings/rotate-key.
 // It re-encrypts all provider credentials with a new key.
 // When clustering is enabled, it acquires a distributed lock and broadcasts
 // the new key to all peers after the DB transaction commits.

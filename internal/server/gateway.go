@@ -178,7 +178,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Stream {
-		s.handleStreamingChat(w, r, info.provider, providerKey, actualModel, req.Model, messages, tools)
+		s.handleStreamingChat(w, r, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions)
 		return
 	}
 
@@ -420,6 +420,7 @@ func (s *Server) handleStreamingChat(
 	providerKey, actualModel, fullModel string,
 	messages []service.Message,
 	tools []service.Tool,
+	streamOpts *StreamOptions,
 ) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -439,6 +440,9 @@ func (s *Server) handleStreamingChat(
 	w.Header().Set("X-Accel-Buffering", "no") // Disable nginx buffering
 
 	chatID := generateChatID()
+
+	// Determine whether the client requested usage reporting in the stream.
+	includeUsage := streamOpts != nil && streamOpts.IncludeUsage
 
 	// Try true streaming if the provider supports it.
 	if sp, ok := provider.(service.LLMStreamProvider); ok {
@@ -464,11 +468,30 @@ func (s *Server) handleStreamingChat(
 			}},
 		})
 
+		// Accumulate usage from stream chunks (providers emit it on the
+		// final chunk or as a separate usage-only chunk).
+		var streamUsage *ChatCompletionUsage
+
 		for chunk := range chunks {
 			if chunk.Error != nil {
 				slog.Error("stream chunk error", "provider", providerKey, "error", chunk.Error)
 				writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("stream error: %v", chunk.Error))
 				return
+			}
+
+			// Capture usage if present (don't emit it yet).
+			if chunk.Usage != nil {
+				streamUsage = &ChatCompletionUsage{
+					PromptTokens:     chunk.Usage.PromptTokens,
+					CompletionTokens: chunk.Usage.CompletionTokens,
+					TotalTokens:      chunk.Usage.TotalTokens,
+				}
+			}
+
+			// Usage-only chunks (no content, no tool calls, no finish reason)
+			// are just captured above — nothing to send to the client.
+			if chunk.Content == "" && len(chunk.InlineImages) == 0 && len(chunk.ToolCalls) == 0 && chunk.FinishReason == "" {
+				continue
 			}
 
 			cc := ChatCompletionChunk{
@@ -529,6 +552,18 @@ func (s *Server) handleStreamingChat(
 				}
 				writeSSEChunk(w, flusher, cc)
 			}
+		}
+
+		// If the client requested usage reporting, emit a final chunk
+		// with empty choices and the accumulated usage object.
+		if includeUsage && streamUsage != nil {
+			writeSSEChunk(w, flusher, ChatCompletionChunk{
+				ID:      chatID,
+				Object:  "chat.completion.chunk",
+				Model:   fullModel,
+				Choices: []ChunkChoice{},
+				Usage:   streamUsage,
+			})
 		}
 	} else {
 		// Fallback: fake streaming via non-streaming Chat call.
@@ -612,6 +647,21 @@ func (s *Server) handleStreamingChat(
 				FinishReason: &finishReason,
 			}},
 		})
+
+		// Emit usage chunk for fake streaming if requested.
+		if includeUsage {
+			writeSSEChunk(w, flusher, ChatCompletionChunk{
+				ID:      chatID,
+				Object:  "chat.completion.chunk",
+				Model:   fullModel,
+				Choices: []ChunkChoice{},
+				Usage: &ChatCompletionUsage{
+					PromptTokens:     resp.Usage.PromptTokens,
+					CompletionTokens: resp.Usage.CompletionTokens,
+					TotalTokens:      resp.Usage.TotalTokens,
+				},
+			})
+		}
 	}
 
 	// End the stream

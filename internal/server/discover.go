@@ -265,6 +265,9 @@ func klientForConfig(cfg config.LLMConfig) (*klient.Client, error) {
 	if cfg.Proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(cfg.Proxy))
 	}
+	if cfg.InsecureSkipVerify {
+		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
+	}
 	return klient.New(klientOpts...)
 }
 

@@ -346,6 +346,7 @@
   let newModelInput = $state('');
   let formAuthType = $state('');
   let formProxy = $state('');
+  let formInsecureSkipVerify = $state(false);
   let formHasStoredKey = $state(false);
   let formExtraHeaders = $state<{ key: string; value: string }[]>([]);
   let discoveringModels = $state(false);
@@ -386,6 +387,7 @@
     newModelInput = '';
     formAuthType = '';
     formProxy = '';
+    formInsecureSkipVerify = false;
     formHasStoredKey = false;
     formExtraHeaders = [];
     editingKey = null;
@@ -435,6 +437,7 @@
     formModels = [...(rec.config.models || [])];
     formAuthType = rec.config.auth_type || '';
     formProxy = rec.config.proxy || '';
+    formInsecureSkipVerify = rec.config.insecure_skip_verify || false;
     formExtraHeaders = Object.entries(rec.config.extra_headers || {}).map(
       ([key, value]) => ({ key, value })
     );
@@ -589,7 +592,8 @@
       const cfg: Record<string, any> = { type: formType };
       if (formApiKey) cfg.api_key = formApiKey;
       if (formBaseUrl) cfg.base_url = formBaseUrl;
-      if (formProxy) cfg.proxy = formProxy;
+    if (formProxy) cfg.proxy = formProxy;
+    if (formInsecureSkipVerify) cfg.insecure_skip_verify = true;
 
       const headers: Record<string, string> = {};
       for (const h of formExtraHeaders) {
@@ -915,6 +919,19 @@
             placeholder="e.g., http://proxy:8080 or socks5://127.0.0.1:1080"
             class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
           />
+        </div>
+
+        <!-- Insecure Skip Verify -->
+        <div class="grid grid-cols-4 gap-3 items-center">
+          <span class="text-sm font-medium text-gray-700">Skip TLS Verify</span>
+          <label class="col-span-3 flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              bind:checked={formInsecureSkipVerify}
+              class="accent-gray-900 w-4 h-4"
+            />
+            <span class="text-sm text-gray-600">Disable certificate verification (insecure)</span>
+          </label>
         </div>
 
         <!-- Model -->

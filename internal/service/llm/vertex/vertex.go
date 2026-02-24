@@ -41,7 +41,7 @@ type Provider struct {
 // Authentication uses Google Application Default Credentials (ADC).
 // Set GOOGLE_APPLICATION_CREDENTIALS env var to your service account key file,
 // or run on GCE/Cloud Run/GKE where ADC is automatically available.
-func New(model, endpointURL, proxy string) (*Provider, error) {
+func New(model, endpointURL, proxy string, insecureSkipVerify bool) (*Provider, error) {
 	if endpointURL == "" {
 		return nil, fmt.Errorf("vertex provider requires a base_url with the full endpoint URL, e.g.: " +
 			"https://us-central1-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/endpoints/openapi/chat/completions")
@@ -59,6 +59,9 @@ func New(model, endpointURL, proxy string) (*Provider, error) {
 	}
 	if proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+	}
+	if insecureSkipVerify {
+		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
 	}
 
 	client, err := klient.New(klientOpts...)
@@ -78,11 +81,18 @@ func New(model, endpointURL, proxy string) (*Provider, error) {
 type vertexResponse struct {
 	Error   *vertexError `json:"error,omitempty"`
 	Choices []choice     `json:"choices"`
+	Usage   *vertexUsage `json:"usage,omitempty"`
 }
 
 type vertexError struct {
 	Message string `json:"message"`
 	Code    int    `json:"code"`
+}
+
+type vertexUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
 }
 
 type choice struct {
@@ -163,6 +173,14 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		Finished: ch.FinishReason != "tool_calls",
 	}
 
+	if result.Usage != nil {
+		llmResp.Usage = service.Usage{
+			PromptTokens:     result.Usage.PromptTokens,
+			CompletionTokens: result.Usage.CompletionTokens,
+			TotalTokens:      result.Usage.TotalTokens,
+		}
+	}
+
 	for _, tc := range ch.Message.ToolCalls {
 		var args map[string]any
 		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
@@ -196,6 +214,7 @@ type streamDelta struct {
 type streamResponse struct {
 	Error   *vertexError   `json:"error,omitempty"`
 	Choices []streamChoice `json:"choices"`
+	Usage   *vertexUsage   `json:"usage,omitempty"`
 }
 
 // ChatStream implements service.LLMStreamProvider for Vertex AI's
@@ -212,6 +231,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	reqBody := p.buildRequestBody(model, messages, tools)
 	reqBody["stream"] = true
+	reqBody["stream_options"] = map[string]any{"include_usage": true}
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -272,7 +292,18 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				return
 			}
 
+			// Vertex may send a final chunk with empty choices but populated
+			// usage when stream_options.include_usage is set. Capture it.
 			if len(sr.Choices) == 0 {
+				if sr.Usage != nil {
+					ch <- service.StreamChunk{
+						Usage: &service.Usage{
+							PromptTokens:     sr.Usage.PromptTokens,
+							CompletionTokens: sr.Usage.CompletionTokens,
+							TotalTokens:      sr.Usage.TotalTokens,
+						},
+					}
+				}
 				continue
 			}
 

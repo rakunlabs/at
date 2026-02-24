@@ -45,6 +45,10 @@ type StreamChunk struct {
 	// Empty string means this is not the final chunk.
 	FinishReason string
 
+	// Usage, when non-nil, contains the final token usage statistics for
+	// the entire streamed response. Providers set this on the last chunk.
+	Usage *Usage
+
 	// Error, if non-nil, indicates the stream encountered an error.
 	Error error
 }
@@ -135,11 +139,19 @@ type MediaSource struct {
 	URL       string `json:"url,omitempty"`        // URL reference (when type="url")
 }
 
+// Usage contains token usage statistics from the upstream provider.
+type Usage struct {
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+}
+
 type LLMResponse struct {
 	Content      string
 	InlineImages []InlineImage
 	ToolCalls    []ToolCall
 	Finished     bool
+	Usage        Usage
 }
 
 type ToolCall struct {

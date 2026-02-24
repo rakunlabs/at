@@ -80,7 +80,7 @@ server:
   host: "0.0.0.0"
   port: "8080"
   base_path: "/at" # default is empty string, set to a non-empty value to serve API under a subpath (e.g. /at)
-  admin_token: "my-secret-admin-token" # protects /api/v1/admin/* endpoints; if not set, admin endpoints are disabled
+  admin_token: "my-secret-admin-token" # protects /api/v1/settings/* endpoints; if not set, settings endpoints are disabled
   # example forward_auth config, default not set (disabled)
   # based on https://rakunlabs.github.io/ada/guide/middleware/forwardauth.html
   forward_auth:
@@ -104,7 +104,7 @@ server:
 
 When `forward_auth` is set, all management API requests are forwarded to the specified authentication service for verification before being handled. If the auth service returns a 2xx response the request proceeds; otherwise it is rejected or redirected.
 
-When `admin_token` is set, all `/api/v1/admin/*` endpoints require an `Authorization: Bearer <admin_token>` header. If no `admin_token` is configured, admin endpoints respond with `403 Forbidden` -- this forces explicit opt-in. The admin token only protects admin endpoints; regular management APIs (providers, tokens) are unaffected.
+When `admin_token` is set, all `/api/v1/settings/*` endpoints require an `Authorization: Bearer <admin_token>` header. If no `admin_token` is configured, settings endpoints respond with `403 Forbidden` -- this forces explicit opt-in. The admin token only protects settings endpoints; regular management APIs (providers, tokens) are unaffected.
 
 ### Store configuration
 
@@ -166,7 +166,7 @@ If no `encryption_key` is set, credentials are stored in plaintext (backward com
 If you need to change the encryption key, use the key rotation API endpoint. This re-encrypts all provider credentials atomically within a database transaction:
 
 ```sh
-curl -X POST http://localhost:8080/api/v1/admin/rotate-key \
+curl -X POST http://localhost:8080/api/v1/settings/rotate-key \
   -H "Authorization: Bearer my-secret-admin-token" \
   -H "Content-Type: application/json" \
   -d '{"encryption_key": "new-secret-key"}'
@@ -197,7 +197,7 @@ When clustering is **not** configured (no `alan` section), AT operates in single
 
 **How key rotation works with clustering:**
 
-1. The admin calls `POST /api/v1/admin/rotate-key` on any instance.
+1. The admin calls `POST /api/v1/settings/rotate-key` on any instance.
 2. That instance acquires a distributed lock (`encryption-key-rotation`).
 3. It re-encrypts all provider credentials in the DB within a transaction.
 4. It broadcasts the new derived AES key (base64-encoded, encrypted by alan's ChaCha20) to all peers.
