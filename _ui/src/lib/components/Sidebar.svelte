@@ -1,6 +1,6 @@
 <script lang="ts">
   import { push, location } from 'svelte-spa-router';
-  import { Home, MessageSquare, Cpu, Key, BookOpen, Settings } from 'lucide-svelte';
+  import { Home, MessageSquare, Cpu, Key, Workflow, BookOpen, Settings } from 'lucide-svelte';
 
   function navigate(e: MouseEvent, path: string) {
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -23,11 +23,11 @@
       <span>Dashboard</span>
     </a>
     <a
-      href="#/test"
-      onclick={(e) => navigate(e, '/test')}
+      href="#/chat"
+      onclick={(e) => navigate(e, '/chat')}
       class={[
         'flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors',
-        $location === '/test' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+        $location === '/chat' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
       ]}
     >
       <MessageSquare size={14} />
@@ -54,6 +54,17 @@
     >
       <Key size={14} />
       <span>Tokens</span>
+    </a>
+    <a
+      href="#/workflows"
+      onclick={(e) => navigate(e, '/workflows')}
+      class={[
+        'flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors',
+        $location === '/workflows' || $location.startsWith('/workflows/') ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+      ]}
+    >
+      <Workflow size={14} />
+      <span>Workflows</span>
     </a>
     <a
       href="#/docs"

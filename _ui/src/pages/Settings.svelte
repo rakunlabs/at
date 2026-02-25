@@ -62,12 +62,6 @@
 </svelte:head>
 
 <div class="p-6 max-w-5xl mx-auto">
-  <!-- Header -->
-  <div class="flex items-center gap-2 mb-4">
-    <Settings size={16} class="text-gray-500" />
-    <h2 class="text-sm font-medium text-gray-900">Settings</h2>
-  </div>
-
   <!-- Rotate Encryption Key -->
   <div class="border border-gray-200 bg-white shadow-sm">
     <div class="px-4 py-3 border-b border-gray-200 flex items-center gap-2">

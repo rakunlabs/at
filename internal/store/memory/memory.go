@@ -22,6 +22,8 @@ type Memory struct {
 	providers    map[string]service.ProviderRecord // key -> record
 	tokens       map[string]service.APIToken       // id -> token
 	tokensByHash map[string]string                 // hash -> id
+	workflows    map[string]service.Workflow       // id -> workflow
+	triggers     map[string]service.Trigger        // id -> trigger
 }
 
 func New() *Memory {
@@ -31,6 +33,8 @@ func New() *Memory {
 		providers:    make(map[string]service.ProviderRecord),
 		tokens:       make(map[string]service.APIToken),
 		tokensByHash: make(map[string]string),
+		workflows:    make(map[string]service.Workflow),
+		triggers:     make(map[string]service.Trigger),
 	}
 }
 
@@ -245,4 +249,227 @@ func (m *Memory) UpdateLastUsed(_ context.Context, id string) error {
 	m.tokens[id] = t
 
 	return nil
+}
+
+// ─── Workflow CRUD ───
+
+func (m *Memory) ListWorkflows(_ context.Context) ([]service.Workflow, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]service.Workflow, 0, len(m.workflows))
+	for _, w := range m.workflows {
+		result = append(result, w)
+	}
+
+	slices.SortFunc(result, func(a, b service.Workflow) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) GetWorkflow(_ context.Context, id string) (*service.Workflow, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	w, ok := m.workflows[id]
+	if !ok {
+		return nil, nil
+	}
+
+	return &w, nil
+}
+
+func (m *Memory) CreateWorkflow(_ context.Context, w service.Workflow) (*service.Workflow, error) {
+	// Round-trip through JSON to normalize.
+	raw, err := json.Marshal(w.Graph)
+	if err != nil {
+		return nil, fmt.Errorf("marshal graph: %w", err)
+	}
+	var normalized service.WorkflowGraph
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, fmt.Errorf("unmarshal graph: %w", err)
+	}
+
+	id := ulid.Make().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	rec := service.Workflow{
+		ID:          id,
+		Name:        w.Name,
+		Description: w.Description,
+		Graph:       normalized,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	m.mu.Lock()
+	m.workflows[id] = rec
+	m.mu.Unlock()
+
+	return &rec, nil
+}
+
+func (m *Memory) UpdateWorkflow(_ context.Context, id string, w service.Workflow) (*service.Workflow, error) {
+	raw, err := json.Marshal(w.Graph)
+	if err != nil {
+		return nil, fmt.Errorf("marshal graph: %w", err)
+	}
+	var normalized service.WorkflowGraph
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, fmt.Errorf("unmarshal graph: %w", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.workflows[id]
+	if !ok {
+		return nil, nil
+	}
+
+	existing.Name = w.Name
+	existing.Description = w.Description
+	existing.Graph = normalized
+	existing.UpdatedAt = now
+	m.workflows[id] = existing
+
+	return &existing, nil
+}
+
+func (m *Memory) DeleteWorkflow(_ context.Context, id string) error {
+	m.mu.Lock()
+	delete(m.workflows, id)
+	m.mu.Unlock()
+
+	return nil
+}
+
+// ─── Trigger CRUD ───
+
+func (m *Memory) ListTriggers(_ context.Context, workflowID string) ([]service.Trigger, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []service.Trigger
+	for _, t := range m.triggers {
+		if t.WorkflowID == workflowID {
+			result = append(result, t)
+		}
+	}
+
+	slices.SortFunc(result, func(a, b service.Trigger) int {
+		if a.CreatedAt < b.CreatedAt {
+			return -1
+		}
+		if a.CreatedAt > b.CreatedAt {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) GetTrigger(_ context.Context, id string) (*service.Trigger, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	t, ok := m.triggers[id]
+	if !ok {
+		return nil, nil
+	}
+
+	return &t, nil
+}
+
+func (m *Memory) CreateTrigger(_ context.Context, t service.Trigger) (*service.Trigger, error) {
+	// Round-trip through JSON to normalize config.
+	raw, err := json.Marshal(t.Config)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config: %w", err)
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	id := ulid.Make().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	rec := service.Trigger{
+		ID:         id,
+		WorkflowID: t.WorkflowID,
+		Type:       t.Type,
+		Config:     normalized,
+		Enabled:    t.Enabled,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	m.mu.Lock()
+	m.triggers[id] = rec
+	m.mu.Unlock()
+
+	return &rec, nil
+}
+
+func (m *Memory) UpdateTrigger(_ context.Context, id string, t service.Trigger) (*service.Trigger, error) {
+	raw, err := json.Marshal(t.Config)
+	if err != nil {
+		return nil, fmt.Errorf("marshal config: %w", err)
+	}
+	var normalized map[string]any
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.triggers[id]
+	if !ok {
+		return nil, nil
+	}
+
+	existing.Type = t.Type
+	existing.Config = normalized
+	existing.Enabled = t.Enabled
+	existing.UpdatedAt = now
+	m.triggers[id] = existing
+
+	return &existing, nil
+}
+
+func (m *Memory) DeleteTrigger(_ context.Context, id string) error {
+	m.mu.Lock()
+	delete(m.triggers, id)
+	m.mu.Unlock()
+
+	return nil
+}
+
+func (m *Memory) ListEnabledCronTriggers(_ context.Context) ([]service.Trigger, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []service.Trigger
+	for _, t := range m.triggers {
+		if t.Type == "cron" && t.Enabled {
+			result = append(result, t)
+		}
+	}
+
+	return result, nil
 }

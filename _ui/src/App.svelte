@@ -11,13 +11,15 @@
 
 <div
   class={[
-    "grid grid-flow-col h-full w-full relative overflow-y-auto bg-gray-50",
+    "grid grid-flow-col h-full w-full relative bg-gray-50",
     storeNavbar.sideBarOpen ? "grid-cols-[9rem]" : "grid-cols-[0]",
   ]}
 >
   <Sidebar />
-  <div class="h-full w-full grid grid-rows-[2rem]">
+  <div class="h-full w-full grid grid-rows-[2rem_1fr] min-h-0">
     <Navbar />
-    <Router {routes} />
+    <div class="overflow-y-auto min-h-0">
+      <Router {routes} />
+    </div>
   </div>
 </div>

@@ -36,6 +36,8 @@ type Postgres struct {
 
 	tableProviders exp.IdentifierExpression
 	tableAPITokens exp.IdentifierExpression
+	tableWorkflows exp.IdentifierExpression
+	tableTriggers  exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -126,6 +128,8 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		goqu:           dbGoqu,
 		tableProviders: goqu.T(tablePrefix + "providers"),
 		tableAPITokens: goqu.T(tablePrefix + "tokens"),
+		tableWorkflows: goqu.T(tablePrefix + "workflows"),
+		tableTriggers:  goqu.T(tablePrefix + "triggers"),
 		encKey:         encKey,
 	}, nil
 }

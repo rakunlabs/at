@@ -177,7 +177,7 @@ func run(ctx context.Context) error {
 	}
 
 	// Create and start HTTP server.
-	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, st, st, storeType, newProvider, cl)
+	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, providers, st, st, st, st, storeType, newProvider, cl)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}

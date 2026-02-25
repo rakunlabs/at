@@ -165,6 +165,80 @@ type ToolCall struct {
 	ThoughtSignature string
 }
 
+// ─── Workflow Management ───
+
+// WorkflowGraph is the full graph definition (nodes + edges) stored as JSON.
+type WorkflowGraph struct {
+	Nodes []WorkflowNode `json:"nodes"`
+	Edges []WorkflowEdge `json:"edges"`
+}
+
+// WorkflowNode represents a single node in a workflow graph.
+type WorkflowNode struct {
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`     // "input", "output", "llm_call", "prompt_template", "conditional", "loop", "mcp_tool", "code", "http_request"
+	Position WorkflowPos    `json:"position"` // {x, y} for the visual editor
+	Data     map[string]any `json:"data"`     // node-type-specific configuration
+}
+
+// WorkflowPos is the x/y position of a node in the visual editor.
+type WorkflowPos struct {
+	X float64 `json:"x"`
+	Y float64 `json:"y"`
+}
+
+// WorkflowEdge connects two nodes via their handles/ports.
+type WorkflowEdge struct {
+	ID           string `json:"id"`
+	Source       string `json:"source"`        // source node ID
+	Target       string `json:"target"`        // target node ID
+	SourceHandle string `json:"source_handle"` // output port name on source
+	TargetHandle string `json:"target_handle"` // input port name on target
+}
+
+// Workflow represents a saved workflow definition.
+type Workflow struct {
+	ID          string        `json:"id"`
+	Name        string        `json:"name"`
+	Description string        `json:"description"`
+	Graph       WorkflowGraph `json:"graph"`
+	CreatedAt   string        `json:"created_at"`
+	UpdatedAt   string        `json:"updated_at"`
+}
+
+// WorkflowStorer defines CRUD operations for workflow definitions.
+type WorkflowStorer interface {
+	ListWorkflows(ctx context.Context) ([]Workflow, error)
+	GetWorkflow(ctx context.Context, id string) (*Workflow, error)
+	CreateWorkflow(ctx context.Context, w Workflow) (*Workflow, error)
+	UpdateWorkflow(ctx context.Context, id string, w Workflow) (*Workflow, error)
+	DeleteWorkflow(ctx context.Context, id string) error
+}
+
+// ─── Trigger Management ───
+
+// Trigger represents a workflow trigger (HTTP webhook or cron schedule).
+// Multiple triggers can reference the same workflow.
+type Trigger struct {
+	ID         string         `json:"id"`
+	WorkflowID string         `json:"workflow_id"`
+	Type       string         `json:"type"`   // "http" or "cron"
+	Config     map[string]any `json:"config"` // type-specific configuration
+	Enabled    bool           `json:"enabled"`
+	CreatedAt  string         `json:"created_at"`
+	UpdatedAt  string         `json:"updated_at"`
+}
+
+// TriggerStorer defines CRUD operations for workflow triggers.
+type TriggerStorer interface {
+	ListTriggers(ctx context.Context, workflowID string) ([]Trigger, error)
+	GetTrigger(ctx context.Context, id string) (*Trigger, error)
+	CreateTrigger(ctx context.Context, t Trigger) (*Trigger, error)
+	UpdateTrigger(ctx context.Context, id string, t Trigger) (*Trigger, error)
+	DeleteTrigger(ctx context.Context, id string) error
+	ListEnabledCronTriggers(ctx context.Context) ([]Trigger, error)
+}
+
 // Agent orchestrates MCP and LLM
 type Agent struct {
 	mcp      *HTTPMCPClient

@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      kaykay:
+        specifier: ^0.1.5
+        version: 0.1.5(svelte@5.46.1)
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3
@@ -1118,6 +1122,11 @@ packages:
 
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
+
+  kaykay@0.1.5:
+    resolution: {integrity: sha512-/k+Aha7DnsQqDzpi4vPhAJfzBlM/knN+5O/cbZn0nBymsObSXtGndFiK1Q500Iv70t8Y/cPBY9S24pxgi862gQ==}
+    peerDependencies:
+      svelte: ^5.0.0
 
   keyv@5.5.5:
     resolution: {integrity: sha512-FA5LmZVF1VziNc0bIdCSA1IoSVnDCqE8HJIZZv2/W8YmoAM50+tnUgJR/gQZwEeIMleuIOnRnHA/UaZRNeV4iQ==}
@@ -2525,6 +2534,10 @@ snapshots:
   json-parse-even-better-errors@2.3.1: {}
 
   json-schema-traverse@1.0.0: {}
+
+  kaykay@0.1.5(svelte@5.46.1):
+    dependencies:
+      svelte: 5.46.1
 
   keyv@5.5.5:
     dependencies:

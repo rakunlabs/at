@@ -13,7 +13,7 @@
   };
 </script>
 
-<div class="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+<div class="fixed bottom-4 right-4 z-[200] flex flex-col gap-2">
   {#each storeToast as toast (toast.id)}
     <div
       class={`toast-${toast.type} flex items-center gap-2 px-3 py-2 shadow-lg border text-sm max-w-sm`}

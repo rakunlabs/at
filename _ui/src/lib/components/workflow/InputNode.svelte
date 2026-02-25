@@ -1,0 +1,34 @@
+<script lang="ts">
+  import { Handle, type NodeProps } from 'kaykay';
+
+  interface InputData {
+    label?: string;
+    fields?: string[];
+  }
+
+  let { id, data, selected }: NodeProps<InputData> = $props();
+</script>
+
+<div
+  class={[
+    'bg-white border border-gray-300 rounded-md min-w-40 text-xs shadow-sm select-none',
+    selected && 'border-blue-500 ring-2 ring-blue-500/25'
+  ]}
+>
+  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-emerald-50">
+    <span class="text-[9px] font-bold px-1 py-px rounded bg-emerald-500 text-white tracking-wide">IN</span>
+    <span class="text-gray-900">{data.label || 'Input'}</span>
+  </div>
+  <div class="px-2.5 py-1.5">
+    {#if data.fields && data.fields.length > 0}
+      <div class="flex flex-col gap-0.5">
+        {#each data.fields as field}
+          <div class="text-gray-500 font-mono text-[11px]">{field}</div>
+        {/each}
+      </div>
+    {:else}
+      <div class="text-gray-400 text-[11px]">Workflow input data</div>
+    {/if}
+  </div>
+  <Handle id="output" type="output" port="data" position="right" label="out" />
+</div>

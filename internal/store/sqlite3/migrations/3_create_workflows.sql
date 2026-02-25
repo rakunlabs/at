@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}workflows (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    graph TEXT NOT NULL DEFAULT '{"nodes":[],"edges":[]}',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

@@ -16,6 +16,7 @@ import (
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 
 	mfolder "github.com/rakunlabs/ada/handler/folder"
 	mcors "github.com/rakunlabs/ada/middleware/cors"
@@ -56,6 +57,15 @@ type Server struct {
 
 	// tokenStore is the optional persistent store for API token management.
 	tokenStore service.APITokenStorer
+
+	// workflowStore is the persistent store for workflow definitions.
+	workflowStore service.WorkflowStorer
+
+	// triggerStore is the persistent store for workflow triggers.
+	triggerStore service.TriggerStorer
+
+	// scheduler is the cron trigger scheduler (nil if triggerStore is nil).
+	scheduler *workflow.Scheduler
 
 	// providerFactory creates an LLMProvider from config (for hot reload).
 	providerFactory ProviderFactory
@@ -136,7 +146,7 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, triggerStore service.TriggerStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -153,6 +163,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		providers:       providers,
 		store:           store,
 		tokenStore:      tokenStore,
+		workflowStore:   workflowStore,
+		triggerStore:    triggerStore,
 		providerFactory: factory,
 		storeType:       storeType,
 		authTokens:      gatewayCfg.AuthTokens,
@@ -172,6 +184,25 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			}
 		}
 	}()
+
+	// Initialize cron trigger scheduler if trigger store is available.
+	if triggerStore != nil {
+		providerLookup := func(key string) (service.LLMProvider, string, error) {
+			s.providerMu.RLock()
+			info, ok := s.providers[key]
+			s.providerMu.RUnlock()
+			if !ok {
+				return nil, "", fmt.Errorf("provider %q not found", key)
+			}
+			return info.provider, info.defaultModel, nil
+		}
+
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, providerLookup)
+		if err := s.scheduler.Start(ctx); err != nil {
+			slog.Error("failed to start cron scheduler", "error", err)
+			// Non-fatal: server can run without cron triggers.
+		}
+	}
 
 	// ////////////////////////////////////////////
 
@@ -214,6 +245,27 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.POST("/v1/api-tokens", s.CreateAPITokenAPI)
 	apiGroup.PUT("/v1/api-tokens/*", s.UpdateAPITokenAPI)
 	apiGroup.DELETE("/v1/api-tokens/*", s.DeleteAPITokenAPI)
+
+	// Workflow management
+	apiGroup.GET("/v1/workflows", s.ListWorkflowsAPI)
+	apiGroup.POST("/v1/workflows", s.CreateWorkflowAPI)
+	apiGroup.POST("/v1/workflows/run/*", s.RunWorkflowAPI)
+	apiGroup.GET("/v1/workflows/*", s.GetWorkflowAPI)
+	apiGroup.PUT("/v1/workflows/*", s.UpdateWorkflowAPI)
+	apiGroup.DELETE("/v1/workflows/*", s.DeleteWorkflowAPI)
+
+	// Trigger management (nested under workflows for list/create)
+	apiGroup.GET("/v1/workflows/*/triggers", s.ListTriggersAPI)
+	apiGroup.POST("/v1/workflows/*/triggers", s.CreateTriggerAPI)
+	apiGroup.GET("/v1/triggers/*", s.GetTriggerAPI)
+	apiGroup.PUT("/v1/triggers/*", s.UpdateTriggerAPI)
+	apiGroup.DELETE("/v1/triggers/*", s.DeleteTriggerAPI)
+
+	// Admin chat completions (used by workflow editor AI panel)
+	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
+
+	// Webhook endpoint (public, no auth middleware needed for external callers)
+	apiGroup.POST("/v1/webhooks/*", s.WebhookAPI)
 
 	// Settings API (protected by admin token)
 	settingsGroup := apiGroup.Group("/v1/settings")

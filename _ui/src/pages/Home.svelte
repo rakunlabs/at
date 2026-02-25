@@ -105,7 +105,7 @@
   <!-- Quick actions -->
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
     <a
-      href="#/test"
+      href="#/chat"
       class="border border-gray-200 bg-white p-4 hover:border-gray-300 hover:shadow-sm flex items-center justify-between group transition-all"
     >
       <div class="flex items-center gap-3">
@@ -113,7 +113,7 @@
           <MessageSquare size={16} class="text-gray-600" />
         </div>
         <div>
-          <div class="font-medium text-sm text-gray-900">Chat Test</div>
+          <div class="font-medium text-sm text-gray-900">Chat</div>
           <div class="text-xs text-gray-500">Send messages to your providers</div>
         </div>
       </div>

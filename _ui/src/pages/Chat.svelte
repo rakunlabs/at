@@ -1,35 +1,29 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { getInfo, type InfoProvider } from '@/lib/api/gateway';
+  import { getInfo } from '@/lib/api/gateway';
+  import {
+    type ContentPart,
+    type ChatMessage,
+    getTextContent,
+    mergeDeltaContent,
+    streamChatCompletion,
+  } from '@/lib/helper/chat';
   import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw } from 'lucide-svelte';
 
-  storeNavbar.title = 'Test';
+  storeNavbar.title = 'Chat';
 
   // ─── Types ───
-
-  interface ContentPart {
-    type: 'text' | 'image_url';
-    text?: string;
-    image_url?: { url: string };
-  }
 
   interface PendingImage {
     name: string;
     dataUrl: string;
   }
 
-  interface ChatMessage {
-    role: 'user' | 'assistant' | 'system';
-    content: string | ContentPart[];
-  }
-
   // ─── State ───
 
-  let providers = $state<InfoProvider[]>([]);
   let models = $state<string[]>([]);
   let selectedModel = $state('');
-  let authToken = $state('');
   let systemPrompt = $state('');
   let userInput = $state('');
   let messages = $state<ChatMessage[]>([]);
@@ -48,7 +42,6 @@
     loading = true;
     try {
       const info = await getInfo();
-      providers = info.providers;
 
       // Build full model list: provider_key/model
       const allModels: string[] = [];
@@ -158,59 +151,6 @@
     }
   }
 
-  // ─── Content helpers ───
-
-  /** Get the display text from a ChatMessage's content */
-  function getTextContent(content: string | ContentPart[]): string {
-    if (typeof content === 'string') return content;
-    return content
-      .filter((p) => p.type === 'text')
-      .map((p) => p.text || '')
-      .join('');
-  }
-
-  /** Merge an SSE delta.content into the current assistant message content.
-   *  delta.content may be a plain string (text-only) or an array of
-   *  content parts (multimodal, e.g. text + image_url from Gemini). */
-  function mergeDeltaContent(
-    prev: string | ContentPart[],
-    deltaContent: string | ContentPart[],
-  ): string | ContentPart[] {
-    // Simple text-only delta: append to existing string or last text part.
-    if (typeof deltaContent === 'string') {
-      if (typeof prev === 'string') return prev + deltaContent;
-      // prev is already ContentPart[] — append to last text part or add one.
-      const parts = [...prev];
-      const lastText = parts.findLast((p) => p.type === 'text');
-      if (lastText) {
-        lastText.text = (lastText.text || '') + deltaContent;
-      } else {
-        parts.push({ type: 'text', text: deltaContent });
-      }
-      return parts;
-    }
-
-    // Multimodal delta (array of parts): convert prev to array and merge.
-    let parts: ContentPart[] =
-      typeof prev === 'string'
-        ? prev ? [{ type: 'text', text: prev }] : []
-        : [...prev];
-
-    for (const part of deltaContent) {
-      if (part.type === 'text' && part.text) {
-        const lastText = parts.findLast((p) => p.type === 'text');
-        if (lastText) {
-          lastText.text = (lastText.text || '') + part.text;
-        } else {
-          parts.push({ type: 'text', text: part.text });
-        }
-      } else if (part.type === 'image_url') {
-        parts.push(part);
-      }
-    }
-    return parts;
-  }
-
   // ─── Send message ───
 
   async function sendMessage() {
@@ -239,20 +179,18 @@
     pendingImages = [];
     scrollToBottom();
 
-    // Build request body
-    const reqMessages: { role: string; content: string | ContentPart[] }[] = [];
+    await streamAssistantReply();
+  }
+
+  /** Build request messages from current state and stream a reply. */
+  async function streamAssistantReply() {
+    const reqMessages: { role: string; content: any }[] = [];
     if (systemPrompt.trim()) {
       reqMessages.push({ role: 'system', content: systemPrompt.trim() });
     }
     for (const m of messages) {
       reqMessages.push({ role: m.role, content: m.content });
     }
-
-    const body = {
-      model: selectedModel,
-      messages: reqMessages,
-      stream: true,
-    };
 
     // Add assistant placeholder
     messages = [...messages, { role: 'assistant', content: '' }];
@@ -261,72 +199,30 @@
     abortController = controller;
 
     try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (authToken.trim()) {
-        headers['Authorization'] = `Bearer ${authToken.trim()}`;
-      }
-
-      const response = await fetch('gateway/v1/chat/completions', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errBody = await response.text();
-        let errMsg = `HTTP ${response.status}`;
-        try {
-          const errJson = JSON.parse(errBody);
-          errMsg = errJson?.error?.message || errMsg;
-        } catch {
-          errMsg = errBody || errMsg;
-        }
-        throw new Error(errMsg);
-      }
-
-      // Read SSE stream
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') continue;
-
-          try {
-            const chunk = JSON.parse(data);
-            const delta = chunk.choices?.[0]?.delta;
-            if (delta?.content) {
-              // Update the last assistant message
-              const lastIdx = messages.length - 1;
-              const prev = messages[lastIdx];
-              messages[lastIdx] = {
-                ...prev,
-                content: mergeDeltaContent(prev.content, delta.content),
-              };
-              scrollToBottom();
-            }
-          } catch {
-            // Skip unparseable chunks
-          }
-        }
-      }
+      await streamChatCompletion(
+        'api/v1/chat/completions',
+        {
+          model: selectedModel,
+          messages: reqMessages,
+          stream: true,
+        },
+        {
+          onDelta: (deltaContent) => {
+            const lastIdx = messages.length - 1;
+            const prev = messages[lastIdx];
+            messages[lastIdx] = {
+              ...prev,
+              content: mergeDeltaContent(prev.content, deltaContent),
+            };
+            scrollToBottom();
+          },
+          onToolCalls: () => {},
+          onError: (error) => {
+            addToast(error, 'alert');
+          },
+        },
+        controller.signal,
+      );
     } catch (e: any) {
       if (e.name === 'AbortError') {
         // User cancelled — don't show error
@@ -364,107 +260,7 @@
     // Keep messages up to and including the user message
     messages = messages.slice(0, index + 1);
     scrollToBottom();
-
-    // Build request body from remaining messages
-    const reqMessages: { role: string; content: string | ContentPart[] }[] = [];
-    if (systemPrompt.trim()) {
-      reqMessages.push({ role: 'system', content: systemPrompt.trim() });
-    }
-    for (const m of messages) {
-      reqMessages.push({ role: m.role, content: m.content });
-    }
-
-    const body = {
-      model: selectedModel,
-      messages: reqMessages,
-      stream: true,
-    };
-
-    // Add assistant placeholder
-    messages = [...messages, { role: 'assistant', content: '' }];
-    streaming = true;
-    const controller = new AbortController();
-    abortController = controller;
-
-    try {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (authToken.trim()) {
-        headers['Authorization'] = `Bearer ${authToken.trim()}`;
-      }
-
-      const response = await fetch('gateway/v1/chat/completions', {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) {
-        const errBody = await response.text();
-        let errMsg = `HTTP ${response.status}`;
-        try {
-          const errJson = JSON.parse(errBody);
-          errMsg = errJson?.error?.message || errMsg;
-        } catch {
-          errMsg = errBody || errMsg;
-        }
-        throw new Error(errMsg);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed || !trimmed.startsWith('data: ')) continue;
-
-          const data = trimmed.slice(6);
-          if (data === '[DONE]') continue;
-
-          try {
-            const chunk = JSON.parse(data);
-            const delta = chunk.choices?.[0]?.delta;
-            if (delta?.content) {
-              const lastIdx = messages.length - 1;
-              const prev = messages[lastIdx];
-              messages[lastIdx] = {
-                ...prev,
-                content: mergeDeltaContent(prev.content, delta.content),
-              };
-              scrollToBottom();
-            }
-          } catch {
-            // Skip unparseable chunks
-          }
-        }
-      }
-    } catch (e: any) {
-      if (e.name === 'AbortError') {
-        // User cancelled
-      } else {
-        addToast(e.message || 'Retry failed', 'alert');
-        const lastIdx = messages.length - 1;
-        if (messages[lastIdx]?.role === 'assistant' && !getTextContent(messages[lastIdx].content)) {
-          messages = messages.slice(0, -1);
-        }
-      }
-    } finally {
-      streaming = false;
-      abortController = null;
-    }
+    await streamAssistantReply();
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -476,7 +272,7 @@
 </script>
 
 <svelte:head>
-  <title>AT | Test</title>
+  <title>AT | Chat</title>
 </svelte:head>
 
 <div
@@ -511,15 +307,6 @@
       </select>
       <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
     </div>
-
-    <!-- Auth token -->
-    <input
-      type="password"
-      autocomplete="off"
-      bind:value={authToken}
-      placeholder="Auth token"
-      class="border border-gray-300 px-3 py-1.5 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
-    />
 
     <!-- System prompt toggle -->
     <button
