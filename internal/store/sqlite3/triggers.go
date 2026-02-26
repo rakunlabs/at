@@ -16,18 +16,20 @@ import (
 // ─── Trigger CRUD ───
 
 type triggerRow struct {
-	ID         string `db:"id"`
-	WorkflowID string `db:"workflow_id"`
-	Type       string `db:"type"`
-	Config     string `db:"config"`
-	Enabled    int    `db:"enabled"`
-	CreatedAt  string `db:"created_at"`
-	UpdatedAt  string `db:"updated_at"`
+	ID         string         `db:"id"`
+	WorkflowID string         `db:"workflow_id"`
+	Type       string         `db:"type"`
+	Config     string         `db:"config"`
+	Alias      sql.NullString `db:"alias"`
+	Public     int            `db:"public"`
+	Enabled    int            `db:"enabled"`
+	CreatedAt  string         `db:"created_at"`
+	UpdatedAt  string         `db:"updated_at"`
 }
 
 func (s *SQLite) ListTriggers(ctx context.Context, workflowID string) ([]service.Trigger, error) {
 	query, _, err := s.goqu.From(s.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "enabled", "created_at", "updated_at").
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
 		Where(goqu.I("workflow_id").Eq(workflowID)).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
@@ -44,7 +46,7 @@ func (s *SQLite) ListTriggers(ctx context.Context, workflowID string) ([]service
 	var result []service.Trigger
 	for rows.Next() {
 		var row triggerRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 
@@ -60,7 +62,7 @@ func (s *SQLite) ListTriggers(ctx context.Context, workflowID string) ([]service
 
 func (s *SQLite) GetTrigger(ctx context.Context, id string) (*service.Trigger, error) {
 	query, _, err := s.goqu.From(s.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "enabled", "created_at", "updated_at").
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -68,12 +70,33 @@ func (s *SQLite) GetTrigger(ctx context.Context, id string) (*service.Trigger, e
 	}
 
 	var row triggerRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Enabled, &row.CreatedAt, &row.UpdatedAt)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get trigger %q: %w", id, err)
+	}
+
+	return triggerRowToRecord(row)
+}
+
+func (s *SQLite) GetTriggerByAlias(ctx context.Context, alias string) (*service.Trigger, error) {
+	query, _, err := s.goqu.From(s.tableTriggers).
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
+		Where(goqu.I("alias").Eq(alias)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build get trigger by alias query: %w", err)
+	}
+
+	var row triggerRow
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get trigger by alias %q: %w", alias, err)
 	}
 
 	return triggerRowToRecord(row)
@@ -93,12 +116,24 @@ func (s *SQLite) CreateTrigger(ctx context.Context, t service.Trigger) (*service
 		enabled = 1
 	}
 
+	public := 0
+	if t.Public {
+		public = 1
+	}
+
+	var alias interface{}
+	if t.Alias != "" {
+		alias = t.Alias
+	}
+
 	query, _, err := s.goqu.Insert(s.tableTriggers).Rows(
 		goqu.Record{
 			"id":          id,
 			"workflow_id": t.WorkflowID,
 			"type":        t.Type,
 			"config":      string(configJSON),
+			"alias":       alias,
+			"public":      public,
 			"enabled":     enabled,
 			"created_at":  now.Format(time.RFC3339),
 			"updated_at":  now.Format(time.RFC3339),
@@ -117,6 +152,8 @@ func (s *SQLite) CreateTrigger(ctx context.Context, t service.Trigger) (*service
 		WorkflowID: t.WorkflowID,
 		Type:       t.Type,
 		Config:     t.Config,
+		Alias:      t.Alias,
+		Public:     t.Public,
 		Enabled:    t.Enabled,
 		CreatedAt:  now.Format(time.RFC3339),
 		UpdatedAt:  now.Format(time.RFC3339),
@@ -134,12 +171,24 @@ func (s *SQLite) UpdateTrigger(ctx context.Context, id string, t service.Trigger
 		enabled = 1
 	}
 
+	public := 0
+	if t.Public {
+		public = 1
+	}
+
+	var alias interface{}
+	if t.Alias != "" {
+		alias = t.Alias
+	}
+
 	now := time.Now().UTC()
 
 	query, _, err := s.goqu.Update(s.tableTriggers).Set(
 		goqu.Record{
 			"type":       t.Type,
 			"config":     string(configJSON),
+			"alias":      alias,
+			"public":     public,
 			"enabled":    enabled,
 			"updated_at": now.Format(time.RFC3339),
 		},
@@ -182,7 +231,7 @@ func (s *SQLite) DeleteTrigger(ctx context.Context, id string) error {
 
 func (s *SQLite) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigger, error) {
 	query, _, err := s.goqu.From(s.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "enabled", "created_at", "updated_at").
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
 		Where(
 			goqu.I("type").Eq("cron"),
 			goqu.I("enabled").Eq(1),
@@ -201,7 +250,7 @@ func (s *SQLite) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigger
 	var result []service.Trigger
 	for rows.Next() {
 		var row triggerRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 
@@ -222,11 +271,18 @@ func triggerRowToRecord(row triggerRow) (*service.Trigger, error) {
 		return nil, fmt.Errorf("unmarshal trigger config for %q: %w", row.ID, err)
 	}
 
+	alias := ""
+	if row.Alias.Valid {
+		alias = row.Alias.String
+	}
+
 	return &service.Trigger{
 		ID:         row.ID,
 		WorkflowID: row.WorkflowID,
 		Type:       row.Type,
 		Config:     cfg,
+		Alias:      alias,
+		Public:     row.Public != 0,
 		Enabled:    row.Enabled != 0,
 		CreatedAt:  row.CreatedAt,
 		UpdatedAt:  row.UpdatedAt,

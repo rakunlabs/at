@@ -98,6 +98,7 @@ type APIToken struct {
 	TokenPrefix      string                 `json:"token_prefix"`      // first 8 chars for display (e.g. "at_xxxx…")
 	AllowedProviders types.Slice[string]    `json:"allowed_providers"` // nil = all providers allowed
 	AllowedModels    types.Slice[string]    `json:"allowed_models"`    // nil = all models allowed ("provider/model" format)
+	AllowedWebhooks  types.Slice[string]    `json:"allowed_webhooks"`  // nil = all webhooks allowed (trigger IDs or aliases)
 	ExpiresAt        types.Null[types.Time] `json:"expires_at"`        // zero value = no expiry
 	CreatedAt        types.Time             `json:"created_at"`
 	LastUsedAt       types.Null[types.Time] `json:"last_used_at"`
@@ -176,7 +177,7 @@ type WorkflowGraph struct {
 // WorkflowNode represents a single node in a workflow graph.
 type WorkflowNode struct {
 	ID       string         `json:"id"`
-	Type     string         `json:"type"`     // "input", "output", "llm_call", "prompt_template", "conditional", "loop", "mcp_tool", "code", "http_request"
+	Type     string         `json:"type"`     // "input", "output", "llm_call", "template", "conditional", "loop", "mcp_tool", "code", "http_request"
 	Position WorkflowPos    `json:"position"` // {x, y} for the visual editor
 	Data     map[string]any `json:"data"`     // node-type-specific configuration
 }
@@ -222,8 +223,10 @@ type WorkflowStorer interface {
 type Trigger struct {
 	ID         string         `json:"id"`
 	WorkflowID string         `json:"workflow_id"`
-	Type       string         `json:"type"`   // "http" or "cron"
-	Config     map[string]any `json:"config"` // type-specific configuration
+	Type       string         `json:"type"`            // "http" or "cron"
+	Config     map[string]any `json:"config"`          // type-specific configuration
+	Alias      string         `json:"alias,omitempty"` // optional human-friendly alias (unique)
+	Public     bool           `json:"public"`          // if true, no auth required; if false, Bearer token required
 	Enabled    bool           `json:"enabled"`
 	CreatedAt  string         `json:"created_at"`
 	UpdatedAt  string         `json:"updated_at"`
@@ -233,6 +236,7 @@ type Trigger struct {
 type TriggerStorer interface {
 	ListTriggers(ctx context.Context, workflowID string) ([]Trigger, error)
 	GetTrigger(ctx context.Context, id string) (*Trigger, error)
+	GetTriggerByAlias(ctx context.Context, alias string) (*Trigger, error)
 	CreateTrigger(ctx context.Context, t Trigger) (*Trigger, error)
 	UpdateTrigger(ctx context.Context, id string, t Trigger) (*Trigger, error)
 	DeleteTrigger(ctx context.Context, id string) error
@@ -264,28 +268,54 @@ type SkillStorer interface {
 	DeleteSkill(ctx context.Context, id string) error
 }
 
-// ─── Secret Management ───
+// ─── Variable Management ───
 
-// Secret represents an encrypted key-value secret stored in the database.
-// Secrets are used to store API tokens, credentials, and other sensitive
-// values that can be accessed from workflow JS handlers via getSecret().
-type Secret struct {
+// Variable represents a key-value variable stored in the database.
+// Variables can be secret (encrypted at rest, redacted in list responses)
+// or non-secret (stored as plaintext, shown in list responses).
+// Accessed from workflow JS handlers via getVar() and bash handlers via $VAR_<KEY>.
+type Variable struct {
 	ID          string `json:"id"`
-	Key         string `json:"key"`         // unique key for lookup (e.g. "jira_token", "gitlab_token")
-	Value       string `json:"value"`       // plaintext value (encrypted at rest); redacted in API list responses
+	Key         string `json:"key"`         // unique key for lookup (e.g. "jira_token", "base_url")
+	Value       string `json:"value"`       // plaintext value; encrypted at rest when Secret=true; redacted in API list responses for secrets
 	Description string `json:"description"` // human-readable description
+	Secret      bool   `json:"secret"`      // true = encrypted at rest, value redacted in list API
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
 }
 
-// SecretStorer defines CRUD operations for encrypted secrets.
-type SecretStorer interface {
-	ListSecrets(ctx context.Context) ([]Secret, error)
-	GetSecret(ctx context.Context, id string) (*Secret, error)
-	GetSecretByKey(ctx context.Context, key string) (*Secret, error)
-	CreateSecret(ctx context.Context, s Secret) (*Secret, error)
-	UpdateSecret(ctx context.Context, id string, s Secret) (*Secret, error)
-	DeleteSecret(ctx context.Context, id string) error
+// VariableStorer defines CRUD operations for variables.
+type VariableStorer interface {
+	ListVariables(ctx context.Context) ([]Variable, error)
+	GetVariable(ctx context.Context, id string) (*Variable, error)
+	GetVariableByKey(ctx context.Context, key string) (*Variable, error)
+	CreateVariable(ctx context.Context, v Variable) (*Variable, error)
+	UpdateVariable(ctx context.Context, id string, v Variable) (*Variable, error)
+	DeleteVariable(ctx context.Context, id string) error
+}
+
+// ─── Node Configs ───
+
+// NodeConfig represents a reusable configuration for workflow nodes (e.g. SMTP server settings for email nodes).
+// The Data field is a JSON blob whose schema depends on the Type (e.g. type "email" stores host, port, username, password, from, tls).
+// Sensitive fields within Data (like password) are encrypted at rest.
+type NodeConfig struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"` // unique human-readable name (e.g. "Production SMTP")
+	Type      string `json:"type"` // config type discriminator (e.g. "email", "slack", "sms")
+	Data      string `json:"data"` // JSON blob with type-specific configuration
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// NodeConfigStorer defines CRUD operations for node configs.
+type NodeConfigStorer interface {
+	ListNodeConfigs(ctx context.Context) ([]NodeConfig, error)
+	ListNodeConfigsByType(ctx context.Context, configType string) ([]NodeConfig, error)
+	GetNodeConfig(ctx context.Context, id string) (*NodeConfig, error)
+	CreateNodeConfig(ctx context.Context, nc NodeConfig) (*NodeConfig, error)
+	UpdateNodeConfig(ctx context.Context, id string, nc NodeConfig) (*NodeConfig, error)
+	DeleteNodeConfig(ctx context.Context, id string) error
 }
 
 // Agent orchestrates MCP and LLM

@@ -67,8 +67,11 @@ type Server struct {
 	// skillStore is the persistent store for skill definitions.
 	skillStore service.SkillStorer
 
-	// secretStore is the persistent store for encrypted secrets.
-	secretStore service.SecretStorer
+	// variableStore is the persistent store for variables (secret and non-secret).
+	variableStore service.VariableStorer
+
+	// nodeConfigStore is the persistent store for node configurations (e.g. SMTP settings).
+	nodeConfigStore service.NodeConfigStorer
 
 	// scheduler is the cron trigger scheduler (nil if triggerStore is nil).
 	scheduler *workflow.Scheduler
@@ -156,7 +159,7 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, secretStore service.SecretStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -176,7 +179,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		workflowStore:   workflowStore,
 		triggerStore:    triggerStore,
 		skillStore:      skillStore,
-		secretStore:     secretStore,
+		variableStore:   variableStore,
+		nodeConfigStore: nodeConfigStore,
 		providerFactory: factory,
 		storeType:       storeType,
 		authTokens:      gatewayCfg.AuthTokens,
@@ -224,34 +228,42 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			}
 		}
 
-		// Build a secret lookup for the scheduler.
-		var schedulerSecretLookup workflow.SecretLookup
-		var schedulerSecretLister workflow.SecretLister
-		if secretStore != nil {
-			schedulerSecretLookup = func(key string) (string, error) {
-				sec, err := secretStore.GetSecretByKey(ctx, key)
+		// Build a variable lookup for the scheduler.
+		var schedulerVarLookup workflow.VarLookup
+		var schedulerVarLister workflow.VarLister
+		if variableStore != nil {
+			schedulerVarLookup = func(key string) (string, error) {
+				v, err := variableStore.GetVariableByKey(ctx, key)
 				if err != nil {
 					return "", err
 				}
-				if sec == nil {
-					return "", fmt.Errorf("secret %q not found", key)
+				if v == nil {
+					return "", fmt.Errorf("variable %q not found", key)
 				}
-				return sec.Value, nil
+				return v.Value, nil
 			}
-			schedulerSecretLister = func() (map[string]string, error) {
-				secrets, err := secretStore.ListSecrets(ctx)
+			schedulerVarLister = func() (map[string]string, error) {
+				vars, err := variableStore.ListVariables(ctx)
 				if err != nil {
 					return nil, err
 				}
-				m := make(map[string]string, len(secrets))
-				for _, sec := range secrets {
-					m[sec.Key] = sec.Value
+				m := make(map[string]string, len(vars))
+				for _, v := range vars {
+					m[v.Key] = v.Value
 				}
 				return m, nil
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, providerLookup, schedulerSkillLookup, schedulerSecretLookup, schedulerSecretLister)
+		// Build a node config lookup for the scheduler.
+		var schedulerNodeConfigLookup workflow.NodeConfigLookup
+		if s.nodeConfigStore != nil {
+			schedulerNodeConfigLookup = func(id string) (*service.NodeConfig, error) {
+				return s.nodeConfigStore.GetNodeConfig(ctx, id)
+			}
+		}
+
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
@@ -271,6 +283,10 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
+
+	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
+	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
+	webhookGroup.POST("/*", s.WebhookAPI)
 
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
@@ -324,18 +340,22 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.PUT("/v1/skills/*", s.UpdateSkillAPI)
 	apiGroup.DELETE("/v1/skills/*", s.DeleteSkillAPI)
 
-	// Secret management
-	apiGroup.GET("/v1/secrets", s.ListSecretsAPI)
-	apiGroup.POST("/v1/secrets", s.CreateSecretAPI)
-	apiGroup.GET("/v1/secrets/*", s.GetSecretAPI)
-	apiGroup.PUT("/v1/secrets/*", s.UpdateSecretAPI)
-	apiGroup.DELETE("/v1/secrets/*", s.DeleteSecretAPI)
+	// Variable management
+	apiGroup.GET("/v1/variables", s.ListVariablesAPI)
+	apiGroup.POST("/v1/variables", s.CreateVariableAPI)
+	apiGroup.GET("/v1/variables/*", s.GetVariableAPI)
+	apiGroup.PUT("/v1/variables/*", s.UpdateVariableAPI)
+	apiGroup.DELETE("/v1/variables/*", s.DeleteVariableAPI)
+
+	// Node config management
+	apiGroup.GET("/v1/node-configs", s.ListNodeConfigsAPI)
+	apiGroup.POST("/v1/node-configs", s.CreateNodeConfigAPI)
+	apiGroup.GET("/v1/node-configs/*", s.GetNodeConfigAPI)
+	apiGroup.PUT("/v1/node-configs/*", s.UpdateNodeConfigAPI)
+	apiGroup.DELETE("/v1/node-configs/*", s.DeleteNodeConfigAPI)
 
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
-
-	// Webhook endpoint (public, no auth middleware needed for external callers)
-	apiGroup.POST("/v1/webhooks/*", s.WebhookAPI)
 
 	// Workflow run management
 	apiGroup.GET("/v1/runs", s.ListActiveRunsAPI)

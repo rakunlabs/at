@@ -10,6 +10,7 @@ export interface APIToken {
   token_prefix: string;
   allowed_providers: string[] | null;
   allowed_models: string[] | null;
+  allowed_webhooks: string[] | null;
   expires_at: string | null;
   created_at: string;
   last_used_at: string | null;
@@ -19,6 +20,7 @@ export interface CreateTokenRequest {
   name: string;
   allowed_providers?: string[];
   allowed_models?: string[];
+  allowed_webhooks?: string[];
   expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
 }
 
@@ -26,6 +28,7 @@ export interface UpdateTokenRequest {
   name: string;
   allowed_providers?: string[];
   allowed_models?: string[];
+  allowed_webhooks?: string[];
   expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
 }
 

@@ -21,12 +21,15 @@
   let messages = $state<ChatMessage[]>([]);
   let userInput = $state('');
   let streaming = $state(false);
-  let abortController = $state<AbortController | null>(null);
+  let abortController: AbortController | null = null;
   let chatContainer: HTMLDivElement | undefined = $state();
   let loadingModels = $state(true);
 
   // ─── Flow access ───
   const flow: FlowState = getFlow();
+
+  // ─── Constants ───
+  const MAX_TOOL_ITERATIONS = 20;
 
   // ─── Load models ───
   async function loadModels() {
@@ -86,7 +89,7 @@
           properties: {
             type: {
               type: 'string',
-              enum: ['input', 'output', 'llm_call', 'agent_call', 'prompt_template', 'http_trigger', 'cron_trigger', 'http_request', 'conditional', 'loop', 'script', 'skill_config', 'mcp_config', 'memory_config'],
+              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'http_trigger', 'cron_trigger', 'http_request', 'conditional', 'loop', 'script', 'skill_config', 'mcp_config', 'memory_config'],
               description: 'The node type',
             },
             id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
@@ -239,7 +242,7 @@ Each node has specific input/output handles (ports) for connecting edges.
 - Data fields: label
 - Passes upstream data as additional context; connect "memory" output to agent_call's "memory" bottom input
 
-### prompt_template
+### template
 - Input handles: data (port: data)
 - Output handles: text (port: text)
 - Data fields: label, template (Go template string with {{.var}}), variables (array of var names)
@@ -249,6 +252,13 @@ Each node has specific input/output handles (ports) for connecting edges.
 - Output handles: success (port: data, 2xx responses), error (port: data, >=400), always (port: data)
 - Data fields: label, url, method, headers (object), body, timeout (seconds), proxy, insecure_skip_verify (bool), retry (bool)
 - URL and headers support Go templates with data from "values" input
+
+### email
+- Input handles: values (port: data, index 0), data (port: data, index 1)
+- Output handles: success (port: data), error (port: data), always (port: data)
+- Data fields: label, config_id (ID of an email NodeConfig with SMTP settings), to (comma-separated, Go template), cc, bcc, subject (Go template), body (Go template), content_type ("text/plain" or "text/html"), from (override, Go template), reply_to (Go template)
+- Requires an email NodeConfig to be created first (under Node Configs) with SMTP host, port, credentials
+- All string fields support Go templates with data from "values" and "data" inputs
 
 ### conditional
 - Input handles: data (port: data)
@@ -339,6 +349,8 @@ Each node has specific input/output handles (ports) for connecting edges.
           const edgeId = `${source}-${source_handle}-${target}-${target_handle}`;
           // Push directly to edges array to bypass handle validation
           // (handles may not be mounted yet if node was just added).
+          // Snapshot first so undo works.
+          flow.pushSnapshot();
           flow.edges.push({
             id: edgeId,
             source,
@@ -379,7 +391,16 @@ Each node has specific input/output handles (ports) for connecting edges.
     await runCompletion();
   }
 
-  async function runCompletion() {
+  async function runCompletion(depth: number = 0) {
+    // Guard against infinite tool-call loops
+    if (depth >= MAX_TOOL_ITERATIONS) {
+      messages = [...messages, {
+        role: 'assistant',
+        content: `Stopped after ${MAX_TOOL_ITERATIONS} tool call iterations to prevent infinite loops.`,
+      }];
+      return;
+    }
+
     // Build request messages
     const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }> = [];
     reqMessages.push({ role: 'system', content: systemPrompt });
@@ -461,7 +482,7 @@ Each node has specific input/output handles (ports) for connecting edges.
         abortController = null;
 
         // Continue the conversation so the LLM can see tool results
-        await runCompletion();
+        await runCompletion(depth + 1);
         return;
       }
     } catch (e: any) {
@@ -497,7 +518,13 @@ Each node has specific input/output handles (ports) for connecting edges.
   }
 </script>
 
-<div class="w-80 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col">
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+  class="w-80 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col"
+  onmousedown={(e) => e.stopPropagation()}
+  onwheel={(e) => e.stopPropagation()}
+  onkeydown={(e) => e.stopPropagation()}
+>
   <!-- Header -->
   <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 shrink-0">
     <div class="flex items-center gap-1.5">

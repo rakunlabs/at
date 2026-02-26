@@ -84,6 +84,20 @@ func (s *Server) CreateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Validate alias uniqueness.
+	if req.Alias != "" {
+		existing, err := s.triggerStore.GetTriggerByAlias(r.Context(), req.Alias)
+		if err != nil {
+			slog.Error("check alias uniqueness failed", "alias", req.Alias, "error", err)
+			httpResponse(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing != nil {
+			httpResponse(w, fmt.Sprintf("alias %q is already in use", req.Alias), http.StatusConflict)
+			return
+		}
+	}
+
 	req.WorkflowID = wfID
 
 	record, err := s.triggerStore.CreateTrigger(r.Context(), req)
@@ -155,6 +169,20 @@ func (s *Server) UpdateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate alias uniqueness (if alias is being set/changed).
+	if req.Alias != "" {
+		existing, err := s.triggerStore.GetTriggerByAlias(r.Context(), req.Alias)
+		if err != nil {
+			slog.Error("check alias uniqueness failed", "alias", req.Alias, "error", err)
+			httpResponse(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing != nil && existing.ID != id {
+			httpResponse(w, fmt.Sprintf("alias %q is already in use", req.Alias), http.StatusConflict)
+			return
+		}
+	}
+
 	record, err := s.triggerStore.UpdateTrigger(r.Context(), id, req)
 	if err != nil {
 		slog.Error("update trigger failed", "id", id, "error", err)
@@ -211,8 +239,9 @@ func (s *Server) DeleteTriggerAPI(w http.ResponseWriter, r *http.Request) {
 
 // ─── Webhook Handler ───
 
-// WebhookAPI handles POST /api/v1/webhooks/:trigger_id.
-// It looks up the HTTP trigger, verifies it is enabled, loads the associated
+// WebhookAPI handles POST /webhooks/:trigger_id_or_alias.
+// It looks up the HTTP trigger by ID or alias, verifies it is enabled,
+// enforces authentication for non-public triggers, loads the associated
 // workflow, and starts asynchronous execution. Returns 202 with a run_id.
 func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	if s.triggerStore == nil || s.workflowStore == nil {
@@ -220,17 +249,27 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	triggerID := extractWebhookTriggerID(r)
-	if triggerID == "" {
-		httpResponse(w, "trigger id is required", http.StatusBadRequest)
+	idOrAlias := extractWebhookTriggerID(r)
+	if idOrAlias == "" {
+		httpResponse(w, "trigger id or alias is required", http.StatusBadRequest)
 		return
 	}
 
-	trigger, err := s.triggerStore.GetTrigger(r.Context(), triggerID)
+	// Try by ID first, then by alias.
+	trigger, err := s.triggerStore.GetTrigger(r.Context(), idOrAlias)
 	if err != nil {
-		slog.Error("webhook: get trigger failed", "trigger_id", triggerID, "error", err)
+		slog.Error("webhook: get trigger failed", "id_or_alias", idOrAlias, "error", err)
 		httpResponse(w, "internal error", http.StatusInternalServerError)
 		return
+	}
+
+	if trigger == nil {
+		trigger, err = s.triggerStore.GetTriggerByAlias(r.Context(), idOrAlias)
+		if err != nil {
+			slog.Error("webhook: get trigger by alias failed", "alias", idOrAlias, "error", err)
+			httpResponse(w, "internal error", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	if trigger == nil {
@@ -248,11 +287,36 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Enforce authentication for non-public triggers.
+	if !trigger.Public {
+		auth, reason := s.authenticateRequest(r)
+		if auth == nil {
+			httpResponse(w, "unauthorized: "+reason, http.StatusUnauthorized)
+			return
+		}
+
+		// Check webhook scoping: if the token restricts webhooks,
+		// verify this trigger's ID or alias is in the allowed list.
+		if auth.token != nil && len(auth.token.AllowedWebhooks) > 0 {
+			allowed := false
+			for _, w := range auth.token.AllowedWebhooks {
+				if w == trigger.ID || (trigger.Alias != "" && w == trigger.Alias) {
+					allowed = true
+					break
+				}
+			}
+			if !allowed {
+				httpResponse(w, "token does not have access to this webhook", http.StatusForbidden)
+				return
+			}
+		}
+	}
+
 	// Load the workflow.
 	wf, err := s.workflowStore.GetWorkflow(r.Context(), trigger.WorkflowID)
 	if err != nil {
 		slog.Error("webhook: get workflow failed",
-			"trigger_id", triggerID,
+			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID,
 			"error", err)
 		httpResponse(w, "internal error", http.StatusInternalServerError)
@@ -268,7 +332,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	// will be closed once the handler returns.
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
-		slog.Error("webhook: read body failed", "trigger_id", triggerID, "error", err)
+		slog.Error("webhook: read body failed", "trigger_id", trigger.ID, "error", err)
 		httpResponse(w, "failed to read request body", http.StatusBadRequest)
 		return
 	}
@@ -330,34 +394,42 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build a secret lookup function for getSecret() in Goja JS.
-	var secretLookup workflow.SecretLookup
-	var secretLister workflow.SecretLister
-	if s.secretStore != nil {
-		secretLookup = func(key string) (string, error) {
-			sec, err := s.secretStore.GetSecretByKey(ctx, key)
+	// Build a variable lookup function for getVar() in Goja JS.
+	var varLookup workflow.VarLookup
+	var varLister workflow.VarLister
+	if s.variableStore != nil {
+		varLookup = func(key string) (string, error) {
+			v, err := s.variableStore.GetVariableByKey(ctx, key)
 			if err != nil {
 				return "", err
 			}
-			if sec == nil {
-				return "", fmt.Errorf("secret %q not found", key)
+			if v == nil {
+				return "", fmt.Errorf("variable %q not found", key)
 			}
-			return sec.Value, nil
+			return v.Value, nil
 		}
-		secretLister = func() (map[string]string, error) {
-			secrets, err := s.secretStore.ListSecrets(ctx)
+		varLister = func() (map[string]string, error) {
+			vars, err := s.variableStore.ListVariables(ctx)
 			if err != nil {
 				return nil, err
 			}
-			m := make(map[string]string, len(secrets))
-			for _, sec := range secrets {
-				m[sec.Key] = sec.Value
+			m := make(map[string]string, len(vars))
+			for _, v := range vars {
+				m[v.Key] = v.Value
 			}
 			return m, nil
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, secretLookup, secretLister)
+	// Build a node config lookup function for nodes that reference external configs.
+	var nodeConfigLookup workflow.NodeConfigLookup
+	if s.nodeConfigStore != nil {
+		nodeConfigLookup = func(id string) (*service.NodeConfig, error) {
+			return s.nodeConfigStore.GetNodeConfig(ctx, id)
+		}
+	}
+
+	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup)
 
 	// Run workflow asynchronously.
 	go func() {
@@ -366,7 +438,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		result, err := engine.Run(ctx, wf.Graph, inputs)
 		if err != nil {
 			slog.Error("webhook: workflow execution failed",
-				"trigger_id", triggerID,
+				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
 				"run_id", runID,
 				"error", err)
@@ -374,7 +446,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 
 		slog.Info("webhook: workflow completed",
-			"trigger_id", triggerID,
+			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID,
 			"run_id", runID,
 			"output_keys", mapKeys(result.Outputs))
@@ -423,11 +495,11 @@ func extractTriggerID(r *http.Request) string {
 	return id
 }
 
-// extractWebhookTriggerID extracts the trigger ID from webhook URLs.
-// Expected path: /api/v1/webhooks/{trigger_id}
+// extractWebhookTriggerID extracts the trigger ID or alias from webhook URLs.
+// Expected path: /webhooks/{trigger_id_or_alias}
 func extractWebhookTriggerID(r *http.Request) string {
 	path := r.URL.Path
-	const prefix = "/api/v1/webhooks/"
+	const prefix = "/webhooks/"
 	if !strings.HasPrefix(path, prefix) {
 		return ""
 	}

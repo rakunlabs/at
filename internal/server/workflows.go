@@ -306,34 +306,42 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Build a secret lookup function for getSecret() in Goja JS.
-	var secretLookup workflow.SecretLookup
-	var secretLister workflow.SecretLister
-	if s.secretStore != nil {
-		secretLookup = func(key string) (string, error) {
-			sec, err := s.secretStore.GetSecretByKey(ctx, key)
+	// Build a variable lookup function for getVar() in Goja JS.
+	var varLookup workflow.VarLookup
+	var varLister workflow.VarLister
+	if s.variableStore != nil {
+		varLookup = func(key string) (string, error) {
+			v, err := s.variableStore.GetVariableByKey(ctx, key)
 			if err != nil {
 				return "", err
 			}
-			if sec == nil {
-				return "", fmt.Errorf("secret %q not found", key)
+			if v == nil {
+				return "", fmt.Errorf("variable %q not found", key)
 			}
-			return sec.Value, nil
+			return v.Value, nil
 		}
-		secretLister = func() (map[string]string, error) {
-			secrets, err := s.secretStore.ListSecrets(ctx)
+		varLister = func() (map[string]string, error) {
+			vars, err := s.variableStore.ListVariables(ctx)
 			if err != nil {
 				return nil, err
 			}
-			m := make(map[string]string, len(secrets))
-			for _, sec := range secrets {
-				m[sec.Key] = sec.Value
+			m := make(map[string]string, len(vars))
+			for _, v := range vars {
+				m[v.Key] = v.Value
 			}
 			return m, nil
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, secretLookup, secretLister)
+	// Build a node config lookup function for nodes that reference external configs.
+	var nodeConfigLookup workflow.NodeConfigLookup
+	if s.nodeConfigStore != nil {
+		nodeConfigLookup = func(id string) (*service.NodeConfig, error) {
+			return s.nodeConfigStore.GetNodeConfig(ctx, id)
+		}
+	}
+
+	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup)
 
 	// Run workflow asynchronously.
 	go func() {
@@ -426,10 +434,14 @@ func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *ser
 
 				// Check if config changed and needs updating.
 				newConfig := s.buildTriggerConfig(node)
-				if configChanged(t.Config, newConfig) {
+				alias, _ := node.Data["alias"].(string)
+				public, _ := node.Data["public"].(bool)
+				if configChanged(t.Config, newConfig) || t.Alias != alias || t.Public != public {
 					updated, err := s.triggerStore.UpdateTrigger(ctx, triggerID, service.Trigger{
 						Type:    dbType,
 						Config:  newConfig,
+						Alias:   alias,
+						Public:  public,
 						Enabled: true,
 					})
 					if err != nil {
@@ -447,10 +459,14 @@ func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *ser
 
 		// Create a new trigger for this node.
 		newConfig := s.buildTriggerConfig(node)
+		alias, _ := node.Data["alias"].(string)
+		public, _ := node.Data["public"].(bool)
 		created, err := s.triggerStore.CreateTrigger(ctx, service.Trigger{
 			WorkflowID: workflowID,
 			Type:       dbType,
 			Config:     newConfig,
+			Alias:      alias,
+			Public:     public,
 			Enabled:    true,
 		})
 		if err != nil {

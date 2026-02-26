@@ -1,6 +1,6 @@
 <script lang="ts">
   import { push, location } from 'svelte-spa-router';
-  import { Home, MessageSquare, Cpu, Key, Workflow, Activity, BookOpen, Settings, Wand2 } from 'lucide-svelte';
+  import { Home, MessageSquare, Cpu, Key, Braces, Workflow, Activity, BookOpen, Settings, Wand2, SlidersHorizontal } from 'lucide-svelte';
 
   function navigate(e: MouseEvent, path: string) {
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -54,6 +54,28 @@
     >
       <Wand2 size={14} />
       <span>Skills</span>
+    </a>
+    <a
+      href="#/variables"
+      onclick={(e) => navigate(e, '/variables')}
+      class={[
+        'flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors',
+        $location === '/variables' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+      ]}
+    >
+      <Braces size={14} />
+      <span>Variables</span>
+    </a>
+    <a
+      href="#/node-configs"
+      onclick={(e) => navigate(e, '/node-configs')}
+      class={[
+        'flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors',
+        $location === '/node-configs' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+      ]}
+    >
+      <SlidersHorizontal size={14} />
+      <span>Node Configs</span>
     </a>
     <a
       href="#/tokens"

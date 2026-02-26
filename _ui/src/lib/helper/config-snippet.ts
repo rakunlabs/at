@@ -103,6 +103,10 @@ function buildCleanAuthToken(token: APIToken): Record<string, unknown> {
     clean.allowed_models = token.allowed_models;
   }
 
+  if (token.allowed_webhooks && token.allowed_webhooks.length > 0) {
+    clean.allowed_webhooks = token.allowed_webhooks;
+  }
+
   if (token.expires_at) {
     clean.expires_at = token.expires_at;
   }

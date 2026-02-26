@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
@@ -22,7 +23,7 @@ import (
 //
 // Config (node.Data):
 //
-//	"command":      string  — shell command to execute (required; supports {{template}} syntax from inputs)
+//	"command":      string  — shell command to execute (required; supports Go template syntax from inputs)
 //	"working_dir":  string  — subdirectory within sandbox (default: sandbox root)
 //	"timeout":      float64 — execution timeout in seconds (default: 60, max: 600)
 //	"sandbox_root": string  — root directory for sandboxed execution (default: /tmp/at-sandbox)
@@ -31,8 +32,8 @@ import (
 //
 // Input ports: "data" (or "data1".."dataN" when input_count > 1)
 //
-// The command string supports Go template syntax: {{variable}} references
-// are resolved from the input data (same as prompt_template).
+// The command string supports Go template syntax: {{.variable}} references
+// are resolved from the input data.
 //
 // Output ports: index 0 = "false" (non-zero exit), index 1 = "true" (exit 0), index 2 = "always"
 //
@@ -250,15 +251,14 @@ func isInsideSandbox(dir, sandbox string) bool {
 	return strings.HasPrefix(dir, sandbox+string(filepath.Separator))
 }
 
-// resolveTemplate does simple {{key}} replacement in s using values from data.
-// This is a lightweight alternative to full Go templates for exec commands.
+// resolveTemplate renders a Go text/template string with the given data.
 func resolveTemplate(s string, data map[string]any) string {
-	for k, v := range data {
-		placeholder := "{{" + k + "}}"
-		s = strings.ReplaceAll(s, placeholder, fmt.Sprintf("%v", v))
-		// Also support dot-prefixed: {{.key}}
-		dotPlaceholder := "{{." + k + "}}"
-		s = strings.ReplaceAll(s, dotPlaceholder, fmt.Sprintf("%v", v))
+	result, err := render.ExecuteWithData(s, data)
+	if err != nil {
+		// Fall back to original string on template errors to preserve
+		// backwards compatibility with the previous simple replacement.
+		return s
 	}
-	return s
+
+	return string(result)
 }

@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"text/template"
 	"time"
 
+	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/worldline-go/klient"
@@ -268,19 +268,11 @@ func buildTemplateContext(inputs map[string]any) map[string]any {
 }
 
 // renderTemplate renders a Go text/template string with the given context.
-// It uses the same mustache-conversion as prompt_template for convenience.
 func renderTemplate(name, tmplText string, ctx map[string]any) (string, error) {
-	converted := convertMustache(tmplText)
-
-	tmpl, err := template.New(name).Parse(converted)
+	result, err := render.ExecuteWithData(tmplText, ctx)
 	if err != nil {
-		return "", fmt.Errorf("template %q parse: %w", name, err)
+		return "", fmt.Errorf("template %q: %w", name, err)
 	}
 
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, ctx); err != nil {
-		return "", fmt.Errorf("template %q execute: %w", name, err)
-	}
-
-	return buf.String(), nil
+	return string(result), nil
 }

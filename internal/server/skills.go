@@ -198,38 +198,38 @@ func (s *Server) TestHandlerAPI(w http.ResponseWriter, r *http.Request) {
 	var execErr error
 
 	if req.HandlerType == "bash" {
-		// Build a SecretLister from the secret store.
-		var secretLister workflow.SecretLister
-		if s.secretStore != nil {
-			secretLister = func() (map[string]string, error) {
-				secrets, err := s.secretStore.ListSecrets(context.Background())
+		// Build a VarLister from the variable store.
+		var varLister workflow.VarLister
+		if s.variableStore != nil {
+			varLister = func() (map[string]string, error) {
+				vars, err := s.variableStore.ListVariables(context.Background())
 				if err != nil {
 					return nil, err
 				}
-				m := make(map[string]string, len(secrets))
-				for _, sec := range secrets {
-					m[sec.Key] = sec.Value
+				m := make(map[string]string, len(vars))
+				for _, v := range vars {
+					m[v.Key] = v.Value
 				}
 				return m, nil
 			}
 		}
-		result, execErr = workflow.ExecuteBashHandler(r.Context(), req.Handler, req.Arguments, secretLister)
+		result, execErr = workflow.ExecuteBashHandler(r.Context(), req.Handler, req.Arguments, varLister)
 	} else {
 		// Default: JS handler.
-		var secretLookup workflow.SecretLookup
-		if s.secretStore != nil {
-			secretLookup = func(key string) (string, error) {
-				sec, err := s.secretStore.GetSecretByKey(context.Background(), key)
+		var varLookup workflow.VarLookup
+		if s.variableStore != nil {
+			varLookup = func(key string) (string, error) {
+				v, err := s.variableStore.GetVariableByKey(context.Background(), key)
 				if err != nil {
 					return "", err
 				}
-				if sec == nil {
-					return "", fmt.Errorf("secret %q not found", key)
+				if v == nil {
+					return "", fmt.Errorf("variable %q not found", key)
 				}
-				return sec.Value, nil
+				return v.Value, nil
 			}
 		}
-		result, execErr = workflow.ExecuteJSHandler(req.Handler, req.Arguments, secretLookup)
+		result, execErr = workflow.ExecuteJSHandler(req.Handler, req.Arguments, varLookup)
 	}
 
 	durationMs := time.Since(start).Milliseconds()

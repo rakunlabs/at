@@ -149,6 +149,10 @@ type AuthTokenConfig struct {
 	// If empty/nil, all models are accessible.
 	AllowedModels []string `cfg:"allowed_models" json:"allowed_models"`
 
+	// AllowedWebhooks restricts this token to specific webhook triggers
+	// by trigger ID or alias. If empty/nil, all webhooks are accessible.
+	AllowedWebhooks []string `cfg:"allowed_webhooks" json:"allowed_webhooks"`
+
 	// ExpiresAt is an optional RFC3339 expiration timestamp.
 	// After this time the token is rejected. If empty, the token never expires.
 	ExpiresAt string `cfg:"expires_at" json:"expires_at"`

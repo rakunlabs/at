@@ -28,12 +28,13 @@ type SQLite struct {
 	db   *sql.DB
 	goqu *goqu.Database
 
-	tableProviders exp.IdentifierExpression
-	tableAPITokens exp.IdentifierExpression
-	tableWorkflows exp.IdentifierExpression
-	tableTriggers  exp.IdentifierExpression
-	tableSkills    exp.IdentifierExpression
-	tableSecrets   exp.IdentifierExpression
+	tableProviders   exp.IdentifierExpression
+	tableAPITokens   exp.IdentifierExpression
+	tableWorkflows   exp.IdentifierExpression
+	tableTriggers    exp.IdentifierExpression
+	tableSkills      exp.IdentifierExpression
+	tableVariables   exp.IdentifierExpression
+	tableNodeConfigs exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -111,15 +112,16 @@ func New(ctx context.Context, cfg *config.StoreSQLite, encKey []byte) (*SQLite, 
 	dbGoqu := goqu.New("sqlite3", db)
 
 	return &SQLite{
-		db:             db,
-		goqu:           dbGoqu,
-		tableProviders: goqu.T(tablePrefix + "providers"),
-		tableAPITokens: goqu.T(tablePrefix + "tokens"),
-		tableWorkflows: goqu.T(tablePrefix + "workflows"),
-		tableTriggers:  goqu.T(tablePrefix + "triggers"),
-		tableSkills:    goqu.T(tablePrefix + "skills"),
-		tableSecrets:   goqu.T(tablePrefix + "secrets"),
-		encKey:         encKey,
+		db:               db,
+		goqu:             dbGoqu,
+		tableProviders:   goqu.T(tablePrefix + "providers"),
+		tableAPITokens:   goqu.T(tablePrefix + "tokens"),
+		tableWorkflows:   goqu.T(tablePrefix + "workflows"),
+		tableTriggers:    goqu.T(tablePrefix + "triggers"),
+		tableSkills:      goqu.T(tablePrefix + "skills"),
+		tableVariables:   goqu.T(tablePrefix + "variables"),
+		tableNodeConfigs: goqu.T(tablePrefix + "node_configs"),
+		encKey:           encKey,
 	}, nil
 }
 

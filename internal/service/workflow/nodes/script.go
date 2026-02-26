@@ -72,7 +72,7 @@ func (n *scriptNode) Run(_ context.Context, reg *workflow.Registry, inputs map[s
 	vm := goja.New()
 
 	// Set up global helpers and wrap io.ReadCloser values (e.g. HTTP body).
-	if err := workflow.SetupGojaVM(vm, inputs, reg.SecretLookup); err != nil {
+	if err := workflow.SetupGojaVM(vm, inputs, reg.VarLookup); err != nil {
 		return nil, fmt.Errorf("script: %w", err)
 	}
 

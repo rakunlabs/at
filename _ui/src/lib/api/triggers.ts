@@ -11,6 +11,8 @@ export interface Trigger {
   workflow_id: string;
   type: 'http' | 'cron';
   config: Record<string, any>;
+  alias?: string;
+  public: boolean;
   enabled: boolean;
   created_at: string;
   updated_at: string;

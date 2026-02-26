@@ -2,7 +2,7 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import { getInfo } from '@/lib/api/gateway';
   import { testHandler } from '@/lib/api/skills';
-  import { listSecrets } from '@/lib/api/secrets';
+  import { listVariables } from '@/lib/api/secrets';
   import {
     type ChatMessage,
     type ToolCall,
@@ -128,7 +128,7 @@
             handler_type: {
               type: 'string',
               enum: ['js', 'bash'],
-              description: 'Handler type: "js" (Goja VM with args object, httpGet/httpPost/getSecret helpers) or "bash" (ARG_* and SECRET_* env vars, use curl/jq)',
+              description: 'Handler type: "js" (Goja VM with args object, httpGet/httpPost/getVar helpers) or "bash" (ARG_* and VAR_* env vars, use curl/jq)',
             },
           },
           required: ['name', 'description', 'handler', 'handler_type'],
@@ -179,8 +179,8 @@
     {
       type: 'function',
       function: {
-        name: 'list_secrets',
-        description: 'List available secrets (keys only, values redacted). Use to check if needed secrets exist.',
+        name: 'list_variables',
+        description: 'List available variables (keys only, secret values redacted). Use to check if needed variables exist.',
         parameters: { type: 'object', properties: {}, required: [] },
       },
     },
@@ -239,12 +239,12 @@ A skill is a reusable set of tool definitions that can be attached to agent_call
 ### JS Handler (handler_type: "js")
 - Runs in a Goja (Go) JavaScript VM — NOT Node.js
 - Access tool arguments via the \`args\` object (e.g., \`args.query\`, \`args.url\`)
-- Available helpers: \`httpGet(url)\`, \`httpPost(url, body)\`, \`httpPut(url, body)\`, \`httpDelete(url)\`, \`getSecret(key)\`, \`btoa(str)\`, \`atob(str)\`, \`JSON_stringify(obj)\`, \`jsonParse(str)\`
+- Available helpers: \`httpGet(url)\`, \`httpPost(url, body)\`, \`httpPut(url, body)\`, \`httpDelete(url)\`, \`getVar(key)\`, \`btoa(str)\`, \`atob(str)\`, \`JSON_stringify(obj)\`, \`jsonParse(str)\`
 - HTTP functions return \`{status, body, headers}\` — body is a string
 - Use \`return\` to return the result (string or object, objects are auto-serialized to JSON)
 - Example:
 \`\`\`
-var token = getSecret("github_token");
+var token = getVar("github_token");
 var resp = httpGet("https://api.github.com/user");
 var data = jsonParse(resp.body);
 return data.login;
@@ -253,11 +253,11 @@ return data.login;
 ### Bash Handler (handler_type: "bash")
 - Runs as a bash script with a 60-second timeout
 - Tool arguments are set as \`ARG_<NAME>\` environment variables (uppercased, dots/hyphens → underscores)
-- All secrets are set as \`SECRET_<KEY>\` environment variables
+- All variables are set as \`VAR_<KEY>\` environment variables
 - stdout is captured as the tool result
 - Example:
 \`\`\`
-curl -s -H "Authorization: Bearer $SECRET_GITHUB_TOKEN" \\
+curl -s -H "Authorization: Bearer $VAR_GITHUB_TOKEN" \\
   "https://api.github.com/repos/$ARG_OWNER/$ARG_REPO/issues" | jq '.[0].title'
 \`\`\`
 
@@ -278,13 +278,13 @@ Tool input schemas use JSON Schema format:
 1. Always start by calling \`get_current_skill\` to see the current state
 2. Use \`set_skill_metadata\` to set the skill name, description, and system prompt
 3. Use \`add_tool\` to add tools, \`update_tool\` to modify, \`remove_tool\` to delete
-4. Use \`list_secrets\` to check if required secrets exist before writing handlers that need them
+4. Use \`list_variables\` to check if required variables exist before writing handlers that need them
 5. Use \`test_tool_handler\` to test handlers with sample data
 6. Use \`save_skill\` when the user is satisfied with the result
 
 ## Important
 - Always use get_current_skill first to understand the current form state
-- When creating handlers that need secrets, check available secrets with list_secrets
+- When creating handlers that need variables, check available variables with list_variables
 - Test handlers before saving to catch errors early
 - Prefer JS handlers for API calls (simpler, no shell escaping). Use bash when the user needs shell tools like curl piping, jq, grep, etc.
 - Keep system_prompt concise — it's appended to the agent's system prompt`;
@@ -369,15 +369,15 @@ Tool input schemas use JSON Schema format:
           });
         }
 
-        case 'list_secrets': {
+        case 'list_variables': {
           try {
-            const secrets = await listSecrets();
+            const variables = await listVariables();
             return JSON.stringify({
-              secrets: secrets.map(s => ({ key: s.key, description: s.description })),
-              count: secrets.length,
+              variables: variables.map(v => ({ key: v.key, description: v.description, secret: v.secret })),
+              count: variables.length,
             });
           } catch (e: any) {
-            return JSON.stringify({ error: e.message || 'Failed to list secrets' });
+            return JSON.stringify({ error: e.message || 'Failed to list variables' });
           }
         }
 

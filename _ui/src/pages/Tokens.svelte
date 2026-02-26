@@ -3,6 +3,8 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import { listTokens, createToken, deleteToken, updateToken, type APIToken, type CreateTokenResponse } from '@/lib/api/tokens';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
+  import { listWorkflows, type Workflow } from '@/lib/api/workflows';
+  import { listTriggers, type Trigger } from '@/lib/api/triggers';
   import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
 
@@ -13,12 +15,17 @@
   let loading = $state(true);
   let providers = $state<InfoProvider[]>([]);
 
+  // Webhook data
+  let workflows = $state<Workflow[]>([]);
+  let webhookTriggers = $state<{ trigger: Trigger; workflowName: string }[]>([]);
+
   // Create form
   let showCreate = $state(false);
   let formName = $state('');
   let formExpiresAt = $state('');
   let formSelectedProviders = $state<string[]>([]);
   let formSelectedModels = $state<string[]>([]);
+  let formSelectedWebhooks = $state<string[]>([]);
   let creating = $state(false);
 
   // Created token modal
@@ -34,6 +41,7 @@
   let editExpiresAt = $state('');
   let editSelectedProviders = $state<string[]>([]);
   let editSelectedModels = $state<string[]>([]);
+  let editSelectedWebhooks = $state<string[]>([]);
   let saving = $state(false);
 
   // Config viewer state
@@ -60,8 +68,28 @@
     } catch (_) {}
   }
 
+  async function loadWebhooks() {
+    try {
+      const wfs = await listWorkflows();
+      workflows = wfs;
+      const results: { trigger: Trigger; workflowName: string }[] = [];
+      for (const wf of wfs) {
+        try {
+          const triggers = await listTriggers(wf.id);
+          for (const t of triggers) {
+            if (t.type === 'http') {
+              results.push({ trigger: t, workflowName: wf.name });
+            }
+          }
+        } catch (_) {}
+      }
+      webhookTriggers = results;
+    } catch (_) {}
+  }
+
   loadTokens();
   loadProviders();
+  loadWebhooks();
 
   // ─── Computed ───
   let allModels = $derived(
@@ -75,12 +103,22 @@
 
   let allProviderKeys = $derived(providers.map((p) => p.key));
 
+  // Group webhooks by workflow name for the picker UI.
+  let webhooksByWorkflow = $derived(
+    webhookTriggers.reduce<Record<string, { trigger: Trigger; workflowName: string }[]>>((acc, item) => {
+      if (!acc[item.workflowName]) acc[item.workflowName] = [];
+      acc[item.workflowName].push(item);
+      return acc;
+    }, {})
+  );
+
   // ─── Actions ───
   function resetForm() {
     formName = '';
     formExpiresAt = '';
     formSelectedProviders = [];
     formSelectedModels = [];
+    formSelectedWebhooks = [];
   }
 
   async function handleCreate() {
@@ -98,6 +136,9 @@
       }
       if (formSelectedModels.length > 0) {
         req.allowed_models = formSelectedModels;
+      }
+      if (formSelectedWebhooks.length > 0) {
+        req.allowed_webhooks = formSelectedWebhooks;
       }
       if (formExpiresAt) {
         req.expires_at = new Date(formExpiresAt).toISOString();
@@ -160,12 +201,21 @@
     }
   }
 
+  function toggleWebhook(id: string) {
+    if (formSelectedWebhooks.includes(id)) {
+      formSelectedWebhooks = formSelectedWebhooks.filter((w) => w !== id);
+    } else {
+      formSelectedWebhooks = [...formSelectedWebhooks, id];
+    }
+  }
+
   // ─── Edit Actions ───
   function startEditing(token: APIToken) {
     editingTokenId = token.id;
     editName = token.name;
     editSelectedProviders = token.allowed_providers ? [...token.allowed_providers] : [];
     editSelectedModels = token.allowed_models ? [...token.allowed_models] : [];
+    editSelectedWebhooks = token.allowed_webhooks ? [...token.allowed_webhooks] : [];
     // Convert expires_at to datetime-local format for the input
     if (token.expires_at) {
       const d = new Date(token.expires_at);
@@ -181,6 +231,7 @@
     editExpiresAt = '';
     editSelectedProviders = [];
     editSelectedModels = [];
+    editSelectedWebhooks = [];
   }
 
   function toggleEditProvider(key: string) {
@@ -196,6 +247,14 @@
       editSelectedModels = editSelectedModels.filter((m) => m !== model);
     } else {
       editSelectedModels = [...editSelectedModels, model];
+    }
+  }
+
+  function toggleEditWebhook(id: string) {
+    if (editSelectedWebhooks.includes(id)) {
+      editSelectedWebhooks = editSelectedWebhooks.filter((w) => w !== id);
+    } else {
+      editSelectedWebhooks = [...editSelectedWebhooks, id];
     }
   }
 
@@ -215,6 +274,9 @@
       }
       if (editSelectedModels.length > 0) {
         req.allowed_models = editSelectedModels;
+      }
+      if (editSelectedWebhooks.length > 0) {
+        req.allowed_webhooks = editSelectedWebhooks;
       }
       if (editExpiresAt) {
         req.expires_at = new Date(editExpiresAt).toISOString();
@@ -383,7 +445,7 @@
       </div>
 
       <!-- Model restrictions -->
-      <div class="grid grid-cols-4 gap-3 mb-4">
+      <div class="grid grid-cols-4 gap-3 mb-3">
         <span class="text-xs text-gray-600 py-2">Allowed Models</span>
         <div class="col-span-3">
           {#if allModels.length > 0}
@@ -407,6 +469,40 @@
             <p class="text-xs text-gray-400 mt-1">None selected = all models allowed</p>
           {:else}
             <span class="text-xs text-gray-400">No models available</span>
+          {/if}
+        </div>
+      </div>
+
+      <!-- Webhook restrictions -->
+      <div class="grid grid-cols-4 gap-3 mb-4">
+        <span class="text-xs text-gray-600 py-2">Allowed Webhooks</span>
+        <div class="col-span-3">
+          {#if webhookTriggers.length > 0}
+            <div class="max-h-40 overflow-y-auto border border-gray-200 p-2 space-y-2">
+              {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
+                <div>
+                  <div class="text-xs text-gray-400 mb-1">{wfName}</div>
+                  <div class="flex flex-wrap gap-1.5">
+                    {#each items as { trigger }}
+                      <button
+                        onclick={() => toggleWebhook(trigger.id)}
+                        class={[
+                          'px-2 py-0.5 text-xs border font-mono transition-colors',
+                          formSelectedWebhooks.includes(trigger.id)
+                            ? 'bg-gray-900 text-white border-gray-900'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                        ]}
+                      >
+                        {trigger.alias || trigger.id}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+              {/each}
+            </div>
+            <p class="text-xs text-gray-400 mt-1">None selected = all webhooks allowed</p>
+          {:else}
+            <span class="text-xs text-gray-400">No webhooks available</span>
           {/if}
         </div>
       </div>
@@ -550,6 +646,39 @@
                       </div>
                     </div>
 
+                    <div class="grid grid-cols-4 gap-3">
+                      <span class="text-xs text-gray-600 py-2">Allowed Webhooks</span>
+                      <div class="col-span-3">
+                        {#if webhookTriggers.length > 0}
+                          <div class="max-h-40 overflow-y-auto border border-gray-200 p-2 space-y-2">
+                            {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
+                              <div>
+                                <div class="text-xs text-gray-400 mb-1">{wfName}</div>
+                                <div class="flex flex-wrap gap-1.5">
+                                  {#each items as { trigger }}
+                                    <button
+                                      onclick={() => toggleEditWebhook(trigger.id)}
+                                      class={[
+                                        'px-2 py-0.5 text-xs border font-mono transition-colors',
+                                        editSelectedWebhooks.includes(trigger.id)
+                                          ? 'bg-gray-900 text-white border-gray-900'
+                                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                                      ]}
+                                    >
+                                      {trigger.alias || trigger.id}
+                                    </button>
+                                  {/each}
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                          <p class="text-xs text-gray-400 mt-1">None selected = all webhooks allowed</p>
+                        {:else}
+                          <span class="text-xs text-gray-400">No webhooks available</span>
+                        {/if}
+                      </div>
+                    </div>
+
                     <div class="flex items-center gap-2 pt-1">
                       <button
                         onclick={handleSaveEdit}
@@ -575,7 +704,7 @@
                 <code class="text-xs font-mono text-gray-500 bg-gray-100 px-1.5 py-0.5">{token.token_prefix}...</code>
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500">
-                {#if !token.allowed_providers && !token.allowed_models}
+                {#if !token.allowed_providers && !token.allowed_models && !token.allowed_webhooks}
                   <span class="text-gray-400">All access</span>
                 {:else}
                   <div class="space-y-0.5">
@@ -589,6 +718,12 @@
                       <div>
                         <span class="text-gray-400">Models:</span>
                         {token.allowed_models.slice(0, 3).join(', ')}{token.allowed_models.length > 3 ? ` +${token.allowed_models.length - 3}` : ''}
+                      </div>
+                    {/if}
+                    {#if token.allowed_webhooks && token.allowed_webhooks.length > 0}
+                      <div>
+                        <span class="text-gray-400">Webhooks:</span>
+                        {token.allowed_webhooks.slice(0, 3).join(', ')}{token.allowed_webhooks.length > 3 ? ` +${token.allowed_webhooks.length - 3}` : ''}
                       </div>
                     {/if}
                   </div>

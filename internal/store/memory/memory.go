@@ -25,7 +25,8 @@ type Memory struct {
 	workflows    map[string]service.Workflow       // id -> workflow
 	triggers     map[string]service.Trigger        // id -> trigger
 	skills       map[string]service.Skill          // id -> skill
-	secrets      map[string]service.Secret         // id -> secret
+	variables    map[string]service.Variable       // id -> variable
+	nodeConfigs  map[string]service.NodeConfig     // id -> node config
 }
 
 func New() *Memory {
@@ -38,7 +39,8 @@ func New() *Memory {
 		workflows:    make(map[string]service.Workflow),
 		triggers:     make(map[string]service.Trigger),
 		skills:       make(map[string]service.Skill),
-		secrets:      make(map[string]service.Secret),
+		variables:    make(map[string]service.Variable),
+		nodeConfigs:  make(map[string]service.NodeConfig),
 	}
 }
 
@@ -215,6 +217,7 @@ func (m *Memory) UpdateAPIToken(_ context.Context, id string, token service.APIT
 	existing.Name = token.Name
 	existing.AllowedProviders = token.AllowedProviders
 	existing.AllowedModels = token.AllowedModels
+	existing.AllowedWebhooks = token.AllowedWebhooks
 	existing.ExpiresAt = token.ExpiresAt
 	m.tokens[id] = existing
 
@@ -396,6 +399,19 @@ func (m *Memory) GetTrigger(_ context.Context, id string) (*service.Trigger, err
 	return &t, nil
 }
 
+func (m *Memory) GetTriggerByAlias(_ context.Context, alias string) (*service.Trigger, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, t := range m.triggers {
+		if t.Alias == alias {
+			return &t, nil
+		}
+	}
+
+	return nil, nil
+}
+
 func (m *Memory) CreateTrigger(_ context.Context, t service.Trigger) (*service.Trigger, error) {
 	// Round-trip through JSON to normalize config.
 	raw, err := json.Marshal(t.Config)
@@ -415,6 +431,8 @@ func (m *Memory) CreateTrigger(_ context.Context, t service.Trigger) (*service.T
 		WorkflowID: t.WorkflowID,
 		Type:       t.Type,
 		Config:     normalized,
+		Alias:      t.Alias,
+		Public:     t.Public,
 		Enabled:    t.Enabled,
 		CreatedAt:  now,
 		UpdatedAt:  now,
@@ -449,6 +467,8 @@ func (m *Memory) UpdateTrigger(_ context.Context, id string, t service.Trigger) 
 
 	existing.Type = t.Type
 	existing.Config = normalized
+	existing.Alias = t.Alias
+	existing.Public = t.Public
 	existing.Enabled = t.Enabled
 	existing.UpdatedAt = now
 	m.triggers[id] = existing
@@ -596,18 +616,18 @@ func (m *Memory) DeleteSkill(_ context.Context, id string) error {
 	return nil
 }
 
-// ─── Secret CRUD ───
+// ─── Variable CRUD ───
 
-func (m *Memory) ListSecrets(_ context.Context) ([]service.Secret, error) {
+func (m *Memory) ListVariables(_ context.Context) ([]service.Variable, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	result := make([]service.Secret, 0, len(m.secrets))
-	for _, s := range m.secrets {
-		result = append(result, s)
+	result := make([]service.Variable, 0, len(m.variables))
+	for _, v := range m.variables {
+		result = append(result, v)
 	}
 
-	slices.SortFunc(result, func(a, b service.Secret) int {
+	slices.SortFunc(result, func(a, b service.Variable) int {
 		if a.Key < b.Key {
 			return -1
 		}
@@ -620,74 +640,184 @@ func (m *Memory) ListSecrets(_ context.Context) ([]service.Secret, error) {
 	return result, nil
 }
 
-func (m *Memory) GetSecret(_ context.Context, id string) (*service.Secret, error) {
+func (m *Memory) GetVariable(_ context.Context, id string) (*service.Variable, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	s, ok := m.secrets[id]
+	v, ok := m.variables[id]
 	if !ok {
 		return nil, nil
 	}
 
-	return &s, nil
+	return &v, nil
 }
 
-func (m *Memory) GetSecretByKey(_ context.Context, key string) (*service.Secret, error) {
+func (m *Memory) GetVariableByKey(_ context.Context, key string) (*service.Variable, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for _, s := range m.secrets {
-		if s.Key == key {
-			return &s, nil
+	for _, v := range m.variables {
+		if v.Key == key {
+			return &v, nil
 		}
 	}
 
 	return nil, nil
 }
 
-func (m *Memory) CreateSecret(_ context.Context, s service.Secret) (*service.Secret, error) {
+func (m *Memory) CreateVariable(_ context.Context, v service.Variable) (*service.Variable, error) {
 	id := ulid.Make().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
-	rec := service.Secret{
+	rec := service.Variable{
 		ID:          id,
-		Key:         s.Key,
-		Value:       s.Value,
-		Description: s.Description,
+		Key:         v.Key,
+		Value:       v.Value,
+		Description: v.Description,
+		Secret:      v.Secret,
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
 
 	m.mu.Lock()
-	m.secrets[id] = rec
+	m.variables[id] = rec
 	m.mu.Unlock()
 
 	return &rec, nil
 }
 
-func (m *Memory) UpdateSecret(_ context.Context, id string, s service.Secret) (*service.Secret, error) {
+func (m *Memory) UpdateVariable(_ context.Context, id string, v service.Variable) (*service.Variable, error) {
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	existing, ok := m.secrets[id]
+	existing, ok := m.variables[id]
 	if !ok {
 		return nil, nil
 	}
 
-	existing.Key = s.Key
-	existing.Value = s.Value
-	existing.Description = s.Description
+	existing.Key = v.Key
+	existing.Value = v.Value
+	existing.Description = v.Description
+	existing.Secret = v.Secret
 	existing.UpdatedAt = now
-	m.secrets[id] = existing
+	m.variables[id] = existing
 
 	return &existing, nil
 }
 
-func (m *Memory) DeleteSecret(_ context.Context, id string) error {
+func (m *Memory) DeleteVariable(_ context.Context, id string) error {
 	m.mu.Lock()
-	delete(m.secrets, id)
+	delete(m.variables, id)
+	m.mu.Unlock()
+
+	return nil
+}
+
+// ─── Node Config CRUD ───
+
+func (m *Memory) ListNodeConfigs(_ context.Context) ([]service.NodeConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]service.NodeConfig, 0, len(m.nodeConfigs))
+	for _, nc := range m.nodeConfigs {
+		result = append(result, nc)
+	}
+
+	slices.SortFunc(result, func(a, b service.NodeConfig) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) ListNodeConfigsByType(_ context.Context, configType string) ([]service.NodeConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []service.NodeConfig
+	for _, nc := range m.nodeConfigs {
+		if nc.Type == configType {
+			result = append(result, nc)
+		}
+	}
+
+	slices.SortFunc(result, func(a, b service.NodeConfig) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) GetNodeConfig(_ context.Context, id string) (*service.NodeConfig, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	nc, ok := m.nodeConfigs[id]
+	if !ok {
+		return nil, nil
+	}
+
+	return &nc, nil
+}
+
+func (m *Memory) CreateNodeConfig(_ context.Context, nc service.NodeConfig) (*service.NodeConfig, error) {
+	id := ulid.Make().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	rec := service.NodeConfig{
+		ID:        id,
+		Name:      nc.Name,
+		Type:      nc.Type,
+		Data:      nc.Data,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+
+	m.mu.Lock()
+	m.nodeConfigs[id] = rec
+	m.mu.Unlock()
+
+	return &rec, nil
+}
+
+func (m *Memory) UpdateNodeConfig(_ context.Context, id string, nc service.NodeConfig) (*service.NodeConfig, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.nodeConfigs[id]
+	if !ok {
+		return nil, nil
+	}
+
+	existing.Name = nc.Name
+	existing.Type = nc.Type
+	existing.Data = nc.Data
+	existing.UpdatedAt = now
+	m.nodeConfigs[id] = existing
+
+	return &existing, nil
+}
+
+func (m *Memory) DeleteNodeConfig(_ context.Context, id string) error {
+	m.mu.Lock()
+	delete(m.nodeConfigs, id)
 	m.mu.Unlock()
 
 	return nil

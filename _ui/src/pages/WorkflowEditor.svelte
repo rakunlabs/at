@@ -5,15 +5,16 @@
   import { getWorkflow, updateWorkflow, runWorkflow, type Workflow, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
+  import { listNodeConfigs, type NodeConfig } from '@/lib/api/node-configs';
   import { Canvas, Controls, Minimap, getFlow, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
-  import { ArrowLeft, Save, Play, Plus, X, Bot } from 'lucide-svelte';
+  import { ArrowLeft, Save, Play, Plus, X, Bot, ChevronRight } from 'lucide-svelte';
   import ChatPanel from '@/lib/components/workflow/ChatPanel.svelte';
 
   import InputNode from '@/lib/components/workflow/InputNode.svelte';
   import OutputNode from '@/lib/components/workflow/OutputNode.svelte';
   import LLMCallNode from '@/lib/components/workflow/LLMCallNode.svelte';
   import AgentCallNode from '@/lib/components/workflow/AgentCallNode.svelte';
-  import PromptTemplateNode from '@/lib/components/workflow/PromptTemplateNode.svelte';
+  import TemplateNode from '@/lib/components/workflow/TemplateNode.svelte';
   import HttpTriggerNode from '@/lib/components/workflow/HttpTriggerNode.svelte';
   import CronTriggerNode from '@/lib/components/workflow/CronTriggerNode.svelte';
   import HttpRequestNode from '@/lib/components/workflow/HttpRequestNode.svelte';
@@ -24,6 +25,7 @@
   import SkillConfigNode from '@/lib/components/workflow/SkillConfigNode.svelte';
   import MCPConfigNode from '@/lib/components/workflow/MCPConfigNode.svelte';
   import MemoryConfigNode from '@/lib/components/workflow/MemoryConfigNode.svelte';
+  import EmailNode from '@/lib/components/workflow/EmailNode.svelte';
 
   // ─── Props ───
   let { params = { id: '' } }: { params?: { id: string } } = $props();
@@ -36,7 +38,7 @@
     output: OutputNode,
     llm_call: LLMCallNode,
     agent_call: AgentCallNode,
-    prompt_template: PromptTemplateNode,
+    template: TemplateNode,
     http_trigger: HttpTriggerNode,
     cron_trigger: CronTriggerNode,
     http_request: HttpRequestNode,
@@ -47,12 +49,14 @@
     skill_config: SkillConfigNode,
     mcp_config: MCPConfigNode,
     memory_config: MemoryConfigNode,
+    email: EmailNode,
   };
 
   const paletteGroups = [
     {
       label: 'Triggers',
       nodes: [
+        { type: 'input', label: 'Input', description: 'Manual input data' },
         { type: 'http_trigger', label: 'HTTP Trigger', description: 'Webhook-triggered entry' },
         { type: 'cron_trigger', label: 'Cron Trigger', description: 'Schedule-triggered entry' },
       ],
@@ -60,11 +64,11 @@
     {
       label: 'Processing',
       nodes: [
-        { type: 'input', label: 'Input', description: 'Manual input data' },
         { type: 'llm_call', label: 'LLM Call', description: 'Call an LLM provider' },
         { type: 'agent_call', label: 'Agent Call', description: 'Agentic loop with tools' },
-        { type: 'prompt_template', label: 'Prompt Template', description: 'Template with variables' },
+        { type: 'template', label: 'Template', description: 'Template with variables' },
         { type: 'http_request', label: 'HTTP Request', description: 'Make an HTTP request' },
+        { type: 'email', label: 'Email', description: 'Send email via SMTP' },
         { type: 'script', label: 'Script', description: 'Run JavaScript code' },
         { type: 'exec', label: 'Exec', description: 'Run a shell command' },
       ],
@@ -99,6 +103,7 @@
   let running = $state(false);
   let providers = $state<ProviderRecord[]>([]);
   let skills = $state<Skill[]>([]);
+  let nodeConfigs = $state<NodeConfig[]>([]);
   let runResult = $state<any>(null);
   let runError = $state<string | null>(null);
 
@@ -185,6 +190,14 @@
     }
   }
 
+  async function loadNodeConfigs() {
+    try {
+      nodeConfigs = await listNodeConfigs('email');
+    } catch {
+      // Non-critical
+    }
+  }
+
   // ─── Save ───
 
   async function handleSave() {
@@ -245,7 +258,7 @@
 
   let nodeCounter = $state(0);
 
-  function addNode(type: string) {
+  function addNode(type: string, position?: { x: number; y: number }) {
     if (!canvasRef) return;
     const flow = canvasRef.getFlow();
     nodeCounter++;
@@ -273,13 +286,15 @@
       defaultData.mcp_urls = [];
     } else if (type === 'memory_config') {
       defaultData.label = 'Memory';
-    } else if (type === 'prompt_template') {
-      defaultData.label = 'Prompt Template';
+    } else if (type === 'template') {
+      defaultData.label = 'Template';
       defaultData.template = '';
       defaultData.variables = [];
     } else if (type === 'http_trigger') {
       defaultData.label = 'HTTP Trigger';
       defaultData.trigger_id = '';
+      defaultData.alias = '';
+      defaultData.public = false;
     } else if (type === 'cron_trigger') {
       defaultData.label = 'Cron Trigger';
       defaultData.schedule = '';
@@ -311,14 +326,71 @@
       defaultData.timeout = 60;
       defaultData.sandbox_root = '/tmp/at-sandbox';
       defaultData.input_count = 1;
+    } else if (type === 'email') {
+      defaultData.label = 'Email';
+      defaultData.config_id = '';
+      defaultData.to = '';
+      defaultData.cc = '';
+      defaultData.bcc = '';
+      defaultData.subject = '';
+      defaultData.body = '';
+      defaultData.content_type = 'text/plain';
+      defaultData.from = '';
+      defaultData.reply_to = '';
     }
+    const pos = position ?? { x: 200 + nodeCounter * 30, y: 150 + nodeCounter * 30 };
     flow.addNode({
       id: `${type}_${nodeCounter}`,
       type,
-      position: { x: 200 + nodeCounter * 30, y: 150 + nodeCounter * 30 },
+      position: pos,
       data: defaultData,
     });
   }
+
+  // ─── Drag & Drop ───
+
+  let draggingOver = $state(false);
+
+  function handleDragStart(e: DragEvent, type: string) {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.setData('application/at-node-type', type);
+    e.dataTransfer.effectAllowed = 'copy';
+  }
+
+  function handleDragOver(e: DragEvent) {
+    if (!e.dataTransfer?.types.includes('application/at-node-type')) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    draggingOver = true;
+  }
+
+  function handleDragLeave() {
+    draggingOver = false;
+  }
+
+  function handleDrop(e: DragEvent) {
+    draggingOver = false;
+    if (!e.dataTransfer || !canvasRef) return;
+    const type = e.dataTransfer.getData('application/at-node-type');
+    if (!type) return;
+    e.preventDefault();
+
+    // Convert drop coordinates to canvas coordinates.
+    const canvasEl = (e.currentTarget as HTMLElement).querySelector('.kaykay-canvas');
+    if (!canvasEl) return;
+    const rect = canvasEl.getBoundingClientRect();
+    const flow = canvasRef.getFlow();
+    const canvasPos = flow.screenToCanvas({
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    });
+
+    addNode(type, canvasPos);
+  }
+
+  // ─── Palette Collapse ───
+
+  let collapsedGroups = $state<Record<string, boolean>>({});
 
   // ─── Property Editor ───
 
@@ -412,6 +484,7 @@
   loadWorkflow();
   loadProviders();
   loadSkills();
+  loadNodeConfigs();
 </script>
 
 <svelte:head>
@@ -480,25 +553,45 @@
       <div class="w-44 bg-white border-r border-gray-200 shrink-0 overflow-y-auto">
         <div class="p-2">
           {#each paletteGroups as group}
-            <div class="text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1 mt-2 first:mt-0">{group.label}</div>
-            {#each group.nodes as opt}
-              <button
-                onclick={() => addNode(opt.type)}
-                class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left text-gray-700 rounded hover:bg-gray-100 transition-colors mb-0.5"
-              >
-                <Plus size={11} class="text-gray-400 shrink-0" />
-                <div>
-                  <div class="font-medium">{opt.label}</div>
-                  <div class="text-[10px] text-gray-400">{opt.description}</div>
-                </div>
-              </button>
-            {/each}
+            <button
+              onclick={() => { collapsedGroups[group.label] = !collapsedGroups[group.label]; }}
+              class="w-full flex items-center gap-1 mt-2 first:mt-0 mb-1 text-left group"
+            >
+              <ChevronRight
+                size={10}
+                class="text-gray-400 transition-transform {collapsedGroups[group.label] ? '' : 'rotate-90'}"
+              />
+              <span class="text-[10px] font-medium text-gray-400 uppercase tracking-wider">{group.label}</span>
+            </button>
+            {#if !collapsedGroups[group.label]}
+              {#each group.nodes as opt}
+                <button
+                  draggable="true"
+                  ondragstart={(e) => handleDragStart(e, opt.type)}
+                  onclick={() => addNode(opt.type)}
+                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left text-gray-700 rounded hover:bg-gray-100 transition-colors mb-0.5 cursor-grab active:cursor-grabbing"
+                >
+                  <Plus size={11} class="text-gray-400 shrink-0" />
+                  <div>
+                    <div class="font-medium">{opt.label}</div>
+                    <div class="text-[10px] text-gray-400">{opt.description}</div>
+                  </div>
+                </button>
+              {/each}
+            {/if}
           {/each}
         </div>
       </div>
 
       <!-- Canvas -->
-      <div class="flex-1 relative bg-gray-50">
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="flex-1 relative bg-gray-50 {draggingOver ? 'ring-2 ring-inset ring-blue-400' : ''}"
+        role="application"
+        ondragover={handleDragOver}
+        ondragleave={handleDragLeave}
+        ondrop={handleDrop}
+      >
         <Canvas
           bind:this={canvasRef}
           nodes={toFlowNodes(workflow.graph.nodes)}
@@ -685,14 +778,14 @@
               <div class="text-[10px] text-gray-400 mt-1">Passes upstream data as additional context to the agent.</div>
             {/if}
 
-            {#if selectedNodeType === 'prompt_template'}
+            {#if selectedNodeType === 'template'}
               <div>
                 <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Template</label>
                 <textarea
                   bind:value={selectedNodeData.template}
                   rows={4}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
-                  placeholder="Hello {{name}}, ..."
+                   placeholder={'Hello \x7B\x7B.name\x7D\x7D, ...'}
                 ></textarea>
               </div>
               <div>
@@ -709,14 +802,42 @@
 
             {#if selectedNodeType === 'http_trigger'}
               <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Public</label>
+                <label class="mt-0.5 flex items-center gap-1.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    bind:checked={selectedNodeData.public}
+                    class="rounded border-gray-300 text-gray-900 focus:ring-gray-400"
+                  />
+                  <span class="text-[10px] text-gray-600">
+                    {selectedNodeData.public ? 'No authentication required' : 'Requires Bearer token'}
+                  </span>
+                </label>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Alias</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.alias}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="e.g. order-created"
+                />
+                <div class="mt-0.5 text-[10px] text-gray-400">Optional human-friendly URL slug</div>
+              </div>
+              <div>
                 {#if selectedNodeData.trigger_id}
                   <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Webhook URL</label>
                   <div class="mt-0.5 px-2 py-1 text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded break-all">
-                    /api/v1/webhooks/{selectedNodeData.trigger_id}
+                    /webhooks/{selectedNodeData.alias || selectedNodeData.trigger_id}
                   </div>
                   <div class="mt-1 text-[10px] text-gray-400">
                     ID: <span class="font-mono">{selectedNodeData.trigger_id}</span>
                   </div>
+                  {#if !selectedNodeData.public}
+                    <div class="mt-1 px-2 py-1 bg-yellow-50 border border-yellow-200 rounded text-[10px] text-yellow-700">
+                      Requires <span class="font-mono">Authorization: Bearer &lt;token&gt;</span> header
+                    </div>
+                  {/if}
                 {:else}
                   <div class="text-[10px] text-gray-400 italic">Save the workflow to generate a webhook URL</div>
                 {/if}
@@ -923,7 +1044,7 @@
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="echo 'Hello World'"
                 ></textarea>
-                <div class="mt-0.5 text-[10px] text-gray-400">Shell command (supports <code class="font-mono bg-gray-100 px-0.5 rounded">{'{{var}}'}</code> templates from inputs)</div>
+                <div class="mt-0.5 text-[10px] text-gray-400">Shell command (supports <code class="font-mono bg-gray-100 px-0.5 rounded">{'{{.var}}'}</code> templates from inputs)</div>
               </div>
               <div>
                 <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Working Dir</label>
@@ -955,6 +1076,95 @@
                   placeholder="/tmp/at-sandbox"
                 />
                 <div class="mt-0.5 text-[10px] text-gray-400">All commands run inside this directory</div>
+              </div>
+            {/if}
+
+            {#if selectedNodeType === 'email'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">SMTP Config</label>
+                <select
+                  bind:value={selectedNodeData.config_id}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                >
+                  <option value="">Select config</option>
+                  {#each nodeConfigs as nc}
+                    <option value={nc.id}>{nc.name}</option>
+                  {/each}
+                </select>
+                <div class="mt-0.5 text-[10px] text-gray-400">Configure SMTP servers in Node Configs</div>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">To (Go template)</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.to}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder={'user@example.com, \x7B\x7B.email\x7D\x7D'}
+                />
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">CC (Go template)</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.cc}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="cc@example.com"
+                />
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">BCC (Go template)</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.bcc}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="bcc@example.com"
+                />
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Subject (Go template)</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.subject}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder={'Alert: \x7B\x7B.title\x7D\x7D'}
+                />
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Body (Go template)</label>
+                <textarea
+                  bind:value={selectedNodeData.body}
+                  rows={4}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+                  placeholder={'Hello \x7B\x7B.name\x7D\x7D,\n\nYour report is ready.'}
+                ></textarea>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Content Type</label>
+                <select
+                  bind:value={selectedNodeData.content_type}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                >
+                  <option value="text/plain">text/plain</option>
+                  <option value="text/html">text/html</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">From Override (Go template)</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.from}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="(uses config default)"
+                />
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Reply-To (Go template)</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.reply_to}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="reply@example.com"
+                />
               </div>
             {/if}
 

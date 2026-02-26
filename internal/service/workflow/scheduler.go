@@ -33,13 +33,14 @@ type RunRegistrar func(parent context.Context, workflowID, source string) (runID
 
 // Scheduler manages cron-based workflow triggers.
 type Scheduler struct {
-	triggerStore   service.TriggerStorer
-	workflowStore  service.WorkflowStorer
-	providerLookup ProviderLookup
-	skillLookup    SkillLookup
-	secretLookup   SecretLookup
-	secretLister   SecretLister
-	runRegistrar   RunRegistrar
+	triggerStore     service.TriggerStorer
+	workflowStore    service.WorkflowStorer
+	providerLookup   ProviderLookup
+	skillLookup      SkillLookup
+	varLookup        VarLookup
+	varLister        VarLister
+	nodeConfigLookup NodeConfigLookup
+	runRegistrar     RunRegistrar
 
 	mu     sync.Mutex
 	cron   cronRunner
@@ -48,14 +49,15 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, lookup ProviderLookup, skillLookup SkillLookup, secretLookup SecretLookup, secretLister SecretLister) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup) *Scheduler {
 	return &Scheduler{
-		triggerStore:   ts,
-		workflowStore:  ws,
-		providerLookup: lookup,
-		skillLookup:    skillLookup,
-		secretLookup:   secretLookup,
-		secretLister:   secretLister,
+		triggerStore:     ts,
+		workflowStore:    ws,
+		providerLookup:   lookup,
+		skillLookup:      skillLookup,
+		varLookup:        varLookup,
+		varLister:        varLister,
+		nodeConfigLookup: nodeConfigLookup,
 	}
 }
 
@@ -216,7 +218,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			defer cleanup()
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.secretLookup, s.secretLister)
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup)
 
 		result, err := engine.Run(runCtx, wf.Graph, inputs)
 		if err != nil {

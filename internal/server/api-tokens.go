@@ -22,6 +22,7 @@ type createTokenRequest struct {
 	Name             string   `json:"name"`
 	AllowedProviders []string `json:"allowed_providers,omitempty"` // nil = all
 	AllowedModels    []string `json:"allowed_models,omitempty"`    // nil = all
+	AllowedWebhooks  []string `json:"allowed_webhooks,omitempty"`  // nil = all
 	ExpiresAt        *string  `json:"expires_at,omitempty"`        // RFC3339 timestamp, nil/empty = no expiry
 }
 
@@ -30,6 +31,7 @@ type updateTokenRequest struct {
 	Name             string   `json:"name"`
 	AllowedProviders []string `json:"allowed_providers,omitempty"` // nil = all
 	AllowedModels    []string `json:"allowed_models,omitempty"`    // nil = all
+	AllowedWebhooks  []string `json:"allowed_webhooks,omitempty"`  // nil = all
 	ExpiresAt        *string  `json:"expires_at,omitempty"`        // RFC3339 timestamp, nil/empty = no expiry
 }
 
@@ -115,6 +117,7 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		TokenPrefix:      tokenPrefix,
 		AllowedProviders: req.AllowedProviders,
 		AllowedModels:    req.AllowedModels,
+		AllowedWebhooks:  req.AllowedWebhooks,
 		ExpiresAt:        expiresAt,
 	}
 
@@ -191,6 +194,7 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		Name:             req.Name,
 		AllowedProviders: req.AllowedProviders,
 		AllowedModels:    req.AllowedModels,
+		AllowedWebhooks:  req.AllowedWebhooks,
 		ExpiresAt:        expiresAt,
 	}
 

@@ -106,24 +106,24 @@ func (b *BodyWrapper) Length() (int, error) {
 // SetupGojaVM configures a goja runtime with global helper functions and
 // sets all input values on the VM. Any io.ReadCloser values found in the
 // input tree (including nested maps) are automatically wrapped in BodyWrapper.
-// If a SecretLookup is provided, a getSecret(key) function is also registered.
-func SetupGojaVM(vm *goja.Runtime, inputs map[string]any, secretLookup ...SecretLookup) error {
+// If a VarLookup is provided, a getVar(key) function is also registered.
+func SetupGojaVM(vm *goja.Runtime, inputs map[string]any, varLookup ...VarLookup) error {
 	// Register global helper functions.
 	if err := registerGojaHelpers(vm); err != nil {
 		return err
 	}
 
-	// Register getSecret if a lookup function was provided.
-	if len(secretLookup) > 0 && secretLookup[0] != nil {
-		lookup := secretLookup[0]
-		if err := vm.Set("getSecret", func(call goja.FunctionCall) goja.Value {
+	// Register getVar if a lookup function was provided.
+	if len(varLookup) > 0 && varLookup[0] != nil {
+		lookup := varLookup[0]
+		if err := vm.Set("getVar", func(call goja.FunctionCall) goja.Value {
 			if len(call.Arguments) == 0 {
-				panic(vm.NewTypeError("getSecret: key is required"))
+				panic(vm.NewTypeError("getVar: key is required"))
 			}
 			key := call.Arguments[0].String()
 			val, err := lookup(key)
 			if err != nil {
-				panic(vm.NewTypeError(fmt.Sprintf("getSecret: %v", err)))
+				panic(vm.NewTypeError(fmt.Sprintf("getVar: %v", err)))
 			}
 			return vm.ToValue(val)
 		}); err != nil {

@@ -1,3 +1,4 @@
 /dist
 /at.db*
 /scripts
+/.*

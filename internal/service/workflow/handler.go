@@ -20,16 +20,16 @@ import (
 // Example handler:
 //
 //	"return 'Hello, ' + args.name;"
-func ExecuteJSHandler(handler string, args map[string]any, secretLookup ...SecretLookup) (string, error) {
+func ExecuteJSHandler(handler string, args map[string]any, varLookup ...VarLookup) (string, error) {
 	vm := goja.New()
 
 	// Register all shared helpers (toString, jsonParse, btoa, atob,
-	// JSON_stringify, httpGet, httpPost, httpPut, httpDelete, getSecret).
-	var sl SecretLookup
-	if len(secretLookup) > 0 {
-		sl = secretLookup[0]
+	// JSON_stringify, httpGet, httpPost, httpPut, httpDelete, getVar).
+	var vl VarLookup
+	if len(varLookup) > 0 {
+		vl = varLookup[0]
 	}
-	if err := SetupGojaVM(vm, map[string]any{"args": args}, sl); err != nil {
+	if err := SetupGojaVM(vm, map[string]any{"args": args}, vl); err != nil {
 		return "", fmt.Errorf("js handler: setup VM: %w", err)
 	}
 
@@ -58,11 +58,11 @@ func ExecuteJSHandler(handler string, args map[string]any, secretLookup ...Secre
 	}
 }
 
-// ExecuteBashHandler runs a bash command with tool arguments and secrets as
+// ExecuteBashHandler runs a bash command with tool arguments and variables as
 // environment variables. Tool arguments are set as ARG_<NAME> (uppercased,
-// dots/hyphens replaced with underscores). All secrets are set as SECRET_<KEY>
+// dots/hyphens replaced with underscores). All variables are set as VAR_<KEY>
 // (uppercased). The command's stdout is returned as the tool result.
-func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any, secretLister SecretLister) (string, error) {
+func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any, varLister VarLister) (string, error) {
 	const bashTimeout = 60 * time.Second
 
 	ctx, cancel := context.WithTimeout(ctx, bashTimeout)
@@ -79,14 +79,14 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 		env = append(env, envKey+"="+fmt.Sprintf("%v", v))
 	}
 
-	// Inject all secrets as SECRET_<KEY> env vars.
-	if secretLister != nil {
-		secrets, err := secretLister()
+	// Inject all variables as VAR_<KEY> env vars.
+	if varLister != nil {
+		vars, err := varLister()
 		if err != nil {
-			slog.Warn("bash handler: failed to list secrets", "error", err)
+			slog.Warn("bash handler: failed to list variables", "error", err)
 		} else {
-			for k, v := range secrets {
-				envKey := "SECRET_" + strings.ToUpper(
+			for k, v := range vars {
+				envKey := "VAR_" + strings.ToUpper(
 					strings.NewReplacer(".", "_", "-", "_").Replace(k),
 				)
 				env = append(env, envKey+"="+v)

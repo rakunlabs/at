@@ -92,6 +92,12 @@ export interface StreamCallbacks {
 /**
  * Stream a chat completion request via SSE.
  * Uses the admin API endpoint (no gateway auth needed).
+ *
+ * Tool calls are accumulated across multiple SSE chunks (OpenAI streaming
+ * format uses `index` to identify which tool call is being continued, and
+ * arguments may arrive as fragments across multiple deltas). The fully
+ * assembled tool calls are delivered via `onToolCalls` once after the
+ * stream completes.
  */
 export async function streamChatCompletion(
   url: string,
@@ -129,6 +135,12 @@ export async function streamChatCompletion(
   const decoder = new TextDecoder();
   let buffer = '';
 
+  // Accumulate tool calls by index across all SSE chunks.
+  // OpenAI streaming format: first delta for a tool call carries id +
+  // function.name, subsequent deltas for the same index append to
+  // function.arguments.
+  const accumulatedToolCalls: ToolCall[] = [];
+
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -154,19 +166,43 @@ export async function streamChatCompletion(
         }
 
         if (delta.tool_calls && delta.tool_calls.length > 0) {
-          const toolCalls: ToolCall[] = delta.tool_calls.map((tc: any) => ({
-            id: tc.id,
-            type: 'function',
-            function: {
-              name: tc.function?.name || '',
-              arguments: tc.function?.arguments || '',
-            },
-          }));
-          callbacks.onToolCalls(toolCalls);
+          for (const tc of delta.tool_calls) {
+            // Use the index field if present (OpenAI format), otherwise
+            // fall back to positional index within the accumulated array.
+            const idx: number = tc.index ?? accumulatedToolCalls.length;
+
+            if (idx < accumulatedToolCalls.length) {
+              // Continuation of an existing tool call — append arguments
+              const existing = accumulatedToolCalls[idx];
+              if (tc.function?.arguments) {
+                existing.function.arguments += tc.function.arguments;
+              }
+              // id and name can also arrive in later chunks for some providers
+              if (tc.id && !existing.id) existing.id = tc.id;
+              if (tc.function?.name && !existing.function.name) {
+                existing.function.name = tc.function.name;
+              }
+            } else {
+              // New tool call at this index
+              accumulatedToolCalls.push({
+                id: tc.id || '',
+                type: 'function',
+                function: {
+                  name: tc.function?.name || '',
+                  arguments: tc.function?.arguments || '',
+                },
+              });
+            }
+          }
         }
       } catch {
         // Skip unparseable chunks
       }
     }
+  }
+
+  // Deliver fully assembled tool calls once after stream completes
+  if (accumulatedToolCalls.length > 0) {
+    callbacks.onToolCalls(accumulatedToolCalls);
   }
 }

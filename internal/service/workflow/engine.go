@@ -19,15 +19,16 @@ type RunResult struct {
 //   - Phase 2 (Run): concurrent goroutine-per-branch execution with
 //     return-type routing
 type Engine struct {
-	providerLookup ProviderLookup
-	skillLookup    SkillLookup
-	secretLookup   SecretLookup
-	secretLister   SecretLister
+	providerLookup   ProviderLookup
+	skillLookup      SkillLookup
+	varLookup        VarLookup
+	varLister        VarLister
+	nodeConfigLookup NodeConfigLookup
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, secretLookup SecretLookup, secretLister SecretLister) *Engine {
-	return &Engine{providerLookup: lookup, skillLookup: skillLookup, secretLookup: secretLookup, secretLister: secretLister}
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup) *Engine {
+	return &Engine{providerLookup: lookup, skillLookup: skillLookup, varLookup: varLookup, varLister: varLister, nodeConfigLookup: nodeConfigLookup}
 }
 
 // ─── Execution State ───
@@ -120,7 +121,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.secretLookup, e.secretLister, inputs)
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, inputs)
 
 	// Phase 1: Parse & Validate
 	states, err := e.parseGraph(ctx, graph, reg)
@@ -436,56 +437,4 @@ func isTerminal(nodeID string, edges []service.WorkflowEdge) bool {
 		}
 	}
 	return true
-}
-
-// convertMustache converts simple {{variable}} syntax to Go template {{.variable}},
-// but leaves already-dotted references like {{.variable}} unchanged.
-func convertMustache(s string) string {
-	var result []byte
-	i := 0
-	for i < len(s) {
-		if i+2 < len(s) && s[i] == '{' && s[i+1] == '{' {
-			// Find the closing }}.
-			end := -1
-			for j := i + 2; j < len(s)-1; j++ {
-				if s[j] == '}' && s[j+1] == '}' {
-					end = j
-					break
-				}
-			}
-			if end >= 0 {
-				inner := s[i+2 : end]
-				trimmed := trimSpaces(inner)
-				if trimmed != "" && trimmed[0] != '.' && trimmed[0] != '$' &&
-					!hasPrefix(trimmed, "range") && !hasPrefix(trimmed, "if") &&
-					!hasPrefix(trimmed, "end") && !hasPrefix(trimmed, "else") &&
-					!hasPrefix(trimmed, "with") && !hasPrefix(trimmed, "block") &&
-					!hasPrefix(trimmed, "define") && !hasPrefix(trimmed, "template") {
-					result = append(result, '{', '{', '.')
-					result = append(result, []byte(trimmed)...)
-					result = append(result, '}', '}')
-					i = end + 2
-					continue
-				}
-			}
-		}
-		result = append(result, s[i])
-		i++
-	}
-	return string(result)
-}
-
-func trimSpaces(s string) string {
-	start, end := 0, len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
-		end--
-	}
-	return s[start:end]
-}
-
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }

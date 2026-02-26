@@ -158,13 +158,17 @@ type Registry struct {
 	// Used by agent_call nodes to load skill tools and system prompts.
 	SkillLookup SkillLookup
 
-	// SecretLookup resolves a secret key to its plaintext value.
-	// Used by getSecret() in the Goja JS VM.
-	SecretLookup SecretLookup
+	// VarLookup resolves a variable key to its plaintext value.
+	// Used by getVar() in the Goja JS VM.
+	VarLookup VarLookup
 
-	// SecretLister returns all secret key-value pairs.
-	// Used by bash tool handlers to inject secrets as environment variables.
-	SecretLister SecretLister
+	// VarLister returns all variable key-value pairs.
+	// Used by bash tool handlers to inject variables as environment variables.
+	VarLister VarLister
+
+	// NodeConfigLookup resolves a node config ID to its full configuration.
+	// Used by nodes that reference external configs (e.g. email node looking up SMTP settings).
+	NodeConfigLookup NodeConfigLookup
 
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
@@ -185,25 +189,30 @@ type ProviderLookup func(key string) (service.LLMProvider, string, error)
 // SkillLookup resolves a skill name or ID to a Skill definition.
 type SkillLookup func(nameOrID string) (*service.Skill, error)
 
-// SecretLookup resolves a secret key to its plaintext value.
-type SecretLookup func(key string) (string, error)
+// VarLookup resolves a variable key to its plaintext value.
+type VarLookup func(key string) (string, error)
 
-// SecretLister returns all secret key-value pairs.
-// Used by bash tool handlers to inject all secrets as environment variables.
-type SecretLister func() (map[string]string, error)
+// VarLister returns all variable key-value pairs.
+// Used by bash tool handlers to inject all variables as environment variables.
+type VarLister func() (map[string]string, error)
+
+// NodeConfigLookup resolves a node config ID to its full NodeConfig.
+// Used by nodes that reference external configs (e.g. email node looking up SMTP settings).
+type NodeConfigLookup func(id string) (*service.NodeConfig, error)
 
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, secretLookup SecretLookup, secretLister SecretLister, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
 	return &Registry{
-		ProviderLookup: lookup,
-		SkillLookup:    skillLookup,
-		SecretLookup:   secretLookup,
-		SecretLister:   secretLister,
-		RunInputs:      inputs,
-		outputs:        make(map[string]any),
+		ProviderLookup:   lookup,
+		SkillLookup:      skillLookup,
+		VarLookup:        varLookup,
+		VarLister:        varLister,
+		NodeConfigLookup: nodeConfigLookup,
+		RunInputs:        inputs,
+		outputs:          make(map[string]any),
 	}
 }
 

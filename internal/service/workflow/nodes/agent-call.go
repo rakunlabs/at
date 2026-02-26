@@ -384,10 +384,10 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
 				if hi.handlerType == "bash" {
 					// Execute bash handler.
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.SecretLister)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister)
 				} else {
 					// Execute JS handler via Goja (default).
-					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, reg.SecretLookup)
+					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, reg.VarLookup)
 				}
 			} else {
 				// No handler found — return error to the LLM.

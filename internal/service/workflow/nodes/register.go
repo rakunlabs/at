@@ -10,7 +10,7 @@
 //
 //   - input          — passes workflow trigger inputs downstream
 //   - output         — collects final results into the registry
-//   - prompt_template — Go text/template rendering with mustache conversion
+//   - template        — Go text/template rendering with mustache conversion
 //   - llm_call       — sends a prompt to an LLM provider
 //   - agent_call     — agentic loop with MCP, skill, and inline tool execution
 //   - skill_config   — resource node: outputs skill names for agent_call
@@ -23,4 +23,5 @@
 //   - http_trigger   — HTTP webhook trigger (passes request body downstream)
 //   - cron_trigger   — Cron schedule trigger (merges static payload with metadata)
 //   - exec           — sandboxed shell command execution (/bin/sh -c)
+//   - email          — send email via SMTP with NodeConfig-based server settings
 package nodes
