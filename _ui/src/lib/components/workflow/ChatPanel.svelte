@@ -86,7 +86,7 @@
           properties: {
             type: {
               type: 'string',
-              enum: ['input', 'output', 'llm_call', 'prompt_template', 'http_trigger', 'cron_trigger', 'http_request', 'conditional', 'loop', 'script'],
+              enum: ['input', 'output', 'llm_call', 'agent_call', 'prompt_template', 'http_trigger', 'cron_trigger', 'http_request', 'conditional', 'loop', 'script', 'skill_config', 'mcp_config', 'memory_config'],
               description: 'The node type',
             },
             id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
@@ -216,6 +216,29 @@ Each node has specific input/output handles (ports) for connecting edges.
 - Output handles: response (port: llm_response), text (port: text)
 - Data fields: label, provider (provider key), model (model name), system_prompt
 
+### agent_call
+- Input handles: prompt (port: text), context (port: data), skills (port: data, position: bottom), mcp (port: data, position: bottom), memory (port: data, position: bottom)
+- Output handles: response (port: llm_response), text (port: text)
+- Data fields: label, provider (provider key), model (model name), system_prompt, max_iterations (number, default 10, 0=unlimited)
+- Bottom input handles receive data from resource config nodes (skill_config, mcp_config, memory_config) connected vertically
+- Runs an agentic loop: sends prompt to LLM, executes tool calls (MCP, skill), feeds results back until final answer or max iterations
+
+### skill_config
+- Output handles: skills (port: data, position: top)
+- Data fields: label, skills (array of skill names)
+- Connect the "skills" output to an agent_call's "skills" bottom input to provide skills
+
+### mcp_config
+- Output handles: mcp_urls (port: data, position: top)
+- Data fields: label, mcp_urls (array of MCP server URLs)
+- Connect the "mcp_urls" output to an agent_call's "mcp" bottom input to provide MCP servers
+
+### memory_config
+- Input handles: data (port: data, position: left)
+- Output handles: memory (port: data, position: top)
+- Data fields: label
+- Passes upstream data as additional context; connect "memory" output to agent_call's "memory" bottom input
+
 ### prompt_template
 - Input handles: data (port: data)
 - Output handles: text (port: text)
@@ -254,6 +277,7 @@ Each node has specific input/output handles (ports) for connecting edges.
 - Place nodes with ~200px horizontal spacing and ~150px vertical spacing
 - Keep related nodes close together
 - Flow generally goes left-to-right or top-to-bottom
+- Resource config nodes (skill_config, mcp_config, memory_config) should be placed BELOW the agent_call node they connect to, since they connect via top output → bottom input
 
 ## Important
 - Always use get_flow first to understand the current state before making changes

@@ -165,7 +165,7 @@
               <td class="px-3 py-2">
                 <button
                   onclick={() => push(`/workflows/${wf.id}`)}
-                  class="text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
+                  class="text-left text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
                 >
                   {wf.name}
                 </button>

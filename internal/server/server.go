@@ -64,6 +64,12 @@ type Server struct {
 	// triggerStore is the persistent store for workflow triggers.
 	triggerStore service.TriggerStorer
 
+	// skillStore is the persistent store for skill definitions.
+	skillStore service.SkillStorer
+
+	// secretStore is the persistent store for encrypted secrets.
+	secretStore service.SecretStorer
+
 	// scheduler is the cron trigger scheduler (nil if triggerStore is nil).
 	scheduler *workflow.Scheduler
 
@@ -93,6 +99,10 @@ type Server struct {
 	// them on inbound requests when the client omits them.
 	// map key: tool-call ID (string), value: thoughtSigEntry
 	thoughtSigCache sync.Map
+
+	// activeRuns tracks currently-running workflow executions.
+	// map key: run ID (string), value: *activeRun
+	activeRuns sync.Map
 }
 
 // thoughtSigTTL is how long cached thought_signature entries are kept.
@@ -146,7 +156,7 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, triggerStore service.TriggerStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, secretStore service.SecretStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -165,6 +175,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		tokenStore:      tokenStore,
 		workflowStore:   workflowStore,
 		triggerStore:    triggerStore,
+		skillStore:      skillStore,
+		secretStore:     secretStore,
 		providerFactory: factory,
 		storeType:       storeType,
 		authTokens:      gatewayCfg.AuthTokens,
@@ -197,7 +209,50 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			return info.provider, info.defaultModel, nil
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, providerLookup)
+		// Build a skill lookup for the scheduler (uses background context).
+		var schedulerSkillLookup workflow.SkillLookup
+		if skillStore != nil {
+			schedulerSkillLookup = func(nameOrID string) (*service.Skill, error) {
+				sk, err := skillStore.GetSkill(ctx, nameOrID)
+				if err != nil {
+					return nil, err
+				}
+				if sk != nil {
+					return sk, nil
+				}
+				return skillStore.GetSkillByName(ctx, nameOrID)
+			}
+		}
+
+		// Build a secret lookup for the scheduler.
+		var schedulerSecretLookup workflow.SecretLookup
+		var schedulerSecretLister workflow.SecretLister
+		if secretStore != nil {
+			schedulerSecretLookup = func(key string) (string, error) {
+				sec, err := secretStore.GetSecretByKey(ctx, key)
+				if err != nil {
+					return "", err
+				}
+				if sec == nil {
+					return "", fmt.Errorf("secret %q not found", key)
+				}
+				return sec.Value, nil
+			}
+			schedulerSecretLister = func() (map[string]string, error) {
+				secrets, err := secretStore.ListSecrets(ctx)
+				if err != nil {
+					return nil, err
+				}
+				m := make(map[string]string, len(secrets))
+				for _, sec := range secrets {
+					m[sec.Key] = sec.Value
+				}
+				return m, nil
+			}
+		}
+
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, providerLookup, schedulerSkillLookup, schedulerSecretLookup, schedulerSecretLister)
+		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
 			// Non-fatal: server can run without cron triggers.
@@ -261,11 +316,30 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.PUT("/v1/triggers/*", s.UpdateTriggerAPI)
 	apiGroup.DELETE("/v1/triggers/*", s.DeleteTriggerAPI)
 
+	// Skill management
+	apiGroup.GET("/v1/skills", s.ListSkillsAPI)
+	apiGroup.POST("/v1/skills", s.CreateSkillAPI)
+	apiGroup.POST("/v1/skills/test-handler", s.TestHandlerAPI) // before wildcard
+	apiGroup.GET("/v1/skills/*", s.GetSkillAPI)
+	apiGroup.PUT("/v1/skills/*", s.UpdateSkillAPI)
+	apiGroup.DELETE("/v1/skills/*", s.DeleteSkillAPI)
+
+	// Secret management
+	apiGroup.GET("/v1/secrets", s.ListSecretsAPI)
+	apiGroup.POST("/v1/secrets", s.CreateSecretAPI)
+	apiGroup.GET("/v1/secrets/*", s.GetSecretAPI)
+	apiGroup.PUT("/v1/secrets/*", s.UpdateSecretAPI)
+	apiGroup.DELETE("/v1/secrets/*", s.DeleteSecretAPI)
+
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 
 	// Webhook endpoint (public, no auth middleware needed for external callers)
 	apiGroup.POST("/v1/webhooks/*", s.WebhookAPI)
+
+	// Workflow run management
+	apiGroup.GET("/v1/runs", s.ListActiveRunsAPI)
+	apiGroup.POST("/v1/runs/*/cancel", s.CancelRunAPI)
 
 	// Settings API (protected by admin token)
 	settingsGroup := apiGroup.Group("/v1/settings")

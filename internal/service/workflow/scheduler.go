@@ -26,11 +26,20 @@ type cronRunner interface {
 	Stop()
 }
 
+// RunRegistrar is a callback that registers a workflow run for tracking and
+// cancellation. It returns a run ID, a cancellable context derived from parent,
+// and a cleanup function that must be deferred.
+type RunRegistrar func(parent context.Context, workflowID, source string) (runID string, ctx context.Context, cleanup func())
+
 // Scheduler manages cron-based workflow triggers.
 type Scheduler struct {
 	triggerStore   service.TriggerStorer
 	workflowStore  service.WorkflowStorer
 	providerLookup ProviderLookup
+	skillLookup    SkillLookup
+	secretLookup   SecretLookup
+	secretLister   SecretLister
+	runRegistrar   RunRegistrar
 
 	mu     sync.Mutex
 	cron   cronRunner
@@ -39,12 +48,21 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, lookup ProviderLookup) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, lookup ProviderLookup, skillLookup SkillLookup, secretLookup SecretLookup, secretLister SecretLister) *Scheduler {
 	return &Scheduler{
 		triggerStore:   ts,
 		workflowStore:  ws,
 		providerLookup: lookup,
+		skillLookup:    skillLookup,
+		secretLookup:   secretLookup,
+		secretLister:   secretLister,
 	}
+}
+
+// SetRunRegistrar sets the callback used to register runs for tracking.
+// Must be called before Start.
+func (s *Scheduler) SetRunRegistrar(r RunRegistrar) {
+	s.runRegistrar = r
 }
 
 // Start loads all enabled cron triggers from the store and starts the
@@ -154,7 +172,8 @@ func (s *Scheduler) reload() error {
 
 // makeCronFunc returns the function that hardloop will call on each cron tick
 // for a given trigger. It loads the workflow, builds inputs with trigger
-// metadata, and runs the engine.
+// metadata, and runs the engine. If a RunRegistrar is set, the run is
+// registered for tracking and cancellation.
 func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
 		slog.Info("scheduler: cron triggered",
@@ -188,13 +207,23 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			"schedule":     schedule,
 		}
 
-		engine := NewEngine(s.providerLookup)
+		// Register the run for tracking if a registrar is available.
+		var runID string
+		runCtx := ctx
+		if s.runRegistrar != nil {
+			var cleanup func()
+			runID, runCtx, cleanup = s.runRegistrar(ctx, trigger.WorkflowID, "cron")
+			defer cleanup()
+		}
 
-		result, err := engine.Run(ctx, wf.Graph, inputs)
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.secretLookup, s.secretLister)
+
+		result, err := engine.Run(runCtx, wf.Graph, inputs)
 		if err != nil {
 			slog.Error("scheduler: workflow execution failed",
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
+				"run_id", runID,
 				"error", err)
 			return nil // don't stop the cron loop
 		}
@@ -202,6 +231,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 		slog.Info("scheduler: workflow completed",
 			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID,
+			"run_id", runID,
 			"output_keys", mapKeys(result.Outputs))
 
 		return nil

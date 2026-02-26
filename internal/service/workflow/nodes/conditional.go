@@ -44,11 +44,11 @@ func (n *conditionalNode) Validate(_ context.Context, _ *workflow.Registry) erro
 	return nil
 }
 
-func (n *conditionalNode) Run(_ context.Context, _ *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+func (n *conditionalNode) Run(_ context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
 	vm := goja.New()
 
 	// Set up global helpers and wrap io.ReadCloser values (e.g. HTTP body).
-	if err := workflow.SetupGojaVM(vm, inputs); err != nil {
+	if err := workflow.SetupGojaVM(vm, inputs, reg.SecretLookup); err != nil {
 		return nil, fmt.Errorf("conditional: %w", err)
 	}
 

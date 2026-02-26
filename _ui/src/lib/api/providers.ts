@@ -56,8 +56,10 @@ interface DiscoverModelsResponse {
   models: string[];
 }
 
-export async function discoverModels(config: Partial<LLMConfig>): Promise<string[]> {
-  const res = await api.post<DiscoverModelsResponse>('/providers/discover-models', { config });
+export async function discoverModels(config: Partial<LLMConfig>, key?: string): Promise<string[]> {
+  const body: Record<string, any> = { config };
+  if (key) body.key = key;
+  const res = await api.post<DiscoverModelsResponse>('/providers/discover-models', body);
   return res.data.models;
 }
 

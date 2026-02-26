@@ -1,8 +1,11 @@
 package server
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -210,7 +213,7 @@ func (s *Server) DeleteTriggerAPI(w http.ResponseWriter, r *http.Request) {
 
 // WebhookAPI handles POST /api/v1/webhooks/:trigger_id.
 // It looks up the HTTP trigger, verifies it is enabled, loads the associated
-// workflow, and runs the engine with the request body as input.
+// workflow, and starts asynchronous execution. Returns 202 with a run_id.
 func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	if s.triggerStore == nil || s.workflowStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -261,9 +264,16 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Buffer the request body before returning the response, since r.Body
+	// will be closed once the handler returns.
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		slog.Error("webhook: read body failed", "trigger_id", triggerID, "error", err)
+		httpResponse(w, "failed to read request body", http.StatusBadRequest)
+		return
+	}
+
 	// Build structured input data from the HTTP request.
-	// Body is passed as io.ReadCloser — unconsumed. Downstream script nodes
-	// use BodyWrapper methods (.toString(), .jsonParse(), etc.) to read it.
 	inputs := map[string]any{
 		"method":       r.Method,
 		"path":         r.URL.Path,
@@ -288,9 +298,11 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	inputs["headers"] = headers
 
-	// Pass body as unconsumed io.ReadCloser.
-	// The engine's goja setup will wrap this in a BodyWrapper automatically.
-	inputs["body"] = r.Body
+	// Pass buffered body as an io.ReadCloser so downstream BodyWrapper works.
+	inputs["body"] = io.NopCloser(bytes.NewReader(bodyBytes))
+
+	// Register the run and get a cancellable context (detached from request).
+	runID, ctx, cleanup := s.registerRun(context.Background(), trigger.WorkflowID, "webhook")
 
 	// Build a provider lookup function for the engine.
 	providerLookup := func(key string) (service.LLMProvider, string, error) {
@@ -303,19 +315,76 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return info.provider, info.defaultModel, nil
 	}
 
-	engine := workflow.NewEngine(providerLookup)
-
-	result, err := engine.Run(r.Context(), wf.Graph, inputs)
-	if err != nil {
-		slog.Error("webhook: workflow execution failed",
-			"trigger_id", triggerID,
-			"workflow_id", trigger.WorkflowID,
-			"error", err)
-		httpResponse(w, fmt.Sprintf("workflow execution failed: %v", err), http.StatusInternalServerError)
-		return
+	// Build a skill lookup function for agent_call nodes.
+	var skillLookup workflow.SkillLookup
+	if s.skillStore != nil {
+		skillLookup = func(nameOrID string) (*service.Skill, error) {
+			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
+			if err != nil {
+				return nil, err
+			}
+			if sk != nil {
+				return sk, nil
+			}
+			return s.skillStore.GetSkillByName(ctx, nameOrID)
+		}
 	}
 
-	httpResponseJSON(w, result, http.StatusOK)
+	// Build a secret lookup function for getSecret() in Goja JS.
+	var secretLookup workflow.SecretLookup
+	var secretLister workflow.SecretLister
+	if s.secretStore != nil {
+		secretLookup = func(key string) (string, error) {
+			sec, err := s.secretStore.GetSecretByKey(ctx, key)
+			if err != nil {
+				return "", err
+			}
+			if sec == nil {
+				return "", fmt.Errorf("secret %q not found", key)
+			}
+			return sec.Value, nil
+		}
+		secretLister = func() (map[string]string, error) {
+			secrets, err := s.secretStore.ListSecrets(ctx)
+			if err != nil {
+				return nil, err
+			}
+			m := make(map[string]string, len(secrets))
+			for _, sec := range secrets {
+				m[sec.Key] = sec.Value
+			}
+			return m, nil
+		}
+	}
+
+	engine := workflow.NewEngine(providerLookup, skillLookup, secretLookup, secretLister)
+
+	// Run workflow asynchronously.
+	go func() {
+		defer cleanup()
+
+		result, err := engine.Run(ctx, wf.Graph, inputs)
+		if err != nil {
+			slog.Error("webhook: workflow execution failed",
+				"trigger_id", triggerID,
+				"workflow_id", trigger.WorkflowID,
+				"run_id", runID,
+				"error", err)
+			return
+		}
+
+		slog.Info("webhook: workflow completed",
+			"trigger_id", triggerID,
+			"workflow_id", trigger.WorkflowID,
+			"run_id", runID,
+			"output_keys", mapKeys(result.Outputs))
+	}()
+
+	httpResponseJSON(w, runWorkflowResponse{
+		RunID:      runID,
+		WorkflowID: trigger.WorkflowID,
+		Status:     "running",
+	}, http.StatusAccepted)
 }
 
 // ─── Helpers ───

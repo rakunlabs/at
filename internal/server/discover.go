@@ -19,6 +19,7 @@ import (
 // discoverRequest is the JSON body for POST /api/v1/providers/discover-models.
 type discoverRequest struct {
 	Config config.LLMConfig `json:"config"`
+	Key    string           `json:"key,omitempty"` // optional: existing provider key to fall back to stored api_key
 }
 
 // discoverResponse is returned by the discover-models endpoint.
@@ -39,6 +40,16 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	if req.Config.Type == "" {
 		httpResponse(w, "config.type is required", http.StatusBadRequest)
 		return
+	}
+
+	// When editing an existing provider the UI redacts the API key. If the
+	// request omits the key but includes a provider key, look up the stored
+	// config and use its API key so discovery still works.
+	if req.Config.APIKey == "" && req.Key != "" {
+		existing, err := s.store.GetProvider(r.Context(), req.Key)
+		if err == nil && existing != nil {
+			req.Config.APIKey = existing.Config.APIKey
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)

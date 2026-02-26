@@ -1,0 +1,9 @@
+CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    system_prompt TEXT NOT NULL DEFAULT '',
+    tools JSONB NOT NULL DEFAULT '[]',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

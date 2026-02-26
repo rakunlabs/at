@@ -239,6 +239,55 @@ type TriggerStorer interface {
 	ListEnabledCronTriggers(ctx context.Context) ([]Trigger, error)
 }
 
+// ─── Skill Management ───
+
+// Skill represents a reusable skill that bundles a system prompt fragment
+// and a set of tools. Skills can be attached to agent_call workflow nodes
+// to provide the agent with domain-specific capabilities.
+type Skill struct {
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	SystemPrompt string `json:"system_prompt"` // Prompt fragment appended to the agent's system prompt
+	Tools        []Tool `json:"tools"`         // Built-in tool definitions (may include JS handlers)
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+// SkillStorer defines CRUD operations for skill definitions.
+type SkillStorer interface {
+	ListSkills(ctx context.Context) ([]Skill, error)
+	GetSkill(ctx context.Context, id string) (*Skill, error)
+	GetSkillByName(ctx context.Context, name string) (*Skill, error)
+	CreateSkill(ctx context.Context, s Skill) (*Skill, error)
+	UpdateSkill(ctx context.Context, id string, s Skill) (*Skill, error)
+	DeleteSkill(ctx context.Context, id string) error
+}
+
+// ─── Secret Management ───
+
+// Secret represents an encrypted key-value secret stored in the database.
+// Secrets are used to store API tokens, credentials, and other sensitive
+// values that can be accessed from workflow JS handlers via getSecret().
+type Secret struct {
+	ID          string `json:"id"`
+	Key         string `json:"key"`         // unique key for lookup (e.g. "jira_token", "gitlab_token")
+	Value       string `json:"value"`       // plaintext value (encrypted at rest); redacted in API list responses
+	Description string `json:"description"` // human-readable description
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
+// SecretStorer defines CRUD operations for encrypted secrets.
+type SecretStorer interface {
+	ListSecrets(ctx context.Context) ([]Secret, error)
+	GetSecret(ctx context.Context, id string) (*Secret, error)
+	GetSecretByKey(ctx context.Context, key string) (*Secret, error)
+	CreateSecret(ctx context.Context, s Secret) (*Secret, error)
+	UpdateSecret(ctx context.Context, id string, s Secret) (*Secret, error)
+	DeleteSecret(ctx context.Context, id string) error
+}
+
 // Agent orchestrates MCP and LLM
 type Agent struct {
 	mcp      *HTTPMCPClient

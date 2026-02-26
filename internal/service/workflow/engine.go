@@ -20,11 +20,14 @@ type RunResult struct {
 //     return-type routing
 type Engine struct {
 	providerLookup ProviderLookup
+	skillLookup    SkillLookup
+	secretLookup   SecretLookup
+	secretLister   SecretLister
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup) *Engine {
-	return &Engine{providerLookup: lookup}
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, secretLookup SecretLookup, secretLister SecretLister) *Engine {
+	return &Engine{providerLookup: lookup, skillLookup: skillLookup, secretLookup: secretLookup, secretLister: secretLister}
 }
 
 // ─── Execution State ───
@@ -117,7 +120,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, inputs)
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.secretLookup, e.secretLister, inputs)
 
 	// Phase 1: Parse & Validate
 	states, err := e.parseGraph(ctx, graph, reg)
@@ -142,6 +145,11 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 
 	// Execute sequentially for non-fan-out paths, fan-out spawns goroutines.
 	for _, nodeID := range order {
+		// Check for cancellation between node executions.
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("workflow cancelled: %w", err)
+		}
+
 		st, ok := states[nodeID]
 		if !ok {
 			continue
@@ -322,6 +330,11 @@ func (e *Engine) runFanOutBranch(ctx context.Context, sourceNodeID string, data 
 	for _, nodeID := range order {
 		if !downstream[nodeID] {
 			continue
+		}
+
+		// Check for cancellation between node executions.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("workflow cancelled: %w", err)
 		}
 
 		st := states[nodeID]

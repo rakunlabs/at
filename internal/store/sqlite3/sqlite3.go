@@ -32,6 +32,8 @@ type SQLite struct {
 	tableAPITokens exp.IdentifierExpression
 	tableWorkflows exp.IdentifierExpression
 	tableTriggers  exp.IdentifierExpression
+	tableSkills    exp.IdentifierExpression
+	tableSecrets   exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -115,6 +117,8 @@ func New(ctx context.Context, cfg *config.StoreSQLite, encKey []byte) (*SQLite, 
 		tableAPITokens: goqu.T(tablePrefix + "tokens"),
 		tableWorkflows: goqu.T(tablePrefix + "workflows"),
 		tableTriggers:  goqu.T(tablePrefix + "triggers"),
+		tableSkills:    goqu.T(tablePrefix + "skills"),
+		tableSecrets:   goqu.T(tablePrefix + "secrets"),
 		encKey:         encKey,
 	}, nil
 }

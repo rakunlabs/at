@@ -68,11 +68,11 @@ func (n *scriptNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }
 
-func (n *scriptNode) Run(_ context.Context, _ *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+func (n *scriptNode) Run(_ context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
 	vm := goja.New()
 
 	// Set up global helpers and wrap io.ReadCloser values (e.g. HTTP body).
-	if err := workflow.SetupGojaVM(vm, inputs); err != nil {
+	if err := workflow.SetupGojaVM(vm, inputs, reg.SecretLookup); err != nil {
 		return nil, fmt.Errorf("script: %w", err)
 	}
 

@@ -4,6 +4,7 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import { getWorkflow, updateWorkflow, runWorkflow, type Workflow, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
+  import { listSkills, type Skill } from '@/lib/api/skills';
   import { Canvas, Controls, Minimap, getFlow, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
   import { ArrowLeft, Save, Play, Plus, X, Bot } from 'lucide-svelte';
   import ChatPanel from '@/lib/components/workflow/ChatPanel.svelte';
@@ -11,6 +12,7 @@
   import InputNode from '@/lib/components/workflow/InputNode.svelte';
   import OutputNode from '@/lib/components/workflow/OutputNode.svelte';
   import LLMCallNode from '@/lib/components/workflow/LLMCallNode.svelte';
+  import AgentCallNode from '@/lib/components/workflow/AgentCallNode.svelte';
   import PromptTemplateNode from '@/lib/components/workflow/PromptTemplateNode.svelte';
   import HttpTriggerNode from '@/lib/components/workflow/HttpTriggerNode.svelte';
   import CronTriggerNode from '@/lib/components/workflow/CronTriggerNode.svelte';
@@ -18,6 +20,10 @@
   import ConditionalNode from '@/lib/components/workflow/ConditionalNode.svelte';
   import LoopNode from '@/lib/components/workflow/LoopNode.svelte';
   import ScriptNode from '@/lib/components/workflow/ScriptNode.svelte';
+  import ExecNode from '@/lib/components/workflow/ExecNode.svelte';
+  import SkillConfigNode from '@/lib/components/workflow/SkillConfigNode.svelte';
+  import MCPConfigNode from '@/lib/components/workflow/MCPConfigNode.svelte';
+  import MemoryConfigNode from '@/lib/components/workflow/MemoryConfigNode.svelte';
 
   // ─── Props ───
   let { params = { id: '' } }: { params?: { id: string } } = $props();
@@ -29,6 +35,7 @@
     input: InputNode,
     output: OutputNode,
     llm_call: LLMCallNode,
+    agent_call: AgentCallNode,
     prompt_template: PromptTemplateNode,
     http_trigger: HttpTriggerNode,
     cron_trigger: CronTriggerNode,
@@ -36,6 +43,10 @@
     conditional: ConditionalNode,
     loop: LoopNode,
     script: ScriptNode,
+    exec: ExecNode,
+    skill_config: SkillConfigNode,
+    mcp_config: MCPConfigNode,
+    memory_config: MemoryConfigNode,
   };
 
   const paletteGroups = [
@@ -51,9 +62,11 @@
       nodes: [
         { type: 'input', label: 'Input', description: 'Manual input data' },
         { type: 'llm_call', label: 'LLM Call', description: 'Call an LLM provider' },
+        { type: 'agent_call', label: 'Agent Call', description: 'Agentic loop with tools' },
         { type: 'prompt_template', label: 'Prompt Template', description: 'Template with variables' },
         { type: 'http_request', label: 'HTTP Request', description: 'Make an HTTP request' },
         { type: 'script', label: 'Script', description: 'Run JavaScript code' },
+        { type: 'exec', label: 'Exec', description: 'Run a shell command' },
       ],
     },
     {
@@ -61,6 +74,14 @@
       nodes: [
         { type: 'conditional', label: 'Conditional', description: 'If/else branching' },
         { type: 'loop', label: 'Loop', description: 'For-each fan-out' },
+      ],
+    },
+    {
+      label: 'Resources',
+      nodes: [
+        { type: 'skill_config', label: 'Skill Config', description: 'Skills for agent nodes' },
+        { type: 'mcp_config', label: 'MCP Config', description: 'MCP servers for agents' },
+        { type: 'memory_config', label: 'Memory', description: 'Memory/context for agents' },
       ],
     },
     {
@@ -77,6 +98,7 @@
   let saving = $state(false);
   let running = $state(false);
   let providers = $state<ProviderRecord[]>([]);
+  let skills = $state<Skill[]>([]);
   let runResult = $state<any>(null);
   let runError = $state<string | null>(null);
 
@@ -155,6 +177,14 @@
     }
   }
 
+  async function loadSkills() {
+    try {
+      skills = await listSkills();
+    } catch {
+      // Non-critical
+    }
+  }
+
   // ─── Save ───
 
   async function handleSave() {
@@ -222,15 +252,27 @@
     const defaultData: Record<string, any> = {};
     if (type === 'input') {
       defaultData.label = 'Input';
-      defaultData.fields = [];
     } else if (type === 'output') {
       defaultData.label = 'Output';
-      defaultData.fields = [];
     } else if (type === 'llm_call') {
       defaultData.label = 'LLM Call';
       defaultData.provider = '';
       defaultData.model = '';
       defaultData.system_prompt = '';
+    } else if (type === 'agent_call') {
+      defaultData.label = 'Agent Call';
+      defaultData.provider = '';
+      defaultData.model = '';
+      defaultData.system_prompt = '';
+      defaultData.max_iterations = 10;
+    } else if (type === 'skill_config') {
+      defaultData.label = 'Skill Config';
+      defaultData.skills = [];
+    } else if (type === 'mcp_config') {
+      defaultData.label = 'MCP Config';
+      defaultData.mcp_urls = [];
+    } else if (type === 'memory_config') {
+      defaultData.label = 'Memory';
     } else if (type === 'prompt_template') {
       defaultData.label = 'Prompt Template';
       defaultData.template = '';
@@ -261,6 +303,13 @@
     } else if (type === 'script') {
       defaultData.label = 'Script';
       defaultData.code = '';
+      defaultData.input_count = 1;
+    } else if (type === 'exec') {
+      defaultData.label = 'Exec';
+      defaultData.command = '';
+      defaultData.working_dir = '';
+      defaultData.timeout = 60;
+      defaultData.sandbox_root = '/tmp/at-sandbox';
       defaultData.input_count = 1;
     }
     flow.addNode({
@@ -362,6 +411,7 @@
 
   loadWorkflow();
   loadProviders();
+  loadSkills();
 </script>
 
 <svelte:head>
@@ -491,20 +541,9 @@
             </div>
 
             <!-- Type-specific fields -->
-            {#if selectedNodeType === 'input' || selectedNodeType === 'output'}
-              <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Fields (comma separated)</label>
-                <input
-                  type="text"
-                  value={selectedNodeData.fields?.join(', ') || ''}
-                  oninput={(e) => { selectedNodeData.fields = (e.target as HTMLInputElement).value.split(',').map((s: string) => s.trim()).filter(Boolean); }}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  placeholder="field1, field2"
-                />
-              </div>
-            {/if}
-
             {#if selectedNodeType === 'llm_call'}
+              {@const selectedProvider = providers.find(p => p.key === selectedNodeData.provider)}
+              {@const availableModels = selectedProvider?.config?.models?.length ? selectedProvider.config.models : selectedProvider?.config?.model ? [selectedProvider.config.model] : []}
               <div>
                 <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider</label>
                 <select
@@ -519,12 +558,15 @@
               </div>
               <div>
                 <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model</label>
-                <input
-                  type="text"
+                <select
                   bind:value={selectedNodeData.model}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
-                  placeholder="Model name (optional)"
-                />
+                >
+                  <option value="">Select model</option>
+                  {#each availableModels as m}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </select>
               </div>
               <div>
                 <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt</label>
@@ -535,6 +577,112 @@
                   placeholder="System prompt (optional)"
                 ></textarea>
               </div>
+            {/if}
+
+            {#if selectedNodeType === 'agent_call'}
+              {@const selectedAgentProvider = providers.find(p => p.key === selectedNodeData.provider)}
+              {@const availableAgentModels = selectedAgentProvider?.config?.models?.length ? selectedAgentProvider.config.models : selectedAgentProvider?.config?.model ? [selectedAgentProvider.config.model] : []}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider</label>
+                <select
+                  bind:value={selectedNodeData.provider}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                >
+                  <option value="">Select provider</option>
+                  {#each providers as p}
+                    <option value={p.key}>{p.key}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model</label>
+                <select
+                  bind:value={selectedNodeData.model}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                >
+                  <option value="">Select model</option>
+                  {#each availableAgentModels as m}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt</label>
+                <textarea
+                  bind:value={selectedNodeData.system_prompt}
+                  rows={3}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+                  placeholder="System prompt (optional)"
+                ></textarea>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Max Iterations</label>
+                <input
+                  type="number"
+                  bind:value={selectedNodeData.max_iterations}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="10"
+                  min="0"
+                />
+                <div class="mt-0.5 text-[10px] text-gray-400">0 = unlimited</div>
+              </div>
+            {/if}
+
+            {#if selectedNodeType === 'skill_config'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Skills</label>
+                {#if skills.length > 0}
+                  <div class="mt-0.5 space-y-0.5">
+                    {#each skills as skill}
+                      <label class="flex items-center gap-1.5 text-[11px] text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={selectedNodeData.skills?.includes(skill.name) || false}
+                          onchange={(e) => {
+                            const current = selectedNodeData.skills || [];
+                            if ((e.target as HTMLInputElement).checked) {
+                              selectedNodeData.skills = [...current, skill.name];
+                            } else {
+                              selectedNodeData.skills = current.filter((s: string) => s !== skill.name);
+                            }
+                          }}
+                          class="rounded border-gray-300"
+                        />
+                        <span class="font-mono">{skill.name}</span>
+                      </label>
+                    {/each}
+                  </div>
+                {:else}
+                  <div class="mt-0.5 text-[10px] text-gray-400 italic">No skills available</div>
+                {/if}
+              </div>
+              <div class="mt-1 px-2 py-1.5 bg-green-50 border border-green-200 rounded text-[10px] text-green-700">
+                Connect this node's <span class="font-mono font-medium">skills</span> output to an Agent Call's <span class="font-mono font-medium">skills</span> input.
+              </div>
+            {/if}
+
+            {#if selectedNodeType === 'mcp_config'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">MCP Server URLs</label>
+                <textarea
+                  value={selectedNodeData.mcp_urls?.join('\n') || ''}
+                  oninput={(e) => { selectedNodeData.mcp_urls = (e.target as HTMLTextAreaElement).value.split('\n').map((s: string) => s.trim()).filter(Boolean); }}
+                  rows={3}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+                  placeholder="https://mcp-server.example.com/sse"
+                ></textarea>
+                <div class="mt-0.5 text-[10px] text-gray-400">One URL per line</div>
+              </div>
+              <div class="mt-1 px-2 py-1.5 bg-orange-50 border border-orange-200 rounded text-[10px] text-orange-700">
+                Connect this node's <span class="font-mono font-medium">mcp_urls</span> output to an Agent Call's <span class="font-mono font-medium">mcp</span> input.
+              </div>
+            {/if}
+
+            {#if selectedNodeType === 'memory_config'}
+              <div class="mt-1 px-2 py-1.5 bg-teal-50 border border-teal-200 rounded text-[10px] text-teal-700">
+                Connect upstream data to this node's <span class="font-mono font-medium">data</span> input, then connect the <span class="font-mono font-medium">memory</span> output to an Agent Call's <span class="font-mono font-medium">memory</span> input.
+              </div>
+              <div class="text-[10px] text-gray-400 mt-1">Passes upstream data as additional context to the agent.</div>
             {/if}
 
             {#if selectedNodeType === 'prompt_template'}
@@ -752,6 +900,61 @@
                   }
                 ></textarea>
                 <div class="mt-0.5 text-[10px] text-gray-400">Use <code class="font-mono bg-gray-100 px-0.5 rounded">return</code> to set the result. Truthy → "true" port, falsy → "false" port, "always" always fires.</div>
+              </div>
+            {/if}
+
+            {#if selectedNodeType === 'exec'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</label>
+                <input
+                  type="number"
+                  bind:value={selectedNodeData.input_count}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  min="1"
+                  max="10"
+                  placeholder="1"
+                />
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Command</label>
+                <textarea
+                  bind:value={selectedNodeData.command}
+                  rows={4}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+                  placeholder="echo 'Hello World'"
+                ></textarea>
+                <div class="mt-0.5 text-[10px] text-gray-400">Shell command (supports <code class="font-mono bg-gray-100 px-0.5 rounded">{'{{var}}'}</code> templates from inputs)</div>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Working Dir</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.working_dir}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="(sandbox root)"
+                />
+                <div class="mt-0.5 text-[10px] text-gray-400">Subdirectory within sandbox</div>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Timeout (sec)</label>
+                <input
+                  type="number"
+                  bind:value={selectedNodeData.timeout}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  min="1"
+                  max="600"
+                  placeholder="60"
+                />
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Sandbox Root</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.sandbox_root}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  placeholder="/tmp/at-sandbox"
+                />
+                <div class="mt-0.5 text-[10px] text-gray-400">All commands run inside this directory</div>
               </div>
             {/if}
 

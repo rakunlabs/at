@@ -24,6 +24,8 @@ type Memory struct {
 	tokensByHash map[string]string                 // hash -> id
 	workflows    map[string]service.Workflow       // id -> workflow
 	triggers     map[string]service.Trigger        // id -> trigger
+	skills       map[string]service.Skill          // id -> skill
+	secrets      map[string]service.Secret         // id -> secret
 }
 
 func New() *Memory {
@@ -35,6 +37,8 @@ func New() *Memory {
 		tokensByHash: make(map[string]string),
 		workflows:    make(map[string]service.Workflow),
 		triggers:     make(map[string]service.Trigger),
+		skills:       make(map[string]service.Skill),
+		secrets:      make(map[string]service.Secret),
 	}
 }
 
@@ -472,4 +476,219 @@ func (m *Memory) ListEnabledCronTriggers(_ context.Context) ([]service.Trigger, 
 	}
 
 	return result, nil
+}
+
+// ─── Skill CRUD ───
+
+func (m *Memory) ListSkills(_ context.Context) ([]service.Skill, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]service.Skill, 0, len(m.skills))
+	for _, sk := range m.skills {
+		result = append(result, sk)
+	}
+
+	slices.SortFunc(result, func(a, b service.Skill) int {
+		if a.Name < b.Name {
+			return -1
+		}
+		if a.Name > b.Name {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) GetSkill(_ context.Context, id string) (*service.Skill, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	sk, ok := m.skills[id]
+	if !ok {
+		return nil, nil
+	}
+
+	return &sk, nil
+}
+
+func (m *Memory) GetSkillByName(_ context.Context, name string) (*service.Skill, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, sk := range m.skills {
+		if sk.Name == name {
+			return &sk, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (m *Memory) CreateSkill(_ context.Context, sk service.Skill) (*service.Skill, error) {
+	// Round-trip through JSON to normalize.
+	raw, err := json.Marshal(sk.Tools)
+	if err != nil {
+		return nil, fmt.Errorf("marshal tools: %w", err)
+	}
+	var normalized []service.Tool
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, fmt.Errorf("unmarshal tools: %w", err)
+	}
+
+	id := ulid.Make().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	rec := service.Skill{
+		ID:           id,
+		Name:         sk.Name,
+		Description:  sk.Description,
+		SystemPrompt: sk.SystemPrompt,
+		Tools:        normalized,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+
+	m.mu.Lock()
+	m.skills[id] = rec
+	m.mu.Unlock()
+
+	return &rec, nil
+}
+
+func (m *Memory) UpdateSkill(_ context.Context, id string, sk service.Skill) (*service.Skill, error) {
+	raw, err := json.Marshal(sk.Tools)
+	if err != nil {
+		return nil, fmt.Errorf("marshal tools: %w", err)
+	}
+	var normalized []service.Tool
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, fmt.Errorf("unmarshal tools: %w", err)
+	}
+
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.skills[id]
+	if !ok {
+		return nil, nil
+	}
+
+	existing.Name = sk.Name
+	existing.Description = sk.Description
+	existing.SystemPrompt = sk.SystemPrompt
+	existing.Tools = normalized
+	existing.UpdatedAt = now
+	m.skills[id] = existing
+
+	return &existing, nil
+}
+
+func (m *Memory) DeleteSkill(_ context.Context, id string) error {
+	m.mu.Lock()
+	delete(m.skills, id)
+	m.mu.Unlock()
+
+	return nil
+}
+
+// ─── Secret CRUD ───
+
+func (m *Memory) ListSecrets(_ context.Context) ([]service.Secret, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]service.Secret, 0, len(m.secrets))
+	for _, s := range m.secrets {
+		result = append(result, s)
+	}
+
+	slices.SortFunc(result, func(a, b service.Secret) int {
+		if a.Key < b.Key {
+			return -1
+		}
+		if a.Key > b.Key {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) GetSecret(_ context.Context, id string) (*service.Secret, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	s, ok := m.secrets[id]
+	if !ok {
+		return nil, nil
+	}
+
+	return &s, nil
+}
+
+func (m *Memory) GetSecretByKey(_ context.Context, key string) (*service.Secret, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, s := range m.secrets {
+		if s.Key == key {
+			return &s, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (m *Memory) CreateSecret(_ context.Context, s service.Secret) (*service.Secret, error) {
+	id := ulid.Make().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	rec := service.Secret{
+		ID:          id,
+		Key:         s.Key,
+		Value:       s.Value,
+		Description: s.Description,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	m.mu.Lock()
+	m.secrets[id] = rec
+	m.mu.Unlock()
+
+	return &rec, nil
+}
+
+func (m *Memory) UpdateSecret(_ context.Context, id string, s service.Secret) (*service.Secret, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.secrets[id]
+	if !ok {
+		return nil, nil
+	}
+
+	existing.Key = s.Key
+	existing.Value = s.Value
+	existing.Description = s.Description
+	existing.UpdatedAt = now
+	m.secrets[id] = existing
+
+	return &existing, nil
+}
+
+func (m *Memory) DeleteSecret(_ context.Context, id string) error {
+	m.mu.Lock()
+	delete(m.secrets, id)
+	m.mu.Unlock()
+
+	return nil
 }

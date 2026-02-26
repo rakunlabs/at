@@ -233,7 +233,16 @@ type runWorkflowRequest struct {
 	Inputs map[string]any `json:"inputs"`
 }
 
+// runWorkflowResponse is returned immediately when a workflow is started.
+type runWorkflowResponse struct {
+	RunID      string `json:"run_id"`
+	WorkflowID string `json:"workflow_id"`
+	Status     string `json:"status"`
+}
+
 // RunWorkflowAPI handles POST /api/v1/workflows/run/:id.
+// The workflow is executed asynchronously. The response returns a run_id
+// that can be used to cancel the run via POST /api/v1/runs/:run_id/cancel.
 func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	if s.workflowStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -268,6 +277,9 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		req.Inputs = make(map[string]any)
 	}
 
+	// Register the run and get a cancellable context (detached from request).
+	runID, ctx, cleanup := s.registerRun(context.Background(), id, "api")
+
 	// Build a provider lookup function for the engine.
 	providerLookup := func(key string) (service.LLMProvider, string, error) {
 		s.providerMu.RLock()
@@ -279,16 +291,69 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return info.provider, info.defaultModel, nil
 	}
 
-	engine := workflow.NewEngine(providerLookup)
-
-	result, err := engine.Run(r.Context(), wf.Graph, req.Inputs)
-	if err != nil {
-		slog.Error("run workflow failed", "id", id, "error", err)
-		httpResponse(w, fmt.Sprintf("workflow execution failed: %v", err), http.StatusInternalServerError)
-		return
+	// Build a skill lookup function for agent_call nodes.
+	var skillLookup workflow.SkillLookup
+	if s.skillStore != nil {
+		skillLookup = func(nameOrID string) (*service.Skill, error) {
+			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
+			if err != nil {
+				return nil, err
+			}
+			if sk != nil {
+				return sk, nil
+			}
+			return s.skillStore.GetSkillByName(ctx, nameOrID)
+		}
 	}
 
-	httpResponseJSON(w, result, http.StatusOK)
+	// Build a secret lookup function for getSecret() in Goja JS.
+	var secretLookup workflow.SecretLookup
+	var secretLister workflow.SecretLister
+	if s.secretStore != nil {
+		secretLookup = func(key string) (string, error) {
+			sec, err := s.secretStore.GetSecretByKey(ctx, key)
+			if err != nil {
+				return "", err
+			}
+			if sec == nil {
+				return "", fmt.Errorf("secret %q not found", key)
+			}
+			return sec.Value, nil
+		}
+		secretLister = func() (map[string]string, error) {
+			secrets, err := s.secretStore.ListSecrets(ctx)
+			if err != nil {
+				return nil, err
+			}
+			m := make(map[string]string, len(secrets))
+			for _, sec := range secrets {
+				m[sec.Key] = sec.Value
+			}
+			return m, nil
+		}
+	}
+
+	engine := workflow.NewEngine(providerLookup, skillLookup, secretLookup, secretLister)
+
+	// Run workflow asynchronously.
+	go func() {
+		defer cleanup()
+
+		result, err := engine.Run(ctx, wf.Graph, req.Inputs)
+		if err != nil {
+			slog.Error("run workflow failed", "id", id, "run_id", runID, "error", err)
+			return
+		}
+
+		slog.Info("workflow completed", "id", id, "run_id", runID,
+			"output_keys", mapKeys(result.Outputs))
+	}()
+
+	httpResponseJSON(w, runWorkflowResponse{
+		RunID:      runID,
+		WorkflowID: id,
+		Status:     "running",
+	}, http.StatusAccepted)
 }
 
 // ─── Trigger Sync ───
@@ -486,4 +551,13 @@ func extractWorkflowRunID(r *http.Request) string {
 	id = strings.TrimSuffix(id, "/")
 
 	return id
+}
+
+// mapKeys returns the keys of a map for logging.
+func mapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
 }

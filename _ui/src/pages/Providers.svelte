@@ -601,7 +601,7 @@
       }
       if (Object.keys(headers).length > 0) cfg.extra_headers = headers;
 
-      const models = await discoverModels(cfg as any);
+      const models = await discoverModels(cfg as any, editingKey || undefined);
       if (models.length === 0) {
         addToast('No models found', 'warn');
       } else {

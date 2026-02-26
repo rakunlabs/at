@@ -154,6 +154,18 @@ type Registry struct {
 	// ProviderLookup resolves LLM provider keys to provider instances.
 	ProviderLookup ProviderLookup
 
+	// SkillLookup resolves a skill name or ID to a Skill definition.
+	// Used by agent_call nodes to load skill tools and system prompts.
+	SkillLookup SkillLookup
+
+	// SecretLookup resolves a secret key to its plaintext value.
+	// Used by getSecret() in the Goja JS VM.
+	SecretLookup SecretLookup
+
+	// SecretLister returns all secret key-value pairs.
+	// Used by bash tool handlers to inject secrets as environment variables.
+	SecretLister SecretLister
+
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
 
@@ -170,13 +182,26 @@ type Registry struct {
 // ProviderLookup returns a provider, its default model, and an error.
 type ProviderLookup func(key string) (service.LLMProvider, string, error)
 
+// SkillLookup resolves a skill name or ID to a Skill definition.
+type SkillLookup func(nameOrID string) (*service.Skill, error)
+
+// SecretLookup resolves a secret key to its plaintext value.
+type SecretLookup func(key string) (string, error)
+
+// SecretLister returns all secret key-value pairs.
+// Used by bash tool handlers to inject all secrets as environment variables.
+type SecretLister func() (map[string]string, error)
+
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, secretLookup SecretLookup, secretLister SecretLister, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
 	return &Registry{
 		ProviderLookup: lookup,
+		SkillLookup:    skillLookup,
+		SecretLookup:   secretLookup,
+		SecretLister:   secretLister,
 		RunInputs:      inputs,
 		outputs:        make(map[string]any),
 	}

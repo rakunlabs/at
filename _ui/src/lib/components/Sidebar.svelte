@@ -1,6 +1,6 @@
 <script lang="ts">
   import { push, location } from 'svelte-spa-router';
-  import { Home, MessageSquare, Cpu, Key, Workflow, BookOpen, Settings } from 'lucide-svelte';
+  import { Home, MessageSquare, Cpu, Key, Workflow, Activity, BookOpen, Settings, Wand2 } from 'lucide-svelte';
 
   function navigate(e: MouseEvent, path: string) {
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -45,6 +45,17 @@
       <span>Providers</span>
     </a>
     <a
+      href="#/skills"
+      onclick={(e) => navigate(e, '/skills')}
+      class={[
+        'flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors',
+        $location === '/skills' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+      ]}
+    >
+      <Wand2 size={14} />
+      <span>Skills</span>
+    </a>
+    <a
       href="#/tokens"
       onclick={(e) => navigate(e, '/tokens')}
       class={[
@@ -65,6 +76,17 @@
     >
       <Workflow size={14} />
       <span>Workflows</span>
+    </a>
+    <a
+      href="#/runs"
+      onclick={(e) => navigate(e, '/runs')}
+      class={[
+        'flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors',
+        $location === '/runs' ? 'bg-gray-900 text-white' : 'text-gray-700 hover:bg-gray-100'
+      ]}
+    >
+      <Activity size={14} />
+      <span>Runs</span>
     </a>
     <a
       href="#/docs"

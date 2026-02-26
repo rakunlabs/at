@@ -39,6 +39,8 @@ type Tool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Handler     string         `json:"handler,omitempty"`      // function body for skill/inline tools
+	HandlerType string         `json:"handler_type,omitempty"` // "js" (default) or "bash"
 }
 
 type CallToolParams struct {

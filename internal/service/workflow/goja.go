@@ -1,11 +1,14 @@
 package workflow
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"sync"
+	"time"
 
 	"github.com/dop251/goja"
 )
@@ -103,10 +106,29 @@ func (b *BodyWrapper) Length() (int, error) {
 // SetupGojaVM configures a goja runtime with global helper functions and
 // sets all input values on the VM. Any io.ReadCloser values found in the
 // input tree (including nested maps) are automatically wrapped in BodyWrapper.
-func SetupGojaVM(vm *goja.Runtime, inputs map[string]any) error {
+// If a SecretLookup is provided, a getSecret(key) function is also registered.
+func SetupGojaVM(vm *goja.Runtime, inputs map[string]any, secretLookup ...SecretLookup) error {
 	// Register global helper functions.
 	if err := registerGojaHelpers(vm); err != nil {
 		return err
+	}
+
+	// Register getSecret if a lookup function was provided.
+	if len(secretLookup) > 0 && secretLookup[0] != nil {
+		lookup := secretLookup[0]
+		if err := vm.Set("getSecret", func(call goja.FunctionCall) goja.Value {
+			if len(call.Arguments) == 0 {
+				panic(vm.NewTypeError("getSecret: key is required"))
+			}
+			key := call.Arguments[0].String()
+			val, err := lookup(key)
+			if err != nil {
+				panic(vm.NewTypeError(fmt.Sprintf("getSecret: %v", err)))
+			}
+			return vm.ToValue(val)
+		}); err != nil {
+			return err
+		}
 	}
 
 	// Walk inputs and wrap io.ReadCloser values.
@@ -220,7 +242,199 @@ func registerGojaHelpers(vm *goja.Runtime) error {
 		return err
 	}
 
+	// JSON_stringify: marshal a value to JSON string.
+	// This is also registered in executeJSHandler but we add it here for
+	// consistency so SetupGojaVM-based VMs also have it.
+	if err := vm.Set("JSON_stringify", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			return vm.ToValue("")
+		}
+		data, err := json.Marshal(call.Arguments[0].Export())
+		if err != nil {
+			return vm.ToValue("")
+		}
+		return vm.ToValue(string(data))
+	}); err != nil {
+		return err
+	}
+
+	// Register HTTP helper functions for making external API calls from JS.
+	if err := registerGojaHTTPHelpers(vm); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// httpTimeout is the default timeout for HTTP requests made from Goja JS.
+const httpTimeout = 30 * time.Second
+
+// registerGojaHTTPHelpers registers httpGet, httpPost, httpPut, httpDelete
+// functions on the Goja VM. Each returns an object with:
+//
+//	{ status: number, headers: object, body: BodyWrapper }
+//
+// Available in JS:
+//
+//	httpGet(url, headers?)           → response object
+//	httpPost(url, body?, headers?)   → response object
+//	httpPut(url, body?, headers?)    → response object
+//	httpDelete(url, headers?)        → response object
+func registerGojaHTTPHelpers(vm *goja.Runtime) error {
+	// httpGet(url, headers?)
+	if err := vm.Set("httpGet", func(call goja.FunctionCall) goja.Value {
+		return doHTTPRequest(vm, "GET", call.Arguments)
+	}); err != nil {
+		return err
+	}
+
+	// httpPost(url, body?, headers?)
+	if err := vm.Set("httpPost", func(call goja.FunctionCall) goja.Value {
+		return doHTTPRequest(vm, "POST", call.Arguments)
+	}); err != nil {
+		return err
+	}
+
+	// httpPut(url, body?, headers?)
+	if err := vm.Set("httpPut", func(call goja.FunctionCall) goja.Value {
+		return doHTTPRequest(vm, "PUT", call.Arguments)
+	}); err != nil {
+		return err
+	}
+
+	// httpDelete(url, headers?)
+	if err := vm.Set("httpDelete", func(call goja.FunctionCall) goja.Value {
+		return doHTTPRequest(vm, "DELETE", call.Arguments)
+	}); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// doHTTPRequest performs an HTTP request and returns a goja object with
+// status, headers, and body fields.
+//
+// Argument patterns:
+//
+//	GET/DELETE: (url string, headers? object)
+//	POST/PUT:  (url string, body? any, headers? object)
+func doHTTPRequest(vm *goja.Runtime, method string, args []goja.Value) goja.Value {
+	if len(args) == 0 {
+		panic(vm.NewTypeError(fmt.Sprintf("http%s: url is required",
+			method[0:1]+lower(method[1:]))))
+	}
+
+	url := args[0].String()
+
+	var bodyReader io.Reader
+	var headers map[string]string
+
+	switch method {
+	case "GET", "DELETE":
+		// Second arg is optional headers.
+		if len(args) > 1 && !goja.IsUndefined(args[1]) && !goja.IsNull(args[1]) {
+			headers = exportHeaders(args[1])
+		}
+	case "POST", "PUT":
+		// Second arg is optional body, third arg is optional headers.
+		if len(args) > 1 && !goja.IsUndefined(args[1]) && !goja.IsNull(args[1]) {
+			exported := args[1].Export()
+			switch v := exported.(type) {
+			case string:
+				bodyReader = bytes.NewBufferString(v)
+			default:
+				// Marshal non-string bodies as JSON.
+				data, err := json.Marshal(v)
+				if err != nil {
+					panic(vm.NewTypeError(fmt.Sprintf("http%s: marshal body: %v",
+						method[0:1]+lower(method[1:]), err)))
+				}
+				bodyReader = bytes.NewBuffer(data)
+			}
+		}
+		if len(args) > 2 && !goja.IsUndefined(args[2]) && !goja.IsNull(args[2]) {
+			headers = exportHeaders(args[2])
+		}
+	}
+
+	client := &http.Client{Timeout: httpTimeout}
+	req, err := http.NewRequest(method, url, bodyReader)
+	if err != nil {
+		panic(vm.NewTypeError(fmt.Sprintf("http%s: create request: %v",
+			method[0:1]+lower(method[1:]), err)))
+	}
+
+	// Set Content-Type for requests with a body if not explicitly set.
+	if bodyReader != nil {
+		if _, ok := headers["Content-Type"]; !ok {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	}
+
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		panic(vm.NewTypeError(fmt.Sprintf("http%s: request failed: %v",
+			method[0:1]+lower(method[1:]), err)))
+	}
+
+	// Read the full response body.
+	respBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		panic(vm.NewTypeError(fmt.Sprintf("http%s: read response: %v",
+			method[0:1]+lower(method[1:]), err)))
+	}
+
+	// Build response headers map.
+	respHeaders := make(map[string]string, len(resp.Header))
+	for k := range resp.Header {
+		respHeaders[k] = resp.Header.Get(k)
+	}
+
+	// Try to parse body as JSON; fall back to string.
+	var parsedBody any
+	if err := json.Unmarshal(respBody, &parsedBody); err != nil {
+		parsedBody = string(respBody)
+	}
+
+	return vm.ToValue(map[string]any{
+		"status":  resp.StatusCode,
+		"headers": respHeaders,
+		"body":    parsedBody,
+	})
+}
+
+// exportHeaders converts a goja value to a map[string]string of headers.
+func exportHeaders(v goja.Value) map[string]string {
+	exported := v.Export()
+	m, ok := exported.(map[string]any)
+	if !ok {
+		return nil
+	}
+	result := make(map[string]string, len(m))
+	for k, val := range m {
+		result[k] = fmt.Sprintf("%v", val)
+	}
+	return result
+}
+
+// lower returns a lowercase version of a single-char string.
+func lower(s string) string {
+	if s == "" {
+		return s
+	}
+	b := []byte(s)
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			b[i] = c + 32
+		}
+	}
+	return string(b)
 }
 
 // wrapReaders recursively walks a map and wraps any io.ReadCloser values
