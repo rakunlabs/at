@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
@@ -82,7 +81,7 @@ func (s *Server) ListActiveRunsAPI(w http.ResponseWriter, r *http.Request) {
 
 // CancelRunAPI handles POST /api/v1/runs/:run_id/cancel.
 func (s *Server) CancelRunAPI(w http.ResponseWriter, r *http.Request) {
-	runID := extractRunID(r)
+	runID := r.PathValue("id")
 	if runID == "" {
 		httpResponse(w, "run id is required", http.StatusBadRequest)
 		return
@@ -101,20 +100,4 @@ func (s *Server) CancelRunAPI(w http.ResponseWriter, r *http.Request) {
 		"message": "cancel signal sent",
 		"run_id":  runID,
 	}, http.StatusOK)
-}
-
-// extractRunID extracts the run ID from cancel URLs.
-// Expected path: /api/v1/runs/{run_id}/cancel
-func extractRunID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/runs/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	rest := strings.TrimPrefix(path, prefix)
-	rest = strings.TrimSuffix(rest, "/cancel")
-	rest = strings.TrimSuffix(rest, "/")
-
-	return rest
 }

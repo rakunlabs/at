@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -66,7 +65,7 @@ func (s *Server) GetNodeConfigAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractNodeConfigID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "node config id is required", http.StatusBadRequest)
 		return
@@ -127,7 +126,7 @@ func (s *Server) UpdateNodeConfigAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractNodeConfigID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "node config id is required", http.StatusBadRequest)
 		return
@@ -171,7 +170,7 @@ func (s *Server) DeleteNodeConfigAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractNodeConfigID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "node config id is required", http.StatusBadRequest)
 		return
@@ -184,23 +183,6 @@ func (s *Server) DeleteNodeConfigAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponse(w, "deleted", http.StatusOK)
-}
-
-// ─── Helpers ───
-
-// extractNodeConfigID extracts the node config ID from the URL path.
-// Expected path: /api/v1/node-configs/{id}
-func extractNodeConfigID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/node-configs/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
 }
 
 // redactNodeConfigData replaces sensitive fields with "***" for list responses.

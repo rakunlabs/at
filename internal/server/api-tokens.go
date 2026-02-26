@@ -141,7 +141,7 @@ func (s *Server) DeleteAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractAPITokenID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "token id is required", http.StatusBadRequest)
 		return
@@ -163,7 +163,7 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractAPITokenID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "token id is required", http.StatusBadRequest)
 		return
@@ -210,21 +210,4 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, updated, http.StatusOK)
-}
-
-// ─── Helpers ───
-
-// extractAPITokenID extracts the token ID from the URL path.
-// Expected path: /api/v1/api-tokens/{id}
-func extractAPITokenID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/api-tokens/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
 }

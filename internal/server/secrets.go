@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -54,7 +53,7 @@ func (s *Server) GetVariableAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractVariableID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "variable id is required", http.StatusBadRequest)
 		return
@@ -115,7 +114,7 @@ func (s *Server) UpdateVariableAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractVariableID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "variable id is required", http.StatusBadRequest)
 		return
@@ -154,7 +153,7 @@ func (s *Server) DeleteVariableAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractVariableID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "variable id is required", http.StatusBadRequest)
 		return
@@ -167,21 +166,4 @@ func (s *Server) DeleteVariableAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponse(w, "deleted", http.StatusOK)
-}
-
-// ─── Helpers ───
-
-// extractVariableID extracts the variable ID from the URL path.
-// Expected path: /api/v1/variables/{id}
-func extractVariableID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/variables/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
 }

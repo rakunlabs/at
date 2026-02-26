@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -48,7 +47,7 @@ func (s *Server) GetSkillAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractSkillID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "skill id is required", http.StatusBadRequest)
 		return
@@ -104,7 +103,7 @@ func (s *Server) UpdateSkillAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractSkillID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "skill id is required", http.StatusBadRequest)
 		return
@@ -143,7 +142,7 @@ func (s *Server) DeleteSkillAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractSkillID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "skill id is required", http.StatusBadRequest)
 		return
@@ -244,21 +243,4 @@ func (s *Server) TestHandlerAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, resp, http.StatusOK)
-}
-
-// ─── Helpers ───
-
-// extractSkillID extracts the skill ID from the URL path.
-// Expected path: /api/v1/skills/{id}
-func extractSkillID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/skills/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
 }

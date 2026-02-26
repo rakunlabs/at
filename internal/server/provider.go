@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -103,7 +102,7 @@ func (s *Server) GetProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := extractProviderKey(r)
+	key := r.PathValue("key")
 	if key == "" {
 		httpResponse(w, "provider key is required", http.StatusBadRequest)
 		return
@@ -187,7 +186,7 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := extractProviderKey(r)
+	key := r.PathValue("key")
 	if key == "" {
 		httpResponse(w, "provider key is required", http.StatusBadRequest)
 		return
@@ -246,7 +245,7 @@ func (s *Server) DeleteProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	key := extractProviderKey(r)
+	key := r.PathValue("key")
 	if key == "" {
 		httpResponse(w, "provider key is required", http.StatusBadRequest)
 		return
@@ -265,23 +264,6 @@ func (s *Server) DeleteProviderAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── Helpers ───
-
-// extractProviderKey extracts the provider key from the URL path.
-// Expected path: /api/v1/providers/{key}
-func extractProviderKey(r *http.Request) string {
-	// r.URL.Path is something like "/api/v1/providers/my-provider"
-	path := r.URL.Path
-	const prefix = "/api/v1/providers/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	key := strings.TrimPrefix(path, prefix)
-	// Remove trailing slash if present.
-	key = strings.TrimSuffix(key, "/")
-
-	return key
-}
 
 // redactProviderRecord replaces secret fields with a sentinel value so the
 // UI can tell whether a key is set without exposing the actual secret.

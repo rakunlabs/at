@@ -8,7 +8,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -32,7 +31,7 @@ func (s *Server) ListTriggersAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wfID := extractTriggerWorkflowID(r)
+	wfID := r.PathValue("workflow_id")
 	if wfID == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return
@@ -59,7 +58,7 @@ func (s *Server) CreateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wfID := extractTriggerWorkflowID(r)
+	wfID := r.PathValue("workflow_id")
 	if wfID == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return
@@ -124,7 +123,7 @@ func (s *Server) GetTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractTriggerID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "trigger id is required", http.StatusBadRequest)
 		return
@@ -152,7 +151,7 @@ func (s *Server) UpdateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractTriggerID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "trigger id is required", http.StatusBadRequest)
 		return
@@ -212,7 +211,7 @@ func (s *Server) DeleteTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractTriggerID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "trigger id is required", http.StatusBadRequest)
 		return
@@ -249,7 +248,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idOrAlias := extractWebhookTriggerID(r)
+	idOrAlias := r.PathValue("id")
 	if idOrAlias == "" {
 		httpResponse(w, "trigger id or alias is required", http.StatusBadRequest)
 		return
@@ -457,55 +456,4 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		WorkflowID: trigger.WorkflowID,
 		Status:     "running",
 	}, http.StatusAccepted)
-}
-
-// ─── Helpers ───
-
-// extractTriggerWorkflowID extracts the workflow ID from trigger list/create URLs.
-// Expected path: /api/v1/workflows/{wf_id}/triggers
-func extractTriggerWorkflowID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/workflows/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	rest := strings.TrimPrefix(path, prefix)
-	// rest is "{wf_id}/triggers" or "{wf_id}/triggers/"
-	parts := strings.SplitN(rest, "/", 2)
-	if len(parts) < 1 {
-		return ""
-	}
-
-	return parts[0]
-}
-
-// extractTriggerID extracts the trigger ID from trigger CRUD URLs.
-// Expected path: /api/v1/triggers/{id}
-func extractTriggerID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/triggers/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
-}
-
-// extractWebhookTriggerID extracts the trigger ID or alias from webhook URLs.
-// Expected path: /webhooks/{trigger_id_or_alias}
-func extractWebhookTriggerID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/webhooks/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
 }

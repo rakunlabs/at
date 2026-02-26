@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -50,7 +49,7 @@ func (s *Server) GetWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractWorkflowID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return
@@ -127,7 +126,7 @@ func (s *Server) UpdateWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractWorkflowID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return
@@ -186,7 +185,7 @@ func (s *Server) DeleteWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractWorkflowID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return
@@ -249,7 +248,7 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := extractWorkflowRunID(r)
+	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return
@@ -535,38 +534,6 @@ func configChanged(old, new map[string]any) bool {
 		}
 	}
 	return false
-}
-
-// ─── Helpers ───
-
-// extractWorkflowID extracts the workflow ID from the URL path.
-// Expected path: /api/v1/workflows/{id}
-func extractWorkflowID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/workflows/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
-}
-
-// extractWorkflowRunID extracts the workflow ID from the run URL path.
-// Expected path: /api/v1/workflows/run/{id}
-func extractWorkflowRunID(r *http.Request) string {
-	path := r.URL.Path
-	const prefix = "/api/v1/workflows/run/"
-	if !strings.HasPrefix(path, prefix) {
-		return ""
-	}
-
-	id := strings.TrimPrefix(path, prefix)
-	id = strings.TrimSuffix(id, "/")
-
-	return id
 }
 
 // mapKeys returns the keys of a map for logging.

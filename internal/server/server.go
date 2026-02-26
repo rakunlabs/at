@@ -286,7 +286,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 
 	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
-	webhookGroup.POST("/*", s.WebhookAPI)
+	webhookGroup.POST("/{id}", s.WebhookAPI)
 
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
@@ -307,59 +307,59 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.POST("/v1/providers/discover-models", s.DiscoverModelsAPI)
 	apiGroup.POST("/v1/providers/device-auth", s.DeviceAuthAPI)
 	apiGroup.GET("/v1/providers/device-auth-status", s.DeviceAuthStatusAPI)
-	apiGroup.GET("/v1/providers/*", s.GetProviderAPI)
-	apiGroup.PUT("/v1/providers/*", s.UpdateProviderAPI)
-	apiGroup.DELETE("/v1/providers/*", s.DeleteProviderAPI)
+	apiGroup.GET("/v1/providers/{key}", s.GetProviderAPI)
+	apiGroup.PUT("/v1/providers/{key}", s.UpdateProviderAPI)
+	apiGroup.DELETE("/v1/providers/{key}", s.DeleteProviderAPI)
 
 	// API Token management
 	apiGroup.GET("/v1/api-tokens", s.ListAPITokensAPI)
 	apiGroup.POST("/v1/api-tokens", s.CreateAPITokenAPI)
-	apiGroup.PUT("/v1/api-tokens/*", s.UpdateAPITokenAPI)
-	apiGroup.DELETE("/v1/api-tokens/*", s.DeleteAPITokenAPI)
+	apiGroup.PUT("/v1/api-tokens/{id}", s.UpdateAPITokenAPI)
+	apiGroup.DELETE("/v1/api-tokens/{id}", s.DeleteAPITokenAPI)
 
 	// Workflow management
 	apiGroup.GET("/v1/workflows", s.ListWorkflowsAPI)
 	apiGroup.POST("/v1/workflows", s.CreateWorkflowAPI)
-	apiGroup.POST("/v1/workflows/run/*", s.RunWorkflowAPI)
-	apiGroup.GET("/v1/workflows/*", s.GetWorkflowAPI)
-	apiGroup.PUT("/v1/workflows/*", s.UpdateWorkflowAPI)
-	apiGroup.DELETE("/v1/workflows/*", s.DeleteWorkflowAPI)
+	apiGroup.POST("/v1/workflows/run/{id}", s.RunWorkflowAPI)
+	apiGroup.GET("/v1/workflows/{id}", s.GetWorkflowAPI)
+	apiGroup.PUT("/v1/workflows/{id}", s.UpdateWorkflowAPI)
+	apiGroup.DELETE("/v1/workflows/{id}", s.DeleteWorkflowAPI)
 
 	// Trigger management (nested under workflows for list/create)
-	apiGroup.GET("/v1/workflows/*/triggers", s.ListTriggersAPI)
-	apiGroup.POST("/v1/workflows/*/triggers", s.CreateTriggerAPI)
-	apiGroup.GET("/v1/triggers/*", s.GetTriggerAPI)
-	apiGroup.PUT("/v1/triggers/*", s.UpdateTriggerAPI)
-	apiGroup.DELETE("/v1/triggers/*", s.DeleteTriggerAPI)
+	apiGroup.GET("/v1/workflows/{workflow_id}/triggers", s.ListTriggersAPI)
+	apiGroup.POST("/v1/workflows/{workflow_id}/triggers", s.CreateTriggerAPI)
+	apiGroup.GET("/v1/triggers/{id}", s.GetTriggerAPI)
+	apiGroup.PUT("/v1/triggers/{id}", s.UpdateTriggerAPI)
+	apiGroup.DELETE("/v1/triggers/{id}", s.DeleteTriggerAPI)
 
 	// Skill management
 	apiGroup.GET("/v1/skills", s.ListSkillsAPI)
 	apiGroup.POST("/v1/skills", s.CreateSkillAPI)
 	apiGroup.POST("/v1/skills/test-handler", s.TestHandlerAPI) // before wildcard
-	apiGroup.GET("/v1/skills/*", s.GetSkillAPI)
-	apiGroup.PUT("/v1/skills/*", s.UpdateSkillAPI)
-	apiGroup.DELETE("/v1/skills/*", s.DeleteSkillAPI)
+	apiGroup.GET("/v1/skills/{id}", s.GetSkillAPI)
+	apiGroup.PUT("/v1/skills/{id}", s.UpdateSkillAPI)
+	apiGroup.DELETE("/v1/skills/{id}", s.DeleteSkillAPI)
 
 	// Variable management
 	apiGroup.GET("/v1/variables", s.ListVariablesAPI)
 	apiGroup.POST("/v1/variables", s.CreateVariableAPI)
-	apiGroup.GET("/v1/variables/*", s.GetVariableAPI)
-	apiGroup.PUT("/v1/variables/*", s.UpdateVariableAPI)
-	apiGroup.DELETE("/v1/variables/*", s.DeleteVariableAPI)
+	apiGroup.GET("/v1/variables/{id}", s.GetVariableAPI)
+	apiGroup.PUT("/v1/variables/{id}", s.UpdateVariableAPI)
+	apiGroup.DELETE("/v1/variables/{id}", s.DeleteVariableAPI)
 
 	// Node config management
 	apiGroup.GET("/v1/node-configs", s.ListNodeConfigsAPI)
 	apiGroup.POST("/v1/node-configs", s.CreateNodeConfigAPI)
-	apiGroup.GET("/v1/node-configs/*", s.GetNodeConfigAPI)
-	apiGroup.PUT("/v1/node-configs/*", s.UpdateNodeConfigAPI)
-	apiGroup.DELETE("/v1/node-configs/*", s.DeleteNodeConfigAPI)
+	apiGroup.GET("/v1/node-configs/{id}", s.GetNodeConfigAPI)
+	apiGroup.PUT("/v1/node-configs/{id}", s.UpdateNodeConfigAPI)
+	apiGroup.DELETE("/v1/node-configs/{id}", s.DeleteNodeConfigAPI)
 
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 
 	// Workflow run management
 	apiGroup.GET("/v1/runs", s.ListActiveRunsAPI)
-	apiGroup.POST("/v1/runs/*/cancel", s.CancelRunAPI)
+	apiGroup.POST("/v1/runs/{id}/cancel", s.CancelRunAPI)
 
 	// Settings API (protected by admin token)
 	settingsGroup := apiGroup.Group("/v1/settings")
