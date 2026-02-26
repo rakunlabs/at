@@ -9,11 +9,11 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
-  import { getFlow, type FlowState, type FlowNode, type FlowEdge } from 'kaykay';
+  import { type FlowState, type FlowNode, type FlowEdge } from 'kaykay';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
 
   // ─── Props ───
-  let { onclose }: { onclose: () => void } = $props();
+  let { onclose, flow }: { onclose: () => void; flow: FlowState } = $props();
 
   // ─── State ───
   let models = $state<string[]>([]);
@@ -24,9 +24,6 @@
   let abortController: AbortController | null = null;
   let chatContainer: HTMLDivElement | undefined = $state();
   let loadingModels = $state(true);
-
-  // ─── Flow access ───
-  const flow: FlowState = getFlow();
 
   // ─── Constants ───
   const MAX_TOOL_ITERATIONS = 20;
@@ -191,109 +188,133 @@
 
   // ─── System Prompt ───
 
-  const systemPrompt = `You are a workflow editor AI assistant. You help users build and modify visual node-based workflows.
+  let providersInfo = $state<{ key: string; models: string[] }[]>([]);
+
+  async function loadProviders() {
+    try {
+      const info = await getInfo();
+      providersInfo = info.providers.map((p: InfoProvider) => ({
+        key: p.key,
+        models: p.models?.length ? p.models : p.default_model ? [p.default_model] : [],
+      }));
+    } catch {}
+  }
+
+  loadProviders();
+
+  const systemPrompt = $derived(`You are a workflow editor AI assistant. You help users build and modify visual node-based workflows.
 
 ## Available Node Types
 
-Each node has specific input/output handles (ports) for connecting edges.
+Each node has specific input/output handles (ports) for connecting edges. The handle "id" is what you must use as source_handle or target_handle when adding edges.
 
 ### input
-- Output handles: data (port: data)
+- Output handles: id="output" (port: data)
 - Data fields: label, fields (array of field names)
 
 ### output
-- Input handles: data (port: data, accepts: data, text, llm_response)
+- Input handles: id="input" (port: data, accepts: data, text, llm_response)
 - Data fields: label, fields (array of field names)
 
 ### http_trigger
-- Output handles: data (port: data)
+- Output handles: id="output" (port: data)
 - Data fields: label, trigger_id (auto-assigned on save)
 - Webhook receives: method, path, query, headers, body (as reader)
 
 ### cron_trigger
-- Output handles: data (port: data)
+- Output handles: id="output" (port: data)
 - Data fields: label, schedule (cron expression, e.g. "*/5 * * * *"), payload (object)
 
 ### llm_call
-- Input handles: prompt (port: text), context (port: data)
-- Output handles: response (port: llm_response), text (port: text)
+- Input handles: id="prompt" (port: text), id="context" (port: data)
+- Output handles: id="response" (port: llm_response), id="text_out" (port: text)
 - Data fields: label, provider (provider key), model (model name), system_prompt
 
 ### agent_call
-- Input handles: prompt (port: text), context (port: data), skills (port: data, position: bottom), mcp (port: data, position: bottom), memory (port: data, position: bottom)
-- Output handles: response (port: llm_response), text (port: text)
+- Input handles: id="prompt" (port: text), id="context" (port: data), id="skills" (port: data, position: bottom), id="mcp" (port: data, position: bottom), id="memory" (port: data, position: bottom)
+- Output handles: id="response" (port: llm_response), id="text_out" (port: text)
 - Data fields: label, provider (provider key), model (model name), system_prompt, max_iterations (number, default 10, 0=unlimited)
 - Bottom input handles receive data from resource config nodes (skill_config, mcp_config, memory_config) connected vertically
 - Runs an agentic loop: sends prompt to LLM, executes tool calls (MCP, skill), feeds results back until final answer or max iterations
 
 ### skill_config
-- Output handles: skills (port: data, position: top)
+- Output handles: id="skills" (port: data, position: top)
 - Data fields: label, skills (array of skill names)
 - Connect the "skills" output to an agent_call's "skills" bottom input to provide skills
 
 ### mcp_config
-- Output handles: mcp_urls (port: data, position: top)
+- Output handles: id="mcp_urls" (port: data, position: top)
 - Data fields: label, mcp_urls (array of MCP server URLs)
 - Connect the "mcp_urls" output to an agent_call's "mcp" bottom input to provide MCP servers
 
 ### memory_config
-- Input handles: data (port: data, position: left)
-- Output handles: memory (port: data, position: top)
+- Input handles: id="data" (port: data, position: left)
+- Output handles: id="memory" (port: data, position: top)
 - Data fields: label
 - Passes upstream data as additional context; connect "memory" output to agent_call's "memory" bottom input
 
 ### template
-- Input handles: data (port: data)
-- Output handles: text (port: text)
+- Input handles: id="input" (port: data)
+- Output handles: id="output" (port: text)
 - Data fields: label, template (Go template string with {{.var}}), variables (array of var names)
 
 ### http_request
-- Input handles: values (port: data, index 0), data (port: data, index 1)
-- Output handles: success (port: data, 2xx responses), error (port: data, >=400), always (port: data)
+- Input handles: id="values" (port: data, index 0), id="data" (port: data, index 1)
+- Output handles: id="success" (port: data, 2xx responses), id="error" (port: data, >=400), id="always" (port: data)
 - Data fields: label, url, method, headers (object), body, timeout (seconds), proxy, insecure_skip_verify (bool), retry (bool)
 - URL and headers support Go templates with data from "values" input
 
 ### email
-- Input handles: values (port: data, index 0), data (port: data, index 1)
-- Output handles: success (port: data), error (port: data), always (port: data)
+- Input handles: id="values" (port: data, index 0), id="data" (port: data, index 1)
+- Output handles: id="success" (port: data), id="error" (port: data), id="always" (port: data)
 - Data fields: label, config_id (ID of an email NodeConfig with SMTP settings), to (comma-separated, Go template), cc, bcc, subject (Go template), body (Go template), content_type ("text/plain" or "text/html"), from (override, Go template), reply_to (Go template)
 - Requires an email NodeConfig to be created first (under Node Configs) with SMTP host, port, credentials
 - All string fields support Go templates with data from "values" and "data" inputs
 
 ### conditional
-- Input handles: data (port: data)
-- Output handles: true (port: data), false (port: data)
+- Input handles: id="input" (port: data)
+- Output handles: id="true" (port: data), id="false" (port: data)
 - Data fields: label, expression (JavaScript expression evaluating to true/false, access input as "data")
 
 ### loop
-- Input handles: data (port: data)
-- Output handles: item (port: data)
+- Input handles: id="input" (port: data)
+- Output handles: id="item" (port: data)
 - Data fields: label, expression (JavaScript expression returning an array, access input as "data")
 
 ### script
-- Input handles: When input_count=1: data (port: data). When input_count>1: data1, data2, ... dataN (port: data)
-- Output handles: true (port: data), false (port: data), always (port: data)
+- Input handles: When input_count=1: id="data" (port: data). When input_count>1: id="data1", id="data2", ... id="dataN" (port: data)
+- Output handles: id="true" (port: data), id="false" (port: data), id="always" (port: data)
 - Data fields: label, code (JavaScript code using return), input_count (1-10)
 - Code is wrapped in IIFE: use "return { ... }" to set result. Truthy result -> true port, falsy -> false port.
 
+### exec
+- Input handles: When input_count=1: id="data" (port: data). When input_count>1: id="data1", id="data2", ... id="dataN" (port: data)
+- Output handles: id="true" (port: data), id="false" (port: data), id="always" (port: data)
+- Data fields: label, command, working_dir, timeout, sandbox_root, input_count (1-10)
+
+## Available Providers
+${providersInfo.length > 0 ? providersInfo.map(p => `- "${p.key}": models [${p.models.map(m => `"${m}"`).join(', ')}]`).join('\n') : '- No providers configured yet'}
+
+When creating llm_call or agent_call nodes, use the provider key for the "provider" field and the model name for the "model" field from the list above.
+
 ## Edge Connection Rules
 - Edges connect a source output handle to a target input handle
-- Handle IDs follow snake_case naming
-- source_handle must be an output handle of the source node
-- target_handle must be an input handle of the target node
+- The source_handle and target_handle values must be the handle "id" (not the port or label)
+- source_handle must be an output handle id of the source node
+- target_handle must be an input handle id of the target node
 - Edge IDs should be formatted as "source_id-source_handle-target_id-target_handle"
 
 ## Positioning Guidelines
 - Place nodes with ~200px horizontal spacing and ~150px vertical spacing
 - Keep related nodes close together
 - Flow generally goes left-to-right or top-to-bottom
-- Resource config nodes (skill_config, mcp_config, memory_config) should be placed BELOW the agent_call node they connect to, since they connect via top output → bottom input
+- Resource config nodes (skill_config, mcp_config, memory_config) should be placed BELOW the agent_call node they connect to, since they connect via top output -> bottom input
 
 ## Important
 - Always use get_flow first to understand the current state before making changes
 - Use meaningful node IDs that reflect the node's purpose (e.g., "fetch_users", "check_status")
 - Always include a "label" field in node data
-- When connecting nodes, verify handle IDs match the node type's defined handles`;
+- When connecting nodes, verify handle IDs match the node type's defined handles exactly`);
 
   // ─── Tool Execution ───
 
@@ -347,17 +368,16 @@ Each node has specific input/output handles (ports) for connecting edges.
         case 'add_edge': {
           const { source, source_handle, target, target_handle } = args;
           const edgeId = `${source}-${source_handle}-${target}-${target_handle}`;
-          // Push directly to edges array to bypass handle validation
-          // (handles may not be mounted yet if node was just added).
-          // Snapshot first so undo works.
-          flow.pushSnapshot();
-          flow.edges.push({
+          const added = flow.addEdge({
             id: edgeId,
             source,
             source_handle,
             target,
             target_handle,
           });
+          if (!added) {
+            return JSON.stringify({ error: `Failed to add edge. Verify that source node "${source}" has output handle "${source_handle}" and target node "${target}" has input handle "${target_handle}". Check handle IDs match exactly.` });
+          }
           return JSON.stringify({ success: true, id: edgeId });
         }
 
@@ -520,7 +540,7 @@ Each node has specific input/output handles (ports) for connecting edges.
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="w-80 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col"
+  class="w-80 h-full bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col"
   onmousedown={(e) => e.stopPropagation()}
   onwheel={(e) => e.stopPropagation()}
   onkeydown={(e) => e.stopPropagation()}

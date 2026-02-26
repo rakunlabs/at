@@ -605,13 +605,13 @@
             <Minimap width={160} height={100} />
           {/snippet}
 
-          {#if showChatPanel}
-            <div class="absolute top-0 right-0 h-full z-50">
-              <ChatPanel onclose={() => { showChatPanel = false; }} />
-            </div>
-          {/if}
         </Canvas>
       </div>
+
+      <!-- AI Chat Panel -->
+      {#if showChatPanel && canvasRef}
+        <ChatPanel onclose={() => { showChatPanel = false; }} flow={canvasRef.getFlow()} />
+      {/if}
 
       <!-- Property Editor Panel -->
       {#if selectedNodeId}
