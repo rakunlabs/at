@@ -243,7 +243,15 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			slog.String("workflow_name", wf.Name),
 		))
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup)
+		// Build a workflow lookup function for workflow_call nodes.
+		var workflowLookup WorkflowLookup
+		if s.workflowStore != nil {
+			workflowLookup = func(ctx context.Context, id string) (*service.Workflow, error) {
+				return s.workflowStore.GetWorkflow(ctx, id)
+			}
+		}
+
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup)
 
 		// Find the specific cron_trigger node that matches this trigger's ID.
 		var entryNodeIDs []string

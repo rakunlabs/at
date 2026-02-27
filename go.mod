@@ -25,6 +25,7 @@ require (
 	github.com/rakunlabs/muz v0.2.4
 	github.com/rakunlabs/tell v0.1.1
 	github.com/rytsh/mugo v0.9.1
+	github.com/wneessen/go-mail v0.7.2
 	github.com/worldline-go/hardloop v0.3.2
 	github.com/worldline-go/klient v0.9.17
 	github.com/worldline-go/types v0.5.6

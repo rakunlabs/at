@@ -1,18 +1,22 @@
 package nodes
 
 import (
+	"bufio"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/smtp"
+	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
+	"github.com/wneessen/go-mail"
 )
 
 // emailNode sends an email via SMTP using a referenced NodeConfig for server
@@ -33,12 +37,14 @@ import (
 //
 // NodeConfig Data (type "email"):
 //
-//	"host":     string — SMTP server hostname
-//	"port":     float64 — SMTP server port (25, 465, 587)
-//	"username": string — SMTP auth username
-//	"password": string — SMTP auth password (encrypted at rest)
-//	"from":     string — default sender address
-//	"tls":      bool   — use implicit TLS (port 465); false = STARTTLS
+//	"host":                 string — SMTP server hostname
+//	"port":                 float64 — SMTP server port (25, 465, 587)
+//	"username":             string — SMTP auth username
+//	"password":             string — SMTP auth password (encrypted at rest)
+//	"from":                 string — default sender address
+//	"tls":                  bool   — use implicit TLS (port 465); false = STARTTLS
+//	"insecure_skip_verify": bool   — skip TLS verification (default false)
+//	"proxy":                string — HTTP Connect Proxy URL (optional, e.g. http://user:pass@proxy:8080)
 //
 // Input ports:
 //
@@ -116,12 +122,14 @@ func (n *emailNode) Validate(_ context.Context, reg *workflow.Registry) error {
 
 // smtpConfig holds parsed SMTP settings from the NodeConfig Data blob.
 type smtpConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
-	From     string `json:"from"`
-	TLS      bool   `json:"tls"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	From               string `json:"from"`
+	TLS                bool   `json:"tls"`
+	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
+	Proxy              string `json:"proxy"`
 }
 
 func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
@@ -194,138 +202,93 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 		return nil, err
 	}
 
-	// Collect all recipients for the SMTP envelope.
-	toAddrs := splitAddresses(to)
-	ccAddrs := splitAddresses(cc)
-	bccAddrs := splitAddresses(bcc)
-
-	allRecipients := make([]string, 0, len(toAddrs)+len(ccAddrs)+len(bccAddrs))
-	allRecipients = append(allRecipients, toAddrs...)
-	allRecipients = append(allRecipients, ccAddrs...)
-	allRecipients = append(allRecipients, bccAddrs...)
-
-	if len(allRecipients) == 0 {
-		return nil, fmt.Errorf("email: no recipients specified")
+	// Create the message
+	m := mail.NewMsg()
+	if err := m.From(from); err != nil {
+		return nil, fmt.Errorf("email: set from: %w", err)
 	}
-
-	// Build RFC 2822 message.
-	var msg strings.Builder
-	msg.WriteString("From: " + from + "\r\n")
-	msg.WriteString("To: " + to + "\r\n")
-	if cc != "" {
-		msg.WriteString("Cc: " + cc + "\r\n")
+	if err := m.To(splitAddresses(to)...); err != nil {
+		return nil, fmt.Errorf("email: set to: %w", err)
 	}
+	if ccAddresses := splitAddresses(cc); len(ccAddresses) > 0 {
+		if err := m.Cc(ccAddresses...); err != nil {
+			return nil, fmt.Errorf("email: set cc: %w", err)
+		}
+	}
+	if bccAddresses := splitAddresses(bcc); len(bccAddresses) > 0 {
+		if err := m.Bcc(bccAddresses...); err != nil {
+			return nil, fmt.Errorf("email: set bcc: %w", err)
+		}
+	}
+	m.Subject(subject)
+	m.SetBodyString(mail.ContentType(n.contentType), body)
+
 	if replyTo != "" {
-		msg.WriteString("Reply-To: " + replyTo + "\r\n")
+		if err := m.ReplyTo(replyTo); err != nil {
+			return nil, fmt.Errorf("email: set reply-to: %w", err)
+		}
 	}
-	msg.WriteString("Subject: " + subject + "\r\n")
-	msg.WriteString("MIME-Version: 1.0\r\n")
-	msg.WriteString("Content-Type: " + n.contentType + "; charset=UTF-8\r\n")
-	msg.WriteString("Date: " + time.Now().Format(time.RFC1123Z) + "\r\n")
-	msg.WriteString("\r\n")
-	msg.WriteString(body)
 
-	// Send email.
-	addr := net.JoinHostPort(sc.Host, fmt.Sprintf("%d", sc.Port))
+	// Configure the client
+	opts := []mail.Option{
+		mail.WithPort(sc.Port),
+		mail.WithTimeout(30 * time.Second),
+	}
 
-	sendErr := sendEmail(ctx, addr, sc, from, allRecipients, []byte(msg.String()))
+	if sc.Username != "" || sc.Password != "" {
+		opts = append(opts, mail.WithSMTPAuth(mail.SMTPAuthPlain), mail.WithUsername(sc.Username), mail.WithPassword(sc.Password))
+	}
+
+	// TLS Configuration
+	tlsConfig := &tls.Config{
+		ServerName:         sc.Host,
+		InsecureSkipVerify: sc.InsecureSkipVerify,
+	}
+	opts = append(opts, mail.WithTLSConfig(tlsConfig))
+
+	if sc.TLS {
+		// Implicit TLS (usually port 465)
+		opts = append(opts, mail.WithSSL(), mail.WithTLSPolicy(mail.TLSMandatory))
+	} else {
+		// STARTTLS (usually port 587) or plain
+		opts = append(opts, mail.WithTLSPolicy(mail.TLSOpportunistic))
+	}
+
+	// Proxy Configuration
+	if sc.Proxy != "" {
+		proxyURL, err := url.Parse(sc.Proxy)
+		if err != nil {
+			return nil, fmt.Errorf("email: parse proxy url: %w", err)
+		}
+
+		dialFunc := func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialViaProxy(ctx, proxyURL, addr)
+		}
+		opts = append(opts, mail.WithDialContextFunc(dialFunc))
+	}
+
+	c, err := mail.NewClient(sc.Host, opts...)
+	if err != nil {
+		return nil, fmt.Errorf("email: create client: %w", err)
+	}
+
+	sendErr := c.DialAndSend(m)
 
 	outData := map[string]any{
-		"to":      to,
-		"cc":      cc,
-		"bcc":     bcc,
-		"subject": subject,
-		"from":    from,
+		"status": "sent",
 	}
 
 	// Selection-based routing: Port 0 = error, Port 1 = success, Port 2 = always
 	selection := []int{2} // always
 	if sendErr != nil {
 		outData["error"] = sendErr.Error()
+		outData["status"] = "failed"
 		selection = append(selection, 0) // error
 	} else {
-		outData["status"] = "sent"
 		selection = append(selection, 1) // success
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil
-}
-
-// sendEmail handles the SMTP connection, TLS negotiation, authentication, and
-// message transmission. It supports both implicit TLS (port 465) and STARTTLS.
-func sendEmail(_ context.Context, addr string, sc smtpConfig, from string, recipients []string, msg []byte) error {
-	tlsConfig := &tls.Config{
-		ServerName: sc.Host,
-	}
-
-	var c *smtp.Client
-
-	if sc.TLS {
-		// Implicit TLS (typically port 465).
-		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 15 * time.Second}, "tcp", addr, tlsConfig)
-		if err != nil {
-			return fmt.Errorf("email: TLS dial: %w", err)
-		}
-		c, err = smtp.NewClient(conn, sc.Host)
-		if err != nil {
-			conn.Close()
-			return fmt.Errorf("email: create SMTP client: %w", err)
-		}
-	} else {
-		// Plain connection, optionally upgrading via STARTTLS.
-		conn, err := net.DialTimeout("tcp", addr, 15*time.Second)
-		if err != nil {
-			return fmt.Errorf("email: dial: %w", err)
-		}
-		c, err = smtp.NewClient(conn, sc.Host)
-		if err != nil {
-			conn.Close()
-			return fmt.Errorf("email: create SMTP client: %w", err)
-		}
-
-		// Attempt STARTTLS if the server supports it.
-		if ok, _ := c.Extension("STARTTLS"); ok {
-			if err := c.StartTLS(tlsConfig); err != nil {
-				c.Close()
-				return fmt.Errorf("email: STARTTLS: %w", err)
-			}
-		}
-	}
-	defer c.Close()
-
-	// Authenticate if credentials are provided.
-	if sc.Username != "" || sc.Password != "" {
-		auth := smtp.PlainAuth("", sc.Username, sc.Password, sc.Host)
-		if err := c.Auth(auth); err != nil {
-			return fmt.Errorf("email: auth: %w", err)
-		}
-	}
-
-	// Set sender.
-	if err := c.Mail(from); err != nil {
-		return fmt.Errorf("email: MAIL FROM: %w", err)
-	}
-
-	// Set recipients.
-	for _, rcpt := range recipients {
-		if err := c.Rcpt(rcpt); err != nil {
-			return fmt.Errorf("email: RCPT TO %q: %w", rcpt, err)
-		}
-	}
-
-	// Send message body.
-	w, err := c.Data()
-	if err != nil {
-		return fmt.Errorf("email: DATA: %w", err)
-	}
-	if _, err := w.Write(msg); err != nil {
-		return fmt.Errorf("email: write body: %w", err)
-	}
-	if err := w.Close(); err != nil {
-		return fmt.Errorf("email: close body: %w", err)
-	}
-
-	return c.Quit()
 }
 
 // renderEmailTemplate renders a Go text/template string, returning empty string for empty templates.
@@ -340,12 +303,19 @@ func renderEmailTemplate(name, tmplText string, ctx map[string]any) (string, err
 	return string(result), nil
 }
 
-// splitAddresses splits a comma-separated list of email addresses,
-// trimming whitespace and filtering out empty entries.
+// splitAddresses splits a list of email addresses by comma or semicolon,
+// trimming whitespace and stripping brackets.
 func splitAddresses(s string) []string {
 	if s == "" {
 		return nil
 	}
+	// Normalize separators: replace semicolon with comma
+	s = strings.ReplaceAll(s, ";", ",")
+	// Remove brackets if present (e.g. ["a@b.com", "c@d.com"] -> "a@b.com", "c@d.com")
+	s = strings.ReplaceAll(s, "[", "")
+	s = strings.ReplaceAll(s, "]", "")
+	s = strings.ReplaceAll(s, "\"", "") // Remove quotes commonly found in JSON arrays
+
 	parts := strings.Split(s, ",")
 	addrs := make([]string, 0, len(parts))
 	for _, p := range parts {
@@ -355,4 +325,65 @@ func splitAddresses(s string) []string {
 		}
 	}
 	return addrs
+}
+
+// dialViaProxy establishes a connection to targetAddr via the HTTP proxy at proxyURL.
+func dialViaProxy(ctx context.Context, proxyURL *url.URL, targetAddr string) (net.Conn, error) {
+	proxyAddr := proxyURL.Host
+	if !strings.Contains(proxyAddr, ":") {
+		proxyAddr = net.JoinHostPort(proxyAddr, "8080")
+	}
+
+	d := net.Dialer{Timeout: 30 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", proxyAddr)
+	if err != nil {
+		return nil, fmt.Errorf("dial proxy: %w", err)
+	}
+
+	// "CONNECT target:port HTTP/1.1\r\nHost: target:port\r\n\r\n"
+	connectReq := &http.Request{
+		Method: "CONNECT",
+		URL:    &url.URL{Opaque: targetAddr},
+		Host:   targetAddr,
+		Header: make(http.Header),
+	}
+
+	if user := proxyURL.User; user != nil {
+		password, _ := user.Password()
+		auth := user.Username() + ":" + password
+		basicAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte(auth))
+		connectReq.Header.Set("Proxy-Authorization", basicAuth)
+	}
+
+	if err := connectReq.Write(conn); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("write connect req: %w", err)
+	}
+
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, connectReq)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("read connect resp: %w", err)
+	}
+	if resp.StatusCode != 200 {
+		conn.Close()
+		return nil, fmt.Errorf("proxy connect failed: %s", resp.Status)
+	}
+
+	// If the buffer has data, we need to return a wrapped connection that yields that data first.
+	if br.Buffered() > 0 {
+		return &bufferedConn{Conn: conn, r: br}, nil
+	}
+
+	return conn, nil
+}
+
+type bufferedConn struct {
+	net.Conn
+	r *bufio.Reader
+}
+
+func (bc *bufferedConn) Read(b []byte) (int, error) {
+	return bc.r.Read(b)
 }

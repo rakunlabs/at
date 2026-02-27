@@ -410,6 +410,8 @@ github.com/tklauser/numcpus v0.6.1/go.mod h1:1XfjsgE2zo8GVw7POkMbHENHzVg3GzmoZ9f
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
 github.com/twmb/tlscfg v1.2.1 h1:IU2efmP9utQEIV2fufpZjPq7xgcZK4qu25viD51BB44=
 github.com/twmb/tlscfg v1.2.1/go.mod h1:GameEQddljI+8Es373JfQEBvtI4dCTLKWGJbqT2kErs=
+github.com/wneessen/go-mail v0.7.2 h1:xxPnhZ6IZLSgxShebmZ6DPKh1b6OJcoHfzy7UjOkzS8=
+github.com/wneessen/go-mail v0.7.2/go.mod h1:+TkW6QP3EVkgTEqHtVmnAE/1MRhmzb8Y9/W3pweuS+k=
 github.com/worldline-go/hardloop v0.3.2 h1:gupB7o1D7G/PPwqdn7ZmSJy8hW5uyQZrjBWVE7Ed108=
 github.com/worldline-go/hardloop v0.3.2/go.mod h1:b8TAxNFpU3YDl1MAkWKit1aNF4vTMce23Y4fQB2P4Jo=
 github.com/worldline-go/klient v0.9.17 h1:u6jB2gbMyNc/Yx0OulCVooCx/pz7mEFCfIVjaYYBuI8=

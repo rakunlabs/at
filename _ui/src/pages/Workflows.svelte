@@ -3,7 +3,7 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listWorkflows, createWorkflow, deleteWorkflow, type Workflow } from '@/lib/api/workflows';
-  import { Plus, RefreshCw, Trash2, Pencil, Play, Workflow as WorkflowIcon } from 'lucide-svelte';
+  import { Plus, RefreshCw, Trash2, Pencil, Play, Workflow as WorkflowIcon, Copy } from 'lucide-svelte';
 
   storeNavbar.title = 'Workflows';
 
@@ -28,6 +28,12 @@
     } finally {
       loading = false;
     }
+  }
+
+  function copyID(id: string, e: Event) {
+    e.stopPropagation();
+    navigator.clipboard.writeText(id);
+    addToast('Workflow ID copied', 'info');
   }
 
   async function handleCreate() {
@@ -164,12 +170,24 @@
           {#each workflows as wf (wf.id)}
             <tr class="border-b border-gray-100 hover:bg-gray-50 transition-colors">
               <td class="px-3 py-2">
-                <button
-                  onclick={() => push(`/workflows/${wf.id}`)}
-                  class="text-left text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                >
-                  {wf.name}
-                </button>
+                <div>
+                  <button
+                    onclick={() => push(`/workflows/${wf.id}`)}
+                    class="text-left text-sm font-medium text-blue-600 hover:text-blue-800 hover:underline block"
+                  >
+                    {wf.name}
+                  </button>
+                  <div class="flex items-center gap-1 text-[10px] text-gray-400 mt-0.5 group">
+                    <span class="font-mono">{wf.id}</span>
+                    <button
+                      onclick={(e) => copyID(wf.id, e)}
+                      class="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-gray-200 rounded text-gray-500"
+                      title="Copy ID"
+                    >
+                      <Copy size={10} />
+                    </button>
+                  </div>
+                </div>
               </td>
               <td class="px-3 py-2 text-gray-500 text-xs">{wf.description || '-'}</td>
               <td class="px-3 py-2 text-gray-500 text-xs">

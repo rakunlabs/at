@@ -39,11 +39,19 @@ type Engine struct {
 	varLookup        VarLookup
 	varLister        VarLister
 	nodeConfigLookup NodeConfigLookup
+	workflowLookup   WorkflowLookup
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup) *Engine {
-	return &Engine{providerLookup: lookup, skillLookup: skillLookup, varLookup: varLookup, varLister: varLister, nodeConfigLookup: nodeConfigLookup}
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup) *Engine {
+	return &Engine{
+		providerLookup:   lookup,
+		skillLookup:      skillLookup,
+		varLookup:        varLookup,
+		varLister:        varLister,
+		nodeConfigLookup: nodeConfigLookup,
+		workflowLookup:   workflowLookup,
+	}
 }
 
 // ─── Execution State ───
@@ -178,7 +186,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, inputs)
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, inputs)
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
@@ -297,23 +305,6 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 
 	// Collect outputs from Output nodes via the registry.
 	outputs := reg.Outputs()
-
-	// If no explicit Output node set outputs, collect from terminal nodes.
-	if len(outputs) == 0 {
-		for _, nodeID := range order {
-			st := states[nodeID]
-			if st == nil {
-				continue
-			}
-			if isTerminal(nodeID, graph.Edges) {
-				if r, ok := nodeOutputs[nodeID]; ok && r != nil {
-					for k, v := range r.Data() {
-						outputs[k] = v
-					}
-				}
-			}
-		}
-	}
 
 	// Signal with final outputs if no output node fired earlier.
 	signalOutput(outputs, nil)
@@ -563,14 +554,4 @@ func topoSort(reachable map[string]bool, edges []service.WorkflowEdge) ([]string
 	}
 
 	return order, nil
-}
-
-// isTerminal returns true if the node has no outgoing edges.
-func isTerminal(nodeID string, edges []service.WorkflowEdge) bool {
-	for _, e := range edges {
-		if e.Source == nodeID {
-			return false
-		}
-	}
-	return true
 }

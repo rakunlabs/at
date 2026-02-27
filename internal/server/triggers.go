@@ -470,7 +470,15 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup)
+	// Build a workflow lookup function for workflow_call nodes.
+	var workflowLookup workflow.WorkflowLookup
+	if s.workflowStore != nil {
+		workflowLookup = func(ctx context.Context, id string) (*service.Workflow, error) {
+			return s.workflowStore.GetWorkflow(ctx, id)
+		}
+	}
+
+	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup)
 
 	// Find the specific http_trigger node that matches this trigger's ID.
 	var entryNodeIDs []string

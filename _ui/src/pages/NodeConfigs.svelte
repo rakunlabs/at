@@ -31,6 +31,8 @@
   let formPassword = $state('');
   let formFrom = $state('');
   let formTls = $state(false);
+  let formInsecureSkipVerify = $state(false);
+  let formProxy = $state('');
   let formShowPassword = $state(false);
   let formHasStoredPassword = $state(false);
   let saving = $state(false);
@@ -61,6 +63,8 @@
     formPassword = '';
     formFrom = '';
     formTls = false;
+    formInsecureSkipVerify = false;
+    formProxy = '';
     formShowPassword = false;
     formHasStoredPassword = false;
     editingId = null;
@@ -86,6 +90,8 @@
         formUsername = data.username || '';
         formFrom = data.from || '';
         formTls = data.tls || false;
+        formInsecureSkipVerify = data.insecure_skip_verify || false;
+        formProxy = data.proxy || '';
         formPassword = '';
         formHasStoredPassword = !!(data.username || data.password);
       }
@@ -104,6 +110,8 @@
         username: formUsername.trim(),
         from: formFrom.trim(),
         tls: formTls,
+        insecure_skip_verify: formInsecureSkipVerify,
+        proxy: formProxy.trim(),
       };
       if (formPassword) {
         data.password = formPassword;
@@ -335,6 +343,34 @@
                 {formTls ? 'TLS from start (port 465)' : 'STARTTLS upgrade (port 587/25)'}
               </span>
             </div>
+          </div>
+
+          <!-- Insecure Skip Verify toggle -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-insecure" class="text-sm font-medium text-gray-700">Skip Verify</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <input
+                id="form-insecure"
+                type="checkbox"
+                bind:checked={formInsecureSkipVerify}
+                class="w-4 h-4 text-gray-900 border-gray-300 focus:ring-gray-900/10"
+              />
+              <span class="text-xs text-gray-500">
+                Skip TLS certificate verification (insecure)
+              </span>
+            </div>
+          </div>
+
+          <!-- Proxy -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-proxy" class="text-sm font-medium text-gray-700">Proxy</label>
+            <input
+              id="form-proxy"
+              type="text"
+              bind:value={formProxy}
+              placeholder="(optional) http://user:pass@proxy:8080"
+              class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+            />
           </div>
         {/if}
 

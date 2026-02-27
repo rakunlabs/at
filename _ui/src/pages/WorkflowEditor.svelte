@@ -747,12 +747,19 @@
         </button>
         <div class="h-4 border-l border-gray-200"></div>
         <div class="flex flex-col">
-          <input
-            type="text"
-            bind:value={workflow.name}
-            class="text-sm font-medium text-gray-900 bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
-            placeholder="Workflow name"
-          />
+          <div class="flex items-center gap-2">
+            <input
+              type="text"
+              bind:value={workflow.name}
+              class="text-sm font-medium text-gray-900 bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
+              placeholder="Workflow name"
+            />
+            <div class="flex items-center gap-1 group relative">
+              <span class="text-[10px] font-mono text-gray-400 cursor-pointer hover:text-gray-600" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
+                {workflow.id}
+              </span>
+            </div>
+          </div>
           <input
             type="text"
             bind:value={workflow.description}
