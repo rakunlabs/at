@@ -360,6 +360,26 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	return ch, resp.Header, nil
 }
 
+func (p *Provider) SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	url := p.BaseURL + path
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range headers {
+		req.Header[k] = v
+	}
+	req.Header.Set("x-goog-api-key", p.APIKey)
+
+	// Use klient's HTTP client
+	return p.client.HTTP.Do(req)
+}
+
 // ─── Request building ───
 
 // buildRequest translates internal service types to Google's native API format.

@@ -342,6 +342,43 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	return ch, resp.Header, nil
 }
 
+func (p *Provider) SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	// Vertex EndpointURL is typically:
+	// https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi/chat/completions
+	// We want to extract the base part, e.g. "https://{LOCATION}-aiplatform.googleapis.com" or slightly deeper?
+	// The path provided is likely relative to the API version or project.
+	// If path starts with /v1/, we assume it's relative to the host.
+	// Let's parse the EndpointURL.
+	baseURL := p.EndpointURL
+	// Naive strip
+	if idx := strings.Index(baseURL, "/v1/"); idx > 0 {
+		baseURL = baseURL[:idx]
+	}
+
+	url := baseURL + path
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+
+	for k, v := range headers {
+		req.Header[k] = v
+	}
+
+	token, err := p.tokenSource.Token()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get access token: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+
+	return p.client.HTTP.Do(req)
+}
+
 // buildRequestBody creates the common request body for Chat and ChatStream.
 func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool) map[string]any {
 	openaiTools := make([]map[string]any, len(tools))

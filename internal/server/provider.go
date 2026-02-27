@@ -16,6 +16,8 @@ import (
 type infoResponse struct {
 	Providers []infoProvider `json:"providers"`
 	StoreType string         `json:"store_type"` // "postgres", "sqlite", or "none"
+	User      string         `json:"user,omitempty"`
+	Version   string         `json:"version"`
 }
 
 type infoProvider struct {
@@ -49,6 +51,8 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, infoResponse{
 		Providers: providerList,
 		StoreType: storeType,
+		User:      s.getUserEmail(r),
+		Version:   s.version,
 	}, http.StatusOK)
 }
 

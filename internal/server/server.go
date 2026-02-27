@@ -109,6 +109,8 @@ type Server struct {
 	// activeRuns tracks currently-running workflow executions.
 	// map key: run ID (string), value: *activeRun
 	activeRuns sync.Map
+
+	version string
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
@@ -169,7 +171,7 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -196,6 +198,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		storeType:            storeType,
 		authTokens:           gatewayCfg.AuthTokens,
 		cluster:              cl,
+		version:              version,
 	}
 
 	// Start background sweep for expired thought_signature cache entries.
@@ -294,6 +297,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
+
+	// Proxy endpoint: /gateway/proxy/{provider}/*path
+	gatewayGroup.Handle("/proxy/*", http.HandlerFunc(s.ProxyRequest))
 
 	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")

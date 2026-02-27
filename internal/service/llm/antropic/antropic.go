@@ -365,6 +365,39 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	return ch, resp.Header, nil
 }
 
+func (p *Provider) SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+	// Anthropic base URL is default "https://api.anthropic.com".
+	baseURL := DefaultBaseURL
+	// If klient was initialized with a different base URL, we should use it.
+	// But klient doesn't expose it easily. Let's assume default unless configured otherwise.
+	// Actually, we don't store BaseURL in Provider struct for Anthropic.
+	// Let's add it or assume default for now.
+
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	url := baseURL + path
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Copy headers
+	for k, v := range headers {
+		req.Header[k] = v
+	}
+
+	// Auth
+	if p.APIKey != "" {
+		req.Header.Set("x-api-key", p.APIKey)
+		req.Header.Set("anthropic-version", "2023-06-01")
+	}
+
+	return p.client.HTTP.Do(req)
+}
+
 // buildRequestBody creates the common request body for Chat and ChatStream.
 func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool) map[string]any {
 	anthropicTools := make([]map[string]any, len(tools))

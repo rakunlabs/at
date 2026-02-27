@@ -16,6 +16,8 @@ export interface InfoProvider {
 export interface InfoResponse {
   providers: InfoProvider[];
   store_type: string;
+  version?: string;
+  user?: string;
 }
 
 export async function getInfo(): Promise<InfoResponse> {

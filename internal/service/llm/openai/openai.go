@@ -363,6 +363,55 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	return ch, resp.Header, nil
 }
 
+func (p *Provider) SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+	// Clean up path
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+
+	// For OpenAI, BaseURL is typically "https://api.openai.com/v1/chat/completions".
+	// We want to proxy to other endpoints like "/v1/files".
+	// So we need to intelligently strip the suffix.
+	baseURL := p.BaseURL
+	if strings.HasSuffix(baseURL, "/chat/completions") {
+		baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
+	} else if strings.HasSuffix(baseURL, "/v1") {
+		// Keep /v1 as root for most calls
+	} else {
+		// Just append path if it's a generic base
+	}
+
+	// Handle case where path starts with /v1/ and base ends with /v1
+	if strings.HasSuffix(baseURL, "/v1") && strings.HasPrefix(path, "/v1/") {
+		baseURL = strings.TrimSuffix(baseURL, "/v1")
+	}
+
+	url := baseURL + path
+
+	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	if err != nil {
+		return nil, err
+	}
+
+	// Copy headers
+	for k, v := range headers {
+		req.Header[k] = v
+	}
+
+	// Auth
+	if p.tokenSource != nil {
+		token, err := p.tokenSource.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get auth token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else if p.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+p.APIKey)
+	}
+
+	return p.client.HTTP.Do(req)
+}
+
 // buildRequestBody creates the common request body for Chat and ChatStream.
 func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool) map[string]any {
 	openaiTools := make([]map[string]any, len(tools))

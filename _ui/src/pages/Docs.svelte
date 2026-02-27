@@ -202,6 +202,33 @@ func main() {
     </div>
   </div>
 
+  <!-- Proxy Endpoint -->
+  <div class="border border-gray-200 bg-white mb-4">
+    <div class="px-4 py-3 border-b border-gray-200">
+      <h3 class="text-sm font-medium text-gray-900">Proxy Endpoint</h3>
+    </div>
+    <div class="p-4 space-y-3 text-sm">
+      <p class="text-gray-600 mb-2">
+        Access any provider endpoint directly via the gateway. The gateway handles authentication and credential injection.
+      </p>
+      <div>
+        <div class="flex items-center gap-2 mb-1">
+          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-gray-50 border border-gray-200 text-gray-700 font-medium font-mono">ANY</span>
+          <code class="font-mono text-gray-700">{baseUrl}/gateway/proxy/:provider/:path*</code>
+        </div>
+        <div class="text-xs text-gray-500 ml-14 space-y-1">
+          <p>Forwards requests to the specified provider.</p>
+          <div class="mt-2 p-2 bg-gray-50 rounded border border-gray-100">
+            <p class="font-medium mb-1">Example: Gemini File Search</p>
+            <p class="font-mono mb-1">POST {baseUrl}/gateway/proxy/gemini/v1beta/files</p>
+            <p class="text-gray-400">↓ forwards to</p>
+            <p class="font-mono">https://generativelanguage.googleapis.com/v1beta/files</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Authentication -->
   <div class="border border-gray-200 bg-white mb-4">
     <div class="px-4 py-3 border-b border-gray-200">

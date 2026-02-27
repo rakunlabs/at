@@ -1,5 +1,7 @@
 <script lang="ts">
   import { push, location } from "svelte-spa-router";
+  import { storeInfo } from "@/lib/store/store.svelte";
+  import { getInfo } from "@/lib/api/gateway";
   import {
     Home,
     MessageSquare,
@@ -10,7 +12,7 @@
     Activity,
     BookOpen,
     Settings,
-    Wand2,
+    WandSparkles,
     SlidersHorizontal,
   } from "lucide-svelte";
 
@@ -19,10 +21,20 @@
     e.preventDefault();
     push(path);
   }
+
+  $effect(() => {
+    if (!storeInfo.version) {
+      getInfo().then((res) => {
+        storeInfo.version = res.version || "";
+        storeInfo.user = res.user || "";
+        storeInfo.store_type = res.store_type || "";
+      });
+    }
+  });
 </script>
 
-<div class="sidebar-bg border-r border-gray-200 bg-white">
-  <div class="sticky top-0 overflow-auto max-h-svh no-scrollbar">
+<div class="sidebar-bg border-r border-gray-200 bg-white flex flex-col h-svh">
+  <div class="flex-1 overflow-auto no-scrollbar">
     <a
       href="#/"
       onclick={(e) => navigate(e, "/")}
@@ -61,6 +73,45 @@
     >
       <Cpu size={14} />
       <span>Providers</span>
+    </a>
+    <a
+      href="#/tokens"
+      onclick={(e) => navigate(e, "/tokens")}
+      class={[
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        $location === "/tokens"
+          ? "bg-gray-900 text-white"
+          : "text-gray-700 hover:bg-gray-100",
+      ]}
+    >
+      <Key size={14} />
+      <span>Tokens</span>
+    </a>
+    <a
+      href="#/docs"
+      onclick={(e) => navigate(e, "/docs")}
+      class={[
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        $location === "/docs"
+          ? "bg-gray-900 text-white"
+          : "text-gray-700 hover:bg-gray-100",
+      ]}
+    >
+      <BookOpen size={14} />
+      <span>Docs</span>
+    </a>
+    <a
+      href="#/settings"
+      onclick={(e) => navigate(e, "/settings")}
+      class={[
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        $location === "/settings"
+          ? "bg-gray-900 text-white"
+          : "text-gray-700 hover:bg-gray-100",
+      ]}
+    >
+      <Settings size={14} />
+      <span>Settings</span>
     </a>
     <div>
       <span
@@ -104,7 +155,7 @@
               : "text-gray-700 hover:bg-gray-100",
           ]}
         >
-          <Wand2 size={14} />
+          <WandSparkles size={14} />
           <span>Skills</span>
         </a>
         <a
@@ -135,45 +186,14 @@
         </a>
       </div>
     </div>
-    <a
-      href="#/tokens"
-      onclick={(e) => navigate(e, "/tokens")}
-      class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
-        $location === "/tokens"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
-      ]}
-    >
-      <Key size={14} />
-      <span>Tokens</span>
-    </a>
-    <a
-      href="#/docs"
-      onclick={(e) => navigate(e, "/docs")}
-      class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
-        $location === "/docs"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
-      ]}
-    >
-      <BookOpen size={14} />
-      <span>Docs</span>
-    </a>
-    <a
-      href="#/settings"
-      onclick={(e) => navigate(e, "/settings")}
-      class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
-        $location === "/settings"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
-      ]}
-    >
-      <Settings size={14} />
-      <span>Settings</span>
-    </a>
+  </div>
+  <div class="border-t border-gray-200 p-3 text-[10px] text-gray-500">
+    {#if storeInfo.user}
+      <div class="truncate font-medium text-gray-700" title={storeInfo.user}>{storeInfo.user}</div>
+    {/if}
+    <div class="flex items-center gap-2 mt-0.5">
+      <span>{storeInfo.version || 'v0.0.0'}</span>
+    </div>
   </div>
 </div>
 
