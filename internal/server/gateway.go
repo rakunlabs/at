@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -211,7 +210,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 // ProxyRequest handles generic requests to provider endpoints.
-// Path: /gateway/proxy/{provider}/*path
+// Path: /gateway/proxy/{provider}/*
 func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 	// Auth check
 	auth, authErr := s.authenticateRequest(r)
@@ -226,22 +225,8 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse provider key from path
-	// Path is like /gateway/proxy/gemini/v1beta/files
-	path := r.URL.Path
-	prefix := s.config.BasePath + "/gateway/proxy/"
-	if !strings.HasPrefix(path, prefix) {
-		http.Error(w, "invalid proxy path", http.StatusBadRequest)
-		return
-	}
-	remaining := strings.TrimPrefix(path, prefix)
-	parts := strings.SplitN(remaining, "/", 2)
-	if len(parts) < 2 {
-		http.Error(w, "provider or path missing", http.StatusBadRequest)
-		return
-	}
-	providerKey := parts[0]
-	proxyPath := parts[1]
+	providerKey := r.PathValue("provider")
+	proxyPath := "/" + strings.TrimPrefix(r.PathValue("*"), "/")
 
 	// Look up provider
 	info, ok := s.getProviderInfo(providerKey)
@@ -273,10 +258,9 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 
 	// Forward request
 	if sender, ok := info.provider.(interface {
-		SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error)
+		Proxy(w http.ResponseWriter, r *http.Request, path string) error
 	}); ok {
-		resp, err := sender.SendRequest(r.Context(), r.Method, proxyPath, r.Body, r.Header)
-		if err != nil {
+		if err := sender.Proxy(w, r, proxyPath); err != nil {
 			slog.Error("proxy request failed", "provider", providerKey, "path", proxyPath, "error", err)
 			httpResponseJSON(w, map[string]any{
 				"error": map[string]any{
@@ -284,20 +268,7 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 					"type":    "server_error",
 				},
 			}, http.StatusBadGateway)
-			return
 		}
-		defer resp.Body.Close()
-
-		// Copy response headers
-		for k, v := range resp.Header {
-			for _, val := range v {
-				w.Header().Set(k, val)
-			}
-		}
-		w.WriteHeader(resp.StatusCode)
-
-		// Stream body
-		io.Copy(w, resp.Body)
 		return
 	}
 

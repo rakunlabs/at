@@ -272,6 +272,8 @@ func klientForConfig(cfg config.LLMConfig) (*klient.Client, error) {
 	klientOpts := []klient.OptionClientFn{
 		klient.WithDisableBaseURLCheck(true),
 		klient.WithLogger(slog.Default()),
+		klient.WithDisableRetry(true),
+		klient.WithDisableEnvValues(true),
 	}
 	if cfg.Proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(cfg.Proxy))

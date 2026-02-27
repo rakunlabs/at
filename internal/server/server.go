@@ -298,8 +298,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
 
-	// Proxy endpoint: /gateway/proxy/{provider}/*path
-	gatewayGroup.Handle("/proxy/*", http.HandlerFunc(s.ProxyRequest))
+	// Proxy endpoint
+	gatewayGroup.Handle("/proxy/{provider}/*", http.HandlerFunc(s.ProxyRequest))
 
 	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")

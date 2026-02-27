@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -25,9 +24,9 @@ type LLMProvider interface {
 type LLMStreamProvider interface {
 	ChatStream(ctx context.Context, model string, messages []Message, tools []Tool) (<-chan StreamChunk, http.Header, error)
 
-	// SendRequest forwards a raw HTTP request to the provider's API.
+	// Proxy forwards a raw HTTP request to the provider's API.
 	// The path is relative to the provider's base URL.
-	SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error)
+	Proxy(w http.ResponseWriter, r *http.Request, path string) error
 }
 
 // InlineImage represents a base64-encoded image returned by a provider (e.g. Gemini).

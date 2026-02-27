@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 
 	"github.com/worldline-go/klient"
@@ -56,6 +58,8 @@ func New(model, endpointURL, proxy string, insecureSkipVerify bool) (*Provider, 
 	klientOpts := []klient.OptionClientFn{
 		klient.WithDisableBaseURLCheck(true),
 		klient.WithLogger(slog.Default()),
+		klient.WithDisableRetry(true),
+		klient.WithDisableEnvValues(true),
 	}
 	if proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(proxy))
@@ -342,7 +346,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	return ch, resp.Header, nil
 }
 
-func (p *Provider) SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
@@ -359,24 +363,40 @@ func (p *Provider) SendRequest(ctx context.Context, method string, path string, 
 		baseURL = baseURL[:idx]
 	}
 
-	url := baseURL + path
-
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	targetURL, err := url.Parse(baseURL + path)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	for k, v := range headers {
-		req.Header[k] = v
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL = targetURL
+			req.Host = targetURL.Host
+
+			token, err := p.tokenSource.Token()
+			if err != nil {
+				slog.Error("failed to get access token in proxy", "error", err)
+			} else {
+				req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+			}
+		},
+		Transport: p.client.HTTP.Transport,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if err == context.Canceled {
+				// Client disconnected
+				return
+			}
+			slog.Error("proxy error", "error", err)
+			http.Error(w, fmt.Sprintf("proxy error: %v", err), http.StatusBadGateway)
+		},
 	}
 
-	token, err := p.tokenSource.Token()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get access token: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
+	// Disable retries for proxy requests
+	ctx := klient.CtxWithRetryPolicy(r.Context(), klient.OptionRetry.WithRetryDisable())
+	r = r.WithContext(ctx)
 
-	return p.client.HTTP.Do(req)
+	proxy.ServeHTTP(w, r)
+	return nil
 }
 
 // buildRequestBody creates the common request body for Chat and ChatStream.

@@ -9,6 +9,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 
 	"github.com/worldline-go/klient"
@@ -63,6 +65,8 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provid
 	klientOpts := []klient.OptionClientFn{
 		klient.WithBaseURL(baseURL),
 		klient.WithLogger(slog.Default()),
+		klient.WithDisableRetry(true),
+		klient.WithDisableEnvValues(true),
 		klient.WithHeaderSet(http.Header{
 			"X-Api-Key":         []string{apiKey},
 			"Anthropic-Version": []string{"2023-06-01"},
@@ -365,37 +369,47 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	return ch, resp.Header, nil
 }
 
-func (p *Provider) SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {
 	// Anthropic base URL is default "https://api.anthropic.com".
 	baseURL := DefaultBaseURL
-	// If klient was initialized with a different base URL, we should use it.
-	// But klient doesn't expose it easily. Let's assume default unless configured otherwise.
-	// Actually, we don't store BaseURL in Provider struct for Anthropic.
-	// Let's add it or assume default for now.
 
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
 
-	url := baseURL + path
-
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	targetURL, err := url.Parse(baseURL + path)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	// Copy headers
-	for k, v := range headers {
-		req.Header[k] = v
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL = targetURL
+			req.Host = targetURL.Host
+
+			// Auth
+			if p.APIKey != "" {
+				req.Header.Set("x-api-key", p.APIKey)
+				req.Header.Set("anthropic-version", "2023-06-01")
+			}
+		},
+		Transport: p.client.HTTP.Transport,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if err == context.Canceled {
+				// Client disconnected
+				return
+			}
+			slog.Error("proxy error", "error", err)
+			http.Error(w, fmt.Sprintf("proxy error: %v", err), http.StatusBadGateway)
+		},
 	}
 
-	// Auth
-	if p.APIKey != "" {
-		req.Header.Set("x-api-key", p.APIKey)
-		req.Header.Set("anthropic-version", "2023-06-01")
-	}
+	// Disable retries for proxy requests
+	ctx := klient.CtxWithRetryPolicy(r.Context(), klient.OptionRetry.WithRetryDisable())
+	r = r.WithContext(ctx)
 
-	return p.client.HTTP.Do(req)
+	proxy.ServeHTTP(w, r)
+	return nil
 }
 
 // buildRequestBody creates the common request body for Chat and ChatStream.

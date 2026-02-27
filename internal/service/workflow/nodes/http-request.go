@@ -220,6 +220,7 @@ func (n *httpRequestNode) Run(ctx context.Context, _ *workflow.Registry, inputs 
 func (n *httpRequestNode) buildClient() (*klient.Client, error) {
 	opts := []klient.OptionClientFn{
 		klient.WithDisableBaseURLCheck(true),
+		klient.WithDisableEnvValues(true),
 	}
 	if n.proxy != "" {
 		opts = append(opts, klient.WithProxy(n.proxy))

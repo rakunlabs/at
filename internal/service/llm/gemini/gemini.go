@@ -10,6 +10,8 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"strings"
 
 	"github.com/oklog/ulid/v2"
@@ -55,6 +57,8 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provid
 		klient.WithBaseURL(baseURL),
 		klient.WithDisableBaseURLCheck(true),
 		klient.WithLogger(slog.Default()),
+		klient.WithDisableRetry(true),
+		klient.WithDisableEnvValues(true),
 		klient.WithHeaderSet(http.Header{
 			"Content-Type":   []string{"application/json"},
 			"x-goog-api-key": []string{apiKey},
@@ -360,24 +364,38 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	return ch, resp.Header, nil
 }
 
-func (p *Provider) SendRequest(ctx context.Context, method string, path string, body io.Reader, headers http.Header) (*http.Response, error) {
+func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
 	}
-	url := p.BaseURL + path
-
-	req, err := http.NewRequestWithContext(ctx, method, url, body)
+	targetURL, err := url.Parse(p.BaseURL + path)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("invalid target URL: %w", err)
 	}
 
-	for k, v := range headers {
-		req.Header[k] = v
+	proxy := &httputil.ReverseProxy{
+		Director: func(req *http.Request) {
+			req.URL = targetURL
+			req.Host = targetURL.Host
+			req.Header.Set("x-goog-api-key", p.APIKey)
+		},
+		Transport: p.client.HTTP.Transport,
+		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
+			if err == context.Canceled {
+				// Client disconnected
+				return
+			}
+			slog.Error("proxy error", "error", err)
+			http.Error(w, fmt.Sprintf("proxy error: %v", err), http.StatusBadGateway)
+		},
 	}
-	req.Header.Set("x-goog-api-key", p.APIKey)
 
-	// Use klient's HTTP client
-	return p.client.HTTP.Do(req)
+	// Disable retries for proxy requests
+	ctx := klient.CtxWithRetryPolicy(r.Context(), klient.OptionRetry.WithRetryDisable())
+	r = r.WithContext(ctx)
+
+	proxy.ServeHTTP(w, r)
+	return nil
 }
 
 // ─── Request building ───
