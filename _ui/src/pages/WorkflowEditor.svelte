@@ -990,12 +990,13 @@
             <!-- Common: Label (not shown for sticky notes which use 'text' instead) -->
             {#if selectedNodeType !== 'sticky_note'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Label</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Label</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.label}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
-                />
+                /></label>
               </div>
             {/if}
 
@@ -1004,7 +1005,8 @@
               {@const selectedProvider = providers.find(p => p.key === selectedNodeData.provider)}
               {@const availableModels = selectedProvider?.config?.models?.length ? selectedProvider.config.models : selectedProvider?.config?.model ? [selectedProvider.config.model] : []}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider</span>
                 <select
                   bind:value={selectedNodeData.provider}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -1013,10 +1015,11 @@
                   {#each providers as p}
                     <option value={p.key}>{p.key}</option>
                   {/each}
-                </select>
+                </select></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model</span>
                 <select
                   bind:value={selectedNodeData.model}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -1025,16 +1028,17 @@
                   {#each availableModels as m}
                     <option value={m}>{m}</option>
                   {/each}
-                </select>
+                </select></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt</span>
                 <textarea
                   bind:value={selectedNodeData.system_prompt}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="System prompt (optional)"
-                ></textarea>
+                ></textarea></label>
               </div>
               <!-- Port descriptions -->
               <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
@@ -1067,7 +1071,8 @@
               {@const selectedAgentProvider = providers.find(p => p.key === selectedNodeData.provider)}
               {@const availableAgentModels = selectedAgentProvider?.config?.models?.length ? selectedAgentProvider.config.models : selectedAgentProvider?.config?.model ? [selectedAgentProvider.config.model] : []}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider</span>
                 <select
                   bind:value={selectedNodeData.provider}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -1076,10 +1081,11 @@
                   {#each providers as p}
                     <option value={p.key}>{p.key}</option>
                   {/each}
-                </select>
+                </select></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model</span>
                 <select
                   bind:value={selectedNodeData.model}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -1088,33 +1094,35 @@
                   {#each availableAgentModels as m}
                     <option value={m}>{m}</option>
                   {/each}
-                </select>
+                </select></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt</span>
                 <textarea
                   bind:value={selectedNodeData.system_prompt}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="System prompt (optional)"
-                ></textarea>
+                ></textarea></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Max Iterations</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Max Iterations</span>
                 <input
                   type="number"
                   bind:value={selectedNodeData.max_iterations}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="10"
                   min="0"
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">0 = unlimited</div>
               </div>
             {/if}
 
             {#if selectedNodeType === 'skill_config'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Skills</label>
+                <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Skills</span>
                 {#if skills.length > 0}
                   <div class="mt-0.5 space-y-0.5">
                     {#each skills as skill}
@@ -1147,14 +1155,15 @@
 
             {#if selectedNodeType === 'mcp_config'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">MCP Server URLs</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">MCP Server URLs</span>
                 <textarea
                   value={selectedNodeData.mcp_urls?.join('\n') || ''}
                   oninput={(e) => { selectedNodeData.mcp_urls = (e.target as HTMLTextAreaElement).value.split('\n').map((s: string) => s.trim()).filter(Boolean); }}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="https://mcp-server.example.com/sse"
-                ></textarea>
+                ></textarea></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">One URL per line</div>
               </div>
               <div class="mt-1 px-2 py-1.5 bg-orange-50 border border-orange-200 rounded text-[10px] text-orange-700">
@@ -1171,29 +1180,31 @@
 
             {#if selectedNodeType === 'template'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Template</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Template</span>
                 <textarea
                   bind:value={selectedNodeData.template}
                   rows={4}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                    placeholder={'Hello \x7B\x7B.name\x7D\x7D, ...'}
-                ></textarea>
+                ></textarea></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Variables (comma separated)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Variables (comma separated)</span>
                 <input
                   type="text"
                   value={selectedNodeData.variables?.join(', ') || ''}
                   oninput={(e) => { selectedNodeData.variables = (e.target as HTMLInputElement).value.split(',').map((s: string) => s.trim()).filter(Boolean); }}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="name, topic"
-                />
+                /></label>
               </div>
             {/if}
 
             {#if selectedNodeType === 'http_trigger'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Public</label>
+                <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Public</span>
                 <label class="mt-0.5 flex items-center gap-1.5 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1206,18 +1217,19 @@
                 </label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Alias</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Alias</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.alias}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="e.g. order-created"
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Optional human-friendly URL slug</div>
               </div>
               <div>
                 {#if selectedNodeData.trigger_id}
-                  <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Webhook URL</label>
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Webhook URL</span>
                   <div class="mt-0.5 px-2 py-1 text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded break-all">
                     /webhooks/{selectedNodeData.alias || selectedNodeData.trigger_id}
                   </div>
@@ -1234,7 +1246,7 @@
                 {/if}
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Output Fields</label>
+                <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Output Fields</span>
                 <div class="mt-0.5 px-2 py-1.5 bg-gray-50 border border-gray-200 rounded text-[10px] font-mono text-gray-600 space-y-0.5">
                   <div><span class="text-gray-400">data.</span>method <span class="text-gray-400 font-sans">— HTTP method</span></div>
                   <div><span class="text-gray-400">data.</span>path <span class="text-gray-400 font-sans">— request path</span></div>
@@ -1256,70 +1268,77 @@
 
             {#if selectedNodeType === 'cron_trigger'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Schedule (cron)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Schedule (cron)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.schedule}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="*/5 * * * *"
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Standard 5-field cron expression</div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Static Payload (JSON)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Static Payload (JSON)</span>
                 <textarea
                   value={JSON.stringify(selectedNodeData.payload || {}, null, 2)}
                   oninput={(e) => { try { selectedNodeData.payload = JSON.parse((e.target as HTMLTextAreaElement).value); } catch {} }}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder={'{"key": "value"}'}
-                ></textarea>
+                ></textarea></label>
               </div>
             {/if}
 
             {#if selectedNodeType === 'http_request'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">URL (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">URL (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.url}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder={'https://api.example.com/\x7B\x7B.path\x7D\x7D'}
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Supports Go templates with data from "values" input</div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Method (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Method (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.method}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="GET"
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">GET, POST, PUT, PATCH, DELETE or a Go template</div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Headers (JSON, values support templates)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Headers (JSON, values support templates)</span>
                 <textarea
                   value={JSON.stringify(selectedNodeData.headers || {}, null, 2)}
                   oninput={(e) => { try { selectedNodeData.headers = JSON.parse((e.target as HTMLTextAreaElement).value); } catch {} }}
                   rows={2}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder={'{"Authorization": "Bearer \x7B\x7B.token\x7D\x7D"}'}
-                ></textarea>
+                ></textarea></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Body (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Body (Go template)</span>
                 <textarea
                   bind:value={selectedNodeData.body}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder={'{"name": "\x7B\x7B.name\x7D\x7D", "count": \x7B\x7B.count\x7D\x7D}'}
-                ></textarea>
+                ></textarea></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Leave empty to auto-send input data as JSON for POST/PUT/PATCH</div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Timeout (seconds)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Timeout (seconds)</span>
                 <input
                   type="number"
                   bind:value={selectedNodeData.timeout}
@@ -1327,16 +1346,17 @@
                   placeholder="30"
                   min="1"
                   max="300"
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Proxy URL</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Proxy URL</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.proxy}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="http://proxy.example.com:8080"
-                />
+                /></label>
               </div>
               <div class="flex items-center gap-4">
                 <label class="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
@@ -1352,33 +1372,36 @@
 
             {#if selectedNodeType === 'conditional'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Expression (JS)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Expression (JS)</span>
                 <textarea
                   bind:value={selectedNodeData.expression}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="data.score > 0.8"
-                ></textarea>
+                ></textarea></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">JS expression that evaluates to true/false</div>
               </div>
             {/if}
 
             {#if selectedNodeType === 'loop'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Expression (JS)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Expression (JS)</span>
                 <textarea
                   bind:value={selectedNodeData.expression}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="data.items"
-                ></textarea>
+                ></textarea></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">JS expression returning an array to iterate</div>
               </div>
             {/if}
 
             {#if selectedNodeType === 'script'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</span>
                 <input
                   type="number"
                   bind:value={selectedNodeData.input_count}
@@ -1386,7 +1409,7 @@
                   min="1"
                   max="10"
                   placeholder="1"
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">
                   {#if (selectedNodeData.input_count || 1) <= 1}
                     Available as <code class="font-mono bg-gray-100 px-0.5 rounded">data</code> in JS
@@ -1400,7 +1423,8 @@
                 </div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Code (JS)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Code (JS)</span>
                 <textarea
                   bind:value={selectedNodeData.code}
                   rows={6}
@@ -1410,7 +1434,7 @@
                       ? '// Access inputs via data\nconst value = data.value * 2;\nreturn { doubled: value };'
                       : '// Access inputs via data1, data2, ...\nconst sum = data1.value + data2.value;\nreturn { sum: sum };'
                   }
-                ></textarea>
+                ></textarea></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Use <code class="font-mono bg-gray-100 px-0.5 rounded">return</code> to set the result → "true" port. <code class="font-mono bg-gray-100 px-0.5 rounded">throw</code> → "false" port (with <code class="font-mono bg-gray-100 px-0.5 rounded">error</code> in output). "always" always fires.</div>
               </div>
               <div>
@@ -1437,7 +1461,8 @@
 
             {#if selectedNodeType === 'exec'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</span>
                 <input
                   type="number"
                   bind:value={selectedNodeData.input_count}
@@ -1445,30 +1470,33 @@
                   min="1"
                   max="10"
                   placeholder="1"
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Command</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Command</span>
                 <textarea
                   bind:value={selectedNodeData.command}
                   rows={4}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="echo 'Hello World'"
-                ></textarea>
+                ></textarea></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Shell command (supports <code class="font-mono bg-gray-100 px-0.5 rounded">{'{{.var}}'}</code> templates from inputs)</div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Working Dir</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Working Dir</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.working_dir}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="(sandbox root)"
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Subdirectory within sandbox</div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Timeout (sec)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Timeout (sec)</span>
                 <input
                   type="number"
                   bind:value={selectedNodeData.timeout}
@@ -1476,23 +1504,25 @@
                   min="1"
                   max="600"
                   placeholder="60"
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Sandbox Root</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Sandbox Root</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.sandbox_root}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="/tmp/at-sandbox"
-                />
+                /></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">All commands run inside this directory</div>
               </div>
             {/if}
 
             {#if selectedNodeType === 'email'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">SMTP Config</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">SMTP Config</span>
                 <select
                   bind:value={selectedNodeData.config_id}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -1501,87 +1531,96 @@
                   {#each nodeConfigs as nc}
                     <option value={nc.id}>{nc.name}</option>
                   {/each}
-                </select>
+                </select></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Configure SMTP servers in Node Configs</div>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">To (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">To (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.to}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder={'user@example.com, \x7B\x7B.email\x7D\x7D'}
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">CC (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">CC (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.cc}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="cc@example.com"
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">BCC (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">BCC (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.bcc}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="bcc@example.com"
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Subject (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Subject (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.subject}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder={'Alert: \x7B\x7B.title\x7D\x7D'}
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Body (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Body (Go template)</span>
                 <textarea
                   bind:value={selectedNodeData.body}
                   rows={4}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder={'Hello \x7B\x7B.name\x7D\x7D,\n\nYour report is ready.'}
-                ></textarea>
+                ></textarea></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Content Type</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Content Type</span>
                 <select
                   bind:value={selectedNodeData.content_type}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
                 >
                   <option value="text/plain">text/plain</option>
                   <option value="text/html">text/html</option>
-                </select>
+                </select></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">From Override (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">From Override (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.from}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="(uses config default)"
-                />
+                /></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Reply-To (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Reply-To (Go template)</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.reply_to}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400"
                   placeholder="reply@example.com"
-                />
+                /></label>
               </div>
             {/if}
 
             {#if selectedNodeType === 'log'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Level</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Level</span>
                 <select
                   bind:value={selectedNodeData.level}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -1590,48 +1629,52 @@
                   <option value="warn">warn</option>
                   <option value="error">error</option>
                   <option value="debug">debug</option>
-                </select>
+                </select></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Message (Go template)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Message (Go template)</span>
                 <textarea
                   bind:value={selectedNodeData.message}
                   rows={3}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder={'Processing \x7B\x7B.name\x7D\x7D'}
-                ></textarea>
+                ></textarea></label>
                 <div class="mt-0.5 text-[10px] text-gray-400">Supports Go templates. Data passes through unchanged.</div>
               </div>
             {/if}
 
             {#if selectedNodeType === 'group'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Color</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Color</span>
                 <input
                   type="color"
                   bind:value={selectedNodeData.color}
                   class="mt-0.5 w-full h-8 border border-gray-300 rounded cursor-pointer"
-                />
+                /></label>
               </div>
             {/if}
 
             {#if selectedNodeType === 'sticky_note'}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Text (Markdown)</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Text (Markdown)</span>
                 <textarea
                   bind:value={selectedNodeData.text}
                   rows={5}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="**Bold**, _italic_, `code`, [link](url)"
-                ></textarea>
+                ></textarea></label>
               </div>
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Color</label>
+                <label class="block">
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Color</span>
                 <input
                   type="color"
                   bind:value={selectedNodeData.color}
                   class="mt-0.5 w-full h-8 border border-gray-300 rounded cursor-pointer"
-                />
+                /></label>
               </div>
             {/if}
 
@@ -1659,7 +1702,7 @@
           <div class="p-3 space-y-3">
             <div>
               <div class="flex items-center justify-between mb-0.5">
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</label>
+                <label for="run-inputs" class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</label>
                 <div class="flex rounded overflow-hidden border border-gray-300">
                   <button
                     onclick={() => { runInputMode = 'text'; }}
@@ -1672,6 +1715,7 @@
                 </div>
               </div>
               <textarea
+                id="run-inputs"
                 bind:value={runInputsJson}
                 rows={5}
                 class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
@@ -1693,8 +1737,9 @@
             </div>
             {#if versions.length > 0}
               <div>
-                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Run Version</label>
+                <label for="run-version-select" class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Run Version</label>
                 <select
+                  id="run-version-select"
                   bind:value={runVersion}
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
                 >
