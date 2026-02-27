@@ -102,7 +102,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	var result AnthropicResponse
+	var headers http.Header
 	if err := p.client.Do(req, func(r *http.Response) error {
+		headers = r.Header
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			return err
@@ -119,6 +121,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 	llmResp := &service.LLMResponse{
 		Finished: result.StopReason != "tool_use",
+		Header:   headers,
 	}
 
 	if result.Type == "error" {
@@ -187,7 +190,7 @@ type messageStartMessage struct {
 }
 
 // ChatStream implements service.LLMStreamProvider for Anthropic's SSE format.
-func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, error) {
+func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, http.Header, error) {
 	if model == "" {
 		model = p.Model
 	}
@@ -197,24 +200,24 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Use the klient's HTTP client directly for streaming.
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("streaming request failed: %w", err)
+		return nil, nil, fmt.Errorf("streaming request failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		bodyData, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData))
+		return nil, nil, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
 	ch := make(chan service.StreamChunk, 64)
@@ -359,7 +362,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 	}()
 
-	return ch, nil
+	return ch, resp.Header, nil
 }
 
 // buildRequestBody creates the common request body for Chat and ChatStream.

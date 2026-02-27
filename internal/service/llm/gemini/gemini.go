@@ -183,7 +183,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	var result generateContentResponse
+	var headers http.Header
 	if err := p.client.Do(req, func(r *http.Response) error {
+		headers = r.Header
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			return err
@@ -214,14 +216,14 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}, nil
 	}
 
-	return parseResponse(&result)
+	return parseResponse(&result, headers)
 }
 
 // ─── Streaming ───
 
 // ChatStream implements service.LLMStreamProvider using Google's
 // streamGenerateContent endpoint with alt=sse for server-sent events.
-func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, error) {
+func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, http.Header, error) {
 	if model == "" {
 		model = p.Model
 	}
@@ -230,26 +232,26 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	path := fmt.Sprintf("/v1beta/models/%s:streamGenerateContent?alt=sse", model)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Use the klient's HTTP client directly for streaming.
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("streaming request failed: %w", err)
+		return nil, nil, fmt.Errorf("streaming request failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		bodyData, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("gemini returned status %d: %s", resp.StatusCode, string(bodyData))
+		return nil, nil, fmt.Errorf("gemini returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
 	ch := make(chan service.StreamChunk, 64)
@@ -355,7 +357,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 	}()
 
-	return ch, nil
+	return ch, resp.Header, nil
 }
 
 // ─── Request building ───
@@ -850,11 +852,12 @@ func convertToolResultToParts(msg service.Message, toolCallNames map[string]stri
 // ─── Response parsing ───
 
 // parseResponse converts a Google API response to the internal LLMResponse.
-func parseResponse(resp *generateContentResponse) (*service.LLMResponse, error) {
+func parseResponse(resp *generateContentResponse, headers http.Header) (*service.LLMResponse, error) {
 	if resp.Error != nil {
 		return &service.LLMResponse{
 			Content:  fmt.Sprintf("Error from Gemini API: %s (code: %d, status: %s)", resp.Error.Message, resp.Error.Code, resp.Error.Status),
 			Finished: true,
+			Header:   headers,
 		}, nil
 	}
 
@@ -865,6 +868,7 @@ func parseResponse(resp *generateContentResponse) (*service.LLMResponse, error) 
 	cand := resp.Candidates[0]
 	llmResp := &service.LLMResponse{
 		Finished: true,
+		Header:   headers,
 	}
 
 	// Map upstream usage metadata to the internal Usage struct.

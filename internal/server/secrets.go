@@ -97,6 +97,10 @@ func (s *Server) CreateVariableAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userEmail := s.getUserEmail(r)
+	req.CreatedBy = userEmail
+	req.UpdatedBy = userEmail
+
 	record, err := s.variableStore.CreateVariable(r.Context(), req)
 	if err != nil {
 		slog.Error("create variable failed", "key", req.Key, "error", err)
@@ -130,6 +134,9 @@ func (s *Server) UpdateVariableAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "key is required", http.StatusBadRequest)
 		return
 	}
+
+	userEmail := s.getUserEmail(r)
+	req.UpdatedBy = userEmail
 
 	record, err := s.variableStore.UpdateVariable(r.Context(), id, req)
 	if err != nil {

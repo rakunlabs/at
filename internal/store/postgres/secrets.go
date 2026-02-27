@@ -23,11 +23,13 @@ type variableRow struct {
 	Secret      bool      `db:"secret"`
 	CreatedAt   time.Time `db:"created_at"`
 	UpdatedAt   time.Time `db:"updated_at"`
+	CreatedBy   string    `db:"created_by"`
+	UpdatedBy   string    `db:"updated_by"`
 }
 
 func (p *Postgres) ListVariables(ctx context.Context) ([]service.Variable, error) {
 	query, _, err := p.goqu.From(p.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at").
+		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by").
 		Order(goqu.I("key").Asc()).
 		ToSQL()
 	if err != nil {
@@ -47,7 +49,7 @@ func (p *Postgres) ListVariables(ctx context.Context) ([]service.Variable, error
 	var result []service.Variable
 	for rows.Next() {
 		var row variableRow
-		if err := rows.Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan variable row: %w", err)
 		}
 
@@ -63,7 +65,7 @@ func (p *Postgres) ListVariables(ctx context.Context) ([]service.Variable, error
 
 func (p *Postgres) GetVariable(ctx context.Context, id string) (*service.Variable, error) {
 	query, _, err := p.goqu.From(p.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at").
+		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -71,7 +73,7 @@ func (p *Postgres) GetVariable(ctx context.Context, id string) (*service.Variabl
 	}
 
 	var row variableRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -88,7 +90,7 @@ func (p *Postgres) GetVariable(ctx context.Context, id string) (*service.Variabl
 
 func (p *Postgres) GetVariableByKey(ctx context.Context, key string) (*service.Variable, error) {
 	query, _, err := p.goqu.From(p.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at").
+		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("key").Eq(key)).
 		ToSQL()
 	if err != nil {
@@ -96,7 +98,7 @@ func (p *Postgres) GetVariableByKey(ctx context.Context, key string) (*service.V
 	}
 
 	var row variableRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -137,6 +139,8 @@ func (p *Postgres) CreateVariable(ctx context.Context, v service.Variable) (*ser
 			"secret":      v.Secret,
 			"created_at":  now,
 			"updated_at":  now,
+			"created_by":  v.CreatedBy,
+			"updated_by":  v.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -155,6 +159,8 @@ func (p *Postgres) CreateVariable(ctx context.Context, v service.Variable) (*ser
 		Secret:      v.Secret,
 		CreatedAt:   now.Format(time.RFC3339),
 		UpdatedAt:   now.Format(time.RFC3339),
+		CreatedBy:   v.CreatedBy,
+		UpdatedBy:   v.UpdatedBy,
 	}, nil
 }
 
@@ -181,6 +187,7 @@ func (p *Postgres) UpdateVariable(ctx context.Context, id string, v service.Vari
 			"description": v.Description,
 			"secret":      v.Secret,
 			"updated_at":  now,
+			"updated_by":  v.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -238,6 +245,8 @@ func variableRowToRecord(row variableRow, encKey []byte) (*service.Variable, err
 		Secret:      row.Secret,
 		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:   row.CreatedBy,
+		UpdatedBy:   row.UpdatedBy,
 	}, nil
 }
 

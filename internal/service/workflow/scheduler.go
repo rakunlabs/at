@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/logi"
 	"github.com/worldline-go/hardloop"
 )
 
@@ -33,14 +34,15 @@ type RunRegistrar func(parent context.Context, workflowID, source string) (runID
 
 // Scheduler manages cron-based workflow triggers.
 type Scheduler struct {
-	triggerStore     service.TriggerStorer
-	workflowStore    service.WorkflowStorer
-	providerLookup   ProviderLookup
-	skillLookup      SkillLookup
-	varLookup        VarLookup
-	varLister        VarLister
-	nodeConfigLookup NodeConfigLookup
-	runRegistrar     RunRegistrar
+	triggerStore         service.TriggerStorer
+	workflowStore        service.WorkflowStorer
+	workflowVersionStore service.WorkflowVersionStorer
+	providerLookup       ProviderLookup
+	skillLookup          SkillLookup
+	varLookup            VarLookup
+	varLister            VarLister
+	nodeConfigLookup     NodeConfigLookup
+	runRegistrar         RunRegistrar
 
 	mu     sync.Mutex
 	cron   cronRunner
@@ -49,15 +51,16 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup) *Scheduler {
 	return &Scheduler{
-		triggerStore:     ts,
-		workflowStore:    ws,
-		providerLookup:   lookup,
-		skillLookup:      skillLookup,
-		varLookup:        varLookup,
-		varLister:        varLister,
-		nodeConfigLookup: nodeConfigLookup,
+		triggerStore:         ts,
+		workflowStore:        ws,
+		workflowVersionStore: wvs,
+		providerLookup:       lookup,
+		skillLookup:          skillLookup,
+		varLookup:            varLookup,
+		varLister:            varLister,
+		nodeConfigLookup:     nodeConfigLookup,
 	}
 }
 
@@ -123,7 +126,7 @@ func (s *Scheduler) reload() error {
 	}
 
 	if len(triggers) == 0 {
-		slog.Info("scheduler: no enabled cron triggers found")
+		logi.Ctx(s.ctx).Info("scheduler: no enabled cron triggers found")
 		return nil
 	}
 
@@ -132,7 +135,7 @@ func (s *Scheduler) reload() error {
 	for _, t := range triggers {
 		schedule, _ := t.Config["schedule"].(string)
 		if schedule == "" {
-			slog.Warn("scheduler: cron trigger has no schedule, skipping",
+			logi.Ctx(s.ctx).Warn("scheduler: cron trigger has no schedule, skipping",
 				"trigger_id", t.ID, "workflow_id", t.WorkflowID)
 			continue
 		}
@@ -149,7 +152,7 @@ func (s *Scheduler) reload() error {
 	}
 
 	if len(crons) == 0 {
-		slog.Info("scheduler: no valid cron specs after filtering")
+		logi.Ctx(s.ctx).Info("scheduler: no valid cron specs after filtering")
 		return nil
 	}
 
@@ -167,7 +170,7 @@ func (s *Scheduler) reload() error {
 		return fmt.Errorf("scheduler: start cron runner: %w", err)
 	}
 
-	slog.Info("scheduler: started cron triggers", "count", len(crons))
+	logi.Ctx(s.ctx).Info("scheduler: started cron triggers", "count", len(crons))
 
 	return nil
 }
@@ -178,14 +181,14 @@ func (s *Scheduler) reload() error {
 // registered for tracking and cancellation.
 func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
-		slog.Info("scheduler: cron triggered",
+		logi.Ctx(ctx).Info("scheduler: cron triggered",
 			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID)
 
 		// Load the workflow from the store.
 		wf, err := s.workflowStore.GetWorkflow(ctx, trigger.WorkflowID)
 		if err != nil {
-			slog.Error("scheduler: get workflow failed",
+			logi.Ctx(ctx).Error("scheduler: get workflow failed",
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
 				"error", err)
@@ -193,10 +196,26 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 		}
 
 		if wf == nil {
-			slog.Warn("scheduler: workflow not found, skipping",
+			logi.Ctx(ctx).Warn("scheduler: workflow not found, skipping",
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID)
 			return nil
+		}
+
+		// Use the active version's graph if available.
+		graphToRun := wf.Graph
+		if wf.ActiveVersion != nil && s.workflowVersionStore != nil {
+			ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, trigger.WorkflowID, *wf.ActiveVersion)
+			if err != nil {
+				logi.Ctx(ctx).Error("scheduler: get active version failed",
+					"trigger_id", trigger.ID,
+					"workflow_id", trigger.WorkflowID,
+					"version", *wf.ActiveVersion,
+					"error", err)
+				// Fall back to wf.Graph on error.
+			} else if ver != nil {
+				graphToRun = ver.Graph
+			}
 		}
 
 		// Build trigger metadata inputs (merged with static payload by the
@@ -218,11 +237,27 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			defer cleanup()
 		}
 
+		// Enrich context with workflow metadata for structured logging.
+		runCtx = logi.WithContext(runCtx, slog.With(
+			slog.String("workflow_id", trigger.WorkflowID),
+			slog.String("workflow_name", wf.Name),
+		))
+
 		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup)
 
-		result, err := engine.Run(runCtx, wf.Graph, inputs)
+		// Find the specific cron_trigger node that matches this trigger's ID.
+		var entryNodeIDs []string
+		for _, n := range graphToRun.Nodes {
+			if n.Type == "cron_trigger" {
+				if tid, _ := n.Data["trigger_id"].(string); tid == trigger.ID {
+					entryNodeIDs = append(entryNodeIDs, n.ID)
+				}
+			}
+		}
+
+		result, err := engine.Run(runCtx, graphToRun, inputs, entryNodeIDs, nil)
 		if err != nil {
-			slog.Error("scheduler: workflow execution failed",
+			logi.Ctx(runCtx).Error("scheduler: workflow execution failed",
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
 				"run_id", runID,
@@ -230,7 +265,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			return nil // don't stop the cron loop
 		}
 
-		slog.Info("scheduler: workflow completed",
+		logi.Ctx(runCtx).Info("scheduler: workflow completed",
 			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID,
 			"run_id", runID,

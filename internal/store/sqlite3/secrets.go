@@ -23,11 +23,13 @@ type variableRow struct {
 	Secret      int    `db:"secret"`
 	CreatedAt   string `db:"created_at"`
 	UpdatedAt   string `db:"updated_at"`
+	CreatedBy   string `db:"created_by"`
+	UpdatedBy   string `db:"updated_by"`
 }
 
 func (s *SQLite) ListVariables(ctx context.Context) ([]service.Variable, error) {
 	query, _, err := s.goqu.From(s.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at").
+		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by").
 		Order(goqu.I("key").Asc()).
 		ToSQL()
 	if err != nil {
@@ -47,7 +49,7 @@ func (s *SQLite) ListVariables(ctx context.Context) ([]service.Variable, error) 
 	var result []service.Variable
 	for rows.Next() {
 		var row variableRow
-		if err := rows.Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan variable row: %w", err)
 		}
 
@@ -63,7 +65,7 @@ func (s *SQLite) ListVariables(ctx context.Context) ([]service.Variable, error) 
 
 func (s *SQLite) GetVariable(ctx context.Context, id string) (*service.Variable, error) {
 	query, _, err := s.goqu.From(s.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at").
+		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -71,7 +73,7 @@ func (s *SQLite) GetVariable(ctx context.Context, id string) (*service.Variable,
 	}
 
 	var row variableRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -88,7 +90,7 @@ func (s *SQLite) GetVariable(ctx context.Context, id string) (*service.Variable,
 
 func (s *SQLite) GetVariableByKey(ctx context.Context, key string) (*service.Variable, error) {
 	query, _, err := s.goqu.From(s.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at").
+		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("key").Eq(key)).
 		ToSQL()
 	if err != nil {
@@ -96,7 +98,7 @@ func (s *SQLite) GetVariableByKey(ctx context.Context, key string) (*service.Var
 	}
 
 	var row variableRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -142,6 +144,8 @@ func (s *SQLite) CreateVariable(ctx context.Context, v service.Variable) (*servi
 			"secret":      secretInt,
 			"created_at":  now.Format(time.RFC3339),
 			"updated_at":  now.Format(time.RFC3339),
+			"created_by":  v.CreatedBy,
+			"updated_by":  v.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -160,6 +164,8 @@ func (s *SQLite) CreateVariable(ctx context.Context, v service.Variable) (*servi
 		Secret:      v.Secret,
 		CreatedAt:   now.Format(time.RFC3339),
 		UpdatedAt:   now.Format(time.RFC3339),
+		CreatedBy:   v.CreatedBy,
+		UpdatedBy:   v.UpdatedBy,
 	}, nil
 }
 
@@ -191,6 +197,7 @@ func (s *SQLite) UpdateVariable(ctx context.Context, id string, v service.Variab
 			"description": v.Description,
 			"secret":      secretInt,
 			"updated_at":  now.Format(time.RFC3339),
+			"updated_by":  v.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -248,6 +255,8 @@ func variableRowToRecord(row variableRow, encKey []byte) (*service.Variable, err
 		Secret:      row.Secret == 1,
 		CreatedAt:   row.CreatedAt,
 		UpdatedAt:   row.UpdatedAt,
+		CreatedBy:   row.CreatedBy,
+		UpdatedBy:   row.UpdatedBy,
 	}, nil
 }
 

@@ -112,6 +112,7 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		expiresAt = types.NewTimeNull(t.UTC())
 	}
 
+	userEmail := s.getUserEmail(r)
 	token := service.APIToken{
 		Name:             req.Name,
 		TokenPrefix:      tokenPrefix,
@@ -119,6 +120,8 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		AllowedModels:    req.AllowedModels,
 		AllowedWebhooks:  req.AllowedWebhooks,
 		ExpiresAt:        expiresAt,
+		CreatedBy:        userEmail,
+		UpdatedBy:        userEmail,
 	}
 
 	created, err := s.tokenStore.CreateAPIToken(r.Context(), token, tokenHash)
@@ -190,12 +193,14 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		expiresAt = types.NewTimeNull(t.UTC())
 	}
 
+	userEmail := s.getUserEmail(r)
 	token := service.APIToken{
 		Name:             req.Name,
 		AllowedProviders: req.AllowedProviders,
 		AllowedModels:    req.AllowedModels,
 		AllowedWebhooks:  req.AllowedWebhooks,
 		ExpiresAt:        expiresAt,
+		UpdatedBy:        userEmail,
 	}
 
 	updated, err := s.tokenStore.UpdateAPIToken(r.Context(), id, token)

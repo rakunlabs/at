@@ -23,6 +23,8 @@ type nodeConfigRow struct {
 	Data      string `db:"data"`
 	CreatedAt string `db:"created_at"`
 	UpdatedAt string `db:"updated_at"`
+	CreatedBy string `db:"created_by"`
+	UpdatedBy string `db:"updated_by"`
 }
 
 // sensitiveFields lists fields that should be encrypted/decrypted within
@@ -33,7 +35,7 @@ var sensitiveFields = map[string][]string{
 
 func (s *SQLite) ListNodeConfigs(ctx context.Context) ([]service.NodeConfig, error) {
 	query, _, err := s.goqu.From(s.tableNodeConfigs).
-		Select("id", "name", "type", "data", "created_at", "updated_at").
+		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by").
 		Order(goqu.I("name").Asc()).
 		ToSQL()
 	if err != nil {
@@ -53,7 +55,7 @@ func (s *SQLite) ListNodeConfigs(ctx context.Context) ([]service.NodeConfig, err
 	var result []service.NodeConfig
 	for rows.Next() {
 		var row nodeConfigRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan node config row: %w", err)
 		}
 
@@ -69,7 +71,7 @@ func (s *SQLite) ListNodeConfigs(ctx context.Context) ([]service.NodeConfig, err
 
 func (s *SQLite) ListNodeConfigsByType(ctx context.Context, configType string) ([]service.NodeConfig, error) {
 	query, _, err := s.goqu.From(s.tableNodeConfigs).
-		Select("id", "name", "type", "data", "created_at", "updated_at").
+		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("type").Eq(configType)).
 		Order(goqu.I("name").Asc()).
 		ToSQL()
@@ -90,7 +92,7 @@ func (s *SQLite) ListNodeConfigsByType(ctx context.Context, configType string) (
 	var result []service.NodeConfig
 	for rows.Next() {
 		var row nodeConfigRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan node config row: %w", err)
 		}
 
@@ -106,7 +108,7 @@ func (s *SQLite) ListNodeConfigsByType(ctx context.Context, configType string) (
 
 func (s *SQLite) GetNodeConfig(ctx context.Context, id string) (*service.NodeConfig, error) {
 	query, _, err := s.goqu.From(s.tableNodeConfigs).
-		Select("id", "name", "type", "data", "created_at", "updated_at").
+		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -114,7 +116,7 @@ func (s *SQLite) GetNodeConfig(ctx context.Context, id string) (*service.NodeCon
 	}
 
 	var row nodeConfigRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -150,6 +152,8 @@ func (s *SQLite) CreateNodeConfig(ctx context.Context, nc service.NodeConfig) (*
 			"data":       storeData,
 			"created_at": now.Format(time.RFC3339),
 			"updated_at": now.Format(time.RFC3339),
+			"created_by": nc.CreatedBy,
+			"updated_by": nc.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -167,6 +171,8 @@ func (s *SQLite) CreateNodeConfig(ctx context.Context, nc service.NodeConfig) (*
 		Data:      nc.Data,
 		CreatedAt: now.Format(time.RFC3339),
 		UpdatedAt: now.Format(time.RFC3339),
+		CreatedBy: nc.CreatedBy,
+		UpdatedBy: nc.UpdatedBy,
 	}, nil
 }
 
@@ -188,6 +194,7 @@ func (s *SQLite) UpdateNodeConfig(ctx context.Context, id string, nc service.Nod
 			"type":       nc.Type,
 			"data":       storeData,
 			"updated_at": now.Format(time.RFC3339),
+			"updated_by": nc.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -240,6 +247,8 @@ func nodeConfigRowToRecord(row nodeConfigRow, encKey []byte) (*service.NodeConfi
 		Data:      data,
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
+		CreatedBy: row.CreatedBy,
+		UpdatedBy: row.UpdatedBy,
 	}, nil
 }
 

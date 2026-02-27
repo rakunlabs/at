@@ -195,6 +195,13 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Forward provider headers (e.g. rate limits)
+	for k, v := range resp.Header {
+		for _, val := range v {
+			w.Header().Add(k, val)
+		}
+	}
+
 	// Build OpenAI-compatible response
 	// Cache thought_signatures before sending the response to the client.
 	s.cacheThoughtSignatures(resp.ToolCalls)
@@ -451,13 +458,20 @@ func (s *Server) handleStreamingChat(
 	if sp, ok := provider.(service.LLMStreamProvider); ok {
 		slog.Debug("streaming via provider", "provider", providerKey, "model", actualModel)
 
-		chunks, err := sp.ChatStream(r.Context(), actualModel, messages, tools)
+		chunks, headers, err := sp.ChatStream(r.Context(), actualModel, messages, tools)
 		if err != nil {
 			// Can't send JSON error after SSE headers are set in some cases,
 			// but we haven't written anything yet, so we can still respond.
 			slog.Error("provider stream failed", "provider", providerKey, "error", err)
 			writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("provider error: %v", err))
 			return
+		}
+
+		// Forward provider headers (e.g. rate limits)
+		for k, v := range headers {
+			for _, val := range v {
+				w.Header().Add(k, val)
+			}
 		}
 
 		// First chunk: send role

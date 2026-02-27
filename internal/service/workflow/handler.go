@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/rakunlabs/logi"
 )
 
 // ExecuteJSHandler runs a JS function body with the tool arguments as input.
@@ -83,7 +83,7 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	if varLister != nil {
 		vars, err := varLister()
 		if err != nil {
-			slog.Warn("bash handler: failed to list variables", "error", err)
+			logi.Ctx(ctx).Warn("bash handler: failed to list variables", "error", err)
 		} else {
 			for k, v := range vars {
 				envKey := "VAR_" + strings.ToUpper(
@@ -100,18 +100,18 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	slog.Debug("bash handler: executing", "handler_length", len(handler), "arg_count", len(args))
+	logi.Ctx(ctx).Debug("bash handler: executing", "handler_length", len(handler), "arg_count", len(args))
 
 	if err := cmd.Run(); err != nil {
 		stderrStr := strings.TrimSpace(stderr.String())
 		if stderrStr != "" {
-			slog.Warn("bash handler: stderr", "stderr", stderrStr)
+			logi.Ctx(ctx).Warn("bash handler: stderr", "stderr", stderrStr)
 		}
 		return "", fmt.Errorf("bash handler failed: %w: %s", err, stderrStr)
 	}
 
 	if stderrStr := strings.TrimSpace(stderr.String()); stderrStr != "" {
-		slog.Debug("bash handler: stderr", "stderr", stderrStr)
+		logi.Ctx(ctx).Debug("bash handler: stderr", "stderr", stderrStr)
 	}
 
 	return strings.TrimSpace(stdout.String()), nil

@@ -16,17 +16,20 @@ import (
 // ─── Workflow CRUD ───
 
 type workflowRow struct {
-	ID          string          `db:"id"`
-	Name        string          `db:"name"`
-	Description string          `db:"description"`
-	Graph       json.RawMessage `db:"graph"`
-	CreatedAt   time.Time       `db:"created_at"`
-	UpdatedAt   time.Time       `db:"updated_at"`
+	ID            string          `db:"id"`
+	Name          string          `db:"name"`
+	Description   string          `db:"description"`
+	Graph         json.RawMessage `db:"graph"`
+	ActiveVersion *int            `db:"active_version"`
+	CreatedAt     time.Time       `db:"created_at"`
+	UpdatedAt     time.Time       `db:"updated_at"`
+	CreatedBy     string          `db:"created_by"`
+	UpdatedBy     string          `db:"updated_by"`
 }
 
 func (p *Postgres) ListWorkflows(ctx context.Context) ([]service.Workflow, error) {
 	query, _, err := p.goqu.From(p.tableWorkflows).
-		Select("id", "name", "description", "graph", "created_at", "updated_at").
+		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by").
 		Order(goqu.I("name").Asc()).
 		ToSQL()
 	if err != nil {
@@ -42,7 +45,7 @@ func (p *Postgres) ListWorkflows(ctx context.Context) ([]service.Workflow, error
 	var result []service.Workflow
 	for rows.Next() {
 		var row workflowRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan workflow row: %w", err)
 		}
 
@@ -58,7 +61,7 @@ func (p *Postgres) ListWorkflows(ctx context.Context) ([]service.Workflow, error
 
 func (p *Postgres) GetWorkflow(ctx context.Context, id string) (*service.Workflow, error) {
 	query, _, err := p.goqu.From(p.tableWorkflows).
-		Select("id", "name", "description", "graph", "created_at", "updated_at").
+		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -66,7 +69,7 @@ func (p *Postgres) GetWorkflow(ctx context.Context, id string) (*service.Workflo
 	}
 
 	var row workflowRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.CreatedAt, &row.UpdatedAt)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -94,6 +97,8 @@ func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*ser
 			"graph":       graphJSON,
 			"created_at":  now,
 			"updated_at":  now,
+			"created_by":  w.CreatedBy,
+			"updated_by":  w.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -111,6 +116,8 @@ func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*ser
 		Graph:       w.Graph,
 		CreatedAt:   now.Format(time.RFC3339),
 		UpdatedAt:   now.Format(time.RFC3339),
+		CreatedBy:   w.CreatedBy,
+		UpdatedBy:   w.UpdatedBy,
 	}, nil
 }
 
@@ -128,6 +135,7 @@ func (p *Postgres) UpdateWorkflow(ctx context.Context, id string, w service.Work
 			"description": w.Description,
 			"graph":       graphJSON,
 			"updated_at":  now,
+			"updated_by":  w.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -174,11 +182,14 @@ func workflowRowToRecord(row workflowRow) (*service.Workflow, error) {
 	}
 
 	return &service.Workflow{
-		ID:          row.ID,
-		Name:        row.Name,
-		Description: row.Description,
-		Graph:       graph,
-		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
+		ID:            row.ID,
+		Name:          row.Name,
+		Description:   row.Description,
+		Graph:         graph,
+		ActiveVersion: row.ActiveVersion,
+		CreatedAt:     row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:     row.CreatedBy,
+		UpdatedBy:     row.UpdatedBy,
 	}, nil
 }

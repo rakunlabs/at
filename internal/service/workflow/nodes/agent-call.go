@@ -3,10 +3,10 @@ package nodes
 import (
 	"context"
 	"fmt"
-	"log/slog"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
+	"github.com/rakunlabs/logi"
 )
 
 // agentCallNode runs an agentic loop: it sends a prompt to an LLM provider,
@@ -32,7 +32,6 @@ import (
 // Output ports:
 //
 //	"response" — the final LLM response text
-//	"text"     — alias for response (convenience port)
 type agentCallNode struct {
 	providerKey   string
 	model         string
@@ -193,7 +192,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	for _, url := range mcpURLs {
 		client, err := service.NewHTTPMCPClient(ctx, url)
 		if err != nil {
-			slog.Warn("agent_call: failed to connect to MCP server, skipping",
+			logi.Ctx(ctx).Warn("agent_call: failed to connect to MCP server, skipping",
 				"url", url, "error", err)
 			continue
 		}
@@ -201,7 +200,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 		tools, err := client.ListTools(ctx)
 		if err != nil {
-			slog.Warn("agent_call: failed to list MCP tools, skipping",
+			logi.Ctx(ctx).Warn("agent_call: failed to list MCP tools, skipping",
 				"url", url, "error", err)
 			continue
 		}
@@ -231,17 +230,17 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	var skillPromptFragments []string
 	for _, nameOrID := range skillNames {
 		if reg.SkillLookup == nil {
-			slog.Warn("agent_call: skill lookup not configured, skipping skill", "skill", nameOrID)
+			logi.Ctx(ctx).Warn("agent_call: skill lookup not configured, skipping skill", "skill", nameOrID)
 			continue
 		}
 		skill, err := reg.SkillLookup(nameOrID)
 		if err != nil {
-			slog.Warn("agent_call: failed to look up skill, skipping",
+			logi.Ctx(ctx).Warn("agent_call: failed to look up skill, skipping",
 				"skill", nameOrID, "error", err)
 			continue
 		}
 		if skill == nil {
-			slog.Warn("agent_call: skill not found, skipping", "skill", nameOrID)
+			logi.Ctx(ctx).Warn("agent_call: skill not found, skipping", "skill", nameOrID)
 			continue
 		}
 
@@ -365,14 +364,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		if resp.Finished || len(resp.ToolCalls) == 0 {
 			return workflow.NewResult(map[string]any{
 				"response": resp.Content,
-				"text":     resp.Content,
 			}), nil
 		}
 
 		// Execute tool calls and build tool results.
 		var toolResults []service.ContentBlock
 		for _, tc := range resp.ToolCalls {
-			slog.Debug("agent_call: tool call",
+			logi.Ctx(ctx).Debug("agent_call: tool call",
 				"tool", tc.Name, "iteration", iteration)
 
 			var result string

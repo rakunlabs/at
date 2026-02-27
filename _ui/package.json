@@ -29,6 +29,7 @@
     "vite": "^6.3.0"
   },
   "dependencies": {
-    "kaykay": "^0.1.5"
+    "kaykay": "^0.1.7",
+    "snarkdown": "^2.0.0"
   }
 }

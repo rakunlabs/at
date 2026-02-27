@@ -10,10 +10,10 @@ import (
 )
 
 // scriptNode executes arbitrary JavaScript code via Goja and routes the
-// output to one of three ports based on the script's return value:
+// output based on whether the script completes or throws:
 //
-//   - If the script returns a truthy value → port index 1 ("true")
-//   - If the script returns a falsy value  → port index 0 ("false")
+//   - If the script returns (any value) → port index 1 ("true")
+//   - If the script throws an error     → port index 0 ("false"), with error in output
 //   - Port index 2 ("always") is always activated
 //
 // Config (node.Data):
@@ -28,7 +28,7 @@ import (
 //
 // Global helper functions are available via SetupGojaVM:
 //
-//	toString(v), jsonParse(v), btoa(v), atob(s)
+//	toString(v), jsonParse(v), btoa(v), atob(s), log(args...)
 //
 // Any io.ReadCloser values in inputs (e.g. HTTP body) are automatically
 // wrapped in BodyWrapper with .toString(), .jsonParse(), .toBase64(), .bytes() methods.
@@ -76,32 +76,29 @@ func (n *scriptNode) Run(_ context.Context, reg *workflow.Registry, inputs map[s
 		return nil, fmt.Errorf("script: %w", err)
 	}
 
-	// Wrap user code in an IIFE so `return` works naturally.
-	val, err := vm.RunString("(function(){" + n.code + "})()")
-	if err != nil {
-		return nil, fmt.Errorf("script: execution error: %w", err)
-	}
-
-	// Export the result.
-	exported := val.Export()
-
 	outData := make(map[string]any, len(inputs)+1)
 	for k, v := range inputs {
 		outData[k] = v
 	}
+
+	// Wrap user code in an IIFE so `return` works naturally.
+	val, err := vm.RunString("(function(){" + n.code + "})()")
+	if err != nil {
+		// Script threw an error → route to "false" port with error details.
+		outData["result"] = nil
+		outData["error"] = err.Error()
+
+		selection := []int{2, 0} // always + false
+		return workflow.NewSelectionResult(outData, selection), nil
+	}
+
+	// Export the result.
+	exported := val.Export()
 	outData["result"] = exported
 
-	// Determine truthiness for port selection.
-	truthy := val.ToBoolean()
-
+	// Any return (regardless of value) → "true" port.
 	// Port 2 ("always") is always active.
-	// Port 1 ("true") if truthy, port 0 ("false") if falsy.
-	selection := []int{2} // always
-	if truthy {
-		selection = append(selection, 1)
-	} else {
-		selection = append(selection, 0)
-	}
+	selection := []int{2, 1} // always + true
 
 	return workflow.NewSelectionResult(outData, selection), nil
 }

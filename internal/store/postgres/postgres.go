@@ -34,13 +34,14 @@ type Postgres struct {
 	db   *sql.DB
 	goqu *goqu.Database
 
-	tableProviders   exp.IdentifierExpression
-	tableAPITokens   exp.IdentifierExpression
-	tableWorkflows   exp.IdentifierExpression
-	tableTriggers    exp.IdentifierExpression
-	tableSkills      exp.IdentifierExpression
-	tableVariables   exp.IdentifierExpression
-	tableNodeConfigs exp.IdentifierExpression
+	tableProviders        exp.IdentifierExpression
+	tableAPITokens        exp.IdentifierExpression
+	tableWorkflows        exp.IdentifierExpression
+	tableWorkflowVersions exp.IdentifierExpression
+	tableTriggers         exp.IdentifierExpression
+	tableSkills           exp.IdentifierExpression
+	tableVariables        exp.IdentifierExpression
+	tableNodeConfigs      exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -127,16 +128,17 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 	dbGoqu := goqu.New("postgres", db)
 
 	return &Postgres{
-		db:               db,
-		goqu:             dbGoqu,
-		tableProviders:   goqu.T(tablePrefix + "providers"),
-		tableAPITokens:   goqu.T(tablePrefix + "tokens"),
-		tableWorkflows:   goqu.T(tablePrefix + "workflows"),
-		tableTriggers:    goqu.T(tablePrefix + "triggers"),
-		tableSkills:      goqu.T(tablePrefix + "skills"),
-		tableVariables:   goqu.T(tablePrefix + "variables"),
-		tableNodeConfigs: goqu.T(tablePrefix + "node_configs"),
-		encKey:           encKey,
+		db:                    db,
+		goqu:                  dbGoqu,
+		tableProviders:        goqu.T(tablePrefix + "providers"),
+		tableAPITokens:        goqu.T(tablePrefix + "tokens"),
+		tableWorkflows:        goqu.T(tablePrefix + "workflows"),
+		tableWorkflowVersions: goqu.T(tablePrefix + "workflow_versions"),
+		tableTriggers:         goqu.T(tablePrefix + "triggers"),
+		tableSkills:           goqu.T(tablePrefix + "skills"),
+		tableVariables:        goqu.T(tablePrefix + "variables"),
+		tableNodeConfigs:      goqu.T(tablePrefix + "node_configs"),
+		encKey:                encKey,
 	}, nil
 }
 
@@ -156,11 +158,13 @@ type providerRow struct {
 	Config    json.RawMessage `db:"config"`
 	CreatedAt time.Time       `db:"created_at" goqu:"skipupdate"`
 	UpdatedAt time.Time       `db:"updated_at"`
+	CreatedBy string          `db:"created_by" goqu:"skipupdate"`
+	UpdatedBy string          `db:"updated_by"`
 }
 
 func (p *Postgres) ListProviders(ctx context.Context) ([]service.ProviderRecord, error) {
 	query, _, err := p.goqu.From(p.tableProviders).
-		Select("id", "key", "config", "created_at", "updated_at").
+		Select("id", "key", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Order(goqu.I("key").Asc()).
 		ToSQL()
 	if err != nil {
@@ -180,7 +184,7 @@ func (p *Postgres) ListProviders(ctx context.Context) ([]service.ProviderRecord,
 	var result []service.ProviderRecord
 	for rows.Next() {
 		var row providerRow
-		if err := rows.Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan provider row: %w", err)
 		}
 
@@ -196,7 +200,7 @@ func (p *Postgres) ListProviders(ctx context.Context) ([]service.ProviderRecord,
 
 func (p *Postgres) GetProvider(ctx context.Context, key string) (*service.ProviderRecord, error) {
 	query, _, err := p.goqu.From(p.tableProviders).
-		Select("id", "key", "config", "created_at", "updated_at").
+		Select("id", "key", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("key").Eq(key)).
 		ToSQL()
 	if err != nil {
@@ -204,7 +208,7 @@ func (p *Postgres) GetProvider(ctx context.Context, key string) (*service.Provid
 	}
 
 	var row providerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -219,12 +223,12 @@ func (p *Postgres) GetProvider(ctx context.Context, key string) (*service.Provid
 	return rowToRecord(row, encKey)
 }
 
-func (p *Postgres) CreateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*service.ProviderRecord, error) {
+func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRecord) (*service.ProviderRecord, error) {
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
-	storeCfg, err := atcrypto.EncryptLLMConfig(cfg, encKey)
+	storeCfg, err := atcrypto.EncryptLLMConfig(record.Config, encKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt config: %w", err)
 	}
@@ -234,6 +238,7 @@ func (p *Postgres) CreateProvider(ctx context.Context, key string, cfg config.LL
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
 
+	key := record.Key
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
@@ -244,6 +249,8 @@ func (p *Postgres) CreateProvider(ctx context.Context, key string, cfg config.LL
 			"config":     configJSON,
 			"created_at": now,
 			"updated_at": now,
+			"created_by": record.CreatedBy,
+			"updated_by": record.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -257,18 +264,20 @@ func (p *Postgres) CreateProvider(ctx context.Context, key string, cfg config.LL
 	return &service.ProviderRecord{
 		ID:        id,
 		Key:       key,
-		Config:    cfg,
+		Config:    record.Config,
 		CreatedAt: now.Format(time.RFC3339),
 		UpdatedAt: now.Format(time.RFC3339),
+		CreatedBy: record.CreatedBy,
+		UpdatedBy: record.UpdatedBy,
 	}, nil
 }
 
-func (p *Postgres) UpdateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*service.ProviderRecord, error) {
+func (p *Postgres) UpdateProvider(ctx context.Context, key string, record service.ProviderRecord) (*service.ProviderRecord, error) {
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
-	storeCfg, err := atcrypto.EncryptLLMConfig(cfg, encKey)
+	storeCfg, err := atcrypto.EncryptLLMConfig(record.Config, encKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt config: %w", err)
 	}
@@ -284,6 +293,7 @@ func (p *Postgres) UpdateProvider(ctx context.Context, key string, cfg config.LL
 		goqu.Record{
 			"config":     configJSON,
 			"updated_at": now,
+			"updated_by": record.UpdatedBy,
 		},
 	).Where(goqu.I("key").Eq(key)).ToSQL()
 	if err != nil {
@@ -341,6 +351,8 @@ func rowToRecord(row providerRow, encKey []byte) (*service.ProviderRecord, error
 		Config:    cfg,
 		CreatedAt: row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt: row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy: row.CreatedBy,
+		UpdatedBy: row.UpdatedBy,
 	}, nil
 }
 

@@ -61,6 +61,9 @@ type Server struct {
 	// workflowStore is the persistent store for workflow definitions.
 	workflowStore service.WorkflowStorer
 
+	// workflowVersionStore is the persistent store for workflow version history.
+	workflowVersionStore service.WorkflowVersionStorer
+
 	// triggerStore is the persistent store for workflow triggers.
 	triggerStore service.TriggerStorer
 
@@ -106,6 +109,13 @@ type Server struct {
 	// activeRuns tracks currently-running workflow executions.
 	// map key: run ID (string), value: *activeRun
 	activeRuns sync.Map
+}
+
+func (s *Server) getUserEmail(r *http.Request) string {
+	if s.config.UserHeader == "" {
+		return ""
+	}
+	return r.Header.Get(s.config.UserHeader)
 }
 
 // thoughtSigTTL is how long cached thought_signature entries are kept.
@@ -159,7 +169,7 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -171,20 +181,21 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	)
 
 	s := &Server{
-		config:          cfg,
-		server:          mux,
-		providers:       providers,
-		store:           store,
-		tokenStore:      tokenStore,
-		workflowStore:   workflowStore,
-		triggerStore:    triggerStore,
-		skillStore:      skillStore,
-		variableStore:   variableStore,
-		nodeConfigStore: nodeConfigStore,
-		providerFactory: factory,
-		storeType:       storeType,
-		authTokens:      gatewayCfg.AuthTokens,
-		cluster:         cl,
+		config:               cfg,
+		server:               mux,
+		providers:            providers,
+		store:                store,
+		tokenStore:           tokenStore,
+		workflowStore:        workflowStore,
+		workflowVersionStore: workflowVersionStore,
+		triggerStore:         triggerStore,
+		skillStore:           skillStore,
+		variableStore:        variableStore,
+		nodeConfigStore:      nodeConfigStore,
+		providerFactory:      factory,
+		storeType:            storeType,
+		authTokens:           gatewayCfg.AuthTokens,
+		cluster:              cl,
 	}
 
 	// Start background sweep for expired thought_signature cache entries.
@@ -263,7 +274,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup)
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
@@ -324,6 +335,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.GET("/v1/workflows/{id}", s.GetWorkflowAPI)
 	apiGroup.PUT("/v1/workflows/{id}", s.UpdateWorkflowAPI)
 	apiGroup.DELETE("/v1/workflows/{id}", s.DeleteWorkflowAPI)
+
+	// Workflow version management
+	apiGroup.GET("/v1/workflows/{id}/versions", s.ListWorkflowVersionsAPI)
+	apiGroup.GET("/v1/workflows/{id}/versions/{version}", s.GetWorkflowVersionAPI)
+	apiGroup.PUT("/v1/workflows/{id}/active-version", s.SetActiveVersionAPI)
 
 	// Trigger management (nested under workflows for list/create)
 	apiGroup.GET("/v1/workflows/{workflow_id}/triggers", s.ListTriggersAPI)

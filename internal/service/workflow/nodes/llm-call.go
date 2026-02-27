@@ -24,7 +24,6 @@ import (
 // Output ports:
 //
 //	"response" — the full LLM response text
-//	"text"     — alias for response (convenience port)
 type llmCallNode struct {
 	providerKey  string
 	model        string
@@ -118,7 +117,6 @@ func (n *llmCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs ma
 
 	return workflow.NewResult(map[string]any{
 		"response": resp.Content,
-		"text":     resp.Content,
 	}), nil
 }
 

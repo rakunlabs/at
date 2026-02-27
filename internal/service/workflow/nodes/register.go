@@ -24,4 +24,5 @@
 //   - cron_trigger   — Cron schedule trigger (merges static payload with metadata)
 //   - exec           — sandboxed shell command execution (/bin/sh -c)
 //   - email          — send email via SMTP with NodeConfig-based server settings
+//   - log            — log data at configurable level and pass through unchanged
 package nodes

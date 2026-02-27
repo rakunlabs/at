@@ -6,12 +6,16 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
+	"github.com/rakunlabs/logi"
 
 	// Blank import triggers init() registration of all built-in node types.
 	_ "github.com/rakunlabs/at/internal/service/workflow/nodes"
+
+	mrequestid "github.com/rakunlabs/ada/middleware/requestid"
 )
 
 // ─── Workflow CRUD API ───
@@ -88,6 +92,9 @@ func (s *Server) CreateWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userEmail := s.getUserEmail(r)
+	req.CreatedBy = userEmail
+	req.UpdatedBy = userEmail
 	record, err := s.workflowStore.CreateWorkflow(r.Context(), req)
 	if err != nil {
 		slog.Error("create workflow failed", "name", req.Name, "error", err)
@@ -97,12 +104,13 @@ func (s *Server) CreateWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Sync triggers: create DB trigger records for any trigger nodes in the graph.
 	if s.triggerStore != nil {
-		cronChanged, err := s.syncTriggers(r.Context(), record.ID, &record.Graph)
+		cronChanged, err := s.syncTriggers(r.Context(), record.ID, &record.Graph, userEmail)
 		if err != nil {
 			slog.Error("sync triggers failed after create", "id", record.ID, "error", err)
 			// Non-fatal: workflow was created, triggers just didn't sync.
 		} else if s.hasTriggerNodes(record.Graph) {
 			// Persist the graph with trigger IDs written back into node data.
+			record.UpdatedBy = userEmail
 			record, err = s.workflowStore.UpdateWorkflow(r.Context(), record.ID, *record)
 			if err != nil {
 				slog.Error("update workflow after trigger sync failed", "id", record.ID, "error", err)
@@ -143,13 +151,16 @@ func (s *Server) UpdateWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userEmail := s.getUserEmail(r)
+	req.UpdatedBy = userEmail
+
 	// Sync triggers before saving: creates/updates/deletes DB trigger records
 	// based on trigger nodes in the graph, and writes trigger_id back into
 	// node data so the saved graph contains the assigned IDs.
 	var cronChanged bool
 	if s.triggerStore != nil {
 		var err error
-		cronChanged, err = s.syncTriggers(r.Context(), id, &req.Graph)
+		cronChanged, err = s.syncTriggers(r.Context(), id, &req.Graph, userEmail)
 		if err != nil {
 			slog.Error("sync triggers failed", "id", id, "error", err)
 			httpResponse(w, fmt.Sprintf("failed to sync triggers: %v", err), http.StatusInternalServerError)
@@ -167,6 +178,30 @@ func (s *Server) UpdateWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	if record == nil {
 		httpResponse(w, fmt.Sprintf("workflow %q not found", id), http.StatusNotFound)
 		return
+	}
+
+	// Auto-create a new version snapshot on every save.
+	if s.workflowVersionStore != nil {
+		ver, err := s.workflowVersionStore.CreateWorkflowVersion(r.Context(), service.WorkflowVersion{
+			WorkflowID:  id,
+			Name:        record.Name,
+			Description: record.Description,
+			Graph:       record.Graph,
+			CreatedBy:   userEmail,
+		})
+		if err != nil {
+			slog.Error("create workflow version failed", "id", id, "error", err)
+			// Non-fatal: workflow was updated, version just didn't get created.
+		} else {
+			// On first save (no active version yet), auto-set active version.
+			if record.ActiveVersion == nil {
+				if err := s.workflowVersionStore.SetActiveVersion(r.Context(), id, ver.Version); err != nil {
+					slog.Error("set initial active version failed", "id", id, "error", err)
+				} else {
+					record.ActiveVersion = &ver.Version
+				}
+			}
+		}
 	}
 
 	if cronChanged && s.scheduler != nil {
@@ -232,16 +267,19 @@ type runWorkflowRequest struct {
 	Inputs map[string]any `json:"inputs"`
 }
 
-// runWorkflowResponse is returned immediately when a workflow is started.
+// runWorkflowResponse is returned when a workflow is started (async) or completed (sync).
 type runWorkflowResponse struct {
-	RunID      string `json:"run_id"`
-	WorkflowID string `json:"workflow_id"`
-	Status     string `json:"status"`
+	RunID      string         `json:"run_id"`
+	WorkflowID string         `json:"workflow_id"`
+	Status     string         `json:"status"`
+	Outputs    map[string]any `json:"outputs,omitempty"`
 }
 
 // RunWorkflowAPI handles POST /api/v1/workflows/run/:id.
-// The workflow is executed asynchronously. The response returns a run_id
-// that can be used to cancel the run via POST /api/v1/runs/:run_id/cancel.
+// By default the workflow is executed asynchronously and the response returns
+// a run_id that can be used to cancel the run.
+// Pass ?sync=true to run synchronously: the request blocks until the workflow
+// completes and the response includes the collected outputs.
 func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	if s.workflowStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -266,6 +304,31 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine which graph to run: if ?version=N is set, load that version's graph.
+	graphToRun := wf.Graph
+	if versionStr := r.URL.Query().Get("version"); versionStr != "" {
+		version, err := strconv.Atoi(versionStr)
+		if err != nil {
+			httpResponse(w, fmt.Sprintf("invalid version parameter: %v", err), http.StatusBadRequest)
+			return
+		}
+		if s.workflowVersionStore == nil {
+			httpResponse(w, "version store not configured", http.StatusServiceUnavailable)
+			return
+		}
+		ver, err := s.workflowVersionStore.GetWorkflowVersion(r.Context(), id, version)
+		if err != nil {
+			slog.Error("run workflow: get version failed", "id", id, "version", version, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to get workflow version: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if ver == nil {
+			httpResponse(w, fmt.Sprintf("workflow %q version %d not found", id, version), http.StatusNotFound)
+			return
+		}
+		graphToRun = ver.Graph
+	}
+
 	var req runWorkflowRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
@@ -276,8 +339,23 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		req.Inputs = make(map[string]any)
 	}
 
-	// Register the run and get a cancellable context (detached from request).
-	runID, ctx, cleanup := s.registerRun(context.Background(), id, "api")
+	syncMode := r.URL.Query().Get("sync") == "true"
+
+	// Both sync and async modes run the engine in a goroutine that outlives
+	// the HTTP request. Use context.Background() so the request context
+	// cancellation does not kill background graph execution.
+	parentCtx := context.Background()
+
+	// Enrich context with workflow metadata for structured logging.
+	requestID := r.Header.Get(mrequestid.HeaderXRequestID)
+	parentCtx = logi.WithContext(parentCtx, slog.With(
+		slog.String("workflow_id", id),
+		slog.String("workflow_name", wf.Name),
+		slog.String("request_id", requestID),
+	))
+
+	// Register the run and get a cancellable context.
+	runID, ctx, cleanup := s.registerRun(parentCtx, id, "api")
 
 	// Build a provider lookup function for the engine.
 	providerLookup := func(key string) (service.LLMProvider, string, error) {
@@ -342,25 +420,209 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 
 	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup)
 
-	// Run workflow asynchronously.
-	go func() {
-		defer cleanup()
+	// Manual/API runs start from "input" nodes only.
+	var entryNodeIDs []string
+	hasOutputNode := false
+	for _, n := range graphToRun.Nodes {
+		if n.Type == "input" {
+			entryNodeIDs = append(entryNodeIDs, n.ID)
+		}
+		if n.Type == "output" {
+			hasOutputNode = true
+		}
+	}
 
-		result, err := engine.Run(ctx, wf.Graph, req.Inputs)
-		if err != nil {
-			slog.Error("run workflow failed", "id", id, "run_id", runID, "error", err)
+	if syncMode && hasOutputNode {
+		// Synchronous with output node: run the engine in a goroutine and
+		// wait for the first output node to fire. The rest of the graph
+		// continues in the background.
+		outputCh := make(chan workflow.EarlyOutput, 1)
+
+		go func() {
+			defer cleanup()
+
+			result, err := engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, outputCh)
+			if err != nil {
+				logi.Ctx(ctx).Error("run workflow failed", "id", id, "run_id", runID, "error", err)
+				return
+			}
+
+			logi.Ctx(ctx).Info("workflow completed", "id", id, "run_id", runID,
+				"output_keys", mapKeys(result.Outputs))
+		}()
+
+		early := <-outputCh
+		if early.Err != nil {
+			logi.Ctx(ctx).Error("run workflow failed", "id", id, "run_id", runID, "error", early.Err)
+			httpResponse(w, fmt.Sprintf("workflow execution failed: %v", early.Err), http.StatusInternalServerError)
 			return
 		}
 
-		slog.Info("workflow completed", "id", id, "run_id", runID,
-			"output_keys", mapKeys(result.Outputs))
-	}()
+		httpResponseJSON(w, runWorkflowResponse{
+			RunID:      runID,
+			WorkflowID: id,
+			Status:     "completed",
+			Outputs:    early.Outputs,
+		}, http.StatusOK)
+	} else {
+		// Asynchronous (or sync without output node): run in goroutine,
+		// return immediately. Nothing to wait for.
+		go func() {
+			defer cleanup()
 
-	httpResponseJSON(w, runWorkflowResponse{
-		RunID:      runID,
-		WorkflowID: id,
-		Status:     "running",
-	}, http.StatusAccepted)
+			result, err := engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, nil)
+			if err != nil {
+				logi.Ctx(ctx).Error("run workflow failed", "id", id, "run_id", runID, "error", err)
+				return
+			}
+
+			logi.Ctx(ctx).Info("workflow completed", "id", id, "run_id", runID,
+				"output_keys", mapKeys(result.Outputs))
+		}()
+
+		httpResponseJSON(w, runWorkflowResponse{
+			RunID:      runID,
+			WorkflowID: id,
+			Status:     "running",
+		}, http.StatusAccepted)
+	}
+}
+
+// ─── Workflow Version API ───
+
+// workflowVersionsResponse wraps a list of workflow version records for JSON output.
+type workflowVersionsResponse struct {
+	Versions []service.WorkflowVersion `json:"versions"`
+}
+
+// ListWorkflowVersionsAPI handles GET /api/v1/workflows/:id/versions.
+func (s *Server) ListWorkflowVersionsAPI(w http.ResponseWriter, r *http.Request) {
+	if s.workflowVersionStore == nil {
+		httpResponse(w, "version store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "workflow id is required", http.StatusBadRequest)
+		return
+	}
+
+	versions, err := s.workflowVersionStore.ListWorkflowVersions(r.Context(), id)
+	if err != nil {
+		slog.Error("list workflow versions failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to list workflow versions: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if versions == nil {
+		versions = []service.WorkflowVersion{}
+	}
+
+	httpResponseJSON(w, workflowVersionsResponse{Versions: versions}, http.StatusOK)
+}
+
+// GetWorkflowVersionAPI handles GET /api/v1/workflows/:id/versions/:version.
+func (s *Server) GetWorkflowVersionAPI(w http.ResponseWriter, r *http.Request) {
+	if s.workflowVersionStore == nil {
+		httpResponse(w, "version store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "workflow id is required", http.StatusBadRequest)
+		return
+	}
+
+	versionStr := r.PathValue("version")
+	version, err := strconv.Atoi(versionStr)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid version: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	ver, err := s.workflowVersionStore.GetWorkflowVersion(r.Context(), id, version)
+	if err != nil {
+		slog.Error("get workflow version failed", "id", id, "version", version, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get workflow version: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if ver == nil {
+		httpResponse(w, fmt.Sprintf("workflow %q version %d not found", id, version), http.StatusNotFound)
+		return
+	}
+
+	httpResponseJSON(w, ver, http.StatusOK)
+}
+
+// setActiveVersionRequest is the JSON body for PUT /api/v1/workflows/:id/active-version.
+type setActiveVersionRequest struct {
+	Version int `json:"version"`
+}
+
+// SetActiveVersionAPI handles PUT /api/v1/workflows/:id/active-version.
+func (s *Server) SetActiveVersionAPI(w http.ResponseWriter, r *http.Request) {
+	if s.workflowVersionStore == nil {
+		httpResponse(w, "version store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "workflow id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req setActiveVersionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Version <= 0 {
+		httpResponse(w, "version must be a positive integer", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the version exists.
+	ver, err := s.workflowVersionStore.GetWorkflowVersion(r.Context(), id, req.Version)
+	if err != nil {
+		slog.Error("set active version: get version failed", "id", id, "version", req.Version, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to verify version: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if ver == nil {
+		httpResponse(w, fmt.Sprintf("workflow %q version %d not found", id, req.Version), http.StatusNotFound)
+		return
+	}
+
+	if err := s.workflowVersionStore.SetActiveVersion(r.Context(), id, req.Version); err != nil {
+		slog.Error("set active version failed", "id", id, "version", req.Version, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to set active version: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Also update the workflow's graph to match the active version for backward compatibility.
+	if _, err := s.workflowStore.UpdateWorkflow(r.Context(), id, service.Workflow{
+		Name:        ver.Name,
+		Description: ver.Description,
+		Graph:       ver.Graph,
+		UpdatedBy:   s.getUserEmail(r),
+	}); err != nil {
+		slog.Error("update workflow graph from active version failed", "id", id, "version", req.Version, "error", err)
+		// Non-fatal: active_version was set, graph sync just failed.
+	}
+
+	// Reload scheduler in case the active version changed cron triggers.
+	if s.scheduler != nil {
+		if err := s.scheduler.Reload(); err != nil {
+			slog.Error("scheduler reload failed after set active version", "error", err)
+		}
+	}
+
+	httpResponse(w, fmt.Sprintf("active version set to %d", req.Version), http.StatusOK)
 }
 
 // ─── Trigger Sync ───
@@ -396,7 +658,7 @@ func (s *Server) hasTriggerNodes(graph service.WorkflowGraph) bool {
 //
 // The graph is mutated in-place. Returns whether any cron triggers were
 // created, updated or deleted (so the caller can reload the scheduler).
-func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *service.WorkflowGraph) (cronChanged bool, err error) {
+func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *service.WorkflowGraph, userEmail string) (cronChanged bool, err error) {
 	// 1. Load existing DB triggers for this workflow.
 	existing, err := s.triggerStore.ListTriggers(ctx, workflowID)
 	if err != nil {
@@ -437,11 +699,12 @@ func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *ser
 				public, _ := node.Data["public"].(bool)
 				if configChanged(t.Config, newConfig) || t.Alias != alias || t.Public != public {
 					updated, err := s.triggerStore.UpdateTrigger(ctx, triggerID, service.Trigger{
-						Type:    dbType,
-						Config:  newConfig,
-						Alias:   alias,
-						Public:  public,
-						Enabled: true,
+						Type:      dbType,
+						Config:    newConfig,
+						Alias:     alias,
+						Public:    public,
+						Enabled:   true,
+						UpdatedBy: userEmail,
 					})
 					if err != nil {
 						slog.Error("sync: update trigger failed", "trigger_id", triggerID, "error", err)
@@ -467,6 +730,8 @@ func (s *Server) syncTriggers(ctx context.Context, workflowID string, graph *ser
 			Alias:      alias,
 			Public:     public,
 			Enabled:    true,
+			CreatedBy:  userEmail,
+			UpdatedBy:  userEmail,
 		})
 		if err != nil {
 			slog.Error("sync: create trigger failed", "node_id", node.ID, "error", err)

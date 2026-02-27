@@ -16,6 +16,10 @@ export interface WorkflowNode {
   type: string;
   position: WorkflowPos;
   data: Record<string, any>;
+  width?: number;
+  height?: number;
+  parent_id?: string;
+  z_index?: number;
 }
 
 export interface WorkflowEdge {
@@ -36,12 +40,30 @@ export interface Workflow {
   name: string;
   description: string;
   graph: WorkflowGraph;
+  active_version?: number;
   created_at: string;
   updated_at: string;
+  created_by?: string;
+  updated_by?: string;
+}
+
+export interface WorkflowVersion {
+  id: string;
+  workflow_id: string;
+  version: number;
+  name: string;
+  description: string;
+  graph: WorkflowGraph;
+  created_at: string;
+  created_by?: string;
 }
 
 interface WorkflowsResponse {
   workflows: Workflow[];
+}
+
+interface WorkflowVersionsResponse {
+  versions: WorkflowVersion[];
 }
 
 // ─── API Functions ───
@@ -70,7 +92,28 @@ export async function deleteWorkflow(id: string): Promise<void> {
   await api.delete(`/workflows/${id}`);
 }
 
-export async function runWorkflow(id: string, inputs: Record<string, any>): Promise<Record<string, any>> {
-  const res = await api.post<Record<string, any>>(`/workflows/run/${id}`, { inputs });
+export async function runWorkflow(id: string, inputs: Record<string, any>, sync = false, version?: number): Promise<Record<string, any>> {
+  const params = new URLSearchParams();
+  if (sync) params.set('sync', 'true');
+  if (version !== undefined) params.set('version', String(version));
+  const qs = params.toString();
+  const url = `/workflows/run/${id}${qs ? '?' + qs : ''}`;
+  const res = await api.post<Record<string, any>>(url, { inputs });
   return res.data;
+}
+
+// ─── Version API Functions ───
+
+export async function listWorkflowVersions(workflowId: string): Promise<WorkflowVersion[]> {
+  const res = await api.get<WorkflowVersionsResponse>(`/workflows/${workflowId}/versions`);
+  return res.data.versions;
+}
+
+export async function getWorkflowVersion(workflowId: string, version: number): Promise<WorkflowVersion> {
+  const res = await api.get<WorkflowVersion>(`/workflows/${workflowId}/versions/${version}`);
+  return res.data;
+}
+
+export async function setActiveVersion(workflowId: string, version: number): Promise<void> {
+  await api.put(`/workflows/${workflowId}/active-version`, { version });
 }

@@ -2,10 +2,12 @@ package workflow
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"sync"
 	"time"
@@ -152,6 +154,7 @@ func SetupGojaVM(vm *goja.Runtime, inputs map[string]any, varLookup ...VarLookup
 //	jsonParse(v)  — parse string or []byte as JSON
 //	btoa(v)       — base64 encode []byte or string
 //	atob(s)       — base64 decode string to []byte
+//	log(msg, ...) — structured log via slog (key-value pairs after message)
 func registerGojaHelpers(vm *goja.Runtime) error {
 	// toString: convert []byte or any value to string.
 	if err := vm.Set("toString", func(call goja.FunctionCall) goja.Value {
@@ -255,6 +258,45 @@ func registerGojaHelpers(vm *goja.Runtime) error {
 		}
 		return vm.ToValue(string(data))
 	}); err != nil {
+		return err
+	}
+
+	// log.info/warn/error/debug: write structured log messages via slog at the given level.
+	// Usage: log.info("message"), log.warn("message", "key1", val1, "key2", val2)
+	makeLogFn := func(level slog.Level) func(goja.FunctionCall) goja.Value {
+		return func(call goja.FunctionCall) goja.Value {
+			if len(call.Arguments) == 0 {
+				return goja.Undefined()
+			}
+
+			msg := call.Arguments[0].String()
+
+			// Collect remaining arguments as key-value pairs for structured logging.
+			var attrs []any
+			for i := 1; i+1 < len(call.Arguments); i += 2 {
+				key := call.Arguments[i].String()
+				val := call.Arguments[i+1].Export()
+				attrs = append(attrs, key, val)
+			}
+
+			slog.Log(context.Background(), level, "script: "+msg, attrs...)
+
+			return goja.Undefined()
+		}
+	}
+
+	logObj := vm.NewObject()
+	for name, level := range map[string]slog.Level{
+		"info":  slog.LevelInfo,
+		"warn":  slog.LevelWarn,
+		"error": slog.LevelError,
+		"debug": slog.LevelDebug,
+	} {
+		if err := logObj.Set(name, makeLogFn(level)); err != nil {
+			return err
+		}
+	}
+	if err := vm.Set("log", logObj); err != nil {
 		return err
 	}
 

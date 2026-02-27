@@ -28,13 +28,14 @@ type SQLite struct {
 	db   *sql.DB
 	goqu *goqu.Database
 
-	tableProviders   exp.IdentifierExpression
-	tableAPITokens   exp.IdentifierExpression
-	tableWorkflows   exp.IdentifierExpression
-	tableTriggers    exp.IdentifierExpression
-	tableSkills      exp.IdentifierExpression
-	tableVariables   exp.IdentifierExpression
-	tableNodeConfigs exp.IdentifierExpression
+	tableProviders        exp.IdentifierExpression
+	tableAPITokens        exp.IdentifierExpression
+	tableWorkflows        exp.IdentifierExpression
+	tableWorkflowVersions exp.IdentifierExpression
+	tableTriggers         exp.IdentifierExpression
+	tableSkills           exp.IdentifierExpression
+	tableVariables        exp.IdentifierExpression
+	tableNodeConfigs      exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -112,16 +113,17 @@ func New(ctx context.Context, cfg *config.StoreSQLite, encKey []byte) (*SQLite, 
 	dbGoqu := goqu.New("sqlite3", db)
 
 	return &SQLite{
-		db:               db,
-		goqu:             dbGoqu,
-		tableProviders:   goqu.T(tablePrefix + "providers"),
-		tableAPITokens:   goqu.T(tablePrefix + "tokens"),
-		tableWorkflows:   goqu.T(tablePrefix + "workflows"),
-		tableTriggers:    goqu.T(tablePrefix + "triggers"),
-		tableSkills:      goqu.T(tablePrefix + "skills"),
-		tableVariables:   goqu.T(tablePrefix + "variables"),
-		tableNodeConfigs: goqu.T(tablePrefix + "node_configs"),
-		encKey:           encKey,
+		db:                    db,
+		goqu:                  dbGoqu,
+		tableProviders:        goqu.T(tablePrefix + "providers"),
+		tableAPITokens:        goqu.T(tablePrefix + "tokens"),
+		tableWorkflows:        goqu.T(tablePrefix + "workflows"),
+		tableWorkflowVersions: goqu.T(tablePrefix + "workflow_versions"),
+		tableTriggers:         goqu.T(tablePrefix + "triggers"),
+		tableSkills:           goqu.T(tablePrefix + "skills"),
+		tableVariables:        goqu.T(tablePrefix + "variables"),
+		tableNodeConfigs:      goqu.T(tablePrefix + "node_configs"),
+		encKey:                encKey,
 	}, nil
 }
 
@@ -141,11 +143,13 @@ type providerRow struct {
 	Config    string `db:"config"`
 	CreatedAt string `db:"created_at"`
 	UpdatedAt string `db:"updated_at"`
+	CreatedBy string `db:"created_by"`
+	UpdatedBy string `db:"updated_by"`
 }
 
 func (s *SQLite) ListProviders(ctx context.Context) ([]service.ProviderRecord, error) {
 	query, _, err := s.goqu.From(s.tableProviders).
-		Select("id", "key", "config", "created_at", "updated_at").
+		Select("id", "key", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Order(goqu.I("key").Asc()).
 		ToSQL()
 	if err != nil {
@@ -165,7 +169,7 @@ func (s *SQLite) ListProviders(ctx context.Context) ([]service.ProviderRecord, e
 	var result []service.ProviderRecord
 	for rows.Next() {
 		var row providerRow
-		if err := rows.Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan provider row: %w", err)
 		}
 
@@ -181,7 +185,7 @@ func (s *SQLite) ListProviders(ctx context.Context) ([]service.ProviderRecord, e
 
 func (s *SQLite) GetProvider(ctx context.Context, key string) (*service.ProviderRecord, error) {
 	query, _, err := s.goqu.From(s.tableProviders).
-		Select("id", "key", "config", "created_at", "updated_at").
+		Select("id", "key", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("key").Eq(key)).
 		ToSQL()
 	if err != nil {
@@ -189,7 +193,7 @@ func (s *SQLite) GetProvider(ctx context.Context, key string) (*service.Provider
 	}
 
 	var row providerRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -204,12 +208,12 @@ func (s *SQLite) GetProvider(ctx context.Context, key string) (*service.Provider
 	return rowToRecord(row, encKey)
 }
 
-func (s *SQLite) CreateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*service.ProviderRecord, error) {
+func (s *SQLite) CreateProvider(ctx context.Context, record service.ProviderRecord) (*service.ProviderRecord, error) {
 	s.encKeyMu.RLock()
 	encKey := s.encKey
 	s.encKeyMu.RUnlock()
 
-	storeCfg, err := atcrypto.EncryptLLMConfig(cfg, encKey)
+	storeCfg, err := atcrypto.EncryptLLMConfig(record.Config, encKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt config: %w", err)
 	}
@@ -219,6 +223,7 @@ func (s *SQLite) CreateProvider(ctx context.Context, key string, cfg config.LLMC
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
 
+	key := record.Key
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
@@ -229,6 +234,8 @@ func (s *SQLite) CreateProvider(ctx context.Context, key string, cfg config.LLMC
 			"config":     string(configJSON),
 			"created_at": now.Format(time.RFC3339),
 			"updated_at": now.Format(time.RFC3339),
+			"created_by": record.CreatedBy,
+			"updated_by": record.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -242,18 +249,20 @@ func (s *SQLite) CreateProvider(ctx context.Context, key string, cfg config.LLMC
 	return &service.ProviderRecord{
 		ID:        id,
 		Key:       key,
-		Config:    cfg,
+		Config:    record.Config,
 		CreatedAt: now.Format(time.RFC3339),
 		UpdatedAt: now.Format(time.RFC3339),
+		CreatedBy: record.CreatedBy,
+		UpdatedBy: record.UpdatedBy,
 	}, nil
 }
 
-func (s *SQLite) UpdateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*service.ProviderRecord, error) {
+func (s *SQLite) UpdateProvider(ctx context.Context, key string, record service.ProviderRecord) (*service.ProviderRecord, error) {
 	s.encKeyMu.RLock()
 	encKey := s.encKey
 	s.encKeyMu.RUnlock()
 
-	storeCfg, err := atcrypto.EncryptLLMConfig(cfg, encKey)
+	storeCfg, err := atcrypto.EncryptLLMConfig(record.Config, encKey)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt config: %w", err)
 	}
@@ -269,6 +278,7 @@ func (s *SQLite) UpdateProvider(ctx context.Context, key string, cfg config.LLMC
 		goqu.Record{
 			"config":     string(configJSON),
 			"updated_at": now.Format(time.RFC3339),
+			"updated_by": record.UpdatedBy,
 		},
 	).Where(goqu.I("key").Eq(key)).ToSQL()
 	if err != nil {
@@ -326,6 +336,8 @@ func rowToRecord(row providerRow, encKey []byte) (*service.ProviderRecord, error
 		Config:    cfg,
 		CreatedAt: row.CreatedAt,
 		UpdatedAt: row.UpdatedAt,
+		CreatedBy: row.CreatedBy,
+		UpdatedBy: row.UpdatedBy,
 	}, nil
 }
 

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ─── GitHub OAuth Device Flow ───
@@ -274,7 +276,11 @@ func (s *Server) saveDeviceAuthToken(providerKey, oauthToken string) error {
 	cfg.APIKey = oauthToken
 
 	// Persist.
-	if _, err := s.store.UpdateProvider(context.Background(), providerKey, cfg); err != nil {
+	if _, err := s.store.UpdateProvider(context.Background(), providerKey, service.ProviderRecord{
+		Key:       providerKey,
+		Config:    cfg,
+		UpdatedBy: "",
+	}); err != nil {
 		return fmt.Errorf("update provider: %w", err)
 	}
 

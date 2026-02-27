@@ -15,7 +15,7 @@
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
-  <Handle id="input" type="input" port="data" position="left" accept={['data', 'text', 'llm_response']} label="in" />
+  <Handle id="input" type="input" port="data" position="left" accept={['data', 'text']} label="in" />
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-red-50">
     <span class="text-[9px] font-bold px-1 py-px rounded bg-red-500 text-white tracking-wide">OUT</span>
     <span class="text-gray-900">{data.label || 'Output'}</span>

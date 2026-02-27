@@ -18,29 +18,31 @@ import (
 // Memory is an in-memory implementation of the store interfaces.
 // Data does not survive process restarts.
 type Memory struct {
-	mu           sync.RWMutex
-	providers    map[string]service.ProviderRecord // key -> record
-	tokens       map[string]service.APIToken       // id -> token
-	tokensByHash map[string]string                 // hash -> id
-	workflows    map[string]service.Workflow       // id -> workflow
-	triggers     map[string]service.Trigger        // id -> trigger
-	skills       map[string]service.Skill          // id -> skill
-	variables    map[string]service.Variable       // id -> variable
-	nodeConfigs  map[string]service.NodeConfig     // id -> node config
+	mu               sync.RWMutex
+	providers        map[string]service.ProviderRecord    // key -> record
+	tokens           map[string]service.APIToken          // id -> token
+	tokensByHash     map[string]string                    // hash -> id
+	workflows        map[string]service.Workflow          // id -> workflow
+	workflowVersions map[string][]service.WorkflowVersion // workflow_id -> versions (sorted by version desc)
+	triggers         map[string]service.Trigger           // id -> trigger
+	skills           map[string]service.Skill             // id -> skill
+	variables        map[string]service.Variable          // id -> variable
+	nodeConfigs      map[string]service.NodeConfig        // id -> node config
 }
 
 func New() *Memory {
 	slog.Info("using in-memory store (data will not persist across restarts)")
 
 	return &Memory{
-		providers:    make(map[string]service.ProviderRecord),
-		tokens:       make(map[string]service.APIToken),
-		tokensByHash: make(map[string]string),
-		workflows:    make(map[string]service.Workflow),
-		triggers:     make(map[string]service.Trigger),
-		skills:       make(map[string]service.Skill),
-		variables:    make(map[string]service.Variable),
-		nodeConfigs:  make(map[string]service.NodeConfig),
+		providers:        make(map[string]service.ProviderRecord),
+		tokens:           make(map[string]service.APIToken),
+		tokensByHash:     make(map[string]string),
+		workflows:        make(map[string]service.Workflow),
+		workflowVersions: make(map[string][]service.WorkflowVersion),
+		triggers:         make(map[string]service.Trigger),
+		skills:           make(map[string]service.Skill),
+		variables:        make(map[string]service.Variable),
+		nodeConfigs:      make(map[string]service.NodeConfig),
 	}
 }
 
@@ -82,9 +84,9 @@ func (m *Memory) GetProvider(_ context.Context, key string) (*service.ProviderRe
 	return &rec, nil
 }
 
-func (m *Memory) CreateProvider(_ context.Context, key string, cfg config.LLMConfig) (*service.ProviderRecord, error) {
+func (m *Memory) CreateProvider(_ context.Context, record service.ProviderRecord) (*service.ProviderRecord, error) {
 	// Round-trip through JSON to match DB behavior (normalize zero values).
-	raw, err := json.Marshal(cfg)
+	raw, err := json.Marshal(record.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
@@ -98,21 +100,23 @@ func (m *Memory) CreateProvider(_ context.Context, key string, cfg config.LLMCon
 
 	rec := service.ProviderRecord{
 		ID:        id,
-		Key:       key,
+		Key:       record.Key,
 		Config:    normalized,
 		CreatedAt: now,
 		UpdatedAt: now,
+		CreatedBy: record.CreatedBy,
+		UpdatedBy: record.UpdatedBy,
 	}
 
 	m.mu.Lock()
-	m.providers[key] = rec
+	m.providers[record.Key] = rec
 	m.mu.Unlock()
 
 	return &rec, nil
 }
 
-func (m *Memory) UpdateProvider(_ context.Context, key string, cfg config.LLMConfig) (*service.ProviderRecord, error) {
-	raw, err := json.Marshal(cfg)
+func (m *Memory) UpdateProvider(_ context.Context, key string, record service.ProviderRecord) (*service.ProviderRecord, error) {
+	raw, err := json.Marshal(record.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
@@ -133,6 +137,7 @@ func (m *Memory) UpdateProvider(_ context.Context, key string, cfg config.LLMCon
 
 	existing.Config = normalized
 	existing.UpdatedAt = now
+	existing.UpdatedBy = record.UpdatedBy
 	m.providers[key] = existing
 
 	return &existing, nil
@@ -219,6 +224,7 @@ func (m *Memory) UpdateAPIToken(_ context.Context, id string, token service.APIT
 	existing.AllowedModels = token.AllowedModels
 	existing.AllowedWebhooks = token.AllowedWebhooks
 	existing.ExpiresAt = token.ExpiresAt
+	existing.UpdatedBy = token.UpdatedBy
 	m.tokens[id] = existing
 
 	return &existing, nil
@@ -315,6 +321,8 @@ func (m *Memory) CreateWorkflow(_ context.Context, w service.Workflow) (*service
 		Graph:       normalized,
 		CreatedAt:   now,
 		UpdatedAt:   now,
+		CreatedBy:   w.CreatedBy,
+		UpdatedBy:   w.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -348,6 +356,7 @@ func (m *Memory) UpdateWorkflow(_ context.Context, id string, w service.Workflow
 	existing.Description = w.Description
 	existing.Graph = normalized
 	existing.UpdatedAt = now
+	existing.UpdatedBy = w.UpdatedBy
 	m.workflows[id] = existing
 
 	return &existing, nil
@@ -356,7 +365,94 @@ func (m *Memory) UpdateWorkflow(_ context.Context, id string, w service.Workflow
 func (m *Memory) DeleteWorkflow(_ context.Context, id string) error {
 	m.mu.Lock()
 	delete(m.workflows, id)
+	delete(m.workflowVersions, id)
 	m.mu.Unlock()
+
+	return nil
+}
+
+// ─── Workflow Version CRUD ───
+
+func (m *Memory) ListWorkflowVersions(_ context.Context, workflowID string) ([]service.WorkflowVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	versions := m.workflowVersions[workflowID]
+	// Return a copy sorted by version desc (already stored in desc order).
+	result := make([]service.WorkflowVersion, len(versions))
+	copy(result, versions)
+
+	return result, nil
+}
+
+func (m *Memory) GetWorkflowVersion(_ context.Context, workflowID string, version int) (*service.WorkflowVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, v := range m.workflowVersions[workflowID] {
+		if v.Version == version {
+			return &v, nil
+		}
+	}
+
+	return nil, nil
+}
+
+func (m *Memory) CreateWorkflowVersion(_ context.Context, v service.WorkflowVersion) (*service.WorkflowVersion, error) {
+	// Round-trip through JSON to normalize the graph.
+	raw, err := json.Marshal(v.Graph)
+	if err != nil {
+		return nil, fmt.Errorf("marshal graph: %w", err)
+	}
+	var normalized service.WorkflowGraph
+	if err := json.Unmarshal(raw, &normalized); err != nil {
+		return nil, fmt.Errorf("unmarshal graph: %w", err)
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Compute next version.
+	versions := m.workflowVersions[v.WorkflowID]
+	maxVersion := 0
+	for _, existing := range versions {
+		if existing.Version > maxVersion {
+			maxVersion = existing.Version
+		}
+	}
+	nextVersion := maxVersion + 1
+
+	id := ulid.Make().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	rec := service.WorkflowVersion{
+		ID:          id,
+		WorkflowID:  v.WorkflowID,
+		Version:     nextVersion,
+		Name:        v.Name,
+		Description: v.Description,
+		Graph:       normalized,
+		CreatedAt:   now,
+		CreatedBy:   v.CreatedBy,
+	}
+
+	// Prepend (we store desc order).
+	m.workflowVersions[v.WorkflowID] = append([]service.WorkflowVersion{rec}, versions...)
+
+	return &rec, nil
+}
+
+func (m *Memory) SetActiveVersion(_ context.Context, workflowID string, version int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	wf, ok := m.workflows[workflowID]
+	if !ok {
+		return fmt.Errorf("workflow %q not found", workflowID)
+	}
+
+	wf.ActiveVersion = &version
+	m.workflows[workflowID] = wf
 
 	return nil
 }
@@ -436,6 +532,8 @@ func (m *Memory) CreateTrigger(_ context.Context, t service.Trigger) (*service.T
 		Enabled:    t.Enabled,
 		CreatedAt:  now,
 		UpdatedAt:  now,
+		CreatedBy:  t.CreatedBy,
+		UpdatedBy:  t.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -471,6 +569,7 @@ func (m *Memory) UpdateTrigger(_ context.Context, id string, t service.Trigger) 
 	existing.Public = t.Public
 	existing.Enabled = t.Enabled
 	existing.UpdatedAt = now
+	existing.UpdatedBy = t.UpdatedBy
 	m.triggers[id] = existing
 
 	return &existing, nil
@@ -569,6 +668,8 @@ func (m *Memory) CreateSkill(_ context.Context, sk service.Skill) (*service.Skil
 		Tools:        normalized,
 		CreatedAt:    now,
 		UpdatedAt:    now,
+		CreatedBy:    sk.CreatedBy,
+		UpdatedBy:    sk.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -603,6 +704,7 @@ func (m *Memory) UpdateSkill(_ context.Context, id string, sk service.Skill) (*s
 	existing.SystemPrompt = sk.SystemPrompt
 	existing.Tools = normalized
 	existing.UpdatedAt = now
+	existing.UpdatedBy = sk.UpdatedBy
 	m.skills[id] = existing
 
 	return &existing, nil
@@ -677,6 +779,8 @@ func (m *Memory) CreateVariable(_ context.Context, v service.Variable) (*service
 		Secret:      v.Secret,
 		CreatedAt:   now,
 		UpdatedAt:   now,
+		CreatedBy:   v.CreatedBy,
+		UpdatedBy:   v.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -702,6 +806,7 @@ func (m *Memory) UpdateVariable(_ context.Context, id string, v service.Variable
 	existing.Description = v.Description
 	existing.Secret = v.Secret
 	existing.UpdatedAt = now
+	existing.UpdatedBy = v.UpdatedBy
 	m.variables[id] = existing
 
 	return &existing, nil
@@ -786,6 +891,8 @@ func (m *Memory) CreateNodeConfig(_ context.Context, nc service.NodeConfig) (*se
 		Data:      nc.Data,
 		CreatedAt: now,
 		UpdatedAt: now,
+		CreatedBy: nc.CreatedBy,
+		UpdatedBy: nc.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -810,6 +917,7 @@ func (m *Memory) UpdateNodeConfig(_ context.Context, id string, nc service.NodeC
 	existing.Type = nc.Type
 	existing.Data = nc.Data
 	existing.UpdatedAt = now
+	existing.UpdatedBy = nc.UpdatedBy
 	m.nodeConfigs[id] = existing
 
 	return &existing, nil

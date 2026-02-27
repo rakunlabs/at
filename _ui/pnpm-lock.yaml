@@ -9,8 +9,11 @@ importers:
   .:
     dependencies:
       kaykay:
-        specifier: ^0.1.5
-        version: 0.1.5(svelte@5.46.1)
+        specifier: ^0.1.7
+        version: 0.1.7(svelte@5.46.1)
+      snarkdown:
+        specifier: ^2.0.0
+        version: 2.0.0
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^5.0.3
@@ -1123,8 +1126,8 @@ packages:
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
-  kaykay@0.1.5:
-    resolution: {integrity: sha512-/k+Aha7DnsQqDzpi4vPhAJfzBlM/knN+5O/cbZn0nBymsObSXtGndFiK1Q500Iv70t8Y/cPBY9S24pxgi862gQ==}
+  kaykay@0.1.7:
+    resolution: {integrity: sha512-BfcuRYycx/N6NEQawlXCYVKG5NcJowobSj8WwLhVE4j13lnv4Cp6A9AEtxhsVv8X63mfCJoOh17MN8uMC2go3Q==}
     peerDependencies:
       svelte: ^5.0.0
 
@@ -1528,6 +1531,9 @@ packages:
   slice-ansi@4.0.0:
     resolution: {integrity: sha512-qMCMfhY040cVHT43K9BFygqYbUPFZKHOg7K73mtTWJRb8pyP3fzf4Ixd5SzdEJQ6MRUg/WBnOLxghZtKKurENQ==}
     engines: {node: '>=10'}
+
+  snarkdown@2.0.0:
+    resolution: {integrity: sha512-MgL/7k/AZdXCTJiNgrO7chgDqaB9FGM/1Tvlcenenb7div6obaDATzs16JhFyHHBGodHT3B7RzRc5qk8pFhg3A==}
 
   source-map-js@1.2.1:
     resolution: {integrity: sha512-UXWMKhLOwVKb728IUtQPXxfYU+usdybtUrK/8uGE8CQMvrhOpwvzDBwj0QhSL7MQc7vIsISBG8VQ8+IDQxpfQA==}
@@ -2535,7 +2541,7 @@ snapshots:
 
   json-schema-traverse@1.0.0: {}
 
-  kaykay@0.1.5(svelte@5.46.1):
+  kaykay@0.1.7(svelte@5.46.1):
     dependencies:
       svelte: 5.46.1
 
@@ -2873,6 +2879,8 @@ snapshots:
       ansi-styles: 4.3.0
       astral-regex: 2.0.0
       is-fullwidth-code-point: 3.0.0
+
+  snarkdown@2.0.0: {}
 
   source-map-js@1.2.1: {}
 

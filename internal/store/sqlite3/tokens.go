@@ -17,7 +17,7 @@ import (
 
 func (s *SQLite) ListAPITokens(ctx context.Context) ([]service.APIToken, error) {
 	query, _, err := s.goqu.From(s.tableAPITokens).
-		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at").
+		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at", "created_by", "updated_by").
 		Order(goqu.I("created_at").Desc()).
 		ToSQL()
 	if err != nil {
@@ -36,7 +36,7 @@ func (s *SQLite) ListAPITokens(ctx context.Context) ([]service.APIToken, error) 
 		if err := rows.Scan(
 			&t.ID, &t.Name, &t.TokenPrefix,
 			&t.AllowedProviders, &t.AllowedModels, &t.AllowedWebhooks,
-			&t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt,
+			&t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan api_token row: %w", err)
 		}
@@ -48,7 +48,7 @@ func (s *SQLite) ListAPITokens(ctx context.Context) ([]service.APIToken, error) 
 
 func (s *SQLite) GetAPITokenByHash(ctx context.Context, hash string) (*service.APIToken, error) {
 	query, _, err := s.goqu.From(s.tableAPITokens).
-		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at").
+		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at", "created_by", "updated_by").
 		Where(goqu.I("token_hash").Eq(hash)).
 		ToSQL()
 	if err != nil {
@@ -59,7 +59,7 @@ func (s *SQLite) GetAPITokenByHash(ctx context.Context, hash string) (*service.A
 	err = s.db.QueryRowContext(ctx, query).Scan(
 		&t.ID, &t.Name, &t.TokenPrefix,
 		&t.AllowedProviders, &t.AllowedModels, &t.AllowedWebhooks,
-		&t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt,
+		&t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -85,6 +85,8 @@ func (s *SQLite) CreateAPIToken(ctx context.Context, token service.APIToken, tok
 		"allowed_webhooks":  token.AllowedWebhooks,
 		"expires_at":        token.ExpiresAt,
 		"created_at":        now,
+		"created_by":        token.CreatedBy,
+		"updated_by":        token.UpdatedBy,
 	}
 
 	query, _, err := s.goqu.Insert(s.tableAPITokens).Rows(record).ToSQL()
@@ -124,6 +126,7 @@ func (s *SQLite) UpdateAPIToken(ctx context.Context, id string, token service.AP
 		"allowed_models":    token.AllowedModels,
 		"allowed_webhooks":  token.AllowedWebhooks,
 		"expires_at":        token.ExpiresAt,
+		"updated_by":        token.UpdatedBy,
 	}
 
 	query, _, err := s.goqu.Update(s.tableAPITokens).Set(record).
@@ -145,7 +148,7 @@ func (s *SQLite) UpdateAPIToken(ctx context.Context, id string, token service.AP
 
 	// Re-fetch the updated token.
 	fetchQuery, _, err := s.goqu.From(s.tableAPITokens).
-		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at").
+		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -156,7 +159,7 @@ func (s *SQLite) UpdateAPIToken(ctx context.Context, id string, token service.AP
 	err = s.db.QueryRowContext(ctx, fetchQuery).Scan(
 		&t.ID, &t.Name, &t.TokenPrefix,
 		&t.AllowedProviders, &t.AllowedModels, &t.AllowedWebhooks,
-		&t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt,
+		&t.ExpiresAt, &t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("fetch updated api_token %q: %w", id, err)

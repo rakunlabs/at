@@ -2,12 +2,12 @@
   import { push } from 'svelte-spa-router';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { getWorkflow, updateWorkflow, runWorkflow, type Workflow, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
+  import { getWorkflow, updateWorkflow, runWorkflow, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listNodeConfigs, type NodeConfig } from '@/lib/api/node-configs';
-  import { Canvas, Controls, Minimap, getFlow, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
-  import { ArrowLeft, Save, Play, Plus, X, Bot, ChevronRight } from 'lucide-svelte';
+  import { Canvas, Controls, Minimap, GroupNode, getFlow, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
+  import { ArrowLeft, Save, Play, Plus, X, Bot, ChevronRight, History, Check, Clock } from 'lucide-svelte';
   import ChatPanel from '@/lib/components/workflow/ChatPanel.svelte';
 
   import InputNode from '@/lib/components/workflow/InputNode.svelte';
@@ -26,6 +26,8 @@
   import MCPConfigNode from '@/lib/components/workflow/MCPConfigNode.svelte';
   import MemoryConfigNode from '@/lib/components/workflow/MemoryConfigNode.svelte';
   import EmailNode from '@/lib/components/workflow/EmailNode.svelte';
+  import LogNode from '@/lib/components/workflow/LogNode.svelte';
+  import MarkdownStickyNote from '@/lib/components/workflow/MarkdownStickyNote.svelte';
 
   // ─── Props ───
   let { params = { id: '' } }: { params?: { id: string } } = $props();
@@ -50,6 +52,9 @@
     mcp_config: MCPConfigNode,
     memory_config: MemoryConfigNode,
     email: EmailNode,
+    log: LogNode,
+    group: GroupNode,
+    sticky_note: MarkdownStickyNote,
   };
 
   const paletteGroups = [
@@ -71,6 +76,7 @@
         { type: 'email', label: 'Email', description: 'Send email via SMTP' },
         { type: 'script', label: 'Script', description: 'Run JavaScript code' },
         { type: 'exec', label: 'Exec', description: 'Run a shell command' },
+        { type: 'log', label: 'Log', description: 'Log data and pass through' },
       ],
     },
     {
@@ -94,6 +100,13 @@
         { type: 'output', label: 'Output', description: 'Workflow output data' },
       ],
     },
+    {
+      label: 'Annotation',
+      nodes: [
+        { type: 'group', label: 'Group', description: 'Visual grouping of nodes' },
+        { type: 'sticky_note', label: 'Sticky Note', description: 'Markdown note on canvas' },
+      ],
+    },
   ];
 
   // ─── State ───
@@ -111,14 +124,26 @@
   let selectedNodeId = $state<string | null>(null);
   let selectedNodeData = $state<Record<string, any>>({});
   let selectedNodeType = $state<string>('');
+  let selectedNodeOriginalData = $state<Record<string, any>>({});
 
   // Run inputs
   let showRunPanel = $state(false);
   let showChatPanel = $state(false);
-  let runInputsJson = $state('{}');
+  let runInputsJson = $state('');
+  let runInputMode = $state<'text' | 'json'>('text');
+  let runSync = $state(true);
+
+  // Versioning
+  let versions = $state<WorkflowVersion[]>([]);
+  let showVersionPanel = $state(false);
+  let viewingVersion = $state<number | null>(null); // non-null when viewing a historical version
+  let runVersion = $state<number | undefined>(undefined); // version override for run panel
+  let loadingVersions = $state(false);
+  let settingActive = $state(false);
 
   // Canvas ref
   let canvasRef: { getFlow: () => FlowState } | undefined = $state();
+
 
   // ─── Helpers ───
 
@@ -128,6 +153,10 @@
       type: n.type,
       position: { x: n.position.x, y: n.position.y },
       data: n.data || {},
+      ...(n.width != null && { width: n.width }),
+      ...(n.height != null && { height: n.height }),
+      ...(n.parent_id && { parent_id: n.parent_id }),
+      ...(n.z_index != null && { z_index: n.z_index }),
     }));
   }
 
@@ -148,6 +177,10 @@
       type: n.type,
       position: { x: n.position.x, y: n.position.y },
       data: n.data || {},
+      ...(n.width != null && { width: n.width }),
+      ...(n.height != null && { height: n.height }),
+      ...(n.parent_id && { parent_id: n.parent_id }),
+      ...(n.z_index != null && { z_index: n.z_index }),
     }));
     const edges: WorkflowEdge[] = json.edges.map((e: FlowEdge) => ({
       id: e.id,
@@ -157,6 +190,100 @@
       target_handle: e.target_handle,
     }));
     return { nodes, edges };
+  }
+
+  function defaultNodeData(type: string): Record<string, any> {
+    if (type === 'input') {
+      return { label: 'Input' };
+    }
+    if (type === 'output') {
+      return { label: 'Output' };
+    }
+    if (type === 'llm_call') {
+      return { label: 'LLM Call', provider: '', model: '', system_prompt: '' };
+    }
+    if (type === 'agent_call') {
+      return { label: 'Agent Call', provider: '', model: '', system_prompt: '', max_iterations: 10 };
+    }
+    if (type === 'skill_config') {
+      return { label: 'Skill Config', skills: [] };
+    }
+    if (type === 'mcp_config') {
+      return { label: 'MCP Config', mcp_urls: [] };
+    }
+    if (type === 'memory_config') {
+      return { label: 'Memory' };
+    }
+    if (type === 'template') {
+      return { label: 'Template', template: '', variables: [] };
+    }
+    if (type === 'http_trigger') {
+      return { label: 'HTTP Trigger', trigger_id: '', alias: '', public: false };
+    }
+    if (type === 'cron_trigger') {
+      return { label: 'Cron Trigger', schedule: '', payload: {} };
+    }
+    if (type === 'http_request') {
+      return {
+        label: 'HTTP Request',
+        url: '',
+        method: 'GET',
+        headers: {},
+        body: '',
+        timeout: 30,
+        proxy: '',
+        insecure_skip_verify: false,
+        retry: false,
+      };
+    }
+    if (type === 'conditional') {
+      return { label: 'Conditional', expression: '' };
+    }
+    if (type === 'loop') {
+      return { label: 'Loop', expression: '' };
+    }
+    if (type === 'script') {
+      return { label: 'Script', code: '', input_count: 1 };
+    }
+    if (type === 'exec') {
+      return { label: 'Exec', command: '', working_dir: '', timeout: 60, sandbox_root: '/tmp/at-sandbox', input_count: 1 };
+    }
+    if (type === 'email') {
+      return {
+        label: 'Email',
+        config_id: '',
+        to: '',
+        cc: '',
+        bcc: '',
+        subject: '',
+        body: '',
+        content_type: 'text/plain',
+        from: '',
+        reply_to: '',
+      };
+    }
+    if (type === 'group') {
+      return { label: 'Group', color: '#22c55e' };
+    }
+    if (type === 'sticky_note') {
+      return { text: 'Double-click to edit...', color: '#fef08a' };
+    }
+    if (type === 'log') {
+      return { label: 'Log', level: 'info', message: '' };
+    }
+    return {};
+  }
+
+  function stableStringify(value: any): string {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value);
+    if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(',')}]`;
+    const keys = Object.keys(value).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(',')}}`;
+  }
+
+  function hasNodeEdits(): boolean {
+    if (!selectedNodeId) return false;
+    return stableStringify(selectedNodeData) !== stableStringify(selectedNodeOriginalData);
   }
 
   // ─── Load ───
@@ -198,6 +325,63 @@
     }
   }
 
+  // ─── Versions ───
+
+  async function loadVersions() {
+    if (!workflow) return;
+    loadingVersions = true;
+    try {
+      versions = await listWorkflowVersions(workflow.id);
+    } catch {
+      versions = [];
+    } finally {
+      loadingVersions = false;
+    }
+  }
+
+  async function loadVersionToCanvas(version: number) {
+    if (!workflow || !canvasRef) return;
+    try {
+      const v = await getWorkflowVersion(workflow.id, version);
+      const flow = canvasRef.getFlow();
+      // Clear existing nodes and edges, then load the version's graph
+      for (const edge of flow.edges) flow.removeEdge(edge.id);
+      for (const node of flow.nodes) flow.removeNode(node.id);
+      for (const node of toFlowNodes(v.graph.nodes)) flow.addNode(node);
+      for (const edge of toFlowEdges(v.graph.edges)) flow.addEdge(edge);
+      viewingVersion = version;
+      addToast(`Loaded version ${version}`, 'info');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load version', 'alert');
+    }
+  }
+
+  function loadCurrentToCanvas() {
+    if (!workflow || !canvasRef) return;
+    const flow = canvasRef.getFlow();
+    for (const edge of flow.edges) flow.removeEdge(edge.id);
+    for (const node of flow.nodes) flow.removeNode(node.id);
+    for (const node of toFlowNodes(workflow.graph.nodes)) flow.addNode(node);
+    for (const edge of toFlowEdges(workflow.graph.edges)) flow.addEdge(edge);
+    viewingVersion = null;
+    addToast('Loaded latest version', 'info');
+  }
+
+  async function handleSetActiveVersion(version: number) {
+    if (!workflow) return;
+    settingActive = true;
+    try {
+      await setActiveVersion(workflow.id, version);
+      workflow.active_version = version;
+      await loadVersions();
+      addToast(`Version ${version} set as active`, 'info');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to set active version', 'alert');
+    } finally {
+      settingActive = false;
+    }
+  }
+
   // ─── Save ───
 
   async function handleSave() {
@@ -214,7 +398,10 @@
       // Push trigger IDs assigned by the backend back into canvas node data,
       // so trigger nodes immediately show their webhook URLs / status.
       pushTriggerIdsToCanvas(workflow);
+      viewingVersion = null;
       addToast('Workflow saved', 'info');
+      // Reload version list in background
+      loadVersions();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to save workflow', 'alert');
     } finally {
@@ -241,8 +428,10 @@
         });
         pushTriggerIdsToCanvas(workflow);
       }
-      const inputs = JSON.parse(runInputsJson);
-      runResult = await runWorkflow(workflow.id, inputs);
+      const inputs = runInputMode === 'json'
+        ? JSON.parse(runInputsJson || '{}')
+        : { text: runInputsJson };
+      runResult = await runWorkflow(workflow.id, inputs, runSync, runVersion);
     } catch (e: any) {
       if (e instanceof SyntaxError) {
         runError = 'Invalid JSON in inputs';
@@ -337,14 +526,28 @@
       defaultData.content_type = 'text/plain';
       defaultData.from = '';
       defaultData.reply_to = '';
+    } else if (type === 'group') {
+      defaultData.label = 'Group';
+      defaultData.color = '#22c55e';
+    } else if (type === 'sticky_note') {
+      defaultData.text = 'Double-click to edit...';
+      defaultData.color = '#fef08a';
     }
     const pos = position ?? { x: 200 + nodeCounter * 30, y: 150 + nodeCounter * 30 };
-    flow.addNode({
+    const nodeOpts: Record<string, any> = {
       id: `${type}_${nodeCounter}`,
       type,
       position: pos,
       data: defaultData,
-    });
+    };
+    if (type === 'group') {
+      nodeOpts.width = 250;
+      nodeOpts.height = 200;
+    } else if (type === 'sticky_note') {
+      nodeOpts.width = 200;
+      nodeOpts.height = 140;
+    }
+    flow.addNode(nodeOpts as FlowNode);
   }
 
   // ─── Drag & Drop ───
@@ -394,14 +597,53 @@
 
   // ─── Property Editor ───
 
-  function onNodeClick(nodeId: string) {
+  const noPropertyPanelTypes = new Set(['group', 'sticky_note']);
+
+  function selectNodeForEditor(nodeId: string) {
     if (!canvasRef) return;
     const flow = canvasRef.getFlow();
     const node = flow.getNode(nodeId);
     if (node) {
+      if (noPropertyPanelTypes.has(node.type)) {
+        selectedNodeId = null;
+        selectedNodeData = {};
+        selectedNodeType = '';
+        selectedNodeOriginalData = {};
+        return;
+      }
       selectedNodeId = nodeId;
       selectedNodeType = node.type;
-      selectedNodeData = { ...node.data };
+      const defaults = defaultNodeData(node.type);
+      selectedNodeData = { ...defaults, ...node.data };
+      selectedNodeOriginalData = { ...defaults, ...node.data };
+    }
+  }
+
+  function onNodeClick(nodeId: string) {
+    selectNodeForEditor(nodeId);
+  }
+
+  function onSelectionChange(nodeIds: string[], _edgeIds: string[]) {
+    if (nodeIds.length === 1 && nodeIds[0] !== selectedNodeId && canvasRef) {
+      selectNodeForEditor(nodeIds[0]);
+    }
+    // If the currently selected node is no longer in the canvas selection, close the property editor
+    if (selectedNodeId && !nodeIds.includes(selectedNodeId)) {
+      selectedNodeId = null;
+      selectedNodeData = {};
+      selectedNodeType = '';
+      selectedNodeOriginalData = {};
+    }
+  }
+
+  function closePropertyEditor() {
+    selectedNodeId = null;
+    selectedNodeData = {};
+    selectedNodeType = '';
+    selectedNodeOriginalData = {};
+    // Also clear canvas selection so the node is visually deselected
+    if (canvasRef) {
+      canvasRef.getFlow().clearSelection();
     }
   }
 
@@ -412,8 +654,8 @@
     // Handle script node input_count changes — remap edges to new handle IDs.
     if (selectedNodeType === 'script') {
       const currentNode = flow.getNode(selectedNodeId);
-      const oldCount = currentNode?.data?.input_count || 1;
-      const newCount = selectedNodeData.input_count || 1;
+      const oldCount = Number(currentNode?.data?.input_count ?? 1);
+      const newCount = Number(selectedNodeData.input_count ?? 1);
 
       if (oldCount !== newCount) {
         // Find all edges targeting this node's input handles.
@@ -449,13 +691,8 @@
     }
 
     flow.updateNodeData(selectedNodeId, selectedNodeData);
+    selectedNodeOriginalData = { ...selectedNodeData };
     addToast('Node updated', 'info');
-  }
-
-  function closePropertyEditor() {
-    selectedNodeId = null;
-    selectedNodeData = {};
-    selectedNodeType = '';
   }
 
   // ─── Trigger Sync ───
@@ -474,17 +711,20 @@
     if (selectedNodeId) {
       const selectedNode = wf.graph.nodes.find((n) => n.id === selectedNodeId);
       if (selectedNode && (selectedNode.type === 'http_trigger' || selectedNode.type === 'cron_trigger')) {
-        selectedNodeData = { ...selectedNode.data };
+        const defaults = defaultNodeData(selectedNode.type);
+        selectedNodeData = { ...defaults, ...selectedNode.data };
+        selectedNodeOriginalData = { ...defaults, ...selectedNode.data };
       }
     }
   }
 
   // ─── Init ───
 
-  loadWorkflow();
+  loadWorkflow().then(() => loadVersions());
   loadProviders();
   loadSkills();
   loadNodeConfigs();
+
 </script>
 
 <svelte:head>
@@ -522,6 +762,26 @@
         </div>
       </div>
       <div class="flex items-center gap-2">
+        {#if workflow.active_version != null}
+          <span class="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded {viewingVersion != null ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-500 bg-gray-100 border border-gray-200'}">
+            {#if viewingVersion != null}
+              v{viewingVersion}
+              {#if viewingVersion === workflow.active_version}
+                <Check size={10} class="text-green-600" />
+              {/if}
+            {:else}
+              v{workflow.active_version}
+              <Check size={10} class="text-green-600" />
+            {/if}
+          </span>
+        {/if}
+        <button
+          onclick={() => { showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
+          class="flex items-center gap-1 px-2 py-1 text-xs {showVersionPanel ? 'text-white bg-gray-900' : 'text-gray-700 bg-white border border-gray-300'} rounded hover:bg-gray-800 hover:text-white transition-colors"
+        >
+          <History size={12} />
+          Versions
+        </button>
         <button
           onclick={handleSave}
           disabled={saving}
@@ -546,6 +806,21 @@
         </button>
       </div>
     </div>
+
+    <!-- Version viewing banner -->
+    {#if viewingVersion != null}
+      <div class="flex items-center justify-between px-3 py-1 bg-amber-50 border-b border-amber-200 shrink-0">
+        <span class="text-xs text-amber-700">
+          Viewing version {viewingVersion}{viewingVersion === workflow.active_version ? ' (active)' : ''} — canvas is read-only until you return to latest
+        </span>
+        <button
+          onclick={loadCurrentToCanvas}
+          class="px-2 py-0.5 text-xs text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100 transition-colors"
+        >
+          Back to latest
+        </button>
+      </div>
+    {/if}
 
     <!-- Main area -->
     <div class="flex flex-1 overflow-hidden">
@@ -598,7 +873,7 @@
           edges={toFlowEdges(workflow.graph.edges)}
           {nodeTypes}
           config={{ snap_to_grid: true, grid_size: 20, default_edge_type: 'bezier' }}
-          callbacks={{ on_node_click: onNodeClick }}
+          callbacks={{ on_node_click: onNodeClick, on_selection_change: onSelectionChange }}
         >
           {#snippet controls()}
             <Controls position="bottom-left" />
@@ -613,25 +888,116 @@
         <ChatPanel onclose={() => { showChatPanel = false; }} flow={canvasRef.getFlow()} />
       {/if}
 
+      <!-- Version History Panel -->
+      {#if showVersionPanel}
+        <div class="w-64 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 shrink-0">
+            <span class="text-xs font-medium text-gray-700">Version History</span>
+            <button onclick={() => { showVersionPanel = false; }} class="text-gray-400 hover:text-gray-600">
+              <X size={14} />
+            </button>
+          </div>
+          <div class="overflow-y-auto min-h-0 flex-1">
+            {#if loadingVersions}
+              <div class="p-3 text-xs text-gray-500 text-center">Loading...</div>
+            {:else if versions.length === 0}
+              <div class="p-3 text-xs text-gray-400 text-center">No versions yet. Save to create the first version.</div>
+            {:else}
+              <!-- Return to latest button when viewing old version -->
+              {#if viewingVersion != null}
+                <button
+                  onclick={loadCurrentToCanvas}
+                  class="w-full px-3 py-2 text-xs text-blue-600 hover:bg-blue-50 border-b border-gray-100 text-left transition-colors"
+                >
+                  Back to latest
+                </button>
+              {/if}
+              {#each versions as v (v.id)}
+                {@const isActive = workflow.active_version === v.version}
+                {@const isViewing = viewingVersion === v.version}
+                <div
+                  class="px-3 py-2 border-b border-gray-100 {isViewing ? 'bg-amber-50' : 'hover:bg-gray-50'} transition-colors"
+                >
+                  <div class="flex items-center justify-between mb-0.5">
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-xs font-medium text-gray-800">v{v.version}</span>
+                      {#if isActive}
+                        <span class="flex items-center gap-0.5 px-1 py-0 text-[9px] font-medium text-green-700 bg-green-50 border border-green-200 rounded">
+                          <Check size={8} />
+                          active
+                        </span>
+                      {/if}
+                    </div>
+                    <div class="flex items-center gap-1">
+                      {#if !isActive}
+                        <button
+                          onclick={() => handleSetActiveVersion(v.version)}
+                          disabled={settingActive}
+                          class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-green-700 hover:bg-green-50 rounded transition-colors disabled:opacity-50"
+                          title="Set as active version"
+                        >
+                          Set active
+                        </button>
+                      {/if}
+                      {#if !isViewing}
+                        <button
+                          onclick={() => loadVersionToCanvas(v.version)}
+                          class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                          title="Load this version into canvas"
+                        >
+                          Load
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1 text-[10px] text-gray-400">
+                    <Clock size={9} />
+                    {new Date(v.created_at).toLocaleDateString()} {new Date(v.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {#if v.created_by}
+                      <span class="ml-1 text-gray-300">|</span> <span class="ml-1">by {v.created_by}</span>
+                    {/if}
+                  </div>
+                  {#if v.name && v.name !== workflow.name}
+                    <div class="text-[10px] text-gray-500 mt-0.5 truncate" title={v.name}>{v.name}</div>
+                  {/if}
+                </div>
+              {/each}
+            {/if}
+          </div>
+        </div>
+      {/if}
+
       <!-- Property Editor Panel -->
-      {#if selectedNodeId}
-        <div class="w-60 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 shrink-0">
-            <span class="text-xs font-medium text-gray-700">Properties</span>
+      {#if selectedNodeId && !noPropertyPanelTypes.has(selectedNodeType)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="w-60 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col outline-none"
+          tabindex="-1"
+          onmousedown={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
+        >
+          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 shrink-0">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-medium text-gray-700">Properties</span>
+              {#if hasNodeEdits()}
+                <span class="text-[10px] font-medium leading-none text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Unsaved</span>
+              {/if}
+            </div>
             <button onclick={closePropertyEditor} class="text-gray-400 hover:text-gray-600">
               <X size={14} />
             </button>
           </div>
           <div class="p-3 space-y-3 overflow-y-auto min-h-0 flex-1">
-            <!-- Common: Label -->
-            <div>
-              <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Label</label>
-              <input
-                type="text"
-                bind:value={selectedNodeData.label}
-                class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
-              />
-            </div>
+            <!-- Common: Label (not shown for sticky notes which use 'text' instead) -->
+            {#if selectedNodeType !== 'sticky_note'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Label</label>
+                <input
+                  type="text"
+                  bind:value={selectedNodeData.label}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                />
+              </div>
+            {/if}
 
             <!-- Type-specific fields -->
             {#if selectedNodeType === 'llm_call'}
@@ -669,6 +1035,31 @@
                   class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
                   placeholder="System prompt (optional)"
                 ></textarea>
+              </div>
+              <!-- Port descriptions -->
+              <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
+                <div>
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Input Ports</span>
+                  <div class="mt-1 space-y-1">
+                    <div title="The main user message or instruction sent to the LLM. This is required. Falls back to 'text' or 'data' inputs if the prompt port is not connected.">
+                      <span class="text-[11px] font-mono font-medium text-gray-700">prompt</span>
+                      <span class="text-[10px] text-gray-400 ml-1">— Main instruction sent to the LLM (required)</span>
+                    </div>
+                    <div title="Optional supplementary data appended to the prompt under a 'Context:' header. Use this for reference documents, previous node outputs, or fetched content.">
+                      <span class="text-[11px] font-mono font-medium text-gray-700">context</span>
+                      <span class="text-[10px] text-gray-400 ml-1">— Extra reference data appended to prompt (optional)</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Output Ports</span>
+                  <div class="mt-1 space-y-1">
+                    <div title="Returns a map with the LLM response text. Uses the 'data' port type so it can connect to any downstream node.">
+                      <span class="text-[11px] font-mono font-medium text-gray-700">response</span>
+                      <span class="text-[10px] text-gray-400 ml-1">— Map with LLM response, connectable to any node</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             {/if}
 
@@ -1020,7 +1411,27 @@
                       : '// Access inputs via data1, data2, ...\nconst sum = data1.value + data2.value;\nreturn { sum: sum };'
                   }
                 ></textarea>
-                <div class="mt-0.5 text-[10px] text-gray-400">Use <code class="font-mono bg-gray-100 px-0.5 rounded">return</code> to set the result. Truthy → "true" port, falsy → "false" port, "always" always fires.</div>
+                <div class="mt-0.5 text-[10px] text-gray-400">Use <code class="font-mono bg-gray-100 px-0.5 rounded">return</code> to set the result → "true" port. <code class="font-mono bg-gray-100 px-0.5 rounded">throw</code> → "false" port (with <code class="font-mono bg-gray-100 px-0.5 rounded">error</code> in output). "always" always fires.</div>
+              </div>
+              <div>
+                <div class="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-1">Built-in Functions</div>
+                <div class="px-2 py-1.5 bg-gray-50 border border-gray-200 rounded text-[10px] font-mono text-gray-600 space-y-1">
+                  <div><span class="text-gray-800">log.info</span>(msg, key, val, ...) <span class="font-sans text-gray-400">— info log</span></div>
+                  <div><span class="text-gray-800">log.warn</span>(msg, key, val, ...) <span class="font-sans text-gray-400">— warning log</span></div>
+                  <div><span class="text-gray-800">log.error</span>(msg, key, val, ...) <span class="font-sans text-gray-400">— error log</span></div>
+                  <div><span class="text-gray-800">log.debug</span>(msg, key, val, ...) <span class="font-sans text-gray-400">— debug log</span></div>
+                  <div><span class="text-gray-800">toString</span>(v) <span class="font-sans text-gray-400">— bytes/value to string</span></div>
+                  <div><span class="text-gray-800">jsonParse</span>(v) <span class="font-sans text-gray-400">— parse string/bytes as JSON</span></div>
+                  <div><span class="text-gray-800">JSON_stringify</span>(v) <span class="font-sans text-gray-400">— marshal value to JSON string</span></div>
+                  <div><span class="text-gray-800">btoa</span>(v) <span class="font-sans text-gray-400">— base64 encode</span></div>
+                  <div><span class="text-gray-800">atob</span>(s) <span class="font-sans text-gray-400">— base64 decode</span></div>
+                  <div><span class="text-gray-800">getVar</span>(key) <span class="font-sans text-gray-400">— read workflow variable</span></div>
+                  <div><span class="text-gray-800">httpGet</span>(url, headers?) <span class="font-sans text-gray-400">— HTTP GET</span></div>
+                  <div><span class="text-gray-800">httpPost</span>(url, body?, headers?) <span class="font-sans text-gray-400">— HTTP POST</span></div>
+                  <div><span class="text-gray-800">httpPut</span>(url, body?, headers?) <span class="font-sans text-gray-400">— HTTP PUT</span></div>
+                  <div><span class="text-gray-800">httpDelete</span>(url, headers?) <span class="font-sans text-gray-400">— HTTP DELETE</span></div>
+                </div>
+                <div class="mt-1 text-[10px] text-gray-400">HTTP functions return <code class="font-mono bg-gray-100 px-0.5 rounded">{"{ status, headers, body }"}</code>. Body has <code class="font-mono bg-gray-100 px-0.5 rounded">.toString()</code>, <code class="font-mono bg-gray-100 px-0.5 rounded">.jsonParse()</code> methods.</div>
               </div>
             {/if}
 
@@ -1168,6 +1579,62 @@
               </div>
             {/if}
 
+            {#if selectedNodeType === 'log'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Level</label>
+                <select
+                  bind:value={selectedNodeData.level}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                >
+                  <option value="info">info</option>
+                  <option value="warn">warn</option>
+                  <option value="error">error</option>
+                  <option value="debug">debug</option>
+                </select>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Message (Go template)</label>
+                <textarea
+                  bind:value={selectedNodeData.message}
+                  rows={3}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+                  placeholder={'Processing \x7B\x7B.name\x7D\x7D'}
+                ></textarea>
+                <div class="mt-0.5 text-[10px] text-gray-400">Supports Go templates. Data passes through unchanged.</div>
+              </div>
+            {/if}
+
+            {#if selectedNodeType === 'group'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Color</label>
+                <input
+                  type="color"
+                  bind:value={selectedNodeData.color}
+                  class="mt-0.5 w-full h-8 border border-gray-300 rounded cursor-pointer"
+                />
+              </div>
+            {/if}
+
+            {#if selectedNodeType === 'sticky_note'}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Text (Markdown)</label>
+                <textarea
+                  bind:value={selectedNodeData.text}
+                  rows={5}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
+                  placeholder="**Bold**, _italic_, `code`, [link](url)"
+                ></textarea>
+              </div>
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Color</label>
+                <input
+                  type="color"
+                  bind:value={selectedNodeData.color}
+                  class="mt-0.5 w-full h-8 border border-gray-300 rounded cursor-pointer"
+                />
+              </div>
+            {/if}
+
           </div>
           <div class="px-3 py-2 border-t border-gray-200 shrink-0">
             <button
@@ -1191,14 +1658,56 @@
           </div>
           <div class="p-3 space-y-3">
             <div>
-              <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs (JSON)</label>
+              <div class="flex items-center justify-between mb-0.5">
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</label>
+                <div class="flex rounded overflow-hidden border border-gray-300">
+                  <button
+                    onclick={() => { runInputMode = 'text'; }}
+                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runInputMode === 'text' ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                  >Text</button>
+                  <button
+                    onclick={() => { runInputMode = 'json'; }}
+                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 {runInputMode === 'json' ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                  >JSON</button>
+                </div>
+              </div>
               <textarea
                 bind:value={runInputsJson}
                 rows={5}
-                class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
-                placeholder={'{"key": "value"}'}
+                class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
+                placeholder={runInputMode === 'text' ? 'Type your input text...' : '{"key": "value"}'}
               ></textarea>
             </div>
+            <div class="flex items-center justify-between">
+              <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Mode</span>
+              <div class="flex rounded overflow-hidden border border-gray-300">
+                <button
+                  onclick={() => { runSync = true; }}
+                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runSync ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                >Sync</button>
+                <button
+                  onclick={() => { runSync = false; }}
+                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 {!runSync ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                >Async</button>
+              </div>
+            </div>
+            {#if versions.length > 0}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Run Version</label>
+                <select
+                  bind:value={runVersion}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                >
+                  <option value={undefined}>Latest (save first)</option>
+                  {#each versions as v}
+                    <option value={v.version}>v{v.version}{workflow.active_version === v.version ? ' (active)' : ''}</option>
+                  {/each}
+                </select>
+                <div class="mt-0.5 text-[10px] text-gray-400">
+                  {runVersion !== undefined ? `Run version ${runVersion}` : 'Saves then runs latest graph'}
+                </div>
+              </div>
+            {/if}
             <button
               onclick={handleRun}
               disabled={running}

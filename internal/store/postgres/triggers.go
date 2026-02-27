@@ -25,11 +25,13 @@ type triggerRow struct {
 	Enabled    bool            `db:"enabled"`
 	CreatedAt  time.Time       `db:"created_at"`
 	UpdatedAt  time.Time       `db:"updated_at"`
+	CreatedBy  string          `db:"created_by"`
+	UpdatedBy  string          `db:"updated_by"`
 }
 
 func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("workflow_id").Eq(workflowID)).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
@@ -46,7 +48,7 @@ func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]servi
 	var result []service.Trigger
 	for rows.Next() {
 		var row triggerRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 
@@ -62,7 +64,7 @@ func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]servi
 
 func (p *Postgres) GetTrigger(ctx context.Context, id string) (*service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -70,7 +72,7 @@ func (p *Postgres) GetTrigger(ctx context.Context, id string) (*service.Trigger,
 	}
 
 	var row triggerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -83,7 +85,7 @@ func (p *Postgres) GetTrigger(ctx context.Context, id string) (*service.Trigger,
 
 func (p *Postgres) GetTriggerByAlias(ctx context.Context, alias string) (*service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("alias").Eq(alias)).
 		ToSQL()
 	if err != nil {
@@ -91,7 +93,7 @@ func (p *Postgres) GetTriggerByAlias(ctx context.Context, alias string) (*servic
 	}
 
 	var row triggerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -127,6 +129,8 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 			"enabled":     t.Enabled,
 			"created_at":  now,
 			"updated_at":  now,
+			"created_by":  t.CreatedBy,
+			"updated_by":  t.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -147,6 +151,8 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 		Enabled:    t.Enabled,
 		CreatedAt:  now.Format(time.RFC3339),
 		UpdatedAt:  now.Format(time.RFC3339),
+		CreatedBy:  t.CreatedBy,
+		UpdatedBy:  t.UpdatedBy,
 	}, nil
 }
 
@@ -171,6 +177,7 @@ func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigg
 			"public":     t.Public,
 			"enabled":    t.Enabled,
 			"updated_at": now,
+			"updated_by": t.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -211,7 +218,7 @@ func (p *Postgres) DeleteTrigger(ctx context.Context, id string) error {
 
 func (p *Postgres) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at").
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(
 			goqu.I("type").Eq("cron"),
 			goqu.I("enabled").Eq(true),
@@ -230,7 +237,7 @@ func (p *Postgres) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigg
 	var result []service.Trigger
 	for rows.Next() {
 		var row triggerRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 
@@ -266,5 +273,7 @@ func triggerRowToRecord(row triggerRow) (*service.Trigger, error) {
 		Enabled:    row.Enabled,
 		CreatedAt:  row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:  row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:  row.CreatedBy,
+		UpdatedBy:  row.UpdatedBy,
 	}, nil
 }

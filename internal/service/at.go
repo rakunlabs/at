@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/worldline-go/types"
@@ -21,7 +22,7 @@ type LLMProvider interface {
 // interface via type assertion; if a provider doesn't implement it,
 // the gateway falls back to calling Chat() and fake-streaming the result.
 type LLMStreamProvider interface {
-	ChatStream(ctx context.Context, model string, messages []Message, tools []Tool) (<-chan StreamChunk, error)
+	ChatStream(ctx context.Context, model string, messages []Message, tools []Tool) (<-chan StreamChunk, http.Header, error)
 }
 
 // InlineImage represents a base64-encoded image returned by a provider (e.g. Gemini).
@@ -60,6 +61,8 @@ type ProviderRecord struct {
 	Config    config.LLMConfig `json:"config"`
 	CreatedAt string           `json:"created_at"`
 	UpdatedAt string           `json:"updated_at"`
+	CreatedBy string           `json:"created_by"`
+	UpdatedBy string           `json:"updated_by"`
 }
 
 // ProviderStorer defines CRUD operations for provider configurations
@@ -67,8 +70,8 @@ type ProviderRecord struct {
 type ProviderStorer interface {
 	ListProviders(ctx context.Context) ([]ProviderRecord, error)
 	GetProvider(ctx context.Context, key string) (*ProviderRecord, error)
-	CreateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*ProviderRecord, error)
-	UpdateProvider(ctx context.Context, key string, cfg config.LLMConfig) (*ProviderRecord, error)
+	CreateProvider(ctx context.Context, record ProviderRecord) (*ProviderRecord, error)
+	UpdateProvider(ctx context.Context, key string, record ProviderRecord) (*ProviderRecord, error)
 	DeleteProvider(ctx context.Context, key string) error
 }
 
@@ -102,6 +105,8 @@ type APIToken struct {
 	ExpiresAt        types.Null[types.Time] `json:"expires_at"`        // zero value = no expiry
 	CreatedAt        types.Time             `json:"created_at"`
 	LastUsedAt       types.Null[types.Time] `json:"last_used_at"`
+	CreatedBy        string                 `json:"created_by"`
+	UpdatedBy        string                 `json:"updated_by"`
 }
 
 // APITokenStorer defines CRUD operations for API tokens.
@@ -153,6 +158,7 @@ type LLMResponse struct {
 	ToolCalls    []ToolCall
 	Finished     bool
 	Usage        Usage
+	Header       http.Header
 }
 
 type ToolCall struct {
@@ -177,9 +183,13 @@ type WorkflowGraph struct {
 // WorkflowNode represents a single node in a workflow graph.
 type WorkflowNode struct {
 	ID       string         `json:"id"`
-	Type     string         `json:"type"`     // "input", "output", "llm_call", "template", "conditional", "loop", "mcp_tool", "code", "http_request"
-	Position WorkflowPos    `json:"position"` // {x, y} for the visual editor
-	Data     map[string]any `json:"data"`     // node-type-specific configuration
+	Type     string         `json:"type"`                // "input", "output", "llm_call", "template", "conditional", "loop", "mcp_tool", "code", "http_request"
+	Position WorkflowPos    `json:"position"`            // {x, y} for the visual editor
+	Data     map[string]any `json:"data"`                // node-type-specific configuration
+	Width    *float64       `json:"width,omitempty"`     // visual width (groups, sticky notes)
+	Height   *float64       `json:"height,omitempty"`    // visual height (groups, sticky notes)
+	ParentID string         `json:"parent_id,omitempty"` // parent group node ID
+	ZIndex   *int           `json:"z_index,omitempty"`   // layer ordering (groups = 0, nodes = 1)
 }
 
 // WorkflowPos is the x/y position of a node in the visual editor.
@@ -199,12 +209,27 @@ type WorkflowEdge struct {
 
 // Workflow represents a saved workflow definition.
 type Workflow struct {
+	ID            string        `json:"id"`
+	Name          string        `json:"name"`
+	Description   string        `json:"description"`
+	Graph         WorkflowGraph `json:"graph"`
+	ActiveVersion *int          `json:"active_version,omitempty"`
+	CreatedAt     string        `json:"created_at"`
+	UpdatedAt     string        `json:"updated_at"`
+	CreatedBy     string        `json:"created_by"`
+	UpdatedBy     string        `json:"updated_by"`
+}
+
+// WorkflowVersion represents an immutable snapshot of a workflow at a point in time.
+type WorkflowVersion struct {
 	ID          string        `json:"id"`
+	WorkflowID  string        `json:"workflow_id"`
+	Version     int           `json:"version"`
 	Name        string        `json:"name"`
 	Description string        `json:"description"`
 	Graph       WorkflowGraph `json:"graph"`
 	CreatedAt   string        `json:"created_at"`
-	UpdatedAt   string        `json:"updated_at"`
+	CreatedBy   string        `json:"created_by"`
 }
 
 // WorkflowStorer defines CRUD operations for workflow definitions.
@@ -214,6 +239,14 @@ type WorkflowStorer interface {
 	CreateWorkflow(ctx context.Context, w Workflow) (*Workflow, error)
 	UpdateWorkflow(ctx context.Context, id string, w Workflow) (*Workflow, error)
 	DeleteWorkflow(ctx context.Context, id string) error
+}
+
+// WorkflowVersionStorer defines operations for workflow version history.
+type WorkflowVersionStorer interface {
+	ListWorkflowVersions(ctx context.Context, workflowID string) ([]WorkflowVersion, error)
+	GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*WorkflowVersion, error)
+	CreateWorkflowVersion(ctx context.Context, v WorkflowVersion) (*WorkflowVersion, error)
+	SetActiveVersion(ctx context.Context, workflowID string, version int) error
 }
 
 // ─── Trigger Management ───
@@ -230,6 +263,8 @@ type Trigger struct {
 	Enabled    bool           `json:"enabled"`
 	CreatedAt  string         `json:"created_at"`
 	UpdatedAt  string         `json:"updated_at"`
+	CreatedBy  string         `json:"created_by"`
+	UpdatedBy  string         `json:"updated_by"`
 }
 
 // TriggerStorer defines CRUD operations for workflow triggers.
@@ -256,6 +291,8 @@ type Skill struct {
 	Tools        []Tool `json:"tools"`         // Built-in tool definitions (may include JS handlers)
 	CreatedAt    string `json:"created_at"`
 	UpdatedAt    string `json:"updated_at"`
+	CreatedBy    string `json:"created_by"`
+	UpdatedBy    string `json:"updated_by"`
 }
 
 // SkillStorer defines CRUD operations for skill definitions.
@@ -282,6 +319,8 @@ type Variable struct {
 	Secret      bool   `json:"secret"`      // true = encrypted at rest, value redacted in list API
 	CreatedAt   string `json:"created_at"`
 	UpdatedAt   string `json:"updated_at"`
+	CreatedBy   string `json:"created_by"`
+	UpdatedBy   string `json:"updated_by"`
 }
 
 // VariableStorer defines CRUD operations for variables.
@@ -306,6 +345,8 @@ type NodeConfig struct {
 	Data      string `json:"data"` // JSON blob with type-specific configuration
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
+	CreatedBy string `json:"created_by"`
+	UpdatedBy string `json:"updated_by"`
 }
 
 // NodeConfigStorer defines CRUD operations for node configs.

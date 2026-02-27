@@ -164,7 +164,13 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, err := s.store.CreateProvider(r.Context(), req.Key, req.Config)
+	userEmail := s.getUserEmail(r)
+	record, err := s.store.CreateProvider(r.Context(), service.ProviderRecord{
+		Key:       req.Key,
+		Config:    req.Config,
+		CreatedBy: userEmail,
+		UpdatedBy: userEmail,
+	})
 	if err != nil {
 		slog.Error("create provider failed", "key", req.Key, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create provider: %v", err), http.StatusInternalServerError)
@@ -218,7 +224,12 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	record, err := s.store.UpdateProvider(r.Context(), key, req.Config)
+	userEmail := s.getUserEmail(r)
+	record, err := s.store.UpdateProvider(r.Context(), key, service.ProviderRecord{
+		Key:       key,
+		Config:    req.Config,
+		UpdatedBy: userEmail,
+	})
 	if err != nil {
 		slog.Error("update provider failed", "key", key, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update provider: %v", err), http.StatusInternalServerError)

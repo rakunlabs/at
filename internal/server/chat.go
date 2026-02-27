@@ -111,6 +111,13 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Forward provider headers
+	for k, v := range resp.Header {
+		for _, val := range v {
+			w.Header().Add(k, val)
+		}
+	}
+
 	s.cacheThoughtSignatures(resp.ToolCalls)
 	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
 	httpResponseJSON(w, chatResp, http.StatusOK)

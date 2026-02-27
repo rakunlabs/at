@@ -49,7 +49,6 @@
     {/if}
   </div>
   <HandleGroup position="right" class="!gap-1">
-    <Handle id="response" type="output" port="llm_response" label="response" />
-    <Handle id="text_out" type="output" port="text" label="text" />
+    <Handle id="response" type="output" port="data" label="response" />
   </HandleGroup>
 </div>

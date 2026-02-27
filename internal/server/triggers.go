@@ -12,9 +12,12 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
+	"github.com/rakunlabs/logi"
 
 	// Blank import triggers init() registration of all built-in node types.
 	_ "github.com/rakunlabs/at/internal/service/workflow/nodes"
+
+	mrequestid "github.com/rakunlabs/ada/middleware/requestid"
 )
 
 // ─── Trigger CRUD API ───
@@ -83,6 +86,8 @@ func (s *Server) CreateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	userEmail := s.getUserEmail(r)
+
 	// Validate alias uniqueness.
 	if req.Alias != "" {
 		existing, err := s.triggerStore.GetTriggerByAlias(r.Context(), req.Alias)
@@ -98,6 +103,8 @@ func (s *Server) CreateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.WorkflowID = wfID
+	req.CreatedBy = userEmail
+	req.UpdatedBy = userEmail
 
 	record, err := s.triggerStore.CreateTrigger(r.Context(), req)
 	if err != nil {
@@ -168,6 +175,8 @@ func (s *Server) UpdateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userEmail := s.getUserEmail(r)
+
 	// Validate alias uniqueness (if alias is being set/changed).
 	if req.Alias != "" {
 		existing, err := s.triggerStore.GetTriggerByAlias(r.Context(), req.Alias)
@@ -182,6 +191,7 @@ func (s *Server) UpdateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	req.UpdatedBy = userEmail
 	record, err := s.triggerStore.UpdateTrigger(r.Context(), id, req)
 	if err != nil {
 		slog.Error("update trigger failed", "id", id, "error", err)
@@ -241,7 +251,8 @@ func (s *Server) DeleteTriggerAPI(w http.ResponseWriter, r *http.Request) {
 // WebhookAPI handles POST /webhooks/:trigger_id_or_alias.
 // It looks up the HTTP trigger by ID or alias, verifies it is enabled,
 // enforces authentication for non-public triggers, loads the associated
-// workflow, and starts asynchronous execution. Returns 202 with a run_id.
+// workflow, and starts execution. By default runs asynchronously (202).
+// Pass ?sync=true to block until the workflow completes and return outputs.
 func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	if s.triggerStore == nil || s.workflowStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -327,6 +338,22 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Use the active version's graph if available.
+	graphToRun := wf.Graph
+	if wf.ActiveVersion != nil && s.workflowVersionStore != nil {
+		ver, err := s.workflowVersionStore.GetWorkflowVersion(r.Context(), trigger.WorkflowID, *wf.ActiveVersion)
+		if err != nil {
+			slog.Error("webhook: get active version failed",
+				"trigger_id", trigger.ID,
+				"workflow_id", trigger.WorkflowID,
+				"version", *wf.ActiveVersion,
+				"error", err)
+			// Fall back to wf.Graph on error.
+		} else if ver != nil {
+			graphToRun = ver.Graph
+		}
+	}
+
 	// Buffer the request body before returning the response, since r.Body
 	// will be closed once the handler returns.
 	bodyBytes, err := io.ReadAll(r.Body)
@@ -364,8 +391,23 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	// Pass buffered body as an io.ReadCloser so downstream BodyWrapper works.
 	inputs["body"] = io.NopCloser(bytes.NewReader(bodyBytes))
 
-	// Register the run and get a cancellable context (detached from request).
-	runID, ctx, cleanup := s.registerRun(context.Background(), trigger.WorkflowID, "webhook")
+	syncMode := r.URL.Query().Get("sync") == "true"
+
+	// Both sync and async modes run the engine in a goroutine that outlives
+	// the HTTP request. Use context.Background() so the request context
+	// cancellation does not kill background graph execution.
+	parentCtx := context.Background()
+
+	// Enrich context with workflow metadata for structured logging.
+	requestID := r.Header.Get(mrequestid.HeaderXRequestID)
+	parentCtx = logi.WithContext(parentCtx, slog.With(
+		slog.String("workflow_id", trigger.WorkflowID),
+		slog.String("workflow_name", wf.Name),
+		slog.String("request_id", requestID),
+	))
+
+	// Register the run and get a cancellable context.
+	runID, ctx, cleanup := s.registerRun(parentCtx, trigger.WorkflowID, "webhook")
 
 	// Build a provider lookup function for the engine.
 	providerLookup := func(key string) (service.LLMProvider, string, error) {
@@ -430,30 +472,90 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 
 	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup)
 
-	// Run workflow asynchronously.
-	go func() {
-		defer cleanup()
+	// Find the specific http_trigger node that matches this trigger's ID.
+	var entryNodeIDs []string
+	hasOutputNode := false
+	for _, n := range graphToRun.Nodes {
+		if n.Type == "http_trigger" {
+			if tid, _ := n.Data["trigger_id"].(string); tid == trigger.ID {
+				entryNodeIDs = append(entryNodeIDs, n.ID)
+			}
+		}
+		if n.Type == "output" {
+			hasOutputNode = true
+		}
+	}
 
-		result, err := engine.Run(ctx, wf.Graph, inputs)
-		if err != nil {
-			slog.Error("webhook: workflow execution failed",
+	if syncMode && hasOutputNode {
+		// Synchronous with output node: run the engine in a goroutine and
+		// wait for the first output node to fire. The rest of the graph
+		// continues in the background.
+		outputCh := make(chan workflow.EarlyOutput, 1)
+
+		go func() {
+			defer cleanup()
+
+			result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, outputCh)
+			if err != nil {
+				logi.Ctx(ctx).Error("webhook: workflow execution failed",
+					"trigger_id", trigger.ID,
+					"workflow_id", trigger.WorkflowID,
+					"run_id", runID,
+					"error", err)
+				return
+			}
+
+			logi.Ctx(ctx).Info("webhook: workflow completed",
 				"trigger_id", trigger.ID,
 				"workflow_id", trigger.WorkflowID,
 				"run_id", runID,
-				"error", err)
+				"output_keys", mapKeys(result.Outputs))
+		}()
+
+		early := <-outputCh
+		if early.Err != nil {
+			logi.Ctx(ctx).Error("webhook: workflow execution failed",
+				"trigger_id", trigger.ID,
+				"workflow_id", trigger.WorkflowID,
+				"run_id", runID,
+				"error", early.Err)
+			httpResponse(w, fmt.Sprintf("workflow execution failed: %v", early.Err), http.StatusInternalServerError)
 			return
 		}
 
-		slog.Info("webhook: workflow completed",
-			"trigger_id", trigger.ID,
-			"workflow_id", trigger.WorkflowID,
-			"run_id", runID,
-			"output_keys", mapKeys(result.Outputs))
-	}()
+		httpResponseJSON(w, runWorkflowResponse{
+			RunID:      runID,
+			WorkflowID: trigger.WorkflowID,
+			Status:     "completed",
+			Outputs:    early.Outputs,
+		}, http.StatusOK)
+	} else {
+		// Asynchronous (or sync without output node): run in goroutine,
+		// return immediately. Nothing to wait for.
+		go func() {
+			defer cleanup()
 
-	httpResponseJSON(w, runWorkflowResponse{
-		RunID:      runID,
-		WorkflowID: trigger.WorkflowID,
-		Status:     "running",
-	}, http.StatusAccepted)
+			result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, nil)
+			if err != nil {
+				logi.Ctx(ctx).Error("webhook: workflow execution failed",
+					"trigger_id", trigger.ID,
+					"workflow_id", trigger.WorkflowID,
+					"run_id", runID,
+					"error", err)
+				return
+			}
+
+			logi.Ctx(ctx).Info("webhook: workflow completed",
+				"trigger_id", trigger.ID,
+				"workflow_id", trigger.WorkflowID,
+				"run_id", runID,
+				"output_keys", mapKeys(result.Outputs))
+		}()
+
+		httpResponseJSON(w, runWorkflowResponse{
+			RunID:      runID,
+			WorkflowID: trigger.WorkflowID,
+			Status:     "running",
+		}, http.StatusAccepted)
+	}
 }

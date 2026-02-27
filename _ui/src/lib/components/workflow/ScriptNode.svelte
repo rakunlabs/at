@@ -47,7 +47,7 @@
       <div class="text-[9px] text-gray-400 mt-0.5">{inputCount} inputs</div>
     {/if}
     <div class="text-[9px] text-gray-400 mt-1 border-t border-gray-100 pt-1">
-      use <code class="font-mono bg-gray-50 px-0.5 rounded">return</code> to set result
+      <code class="font-mono bg-gray-50 px-0.5 rounded">return</code> → true, <code class="font-mono bg-gray-50 px-0.5 rounded">throw</code> → false
     </div>
   </div>
   <HandleGroup position="right" class="!gap-1">

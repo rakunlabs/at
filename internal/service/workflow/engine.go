@@ -3,10 +3,10 @@ package workflow
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"sync"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/logi"
 )
 
 // RunResult is the output of a workflow execution.
@@ -14,10 +14,25 @@ type RunResult struct {
 	Outputs map[string]any `json:"outputs"`
 }
 
+// EarlyOutput is sent on the output channel when the first output node
+// fires, or when execution completes/fails before any output node is reached.
+// Callers waiting for a sync response can read from the channel without
+// waiting for the entire graph to finish.
+type EarlyOutput struct {
+	Outputs map[string]any
+	Err     error
+}
+
 // Engine executes a workflow graph using a two-phase approach:
-//   - Phase 1 (Validate): parse all nodes, validate configuration
+//   - Phase 1 (Validate): discover nodes reachable from the specified entry
+//     nodes via edges, parse only those nodes, validate configuration
 //   - Phase 2 (Run): concurrent goroutine-per-branch execution with
 //     return-type routing
+//
+// The caller specifies which node(s) to start from (e.g. the specific
+// http_trigger or cron_trigger that fired). Only the subgraph reachable
+// from those entry points is executed. Annotation nodes (group, sticky_note)
+// and unrelated trigger branches are silently excluded.
 type Engine struct {
 	providerLookup   ProviderLookup
 	skillLookup      SkillLookup
@@ -50,11 +65,24 @@ type connection struct {
 // ─── Phase 1: Parse & Validate ───
 
 // parseGraph builds nodeState map from workflow graph and validates all nodes.
-func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, reg *Registry) (map[string]*nodeState, error) {
-	states := make(map[string]*nodeState, len(graph.Nodes))
-
-	// Create noders from graph nodes via factories.
+// Only nodes in the reachable set are initialized; annotation and disconnected
+// nodes are silently skipped.
+func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, reg *Registry, reachable map[string]bool) (map[string]*nodeState, error) {
+	// Build a lookup so we can find nodes by ID.
+	nodeLookup := make(map[string]service.WorkflowNode, len(graph.Nodes))
 	for _, n := range graph.Nodes {
+		nodeLookup[n.ID] = n
+	}
+
+	states := make(map[string]*nodeState, len(reachable))
+
+	// Create noders only for reachable nodes.
+	for id := range reachable {
+		n, ok := nodeLookup[id]
+		if !ok {
+			return nil, fmt.Errorf("node %q: referenced by edge but not found in graph", id)
+		}
+
 		factory := GetNodeFactory(n.Type)
 		if factory == nil {
 			return nil, fmt.Errorf("node %q: unknown type %q", n.ID, n.Type)
@@ -73,15 +101,15 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 		}
 	}
 
-	// Wire up connections from edges.
+	// Wire up connections from edges (skip edges outside the reachable set).
 	for _, edge := range graph.Edges {
 		srcState, ok := states[edge.Source]
 		if !ok {
-			return nil, fmt.Errorf("edge %q: source node %q not found", edge.ID, edge.Source)
+			continue // source not reachable — skip
 		}
 		tgtState, ok := states[edge.Target]
 		if !ok {
-			return nil, fmt.Errorf("edge %q: target node %q not found", edge.ID, edge.Target)
+			continue // target not reachable — skip
 		}
 
 		srcPort := edge.SourceHandle
@@ -116,23 +144,63 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 // ─── Phase 2: Execute ───
 
 // Run executes a workflow graph with the given inputs.
-func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any) (*RunResult, error) {
+//
+// entryNodeIDs specifies which node(s) to use as the starting point for BFS
+// reachability. For manual/API runs pass the IDs of "input" nodes, for
+// webhook runs pass the specific http_trigger node ID, for cron runs pass
+// the specific cron_trigger node ID. If nil/empty, all known start types
+// are used as a fallback.
+//
+// outputCh is an optional channel. When non-nil, the engine sends an
+// EarlyOutput as soon as the first "output" node fires (or when execution
+// completes/fails if no output node is reached). This allows sync callers
+// to respond immediately while the rest of the graph continues in the
+// background. Pass nil if early output notification is not needed.
+func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entryNodeIDs []string, outputCh chan<- EarlyOutput) (*RunResult, error) {
+	// Ensure outputCh is always signaled exactly once so callers never block.
+	var outputOnce sync.Once
+	signalOutput := func(outputs map[string]any, err error) {
+		if outputCh == nil {
+			return
+		}
+		outputOnce.Do(func() {
+			outputCh <- EarlyOutput{Outputs: outputs, Err: err}
+		})
+	}
+	defer func() {
+		// Fallback: if no output node fired and no error was sent,
+		// signal with whatever outputs the registry collected (may be empty).
+		signalOutput(nil, nil)
+	}()
+
 	if len(graph.Nodes) == 0 {
+		signalOutput(map[string]any{}, nil)
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
 	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, inputs)
 
-	// Phase 1: Parse & Validate
-	states, err := e.parseGraph(ctx, graph, reg)
-	if err != nil {
-		return nil, fmt.Errorf("validation: %w", err)
+	// Compute the set of nodes reachable from the entry nodes via edges.
+	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
+	if len(reachable) == 0 {
+		signalOutput(map[string]any{}, nil)
+		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	// Topological sort for execution order.
-	order, err := topoSort(graph.Nodes, graph.Edges)
+	// Phase 1: Parse & Validate (only reachable nodes).
+	states, err := e.parseGraph(ctx, graph, reg, reachable)
 	if err != nil {
-		return nil, fmt.Errorf("topological sort: %w", err)
+		err = fmt.Errorf("validation: %w", err)
+		signalOutput(nil, err)
+		return nil, err
+	}
+
+	// Topological sort for execution order (only reachable nodes).
+	order, err := topoSort(reachable, graph.Edges)
+	if err != nil {
+		err = fmt.Errorf("topological sort: %w", err)
+		signalOutput(nil, err)
+		return nil, err
 	}
 
 	// Phase 2: Execute nodes in topological order.
@@ -148,7 +216,9 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	for _, nodeID := range order {
 		// Check for cancellation between node executions.
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("workflow cancelled: %w", err)
+			err = fmt.Errorf("workflow cancelled: %w", err)
+			signalOutput(nil, err)
+			return nil, err
 		}
 
 		st, ok := states[nodeID]
@@ -165,7 +235,9 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 			if err == ErrStopBranch {
 				continue
 			}
-			return nil, fmt.Errorf("node %q (%s): %w", nodeID, st.noder.Type(), err)
+			err = fmt.Errorf("node %q (%s): %w", nodeID, st.noder.Type(), err)
+			signalOutput(nil, err)
+			return nil, err
 		}
 
 		if result == nil {
@@ -176,6 +248,11 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		execMu.Lock()
 		nodeOutputs[nodeID] = result
 		execMu.Unlock()
+
+		// Signal early output when the first "output" node fires.
+		if st.noder.Type() == "output" {
+			signalOutput(reg.Outputs(), nil)
+		}
 
 		// Handle fan-out: if the result implements NodeResultFanOut,
 		// we need to spawn goroutines for each item.
@@ -192,7 +269,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 				go func(data map[string]any) {
 					defer wg.Done()
 					if err := e.runFanOutBranch(ctx, nodeID, data, states, order, reg); err != nil {
-						slog.Error("fan-out branch failed", "node", nodeID, "error", err)
+						logi.Ctx(ctx).Error("fan-out branch failed", "node", nodeID, "error", err)
 						execMu.Lock()
 						if firstErr == nil {
 							firstErr = err
@@ -237,6 +314,9 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 			}
 		}
 	}
+
+	// Signal with final outputs if no output node fired earlier.
+	signalOutput(outputs, nil)
 
 	return &RunResult{Outputs: outputs}, nil
 }
@@ -387,24 +467,80 @@ func (e *Engine) findDownstream(sourceNodeID string, states map[string]*nodeStat
 
 // ─── Graph Utilities ───
 
-// topoSort performs a topological sort using Kahn's algorithm.
-func topoSort(nodes []service.WorkflowNode, edges []service.WorkflowEdge) ([]string, error) {
-	inDegree := make(map[string]int, len(nodes))
-	adjacency := make(map[string][]string, len(nodes))
+// reachableNodes returns the set of node IDs reachable from the given entry
+// nodes by following edges forward via BFS. Nodes not reachable from any
+// entry node are excluded from execution.
+//
+// If entryNodeIDs is empty, it falls back to seeding from all known start
+// types (input, http_trigger, cron_trigger) for backward compatibility.
+func reachableNodes(entryNodeIDs []string, nodes []service.WorkflowNode, edges []service.WorkflowEdge) map[string]bool {
+	// Build forward adjacency from edges.
+	adj := make(map[string][]string)
+	for _, e := range edges {
+		adj[e.Source] = append(adj[e.Source], e.Target)
+	}
 
-	for _, n := range nodes {
-		inDegree[n.ID] = 0
+	// Seed BFS with the provided entry nodes.
+	reachable := make(map[string]bool)
+	var queue []string
+
+	if len(entryNodeIDs) > 0 {
+		for _, id := range entryNodeIDs {
+			reachable[id] = true
+			queue = append(queue, id)
+		}
+	} else {
+		// Fallback: seed from all known start/trigger types.
+		startTypes := map[string]bool{
+			"input":        true,
+			"http_trigger": true,
+			"cron_trigger": true,
+		}
+		for _, n := range nodes {
+			if startTypes[n.Type] {
+				reachable[n.ID] = true
+				queue = append(queue, n.ID)
+			}
+		}
+	}
+
+	// BFS forward through edges.
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		for _, next := range adj[current] {
+			if !reachable[next] {
+				reachable[next] = true
+				queue = append(queue, next)
+			}
+		}
+	}
+
+	return reachable
+}
+
+// topoSort performs a topological sort using Kahn's algorithm.
+// Only nodes in the reachable set are considered.
+func topoSort(reachable map[string]bool, edges []service.WorkflowEdge) ([]string, error) {
+	inDegree := make(map[string]int, len(reachable))
+	adjacency := make(map[string][]string, len(reachable))
+
+	for id := range reachable {
+		inDegree[id] = 0
 	}
 
 	for _, e := range edges {
+		if !reachable[e.Source] || !reachable[e.Target] {
+			continue
+		}
 		adjacency[e.Source] = append(adjacency[e.Source], e.Target)
 		inDegree[e.Target]++
 	}
 
 	var queue []string
-	for _, n := range nodes {
-		if inDegree[n.ID] == 0 {
-			queue = append(queue, n.ID)
+	for id := range reachable {
+		if inDegree[id] == 0 {
+			queue = append(queue, id)
 		}
 	}
 
@@ -422,7 +558,7 @@ func topoSort(nodes []service.WorkflowNode, edges []service.WorkflowEdge) ([]str
 		}
 	}
 
-	if len(order) != len(nodes) {
+	if len(order) != len(reachable) {
 		return nil, fmt.Errorf("workflow graph contains a cycle")
 	}
 

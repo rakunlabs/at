@@ -97,6 +97,10 @@ type Server struct {
 	// If not set, all settings endpoints are disabled (403 Forbidden).
 	AdminToken string `cfg:"admin_token" log:"-"`
 
+	// UserHeader is the HTTP header name that contains the authenticated user's
+	// email address (populated by the forward auth middleware).
+	UserHeader string `cfg:"user_header" default:"X-User"`
+
 	// Alan, if set, enables distributed clustering via UDP peer discovery.
 	// This allows multiple AT instances to coordinate encryption key rotation
 	// and other admin operations across the cluster.

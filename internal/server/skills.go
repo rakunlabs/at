@@ -86,6 +86,10 @@ func (s *Server) CreateSkillAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userEmail := s.getUserEmail(r)
+	req.CreatedBy = userEmail
+	req.UpdatedBy = userEmail
+
 	record, err := s.skillStore.CreateSkill(r.Context(), req)
 	if err != nil {
 		slog.Error("create skill failed", "name", req.Name, "error", err)
@@ -119,6 +123,9 @@ func (s *Server) UpdateSkillAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
 	}
+
+	userEmail := s.getUserEmail(r)
+	req.UpdatedBy = userEmail
 
 	record, err := s.skillStore.UpdateSkill(r.Context(), id, req)
 	if err != nil {

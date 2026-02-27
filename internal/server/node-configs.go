@@ -109,6 +109,10 @@ func (s *Server) CreateNodeConfigAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userEmail := s.getUserEmail(r)
+	req.CreatedBy = userEmail
+	req.UpdatedBy = userEmail
+
 	record, err := s.nodeConfigStore.CreateNodeConfig(r.Context(), req)
 	if err != nil {
 		slog.Error("create node config failed", "name", req.Name, "error", err)
@@ -147,6 +151,9 @@ func (s *Server) UpdateNodeConfigAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "type is required", http.StatusBadRequest)
 		return
 	}
+
+	userEmail := s.getUserEmail(r)
+	req.UpdatedBy = userEmail
 
 	record, err := s.nodeConfigStore.UpdateNodeConfig(r.Context(), id, req)
 	if err != nil {

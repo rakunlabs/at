@@ -154,6 +154,7 @@
           <tr class="border-b border-gray-200 bg-gray-50">
             <th class="text-left px-3 py-2 font-medium text-gray-600 text-xs">Name</th>
             <th class="text-left px-3 py-2 font-medium text-gray-600 text-xs">Description</th>
+            <th class="text-left px-3 py-2 font-medium text-gray-600 text-xs">Version</th>
             <th class="text-left px-3 py-2 font-medium text-gray-600 text-xs">Nodes</th>
             <th class="text-left px-3 py-2 font-medium text-gray-600 text-xs">Updated</th>
             <th class="text-right px-3 py-2 font-medium text-gray-600 text-xs">Actions</th>
@@ -171,8 +172,20 @@
                 </button>
               </td>
               <td class="px-3 py-2 text-gray-500 text-xs">{wf.description || '-'}</td>
+              <td class="px-3 py-2 text-gray-500 text-xs">
+                {#if wf.active_version != null}
+                  <span class="px-1.5 py-0.5 text-[10px] font-medium text-green-700 bg-green-50 border border-green-200 rounded">v{wf.active_version}</span>
+                {:else}
+                  <span class="text-gray-400">-</span>
+                {/if}
+              </td>
               <td class="px-3 py-2 text-gray-500 text-xs">{wf.graph?.nodes?.length ?? 0}</td>
-              <td class="px-3 py-2 text-gray-500 text-xs">{formatDate(wf.updated_at)}</td>
+              <td class="px-3 py-2 text-gray-500 text-xs">
+                <div>{formatDate(wf.updated_at)}</div>
+                {#if wf.updated_by}
+                  <div class="text-[10px] text-gray-400">by {wf.updated_by}</div>
+                {/if}
+              </td>
               <td class="px-3 py-2">
                 <div class="flex items-center justify-end gap-1">
                   <button

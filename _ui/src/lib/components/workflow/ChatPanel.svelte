@@ -213,7 +213,7 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 - Data fields: label, fields (array of field names)
 
 ### output
-- Input handles: id="input" (port: data, accepts: data, text, llm_response)
+- Input handles: id="input" (port: data, accepts: data, text)
 - Data fields: label, fields (array of field names)
 
 ### http_trigger
@@ -227,12 +227,12 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 
 ### llm_call
 - Input handles: id="prompt" (port: text), id="context" (port: data)
-- Output handles: id="response" (port: llm_response), id="text_out" (port: text)
+- Output handles: id="response" (port: data)
 - Data fields: label, provider (provider key), model (model name), system_prompt
 
 ### agent_call
 - Input handles: id="prompt" (port: text), id="context" (port: data), id="skills" (port: data, position: bottom), id="mcp" (port: data, position: bottom), id="memory" (port: data, position: bottom)
-- Output handles: id="response" (port: llm_response), id="text_out" (port: text)
+- Output handles: id="response" (port: data)
 - Data fields: label, provider (provider key), model (model name), system_prompt, max_iterations (number, default 10, 0=unlimited)
 - Bottom input handles receive data from resource config nodes (skill_config, mcp_config, memory_config) connected vertically
 - Runs an agentic loop: sends prompt to LLM, executes tool calls (MCP, skill), feeds results back until final answer or max iterations

@@ -156,7 +156,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	var result OpenAIResponse
+	var headers http.Header
 	if err := p.client.Do(req, func(r *http.Response) error {
+		headers = r.Header
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			return err
@@ -186,6 +188,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	llmResp := &service.LLMResponse{
 		Content:  choice.Message.Content,
 		Finished: choice.FinishReason != "tool_calls",
+		Header:   headers,
 	}
 
 	if result.Usage != nil {
@@ -233,7 +236,7 @@ type streamResponse struct {
 }
 
 // ChatStream implements service.LLMStreamProvider for true SSE streaming.
-func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, error) {
+func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, http.Header, error) {
 	if model == "" {
 		model = p.Model
 	}
@@ -244,19 +247,19 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.BaseURL, bytes.NewBuffer(jsonData))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Override auth header when a token source is configured (see Chat() comment).
 	if p.tokenSource != nil {
 		token, err := p.tokenSource.Token(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get auth token: %w", err)
+			return nil, nil, fmt.Errorf("failed to get auth token: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -264,13 +267,13 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	// Use the klient's HTTP client which has transport with headers and base URL.
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("streaming request failed: %w", err)
+		return nil, nil, fmt.Errorf("streaming request failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		bodyData, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("provider returned status %d: %s", resp.StatusCode, string(bodyData))
+		return nil, nil, fmt.Errorf("provider returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
 	ch := make(chan service.StreamChunk, 64)
@@ -357,7 +360,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 	}()
 
-	return ch, nil
+	return ch, resp.Header, nil
 }
 
 // buildRequestBody creates the common request body for Chat and ChatStream.
