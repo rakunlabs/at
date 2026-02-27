@@ -523,7 +523,9 @@ func (s *Server) handleStreamingChat(
 	chatID := generateChatID()
 
 	// Determine whether the client requested usage reporting in the stream.
-	includeUsage := streamOpts != nil && streamOpts.IncludeUsage
+	// We force this to true to support clients (like OpenCode) that expect usage
+	// data but don't explicitly request it via stream_options.
+	includeUsage := true
 
 	// Try true streaming if the provider supports it.
 	if sp, ok := provider.(service.LLMStreamProvider); ok {

@@ -543,6 +543,7 @@
             <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Token</th>
             <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Scope</th>
             <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Expires</th>
+            <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Created By</th>
             <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider">Last Used</th>
             <th class="text-left px-4 py-2 font-medium text-gray-500 text-xs uppercase tracking-wider w-16"></th>
           </tr>
@@ -552,7 +553,7 @@
             {#if editingTokenId === token.id}
               <!-- Edit form row -->
               <tr class="bg-blue-50/30">
-                <td colspan="6" class="px-4 py-3">
+                <td colspan="7" class="px-4 py-3">
                   <div class="space-y-3">
                     <div class="flex items-center gap-2 mb-1">
                       <Pencil size={12} class="text-gray-400" />
@@ -737,6 +738,9 @@
                 {:else}
                   <span class="text-gray-400">Never</span>
                 {/if}
+              </td>
+              <td class="px-4 py-2.5 text-xs text-gray-500 max-w-[150px] truncate" title={token.created_by}>
+                {token.created_by || '-'}
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500">
                 {formatDate(token.last_used_at)}

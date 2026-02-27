@@ -256,7 +256,7 @@ type LLMConfig struct {
 
 func Load(ctx context.Context, path string) (*Config, error) {
 	var cfg Config
-	if err := chu.Load(ctx, path, &cfg, chu.WithLoaderOption(loaderenv.New(loaderenv.WithPrefix("MY_APP_")))); err != nil {
+	if err := chu.Load(ctx, path, &cfg, chu.WithLoaderOption(loaderenv.New(loaderenv.WithPrefix("AT_")))); err != nil {
 		return nil, err
 	}
 
