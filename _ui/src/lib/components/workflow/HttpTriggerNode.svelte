@@ -6,6 +6,7 @@
     trigger_id?: string;
     alias?: string;
     public?: boolean;
+    node_number?: number;
   }
 
   let { id, data, selected }: NodeProps<HttpTriggerData> = $props();
@@ -20,8 +21,9 @@
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-indigo-50">
     <span class="text-[9px] font-bold px-1 py-px rounded bg-indigo-500 text-white tracking-wide">HTTP</span>
     <span class="text-gray-900">{data.label || 'HTTP Trigger'}</span>
+    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
     {#if !data.public}
-      <span class="text-[8px] px-1 py-px rounded bg-amber-100 text-amber-700 font-medium ml-auto">AUTH</span>
+      <span class="text-[8px] px-1 py-px rounded bg-amber-100 text-amber-700 font-medium {data.node_number == null ? 'ml-auto' : ''}">AUTH</span>
     {/if}
   </div>
   <div class="px-2.5 py-1.5">

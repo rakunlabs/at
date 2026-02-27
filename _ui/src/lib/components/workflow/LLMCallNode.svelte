@@ -6,6 +6,7 @@
     provider?: string;
     model?: string;
     system_prompt?: string;
+    node_number?: number;
   }
 
   let { id, data, selected }: NodeProps<LLMCallData> = $props();
@@ -24,6 +25,7 @@
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-blue-50">
     <span class="text-[9px] font-bold px-1 py-px rounded bg-blue-500 text-white tracking-wide">LLM</span>
     <span class="text-gray-900">{data.label || 'LLM Call'}</span>
+    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
   </div>
   <div class="px-2.5 py-1.5">
     {#if data.provider}

@@ -263,6 +263,10 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
+		logi.Ctx(runCtx).Info("scheduler: workflow started",
+			"trigger_id", trigger.ID,
+			"workflow_id", trigger.WorkflowID,
+			"run_id", runID)
 		result, err := engine.Run(runCtx, graphToRun, inputs, entryNodeIDs, nil)
 		if err != nil {
 			logi.Ctx(runCtx).Error("scheduler: workflow execution failed",

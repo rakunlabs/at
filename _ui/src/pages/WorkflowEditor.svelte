@@ -152,7 +152,7 @@
       id: n.id,
       type: n.type,
       position: { x: n.position.x, y: n.position.y },
-      data: n.data || {},
+      data: { ...(n.data || {}), ...(n.node_number != null && { node_number: n.node_number }) },
       ...(n.width != null && { width: n.width }),
       ...(n.height != null && { height: n.height }),
       ...(n.parent_id && { parent_id: n.parent_id }),
@@ -172,16 +172,20 @@
 
   function flowToGraph(flow: FlowState): { nodes: WorkflowNode[]; edges: WorkflowEdge[] } {
     const json = flow.toJSON();
-    const nodes: WorkflowNode[] = json.nodes.map((n: FlowNode) => ({
-      id: n.id,
-      type: n.type,
-      position: { x: n.position.x, y: n.position.y },
-      data: n.data || {},
-      ...(n.width != null && { width: n.width }),
-      ...(n.height != null && { height: n.height }),
-      ...(n.parent_id && { parent_id: n.parent_id }),
-      ...(n.z_index != null && { z_index: n.z_index }),
-    }));
+    const nodes: WorkflowNode[] = json.nodes.map((n: FlowNode) => {
+      const { node_number, ...data } = (n.data || {}) as Record<string, any>;
+      return {
+        id: n.id,
+        type: n.type,
+        position: { x: n.position.x, y: n.position.y },
+        data,
+        ...(n.width != null && { width: n.width }),
+        ...(n.height != null && { height: n.height }),
+        ...(n.parent_id && { parent_id: n.parent_id }),
+        ...(n.z_index != null && { z_index: n.z_index }),
+        ...(node_number != null && { node_number }),
+      };
+    });
     const edges: WorkflowEdge[] = json.edges.map((e: FlowEdge) => ({
       id: e.id,
       source: e.source,
@@ -293,6 +297,13 @@
     try {
       workflow = await getWorkflow(params.id);
       storeNavbar.title = `Workflow: ${workflow.name}`;
+      // Initialize nodeCounter from the max existing node_number so new nodes
+      // get the next sequential number without collisions.
+      const maxNum = workflow.graph.nodes.reduce(
+        (max, n) => Math.max(max, n.node_number ?? 0),
+        0,
+      );
+      nodeCounter = maxNum;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load workflow', 'alert');
       push('/workflows');
@@ -451,7 +462,7 @@
     if (!canvasRef) return;
     const flow = canvasRef.getFlow();
     nodeCounter++;
-    const defaultData: Record<string, any> = {};
+    const defaultData: Record<string, any> = { node_number: nodeCounter };
     if (type === 'input') {
       defaultData.label = 'Input';
     } else if (type === 'output') {

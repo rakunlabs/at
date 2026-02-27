@@ -31,6 +31,7 @@
   let formPassword = $state('');
   let formFrom = $state('');
   let formTls = $state(false);
+  let formNoTls = $state(false);
   let formInsecureSkipVerify = $state(false);
   let formProxy = $state('');
   let formShowPassword = $state(false);
@@ -63,6 +64,7 @@
     formPassword = '';
     formFrom = '';
     formTls = false;
+    formNoTls = false;
     formInsecureSkipVerify = false;
     formProxy = '';
     formShowPassword = false;
@@ -90,6 +92,7 @@
         formUsername = data.username || '';
         formFrom = data.from || '';
         formTls = data.tls || false;
+        formNoTls = data.no_tls || false;
         formInsecureSkipVerify = data.insecure_skip_verify || false;
         formProxy = data.proxy || '';
         formPassword = '';
@@ -110,6 +113,7 @@
         username: formUsername.trim(),
         from: formFrom.trim(),
         tls: formTls,
+        no_tls: formNoTls,
         insecure_skip_verify: formInsecureSkipVerify,
         proxy: formProxy.trim(),
       };
@@ -341,6 +345,22 @@
               />
               <span class="text-xs text-gray-500">
                 {formTls ? 'TLS from start (port 465)' : 'STARTTLS upgrade (port 587/25)'}
+              </span>
+            </div>
+          </div>
+
+          <!-- No TLS toggle -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-no-tls" class="text-sm font-medium text-gray-700">No TLS</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <input
+                id="form-no-tls"
+                type="checkbox"
+                bind:checked={formNoTls}
+                class="w-4 h-4 text-gray-900 border-gray-300 focus:ring-gray-900/10"
+              />
+              <span class="text-xs text-gray-500">
+                Disable TLS entirely (plain SMTP, no encryption)
               </span>
             </div>
           </div>

@@ -186,14 +186,15 @@ type WorkflowGraph struct {
 
 // WorkflowNode represents a single node in a workflow graph.
 type WorkflowNode struct {
-	ID       string         `json:"id"`
-	Type     string         `json:"type"`                // "input", "output", "llm_call", "template", "conditional", "loop", "mcp_tool", "code", "http_request"
-	Position WorkflowPos    `json:"position"`            // {x, y} for the visual editor
-	Data     map[string]any `json:"data"`                // node-type-specific configuration
-	Width    *float64       `json:"width,omitempty"`     // visual width (groups, sticky notes)
-	Height   *float64       `json:"height,omitempty"`    // visual height (groups, sticky notes)
-	ParentID string         `json:"parent_id,omitempty"` // parent group node ID
-	ZIndex   *int           `json:"z_index,omitempty"`   // layer ordering (groups = 0, nodes = 1)
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`                  // "input", "output", "llm_call", "template", "conditional", "loop", "mcp_tool", "code", "http_request"
+	Position   WorkflowPos    `json:"position"`              // {x, y} for the visual editor
+	Data       map[string]any `json:"data"`                  // node-type-specific configuration
+	Width      *float64       `json:"width,omitempty"`       // visual width (groups, sticky notes)
+	Height     *float64       `json:"height,omitempty"`      // visual height (groups, sticky notes)
+	ParentID   string         `json:"parent_id,omitempty"`   // parent group node ID
+	ZIndex     *int           `json:"z_index,omitempty"`     // layer ordering (groups = 0, nodes = 1)
+	NodeNumber *int           `json:"node_number,omitempty"` // user-visible sequential number for logging
 }
 
 // WorkflowPos is the x/y position of a node in the visual editor.

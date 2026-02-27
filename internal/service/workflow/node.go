@@ -39,12 +39,12 @@ type NodeResult interface {
 // ports. The engine only activates the ports listed in Selection().
 // Used by conditional/if nodes and script nodes.
 //
-// Output ports are identified by index (0, 1, 2, ...) matching the order
-// of output handles on the node.
+// Output ports are identified by name (e.g. "success", "error", "always")
+// matching the output handle IDs defined in the frontend.
 type NodeResultSelection interface {
 	NodeResult
-	// Selection returns the indices of output ports to activate.
-	Selection() []int
+	// Selection returns the names of output ports to activate.
+	Selection() []string
 }
 
 // NodeResultFanOut is returned by loop/iterator nodes. The engine spawns
@@ -121,14 +121,14 @@ func NewResult(data map[string]any) NodeResult {
 // selectionResult implements NodeResultSelection.
 type selectionResult struct {
 	data      map[string]any
-	selection []int
+	selection []string
 }
 
 func (r *selectionResult) Data() map[string]any { return r.data }
-func (r *selectionResult) Selection() []int     { return r.selection }
+func (r *selectionResult) Selection() []string  { return r.selection }
 
 // NewSelectionResult creates a NodeResult that routes to specific output ports.
-func NewSelectionResult(data map[string]any, selection []int) NodeResultSelection {
+func NewSelectionResult(data map[string]any, selection []string) NodeResultSelection {
 	return &selectionResult{data: data, selection: selection}
 }
 

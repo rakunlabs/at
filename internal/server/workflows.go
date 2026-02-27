@@ -352,6 +352,7 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		slog.String("workflow_id", id),
 		slog.String("workflow_name", wf.Name),
 		slog.String("request_id", requestID),
+		slog.String("user", s.getUserEmail(r)),
 	))
 
 	// Register the run and get a cancellable context.
@@ -449,6 +450,7 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			defer cleanup()
 
+			logi.Ctx(ctx).Info("workflow started", "id", id, "run_id", runID)
 			result, err := engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, outputCh)
 			if err != nil {
 				logi.Ctx(ctx).Error("run workflow failed", "id", id, "run_id", runID, "error", err)
@@ -478,6 +480,7 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			defer cleanup()
 
+			logi.Ctx(ctx).Info("workflow started", "id", id, "run_id", runID)
 			result, err := engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, nil)
 			if err != nil {
 				logi.Ctx(ctx).Error("run workflow failed", "id", id, "run_id", runID, "error", err)

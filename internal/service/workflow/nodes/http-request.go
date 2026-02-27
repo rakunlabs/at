@@ -203,14 +203,13 @@ func (n *httpRequestNode) Run(ctx context.Context, _ *workflow.Registry, inputs 
 		"headers":     respHeaders,
 	}
 
-	// Selection-based routing: success (2xx), error (>=400), always.
-	// Port 0 = "error", Port 1 = "success", Port 2 = "always"
-	selection := []int{2} // always
+	// Selection-based routing by port name.
+	selection := []string{"always"}
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		selection = append(selection, 1) // success
+		selection = append(selection, "success")
 	}
 	if resp.StatusCode >= 400 {
-		selection = append(selection, 0) // error
+		selection = append(selection, "error")
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil

@@ -404,6 +404,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		slog.String("workflow_id", trigger.WorkflowID),
 		slog.String("workflow_name", wf.Name),
 		slog.String("request_id", requestID),
+		slog.String("user", s.getUserEmail(r)),
 	))
 
 	// Register the run and get a cancellable context.
@@ -503,6 +504,10 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			defer cleanup()
 
+			logi.Ctx(ctx).Info("webhook: workflow started",
+				"trigger_id", trigger.ID,
+				"workflow_id", trigger.WorkflowID,
+				"run_id", runID)
 			result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, outputCh)
 			if err != nil {
 				logi.Ctx(ctx).Error("webhook: workflow execution failed",
@@ -543,6 +548,10 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		go func() {
 			defer cleanup()
 
+			logi.Ctx(ctx).Info("webhook: workflow started",
+				"trigger_id", trigger.ID,
+				"workflow_id", trigger.WorkflowID,
+				"run_id", runID)
 			result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, nil)
 			if err != nil {
 				logi.Ctx(ctx).Error("webhook: workflow execution failed",

@@ -43,6 +43,7 @@ import (
 //	"password":             string — SMTP auth password (encrypted at rest)
 //	"from":                 string — default sender address
 //	"tls":                  bool   — use implicit TLS (port 465); false = STARTTLS
+//	"no_tls":               bool   — disable TLS entirely (plain SMTP, default false)
 //	"insecure_skip_verify": bool   — skip TLS verification (default false)
 //	"proxy":                string — HTTP Connect Proxy URL (optional, e.g. http://user:pass@proxy:8080)
 //
@@ -128,6 +129,7 @@ type smtpConfig struct {
 	Password           string `json:"password"`
 	From               string `json:"from"`
 	TLS                bool   `json:"tls"`
+	NoTLS              bool   `json:"no_tls"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify"`
 	Proxy              string `json:"proxy"`
 }
@@ -240,18 +242,23 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 	}
 
 	// TLS Configuration
-	tlsConfig := &tls.Config{
-		ServerName:         sc.Host,
-		InsecureSkipVerify: sc.InsecureSkipVerify,
-	}
-	opts = append(opts, mail.WithTLSConfig(tlsConfig))
-
-	if sc.TLS {
-		// Implicit TLS (usually port 465)
-		opts = append(opts, mail.WithSSL(), mail.WithTLSPolicy(mail.TLSMandatory))
+	if sc.NoTLS {
+		// No TLS at all (plain SMTP)
+		opts = append(opts, mail.WithTLSPolicy(mail.NoTLS))
 	} else {
-		// STARTTLS (usually port 587) or plain
-		opts = append(opts, mail.WithTLSPolicy(mail.TLSOpportunistic))
+		tlsConfig := &tls.Config{
+			ServerName:         sc.Host,
+			InsecureSkipVerify: sc.InsecureSkipVerify,
+		}
+		opts = append(opts, mail.WithTLSConfig(tlsConfig))
+
+		if sc.TLS {
+			// Implicit TLS (usually port 465)
+			opts = append(opts, mail.WithSSL(), mail.WithTLSPolicy(mail.TLSMandatory))
+		} else {
+			// STARTTLS (usually port 587) or plain
+			opts = append(opts, mail.WithTLSPolicy(mail.TLSOpportunistic))
+		}
 	}
 
 	// Proxy Configuration
@@ -278,14 +285,14 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 		"status": "sent",
 	}
 
-	// Selection-based routing: Port 0 = error, Port 1 = success, Port 2 = always
-	selection := []int{2} // always
+	// Selection-based routing by port name.
+	selection := []string{"always"}
 	if sendErr != nil {
 		outData["error"] = sendErr.Error()
 		outData["status"] = "failed"
-		selection = append(selection, 0) // error
+		selection = append(selection, "error")
 	} else {
-		selection = append(selection, 1) // success
+		selection = append(selection, "success")
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil

@@ -3,6 +3,7 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"sync"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -70,6 +71,36 @@ type connection struct {
 	port   string
 }
 
+// nodeRef formats a human-readable node reference for error messages.
+// Example: `node #3 "llm_call_3" (llm_call)` or `node "llm_call_3" (llm_call)`.
+func nodeRef(st *nodeState) string {
+	if st.node.NodeNumber != nil {
+		return fmt.Sprintf("node #%d %q (%s)", *st.node.NodeNumber, st.node.ID, st.noder.Type())
+	}
+	return fmt.Sprintf("node %q (%s)", st.node.ID, st.noder.Type())
+}
+
+// rawNodeRef formats a node reference from a raw WorkflowNode (before a Noder
+// is created). Used during parseGraph when nodeState doesn't exist yet.
+func rawNodeRef(n service.WorkflowNode) string {
+	if n.NodeNumber != nil {
+		return fmt.Sprintf("node #%d %q", *n.NodeNumber, n.ID)
+	}
+	return fmt.Sprintf("node %q", n.ID)
+}
+
+// nodeLogAttrs returns structured log attributes for a node.
+func nodeLogAttrs(st *nodeState) []any {
+	attrs := []any{
+		slog.String("node_id", st.node.ID),
+		slog.String("node_type", st.noder.Type()),
+	}
+	if st.node.NodeNumber != nil {
+		attrs = append(attrs, slog.Int("node_number", *st.node.NodeNumber))
+	}
+	return attrs
+}
+
 // ─── Phase 1: Parse & Validate ───
 
 // parseGraph builds nodeState map from workflow graph and validates all nodes.
@@ -93,12 +124,12 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 
 		factory := GetNodeFactory(n.Type)
 		if factory == nil {
-			return nil, fmt.Errorf("node %q: unknown type %q", n.ID, n.Type)
+			return nil, fmt.Errorf("%s: unknown type %q", rawNodeRef(n), n.Type)
 		}
 
 		noder, err := factory(n)
 		if err != nil {
-			return nil, fmt.Errorf("node %q: create failed: %w", n.ID, err)
+			return nil, fmt.Errorf("%s: create failed: %w", rawNodeRef(n), err)
 		}
 
 		states[n.ID] = &nodeState{
@@ -140,9 +171,9 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 	}
 
 	// Validate all nodes.
-	for id, st := range states {
+	for _, st := range states {
 		if err := st.noder.Validate(ctx, reg); err != nil {
-			return nil, fmt.Errorf("node %q (%s): validation failed: %w", id, st.noder.Type(), err)
+			return nil, fmt.Errorf("%s: validation failed: %w", nodeRef(st), err)
 		}
 	}
 
@@ -238,15 +269,17 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		nodeInputs := e.gatherInputs(nodeID, states, nodeOutputs)
 
 		// Run the node.
+		logi.Ctx(ctx).Info("node started", nodeLogAttrs(st)...)
 		result, err := st.noder.Run(ctx, reg, nodeInputs)
 		if err != nil {
 			if err == ErrStopBranch {
 				continue
 			}
-			err = fmt.Errorf("node %q (%s): %w", nodeID, st.noder.Type(), err)
+			err = fmt.Errorf("%s: %w", nodeRef(st), err)
 			signalOutput(nil, err)
 			return nil, err
 		}
+		logi.Ctx(ctx).Info("node completed", nodeLogAttrs(st)...)
 
 		if result == nil {
 			continue
@@ -277,7 +310,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 				go func(data map[string]any) {
 					defer wg.Done()
 					if err := e.runFanOutBranch(ctx, nodeID, data, states, order, reg); err != nil {
-						logi.Ctx(ctx).Error("fan-out branch failed", "node", nodeID, "error", err)
+						logi.Ctx(ctx).Error("fan-out branch failed", append(nodeLogAttrs(st), "error", err)...)
 						execMu.Lock()
 						if firstErr == nil {
 							firstErr = err
@@ -357,36 +390,15 @@ func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeO
 	return result
 }
 
-// isPortActive checks whether a specific output port is active given selection indices.
-func (e *Engine) isPortActive(portName string, st *nodeState, selection []int) bool {
-	// Build ordered list of output port names.
-	portNames := e.getOutputPortNames(st)
-
-	for _, idx := range selection {
-		if idx >= 0 && idx < len(portNames) && portNames[idx] == portName {
+// isPortActive checks whether a specific output port is active given selection port names.
+func (e *Engine) isPortActive(portName string, _ *nodeState, selection []string) bool {
+	for _, name := range selection {
+		if name == portName {
 			return true
 		}
 	}
 
 	return false
-}
-
-// getOutputPortNames returns the output port names for a node in deterministic order.
-func (e *Engine) getOutputPortNames(st *nodeState) []string {
-	// Collect unique output port names.
-	seen := make(map[string]bool)
-	var names []string
-	for port := range st.outputs {
-		if !seen[port] {
-			seen[port] = true
-			names = append(names, port)
-		}
-	}
-
-	// Sort for determinism — but typically node types define their ports
-	// in a known order. For now, use alphabetical as fallback.
-	// The node type should define port order via its factory.
-	return names
 }
 
 // runFanOutBranch executes downstream nodes for a single fan-out item.
@@ -416,13 +428,15 @@ func (e *Engine) runFanOutBranch(ctx context.Context, sourceNodeID string, data 
 
 		nodeInputs := e.gatherInputs(nodeID, states, branchOutputs)
 
+		logi.Ctx(ctx).Info("node started", nodeLogAttrs(st)...)
 		result, err := st.noder.Run(ctx, reg, nodeInputs)
 		if err != nil {
 			if err == ErrStopBranch {
 				continue
 			}
-			return fmt.Errorf("node %q (%s): %w", nodeID, st.noder.Type(), err)
+			return fmt.Errorf("%s: %w", nodeRef(st), err)
 		}
+		logi.Ctx(ctx).Info("node completed", nodeLogAttrs(st)...)
 
 		if result != nil {
 			branchOutputs[nodeID] = result

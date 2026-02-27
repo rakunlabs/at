@@ -66,12 +66,12 @@ func (n *conditionalNode) Run(_ context.Context, reg *workflow.Registry, inputs 
 	}
 	outData["result"] = result
 
-	// Selection: index 0 = "false" port, index 1 = "true" port.
-	var selection []int
+	// Selection by port name: "true" or "false".
+	var selection []string
 	if result {
-		selection = []int{1}
+		selection = []string{"true"}
 	} else {
-		selection = []int{0}
+		selection = []string{"false"}
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil

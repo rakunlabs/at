@@ -20,6 +20,7 @@ export interface WorkflowNode {
   height?: number;
   parent_id?: string;
   z_index?: number;
+  node_number?: number;
 }
 
 export interface WorkflowEdge {

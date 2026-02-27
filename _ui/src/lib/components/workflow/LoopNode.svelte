@@ -4,6 +4,7 @@
   interface LoopData {
     label?: string;
     expression?: string;
+    node_number?: number;
   }
 
   let { id, data, selected }: NodeProps<LoopData> = $props();
@@ -25,6 +26,7 @@
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-violet-50">
     <span class="text-[9px] font-bold px-1 py-px rounded bg-violet-600 text-white tracking-wide">LOOP</span>
     <span class="text-gray-900">{data.label || 'Loop'}</span>
+    {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
   </div>
   <div class="px-2.5 py-1.5">
     {#if data.expression}

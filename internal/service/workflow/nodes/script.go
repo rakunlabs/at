@@ -88,7 +88,7 @@ func (n *scriptNode) Run(_ context.Context, reg *workflow.Registry, inputs map[s
 		outData["result"] = nil
 		outData["error"] = err.Error()
 
-		selection := []int{2, 0} // always + false
+		selection := []string{"always", "false"}
 		return workflow.NewSelectionResult(outData, selection), nil
 	}
 
@@ -98,7 +98,7 @@ func (n *scriptNode) Run(_ context.Context, reg *workflow.Registry, inputs map[s
 
 	// Any return (regardless of value) → "true" port.
 	// Port 2 ("always") is always active.
-	selection := []int{2, 1} // always + true
+	selection := []string{"always", "true"}
 
 	return workflow.NewSelectionResult(outData, selection), nil
 }

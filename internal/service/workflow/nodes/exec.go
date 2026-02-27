@@ -225,13 +225,11 @@ func (n *execNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[str
 	outData["result"] = stdout.String()
 
 	// Port selection based on exit code.
-	// Port 2 ("always") is always active.
-	// Port 1 ("true") if exit code == 0, port 0 ("false") otherwise.
-	selection := []int{2} // always
+	selection := []string{"always"}
 	if exitCode == 0 {
-		selection = append(selection, 1)
+		selection = append(selection, "true")
 	} else {
-		selection = append(selection, 0)
+		selection = append(selection, "false")
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil
