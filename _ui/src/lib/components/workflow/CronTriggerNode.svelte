@@ -4,6 +4,7 @@
   interface CronTriggerData {
     label?: string;
     schedule?: string;
+    timezone?: string;
     payload?: Record<string, any>;
     node_number?: number;
   }
@@ -24,9 +25,17 @@
   </div>
   <div class="px-2.5 py-1.5">
     {#if data.schedule}
-      <div class="flex gap-1 items-baseline mb-0.5">
-        <span class="text-gray-400 text-[10px] shrink-0">Schedule:</span>
-        <span class="text-gray-700 font-mono text-[11px]">{data.schedule}</span>
+      <div class="flex flex-col gap-0.5 mb-0.5">
+        <div class="flex gap-1 items-baseline">
+          <span class="text-gray-400 text-[10px] shrink-0">Schedule:</span>
+          <span class="text-gray-700 font-mono text-[11px]">{data.schedule}</span>
+        </div>
+        {#if data.timezone}
+          <div class="flex gap-1 items-baseline">
+            <span class="text-gray-400 text-[10px] shrink-0">TZ:</span>
+            <span class="text-gray-500 text-[10px] truncate max-w-[120px]" title={data.timezone}>{data.timezone}</span>
+          </div>
+        {/if}
       </div>
     {:else}
       <div class="text-gray-400 text-[11px]">Set cron schedule</div>

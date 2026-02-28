@@ -783,6 +783,9 @@ func (s *Server) buildTriggerConfig(node *service.WorkflowNode) map[string]any {
 		if schedule, ok := node.Data["schedule"].(string); ok && schedule != "" {
 			config["schedule"] = schedule
 		}
+		if timezone, ok := node.Data["timezone"].(string); ok && timezone != "" {
+			config["timezone"] = timezone
+		}
 		if payload, ok := node.Data["payload"]; ok {
 			config["payload"] = payload
 		}

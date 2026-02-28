@@ -86,7 +86,7 @@
           properties: {
             type: {
               type: 'string',
-              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'http_trigger', 'cron_trigger', 'http_request', 'conditional', 'loop', 'script', 'skill_config', 'mcp_config', 'memory_config'],
+              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'workflow_call', 'http_trigger', 'cron_trigger', 'http_request', 'email', 'conditional', 'loop', 'script', 'exec', 'log', 'skill_config', 'mcp_config', 'memory_config', 'group', 'sticky_note'],
               description: 'The node type',
             },
             id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
@@ -98,7 +98,7 @@
             },
             data: {
               type: 'object',
-              description: 'Node-specific configuration. Must include "label" field.',
+              description: 'Node-specific configuration. Must include "label" field (except sticky_note which uses "text" instead).',
             },
           },
           required: ['type', 'position', 'data'],
@@ -218,12 +218,12 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 
 ### http_trigger
 - Output handles: id="output" (port: data)
-- Data fields: label, trigger_id (auto-assigned on save)
+- Data fields: label, trigger_id (auto-assigned on save), alias (optional URL alias path), public (boolean, skip auth when true)
 - Webhook receives: method, path, query, headers, body (as reader)
 
 ### cron_trigger
 - Output handles: id="output" (port: data)
-- Data fields: label, schedule (cron expression, e.g. "*/5 * * * *"), payload (object)
+- Data fields: label, schedule (cron expression, e.g. "*/5 * * * *"), timezone (IANA timezone e.g. "America/New_York", empty = local), payload (object)
 
 ### llm_call
 - Input handles: id="prompt" (port: text), id="context" (port: data)
@@ -292,6 +292,31 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 - Output handles: id="true" (port: data), id="false" (port: data), id="always" (port: data)
 - Data fields: label, command, working_dir, timeout, sandbox_root, input_count (1-10)
 
+### log
+- Input handles: id="input" (port: data)
+- Output handles: id="output" (port: data)
+- Data fields: label, level ("debug", "info", "warn", or "error"), message (Go template string, e.g. "Processing ${"{{.data}}"}")
+- Pass-through node: outputs the same data it receives. Logs the rendered message at the specified level.
+
+### workflow_call
+- Input handles: id="input" (port: data)
+- Output handles: id="output" (port: data)
+- Data fields: label, workflow_id (ID of child workflow), workflow_name (display name), inputs (object mapping child workflow input field names to Go template values)
+- Executes another workflow as a sub-workflow. Input data is available in Go templates. Child workflow outputs are passed to the output port.
+
+### group
+- No input or output handles (visual only)
+- Data fields: label, color (CSS hex color, default "#22c55e")
+- Visual grouping container. Drag to resize. Nodes placed inside are visually grouped but not functionally connected.
+- When adding via add_node, also set style: ${'{ width: 400, height: 300 }'}
+
+### sticky_note
+- No input or output handles (visual only)
+- Data fields: text (markdown content), color (CSS hex color, default "#fef08a")
+- NOTE: sticky_note uses "text" instead of "label". Do NOT include a "label" field.
+- Visual annotation. Double-click to edit text. Does not participate in workflow execution.
+- When adding via add_node, also set style: ${'{ width: 200, height: 150 }'}
+
 ## Available Providers
 ${providersInfo.length > 0 ? providersInfo.map(p => `- "${p.key}": models [${p.models.map(m => `"${m}"`).join(', ')}]`).join('\n') : '- No providers configured yet'}
 
@@ -314,11 +339,39 @@ When creating llm_call or agent_call nodes, use the provider key for the "provid
 - Always use get_flow first to understand the current state before making changes
 - Use meaningful node IDs that reflect the node's purpose (e.g., "fetch_users", "check_status")
 - Always include a "label" field in node data
+- Exception: sticky_note nodes use "text" instead of "label"
+- group and sticky_note nodes are visual-only; they have no handles and cannot be connected with edges
 - When connecting nodes, verify handle IDs match the node type's defined handles exactly`);
 
   // ─── Tool Execution ───
 
   let nodeIdCounter = 0;
+
+  function defaultNodeData(type: string): Record<string, any> {
+    switch (type) {
+      case 'input': return { label: 'Input' };
+      case 'output': return { label: 'Output' };
+      case 'llm_call': return { label: 'LLM Call', provider: '', model: '', system_prompt: '' };
+      case 'agent_call': return { label: 'Agent Call', provider: '', model: '', system_prompt: '', max_iterations: 10 };
+      case 'skill_config': return { label: 'Skill Config', skills: [] };
+      case 'mcp_config': return { label: 'MCP Config', mcp_urls: [] };
+      case 'memory_config': return { label: 'Memory' };
+      case 'template': return { label: 'Template', template: '', variables: [] };
+      case 'workflow_call': return { label: 'Workflow Call', workflow_id: '', workflow_name: '', inputs: {} };
+      case 'http_trigger': return { label: 'HTTP Trigger', trigger_id: '', alias: '', public: false };
+      case 'cron_trigger': return { label: 'Cron Trigger', schedule: '', timezone: '', payload: {} };
+      case 'http_request': return { label: 'HTTP Request', url: '', method: 'GET', headers: {}, body: '', timeout: 30, proxy: '', insecure_skip_verify: false, retry: false };
+      case 'conditional': return { label: 'Conditional', expression: '' };
+      case 'loop': return { label: 'Loop', expression: '' };
+      case 'script': return { label: 'Script', code: '', input_count: 1 };
+      case 'exec': return { label: 'Exec', command: '', working_dir: '', timeout: 60, sandbox_root: '/tmp/at-sandbox', input_count: 1 };
+      case 'email': return { label: 'Email', config_id: '', to: '', cc: '', bcc: '', subject: '', body: '', content_type: 'text/plain', from: '', reply_to: '' };
+      case 'log': return { label: 'Log', level: 'info', message: '' };
+      case 'group': return { label: 'Group', color: '#22c55e' };
+      case 'sticky_note': return { text: 'Double-click to edit...', color: '#fef08a' };
+      default: return {};
+    }
+  }
 
   function executeToolCall(name: string, args: Record<string, any>): string {
     try {
@@ -332,12 +385,21 @@ When creating llm_call or agent_call nodes, use the provider key for the "provid
           const { type, position, data, id } = args;
           nodeIdCounter++;
           const nodeId = id || `${type}_ai_${nodeIdCounter}`;
-          flow.addNode({
+          const defaults = defaultNodeData(type);
+          const nodeData = { ...defaults, ...(data || {}) };
+          const nodeOpts: any = {
             id: nodeId,
             type,
             position: { x: position.x, y: position.y },
-            data: data || {},
-          });
+            data: nodeData,
+          };
+          // Visual-only nodes need explicit dimensions
+          if (type === 'group') {
+            nodeOpts.style = { width: 400, height: 300 };
+          } else if (type === 'sticky_note') {
+            nodeOpts.style = { width: 200, height: 150 };
+          }
+          flow.addNode(nodeOpts);
           return JSON.stringify({ success: true, id: nodeId });
         }
 

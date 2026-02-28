@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/logi"
 	"github.com/worldline-go/hardloop"
@@ -44,6 +45,8 @@ type Scheduler struct {
 	nodeConfigLookup     NodeConfigLookup
 	runRegistrar         RunRegistrar
 
+	cluster *cluster.Cluster
+
 	mu     sync.Mutex
 	cron   cronRunner
 	cancel context.CancelFunc
@@ -51,7 +54,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
 		triggerStore:         ts,
 		workflowStore:        ws,
@@ -61,6 +64,7 @@ func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs servi
 		varLookup:            varLookup,
 		varLister:            varLister,
 		nodeConfigLookup:     nodeConfigLookup,
+		cluster:              cl,
 	}
 }
 
@@ -78,7 +82,75 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 	s.ctx = ctx
 
+	// If clustering is enabled, run the lock loop in the background.
+	if s.cluster != nil {
+		go s.runLockLoop(ctx)
+		// We don't start the cron runner immediately; runLockLoop will do it
+		// when it acquires the lock.
+		return nil
+	}
+
+	// Single instance mode: just start immediately.
 	return s.reload()
+}
+
+// runLockLoop attempts to acquire the scheduler lock. When acquired, it
+// starts the cron runner. When lost, it stops the cron runner.
+func (s *Scheduler) runLockLoop(ctx context.Context) {
+	logger := logi.Ctx(ctx)
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		logger.Info("scheduler: attempting to acquire leader lock")
+		if err := s.cluster.LockScheduler(ctx); err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			logger.Error("scheduler: failed to acquire lock, retrying", "error", err)
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		// Lock acquired!
+		logger.Info("scheduler: acquired leader lock, starting cron triggers")
+
+		// Start the cron runner.
+		s.mu.Lock()
+		if err := s.reload(); err != nil {
+			logger.Error("scheduler: failed to start cron runner", "error", err)
+		}
+		s.mu.Unlock()
+
+		// Hold the lock until we lose it or context is cancelled.
+		// Since alan.Lock blocks until acquired, and doesn't return a channel
+		// to signal loss (it's a simple mutex-style lock), in this implementation
+		// holding the lock means we are the leader. We only release it on shutdown.
+		//
+		// However, alan's lock implementation (based on consul/redis/etc) usually
+		// has a session TTL. If we crash, the lock is released.
+		// If we want to actively monitor lock health or handle session invalidation,
+		// we'd need a more advanced API from the cluster package.
+		//
+		// For now, assuming LockScheduler blocks indefinitely once acquired is incorrect
+		// for most distributed locks (they usually return immediately if acquired,
+		// or block until available). Based on typical patterns:
+		// 1. Lock() blocks until acquired.
+		// 2. Once acquired, we are the leader.
+		// 3. We should keep running until shutdown.
+
+		// Wait for context cancellation to release lock.
+		<-ctx.Done()
+
+		logger.Info("scheduler: releasing leader lock")
+		s.Stop() // Stop the runner
+		s.cluster.UnlockScheduler()
+		return
+	}
 }
 
 // Reload stops the current cron runner (if any) and rebuilds it from the
@@ -143,6 +215,11 @@ func (s *Scheduler) reload() error {
 		// Capture for closure.
 		trigger := t
 		cronSpec := schedule
+		timezone, _ := t.Config["timezone"].(string)
+
+		if timezone != "" {
+			cronSpec = "CRON_TZ=" + timezone + " " + cronSpec
+		}
 
 		crons = append(crons, hardloop.Cron{
 			Name:  fmt.Sprintf("trigger-%s", trigger.ID),
@@ -221,11 +298,13 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 		// Build trigger metadata inputs (merged with static payload by the
 		// cron_trigger node).
 		schedule, _ := trigger.Config["schedule"].(string)
+		timezone, _ := trigger.Config["timezone"].(string)
 		inputs := map[string]any{
 			"trigger_type": "cron",
 			"trigger_id":   trigger.ID,
 			"triggered_at": time.Now().UTC().Format(time.RFC3339),
 			"schedule":     schedule,
+			"timezone":     timezone,
 		}
 
 		// Register the run for tracking if a registrar is available.

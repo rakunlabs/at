@@ -21,6 +21,9 @@ const (
 	// lockKeyRotation is the distributed lock name for key rotation.
 	lockKeyRotation = "encryption-key-rotation"
 
+	// lockScheduler is the distributed lock name for cron scheduler.
+	lockScheduler = "cron-scheduler"
+
 	// msgTypeRotateKey identifies a key rotation broadcast message.
 	msgTypeRotateKey = "rotate-key"
 )
@@ -119,6 +122,17 @@ func (c *Cluster) Lock(ctx context.Context) error {
 // Unlock releases the distributed lock for key rotation.
 func (c *Cluster) Unlock() error {
 	return c.alan.Unlock(lockKeyRotation)
+}
+
+// LockScheduler acquires the distributed lock for the cron scheduler.
+// Blocks until the lock is acquired or the context is cancelled.
+func (c *Cluster) LockScheduler(ctx context.Context) error {
+	return c.alan.Lock(ctx, lockScheduler)
+}
+
+// UnlockScheduler releases the distributed lock for the cron scheduler.
+func (c *Cluster) UnlockScheduler() error {
+	return c.alan.Unlock(lockScheduler)
 }
 
 // BroadcastNewKey sends the new encryption key to all peers and waits for
