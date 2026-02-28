@@ -119,7 +119,7 @@ func (n *execNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }
 
-func (n *execNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
 	// Resolve the sandbox root to an absolute path.
 	sandboxAbs, err := filepath.Abs(n.sandboxRoot)
 	if err != nil {
@@ -135,7 +135,7 @@ func (n *execNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[str
 	workDir := sandboxAbs
 	if n.workingDir != "" {
 		// Resolve template references in working_dir.
-		resolvedDir := resolveTemplate(n.workingDir, inputs)
+		resolvedDir := resolveTemplate(n.workingDir, inputs, varFuncMap(reg))
 		workDir = filepath.Join(sandboxAbs, resolvedDir)
 	}
 
@@ -160,7 +160,7 @@ func (n *execNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[str
 	}
 
 	// Resolve template references in the command.
-	command := resolveTemplate(n.command, inputs)
+	command := resolveTemplate(n.command, inputs, varFuncMap(reg))
 
 	// Also allow command to come from inputs (edge data), which overrides the static config.
 	if inputCmd, ok := inputs["command"].(string); ok && inputCmd != "" {
@@ -250,8 +250,8 @@ func isInsideSandbox(dir, sandbox string) bool {
 }
 
 // resolveTemplate renders a Go text/template string with the given data.
-func resolveTemplate(s string, data map[string]any) string {
-	result, err := render.ExecuteWithData(s, data)
+func resolveTemplate(s string, data map[string]any, funcs map[string]any) string {
+	result, err := render.ExecuteWithFuncs(s, data, funcs)
 	if err != nil {
 		// Fall back to original string on template errors to preserve
 		// backwards compatibility with the previous simple replacement.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -58,20 +59,30 @@ func ExecuteJSHandler(handler string, args map[string]any, varLookup ...VarLooku
 	}
 }
 
-// ExecuteBashHandler runs a bash command with tool arguments and variables as
-// environment variables. Tool arguments are set as ARG_<NAME> (uppercased,
-// dots/hyphens replaced with underscores). All variables are set as VAR_<KEY>
-// (uppercased). The command's stdout is returned as the tool result.
-func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any, varLister VarLister) (string, error) {
-	const bashTimeout = 60 * time.Second
+// defaultBashTimeout is the default execution timeout for bash handlers.
+const defaultBashTimeout = 60 * time.Second
 
-	ctx, cancel := context.WithTimeout(ctx, bashTimeout)
+// ExecuteBashHandler runs a bash command with tool arguments and variables as
+// environment variables. The parent process environment is inherited, then tool
+// arguments are overlaid as ARG_<NAME> (uppercased, dots/hyphens replaced with
+// underscores) and all variables as VAR_<KEY> (uppercased).
+// The timeout parameter controls execution duration; zero means the default 60s.
+// The command's stdout is returned as the tool result.
+func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any, varLister VarLister, timeout time.Duration) (string, error) {
+	if timeout <= 0 {
+		timeout = defaultBashTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", handler)
 
-	// Build environment variables from tool arguments.
-	var env []string
+	// Start with the parent process environment so that PATH, HOME,
+	// SSH_AUTH_SOCK, git config, etc. are available to the subprocess.
+	env := os.Environ()
+
+	// Overlay tool arguments as ARG_<NAME>.
 	for k, v := range args {
 		envKey := "ARG_" + strings.ToUpper(
 			strings.NewReplacer(".", "_", "-", "_").Replace(k),
@@ -79,7 +90,7 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 		env = append(env, envKey+"="+fmt.Sprintf("%v", v))
 	}
 
-	// Inject all variables as VAR_<KEY> env vars.
+	// Overlay all variables as VAR_<KEY> env vars.
 	if varLister != nil {
 		vars, err := varLister()
 		if err != nil {

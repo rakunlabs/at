@@ -60,7 +60,7 @@ func (n *logNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }
 
-func (n *logNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+func (n *logNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
 	// Build the log message.
 	msg := "log"
 	if n.message != "" {
@@ -74,7 +74,7 @@ func (n *logNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[stri
 			}
 		}
 
-		rendered, err := render.ExecuteWithData(n.message, tmplCtx)
+		rendered, err := render.ExecuteWithFuncs(n.message, tmplCtx, varFuncMap(reg))
 		if err != nil {
 			return nil, fmt.Errorf("log: template error: %w", err)
 		}

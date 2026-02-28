@@ -107,21 +107,22 @@ func (n *httpRequestNode) Validate(_ context.Context, _ *workflow.Registry) erro
 	return nil
 }
 
-func (n *httpRequestNode) Run(ctx context.Context, _ *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, n.timeout)
 	defer cancel()
 
 	// Build template context: data merged with values (values override).
 	tmplCtx := buildTemplateContext(inputs)
+	extraFuncs := varFuncMap(reg)
 
 	// Render URL.
-	resolvedURL, err := renderTemplate("url", n.urlTmpl, tmplCtx)
+	resolvedURL, err := renderTemplate("url", n.urlTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, fmt.Errorf("http_request: %w", err)
 	}
 
 	// Render method.
-	resolvedMethod, err := renderTemplate("method", n.methodTmpl, tmplCtx)
+	resolvedMethod, err := renderTemplate("method", n.methodTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, fmt.Errorf("http_request: %w", err)
 	}
@@ -133,7 +134,7 @@ func (n *httpRequestNode) Run(ctx context.Context, _ *workflow.Registry, inputs 
 	// Render body.
 	var body io.Reader
 	if n.bodyTmpl != "" {
-		rendered, err := renderTemplate("body", n.bodyTmpl, tmplCtx)
+		rendered, err := renderTemplate("body", n.bodyTmpl, tmplCtx, extraFuncs)
 		if err != nil {
 			return nil, fmt.Errorf("http_request: %w", err)
 		}
@@ -161,7 +162,7 @@ func (n *httpRequestNode) Run(ctx context.Context, _ *workflow.Registry, inputs 
 
 	// Render and apply configured headers.
 	for k, tmpl := range n.headerTmpls {
-		val, err := renderTemplate("header:"+k, tmpl, tmplCtx)
+		val, err := renderTemplate("header:"+k, tmpl, tmplCtx, extraFuncs)
 		if err != nil {
 			return nil, fmt.Errorf("http_request: %w", err)
 		}
@@ -268,8 +269,8 @@ func buildTemplateContext(inputs map[string]any) map[string]any {
 }
 
 // renderTemplate renders a Go text/template string with the given context.
-func renderTemplate(name, tmplText string, ctx map[string]any) (string, error) {
-	result, err := render.ExecuteWithData(tmplText, ctx)
+func renderTemplate(name, tmplText string, ctx map[string]any, funcs map[string]any) (string, error) {
+	result, err := render.ExecuteWithFuncs(tmplText, ctx, funcs)
 	if err != nil {
 		return "", fmt.Errorf("template %q: %w", name, err)
 	}

@@ -49,7 +49,7 @@ func (n *templateNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }
 
-func (n *templateNode) Run(_ context.Context, _ *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+func (n *templateNode) Run(_ context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
 	// If there is a single "data" key holding a map, use its contents
 	// directly as the template context so users can write {{.field}}
 	// instead of {{.data.field}}.
@@ -62,7 +62,7 @@ func (n *templateNode) Run(_ context.Context, _ *workflow.Registry, inputs map[s
 		}
 	}
 
-	result, err := render.ExecuteWithData(n.tmplText, ctx)
+	result, err := render.ExecuteWithFuncs(n.tmplText, ctx, varFuncMap(reg))
 	if err != nil {
 		return nil, fmt.Errorf("template: execute error: %w", err)
 	}

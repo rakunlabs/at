@@ -137,6 +137,10 @@ type ContentBlock struct {
 	ToolUseID string         `json:"tool_use_id,omitempty"`
 	Content   string         `json:"content,omitempty"`
 	Source    *MediaSource   `json:"source,omitempty"` // For media content blocks (images, documents, audio, video — Anthropic format)
+	// ThoughtSignature is an opaque token from Gemini thinking models (2.5+)
+	// that preserves the model's reasoning state across function-calling turns.
+	// It must be echoed back on the corresponding tool_use content block.
+	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
 // MediaSource represents a media source for content blocks (images, documents, audio, video).
@@ -424,10 +428,11 @@ func (a *Agent) Run(ctx context.Context, userMessage string) error {
 		}
 		for _, tc := range resp.ToolCalls {
 			assistantContent = append(assistantContent, ContentBlock{
-				Type:  "tool_use",
-				ID:    tc.ID,
-				Name:  tc.Name,
-				Input: tc.Arguments,
+				Type:             "tool_use",
+				ID:               tc.ID,
+				Name:             tc.Name,
+				Input:            tc.Arguments,
+				ThoughtSignature: tc.ThoughtSignature,
 			})
 		}
 
@@ -456,6 +461,7 @@ func (a *Agent) Run(ctx context.Context, userMessage string) error {
 				toolResults = append(toolResults, ContentBlock{
 					Type:      "tool_result",
 					ToolUseID: tc.ID,
+					Name:      tc.Name,
 					Content:   result,
 				})
 			}

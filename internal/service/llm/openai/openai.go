@@ -445,15 +445,24 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 	}
 
-	reqMessages := make([]any, len(messages))
-	for i, msg := range messages {
-		if m, ok := msg.Content.(map[string]any); ok {
-			reqMessages[i] = m
-		} else {
-			reqMessages[i] = map[string]any{
+	var reqMessages []any
+	for _, msg := range messages {
+		switch c := msg.Content.(type) {
+		case map[string]any:
+			// Gateway passthrough — already in OpenAI wire format.
+			reqMessages = append(reqMessages, c)
+		case []service.ContentBlock:
+			// ContentBlock messages from agent_call / Agent.Run().
+			// Convert from Anthropic-style content blocks to OpenAI format.
+			for _, m := range convertContentBlocksToOpenAI(msg.Role, c) {
+				reqMessages = append(reqMessages, m)
+			}
+		default:
+			// Plain string or other content.
+			reqMessages = append(reqMessages, map[string]any{
 				"role":    msg.Role,
 				"content": msg.Content,
-			}
+			})
 		}
 	}
 
@@ -466,4 +475,71 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 	}
 
 	return reqBody
+}
+
+// convertContentBlocksToOpenAI converts Anthropic-style []ContentBlock into
+// one or more OpenAI-format message maps.
+//
+// Assistant messages with tool_use blocks become a single message with a
+// "tool_calls" array. User messages with tool_result blocks are expanded
+// into individual role:"tool" messages (OpenAI's expected format).
+func convertContentBlocksToOpenAI(role string, blocks []service.ContentBlock) []map[string]any {
+	if role == "assistant" {
+		// Collect text and tool_calls from the assistant message.
+		var text string
+		var toolCalls []map[string]any
+		for _, b := range blocks {
+			switch b.Type {
+			case "text":
+				text += b.Text
+			case "tool_use":
+				args, _ := json.Marshal(b.Input)
+				tc := map[string]any{
+					"id":   b.ID,
+					"type": "function",
+					"function": map[string]any{
+						"name":      b.Name,
+						"arguments": string(args),
+					},
+				}
+				if b.ThoughtSignature != "" {
+					tc["thought_signature"] = b.ThoughtSignature
+				}
+				toolCalls = append(toolCalls, tc)
+			}
+		}
+
+		m := map[string]any{"role": "assistant"}
+		if text != "" {
+			m["content"] = text
+		}
+		if len(toolCalls) > 0 {
+			m["tool_calls"] = toolCalls
+		}
+		return []map[string]any{m}
+	}
+
+	// For user messages: split tool_result blocks into individual role:"tool"
+	// messages. Any text blocks become a separate user message.
+	var msgs []map[string]any
+	var text string
+	for _, b := range blocks {
+		switch b.Type {
+		case "text":
+			text += b.Text
+		case "tool_result":
+			msgs = append(msgs, map[string]any{
+				"role":         "tool",
+				"tool_call_id": b.ToolUseID,
+				"content":      b.Content,
+			})
+		}
+	}
+
+	// Prepend text message before tool results if there was any text.
+	if text != "" {
+		msgs = append([]map[string]any{{"role": role, "content": text}}, msgs...)
+	}
+
+	return msgs
 }

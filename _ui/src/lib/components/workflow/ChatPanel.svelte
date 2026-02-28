@@ -10,6 +10,9 @@
     streamChatCompletion,
   } from '@/lib/helper/chat';
   import { type FlowState, type FlowNode, type FlowEdge } from 'kaykay';
+  import { listSkills } from '@/lib/api/skills';
+  import { listVariables } from '@/lib/api/secrets';
+  import { listNodeConfigs } from '@/lib/api/node-configs';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
 
   // ─── Props ───
@@ -202,6 +205,35 @@
 
   loadProviders();
 
+  let skillsInfo = $state<{ name: string; description: string }[]>([]);
+  let variablesInfo = $state<{ key: string; description: string }[]>([]);
+  let nodeConfigsInfo = $state<{ id: string; name: string; type: string }[]>([]);
+
+  async function loadSkills() {
+    try {
+      const skills = await listSkills();
+      skillsInfo = skills.map(s => ({ name: s.name, description: s.description }));
+    } catch {}
+  }
+
+  async function loadVariables() {
+    try {
+      const vars = await listVariables();
+      variablesInfo = vars.map(v => ({ key: v.key, description: v.description }));
+    } catch {}
+  }
+
+  async function loadNodeConfigs() {
+    try {
+      const configs = await listNodeConfigs();
+      nodeConfigsInfo = configs.map(c => ({ id: c.id, name: c.name, type: c.type }));
+    } catch {}
+  }
+
+  loadSkills();
+  loadVariables();
+  loadNodeConfigs();
+
   const systemPrompt = $derived(`You are a workflow editor AI assistant. You help users build and modify visual node-based workflows.
 
 ## Available Node Types
@@ -321,6 +353,26 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 ${providersInfo.length > 0 ? providersInfo.map(p => `- "${p.key}": models [${p.models.map(m => `"${m}"`).join(', ')}]`).join('\n') : '- No providers configured yet'}
 
 When creating llm_call or agent_call nodes, use the provider key for the "provider" field and the model name for the "model" field from the list above.
+
+## Available Skills
+${skillsInfo.length > 0 ? skillsInfo.map(s => `- "${s.name}": ${s.description}`).join('\n') : '- No skills configured yet'}
+
+When creating skill_config nodes, use skill names from this list in the "skills" array.
+Skills provide tool capabilities to agent_call nodes connected via skill_config.
+
+## Available Variables
+${variablesInfo.length > 0 ? variablesInfo.map(v => `- "${v.key}"${v.description ? ': ' + v.description : ''}`).join('\n') : '- No variables configured yet'}
+
+Variables are accessed differently depending on context:
+- In JavaScript nodes (script, conditional, loop): use getVar("key") function
+- In Go template nodes (template, http_request, email, log, exec): use {{getVar "key"}} template function
+- In bash tool handlers (skills): available as $VAR_KEY environment variables (uppercase, dots/hyphens replaced with underscores)
+
+## Available Node Configs
+${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${c.name}" type="${c.type}"`).join('\n') : '- No node configs configured yet'}
+
+When creating email nodes, set the "config_id" field to a node config ID of type "email" from this list.
+Node configs contain pre-configured connection settings (e.g. SMTP for email).
 
 ## Edge Connection Rules
 - Edges connect a source output handle to a target input handle

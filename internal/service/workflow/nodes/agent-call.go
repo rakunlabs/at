@@ -3,6 +3,7 @@ package nodes
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -20,6 +21,7 @@ import (
 //	"model":          string   — model override (optional, empty = provider default)
 //	"system_prompt":  string   — system message prepended to conversation (optional)
 //	"max_iterations": float64  — max tool-call rounds (default 10, 0 = unlimited)
+//	"tool_timeout":   float64  — bash tool execution timeout in seconds (default 60)
 //	"mcp_urls":       []string — MCP server URLs to connect to (optional)
 //	"skills":         []string — skill names or IDs to load (optional)
 //	"tools":          []map    — inline tool definitions (optional)
@@ -37,6 +39,7 @@ type agentCallNode struct {
 	model         string
 	systemPrompt  string
 	maxIterations int
+	toolTimeout   time.Duration
 	mcpURLs       []string
 	skillNames    []string
 	inlineTools   []service.Tool
@@ -54,6 +57,11 @@ func newAgentCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 	maxIterations := 10
 	if v, ok := node.Data["max_iterations"].(float64); ok {
 		maxIterations = int(v)
+	}
+
+	var toolTimeout time.Duration
+	if v, ok := node.Data["tool_timeout"].(float64); ok && v > 0 {
+		toolTimeout = time.Duration(v) * time.Second
 	}
 
 	// Parse MCP URLs.
@@ -111,6 +119,7 @@ func newAgentCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 		model:         model,
 		systemPrompt:  systemPrompt,
 		maxIterations: maxIterations,
+		toolTimeout:   toolTimeout,
 		mcpURLs:       mcpURLs,
 		skillNames:    skillNames,
 		inlineTools:   inlineTools,
@@ -349,10 +358,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 		for _, tc := range resp.ToolCalls {
 			assistantContent = append(assistantContent, service.ContentBlock{
-				Type:  "tool_use",
-				ID:    tc.ID,
-				Name:  tc.Name,
-				Input: tc.Arguments,
+				Type:             "tool_use",
+				ID:               tc.ID,
+				Name:             tc.Name,
+				Input:            tc.Arguments,
+				ThoughtSignature: tc.ThoughtSignature,
 			})
 		}
 		messages = append(messages, service.Message{
@@ -382,7 +392,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
 				if hi.handlerType == "bash" {
 					// Execute bash handler.
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, n.toolTimeout)
 				} else {
 					// Execute JS handler via Goja (default).
 					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, reg.VarLookup)
@@ -399,6 +409,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			toolResults = append(toolResults, service.ContentBlock{
 				Type:      "tool_result",
 				ToolUseID: tc.ID,
+				Name:      tc.Name,
 				Content:   result,
 			})
 		}

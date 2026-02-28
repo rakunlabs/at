@@ -684,6 +684,7 @@ func convertToParts(ctx context.Context, msg service.Message) []part {
 							Name: block.Name,
 							Args: block.Input,
 						},
+						ThoughtSignature: block.ThoughtSignature,
 					})
 				}
 			case "tool_result":

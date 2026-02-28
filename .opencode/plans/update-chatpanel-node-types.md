@@ -1,189 +1,96 @@
 # Plan: Update ChatPanel.svelte with Complete Node Type Knowledge
 
+**STATUS: Changes 1-4 already applied. Changes 5-6 below are pending.**
+
 ## File: `_ui/src/lib/components/workflow/ChatPanel.svelte`
 
-## Change 1: Update `add_node` tool enum (line 87-91)
+## Already Applied
 
-Replace the current 14-type enum with all 20 types:
-
-**Old (line 89):**
-```
-enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'http_trigger', 'cron_trigger', 'http_request', 'conditional', 'loop', 'script', 'skill_config', 'mcp_config', 'memory_config'],
-```
-
-**New:**
-```
-enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'workflow_call', 'http_trigger', 'cron_trigger', 'http_request', 'email', 'conditional', 'loop', 'script', 'exec', 'log', 'skill_config', 'mcp_config', 'memory_config', 'group', 'sticky_note'],
-```
-
-Also update the data field description (line 101) from:
-```
-description: 'Node-specific configuration. Must include "label" field.',
-```
-To:
-```
-description: 'Node-specific configuration. Must include "label" field (except sticky_note which uses "text" instead).',
-```
+- Change 1: Updated `add_node` tool enum (14 -> 20 types)
+- Change 2: Updated system prompt (fixed http_trigger, cron_trigger; added log, workflow_call, group, sticky_note)
+- Change 3: Added `defaultNodeData()` helper and updated `add_node` handler with default merging + group/sticky_note styles
+- Change 4: svelte-check passed (0 errors)
 
 ---
 
-## Change 2: Update system prompt (lines 205-317)
+## Change 5: Add imports for skills, variables, node configs
 
-### 2a. Fix `http_trigger` entry (lines 219-222)
-
-**Old:**
-```
-### http_trigger
-- Output handles: id="output" (port: data)
-- Data fields: label, trigger_id (auto-assigned on save)
-- Webhook receives: method, path, query, headers, body (as reader)
-```
-
-**New:**
-```
-### http_trigger
-- Output handles: id="output" (port: data)
-- Data fields: label, trigger_id (auto-assigned on save), alias (optional URL alias path), public (boolean, skip auth when true)
-- Webhook receives: method, path, query, headers, body (as reader)
-```
-
-### 2b. Fix `cron_trigger` entry (lines 224-226)
-
-**Old:**
-```
-### cron_trigger
-- Output handles: id="output" (port: data)
-- Data fields: label, schedule (cron expression, e.g. "*/5 * * * *"), payload (object)
-```
-
-**New:**
-```
-### cron_trigger
-- Output handles: id="output" (port: data)
-- Data fields: label, schedule (cron expression, e.g. "*/5 * * * *"), timezone (IANA timezone e.g. "America/New_York", empty = UTC), payload (object)
-```
-
-### 2c. Add 4 missing node types (insert before "## Available Providers" section, after the `exec` entry)
-
-Insert these sections after the `### exec` entry (after line 293):
-
-```
-### log
-- Input handles: id="input" (port: data)
-- Output handles: id="output" (port: data)
-- Data fields: label, level ("debug", "info", "warn", or "error"), message (Go template string, e.g. "Processing {{.data}}")
-- Pass-through node: outputs the same data it receives. Logs the rendered message at the specified level.
-
-### workflow_call
-- Input handles: id="input" (port: data)
-- Output handles: id="output" (port: data)
-- Data fields: label, workflow_id (ID of child workflow), workflow_name (display name), inputs (object mapping child workflow input field names to Go template values)
-- Executes another workflow as a sub-workflow. Input data is available in Go templates. Child workflow outputs are passed to the output port.
-
-### group
-- No input or output handles (visual only)
-- Data fields: label, color (CSS hex color, default "#22c55e")
-- Visual grouping container. Drag to resize. Nodes placed inside are visually grouped but not functionally connected.
-- Style: { width: 400, height: 300 } (set via style property, not data)
-
-### sticky_note
-- No input or output handles (visual only)
-- Data fields: text (markdown content), color (CSS hex color, default "#fef08a")
-- NOTE: sticky_note uses "text" instead of "label". Do NOT include a "label" field.
-- Visual annotation. Double-click to edit text. Does not participate in workflow execution.
-- Style: { width: 200, height: 150 } (set via style property, not data)
-```
-
-### 2d. Update "Important" section (lines 313-317)
-
-Add a note about group/sticky_note:
-
-After the existing bullet `- Always include a "label" field in node data`, add:
-```
-- Exception: sticky_note nodes use "text" instead of "label"
-- group and sticky_note nodes are visual-only; they have no handles and cannot be connected with edges
-```
-
----
-
-## Change 3: Add `defaultNodeData()` helper and update `add_node` handler
-
-### 3a. Add helper function (insert before `executeToolCall`, around line 322)
+Add to the import section (after the existing imports, around line 3-12):
 
 ```typescript
-  function defaultNodeData(type: string): Record<string, any> {
-    switch (type) {
-      case 'input': return { label: 'Input' };
-      case 'output': return { label: 'Output' };
-      case 'llm_call': return { label: 'LLM Call', provider: '', model: '', system_prompt: '' };
-      case 'agent_call': return { label: 'Agent Call', provider: '', model: '', system_prompt: '', max_iterations: 10 };
-      case 'skill_config': return { label: 'Skill Config', skills: [] };
-      case 'mcp_config': return { label: 'MCP Config', mcp_urls: [] };
-      case 'memory_config': return { label: 'Memory' };
-      case 'template': return { label: 'Template', template: '', variables: [] };
-      case 'workflow_call': return { label: 'Workflow Call', workflow_id: '', workflow_name: '', inputs: {} };
-      case 'http_trigger': return { label: 'HTTP Trigger', trigger_id: '', alias: '', public: false };
-      case 'cron_trigger': return { label: 'Cron Trigger', schedule: '', timezone: '', payload: {} };
-      case 'http_request': return { label: 'HTTP Request', url: '', method: 'GET', headers: {}, body: '', timeout: 30, proxy: '', insecure_skip_verify: false, retry: false };
-      case 'conditional': return { label: 'Conditional', expression: '' };
-      case 'loop': return { label: 'Loop', expression: '' };
-      case 'script': return { label: 'Script', code: '', input_count: 1 };
-      case 'exec': return { label: 'Exec', command: '', working_dir: '', timeout: 60, sandbox_root: '/tmp/at-sandbox', input_count: 1 };
-      case 'email': return { label: 'Email', config_id: '', to: '', cc: '', bcc: '', subject: '', body: '', content_type: 'text/plain', from: '', reply_to: '' };
-      case 'log': return { label: 'Log', level: 'info', message: '' };
-      case 'group': return { label: 'Group', color: '#22c55e' };
-      case 'sticky_note': return { text: 'Double-click to edit...', color: '#fef08a' };
-      default: return {};
-    }
+import { listSkills } from '@/lib/api/skills';
+import { listVariables } from '@/lib/api/secrets';
+import { listNodeConfigs } from '@/lib/api/node-configs';
+```
+
+---
+
+## Change 6: Add state variables, loaders, and system prompt sections
+
+### 6a. Add state + loaders (after existing `loadProviders()` call, around line 203)
+
+Insert after `loadProviders();`:
+
+```typescript
+  let skillsInfo = $state<{ name: string; description: string }[]>([]);
+  let variablesInfo = $state<{ key: string; description: string }[]>([]);
+  let nodeConfigsInfo = $state<{ id: string; name: string; type: string }[]>([]);
+
+  async function loadSkills() {
+    try {
+      const skills = await listSkills();
+      skillsInfo = skills.map(s => ({ name: s.name, description: s.description }));
+    } catch {}
   }
+
+  async function loadVariables() {
+    try {
+      const vars = await listVariables();
+      variablesInfo = vars.map(v => ({ key: v.key, description: v.description }));
+    } catch {}
+  }
+
+  async function loadNodeConfigs() {
+    try {
+      const configs = await listNodeConfigs();
+      nodeConfigsInfo = configs.map(c => ({ id: c.id, name: c.name, type: c.type }));
+    } catch {}
+  }
+
+  loadSkills();
+  loadVariables();
+  loadNodeConfigs();
 ```
 
-### 3b. Update `add_node` handler (lines 331-342)
+### 6b. Add sections to system prompt
 
-**Old:**
-```typescript
-        case 'add_node': {
-          const { type, position, data, id } = args;
-          nodeIdCounter++;
-          const nodeId = id || `${type}_ai_${nodeIdCounter}`;
-          flow.addNode({
-            id: nodeId,
-            type,
-            position: { x: position.x, y: position.y },
-            data: data || {},
-          });
-          return JSON.stringify({ success: true, id: nodeId });
-        }
+Insert after the existing providers section (after "When creating llm_call or agent_call nodes, use the provider key..." line), before `## Edge Connection Rules`:
+
 ```
+## Available Skills
+${skillsInfo.length > 0 ? skillsInfo.map(s => `- "${s.name}": ${s.description}`).join('\n') : '- No skills configured yet'}
 
-**New:**
-```typescript
-        case 'add_node': {
-          const { type, position, data, id } = args;
-          nodeIdCounter++;
-          const nodeId = id || `${type}_ai_${nodeIdCounter}`;
-          const defaults = defaultNodeData(type);
-          const nodeData = { ...defaults, ...(data || {}) };
-          const nodeOpts: any = {
-            id: nodeId,
-            type,
-            position: { x: position.x, y: position.y },
-            data: nodeData,
-          };
-          // Visual-only nodes need explicit dimensions
-          if (type === 'group') {
-            nodeOpts.style = { width: 400, height: 300 };
-          } else if (type === 'sticky_note') {
-            nodeOpts.style = { width: 200, height: 150 };
-          }
-          flow.addNode(nodeOpts);
-          return JSON.stringify({ success: true, id: nodeId });
-        }
+When creating skill_config nodes, use skill names from this list in the "skills" array.
+Skills provide tool capabilities to agent_call nodes connected via skill_config.
+
+## Available Variables
+${variablesInfo.length > 0 ? variablesInfo.map(v => `- "${v.key}"${v.description ? ': ' + v.description : ''}`).join('\n') : '- No variables configured yet'}
+
+Variables are accessed differently depending on context:
+- In JavaScript nodes (script, conditional, loop): use getVar("key") function
+- In Go template nodes (template, http_request, email, log, exec): variables must be resolved by an upstream script node using getVar() and passed as data; there is no direct getVar in Go templates
+- In bash tool handlers (skills): available as $VAR_KEY environment variables (uppercase, dots/hyphens replaced with underscores)
+
+## Available Node Configs
+${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${c.name}" type="${c.type}"`).join('\n') : '- No node configs configured yet'}
+
+When creating email nodes, set the "config_id" field to a node config ID of type "email" from this list.
+Node configs contain pre-configured connection settings (e.g. SMTP for email).
 ```
 
 ---
 
-## Change 4: Run `svelte-check`
+## Change 7: Run `svelte-check`
 
 After all edits, run:
 ```sh
@@ -194,14 +101,100 @@ Verify 0 errors.
 
 ---
 
-## Summary of all changes
+## Exact edit instructions (for implementation)
 
-| Area | What changes |
-|------|-------------|
-| Tool enum (line 89) | Add 6 missing types: `email`, `exec`, `log`, `workflow_call`, `group`, `sticky_note` |
-| System prompt - `http_trigger` | Add `alias`, `public` fields |
-| System prompt - `cron_trigger` | Add `timezone` field |
-| System prompt - new entries | Add `log`, `workflow_call`, `group`, `sticky_note` sections |
-| System prompt - Important section | Add sticky_note/group exceptions |
-| `defaultNodeData()` helper | New function with defaults for all 20 types |
-| `add_node` handler | Merge defaults with AI-provided data; add style for group/sticky_note |
+### Edit A: Add imports
+
+Find:
+```typescript
+import { type FlowState, type FlowNode, type FlowEdge } from 'kaykay';
+```
+
+Replace with:
+```typescript
+import { type FlowState, type FlowNode, type FlowEdge } from 'kaykay';
+import { listSkills } from '@/lib/api/skills';
+import { listVariables } from '@/lib/api/secrets';
+import { listNodeConfigs } from '@/lib/api/node-configs';
+```
+
+### Edit B: Add state + loaders
+
+Find:
+```typescript
+  loadProviders();
+
+  const systemPrompt = $derived(
+```
+
+Replace with:
+```typescript
+  loadProviders();
+
+  let skillsInfo = $state<{ name: string; description: string }[]>([]);
+  let variablesInfo = $state<{ key: string; description: string }[]>([]);
+  let nodeConfigsInfo = $state<{ id: string; name: string; type: string }[]>([]);
+
+  async function loadSkills() {
+    try {
+      const skills = await listSkills();
+      skillsInfo = skills.map(s => ({ name: s.name, description: s.description }));
+    } catch {}
+  }
+
+  async function loadVariables() {
+    try {
+      const vars = await listVariables();
+      variablesInfo = vars.map(v => ({ key: v.key, description: v.description }));
+    } catch {}
+  }
+
+  async function loadNodeConfigs() {
+    try {
+      const configs = await listNodeConfigs();
+      nodeConfigsInfo = configs.map(c => ({ id: c.id, name: c.name, type: c.type }));
+    } catch {}
+  }
+
+  loadSkills();
+  loadVariables();
+  loadNodeConfigs();
+
+  const systemPrompt = $derived(
+```
+
+### Edit C: Add system prompt sections
+
+Find (the line after the providers usage note):
+```
+When creating llm_call or agent_call nodes, use the provider key for the "provider" field and the model name for the "model" field from the list above.
+
+## Edge Connection Rules
+```
+
+Replace with:
+```
+When creating llm_call or agent_call nodes, use the provider key for the "provider" field and the model name for the "model" field from the list above.
+
+## Available Skills
+${skillsInfo.length > 0 ? skillsInfo.map(s => `- "${s.name}": ${s.description}`).join('\n') : '- No skills configured yet'}
+
+When creating skill_config nodes, use skill names from this list in the "skills" array.
+Skills provide tool capabilities to agent_call nodes connected via skill_config.
+
+## Available Variables
+${variablesInfo.length > 0 ? variablesInfo.map(v => `- "${v.key}"${v.description ? ': ' + v.description : ''}`).join('\n') : '- No variables configured yet'}
+
+Variables are accessed differently depending on context:
+- In JavaScript nodes (script, conditional, loop): use getVar("key") function
+- In Go template nodes (template, http_request, email, log, exec): variables must be resolved by an upstream script node using getVar() and passed as data; there is no direct getVar in Go templates
+- In bash tool handlers (skills): available as $VAR_KEY environment variables (uppercase, dots/hyphens replaced with underscores)
+
+## Available Node Configs
+${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${c.name}" type="${c.type}"`).join('\n') : '- No node configs configured yet'}
+
+When creating email nodes, set the "config_id" field to a node config ID of type "email" from this list.
+Node configs contain pre-configured connection settings (e.g. SMTP for email).
+
+## Edge Connection Rules
+```

@@ -219,7 +219,7 @@ func (s *Server) TestHandlerAPI(w http.ResponseWriter, r *http.Request) {
 				return m, nil
 			}
 		}
-		result, execErr = workflow.ExecuteBashHandler(r.Context(), req.Handler, req.Arguments, varLister)
+		result, execErr = workflow.ExecuteBashHandler(r.Context(), req.Handler, req.Arguments, varLister, 0)
 	} else {
 		// Default: JS handler.
 		var varLookup workflow.VarLookup

@@ -269,7 +269,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		nodeInputs := e.gatherInputs(nodeID, states, nodeOutputs)
 
 		// Run the node.
-		logi.Ctx(ctx).Info("node started", nodeLogAttrs(st)...)
+		logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
 		result, err := st.noder.Run(ctx, reg, nodeInputs)
 		if err != nil {
 			if err == ErrStopBranch {
@@ -279,7 +279,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 			signalOutput(nil, err)
 			return nil, err
 		}
-		logi.Ctx(ctx).Info("node completed", nodeLogAttrs(st)...)
+		logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
 
 		if result == nil {
 			continue
@@ -428,7 +428,7 @@ func (e *Engine) runFanOutBranch(ctx context.Context, sourceNodeID string, data 
 
 		nodeInputs := e.gatherInputs(nodeID, states, branchOutputs)
 
-		logi.Ctx(ctx).Info("node started", nodeLogAttrs(st)...)
+		logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
 		result, err := st.noder.Run(ctx, reg, nodeInputs)
 		if err != nil {
 			if err == ErrStopBranch {
@@ -436,7 +436,7 @@ func (e *Engine) runFanOutBranch(ctx context.Context, sourceNodeID string, data 
 			}
 			return fmt.Errorf("%s: %w", nodeRef(st), err)
 		}
-		logi.Ctx(ctx).Info("node completed", nodeLogAttrs(st)...)
+		logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
 
 		if result != nil {
 			branchOutputs[nodeID] = result

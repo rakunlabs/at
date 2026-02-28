@@ -161,25 +161,26 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 
 	// Build template context.
 	tmplCtx := buildTemplateContext(inputs)
+	extraFuncs := varFuncMap(reg)
 
 	// Render all template fields.
-	to, err := renderEmailTemplate("to", n.toTmpl, tmplCtx)
+	to, err := renderEmailTemplate("to", n.toTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, err
 	}
-	cc, err := renderEmailTemplate("cc", n.ccTmpl, tmplCtx)
+	cc, err := renderEmailTemplate("cc", n.ccTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, err
 	}
-	bcc, err := renderEmailTemplate("bcc", n.bccTmpl, tmplCtx)
+	bcc, err := renderEmailTemplate("bcc", n.bccTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, err
 	}
-	subject, err := renderEmailTemplate("subject", n.subjectTmpl, tmplCtx)
+	subject, err := renderEmailTemplate("subject", n.subjectTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, err
 	}
-	body, err := renderEmailTemplate("body", n.bodyTmpl, tmplCtx)
+	body, err := renderEmailTemplate("body", n.bodyTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +188,7 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 	// Resolve sender: node override > config default.
 	from := sc.From
 	if n.fromTmpl != "" {
-		rendered, err := renderEmailTemplate("from", n.fromTmpl, tmplCtx)
+		rendered, err := renderEmailTemplate("from", n.fromTmpl, tmplCtx, extraFuncs)
 		if err != nil {
 			return nil, err
 		}
@@ -199,7 +200,7 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 		return nil, fmt.Errorf("email: no 'from' address configured")
 	}
 
-	replyTo, err := renderEmailTemplate("reply_to", n.replyToTmpl, tmplCtx)
+	replyTo, err := renderEmailTemplate("reply_to", n.replyToTmpl, tmplCtx, extraFuncs)
 	if err != nil {
 		return nil, err
 	}
@@ -299,11 +300,11 @@ func (n *emailNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[
 }
 
 // renderEmailTemplate renders a Go text/template string, returning empty string for empty templates.
-func renderEmailTemplate(name, tmplText string, ctx map[string]any) (string, error) {
+func renderEmailTemplate(name, tmplText string, ctx map[string]any, funcs map[string]any) (string, error) {
 	if tmplText == "" {
 		return "", nil
 	}
-	result, err := render.ExecuteWithData(tmplText, ctx)
+	result, err := render.ExecuteWithFuncs(tmplText, ctx, funcs)
 	if err != nil {
 		return "", fmt.Errorf("email: template %q: %w", name, err)
 	}
