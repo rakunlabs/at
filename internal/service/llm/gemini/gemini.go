@@ -413,10 +413,19 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 	if len(tools) > 0 {
 		decls := make([]functionDeclaration, len(tools))
 		for i, tool := range tools {
+			sanitized := service.SanitizeSchema(tool.InputSchema)
 			decls[i] = functionDeclaration{
 				Name:        tool.Name,
 				Description: tool.Description,
-				Parameters:  service.SanitizeSchema(tool.InputSchema),
+				Parameters:  sanitized,
+			}
+
+			if debugData, err := json.Marshal(sanitized); err == nil {
+				slog.Debug("gemini: tool declaration",
+					"index", i,
+					"name", tool.Name,
+					"parameters", string(debugData),
+				)
 			}
 		}
 		req.Tools = []googleTool{{FunctionDeclarations: decls}}

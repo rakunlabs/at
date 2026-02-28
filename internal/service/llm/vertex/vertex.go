@@ -412,7 +412,7 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 			"function": map[string]any{
 				"name":        tool.Name,
 				"description": tool.Description,
-				"parameters":  tool.InputSchema,
+				"parameters":  service.SanitizeSchema(tool.InputSchema),
 			},
 		}
 	}

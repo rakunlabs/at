@@ -189,7 +189,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	for k := range inputs {
 		inputKeys = append(inputKeys, k)
 	}
-	logi.Ctx(ctx).Info("agent_call: input keys", "keys", inputKeys)
+	logi.Ctx(ctx).Debug("agent_call: input keys", "keys", inputKeys)
 
 	mcpURLs := append([]string{}, n.mcpURLs...)
 	if edgeMCP, ok := inputs["mcp"]; ok {
@@ -289,7 +289,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			continue
 		}
 
-		logi.Ctx(ctx).Info("agent_call: loaded skill",
+		logi.Ctx(ctx).Debug("agent_call: loaded skill",
 			"name", skill.Name, "id", skill.ID, "tools_count", len(skill.Tools))
 
 		if skill.SystemPrompt != "" {
