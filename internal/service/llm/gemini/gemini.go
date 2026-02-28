@@ -101,6 +101,7 @@ type content struct {
 
 type part struct {
 	Text             string            `json:"text,omitempty"`
+	Thought          bool              `json:"thought,omitempty"`
 	InlineData       *inlineData       `json:"inlineData,omitempty"`
 	FunctionCall     *functionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *functionResponse `json:"functionResponse,omitempty"`
@@ -320,7 +321,11 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			if cand.Content != nil {
 				for _, p := range cand.Content.Parts {
 					if p.Text != "" {
-						chunk.Content += p.Text
+						if p.Thought {
+							chunk.ReasoningContent += p.Text
+						} else {
+							chunk.Content += p.Text
+						}
 					}
 					if p.InlineData != nil {
 						chunk.InlineImages = append(chunk.InlineImages, service.InlineImage{
@@ -922,7 +927,11 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 	if cand.Content != nil {
 		for _, p := range cand.Content.Parts {
 			if p.Text != "" {
-				llmResp.Content += p.Text
+				if p.Thought {
+					llmResp.ReasoningContent += p.Text
+				} else {
+					llmResp.Content += p.Text
+				}
 			}
 			if p.InlineData != nil {
 				llmResp.InlineImages = append(llmResp.InlineImages, service.InlineImage{

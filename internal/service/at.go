@@ -40,6 +40,11 @@ type StreamChunk struct {
 	// Content is the text delta for this chunk (may be empty).
 	Content string
 
+	// ReasoningContent is the reasoning/thinking text delta for this chunk.
+	// Populated by providers that support thinking tokens (e.g. Gemini 2.5+
+	// thinking models, Anthropic extended thinking).
+	ReasoningContent string
+
 	// InlineImages contains any base64-encoded images in this chunk (e.g. from Gemini image generation).
 	InlineImages []InlineImage
 
@@ -161,12 +166,13 @@ type Usage struct {
 }
 
 type LLMResponse struct {
-	Content      string
-	InlineImages []InlineImage
-	ToolCalls    []ToolCall
-	Finished     bool
-	Usage        Usage
-	Header       http.Header
+	Content          string
+	ReasoningContent string
+	InlineImages     []InlineImage
+	ToolCalls        []ToolCall
+	Finished         bool
+	Usage            Usage
+	Header           http.Header
 }
 
 type ToolCall struct {

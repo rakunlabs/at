@@ -105,8 +105,9 @@ type choice struct {
 }
 
 type choiceMessage struct {
-	Content   string     `json:"content"`
-	ToolCalls []toolCall `json:"tool_calls"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content"`
+	ToolCalls        []toolCall `json:"tool_calls"`
 }
 
 type toolCall struct {
@@ -175,9 +176,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 	ch := result.Choices[0]
 	llmResp := &service.LLMResponse{
-		Content:  ch.Message.Content,
-		Finished: ch.FinishReason != "tool_calls",
-		Header:   headers,
+		Content:          ch.Message.Content,
+		ReasoningContent: ch.Message.ReasoningContent,
+		Finished:         ch.FinishReason != "tool_calls",
+		Header:           headers,
 	}
 
 	if result.Usage != nil {
@@ -213,9 +215,10 @@ type streamChoice struct {
 }
 
 type streamDelta struct {
-	Role      string     `json:"role,omitempty"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []toolCall `json:"tool_calls,omitempty"`
+	Role             string     `json:"role,omitempty"`
+	Content          string     `json:"content,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCalls        []toolCall `json:"tool_calls,omitempty"`
 }
 
 type streamResponse struct {
@@ -316,7 +319,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			sChoice := sr.Choices[0]
 			chunk := service.StreamChunk{
-				Content: sChoice.Delta.Content,
+				Content:          sChoice.Delta.Content,
+				ReasoningContent: sChoice.Delta.ReasoningContent,
 			}
 
 			for _, tc := range sChoice.Delta.ToolCalls {

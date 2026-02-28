@@ -45,11 +45,12 @@ type Error struct {
 
 // Response structures
 type ContentBlock struct {
-	Type  string         `json:"type"`
-	Text  string         `json:"text"`
-	ID    string         `json:"id"`
-	Name  string         `json:"name"`
-	Input map[string]any `json:"input"`
+	Type     string         `json:"type"`
+	Text     string         `json:"text"`
+	Thinking string         `json:"thinking"`
+	ID       string         `json:"id"`
+	Name     string         `json:"name"`
+	Input    map[string]any `json:"input"`
 }
 
 type Usage struct {
@@ -143,6 +144,8 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 	for _, block := range result.Content {
 		switch block.Type {
+		case "thinking":
+			llmResp.ReasoningContent += block.Thinking
 		case "text":
 			llmResp.Content += block.Text
 		case "tool_use":
@@ -171,6 +174,11 @@ type streamEvent struct {
 type textDelta struct {
 	Type string `json:"type"`
 	Text string `json:"text"`
+}
+
+type thinkingDelta struct {
+	Type     string `json:"type"`
+	Thinking string `json:"thinking"`
 }
 
 type toolInputDelta struct {
@@ -237,6 +245,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		var currentToolName string
 		var toolInputBuf strings.Builder
 
+		// Track whether the current content block is a thinking block.
+		var inThinkingBlock bool
+
 		// Accumulate token usage from message_start and message_delta events.
 		var usageInputTokens int
 		var usageOutputTokens int
@@ -273,17 +284,34 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				}
 
 			case "content_block_start":
-				// A new content block is starting. If it's a tool_use block,
-				// track its ID and name for accumulating input fragments.
-				if event.ContentBlock != nil && event.ContentBlock.Type == "tool_use" {
-					currentToolID = event.ContentBlock.ID
-					currentToolName = event.ContentBlock.Name
-					toolInputBuf.Reset()
+				// A new content block is starting. Track its type so deltas
+				// can be routed correctly.
+				if event.ContentBlock != nil {
+					switch event.ContentBlock.Type {
+					case "tool_use":
+						currentToolID = event.ContentBlock.ID
+						currentToolName = event.ContentBlock.Name
+						toolInputBuf.Reset()
+						inThinkingBlock = false
+					case "thinking":
+						inThinkingBlock = true
+					default:
+						inThinkingBlock = false
+					}
 				}
 
 			case "content_block_delta":
 				if len(event.Delta) == 0 {
 					continue
+				}
+
+				// Try thinking delta first (when inside a thinking block).
+				if inThinkingBlock {
+					var tkd thinkingDelta
+					if err := json.Unmarshal(event.Delta, &tkd); err == nil && tkd.Type == "thinking_delta" {
+						ch <- service.StreamChunk{ReasoningContent: tkd.Thinking}
+						continue
+					}
 				}
 
 				// Try text delta first

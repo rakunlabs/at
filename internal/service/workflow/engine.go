@@ -473,16 +473,27 @@ func (e *Engine) findDownstream(sourceNodeID string, states map[string]*nodeStat
 // ─── Graph Utilities ───
 
 // reachableNodes returns the set of node IDs reachable from the given entry
-// nodes by following edges forward via BFS. Nodes not reachable from any
-// entry node are excluded from execution.
+// nodes. It uses a two-phase BFS:
+//
+//  1. Forward BFS — walk edges source→target from entry nodes to discover
+//     all downstream nodes.
+//  2. Reverse BFS — walk edges target→source from every reachable node to
+//     include upstream dependencies (e.g. resource config nodes like
+//     skill_config, mcp_config, memory_config that feed into agent_call
+//     via bottom-handle edges but have no incoming edges themselves).
+//
+// This ensures that resource config nodes attached to reachable nodes are
+// included in the execution set even though no entry node feeds into them.
 //
 // If entryNodeIDs is empty, it falls back to seeding from all known start
 // types (input, http_trigger, cron_trigger) for backward compatibility.
 func reachableNodes(entryNodeIDs []string, nodes []service.WorkflowNode, edges []service.WorkflowEdge) map[string]bool {
-	// Build forward adjacency from edges.
-	adj := make(map[string][]string)
+	// Build forward and reverse adjacency from edges.
+	fwdAdj := make(map[string][]string)
+	revAdj := make(map[string][]string)
 	for _, e := range edges {
-		adj[e.Source] = append(adj[e.Source], e.Target)
+		fwdAdj[e.Source] = append(fwdAdj[e.Source], e.Target)
+		revAdj[e.Target] = append(revAdj[e.Target], e.Source)
 	}
 
 	// Seed BFS with the provided entry nodes.
@@ -509,14 +520,33 @@ func reachableNodes(entryNodeIDs []string, nodes []service.WorkflowNode, edges [
 		}
 	}
 
-	// BFS forward through edges.
+	// Phase 1: BFS forward through edges (source → target).
 	for len(queue) > 0 {
 		current := queue[0]
 		queue = queue[1:]
-		for _, next := range adj[current] {
+		for _, next := range fwdAdj[current] {
 			if !reachable[next] {
 				reachable[next] = true
 				queue = append(queue, next)
+			}
+		}
+	}
+
+	// Phase 2: BFS reverse through edges (target → source).
+	// For every reachable node, also include its upstream dependencies.
+	// This captures resource config nodes that connect into reachable nodes
+	// but are not themselves downstream of any entry node.
+	var revQueue []string
+	for id := range reachable {
+		revQueue = append(revQueue, id)
+	}
+	for len(revQueue) > 0 {
+		current := revQueue[0]
+		revQueue = revQueue[1:]
+		for _, src := range revAdj[current] {
+			if !reachable[src] {
+				reachable[src] = true
+				revQueue = append(revQueue, src)
 			}
 		}
 	}

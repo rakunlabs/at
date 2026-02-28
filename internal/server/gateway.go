@@ -578,7 +578,7 @@ func (s *Server) handleStreamingChat(
 
 			// Usage-only chunks (no content, no tool calls, no finish reason)
 			// are just captured above — nothing to send to the client.
-			if chunk.Content == "" && len(chunk.InlineImages) == 0 && len(chunk.ToolCalls) == 0 && chunk.FinishReason == "" {
+			if chunk.Content == "" && chunk.ReasoningContent == "" && len(chunk.InlineImages) == 0 && len(chunk.ToolCalls) == 0 && chunk.FinishReason == "" {
 				continue
 			}
 
@@ -588,7 +588,10 @@ func (s *Server) handleStreamingChat(
 				Model:  fullModel,
 				Choices: []ChunkChoice{{
 					Index: 0,
-					Delta: ChunkDelta{Content: buildDeltaContent(chunk.Content, chunk.InlineImages)},
+					Delta: ChunkDelta{
+						Content:          buildDeltaContent(chunk.Content, chunk.InlineImages),
+						ReasoningContent: buildReasoningContent(chunk.ReasoningContent),
+					},
 				}},
 			}
 
@@ -617,7 +620,7 @@ func (s *Server) handleStreamingChat(
 			// are sent in separate SSE chunks. Many clients (e.g. OpenCode)
 			// depend on this ordering — they accumulate tool call deltas and
 			// only finalize when finish_reason arrives in a subsequent chunk.
-			hasData := len(chunk.ToolCalls) > 0 || chunk.Content != "" || len(chunk.InlineImages) > 0
+			hasData := len(chunk.ToolCalls) > 0 || chunk.Content != "" || chunk.ReasoningContent != "" || len(chunk.InlineImages) > 0
 			if chunk.FinishReason != "" && hasData {
 				// Send the data chunk first (without finish_reason).
 				writeSSEChunk(w, flusher, cc)
@@ -675,7 +678,20 @@ func (s *Server) handleStreamingChat(
 			}},
 		})
 
-		// Chunk 2: content (if any)
+		// Chunk 2: reasoning content (if any)
+		if resp.ReasoningContent != "" {
+			writeSSEChunk(w, flusher, ChatCompletionChunk{
+				ID:     chatID,
+				Object: "chat.completion.chunk",
+				Model:  fullModel,
+				Choices: []ChunkChoice{{
+					Index: 0,
+					Delta: ChunkDelta{ReasoningContent: resp.ReasoningContent},
+				}},
+			})
+		}
+
+		// Chunk 3: content (if any)
 		deltaContent := buildDeltaContent(resp.Content, resp.InlineImages)
 		if deltaContent != nil {
 			writeSSEChunk(w, flusher, ChatCompletionChunk{
@@ -786,6 +802,16 @@ func buildDeltaContent(text string, images []service.InlineImage) any {
 		})
 	}
 	return parts
+}
+
+// buildReasoningContent returns the reasoning text as an any value suitable
+// for the ChunkDelta.ReasoningContent field. Returns nil when there is no
+// reasoning content, which causes the field to be omitted from JSON output.
+func buildReasoningContent(text string) any {
+	if text == "" {
+		return nil
+	}
+	return text
 }
 
 // writeSSEChunk writes a single SSE data line with the JSON-encoded chunk.

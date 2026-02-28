@@ -3,6 +3,7 @@ package nodes
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -183,15 +184,30 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// ─── Merge MCP URLs from static config + edge inputs ───
 
+	// Log received input keys for debugging connectivity issues
+	inputKeys := make([]string, 0, len(inputs))
+	for k := range inputs {
+		inputKeys = append(inputKeys, k)
+	}
+	logi.Ctx(ctx).Info("agent_call: input keys", "keys", inputKeys)
+
 	mcpURLs := append([]string{}, n.mcpURLs...)
 	if edgeMCP, ok := inputs["mcp"]; ok {
 		switch v := edgeMCP.(type) {
+		case string:
+			if v != "" {
+				mcpURLs = append(mcpURLs, strings.TrimSpace(v))
+			}
 		case []string:
-			mcpURLs = append(mcpURLs, v...)
+			for _, s := range v {
+				if s != "" {
+					mcpURLs = append(mcpURLs, strings.TrimSpace(s))
+				}
+			}
 		case []any:
 			for _, u := range v {
 				if s, ok := u.(string); ok && s != "" {
-					mcpURLs = append(mcpURLs, s)
+					mcpURLs = append(mcpURLs, strings.TrimSpace(s))
 				}
 			}
 		}
@@ -222,19 +238,39 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// 2. Skill tools (also collect system prompt fragments)
 	// Merge skill names from static config + edge inputs.
-	skillNames := append([]string{}, n.skillNames...)
+	rawSkillNames := append([]string{}, n.skillNames...)
 	if edgeSkills, ok := inputs["skills"]; ok {
 		switch v := edgeSkills.(type) {
+		case string:
+			if v != "" {
+				rawSkillNames = append(rawSkillNames, strings.TrimSpace(v))
+			}
 		case []string:
-			skillNames = append(skillNames, v...)
+			for _, s := range v {
+				if s != "" {
+					rawSkillNames = append(rawSkillNames, strings.TrimSpace(s))
+				}
+			}
 		case []any:
 			for _, s := range v {
 				if name, ok := s.(string); ok && name != "" {
-					skillNames = append(skillNames, name)
+					rawSkillNames = append(rawSkillNames, strings.TrimSpace(name))
 				}
 			}
 		}
 	}
+
+	// Deduplicate skill names
+	seenSkills := make(map[string]bool)
+	var skillNames []string
+	for _, name := range rawSkillNames {
+		if name != "" && !seenSkills[name] {
+			seenSkills[name] = true
+			skillNames = append(skillNames, name)
+		}
+	}
+
+	logi.Ctx(ctx).Info("agent_call: processing skills", "skills", skillNames)
 
 	var skillPromptFragments []string
 	for _, nameOrID := range skillNames {
@@ -252,6 +288,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			logi.Ctx(ctx).Warn("agent_call: skill not found, skipping", "skill", nameOrID)
 			continue
 		}
+
+		logi.Ctx(ctx).Info("agent_call: loaded skill",
+			"name", skill.Name, "id", skill.ID, "tools_count", len(skill.Tools))
 
 		if skill.SystemPrompt != "" {
 			skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)

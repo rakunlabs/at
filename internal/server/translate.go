@@ -79,9 +79,10 @@ type ChatCompletionChoice struct {
 }
 
 type ChatCompletionMessage struct {
-	Role      string           `json:"role"`
-	Content   *string          `json:"content"`
-	ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role"`
+	Content          *string          `json:"content"`
+	ReasoningContent *string          `json:"reasoning_content,omitempty"`
+	ToolCalls        []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
 type ChatCompletionUsage struct {
@@ -123,9 +124,10 @@ type ChunkChoice struct {
 
 // ChunkDelta represents the incremental content in a streaming chunk.
 type ChunkDelta struct {
-	Role      string           `json:"role,omitempty"`
-	Content   any              `json:"content,omitempty"`
-	ToolCalls []OpenAIToolCall `json:"tool_calls,omitempty"`
+	Role             string           `json:"role,omitempty"`
+	Content          any              `json:"content,omitempty"`
+	ReasoningContent any              `json:"reasoning_content,omitempty"`
+	ToolCalls        []OpenAIToolCall `json:"tool_calls,omitempty"`
 }
 
 // ─── Translation: OpenAI request → service.Message (for OpenAI-compat backends) ───
@@ -338,6 +340,11 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 	if resp.Content != "" {
 		content := resp.Content
 		msg.Content = &content
+	}
+
+	if resp.ReasoningContent != "" {
+		reasoning := resp.ReasoningContent
+		msg.ReasoningContent = &reasoning
 	}
 
 	for i, tc := range resp.ToolCalls {
