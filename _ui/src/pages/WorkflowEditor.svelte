@@ -829,26 +829,18 @@
               placeholder="Workflow name"
             />
             <div class="flex items-center gap-1 group relative">
-              <button type="button" class="text-[10px] font-mono text-gray-400 dark:text-dark-text-faint cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
-                {workflow.id}
-              </button>
+              <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-faint cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
+                 {workflow.id}
+              </span>
             </div>
           </div>
-              <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-                Workflow Name
-                <input
-                  type="text"
-                  bind:value={workflow.name}
-                  class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                  placeholder="Workflow name"
-                />
-              </label>
-            </div>
-            <div class="flex items-center gap-1 group relative">
-              <button type="button" class="text-[10px] font-mono text-gray-400 dark:text-dark-text-faint cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
-                {workflow.id}
-              </button>
-            </div>
+            <input
+            type="text"
+            bind:value={workflow.description}
+            class="text-[10px] text-gray-400 dark:text-dark-text-faint bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
+            placeholder="Add description..."
+          />
+        </div>
       </div>
       <div class="flex items-center gap-2">
         {#if workflow.active_version != null}
@@ -1210,4 +1202,9 @@
     width: 100%;
     height: 100%;
   }
+
+  :global(.kaykay-controls-btn[title="Lock"]) {
+    display: none !important;
+  }
 </style>
+
