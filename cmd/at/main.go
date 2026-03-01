@@ -58,7 +58,15 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			if cfg.APIKey == "" {
 				return nil, fmt.Errorf("openai provider with auth_type=copilot requires an api_key (authorize via device flow)")
 			}
-			opts = append(opts, openai.WithTokenSource(openai.NewCopilotTokenSource(cfg.APIKey)))
+
+			// Build a proxy-aware HTTP client for the Copilot token exchange
+			// so it can reach api.github.com through the configured proxy.
+			httpClient, err := openai.ProxyHTTPClient(cfg.Proxy, cfg.InsecureSkipVerify)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create proxy client for copilot token source: %w", err)
+			}
+
+			opts = append(opts, openai.WithTokenSource(openai.NewCopilotTokenSource(cfg.APIKey, httpClient)))
 
 			// Copilot API requires editor identification headers on every request.
 			if _, ok := headers["Editor-Version"]; !ok {

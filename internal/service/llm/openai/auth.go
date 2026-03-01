@@ -2,10 +2,12 @@ package openai
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 )
@@ -42,7 +44,8 @@ type copilotTokenResponse struct {
 // a GitHub PAT for a short-lived JWT that the Copilot API accepts. Tokens are
 // cached and automatically refreshed before they expire.
 type CopilotTokenSource struct {
-	pat string
+	pat        string
+	httpClient *http.Client
 
 	mu           sync.Mutex
 	cachedToken  string
@@ -51,8 +54,13 @@ type CopilotTokenSource struct {
 
 // NewCopilotTokenSource creates a token source that exchanges the given GitHub
 // OAuth token (or PAT) for short-lived Copilot JWTs via the GitHub token endpoint.
-func NewCopilotTokenSource(pat string) *CopilotTokenSource {
-	return &CopilotTokenSource{pat: pat}
+// An optional *http.Client can be provided to route token-exchange requests
+// through a proxy; when nil, http.DefaultClient is used.
+func NewCopilotTokenSource(pat string, httpClient *http.Client) *CopilotTokenSource {
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	return &CopilotTokenSource{pat: pat, httpClient: httpClient}
 }
 
 // Token returns a valid Copilot JWT, refreshing if necessary.
@@ -77,7 +85,7 @@ func (ts *CopilotTokenSource) refreshLocked(ctx context.Context) (string, error)
 	req.Header.Set("User-Agent", "GithubCopilot/1.0")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := ts.httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("token exchange request failed: %w", err)
 	}
@@ -112,4 +120,32 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// ProxyHTTPClient returns an *http.Client configured with the given proxy URL
+// and TLS settings. If proxy is empty, it returns nil (callers should fall back
+// to http.DefaultClient).
+func ProxyHTTPClient(proxy string, insecureSkipVerify bool) (*http.Client, error) {
+	if proxy == "" && !insecureSkipVerify {
+		return nil, nil
+	}
+
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+
+	if proxy != "" {
+		u, err := url.Parse(proxy)
+		if err != nil {
+			return nil, fmt.Errorf("parse proxy URL: %w", err)
+		}
+		transport.Proxy = http.ProxyURL(u)
+	}
+
+	if insecureSkipVerify {
+		if transport.TLSClientConfig == nil {
+			transport.TLSClientConfig = &tls.Config{}
+		}
+		transport.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	return &http.Client{Transport: transport}, nil
 }

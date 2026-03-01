@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/openai"
 )
 
 // ─── GitHub OAuth Device Flow ───
@@ -156,7 +157,19 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Request device code from GitHub.
-	deviceResp, err := requestDeviceCode(r.Context())
+	// Build a proxy-aware HTTP client from the provider config so the device
+	// flow can reach github.com through the configured proxy.
+	httpClient, err := openai.ProxyHTTPClient(record.Config.Proxy, record.Config.InsecureSkipVerify)
+	if err != nil {
+		slog.Error("device auth: failed to create proxy client", "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create proxy client: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	deviceResp, err := requestDeviceCode(r.Context(), httpClient)
 	if err != nil {
 		slog.Error("device auth: request device code failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to start device flow: %v", err), http.StatusBadGateway)
@@ -171,7 +184,7 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 	deviceFlows.set(req.Key, state)
 
 	// Start background polling.
-	go s.pollDeviceAuth(req.Key, deviceResp)
+	go s.pollDeviceAuth(req.Key, deviceResp, httpClient)
 
 	httpResponseJSON(w, deviceAuthResponse{
 		UserCode:        deviceResp.UserCode,
@@ -206,7 +219,7 @@ func (s *Server) DeviceAuthStatusAPI(w http.ResponseWriter, r *http.Request) {
 
 // pollDeviceAuth polls GitHub for the access token in the background.
 // On success, it saves the token to the provider config and hot-reloads.
-func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCodeResponse) {
+func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCodeResponse, httpClient *http.Client) {
 	interval := time.Duration(deviceResp.Interval) * time.Second
 	if interval < 5*time.Second {
 		interval = 5 * time.Second
@@ -223,7 +236,7 @@ func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCode
 			return
 		}
 
-		token, err := pollAccessToken(context.Background(), deviceResp.DeviceCode)
+		token, err := pollAccessToken(context.Background(), deviceResp.DeviceCode, httpClient)
 		if err != nil {
 			slog.Error("device auth: poll failed", "key", providerKey, "error", err)
 			deviceFlows.set(providerKey, &deviceFlowState{Status: "error", Error: err.Error()})
@@ -295,7 +308,7 @@ func (s *Server) saveDeviceAuthToken(providerKey, oauthToken string) error {
 // ─── GitHub API calls ───
 
 // requestDeviceCode calls POST https://github.com/login/device/code.
-func requestDeviceCode(ctx context.Context) (*githubDeviceCodeResponse, error) {
+func requestDeviceCode(ctx context.Context, httpClient *http.Client) (*githubDeviceCodeResponse, error) {
 	form := url.Values{
 		"client_id": {copilotOAuthClientID},
 		"scope":     {"read:user"},
@@ -308,7 +321,7 @@ func requestDeviceCode(ctx context.Context) (*githubDeviceCodeResponse, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -337,7 +350,7 @@ func requestDeviceCode(ctx context.Context) (*githubDeviceCodeResponse, error) {
 
 // pollAccessToken calls POST https://github.com/login/oauth/access_token.
 // Returns the access token if authorized, empty string if still pending, or error.
-func pollAccessToken(ctx context.Context, deviceCode string) (string, error) {
+func pollAccessToken(ctx context.Context, deviceCode string, httpClient *http.Client) (string, error) {
 	form := url.Values{
 		"client_id":   {copilotOAuthClientID},
 		"device_code": {deviceCode},
@@ -351,7 +364,7 @@ func pollAccessToken(ctx context.Context, deviceCode string) (string, error) {
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("request failed: %w", err)
 	}
