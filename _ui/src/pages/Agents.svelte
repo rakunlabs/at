@@ -270,69 +270,79 @@
       <div class="p-6 overflow-y-auto flex-1 space-y-4">
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Name</label>
-            <input
-              type="text"
-              bind:value={formName}
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              placeholder="e.g. Code Reviewer"
-            />
+            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+              Name
+              <input
+                type="text"
+                bind:value={formName}
+                class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                placeholder="e.g. Code Reviewer"
+              />
+            </label>
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Description</label>
-            <input
-              type="text"
-              bind:value={formDescription}
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              placeholder="Brief description"
-            />
+            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+              Description
+              <input
+                type="text"
+                bind:value={formDescription}
+                class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                placeholder="Brief description"
+              />
+            </label>
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Provider</label>
-            <select
-              bind:value={formProvider}
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
-            >
-              <option value="">Select a provider...</option>
-              {#each providers as p}
-                <option value={p.key}>{p.key} ({p.config.type})</option>
-              {/each}
-            </select>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Model (Optional)</label>
-            {#if availableModels.length > 0}
+            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+              Provider
               <select
-                bind:value={formModel}
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
+                bind:value={formProvider}
+                class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
               >
-                <option value="">Default ({selectedProviderConfig?.config.model})</option>
-                {#each availableModels as m}
-                  <option value={m}>{m}</option>
+                <option value="">Select a provider...</option>
+                {#each providers as p}
+                  <option value={p.key}>{p.key} ({p.config.type})</option>
                 {/each}
               </select>
-            {:else}
-              <input
-                type="text"
-                bind:value={formModel}
-                class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                placeholder="Override default model"
-              />
-            {/if}
+            </label>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+              Model (Optional)
+              {#if availableModels.length > 0}
+                <select
+                  bind:value={formModel}
+                  class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
+                >
+                  <option value="">Default ({selectedProviderConfig?.config.model})</option>
+                  {#each availableModels as m}
+                    <option value={m}>{m}</option>
+                  {/each}
+                </select>
+              {:else}
+                <input
+                  type="text"
+                  bind:value={formModel}
+                  class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  placeholder="Override default model"
+                />
+              {/if}
+            </label>
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">System Prompt</label>
-          <textarea
-            bind:value={formSystemPrompt}
-            rows={4}
-            class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 font-mono text-xs dark:text-dark-text dark:placeholder:text-dark-text-muted"
-            placeholder="You are a helpful assistant..."
-          ></textarea>
+          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            System Prompt
+            <textarea
+              bind:value={formSystemPrompt}
+              rows={4}
+              class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 font-mono text-xs dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              placeholder="You are a helpful assistant..."
+            ></textarea>
+          </label>
         </div>
 
         <div>
@@ -359,7 +369,7 @@
           </div>
           <div class="space-y-2">
             {#each formMCPs as url, i}
-              <div class="flex gap-2">
+              <label class="flex gap-2">
                 <input
                   type="text"
                   value={url}
@@ -367,32 +377,36 @@
                   class="flex-1 px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 font-mono text-xs dark:text-dark-text dark:placeholder:text-dark-text-muted"
                   placeholder="http://localhost:8000/sse"
                 />
-                <button onclick={() => removeMcpInput(i)} class="text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 px-1">
-                  <Trash2 size={16} />
-                </button>
-              </div>
+              </label>
+              <button type="button" onclick={() => removeMcpInput(i)} class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-500">
+                <X size={16} />
+              </button>
             {/each}
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Max Iterations</label>
-            <input
-              type="number"
-              bind:value={formMaxIterations}
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
-              min="1"
-            />
+            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+              Max Iterations
+              <input
+                type="number"
+                bind:value={formMaxIterations}
+                class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
+                min="1"
+              />
+            </label>
           </div>
           <div>
-            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Tool Timeout (seconds)</label>
-            <input
-              type="number"
-              bind:value={formToolTimeout}
-              class="w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
-              min="1"
-            />
+            <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+              Tool Timeout (seconds)
+              <input
+                type="number"
+                bind:value={formToolTimeout}
+                class="mt-1 w-full px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-accent/40 dark:text-dark-text"
+                min="1"
+              />
+            </label>
           </div>
         </div>
       </div>

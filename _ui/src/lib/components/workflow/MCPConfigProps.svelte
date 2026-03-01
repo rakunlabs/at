@@ -14,7 +14,7 @@
   ></textarea></label>
   <div class="mt-0.5 text-[10px] text-gray-400">One URL per line</div>
 </div>
-<div class="mt-1 px-2 py-1.5 bg-orange-50 border border-orange-200 rounded text-[10px] text-orange-700">
+<div class="mt-1 px-2 py-1.5 bg-green-50 border border-green-200 rounded text-[10px] text-green-700">
   Connect this node's <span class="font-mono font-medium">mcp_urls</span> output to an Agent Call's <span class="font-mono font-medium">mcp</span> input.
 </div>
 <!-- Port descriptions -->

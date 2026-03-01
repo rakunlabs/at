@@ -14,12 +14,12 @@
   --color-dark-text-muted: #706d68;
   --color-dark-text-faint: #504d48;
 
-  /* Accent — burnt orange */
-  --color-accent: #eb5e28;
-  --color-accent-hover: #f4742e;
-  --color-accent-muted: #eb5e2826;
-  --color-accent-subtle: #eb5e2815;
-  --color-accent-text: #f4935a;
+  /* Accent — hacker green */
+  --color-accent: #00d926;
+  --color-accent-hover: #2ee650;
+  --color-accent-muted: #00d92626;
+  --color-accent-subtle: #00d92615;
+  --color-accent-text: #55e870;
 
   /* Override gray scale for dark mode usage */
   --color-gray-950: #161618;

@@ -13,11 +13,11 @@
 <div
   class={[
     'bg-white border border-gray-300 rounded-md min-w-36 max-w-52 text-xs shadow-sm select-none',
-    selected && 'border-orange-500 ring-2 ring-orange-500/25'
+    selected && 'border-green-500 ring-2 ring-green-500/25'
   ]}
 >
-  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-orange-50">
-    <span class="text-[9px] font-bold px-1 py-px rounded bg-orange-500 text-white tracking-wide">MCP</span>
+  <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-green-50">
+    <span class="text-[9px] font-bold px-1 py-px rounded bg-green-500 text-white tracking-wide">MCP</span>
     <span class="text-gray-900">{data.label || 'MCP Config'}</span>
     {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
   </div>
