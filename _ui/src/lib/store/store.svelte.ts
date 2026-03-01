@@ -19,6 +19,7 @@ $effect.root(() => {
 });
 
 export const storeInfo = $state({
+  name: "AT",
   version: "",
   user: "",
   store_type: "",

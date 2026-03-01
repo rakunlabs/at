@@ -88,6 +88,9 @@ type Server struct {
 	Port string `cfg:"port" default:"8080"`
 	Host string `cfg:"host"`
 
+	// Name is the display name of the server, shown in the UI.
+	Name string `cfg:"name" default:"AT"`
+
 	// ForwardAuth, if set, configures the API to forward auth requests to an external
 	// authentication service.
 	ForwardAuth *mforwardauth.ForwardAuth `cfg:"forward_auth"`

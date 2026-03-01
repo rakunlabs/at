@@ -65,5 +65,6 @@
     <Handle id="skills" type="input" port="data" accept={['data']} label="skills" />
     <Handle id="mcp" type="input" port="data" accept={['data']} label="mcp" />
     <Handle id="memory" type="input" port="data" accept={['data']} label="memory" />
+    <Handle id="agents" type="input" port="data" accept={['data']} label="agents" />
   </HandleGroup>
 </div>

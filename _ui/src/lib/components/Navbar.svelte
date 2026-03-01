@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { storeNavbar, storeTheme } from '@/lib/store/store.svelte';
+  import { storeNavbar, storeTheme, storeInfo } from '@/lib/store/store.svelte';
   import { ChevronLeft, Menu, Moon, Sun } from 'lucide-svelte';
 </script>
 
@@ -18,7 +18,10 @@
     {storeNavbar.title}
   </span>
 
-  <div class="ml-auto">
+  <div class="ml-auto flex items-center gap-4">
+    {#if storeInfo.name}
+      <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">{storeInfo.name}</span>
+    {/if}
     <button
       onclick={() => (storeTheme.mode = storeTheme.mode === 'light' ? 'dark' : 'light')}
       class="p-1.5 text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text transition-colors"

@@ -89,7 +89,7 @@
           properties: {
             type: {
               type: 'string',
-              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'workflow_call', 'http_trigger', 'cron_trigger', 'http_request', 'email', 'conditional', 'loop', 'script', 'exec', 'log', 'skill_config', 'mcp_config', 'memory_config', 'group', 'sticky_note'],
+              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'workflow_call', 'http_trigger', 'cron_trigger', 'http_request', 'email', 'conditional', 'loop', 'script', 'exec', 'log', 'skill_config', 'agent_config', 'mcp_config', 'memory_config', 'group', 'sticky_note'],
               description: 'The node type',
             },
             id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
@@ -263,16 +263,21 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 - Data fields: label, provider (provider key), model (model name), system_prompt
 
 ### agent_call
-- Input handles: id="prompt" (port: text), id="context" (port: data), id="skills" (port: data, position: bottom), id="mcp" (port: data, position: bottom), id="memory" (port: data, position: bottom)
+- Input handles: id="prompt" (port: text), id="context" (port: data), id="skills" (port: data, position: bottom), id="agents" (port: data, position: bottom), id="mcp" (port: data, position: bottom), id="memory" (port: data, position: bottom)
 - Output handles: id="response" (port: data)
 - Data fields: label, provider (provider key), model (model name), system_prompt, max_iterations (number, default 10, 0=unlimited)
-- Bottom input handles receive data from resource config nodes (skill_config, mcp_config, memory_config) connected vertically
-- Runs an agentic loop: sends prompt to LLM, executes tool calls (MCP, skill), feeds results back until final answer or max iterations
+- Bottom input handles receive data from resource config nodes (skill_config, agent_config, mcp_config, memory_config) connected vertically
+- Runs an agentic loop: sends prompt to LLM, executes tool calls (MCP, skill, sub-agent), feeds results back until final answer or max iterations
 
 ### skill_config
 - Output handles: id="skills" (port: data, position: top)
 - Data fields: label, skills (array of skill names)
 - Connect the "skills" output to an agent_call's "skills" bottom input to provide skills
+
+### agent_config
+- Output handles: id="agent" (port: data, position: top)
+- Data fields: label, agent_id (selected agent ID)
+- Connect the "agent" output to an agent_call's "agents" bottom input to provide sub-agent delegation capabilities
 
 ### mcp_config
 - Output handles: id="mcp_urls" (port: data, position: top)
@@ -406,6 +411,7 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
       case 'llm_call': return { label: 'LLM Call', provider: '', model: '', system_prompt: '' };
       case 'agent_call': return { label: 'Agent Call', provider: '', model: '', system_prompt: '', max_iterations: 10 };
       case 'skill_config': return { label: 'Skill Config', skills: [] };
+      case 'agent_config': return { label: 'Agent Config', agent_id: '' };
       case 'mcp_config': return { label: 'MCP Config', mcp_urls: [] };
       case 'memory_config': return { label: 'Memory' };
       case 'template': return { label: 'Template', template: '', variables: [] };

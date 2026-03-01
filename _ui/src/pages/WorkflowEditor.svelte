@@ -23,6 +23,7 @@
   import ScriptNode from '@/lib/components/workflow/ScriptNode.svelte';
   import ExecNode from '@/lib/components/workflow/ExecNode.svelte';
   import SkillConfigNode from '@/lib/components/workflow/SkillConfigNode.svelte';
+  import AgentConfigNode from '@/lib/components/workflow/AgentConfigNode.svelte';
   import MCPConfigNode from '@/lib/components/workflow/MCPConfigNode.svelte';
   import MemoryConfigNode from '@/lib/components/workflow/MemoryConfigNode.svelte';
   import EmailNode from '@/lib/components/workflow/EmailNode.svelte';
@@ -44,6 +45,7 @@
   import ScriptProps from '@/lib/components/workflow/ScriptProps.svelte';
   import ExecProps from '@/lib/components/workflow/ExecProps.svelte';
   import SkillConfigProps from '@/lib/components/workflow/SkillConfigProps.svelte';
+  import AgentConfigProps from '@/lib/components/workflow/AgentConfigProps.svelte';
   import MCPConfigProps from '@/lib/components/workflow/MCPConfigProps.svelte';
   import MemoryConfigProps from '@/lib/components/workflow/MemoryConfigProps.svelte';
   import EmailProps from '@/lib/components/workflow/EmailProps.svelte';
@@ -67,6 +69,7 @@
     script: ScriptProps,
     exec: ExecProps,
     skill_config: SkillConfigProps,
+    agent_config: AgentConfigProps,
     mcp_config: MCPConfigProps,
     memory_config: MemoryConfigProps,
     email: EmailProps,
@@ -96,6 +99,7 @@
     script: ScriptNode,
     exec: ExecNode,
     skill_config: SkillConfigNode,
+    agent_config: AgentConfigNode,
     mcp_config: MCPConfigNode,
     memory_config: MemoryConfigNode,
     email: EmailNode,
@@ -139,6 +143,7 @@
       label: 'Resources',
       nodes: [
         { type: 'skill_config', label: 'Skill Config', description: 'Skills for agent nodes' },
+        { type: 'agent_config', label: 'Agent Config', description: 'Sub-agent delegate' },
         { type: 'mcp_config', label: 'MCP Config', description: 'MCP servers for agents' },
         { type: 'memory_config', label: 'Memory', description: 'Memory/context for agents' },
       ],
@@ -261,6 +266,9 @@
     }
     if (type === 'skill_config') {
       return { label: 'Skill Config', skills: [] };
+    }
+    if (type === 'agent_config') {
+      return { label: 'Agent Config', agent_id: '' };
     }
     if (type === 'mcp_config') {
       return { label: 'MCP Config', mcp_urls: [] };

@@ -30,6 +30,7 @@
         storeInfo.version = res.version || "";
         storeInfo.user = res.user || "";
         storeInfo.store_type = res.store_type || "";
+        storeInfo.name = res.name || "AT";
       });
     }
   });

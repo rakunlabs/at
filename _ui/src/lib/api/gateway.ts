@@ -16,6 +16,7 @@ export interface InfoProvider {
 export interface InfoResponse {
   providers: InfoProvider[];
   store_type: string;
+  name?: string;
   version?: string;
   user?: string;
 }

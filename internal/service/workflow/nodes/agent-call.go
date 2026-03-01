@@ -362,12 +362,89 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
-	// 3. Inline tools
-	for _, t := range n.inlineTools {
-		if t.Handler != "" {
-			toolHandlers[t.Name] = toolHandlerInfo{handler: t.Handler, handlerType: t.HandlerType}
+	// 4. Sub-agents (Delegates)
+	// Collect agent IDs from input port "agents".
+	var subAgentIDs []string
+	if edgeAgents, ok := inputs["agents"]; ok {
+		switch v := edgeAgents.(type) {
+		case string:
+			if v != "" {
+				subAgentIDs = append(subAgentIDs, strings.TrimSpace(v))
+			}
+		case []string:
+			for _, s := range v {
+				if s != "" {
+					subAgentIDs = append(subAgentIDs, strings.TrimSpace(s))
+				}
+			}
+		case []any:
+			for _, s := range v {
+				if id, ok := s.(string); ok && id != "" {
+					subAgentIDs = append(subAgentIDs, strings.TrimSpace(id))
+				}
+			}
 		}
-		allTools = append(allTools, t)
+	}
+
+	// Deduplicate sub-agent IDs
+	seenAgents := make(map[string]bool)
+	var uniqueAgentIDs []string
+	for _, id := range subAgentIDs {
+		if id != "" && !seenAgents[id] {
+			seenAgents[id] = true
+			uniqueAgentIDs = append(uniqueAgentIDs, id)
+		}
+	}
+
+	for _, agentID := range uniqueAgentIDs {
+		if reg.AgentLookup == nil {
+			logi.Ctx(ctx).Warn("agent_call: agent lookup not configured, skipping sub-agent", "agent_id", agentID)
+			continue
+		}
+		subAgent, err := reg.AgentLookup(ctx, agentID)
+		if err != nil {
+			logi.Ctx(ctx).Warn("agent_call: failed to look up sub-agent, skipping",
+				"agent_id", agentID, "error", err)
+			continue
+		}
+		if subAgent == nil {
+			logi.Ctx(ctx).Warn("agent_call: sub-agent not found, skipping", "agent_id", agentID)
+			continue
+		}
+
+		// Create a tool for this agent.
+		// Sanitize name for tool use (alphanumeric + underscores).
+		safeName := strings.Map(func(r rune) rune {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+				return r
+			}
+			return '_'
+		}, subAgent.Name)
+		toolName := "delegate_to_" + strings.ToLower(safeName)
+
+		toolDesc := fmt.Sprintf("Delegate a task to %s. %s", subAgent.Name, subAgent.Description)
+		tool := service.Tool{
+			Name:        toolName,
+			Description: toolDesc,
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"task": map[string]any{
+						"type":        "string",
+						"description": "The task or instruction to delegate to the agent.",
+					},
+				},
+				"required": []string{"task"},
+			},
+		}
+
+		allTools = append(allTools, tool)
+
+		// Register a special handler type for sub-agents.
+		toolHandlers[toolName] = toolHandlerInfo{
+			handler:     agentID, // Store ID as handler "body"
+			handlerType: "agent", // New handler type
+		}
 	}
 
 	// ─── Build System Prompt ───
@@ -517,6 +594,43 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				if hi.handlerType == "bash" {
 					// Execute bash handler.
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, toolTimeout)
+				} else if hi.handlerType == "agent" {
+					// Execute sub-agent.
+					// hi.handler contains the agent ID.
+					// tc.Arguments["task"] contains the prompt.
+					task, _ := tc.Arguments["task"].(string)
+					subAgentID := hi.handler
+
+					// Create a temporary node configuration for the sub-agent.
+					subNodeConfig := service.WorkflowNode{
+						Data: map[string]any{
+							"agent_id": subAgentID,
+						},
+					}
+
+					subNode, err := newAgentCallNode(subNodeConfig)
+					if err != nil {
+						callErr = fmt.Errorf("failed to init sub-agent %s: %w", subAgentID, err)
+					} else {
+						// Run the sub-agent.
+						subInputs := map[string]any{
+							"prompt": task,
+						}
+						// Pass through mcp/skills/memory if we wanted to inherit context,
+						// but for now let's keep it isolated to the task.
+
+						subResult, err := subNode.Run(ctx, reg, subInputs)
+						if err != nil {
+							callErr = fmt.Errorf("sub-agent execution failed: %w", err)
+						} else {
+							// Extract response.
+							if resp, ok := subResult.Data()["response"].(string); ok {
+								result = resp
+							} else {
+								result = fmt.Sprintf("%v", subResult.Data())
+							}
+						}
+					}
 				} else {
 					// Execute JS handler via Goja (default).
 					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, reg.VarLookup)
