@@ -63,33 +63,33 @@
 
 <div class="p-6 max-w-5xl mx-auto">
   <!-- Rotate Encryption Key -->
-  <div class="border border-gray-200 bg-white shadow-sm">
-    <div class="px-4 py-3 border-b border-gray-200 flex items-center gap-2">
-      <RotateCw size={14} class="text-gray-500" />
-      <h3 class="text-sm font-medium text-gray-900">Rotate Encryption Key</h3>
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center gap-2">
+      <RotateCw size={14} class="text-gray-500 dark:text-dark-text-muted" />
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Rotate Encryption Key</h3>
     </div>
 
     <div class="p-4">
-      <p class="text-sm text-gray-600 leading-relaxed mb-4">
+      <p class="text-sm text-gray-600 dark:text-dark-text-secondary leading-relaxed mb-4">
         Re-encrypts all stored provider API keys with a new encryption passphrase.
         When clustering is enabled, the new key is broadcast to all peers after rotation.
       </p>
 
       <!-- Admin Token -->
       <div class="grid grid-cols-4 gap-3 mb-3">
-        <label for="admin-token" class="text-xs text-gray-600 py-2">Admin Token</label>
+        <label for="admin-token" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Admin Token</label>
         <div class="col-span-3 relative">
           <input
             id="admin-token"
             type={showAdminToken ? 'text' : 'password'}
             bind:value={adminToken}
             placeholder="Server admin_token"
-            class="w-full border border-gray-200 px-2.5 py-1.5 pr-8 text-sm focus:outline-none focus:border-gray-400 font-mono"
+            class="w-full border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1.5 pr-8 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono dark:text-dark-text dark:placeholder:text-dark-text-muted"
           />
           <button
             type="button"
             onclick={() => (showAdminToken = !showAdminToken)}
-            class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+            class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary"
             tabindex={-1}
           >
             {#if showAdminToken}
@@ -103,15 +103,15 @@
 
       <!-- Disable Encryption Checkbox -->
       <div class="grid grid-cols-4 gap-3 mb-3">
-        <span class="text-xs text-gray-600 py-2"></span>
+        <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2"></span>
         <div class="col-span-3 flex items-center gap-2">
           <input
             id="disable-encryption"
             type="checkbox"
             bind:checked={disableEncryption}
-            class="accent-gray-900"
+            class="accent-gray-900 dark:accent-accent"
           />
-          <label for="disable-encryption" class="text-xs text-gray-600 select-none">
+          <label for="disable-encryption" class="text-xs text-gray-600 dark:text-dark-text-secondary select-none">
             Disable encryption (store credentials as plaintext)
           </label>
         </div>
@@ -120,19 +120,19 @@
       {#if !disableEncryption}
         <!-- New Encryption Key -->
         <div class="grid grid-cols-4 gap-3 mb-3">
-          <label for="encryption-key" class="text-xs text-gray-600 py-2">New Encryption Key</label>
+          <label for="encryption-key" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">New Encryption Key</label>
           <div class="col-span-3 relative">
             <input
               id="encryption-key"
               type={showEncryptionKey ? 'text' : 'password'}
               bind:value={encryptionKey}
               placeholder="New encryption passphrase"
-              class="w-full border border-gray-200 px-2.5 py-1.5 pr-8 text-sm focus:outline-none focus:border-gray-400 font-mono"
+              class="w-full border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1.5 pr-8 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono dark:text-dark-text dark:placeholder:text-dark-text-muted"
             />
             <button
               type="button"
               onclick={() => (showEncryptionKey = !showEncryptionKey)}
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary"
               tabindex={-1}
             >
               {#if showEncryptionKey}
@@ -146,14 +146,14 @@
 
         <!-- Confirm Encryption Key -->
         <div class="grid grid-cols-4 gap-3 mb-4">
-          <label for="confirm-key" class="text-xs text-gray-600 py-2">Confirm Key</label>
+          <label for="confirm-key" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Confirm Key</label>
           <div class="col-span-3">
             <input
               id="confirm-key"
               type="password"
               bind:value={confirmKey}
               placeholder="Confirm new encryption passphrase"
-              class="w-full border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 font-mono"
+              class="w-full border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono dark:text-dark-text dark:placeholder:text-dark-text-muted"
             />
           </div>
         </div>
@@ -163,15 +163,15 @@
         <button
           onclick={handleRotate}
           disabled={rotating}
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
         >
           <RotateCw size={12} class={rotating ? 'animate-spin' : ''} />
           {rotating ? 'Rotating...' : 'Rotate Key'}
         </button>
       </div>
 
-      <p class="mt-3 text-xs text-gray-400 leading-relaxed">
-        The admin token must match the <code class="font-mono bg-gray-100 px-1 py-0.5 text-gray-600">admin_token</code> configured in the server settings.
+      <p class="mt-3 text-xs text-gray-400 dark:text-dark-text-muted leading-relaxed">
+        The admin token must match the <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-gray-600 dark:text-dark-text-secondary">admin_token</code> configured in the server settings.
         If no admin token is configured on the server, this operation will be rejected.
       </p>
     </div>

@@ -578,25 +578,25 @@ Tool input schemas use JSON Schema format:
   }
 </script>
 
-<div class="w-80 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col">
+<div class="w-80 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col">
   <!-- Header -->
-  <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 shrink-0">
+  <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
     <div class="flex items-center gap-1.5">
-      <Bot size={14} class="text-gray-500" />
-      <span class="text-xs font-medium text-gray-700">Skill Builder AI</span>
+      <Bot size={14} class="text-gray-500 dark:text-dark-text-muted" />
+      <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Skill Builder AI</span>
     </div>
-    <button onclick={onclose} class="text-gray-400 hover:text-gray-600">
+    <button onclick={onclose} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
       <X size={14} />
     </button>
   </div>
 
   <!-- Model selector -->
-  <div class="px-3 py-2 border-b border-gray-200 shrink-0">
+  <div class="px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
     <div class="relative">
       <select
         bind:value={selectedModel}
         disabled={loadingModels || models.length === 0}
-        class="w-full appearance-none px-2 py-1 pr-6 text-[11px] border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:opacity-50 disabled:bg-gray-50"
+        class="w-full appearance-none px-2 py-1 pr-6 text-[11px] border border-gray-300 dark:border-dark-border-subtle rounded bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-dark-surface"
       >
         {#if loadingModels}
           <option value="">Loading...</option>
@@ -608,15 +608,15 @@ Tool input schemas use JSON Schema format:
           {/each}
         {/if}
       </select>
-      <ChevronDown size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+      <ChevronDown size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-faint pointer-events-none" />
     </div>
   </div>
 
   <!-- Messages -->
   <div bind:this={chatContainer} class="flex-1 overflow-y-auto min-h-0 p-3 space-y-3">
     {#if messages.length === 0}
-      <div class="text-center text-[11px] text-gray-400 mt-8">
-        <Bot size={24} class="mx-auto mb-2 text-gray-300" />
+      <div class="text-center text-[11px] text-gray-400 dark:text-dark-text-faint mt-8">
+        <Bot size={24} class="mx-auto mb-2 text-gray-300 dark:text-dark-text-faint" />
         <p>Describe the skill you want to create or modify.</p>
         <p class="mt-1">I can generate tools, write handlers, test them, and save the skill.</p>
       </div>
@@ -625,22 +625,22 @@ Tool input schemas use JSON Schema format:
     {#each messages as msg, i}
       {#if msg.role === 'user'}
         <div class="flex justify-end">
-          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-[11px] whitespace-pre-wrap">
+          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-900 dark:bg-accent text-white text-[11px] whitespace-pre-wrap">
             {getTextContent(msg.content)}
           </div>
         </div>
       {:else if msg.role === 'assistant'}
         <div class="flex justify-start">
-          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-[11px]">
+          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-[11px]">
             {#if getTextContent(msg.content)}
-              <span class="whitespace-pre-wrap text-gray-700">{getTextContent(msg.content)}</span>
+              <span class="whitespace-pre-wrap text-gray-700 dark:text-dark-text-secondary">{getTextContent(msg.content)}</span>
             {:else if streaming && i === messages.length - 1}
-              <span class="text-gray-400 italic">Thinking...</span>
+              <span class="text-gray-400 dark:text-dark-text-faint italic">Thinking...</span>
             {/if}
             {#if msg.tool_calls && msg.tool_calls.length > 0}
-              <div class="mt-1.5 pt-1.5 border-t border-gray-200">
+              <div class="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-dark-border">
                 {#each msg.tool_calls as tc}
-                  <div class="flex items-center gap-1 text-[10px] text-gray-500">
+                  <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted">
                     <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400"></span>
                     <span class="font-mono">{tc.function.name}</span>
                   </div>
@@ -654,13 +654,13 @@ Tool input schemas use JSON Schema format:
   </div>
 
   <!-- Input area -->
-  <div class="px-3 py-2 border-t border-gray-200 shrink-0">
+  <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
     <div class="flex items-end gap-1.5">
       <textarea
         bind:value={userInput}
         onkeydown={handleKeydown}
         rows={1}
-        class="flex-1 px-2 py-1.5 text-[11px] border border-gray-300 rounded resize-none focus:outline-none focus:ring-1 focus:ring-gray-400"
+        class="flex-1 px-2 py-1.5 text-[11px] border border-gray-300 dark:border-dark-border-subtle rounded resize-none focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
         placeholder="Describe a skill..."
         disabled={!selectedModel || streaming}
       ></textarea>
@@ -675,7 +675,7 @@ Tool input schemas use JSON Schema format:
         <button
           onclick={sendMessage}
           disabled={!userInput.trim() || !selectedModel}
-          class="p-1.5 rounded bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+          class="p-1.5 rounded bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
         >
           <Send size={12} />
         </button>
@@ -684,7 +684,7 @@ Tool input schemas use JSON Schema format:
     {#if messages.length > 0 && !streaming}
       <button
         onclick={clearChat}
-        class="mt-1.5 w-full text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+        class="mt-1.5 w-full text-[10px] text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
       >
         Clear conversation
       </button>

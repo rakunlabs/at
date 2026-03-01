@@ -3,6 +3,7 @@
 
   interface AgentCallData {
     label?: string;
+    agent_id?: string;
     provider?: string;
     model?: string;
     system_prompt?: string;
@@ -29,6 +30,12 @@
     {#if data.node_number != null}<span class="text-[9px] font-medium text-gray-400 ml-auto">#{data.node_number}</span>{/if}
   </div>
   <div class="px-2.5 py-1.5">
+    {#if data.agent_id}
+      <div class="flex gap-1 items-baseline mb-0.5">
+        <span class="text-gray-400 text-[10px] shrink-0">Preset:</span>
+        <span class="text-gray-700 font-mono text-[11px] truncate max-w-[120px]" title={data.agent_id}>Loaded</span>
+      </div>
+    {/if}
     {#if data.provider}
       <div class="flex gap-1 items-baseline mb-0.5">
         <span class="text-gray-400 text-[10px] shrink-0">Provider:</span>
@@ -47,7 +54,7 @@
         <span class="text-gray-700 font-mono text-[11px]">{data.max_iterations === 0 ? 'unlimited' : data.max_iterations}</span>
       </div>
     {/if}
-    {#if !data.provider && !data.model}
+    {#if !data.provider && !data.model && !data.agent_id}
       <div class="text-gray-400 text-[11px]">Configure provider & model</div>
     {/if}
   </div>

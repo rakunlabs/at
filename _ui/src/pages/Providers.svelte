@@ -653,20 +653,20 @@
   <!-- Header -->
   <div class="flex items-start justify-between mb-6">
     <div>
-      <h1 class="text-lg font-semibold text-gray-900">Providers</h1>
-      <p class="text-sm text-gray-500 mt-0.5">Configure LLM backends for the gateway</p>
+      <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Providers</h1>
+      <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">Configure LLM backends for the gateway</p>
     </div>
     <div class="flex gap-2">
       <button
         onclick={openPresets}
-        class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-sm hover:bg-gray-800 transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 dark:bg-accent text-white text-sm hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
       >
         <Layers size={14} />
         From Template
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary transition-colors"
       >
         <Plus size={14} />
         Custom
@@ -676,10 +676,10 @@
 
   <!-- Preset Picker -->
   {#if showPresets}
-    <div class="border border-gray-200 mb-6 bg-white shadow-sm overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-        <span class="text-sm font-medium text-gray-900">Choose a Template</span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors">
+    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border">
+        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Choose a Template</span>
+        <button onclick={resetForm} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
           <X size={14} />
         </button>
       </div>
@@ -687,12 +687,12 @@
         {#each PRESETS as preset}
           <button
             onclick={() => applyPreset(preset)}
-            class="text-left border border-gray-200 p-3 hover:border-gray-400 hover:shadow-sm transition-all group"
+            class="text-left border border-gray-200 dark:border-dark-border p-3 hover:border-gray-400 dark:hover:border-dark-border-subtle hover:shadow-sm transition-all group"
           >
-            <div class="font-medium text-sm text-gray-900 group-hover:text-gray-900">{preset.name}</div>
-            <div class="text-xs text-gray-500 mt-1 leading-relaxed">{preset.description}</div>
+            <div class="font-medium text-sm text-gray-900 dark:text-dark-text group-hover:text-gray-900 dark:group-hover:text-dark-text">{preset.name}</div>
+            <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 leading-relaxed">{preset.description}</div>
             <div class="mt-2.5">
-              <span class="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-600 font-mono">{preset.config.type}</span>
+              <span class="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{preset.config.type}</span>
             </div>
           </button>
         {/each}
@@ -702,9 +702,9 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 mb-6 bg-white shadow-sm overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-        <span class="text-sm font-medium text-gray-900">
+    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
+        <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
           {#if editingKey}
             Edit: {editingKey}
           {:else if activePreset}
@@ -713,19 +713,19 @@
             New Provider (Custom)
           {/if}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
           <X size={14} />
         </button>
       </div>
 
       <!-- Setup Guide (shown when using a preset) -->
       {#if activePreset}
-        <div class="border-b border-gray-200 bg-blue-50/50 px-4 py-4">
+        <div class="border-b border-gray-200 dark:border-dark-border bg-blue-50/50 dark:bg-blue-900/20 px-4 py-4">
           <div class="flex items-start gap-2.5">
             <BookOpen size={16} class="text-blue-600 mt-0.5 shrink-0" />
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium text-gray-900 mb-2">Setup Guide</div>
-              <ol class="text-xs text-gray-700 space-y-1.5 list-decimal list-inside leading-relaxed">
+              <div class="text-sm font-medium text-gray-900 dark:text-dark-text mb-2">Setup Guide</div>
+              <ol class="text-xs text-gray-700 dark:text-dark-text-secondary space-y-1.5 list-decimal list-inside leading-relaxed">
                 {#each activePreset.setupSteps as step}
                   <li>{step}</li>
                 {/each}
@@ -738,7 +738,7 @@
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white border border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 transition-colors"
+                      class="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-border-subtle hover:text-gray-900 dark:hover:text-dark-text transition-colors"
                     >
                       {link.label}
                       <ExternalLink size={10} />
@@ -748,9 +748,9 @@
               {/if}
 
               {#if activePreset.notes && activePreset.notes.length > 0}
-                <div class="mt-3 pt-3 border-t border-blue-100">
+                <div class="mt-3 pt-3 border-t border-blue-100 dark:border-blue-800">
                   {#each activePreset.notes as note}
-                    <div class="text-xs text-gray-500 mt-1 leading-relaxed">{note}</div>
+                    <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 leading-relaxed">{note}</div>
                   {/each}
                 </div>
               {/if}
@@ -762,48 +762,48 @@
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
         <!-- Key -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-key" class="text-sm font-medium text-gray-700">Key</label>
+          <label for="form-key" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Key</label>
           <input
             id="form-key"
             type="text"
             bind:value={formKey}
             disabled={!!editingKey}
             placeholder="e.g., anthropic, groq, ollama"
-            class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-500 transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 disabled:text-gray-500 dark:disabled:bg-dark-surface dark:disabled:text-dark-text-muted dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
           />
         </div>
 
         <!-- Type -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-type" class="text-sm font-medium text-gray-700">Type</label>
+          <label for="form-type" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Type</label>
           <div class="col-span-3 relative">
             <select
               id="form-type"
               bind:value={formType}
-              class="w-full border border-gray-300 px-3 py-1.5 text-sm appearance-none bg-white pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
             >
               {#each PROVIDER_TYPES as t}
                 <option value={t}>{t}</option>
               {/each}
             </select>
-            <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
+            <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-faint" />
           </div>
         </div>
 
         <!-- Auth Type (only for openai) -->
         {#if formType === 'openai'}
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-authtype" class="text-sm font-medium text-gray-700">Auth Type</label>
+            <label for="form-authtype" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Auth Type</label>
             <div class="col-span-3 relative">
               <select
                 id="form-authtype"
                 bind:value={formAuthType}
-                class="w-full border border-gray-300 px-3 py-1.5 text-sm appearance-none bg-white pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
               >
                 <option value="">(none)</option>
                 <option value="copilot">copilot</option>
               </select>
-              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
+              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-faint" />
             </div>
           </div>
         {/if}
@@ -811,32 +811,32 @@
         <!-- API Key / Device Auth -->
         {#if formAuthType === 'copilot'}
           <div class="grid grid-cols-4 gap-3 items-start">
-            <span class="text-sm font-medium text-gray-700 pt-1.5">Authorization</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Authorization</span>
             <div class="col-span-3">
               {#if deviceAuthPending}
                 <!-- Device flow in progress -->
-                <div class="border border-blue-200 bg-blue-50/50 p-4 space-y-3">
-                  <div class="text-sm text-gray-700">
-                    Open <a href={deviceAuthURI} target="_blank" rel="noopener noreferrer" class="font-medium text-blue-600 hover:text-blue-800 underline">{deviceAuthURI}</a> and enter the code:
+                <div class="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-4 space-y-3">
+                  <div class="text-sm text-gray-700 dark:text-dark-text-secondary">
+                    Open <a href={deviceAuthURI} target="_blank" rel="noopener noreferrer" class="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline">{deviceAuthURI}</a> and enter the code:
                   </div>
                   <div class="flex items-center gap-3">
-                    <code class="text-2xl font-bold font-mono tracking-widest text-gray-900 bg-white border border-gray-200 px-4 py-2 select-all">{deviceAuthCode}</code>
+                    <code class="text-2xl font-bold font-mono tracking-widest text-gray-900 dark:text-dark-text bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border px-4 py-2 select-all">{deviceAuthCode}</code>
                     <button
                       type="button"
                       onclick={() => { navigator.clipboard.writeText(deviceAuthCode); addToast('Code copied to clipboard'); }}
-                      class="px-2.5 py-1.5 text-xs border border-gray-300 hover:bg-gray-50 text-gray-600 transition-colors"
+                      class="px-2.5 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary transition-colors"
                     >
                       Copy
                     </button>
                   </div>
-                  <div class="flex items-center gap-2 text-xs text-gray-500">
+                  <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted">
                     <RefreshCw size={12} class="animate-spin" />
                     Waiting for authorization...
                   </div>
                   <button
                     type="button"
                     onclick={stopDeviceAuthPolling}
-                    class="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
                   >
                     Cancel
                   </button>
@@ -844,14 +844,14 @@
               {:else if editingKey && formHasStoredKey}
                 <!-- Already authorized -->
                 <div class="flex items-center gap-3">
-                  <span class="inline-flex items-center gap-1.5 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-1.5">
+                  <span class="inline-flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-3 py-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     Authorized via GitHub
                   </span>
                   <button
                     type="button"
                     onclick={handleDeviceAuth}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
                   >
                     <LogIn size={13} />
                     Re-authorize
@@ -863,16 +863,16 @@
                   <button
                     type="button"
                     onclick={handleDeviceAuth}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
                   >
                     <LogIn size={14} />
                     Authorize with GitHub
                   </button>
-                  <span class="text-xs text-gray-500">Opens github.com in your browser</span>
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Opens github.com in your browser</span>
                 </div>
               {:else}
                 <!-- New provider, not yet saved -->
-                <div class="text-sm text-gray-500 py-1.5">
+                <div class="text-sm text-gray-500 dark:text-dark-text-muted py-1.5">
                   Save the provider first, then click Authorize to sign in via GitHub.
                 </div>
               {/if}
@@ -881,21 +881,21 @@
         {:else}
           <!-- Standard API Key input -->
           <div class="grid grid-cols-4 gap-3 items-center">
-            <label for="form-apikey" class="text-sm font-medium text-gray-700">API Key</label>
+            <label for="form-apikey" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">API Key</label>
             <input
               id="form-apikey"
               type="password"
               autocomplete="off"
               bind:value={formApiKey}
               placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'google-ai' ? 'AIza...' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
-              class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
             />
           </div>
         {/if}
 
         <!-- Base URL -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-baseurl" class="text-sm font-medium text-gray-700">Base URL</label>
+          <label for="form-baseurl" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Base URL</label>
           <input
             id="form-baseurl"
             type="text"
@@ -905,58 +905,58 @@
               : activePreset?.id === 'google-ai'
               ? '(default: https://generativelanguage.googleapis.com)'
               : 'https://api.example.com/v1/chat/completions'}
-            class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
           />
         </div>
 
         <!-- Proxy -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-proxy" class="text-sm font-medium text-gray-700">Proxy</label>
+          <label for="form-proxy" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Proxy</label>
           <input
             id="form-proxy"
             type="text"
             bind:value={formProxy}
             placeholder="e.g., http://proxy:8080 or socks5://127.0.0.1:1080"
-            class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
           />
         </div>
 
         <!-- Insecure Skip Verify -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <span class="text-sm font-medium text-gray-700">Skip TLS Verify</span>
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Skip TLS Verify</span>
           <label class="col-span-3 flex items-center gap-2 cursor-pointer">
             <input
               type="checkbox"
               bind:checked={formInsecureSkipVerify}
-              class="accent-gray-900 w-4 h-4"
+              class="accent-gray-900 dark:accent-accent w-4 h-4"
             />
-            <span class="text-sm text-gray-600">Disable certificate verification (insecure)</span>
+            <span class="text-sm text-gray-600 dark:text-dark-text-secondary">Disable certificate verification (insecure)</span>
           </label>
         </div>
 
         <!-- Model -->
         <div class="grid grid-cols-4 gap-3 items-center">
-          <label for="form-model" class="text-sm font-medium text-gray-700">Default Model</label>
+          <label for="form-model" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Default Model</label>
           <input
             id="form-model"
             type="text"
             bind:value={formModel}
             placeholder="e.g., gpt-4o, claude-haiku-4-5"
-            class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
           />
         </div>
 
         <!-- Models -->
         <div class="grid grid-cols-4 gap-3">
-          <span class="text-sm font-medium text-gray-700 pt-1.5">Models</span>
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Models</span>
           <div class="col-span-3 space-y-2">
             {#each formModels as model, i}
               <div class="flex gap-2 items-center">
-                <span class="flex-1 border border-gray-200 bg-gray-50 px-3 py-1.5 text-sm font-mono text-gray-700">{model}</span>
+                <span class="flex-1 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-dark-text-secondary">{model}</span>
                 <button
                   type="button"
                   onclick={() => removeModel(i)}
-                  class="p-1.5 border border-gray-300 hover:bg-red-50 hover:border-red-300 hover:text-red-600 text-gray-400 transition-colors"
+                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint transition-colors"
                 >
                   <X size={12} />
                 </button>
@@ -968,12 +968,12 @@
                 bind:value={newModelInput}
                 placeholder="model name"
                 onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }}
-                class="flex-1 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
               />
               <button
                 type="button"
                 onclick={addModel}
-                class="px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors shrink-0"
+                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors shrink-0"
               >
                 + Add
               </button>
@@ -981,7 +981,7 @@
                 type="button"
                 onclick={handleDiscoverModels}
                 disabled={discoveringModels}
-                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 title="Fetch available models from the provider using the API key above"
               >
                 <RefreshCw size={13} class={discoveringModels ? 'animate-spin' : ''} />
@@ -993,7 +993,7 @@
 
         <!-- Extra Headers -->
         <div class="grid grid-cols-4 gap-3">
-          <span class="text-sm font-medium text-gray-700 pt-1.5">Extra Headers</span>
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Extra Headers</span>
           <div class="col-span-3 space-y-2">
             {#each formExtraHeaders as header, i}
               <div class="flex gap-2">
@@ -1001,18 +1001,18 @@
                   type="text"
                   bind:value={header.key}
                   placeholder="Header-Name"
-                  class="flex-1 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
                 />
                 <input
                   type="text"
                   bind:value={header.value}
                   placeholder="value"
-                  class="flex-1 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
                 />
                 <button
                   type="button"
                   onclick={() => removeHeader(i)}
-                  class="p-1.5 border border-gray-300 hover:bg-red-50 hover:border-red-300 hover:text-red-600 text-gray-400 transition-colors"
+                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint transition-colors"
                 >
                   <X size={12} />
                 </button>
@@ -1021,7 +1021,7 @@
             <button
               type="button"
               onclick={addHeader}
-              class="text-sm text-gray-500 hover:text-gray-900 transition-colors"
+              class="text-sm text-gray-500 dark:text-dark-text-muted hover:text-gray-900 dark:hover:text-dark-text transition-colors"
             >
               + Add header
             </button>
@@ -1029,17 +1029,17 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100">
+        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
           <button
             type="button"
             onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors"
+            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary transition-colors"
           >
             Cancel
           </button>
           <button
             type="submit"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
           >
             <Save size={14} />
             {editingKey ? 'Update' : 'Create'}
@@ -1051,23 +1051,23 @@
 
   <!-- Provider list -->
   {#if loading}
-    <div class="text-center py-12 text-gray-400 text-sm">Loading...</div>
+    <div class="text-center py-12 text-gray-400 dark:text-dark-text-faint text-sm">Loading...</div>
   {:else if providers.length === 0 && !showForm && !showPresets}
-    <div class="border border-dashed border-gray-300 py-12 bg-white">
+    <div class="border border-dashed border-gray-300 dark:border-dark-border-subtle py-12 bg-white dark:bg-dark-surface">
       <div class="text-center">
-        <div class="text-gray-400 mb-1">No providers configured</div>
-        <p class="text-sm text-gray-400 mb-4">Add a provider to start routing requests</p>
+        <div class="text-gray-400 dark:text-dark-text-faint mb-1">No providers configured</div>
+        <p class="text-sm text-gray-400 dark:text-dark-text-faint mb-4">Add a provider to start routing requests</p>
         <div class="flex justify-center gap-2">
           <button
             onclick={openPresets}
-            class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white text-sm hover:bg-gray-800 transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 dark:bg-accent text-white text-sm hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
           >
             <Layers size={14} />
             From Template
           </button>
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary transition-colors"
           >
             <Plus size={14} />
             Custom
@@ -1076,44 +1076,44 @@
       </div>
     </div>
   {:else if providers.length > 0}
-    <div class="border border-gray-200 bg-white shadow-sm overflow-hidden">
+    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-gray-200 bg-gray-50">
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Key</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Type</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Model</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Models</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Base URL</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-28"></th>
+          <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Key</th>
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Model</th>
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Base URL</th>
+            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-28"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-gray-100">
+        <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
           {#each providers as rec}
-            <tr class="hover:bg-gray-50/50 transition-colors">
-              <td class="px-4 py-2.5 font-mono font-medium text-gray-900">{rec.key}</td>
+            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
+              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{rec.key}</td>
               <td class="px-4 py-2.5">
-                <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-600 font-mono">{rec.config.type}</span>
+                <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{rec.config.type}</span>
               </td>
-              <td class="px-4 py-2.5 font-mono text-xs text-gray-600">{rec.config.model}</td>
-              <td class="px-4 py-2.5 text-xs text-gray-500">
+              <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{rec.config.model}</td>
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
                 {(rec.config.models || []).length > 0 ? (rec.config.models || []).join(', ') : '-'}
               </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 truncate max-w-48" title={rec.config.base_url || ''}>
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48" title={rec.config.base_url || ''}>
                 {rec.config.base_url || 'default'}
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
                   <button
                     onclick={() => openConfigView(rec)}
-                    class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
                     title="View Config"
                   >
                     <FileCode size={14} />
                   </button>
                   <button
                     onclick={() => openEdit(rec)}
-                    class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -1127,14 +1127,14 @@
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 hover:bg-gray-50 transition-colors"
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = rec.key)}
-                      class="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -1153,41 +1153,41 @@
   {#if configViewProvider}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
-      class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+      class="fixed inset-0 bg-black/40 dark:bg-black/60 z-50 flex items-center justify-center p-4"
       onkeydown={(e) => { if (e.key === 'Escape') closeConfigView(); }}
       onclick={(e) => { if (e.target === e.currentTarget) closeConfigView(); }}
     >
       <!-- svelte-ignore a11y_click_events_have_key_events -->
-      <div class="bg-white shadow-xl w-full max-w-xl overflow-hidden" onclick={(e) => e.stopPropagation()}>
+      <div class="bg-white dark:bg-dark-surface shadow-xl w-full max-w-xl overflow-hidden" onclick={(e) => e.stopPropagation()}>
         <!-- Header -->
-        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
-          <span class="text-sm font-medium text-gray-900">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
+          <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
             Config: <span class="font-mono">{configViewProvider.key}</span>
           </span>
-          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
             <X size={14} />
           </button>
         </div>
 
         <!-- Format Toggle + Copy -->
-        <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100">
+        <div class="flex items-center justify-between px-4 py-2 border-b border-gray-100 dark:border-dark-border">
           <div class="flex gap-1">
             <button
               onclick={() => { configFormat = 'yaml'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'yaml' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
+              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'yaml' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
             >
               YAML
             </button>
             <button
               onclick={() => { configFormat = 'json'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'json' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}"
+              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'json' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
             >
               JSON
             </button>
           </div>
           <button
             onclick={copyConfigSnippet}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 hover:bg-gray-50 text-gray-600 hover:text-gray-900 transition-colors"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
           >
             {#if configCopied}
               <Check size={12} class="text-green-600" />
@@ -1200,13 +1200,13 @@
         </div>
 
         <!-- Code Block -->
-        <div class="p-4 bg-gray-50 max-h-96 overflow-auto">
-          <pre class="text-xs font-mono text-gray-800 whitespace-pre leading-relaxed">{getConfigSnippet()}</pre>
+        <div class="p-4 bg-gray-50 dark:bg-dark-elevated max-h-96 overflow-auto">
+          <pre class="text-xs font-mono text-gray-800 dark:text-dark-text-secondary whitespace-pre leading-relaxed">{getConfigSnippet()}</pre>
         </div>
 
         <!-- Hint -->
-        <div class="px-4 py-2.5 border-t border-gray-100 bg-white">
-          <p class="text-xs text-gray-500">
+        <div class="px-4 py-2.5 border-t border-gray-100 dark:border-dark-border bg-white dark:bg-dark-surface">
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
             Add this to your <span class="font-mono font-medium">at.yaml</span> configuration file to define this provider.
           </p>
         </div>

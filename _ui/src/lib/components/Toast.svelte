@@ -20,7 +20,7 @@
       transition:customSlide={{ duration: 200 }}
     >
       <span class="flex-1">{toast.message}</span>
-      <button onclick={() => close(toast.id)} class="shrink-0 p-0.5 hover:bg-black/10 transition-colors">
+      <button onclick={() => close(toast.id)} class="shrink-0 p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors">
         <X size={14} />
       </button>
     </div>
@@ -31,14 +31,14 @@
   @reference "tailwindcss";
 
   .toast-alert {
-    @apply bg-red-100 text-red-900 border-red-300;
+    @apply bg-red-100 text-red-900 border-red-300 dark:bg-red-900/40 dark:text-red-200 dark:border-red-800;
   }
 
   .toast-info {
-    @apply bg-emerald-100 text-emerald-900 border-emerald-300;
+    @apply bg-emerald-100 text-emerald-900 border-emerald-300 dark:bg-emerald-900/40 dark:text-emerald-200 dark:border-emerald-800;
   }
 
   .toast-warn {
-    @apply bg-amber-100 text-amber-900 border-amber-300;
+    @apply bg-amber-100 text-amber-900 border-amber-300 dark:bg-amber-900/40 dark:text-amber-200 dark:border-amber-800;
   }
 </style>

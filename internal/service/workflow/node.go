@@ -174,6 +174,10 @@ type Registry struct {
 	// Used by workflow_call nodes to load and execute sub-workflows.
 	WorkflowLookup WorkflowLookup
 
+	// AgentLookup resolves an agent ID to its definition.
+	// Used by agent_call nodes to load pre-configured agent settings.
+	AgentLookup AgentLookup
+
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
 
@@ -208,8 +212,11 @@ type NodeConfigLookup func(id string) (*service.NodeConfig, error)
 // Used by workflow_call nodes to load and execute sub-workflows.
 type WorkflowLookup func(ctx context.Context, id string) (*service.Workflow, error)
 
+// AgentLookup resolves an agent ID to its definition.
+type AgentLookup func(ctx context.Context, id string) (*service.Agent, error)
+
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
@@ -220,6 +227,7 @@ func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLo
 		VarLister:        varLister,
 		NodeConfigLookup: nodeConfigLookup,
 		WorkflowLookup:   workflowLookup,
+		AgentLookup:      agentLookup,
 		RunInputs:        inputs,
 		outputs:          make(map[string]any),
 	}

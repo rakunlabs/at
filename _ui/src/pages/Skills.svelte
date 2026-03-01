@@ -192,14 +192,14 @@
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
-          <Wand2 size={16} class="text-gray-500" />
-          <h2 class="text-sm font-medium text-gray-900">Skills</h2>
-          <span class="text-xs text-gray-400">({skills.length})</span>
+          <Wand2 size={16} class="text-gray-500 dark:text-dark-text-muted" />
+          <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Skills</h2>
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({skills.length})</span>
         </div>
         <div class="flex items-center gap-2">
           <button
             onclick={() => { showAIPanel = !showAIPanel; }}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors {showAIPanel ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'border border-gray-300 text-gray-700 hover:bg-gray-50'}"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
             title="Toggle AI Skill Builder"
           >
             <Bot size={12} />
@@ -207,14 +207,14 @@
           </button>
           <button
             onclick={load}
-            class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
           >
             <Plus size={12} />
             New Skill
@@ -224,17 +224,17 @@
 
       <!-- Form -->
       {#if showForm}
-        <div class="border border-gray-200 mb-6 bg-white shadow-sm overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+        <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
             <div class="flex items-center gap-2">
-              <span class="text-sm font-medium text-gray-900">
+              <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
                 {editingId ? `Edit: ${formName}` : 'New Skill'}
               </span>
               {#if !editingId}
                 <button
                   type="button"
                   onclick={pasteSkill}
-                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text transition-colors"
                   title="Paste skill from clipboard"
                 >
                   <ClipboardPaste size={12} />
@@ -242,7 +242,7 @@
                 </button>
               {/if}
             </div>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 text-gray-400 hover:text-gray-600 transition-colors">
+            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
               <X size={14} />
             </button>
           </div>
@@ -250,52 +250,52 @@
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
             <!-- Name -->
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-name" class="text-sm font-medium text-gray-700">Name</label>
+              <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
               <input
                 id="form-name"
                 type="text"
                 bind:value={formName}
                 placeholder="e.g., web_search, code_review"
-                class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
             <!-- Description -->
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-description" class="text-sm font-medium text-gray-700">Description</label>
+              <label for="form-description" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
               <input
                 id="form-description"
                 type="text"
                 bind:value={formDescription}
                 placeholder="What this skill does"
-                class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
             <!-- System Prompt -->
             <div class="grid grid-cols-4 gap-3 items-start">
-              <label for="form-system-prompt" class="text-sm font-medium text-gray-700 pt-1.5">System Prompt</label>
+              <label for="form-system-prompt" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">System Prompt</label>
               <textarea
                 id="form-system-prompt"
                 bind:value={formSystemPrompt}
                 rows={3}
                 placeholder="Instructions for the agent when using this skill"
-                class="col-span-3 border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 resize-y transition-colors"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
               ></textarea>
             </div>
 
             <!-- Tools -->
             <div class="grid grid-cols-4 gap-3 items-start">
-              <span class="text-sm font-medium text-gray-700 pt-1.5">Tools</span>
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Tools</span>
               <div class="col-span-3 space-y-3">
                 {#each formTools as tool, i}
-                  <div class="border border-gray-200 p-3 bg-gray-50/50 space-y-2">
+                  <div class="border border-gray-200 dark:border-dark-border p-3 bg-gray-50/50 dark:bg-dark-base/30 space-y-2">
                     <div class="flex items-center justify-between">
-                      <span class="text-xs font-medium text-gray-500">Tool {i + 1}</span>
+                      <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Tool {i + 1}</span>
                       <button
                         type="button"
                         onclick={() => removeTool(i)}
-                        class="p-1 hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
+                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
                         title="Remove tool"
                       >
                         <X size={12} />
@@ -306,30 +306,30 @@
                         type="text"
                         bind:value={tool.name}
                         placeholder="Tool name (e.g., search_web)"
-                        class="w-full border border-gray-300 px-2.5 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
                       />
                       <input
                         type="text"
                         bind:value={tool.description}
                         placeholder="Tool description"
-                        class="w-full border border-gray-300 px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
                       />
                       <div>
-                        <div class="text-xs text-gray-500 mb-0.5">Input Schema (JSON)</div>
+                        <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-0.5">Input Schema (JSON)</div>
                         <textarea
                           value={JSON.stringify(tool.inputSchema || {}, null, 2)}
                           oninput={(e) => updateToolSchema(i, (e.target as HTMLTextAreaElement).value)}
                           rows={3}
-                          class="w-full border border-gray-300 px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 resize-y transition-colors"
+                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
                           placeholder={'{\n  "type": "object",\n  "properties": { ... }\n}'}
                         ></textarea>
                       </div>
                       <div>
                         <div class="flex items-center gap-2 mb-0.5">
-                          <span class="text-xs text-gray-500">Handler</span>
+                          <span class="text-xs text-gray-500 dark:text-dark-text-muted">Handler</span>
                           <select
                             bind:value={tool.handler_type}
-                            class="text-xs border border-gray-300 px-1.5 py-0.5 rounded bg-white focus:outline-none focus:ring-1 focus:ring-gray-400"
+                            class="text-xs border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 bg-white dark:bg-dark-elevated focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/30 dark:text-dark-text"
                           >
                             <option value="js">JavaScript</option>
                             <option value="bash">Bash</option>
@@ -338,7 +338,7 @@
                         <textarea
                           bind:value={tool.handler}
                           rows={3}
-                          class="w-full border border-gray-300 px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 resize-y transition-colors"
+                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
                           placeholder={tool.handler_type === 'bash'
                             ? '#!/bin/bash\ncurl -s "$ARG_URL" | jq .'
                             : '// Access tool arguments as "args"\nvar result = httpGet(args.url);\nreturn result.body;'}
@@ -350,7 +350,7 @@
                 <button
                   type="button"
                   onclick={addTool}
-                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 transition-colors"
+                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
                 >
                   <Plus size={12} />
                   Add tool
@@ -359,18 +359,18 @@
             </div>
 
             <!-- Actions -->
-            <div class="flex justify-end gap-2 pt-3 border-t border-gray-100">
+            <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
               <button
                 type="button"
                 onclick={resetForm}
-                class="px-3 py-1.5 text-sm border border-gray-300 hover:bg-gray-50 text-gray-700 transition-colors"
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 transition-colors disabled:opacity-50"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
               >
                 <Save size={14} />
                 {#if saving}
@@ -385,17 +385,17 @@
       {/if}
 
       <!-- Skill list -->
-      <div class="border border-gray-200 bg-white shadow-sm overflow-hidden">
+      <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
         {#if loading}
-          <div class="px-4 py-10 text-center text-gray-400 text-sm">Loading...</div>
+          <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
         {:else if skills.length === 0 && !showForm}
           <div class="px-4 py-10 text-center">
-            <Wand2 size={24} class="mx-auto text-gray-300 mb-2" />
-            <div class="text-gray-400 mb-1">No skills configured</div>
-            <div class="text-xs text-gray-400 mb-3">Skills define reusable tool sets for agent workflows</div>
+            <Wand2 size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
+            <div class="text-gray-400 dark:text-dark-text-muted mb-1">No skills configured</div>
+            <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">Skills define reusable tool sets for agent workflows</div>
             <button
               onclick={openCreate}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors mx-auto"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors mx-auto"
             >
               <Plus size={12} />
               New Skill
@@ -404,51 +404,51 @@
         {:else if skills.length > 0}
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b border-gray-200 bg-gray-50">
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Name</th>
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Description</th>
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider">Tools</th>
-                <th class="text-right px-4 py-2.5 font-medium text-gray-500 text-xs uppercase tracking-wider w-32"></th>
+              <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
+                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Tools</th>
+                <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
               </tr>
             </thead>
-            <tbody class="divide-y divide-gray-100">
+            <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
               {#each skills as skill}
-                <tr class="hover:bg-gray-50/50 transition-colors">
-                  <td class="px-4 py-2.5 font-mono font-medium text-gray-900">{skill.name}</td>
-                  <td class="px-4 py-2.5 text-xs text-gray-500 max-w-64 truncate" title={skill.description}>
+                <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+                  <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{skill.name}</td>
+                  <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={skill.description}>
                     {skill.description || '-'}
                   </td>
-                  <td class="px-4 py-2.5 text-xs text-gray-500">
+                  <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
                     {#if skill.tools && skill.tools.length > 0}
-                      <span class="px-2 py-0.5 bg-gray-100 text-gray-600 font-mono">
+                      <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
                         {skill.tools.length} tool{skill.tools.length !== 1 ? 's' : ''}
                       </span>
-                      <span class="ml-1.5 text-gray-400">
+                      <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
                         {skill.tools.map((t) => t.name).join(', ')}
                       </span>
                     {:else}
-                      <span class="text-gray-400">none</span>
+                      <span class="text-gray-400 dark:text-dark-text-muted">none</span>
                     {/if}
                   </td>
                   <td class="px-4 py-2.5 text-right">
                     <div class="flex justify-end gap-1">
                       <button
                         onclick={() => copySkill(skill)}
-                        class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
                         title="Copy skill"
                       >
                         <Copy size={14} />
                       </button>
                       <button
                         onclick={() => openEditWithAI(skill)}
-                        class="p-1.5 hover:bg-blue-50 text-gray-400 hover:text-blue-600 transition-colors"
+                        class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-gray-400 hover:text-blue-600 dark:text-dark-text-muted dark:hover:text-accent-text transition-colors"
                         title="Edit with AI"
                       >
                         <Bot size={14} />
                       </button>
                       <button
                         onclick={() => openEdit(skill)}
-                        class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-700 transition-colors"
+                        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
                         title="Edit"
                       >
                         <Pencil size={14} />
@@ -462,14 +462,14 @@
                         </button>
                         <button
                           onclick={() => (deleteConfirm = null)}
-                          class="px-2 py-1 text-xs border border-gray-300 hover:bg-gray-50 transition-colors"
+                          class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
                         >
                           Cancel
                         </button>
                       {:else}
                         <button
                           onclick={() => (deleteConfirm = skill.id)}
-                          class="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-600 transition-colors"
+                          class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
                           title="Delete"
                         >
                           <Trash2 size={14} />

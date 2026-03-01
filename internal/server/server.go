@@ -76,6 +76,9 @@ type Server struct {
 	// nodeConfigStore is the persistent store for node configurations (e.g. SMTP settings).
 	nodeConfigStore service.NodeConfigStorer
 
+	// agentStore is the persistent store for agent definitions.
+	agentStore service.AgentStorer
+
 	// scheduler is the cron trigger scheduler (nil if triggerStore is nil).
 	scheduler *workflow.Scheduler
 
@@ -171,7 +174,7 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -194,6 +197,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		skillStore:           skillStore,
 		variableStore:        variableStore,
 		nodeConfigStore:      nodeConfigStore,
+		agentStore:           agentStore,
 		providerFactory:      factory,
 		storeType:            storeType,
 		authTokens:           gatewayCfg.AuthTokens,
@@ -277,7 +281,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, cl)
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
@@ -375,6 +379,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.GET("/v1/node-configs/{id}", s.GetNodeConfigAPI)
 	apiGroup.PUT("/v1/node-configs/{id}", s.UpdateNodeConfigAPI)
 	apiGroup.DELETE("/v1/node-configs/{id}", s.DeleteNodeConfigAPI)
+
+	// Agent management
+	apiGroup.GET("/v1/agents", s.ListAgentsAPI)
+	apiGroup.POST("/v1/agents", s.CreateAgentAPI)
+	apiGroup.GET("/v1/agents/{id}", s.GetAgentAPI)
+	apiGroup.PUT("/v1/agents/{id}", s.UpdateAgentAPI)
+	apiGroup.DELETE("/v1/agents/{id}", s.DeleteAgentAPI)
 
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)

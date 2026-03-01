@@ -479,7 +479,15 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup)
+	// Build an agent lookup function for agent_call nodes.
+	var agentLookup workflow.AgentLookup
+	if s.agentStore != nil {
+		agentLookup = func(ctx context.Context, id string) (*service.Agent, error) {
+			return s.agentStore.GetAgent(ctx, id)
+		}
+	}
+
+	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup)
 
 	// Find the specific http_trigger node that matches this trigger's ID.
 	var entryNodeIDs []string

@@ -1,13 +1,69 @@
 /* stylelint-disable-next-line import-notation */
 @import 'tailwindcss';
 
+@theme {
+  /* Dark mode palette — warm earthy tones */
+  --color-dark-base: #161618;
+  --color-dark-surface: #1e1e20;
+  --color-dark-elevated: #252422;
+  --color-dark-highest: #2e2c2a;
+  --color-dark-border: #302e2c;
+  --color-dark-border-subtle: #3a3836;
+  --color-dark-text: #e8e6e3;
+  --color-dark-text-secondary: #a8a5a0;
+  --color-dark-text-muted: #706d68;
+  --color-dark-text-faint: #504d48;
+
+  /* Accent — burnt orange */
+  --color-accent: #eb5e28;
+  --color-accent-hover: #f4742e;
+  --color-accent-muted: #eb5e2826;
+  --color-accent-subtle: #eb5e2815;
+  --color-accent-text: #f4935a;
+
+  /* Override gray scale for dark mode usage */
+  --color-gray-950: #161618;
+  --color-gray-900: #1e1e20;
+  --color-gray-850: #252422;
+  --color-gray-800: #2e2c2a;
+  --color-gray-700: #3a3836;
+  --color-gray-600: #504d48;
+  --color-gray-500: #706d68;
+  --color-gray-400: #908c86;
+}
+
+@variant dark (&:where(.dark, .dark *));
+
 html,
 body {
-  @apply h-full w-full;
+  @apply h-full w-full bg-gray-50 dark:bg-dark-base text-gray-900 dark:text-dark-text;
 }
 
 button,
 [role='button'],
 select {
   cursor: pointer;
+}
+
+/* Dark mode scrollbars — thin, warm-tinted to match palette */
+.dark ::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.dark ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #3a3836;
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #504d48;
+}
+
+.dark {
+  scrollbar-color: #3a3836 transparent;
 }

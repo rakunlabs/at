@@ -1,6 +1,7 @@
 import Home from '@/pages/Home.svelte';
 import Providers from '@/pages/Providers.svelte';
 import Skills from '@/pages/Skills.svelte';
+import Agents from '@/pages/Agents.svelte';
 import Secrets from '@/pages/Secrets.svelte';
 import Chat from '@/pages/Chat.svelte';
 import Tokens from '@/pages/Tokens.svelte';
@@ -16,6 +17,7 @@ export default {
   '/': Home,
   '/providers': Providers,
   '/skills': Skills,
+  '/agents': Agents,
   '/variables': Secrets,
   '/chat': Chat,
   '/tokens': Tokens,

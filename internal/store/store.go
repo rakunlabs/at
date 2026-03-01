@@ -21,6 +21,7 @@ type StorerClose interface {
 	service.SkillStorer
 	service.VariableStorer
 	service.NodeConfigStorer
+	service.AgentStorer
 	Close()
 }
 

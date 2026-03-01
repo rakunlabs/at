@@ -43,6 +43,7 @@ type Scheduler struct {
 	varLookup            VarLookup
 	varLister            VarLister
 	nodeConfigLookup     NodeConfigLookup
+	agentStore           service.AgentStorer
 	runRegistrar         RunRegistrar
 
 	cluster *cluster.Cluster
@@ -54,7 +55,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, cl *cluster.Cluster) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
 		triggerStore:         ts,
 		workflowStore:        ws,
@@ -64,6 +65,7 @@ func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs servi
 		varLookup:            varLookup,
 		varLister:            varLister,
 		nodeConfigLookup:     nodeConfigLookup,
+		agentStore:           agentStore,
 		cluster:              cl,
 	}
 }
@@ -330,7 +332,15 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup)
+		// Build an agent lookup function for agent_call nodes.
+		var agentLookup AgentLookup
+		if s.agentStore != nil {
+			agentLookup = func(ctx context.Context, id string) (*service.Agent, error) {
+				return s.agentStore.GetAgent(ctx, id)
+			}
+		}
+
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup)
 
 		// Find the specific cron_trigger node that matches this trigger's ID.
 		var entryNodeIDs []string

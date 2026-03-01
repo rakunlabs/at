@@ -41,10 +41,11 @@ type Engine struct {
 	varLister        VarLister
 	nodeConfigLookup NodeConfigLookup
 	workflowLookup   WorkflowLookup
+	agentLookup      AgentLookup
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup) *Engine {
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup) *Engine {
 	return &Engine{
 		providerLookup:   lookup,
 		skillLookup:      skillLookup,
@@ -52,6 +53,7 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 		varLister:        varLister,
 		nodeConfigLookup: nodeConfigLookup,
 		workflowLookup:   workflowLookup,
+		agentLookup:      agentLookup,
 	}
 }
 
@@ -217,7 +219,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, inputs)
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, inputs)
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)

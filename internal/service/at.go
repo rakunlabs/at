@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -374,110 +373,32 @@ type NodeConfigStorer interface {
 	DeleteNodeConfig(ctx context.Context, id string) error
 }
 
-// Agent orchestrates MCP and LLM
+// ─── Agent Registry ───
+
+// Agent represents a reusable agent configuration that can be referenced
+// by agent_call nodes in workflows.
 type Agent struct {
-	mcp      *HTTPMCPClient
-	provider LLMProvider
-	messages []Message
-
-	Tools []Tool
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Provider      string   `json:"provider"`       // Provider key
+	Model         string   `json:"model"`          // Model identifier
+	SystemPrompt  string   `json:"system_prompt"`  // System prompt
+	Skills        []string `json:"skills"`         // List of skill IDs/names
+	MCPs          []string `json:"mcp_urls"`       // List of MCP server URLs
+	MaxIterations int      `json:"max_iterations"` // Max iterations for the loop
+	ToolTimeout   int      `json:"tool_timeout"`   // Timeout in seconds
+	CreatedAt     string   `json:"created_at"`
+	UpdatedAt     string   `json:"updated_at"`
+	CreatedBy     string   `json:"created_by"`
+	UpdatedBy     string   `json:"updated_by"`
 }
 
-func NewAgent(mcp *HTTPMCPClient, provider LLMProvider) *Agent {
-	return &Agent{
-		mcp:      mcp,
-		provider: provider,
-		messages: []Message{},
-		Tools:    []Tool{},
-	}
-}
-
-func (a *Agent) SetTools(ctx context.Context) error {
-	tools, err := a.mcp.ListTools(ctx)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("\nAvailable tools: %d\n", len(tools))
-	for _, tool := range tools {
-		fmt.Printf("  - %s: %s\n", tool.Name, tool.Description)
-	}
-
-	a.Tools = tools
-
-	return nil
-}
-
-func (a *Agent) Run(ctx context.Context, userMessage string) error {
-	a.messages = append(a.messages, Message{
-		Role:    "user",
-		Content: userMessage,
-	})
-
-	for {
-		resp, err := a.provider.Chat(ctx, "", a.messages, a.Tools)
-		if err != nil {
-			return err
-		}
-
-		if resp.Content != "" {
-			fmt.Printf("\n🤖 Assistant: %s\n", resp.Content)
-		}
-
-		// Build assistant message content
-		var assistantContent []ContentBlock
-		if resp.Content != "" {
-			assistantContent = append(assistantContent, ContentBlock{
-				Type: "text",
-				Text: resp.Content,
-			})
-		}
-		for _, tc := range resp.ToolCalls {
-			assistantContent = append(assistantContent, ContentBlock{
-				Type:             "tool_use",
-				ID:               tc.ID,
-				Name:             tc.Name,
-				Input:            tc.Arguments,
-				ThoughtSignature: tc.ThoughtSignature,
-			})
-		}
-
-		a.messages = append(a.messages, Message{
-			Role:    "assistant",
-			Content: assistantContent,
-		})
-
-		if resp.Finished {
-			break
-		}
-
-		// Execute tool calls
-		if len(resp.ToolCalls) > 0 {
-			var toolResults []ContentBlock
-			for _, tc := range resp.ToolCalls {
-				fmt.Printf("\n🔧 [Tool Call: %s]\n", tc.Name)
-				fmt.Printf("   Arguments: %v\n", tc.Arguments)
-
-				result, err := a.mcp.CallTool(ctx, tc.Name, tc.Arguments)
-				if err != nil {
-					result = fmt.Sprintf("Error: %v", err)
-				}
-				fmt.Printf("   ✅ Result: %s\n", result)
-
-				toolResults = append(toolResults, ContentBlock{
-					Type:      "tool_result",
-					ToolUseID: tc.ID,
-					Name:      tc.Name,
-					Content:   result,
-				})
-			}
-
-			a.messages = append(a.messages, Message{
-				Role:    "user",
-				Content: toolResults,
-			})
-		}
-	}
-
-	return nil
+// AgentStorer defines CRUD operations for agents.
+type AgentStorer interface {
+	ListAgents(ctx context.Context) ([]Agent, error)
+	GetAgent(ctx context.Context, id string) (*Agent, error)
+	CreateAgent(ctx context.Context, agent Agent) (*Agent, error)
+	UpdateAgent(ctx context.Context, id string, agent Agent) (*Agent, error)
+	DeleteAgent(ctx context.Context, id string) error
 }

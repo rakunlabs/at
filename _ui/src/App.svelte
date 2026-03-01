@@ -11,7 +11,7 @@
 
 <div
   class={[
-    "grid grid-flow-col h-full w-full relative bg-gray-50",
+    "grid grid-flow-col h-full w-full relative bg-gray-50 dark:bg-dark-base transition-colors",
     storeNavbar.sideBarOpen ? "grid-cols-[9rem]" : "grid-cols-[0]",
   ]}
 >

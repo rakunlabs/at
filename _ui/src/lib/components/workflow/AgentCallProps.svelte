@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { listAgents, type Agent } from '@/lib/api/agents';
+
   let { data, providers = [] }: { data: Record<string, any>; providers?: any[] } = $props();
 
+  let agents = $state<Agent[]>([]);
   let selectedProvider = $derived(providers.find(p => p.key === data.provider));
   let availableModels = $derived(
     selectedProvider?.config?.models?.length
@@ -9,11 +12,30 @@
         ? [selectedProvider.config.model]
         : []
   );
+
+  listAgents().then(a => agents = a).catch(() => {});
 </script>
 
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider</span>
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Agent Preset</span>
+  <select
+    bind:value={data.agent_id}
+    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+  >
+    <option value="">Custom (No Preset)</option>
+    {#each agents as a}
+      <option value={a.id}>{a.name}</option>
+    {/each}
+  </select></label>
+  <div class="mt-0.5 text-[10px] text-gray-400">Select a pre-configured agent or leave empty to configure manually.</div>
+</div>
+
+<div class="h-px bg-gray-200 my-2"></div>
+
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Provider {data.agent_id ? '(Override)' : ''}</span>
   <select
     bind:value={data.provider}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -26,7 +48,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model</span>
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Model {data.agent_id ? '(Override)' : ''}</span>
   <select
     bind:value={data.model}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
@@ -39,7 +61,7 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt</span>
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">System Prompt {data.agent_id ? '(Appended)' : ''}</span>
   <textarea
     bind:value={data.system_prompt}
     rows={3}
@@ -49,12 +71,12 @@
 </div>
 <div>
   <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Max Iterations</span>
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Max Iterations {data.agent_id ? '(Override)' : ''}</span>
   <input
     type="number"
     bind:value={data.max_iterations}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
-    placeholder="10"
+    placeholder={data.agent_id ? "Default from Agent" : "10"}
     min="0"
   /></label>
   <div class="mt-0.5 text-[10px] text-gray-400">0 = unlimited</div>

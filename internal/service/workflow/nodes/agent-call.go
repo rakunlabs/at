@@ -18,7 +18,8 @@ import (
 //
 // Config (node.Data):
 //
-//	"provider":       string   — provider key for registry lookup (required)
+//	"agent_id":       string   — ID of a stored Agent preset (optional)
+//	"provider":       string   — provider key for registry lookup (required if agent_id empty)
 //	"model":          string   — model override (optional, empty = provider default)
 //	"system_prompt":  string   — system message prepended to conversation (optional)
 //	"max_iterations": float64  — max tool-call rounds (default 10, 0 = unlimited)
@@ -35,7 +36,9 @@ import (
 // Output ports:
 //
 //	"response" — the final LLM response text
+//	"text"     — alias for response
 type agentCallNode struct {
+	agentID       string
 	providerKey   string
 	model         string
 	systemPrompt  string
@@ -51,18 +54,21 @@ func init() {
 }
 
 func newAgentCallNode(node service.WorkflowNode) (workflow.Noder, error) {
+	agentID, _ := node.Data["agent_id"].(string)
 	providerKey, _ := node.Data["provider"].(string)
 	model, _ := node.Data["model"].(string)
 	systemPrompt, _ := node.Data["system_prompt"].(string)
 
-	maxIterations := 10
+	maxIterations := -1
 	if v, ok := node.Data["max_iterations"].(float64); ok {
 		maxIterations = int(v)
 	}
 
 	var toolTimeout time.Duration
-	if v, ok := node.Data["tool_timeout"].(float64); ok && v > 0 {
+	if v, ok := node.Data["tool_timeout"].(float64); ok {
 		toolTimeout = time.Duration(v) * time.Second
+	} else {
+		toolTimeout = -1
 	}
 
 	// Parse MCP URLs.
@@ -116,6 +122,7 @@ func newAgentCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 	}
 
 	return &agentCallNode{
+		agentID:       agentID,
 		providerKey:   providerKey,
 		model:         model,
 		systemPrompt:  systemPrompt,
@@ -130,30 +137,61 @@ func newAgentCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 func (n *agentCallNode) Type() string { return "agent_call" }
 
 func (n *agentCallNode) Validate(_ context.Context, reg *workflow.Registry) error {
-	if n.providerKey == "" {
-		return fmt.Errorf("agent_call: 'provider' is required")
+	if n.agentID == "" && n.providerKey == "" {
+		return fmt.Errorf("agent_call: 'provider' is required when 'agent_id' is not set")
 	}
 
 	if reg.ProviderLookup == nil {
 		return fmt.Errorf("agent_call: no provider lookup configured")
 	}
 
-	// Verify the provider exists.
-	_, _, err := reg.ProviderLookup(n.providerKey)
-	if err != nil {
-		return fmt.Errorf("agent_call: provider %q: %w", n.providerKey, err)
+	// Verify the provider exists if specified directly.
+	if n.providerKey != "" {
+		_, _, err := reg.ProviderLookup(n.providerKey)
+		if err != nil {
+			return fmt.Errorf("agent_call: provider %q: %w", n.providerKey, err)
+		}
 	}
 
 	return nil
 }
 
 func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
-	provider, defaultModel, err := reg.ProviderLookup(n.providerKey)
-	if err != nil {
-		return nil, fmt.Errorf("agent_call: provider %q: %w", n.providerKey, err)
+	// 1. Load Agent preset if configured.
+	var preset *service.Agent
+	if n.agentID != "" {
+		if reg.AgentLookup == nil {
+			return nil, fmt.Errorf("agent_call: agent lookup not configured")
+		}
+		var err error
+		preset, err = reg.AgentLookup(ctx, n.agentID)
+		if err != nil {
+			return nil, fmt.Errorf("agent_call: agent %q: %w", n.agentID, err)
+		}
+		if preset == nil {
+			return nil, fmt.Errorf("agent_call: agent %q not found", n.agentID)
+		}
 	}
 
+	// 2. Resolve provider key.
+	providerKey := n.providerKey
+	if providerKey == "" && preset != nil {
+		providerKey = preset.Provider
+	}
+	if providerKey == "" {
+		return nil, fmt.Errorf("agent_call: no provider specified (node or agent preset)")
+	}
+
+	provider, defaultModel, err := reg.ProviderLookup(providerKey)
+	if err != nil {
+		return nil, fmt.Errorf("agent_call: provider %q: %w", providerKey, err)
+	}
+
+	// 3. Resolve model.
 	model := n.model
+	if model == "" && preset != nil {
+		model = preset.Model
+	}
 	if model == "" {
 		model = defaultModel
 	}
@@ -182,7 +220,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	var allTools []service.Tool
 
-	// ─── Merge MCP URLs from static config + edge inputs ───
+	// ─── Merge MCP URLs from static config + agent preset + edge inputs ───
 
 	// Log received input keys for debugging connectivity issues
 	inputKeys := make([]string, 0, len(inputs))
@@ -191,7 +229,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}
 	logi.Ctx(ctx).Debug("agent_call: input keys", "keys", inputKeys)
 
+	// Start with node config URLs
 	mcpURLs := append([]string{}, n.mcpURLs...)
+	// Add preset URLs
+	if preset != nil {
+		mcpURLs = append(mcpURLs, preset.MCPs...)
+	}
+
 	if edgeMCP, ok := inputs["mcp"]; ok {
 		switch v := edgeMCP.(type) {
 		case string:
@@ -213,8 +257,18 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
-	// 1. MCP tools
+	// Deduplicate MCP URLs
+	seenMCPs := make(map[string]bool)
+	var uniqueMCPs []string
 	for _, url := range mcpURLs {
+		if url != "" && !seenMCPs[url] {
+			seenMCPs[url] = true
+			uniqueMCPs = append(uniqueMCPs, url)
+		}
+	}
+
+	// 1. MCP tools
+	for _, url := range uniqueMCPs {
 		client, err := service.NewHTTPMCPClient(ctx, url)
 		if err != nil {
 			logi.Ctx(ctx).Warn("agent_call: failed to connect to MCP server, skipping",
@@ -237,8 +291,12 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}
 
 	// 2. Skill tools (also collect system prompt fragments)
-	// Merge skill names from static config + edge inputs.
+	// Merge skill names from static config + agent preset + edge inputs.
 	rawSkillNames := append([]string{}, n.skillNames...)
+	if preset != nil {
+		rawSkillNames = append(rawSkillNames, preset.Skills...)
+	}
+
 	if edgeSkills, ok := inputs["skills"]; ok {
 		switch v := edgeSkills.(type) {
 		case string:
@@ -315,6 +373,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// ─── Build System Prompt ───
 
 	systemPrompt := n.systemPrompt
+	if preset != nil && preset.SystemPrompt != "" {
+		if systemPrompt != "" {
+			systemPrompt = preset.SystemPrompt + "\n\n" + systemPrompt
+		} else {
+			systemPrompt = preset.SystemPrompt
+		}
+	}
 	for _, fragment := range skillPromptFragments {
 		if systemPrompt != "" {
 			systemPrompt += "\n\n"
@@ -365,6 +430,26 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// ─── Agentic Loop ───
 
+	// Resolve maxIterations
+	maxIterations := n.maxIterations
+	if maxIterations == -1 {
+		if preset != nil && preset.MaxIterations > 0 {
+			maxIterations = preset.MaxIterations
+		} else {
+			maxIterations = 10 // Default
+		}
+	}
+
+	// Resolve toolTimeout
+	toolTimeout := n.toolTimeout
+	if toolTimeout == -1 {
+		if preset != nil && preset.ToolTimeout > 0 {
+			toolTimeout = time.Duration(preset.ToolTimeout) * time.Second
+		} else {
+			toolTimeout = 60 * time.Second // Default
+		}
+	}
+
 	// Strip handlers from tools sent to the LLM (Handler field is omitted by
 	// json tag when empty, but let's be explicit).
 	llmTools := make([]service.Tool, len(allTools))
@@ -376,7 +461,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
-	for iteration := 0; n.maxIterations == 0 || iteration < n.maxIterations; iteration++ {
+	for iteration := 0; maxIterations == 0 || iteration < maxIterations; iteration++ {
 		// Check for cancellation between iterations.
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("agent_call: cancelled: %w", err)
@@ -431,7 +516,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
 				if hi.handlerType == "bash" {
 					// Execute bash handler.
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, n.toolTimeout)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, toolTimeout)
 				} else {
 					// Execute JS handler via Goja (default).
 					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, reg.VarLookup)

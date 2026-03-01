@@ -1,6 +1,6 @@
 <script lang="ts">
   import { push } from 'svelte-spa-router';
-  import { storeNavbar } from '@/lib/store/store.svelte';
+  import { storeNavbar, storeTheme } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listWorkflows, getWorkflow, updateWorkflow, runWorkflow, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
@@ -806,30 +806,30 @@
 </svelte:head>
 
 {#if loading}
-  <div class="p-8 text-center text-sm text-gray-500">Loading workflow...</div>
+  <div class="p-8 text-center text-sm text-gray-500 dark:text-dark-text-muted">Loading workflow...</div>
 {:else if workflow}
   <div class="flex flex-col h-full overflow-hidden">
     <!-- Toolbar -->
-    <div class="flex items-center justify-between px-3 py-1.5 bg-white border-b border-gray-200 shrink-0">
+    <div class="flex items-center justify-between px-3 py-1.5 bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border shrink-0">
       <div class="flex items-center gap-3">
         <button
           onclick={() => push('/workflows')}
-          class="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
         >
           <ArrowLeft size={14} />
           Back
         </button>
-        <div class="h-4 border-l border-gray-200"></div>
+        <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
         <div class="flex flex-col">
           <div class="flex items-center gap-2">
             <input
               type="text"
               bind:value={workflow.name}
-              class="text-sm font-medium text-gray-900 bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
+              class="text-sm font-medium text-gray-900 dark:text-dark-text bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
               placeholder="Workflow name"
             />
             <div class="flex items-center gap-1 group relative">
-              <span class="text-[10px] font-mono text-gray-400 cursor-pointer hover:text-gray-600" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
+              <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-faint cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
                 {workflow.id}
               </span>
             </div>
@@ -837,14 +837,14 @@
           <input
             type="text"
             bind:value={workflow.description}
-            class="text-[10px] text-gray-400 bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
+            class="text-[10px] text-gray-400 dark:text-dark-text-faint bg-transparent border-none outline-none focus:ring-0 w-48 p-0"
             placeholder="Add description..."
           />
         </div>
       </div>
       <div class="flex items-center gap-2">
         {#if workflow.active_version != null}
-          <span class="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded {viewingVersion != null ? 'text-amber-700 bg-amber-50 border border-amber-200' : 'text-gray-500 bg-gray-100 border border-gray-200'}">
+          <span class="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded {viewingVersion != null ? 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800' : 'text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border'}">
             {#if viewingVersion != null}
               v{viewingVersion}
               {#if viewingVersion === workflow.active_version}
@@ -858,7 +858,7 @@
         {/if}
         <button
           onclick={() => { showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showVersionPanel ? 'text-white bg-gray-900' : 'text-gray-700 bg-white border border-gray-300'} rounded hover:bg-gray-800 hover:text-white transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showVersionPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
         >
           <History size={12} />
           Versions
@@ -866,14 +866,14 @@
         <button
           onclick={handleSave}
           disabled={saving}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors"
         >
           <Save size={12} />
           {saving ? 'Saving...' : 'Save'}
         </button>
         <button
           onclick={() => { showChatPanel = !showChatPanel; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showChatPanel ? 'text-white bg-gray-900' : 'text-gray-700 bg-white border border-gray-300'} rounded hover:bg-gray-800 hover:text-white transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showChatPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
         >
           <Bot size={12} />
           AI
@@ -890,13 +890,13 @@
 
     <!-- Version viewing banner -->
     {#if viewingVersion != null}
-      <div class="flex items-center justify-between px-3 py-1 bg-amber-50 border-b border-amber-200 shrink-0">
-        <span class="text-xs text-amber-700">
+      <div class="flex items-center justify-between px-3 py-1 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800 shrink-0">
+        <span class="text-xs text-amber-700 dark:text-amber-400">
           Viewing version {viewingVersion}{viewingVersion === workflow.active_version ? ' (active)' : ''} — canvas is read-only until you return to latest
         </span>
         <button
           onclick={loadCurrentToCanvas}
-          class="px-2 py-0.5 text-xs text-amber-700 bg-white border border-amber-300 rounded hover:bg-amber-100 transition-colors"
+          class="px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400 bg-white dark:bg-dark-surface border border-amber-300 dark:border-amber-800 rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
         >
           Back to latest
         </button>
@@ -906,7 +906,7 @@
     <!-- Main area -->
     <div class="flex flex-1 overflow-hidden">
       <!-- Node Palette -->
-      <div class="w-44 bg-white border-r border-gray-200 shrink-0 overflow-y-auto">
+      <div class="w-44 bg-white dark:bg-dark-surface border-r border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto">
         <div class="p-2">
           {#each paletteGroups as group}
             <button
@@ -915,9 +915,9 @@
             >
               <ChevronRight
                 size={10}
-                class="text-gray-400 transition-transform {collapsedGroups[group.label] ? '' : 'rotate-90'}"
+                class="text-gray-400 dark:text-dark-text-faint transition-transform {collapsedGroups[group.label] ? '' : 'rotate-90'}"
               />
-              <span class="text-[10px] font-medium text-gray-400 uppercase tracking-wider">{group.label}</span>
+              <span class="text-[10px] font-medium text-gray-400 dark:text-dark-text-faint uppercase tracking-wider">{group.label}</span>
             </button>
             {#if !collapsedGroups[group.label]}
               {#each group.nodes as opt}
@@ -925,12 +925,12 @@
                   draggable="true"
                   ondragstart={(e) => handleDragStart(e, opt.type)}
                   onclick={() => addNode(opt.type)}
-                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left text-gray-700 rounded hover:bg-gray-100 transition-colors mb-0.5 cursor-grab active:cursor-grabbing"
+                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left text-gray-700 dark:text-dark-text-secondary rounded hover:bg-gray-100 dark:hover:bg-dark-highest transition-colors mb-0.5 cursor-grab active:cursor-grabbing"
                 >
-                  <Plus size={11} class="text-gray-400 shrink-0" />
+                  <Plus size={11} class="text-gray-400 dark:text-dark-text-faint shrink-0" />
                   <div>
                     <div class="font-medium">{opt.label}</div>
-                    <div class="text-[10px] text-gray-400">{opt.description}</div>
+                    <div class="text-[10px] text-gray-400 dark:text-dark-text-faint">{opt.description}</div>
                   </div>
                 </button>
               {/each}
@@ -942,7 +942,7 @@
       <!-- Canvas -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="flex-1 relative bg-gray-50 {draggingOver ? 'ring-2 ring-inset ring-blue-400' : ''}"
+        class="flex-1 relative bg-gray-50 dark:bg-dark-base {storeTheme.mode === 'dark' ? 'kaykay-dark' : ''} {draggingOver ? 'ring-2 ring-inset ring-blue-400 dark:ring-accent' : ''}"
         role="application"
         ondragover={handleDragOver}
         ondragleave={handleDragLeave}
@@ -971,24 +971,24 @@
 
       <!-- Version History Panel -->
       {#if showVersionPanel}
-        <div class="w-64 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col">
-          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 shrink-0">
-            <span class="text-xs font-medium text-gray-700">Version History</span>
-            <button onclick={() => { showVersionPanel = false; }} class="text-gray-400 hover:text-gray-600">
+        <div class="w-64 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
+            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Version History</span>
+            <button onclick={() => { showVersionPanel = false; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
           <div class="overflow-y-auto min-h-0 flex-1">
             {#if loadingVersions}
-              <div class="p-3 text-xs text-gray-500 text-center">Loading...</div>
+              <div class="p-3 text-xs text-gray-500 dark:text-dark-text-muted text-center">Loading...</div>
             {:else if versions.length === 0}
-              <div class="p-3 text-xs text-gray-400 text-center">No versions yet. Save to create the first version.</div>
+              <div class="p-3 text-xs text-gray-400 dark:text-dark-text-faint text-center">No versions yet. Save to create the first version.</div>
             {:else}
               <!-- Return to latest button when viewing old version -->
               {#if viewingVersion != null}
                 <button
                   onclick={loadCurrentToCanvas}
-                  class="w-full px-3 py-2 text-xs text-blue-600 hover:bg-blue-50 border-b border-gray-100 text-left transition-colors"
+                  class="w-full px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b border-gray-100 dark:border-dark-border text-left transition-colors"
                 >
                   Back to latest
                 </button>
@@ -997,13 +997,13 @@
                 {@const isActive = workflow.active_version === v.version}
                 {@const isViewing = viewingVersion === v.version}
                 <div
-                  class="px-3 py-2 border-b border-gray-100 {isViewing ? 'bg-amber-50' : 'hover:bg-gray-50'} transition-colors"
+                  class="px-3 py-2 border-b border-gray-100 dark:border-dark-border {isViewing ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-gray-50 dark:hover:bg-dark-elevated'} transition-colors"
                 >
                   <div class="flex items-center justify-between mb-0.5">
                     <div class="flex items-center gap-1.5">
-                      <span class="text-xs font-medium text-gray-800">v{v.version}</span>
+                      <span class="text-xs font-medium text-gray-800 dark:text-dark-text">v{v.version}</span>
                       {#if isActive}
-                        <span class="flex items-center gap-0.5 px-1 py-0 text-[9px] font-medium text-green-700 bg-green-50 border border-green-200 rounded">
+                        <span class="flex items-center gap-0.5 px-1 py-0 text-[9px] font-medium text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 rounded">
                           <Check size={8} />
                           active
                         </span>
@@ -1014,7 +1014,7 @@
                         <button
                           onclick={() => handleSetActiveVersion(v.version)}
                           disabled={settingActive}
-                          class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-green-700 hover:bg-green-50 rounded transition-colors disabled:opacity-50"
+                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-green-700 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded transition-colors disabled:opacity-50"
                           title="Set as active version"
                         >
                           Set active
@@ -1023,7 +1023,7 @@
                       {#if !isViewing}
                         <button
                           onclick={() => loadVersionToCanvas(v.version)}
-                          class="px-1.5 py-0.5 text-[10px] text-gray-500 hover:text-blue-700 hover:bg-blue-50 rounded transition-colors"
+                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
                           title="Load this version into canvas"
                         >
                           Load
@@ -1031,15 +1031,15 @@
                       {/if}
                     </div>
                   </div>
-                  <div class="flex items-center gap-1 text-[10px] text-gray-400">
+                  <div class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-faint">
                     <Clock size={9} />
                     {new Date(v.created_at).toLocaleDateString()} {new Date(v.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     {#if v.created_by}
-                      <span class="ml-1 text-gray-300">|</span> <span class="ml-1">by {v.created_by}</span>
+                      <span class="ml-1 text-gray-300 dark:text-dark-text-faint">|</span> <span class="ml-1">by {v.created_by}</span>
                     {/if}
                   </div>
                   {#if v.name && v.name !== workflow.name}
-                    <div class="text-[10px] text-gray-500 mt-0.5 truncate" title={v.name}>{v.name}</div>
+                    <div class="text-[10px] text-gray-500 dark:text-dark-text-muted mt-0.5 truncate" title={v.name}>{v.name}</div>
                   {/if}
                 </div>
               {/each}
@@ -1052,18 +1052,18 @@
       {#if selectedNodeId && !noPropertyPanelTypes.has(selectedNodeType)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="w-60 bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col outline-none"
+          class="w-60 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col outline-none"
           tabindex="-1"
           onmousedown={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
         >
-          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 shrink-0">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
             <div class="flex items-center gap-2">
-              <span class="text-xs font-medium text-gray-700">Properties</span>
+              <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Properties</span>
               {#if hasNodeEdits()}
-                <span class="text-[10px] font-medium leading-none text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">Unsaved</span>
+                <span class="text-[10px] font-medium leading-none text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5">Unsaved</span>
               {/if}
             </div>
-            <button onclick={closePropertyEditor} class="text-gray-400 hover:text-gray-600">
+            <button onclick={closePropertyEditor} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
@@ -1072,11 +1072,11 @@
             {#if selectedNodeType !== 'sticky_note'}
               <div>
                 <label class="block">
-                  <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Label</span>
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Label</span>
                 <input
                   type="text"
                   bind:value={selectedNodeData.label}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
                 /></label>
               </div>
             {/if}
@@ -1095,10 +1095,10 @@
             {/if}
 
           </div>
-          <div class="px-3 py-2 border-t border-gray-200 shrink-0">
+          <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
             <button
               onclick={applyNodeData}
-              class="w-full px-2 py-1 text-xs text-white bg-gray-900 rounded hover:bg-gray-800 transition-colors"
+              class="w-full px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
             >
               Apply
             </button>
@@ -1108,25 +1108,25 @@
 
       <!-- Run Panel -->
       {#if showRunPanel}
-        <div class="w-72 bg-white border-l border-gray-200 shrink-0 overflow-y-auto">
-          <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200">
-            <span class="text-xs font-medium text-gray-700">Run Workflow</span>
-            <button onclick={() => { showRunPanel = false; }} class="text-gray-400 hover:text-gray-600">
+        <div class="w-72 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto">
+          <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-dark-border">
+            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Run Workflow</span>
+            <button onclick={() => { showRunPanel = false; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
               <X size={14} />
             </button>
           </div>
           <div class="p-3 space-y-3">
             <div>
               <div class="flex items-center justify-between mb-0.5">
-                <label for="run-inputs" class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</label>
-                <div class="flex rounded overflow-hidden border border-gray-300">
+                <label for="run-inputs" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</label>
+                <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
                   <button
                     onclick={() => { runInputMode = 'text'; }}
-                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runInputMode === 'text' ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runInputMode === 'text' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                   >Text</button>
                   <button
                     onclick={() => { runInputMode = 'json'; }}
-                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 {runInputMode === 'json' ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-dark-border-subtle {runInputMode === 'json' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                   >JSON</button>
                 </div>
               </div>
@@ -1134,37 +1134,37 @@
                 id="run-inputs"
                 bind:value={runInputsJson}
                 rows={5}
-                class="w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
+                class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
                 placeholder={runInputMode === 'text' ? 'Type your input text...' : '{"key": "value"}'}
               ></textarea>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Mode</span>
-              <div class="flex rounded overflow-hidden border border-gray-300">
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Mode</span>
+              <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
                 <button
                   onclick={() => { runSync = true; }}
-                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runSync ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                 >Sync</button>
                 <button
                   onclick={() => { runSync = false; }}
-                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 {!runSync ? 'bg-gray-700 text-white' : 'bg-white text-gray-500 hover:bg-gray-100'}"
+                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-dark-border-subtle {!runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                 >Async</button>
               </div>
             </div>
             {#if versions.length > 0}
               <div>
-                <label for="run-version-select" class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Run Version</label>
+                <label for="run-version-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Version</label>
                 <select
                   id="run-version-select"
                   bind:value={runVersion}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
                 >
                   <option value={undefined}>Latest (save first)</option>
                   {#each versions as v}
                     <option value={v.version}>v{v.version}{workflow.active_version === v.version ? ' (active)' : ''}</option>
                   {/each}
                 </select>
-                <div class="mt-0.5 text-[10px] text-gray-400">
+                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
                   {runVersion !== undefined ? `Run version ${runVersion}` : 'Saves then runs latest graph'}
                 </div>
               </div>
@@ -1179,15 +1179,15 @@
             </button>
 
             {#if runError}
-              <div class="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+              <div class="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-400">
                 {runError}
               </div>
             {/if}
 
             {#if runResult}
               <div>
-                <div class="text-[10px] font-medium text-gray-500 uppercase tracking-wider mb-1">Result</div>
-                <pre class="p-2 bg-gray-50 border border-gray-200 rounded text-[11px] font-mono text-gray-700 overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
+                <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Result</div>
+                <pre class="p-2 bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
               </div>
             {/if}
           </div>

@@ -158,12 +158,12 @@ func main() {
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div class="flex items-center gap-2">
-      <BookOpen size={16} class="text-gray-500" />
-      <h2 class="text-sm font-medium text-gray-900">API Documentation</h2>
+      <BookOpen size={16} class="text-gray-500 dark:text-dark-text-muted" />
+      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">API Documentation</h2>
     </div>
     <button
       onclick={load}
-      class="p-1.5 hover:bg-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
       title="Refresh"
     >
       <RefreshCw size={14} />
@@ -171,57 +171,57 @@ func main() {
   </div>
 
   <!-- Overview -->
-  <div class="border border-gray-200 bg-white p-4 mb-4">
-    <h3 class="text-sm font-medium text-gray-900 mb-2">Overview</h3>
-    <p class="text-sm text-gray-600 leading-relaxed">
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 mb-4">
+    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text mb-2">Overview</h3>
+    <p class="text-sm text-gray-600 dark:text-dark-text-secondary leading-relaxed">
       This gateway provides an OpenAI-compatible API. You can use any OpenAI SDK or HTTP client to interact with your configured LLM providers.
-      Models are accessed using the format <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700">provider_key/model_name</code>.
+      Models are accessed using the format <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-xs text-gray-700 dark:text-dark-text-secondary">provider_key/model_name</code>.
     </p>
   </div>
 
   <!-- Endpoints -->
-  <div class="border border-gray-200 bg-white mb-4">
-    <div class="px-4 py-3 border-b border-gray-200">
-      <h3 class="text-sm font-medium text-gray-900">Endpoints</h3>
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Endpoints</h3>
     </div>
     <div class="p-4 space-y-3 text-sm">
       <div>
         <div class="flex items-center gap-2 mb-1">
-          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-green-50 border border-green-200 text-green-700 font-medium font-mono">POST</span>
-          <code class="font-mono text-gray-700">{baseUrl}/gateway/v1/chat/completions</code>
+          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-700 dark:text-green-300 font-medium font-mono">POST</span>
+          <code class="font-mono text-gray-700 dark:text-dark-text-secondary">{baseUrl}/gateway/v1/chat/completions</code>
         </div>
-        <p class="text-xs text-gray-500 ml-14">Send chat messages. Compatible with OpenAI Chat Completions API.</p>
+        <p class="text-xs text-gray-500 dark:text-dark-text-muted ml-14">Send chat messages. Compatible with OpenAI Chat Completions API.</p>
       </div>
       <div>
         <div class="flex items-center gap-2 mb-1">
-          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-blue-50 border border-blue-200 text-blue-700 font-medium font-mono">GET</span>
-          <code class="font-mono text-gray-700">{baseUrl}/gateway/v1/models</code>
+          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-medium font-mono">GET</span>
+          <code class="font-mono text-gray-700 dark:text-dark-text-secondary">{baseUrl}/gateway/v1/models</code>
         </div>
-        <p class="text-xs text-gray-500 ml-14">List all available models.</p>
+        <p class="text-xs text-gray-500 dark:text-dark-text-muted ml-14">List all available models.</p>
       </div>
     </div>
   </div>
 
   <!-- Proxy Endpoint -->
-  <div class="border border-gray-200 bg-white mb-4">
-    <div class="px-4 py-3 border-b border-gray-200">
-      <h3 class="text-sm font-medium text-gray-900">Proxy Endpoint</h3>
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Proxy Endpoint</h3>
     </div>
     <div class="p-4 space-y-3 text-sm">
-      <p class="text-gray-600 mb-2">
+      <p class="text-gray-600 dark:text-dark-text-secondary mb-2">
         Access any provider endpoint directly via the gateway. The gateway handles authentication and credential injection.
       </p>
       <div>
         <div class="flex items-center gap-2 mb-1">
-          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-gray-50 border border-gray-200 text-gray-700 font-medium font-mono">ANY</span>
-          <code class="font-mono text-gray-700">{baseUrl}/gateway/proxy/:provider/:path*</code>
+          <span class="shrink-0 w-12 text-center px-2 py-0.5 text-xs bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary font-medium font-mono">ANY</span>
+          <code class="font-mono text-gray-700 dark:text-dark-text-secondary">{baseUrl}/gateway/proxy/:provider/:path*</code>
         </div>
-        <div class="text-xs text-gray-500 ml-14 space-y-1">
+        <div class="text-xs text-gray-500 dark:text-dark-text-muted ml-14 space-y-1">
           <p>Forwards requests to the specified provider.</p>
-          <div class="mt-2 p-2 bg-gray-50 rounded border border-gray-100">
+            <div class="mt-2 p-2 bg-gray-50 dark:bg-dark-base rounded border border-gray-100 dark:border-dark-border">
             <p class="font-medium mb-1">Example: Gemini File Search</p>
             <p class="font-mono mb-1">POST {baseUrl}/gateway/proxy/gemini/v1beta/files</p>
-            <p class="text-gray-400">↓ forwards to</p>
+             <p class="text-gray-400 dark:text-dark-text-muted">↓ forwards to</p>
             <p class="font-mono">https://generativelanguage.googleapis.com/v1beta/files</p>
           </div>
         </div>
@@ -230,29 +230,29 @@ func main() {
   </div>
 
   <!-- Authentication -->
-  <div class="border border-gray-200 bg-white mb-4">
-    <div class="px-4 py-3 border-b border-gray-200">
-      <h3 class="text-sm font-medium text-gray-900">Authentication</h3>
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Authentication</h3>
     </div>
-    <div class="p-4 text-sm text-gray-600 leading-relaxed">
-      <p class="mb-2">Include your API token in the <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-xs text-gray-700">Authorization</code> header:</p>
+    <div class="p-4 text-sm text-gray-600 dark:text-dark-text-secondary leading-relaxed">
+      <p class="mb-2">Include your API token in the <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-xs text-gray-700 dark:text-dark-text-secondary">Authorization</code> header:</p>
       <div class="relative">
-        <pre class="bg-gray-50 border border-gray-200 p-3 text-xs font-mono text-gray-700 overflow-x-auto">Authorization: Bearer at_your_token_here</pre>
+        <pre class="bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border p-3 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto">Authorization: Bearer at_your_token_here</pre>
       </div>
-      <p class="mt-2 text-xs text-gray-500">
-        Generate tokens from the <a href="#/tokens" class="text-gray-700 underline underline-offset-2 hover:text-gray-900">Tokens</a> page.
+      <p class="mt-2 text-xs text-gray-500 dark:text-dark-text-muted">
+        Generate tokens from the <a href="#/tokens" class="text-gray-700 dark:text-accent-text underline underline-offset-2 hover:text-gray-900 dark:hover:text-accent">Tokens</a> page.
         Tokens can optionally be scoped to specific providers or models.
       </p>
     </div>
   </div>
 
   <!-- Code Examples -->
-  <div class="border border-gray-200 bg-white mb-4">
-    <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-      <h3 class="text-sm font-medium text-gray-900">Code Examples</h3>
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center justify-between">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Code Examples</h3>
       <button
         onclick={() => copyCode(activeTab, getActiveExample(activeTab, exampleModel, baseUrl))}
-        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+        class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
       >
         <Copy size={12} />
         {copiedId === activeTab ? 'Copied' : 'Copy'}
@@ -260,15 +260,15 @@ func main() {
     </div>
 
     <!-- Tabs -->
-    <div class="flex border-b border-gray-200">
+    <div class="flex border-b border-gray-200 dark:border-dark-border">
       {#each tabs as tab}
         <button
           onclick={() => (activeTab = tab.id)}
           class={[
             'px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px',
             activeTab === tab.id
-              ? 'border-gray-900 text-gray-900'
-              : 'border-transparent text-gray-400 hover:text-gray-600'
+              ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-accent'
+              : 'border-transparent text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary'
           ]}
         >
           {tab.label}
@@ -277,42 +277,42 @@ func main() {
     </div>
 
     <!-- Tab content -->
-    <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{getActiveExample(activeTab, exampleModel, baseUrl)}</pre>
+    <pre class="p-4 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto leading-relaxed">{getActiveExample(activeTab, exampleModel, baseUrl)}</pre>
   </div>
 
   <!-- List Models -->
-  <div class="border border-gray-200 bg-white mb-4">
-    <div class="px-4 py-3 border-b border-gray-200 flex items-center justify-between">
-      <h3 class="text-sm font-medium text-gray-900">List Models</h3>
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center justify-between">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">List Models</h3>
       <button
         onclick={() => copyCode('models', curlModelsExample(baseUrl))}
-        class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+        class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
       >
         <Copy size={12} />
         {copiedId === 'models' ? 'Copied' : 'Copy'}
       </button>
     </div>
-    <pre class="p-4 text-xs font-mono text-gray-700 overflow-x-auto leading-relaxed">{curlModelsExample(baseUrl)}</pre>
+    <pre class="p-4 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto leading-relaxed">{curlModelsExample(baseUrl)}</pre>
   </div>
 
   <!-- Available Models -->
-  <div class="border border-gray-200 bg-white shadow-sm overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-200">
-      <h3 class="text-sm font-medium text-gray-900">Available Models</h3>
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Available Models</h3>
     </div>
     {#if loading}
-      <div class="px-4 py-10 text-center text-gray-400 text-sm">Loading...</div>
+      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
     {:else if allModels.length === 0}
-      <div class="px-4 py-10 text-center text-gray-400 text-sm">No models available</div>
+      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">No models available</div>
     {:else}
       <div class="p-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
           {#each allModels as model}
             <div class="flex items-center gap-2 group">
-              <code class="text-xs font-mono text-gray-700 bg-gray-50 px-2 py-1 flex-1 truncate">{model}</code>
+              <code class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary bg-gray-50 dark:bg-dark-elevated px-2 py-1 flex-1 truncate">{model}</code>
               <button
                 onclick={() => copyCode(`model-${model}`, model)}
-                class="shrink-0 p-1 text-gray-300 hover:text-gray-500 transition-colors opacity-0 group-hover:opacity-100"
+                class="shrink-0 p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-500 dark:hover:text-dark-text-muted transition-colors opacity-0 group-hover:opacity-100"
                 title="Copy model ID"
               >
                 <Copy size={12} />

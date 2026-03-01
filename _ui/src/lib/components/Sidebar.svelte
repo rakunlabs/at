@@ -2,7 +2,7 @@
   import { push, location } from "svelte-spa-router";
   import { storeInfo } from "@/lib/store/store.svelte";
   import { getInfo } from "@/lib/api/gateway";
-  import {
+    import {
     Home,
     MessageSquare,
     Cpu,
@@ -14,7 +14,9 @@
     Settings,
     WandSparkles,
     SlidersHorizontal,
+    Bot,
   } from "lucide-svelte";
+
 
   function navigate(e: MouseEvent, path: string) {
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
@@ -33,16 +35,16 @@
   });
 </script>
 
-<div class="sidebar-bg border-r border-gray-200 bg-white flex flex-col h-svh">
+<div class="sidebar-bg border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col h-svh transition-colors">
   <div class="flex-1 overflow-auto no-scrollbar">
     <a
       href="#/"
       onclick={(e) => navigate(e, "/")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
     >
       <Home size={14} />
@@ -52,10 +54,10 @@
       href="#/chat"
       onclick={(e) => navigate(e, "/chat")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/chat"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
     >
       <MessageSquare size={14} />
@@ -65,10 +67,10 @@
       href="#/providers"
       onclick={(e) => navigate(e, "/providers")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/providers"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
     >
       <Cpu size={14} />
@@ -78,10 +80,10 @@
       href="#/tokens"
       onclick={(e) => navigate(e, "/tokens")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/tokens"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
     >
       <Key size={14} />
@@ -91,10 +93,10 @@
       href="#/docs"
       onclick={(e) => navigate(e, "/docs")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/docs"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
     >
       <BookOpen size={14} />
@@ -104,10 +106,10 @@
       href="#/settings"
       onclick={(e) => navigate(e, "/settings")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 transition-colors",
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/settings"
-          ? "bg-gray-900 text-white"
-          : "text-gray-700 hover:bg-gray-100",
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
     >
       <Settings size={14} />
@@ -115,18 +117,18 @@
     </a>
     <div>
       <span
-        class="block p-2 text-[10px] font-medium text-gray-400 tracking-wider bg-gray-50 w-full border-b border-gray-200 transition-colors"
+        class="block p-2 text-[10px] font-medium text-gray-400 dark:text-dark-text-muted tracking-wider bg-gray-50 dark:bg-dark-base w-full border-b border-gray-200 dark:border-dark-border transition-colors"
         >Automation</span
       >
-      <div class="border-l-4 border-gray-800">
+      <div class="border-l-4 border-gray-800 dark:border-accent">
         <a
           href="#/workflows"
           onclick={(e) => navigate(e, "/workflows")}
           class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 transition-colors",
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
             $location === "/workflows" || $location.startsWith("/workflows/")
-              ? "bg-gray-900 text-white"
-              : "text-gray-700 hover:bg-gray-100",
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
           ]}
         >
           <Workflow size={14} />
@@ -136,23 +138,36 @@
           href="#/runs"
           onclick={(e) => navigate(e, "/runs")}
           class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 transition-colors",
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
             $location === "/runs"
-              ? "bg-gray-900 text-white"
-              : "text-gray-700 hover:bg-gray-100",
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
           ]}
         >
           <Activity size={14} />
           <span>Runs</span>
         </a>
         <a
+          href="#/agents"
+          onclick={(e) => navigate(e, "/agents")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/agents"
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <Bot size={14} />
+          <span>Agents</span>
+        </a>
+        <a
           href="#/skills"
           onclick={(e) => navigate(e, "/skills")}
           class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 transition-colors",
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
             $location === "/skills"
-              ? "bg-gray-900 text-white"
-              : "text-gray-700 hover:bg-gray-100",
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
           ]}
         >
           <WandSparkles size={14} />
@@ -162,10 +177,10 @@
           href="#/variables"
           onclick={(e) => navigate(e, "/variables")}
           class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 transition-colors",
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
             $location === "/variables"
-              ? "bg-gray-900 text-white"
-              : "text-gray-700 hover:bg-gray-100",
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
           ]}
         >
           <Braces size={14} />
@@ -175,10 +190,10 @@
           href="#/node-configs"
           onclick={(e) => navigate(e, "/node-configs")}
           class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 transition-colors",
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
             $location === "/node-configs"
-              ? "bg-gray-900 text-white"
-              : "text-gray-700 hover:bg-gray-100",
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
           ]}
         >
           <SlidersHorizontal size={14} />
@@ -187,12 +202,12 @@
       </div>
     </div>
   </div>
-  <div class="border-t border-gray-200 p-3 text-[10px] text-gray-500">
+  <div class="border-t border-gray-200 dark:border-dark-border p-3 text-[10px] text-gray-500 dark:text-dark-text-muted">
     {#if storeInfo.user}
-      <div class="truncate font-medium text-gray-700" title={storeInfo.user}>{storeInfo.user}</div>
+      <div class="truncate font-medium text-gray-700 dark:text-dark-text-secondary" title={storeInfo.user}>{storeInfo.user}</div>
     {/if}
     <div class="flex items-center gap-2 mt-0.5">
-      <span>{storeInfo.version || 'v0.0.0'}</span>
+      <span class="text-gray-600 dark:text-dark-text-muted">{storeInfo.version || 'v0.0.0'}</span>
     </div>
   </div>
 </div>

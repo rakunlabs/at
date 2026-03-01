@@ -99,6 +99,7 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		reg.VarLister,
 		reg.NodeConfigLookup,
 		reg.WorkflowLookup,
+		reg.AgentLookup,
 	)
 
 	// 4. Run the child workflow.

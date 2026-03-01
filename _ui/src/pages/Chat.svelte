@@ -284,19 +284,19 @@
 >
   <!-- Drag overlay -->
   {#if dragging}
-    <div class="absolute inset-0 z-50 bg-gray-900/10 border-2 border-dashed border-gray-400 flex items-center justify-center pointer-events-none">
-      <div class="bg-white px-4 py-2 text-sm text-gray-600 shadow-sm">Drop images here</div>
+    <div class="absolute inset-0 z-50 bg-gray-900/10 dark:bg-dark-base/30 border-2 border-dashed border-gray-400 dark:border-dark-border-subtle flex items-center justify-center pointer-events-none">
+      <div class="bg-white dark:bg-dark-surface px-4 py-2 text-sm text-gray-600 dark:text-dark-text-secondary shadow-sm">Drop images here</div>
     </div>
   {/if}
 
   <!-- Toolbar -->
-  <div class="border-b border-gray-200 bg-white px-4 py-2 flex items-center gap-2 shrink-0">
+  <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-2 flex items-center gap-2 shrink-0">
     <!-- Model selector -->
     <div class="relative flex-1 max-w-xs">
       <select
         bind:value={selectedModel}
         disabled={loading || models.length === 0}
-        class="w-full border border-gray-300 px-3 py-1.5 text-sm appearance-none bg-white pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400 transition-colors"
+        class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
       >
         {#if models.length === 0}
           <option value="">No models available</option>
@@ -305,13 +305,13 @@
           <option value={model}>{model}</option>
         {/each}
       </select>
-      <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400" />
+      <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
     </div>
 
     <!-- System prompt toggle -->
     <button
       onclick={() => (showSystemPrompt = !showSystemPrompt)}
-      class="p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors"
+      class="p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
       class:bg-gray-900={showSystemPrompt}
       class:text-white={showSystemPrompt}
       class:border-gray-900={showSystemPrompt}
@@ -326,7 +326,7 @@
     <button
       onclick={clearChat}
       disabled={messages.length === 0 && !systemPrompt && pendingImages.length === 0}
-      class="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-600 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 transition-colors"
+      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 transition-colors"
       title="Clear chat"
     >
       <Trash2 size={14} />
@@ -335,12 +335,12 @@
 
   <!-- System prompt -->
   {#if showSystemPrompt}
-    <div class="border-b border-gray-200 bg-gray-50/50 px-4 py-2.5 shrink-0">
+    <div class="border-b border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50 px-4 py-2.5 shrink-0">
       <textarea
         bind:value={systemPrompt}
         placeholder="System prompt (optional)"
         rows={2}
-        class="w-full border border-gray-300 px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+        class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
       ></textarea>
     </div>
   {/if}
@@ -351,19 +351,19 @@
     class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
   >
     {#if loading}
-      <div class="text-center py-12 text-gray-400 text-sm">Loading providers...</div>
+      <div class="text-center py-12 text-gray-400 dark:text-dark-text-muted text-sm">Loading providers...</div>
     {:else if models.length === 0}
       <div class="text-center py-12">
-        <div class="text-gray-400 mb-2">No providers configured</div>
-        <div class="text-xs text-gray-400">
-          Add providers on the <a href="#/providers" class="underline underline-offset-2 hover:text-gray-700 transition-colors">Providers</a> page first.
+        <div class="text-gray-400 dark:text-dark-text-muted mb-2">No providers configured</div>
+        <div class="text-xs text-gray-400 dark:text-dark-text-muted">
+          Add providers on the <a href="#/providers" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text transition-colors">Providers</a> page first.
         </div>
       </div>
     {:else if messages.length === 0}
       <div class="text-center py-12">
-        <div class="text-gray-400 mb-1.5">Send a message to start chatting</div>
-        <div class="text-xs text-gray-400">
-          Using <code class="font-mono bg-gray-100 px-1.5 py-0.5 text-gray-600">{selectedModel}</code>
+        <div class="text-gray-400 dark:text-dark-text-muted mb-1.5">Send a message to start chatting</div>
+        <div class="text-xs text-gray-400 dark:text-dark-text-muted">
+          Using <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 text-gray-600 dark:text-dark-text-secondary">{selectedModel}</code>
         </div>
       </div>
     {:else}
@@ -372,13 +372,13 @@
           <div class="max-w-[75%]">
             <div
               class="px-4 py-2.5 text-sm leading-relaxed {msg.role === 'user'
-                ? 'bg-gray-900 text-white'
-                : 'bg-white border border-gray-200 shadow-sm text-gray-800'}"
+                ? 'bg-gray-900 dark:bg-accent text-white'
+                : 'bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-sm text-gray-800 dark:text-dark-text'}"
             >
               <!-- Images & Text -->
               {#if typeof msg.content === 'string'}
                 {#if msg.role === 'assistant' && !msg.content && streaming && i === messages.length - 1}
-                  <span class="text-gray-400 italic">Thinking...</span>
+                  <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
                 {:else}
                   <span class="whitespace-pre-wrap">{msg.content}</span>
                 {/if}
@@ -388,7 +388,7 @@
                     <img
                       src={part.image_url.url}
                       alt=""
-                      class="max-w-full max-h-64 mb-2 border {msg.role === 'user' ? 'border-gray-600' : 'border-gray-200'}"
+                      class="max-w-full max-h-64 mb-2 border {msg.role === 'user' ? 'border-gray-600 dark:border-accent/50' : 'border-gray-200 dark:border-dark-border'}"
                     />
                   {:else if part.type === 'text' && part.text}
                     <span class="whitespace-pre-wrap">{part.text}</span>
@@ -401,7 +401,7 @@
               <div class="mt-1 flex justify-end">
                 <button
                   onclick={() => retryFromIndex(i)}
-                  class="text-xs text-gray-400 hover:text-gray-700 flex items-center gap-1 transition-colors"
+                  class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 transition-colors"
                   title="Retry from this message"
                 >
                   <RotateCcw size={11} />
@@ -416,7 +416,7 @@
   </div>
 
   <!-- Input area -->
-  <div class="border-t border-gray-200 bg-white px-4 py-3 shrink-0">
+  <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 shrink-0">
     <!-- Pending image previews -->
     {#if pendingImages.length > 0}
       <div class="flex gap-2 mb-2 flex-wrap">
@@ -425,11 +425,11 @@
             <img
               src={img.dataUrl}
               alt={img.name}
-              class="w-16 h-16 object-cover border border-gray-300"
+              class="w-16 h-16 object-cover border border-gray-300 dark:border-dark-border-subtle"
             />
             <button
               onclick={() => removeImage(i)}
-              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 dark:bg-accent text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
               title="Remove"
             >
               <X size={12} />
@@ -457,7 +457,7 @@
       <button
         onclick={() => fileInput?.click()}
         disabled={models.length === 0}
-        class="px-2.5 py-2 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 transition-colors"
+        class="px-2.5 py-2 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 transition-colors"
         title="Attach image"
       >
         <ImagePlus size={14} />
@@ -470,7 +470,7 @@
         placeholder={models.length === 0 ? 'No models available' : 'Type a message... (Enter to send, Shift+Enter for new line)'}
         disabled={models.length === 0}
         rows={1}
-        class="flex-1 border border-gray-300 px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 disabled:text-gray-400 transition-colors"
+        class="flex-1 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
       ></textarea>
       {#if streaming}
         <button
@@ -484,7 +484,7 @@
         <button
           onclick={sendMessage}
           disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0}
-          class="px-3 py-2 bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-gray-900 flex items-center gap-1.5 transition-colors"
+          class="px-3 py-2 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 flex items-center gap-1.5 transition-colors"
           title="Send"
         >
           <Send size={14} />
