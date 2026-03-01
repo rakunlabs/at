@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rytsh/mugo/templatex"
+
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -304,7 +306,7 @@ func renderEmailTemplate(name, tmplText string, ctx map[string]any, funcs map[st
 	if tmplText == "" {
 		return "", nil
 	}
-	result, err := render.ExecuteWithFuncs(tmplText, ctx, funcs)
+	result, err := render.ExecuteWithData(tmplText, ctx, templatex.WithExecFuncMap(funcs))
 	if err != nil {
 		return "", fmt.Errorf("email: template %q: %w", name, err)
 	}

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rytsh/mugo/templatex"
+
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -251,7 +253,7 @@ func isInsideSandbox(dir, sandbox string) bool {
 
 // resolveTemplate renders a Go text/template string with the given data.
 func resolveTemplate(s string, data map[string]any, funcs map[string]any) string {
-	result, err := render.ExecuteWithFuncs(s, data, funcs)
+	result, err := render.ExecuteWithData(s, data, templatex.WithExecFuncMap(funcs))
 	if err != nil {
 		// Fall back to original string on template errors to preserve
 		// backwards compatibility with the previous simple replacement.

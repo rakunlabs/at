@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rytsh/mugo/templatex"
+
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -270,7 +272,7 @@ func buildTemplateContext(inputs map[string]any) map[string]any {
 
 // renderTemplate renders a Go text/template string with the given context.
 func renderTemplate(name, tmplText string, ctx map[string]any, funcs map[string]any) (string, error) {
-	result, err := render.ExecuteWithFuncs(tmplText, ctx, funcs)
+	result, err := render.ExecuteWithData(tmplText, ctx, templatex.WithExecFuncMap(funcs))
 	if err != nil {
 		return "", fmt.Errorf("template %q: %w", name, err)
 	}

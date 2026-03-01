@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/rytsh/mugo/templatex"
+
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -74,7 +76,7 @@ func (n *logNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[st
 			}
 		}
 
-		rendered, err := render.ExecuteWithFuncs(n.message, tmplCtx, varFuncMap(reg))
+		rendered, err := render.ExecuteWithData(n.message, tmplCtx, templatex.WithExecFuncMap(varFuncMap(reg)))
 		if err != nil {
 			return nil, fmt.Errorf("log: template error: %w", err)
 		}

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/rytsh/mugo/templatex"
+
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -62,7 +64,7 @@ func (n *templateNode) Run(_ context.Context, reg *workflow.Registry, inputs map
 		}
 	}
 
-	result, err := render.ExecuteWithFuncs(n.tmplText, ctx, varFuncMap(reg))
+	result, err := render.ExecuteWithData(n.tmplText, ctx, templatex.WithExecFuncMap(varFuncMap(reg)))
 	if err != nil {
 		return nil, fmt.Errorf("template: execute error: %w", err)
 	}
