@@ -360,41 +360,48 @@ func main() {
 
   <!-- Code Examples -->
   <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center justify-between">
-      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Code Examples</h3>
-      <button
-        onclick={() => copyCode(activeTab, getActiveExample(activeTab, exampleModel, baseUrl))}
-        class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
-      >
-        <Copy size={12} />
-        {copiedId === activeTab ? 'Copied' : 'Copy'}
-      </button>
-    </div>
+    <details class="group">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none">
+        <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Code Examples</h3>
+        <div class="flex items-center gap-2">
+          <button
+            onclick={(e) => { e.preventDefault(); copyCode(activeTab, getActiveExample(activeTab, exampleModel, baseUrl)); }}
+            class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+          >
+            <Copy size={12} />
+            {copiedId === activeTab ? 'Copied' : 'Copy'}
+          </button>
+          <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+        </div>
+      </summary>
 
-    <!-- Tabs -->
-    <div class="flex border-b border-gray-200 dark:border-dark-border">
-      {#each tabs as tab}
-        <button
-          onclick={() => (activeTab = tab.id)}
-          class={[
-            'px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px',
-            activeTab === tab.id
-              ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-accent'
-              : 'border-transparent text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary',
-          ]}
-        >
-          {tab.label}
-        </button>
-      {/each}
-    </div>
+      <div class="border-t border-gray-200 dark:border-dark-border">
+        <!-- Tabs -->
+        <div class="flex border-b border-gray-200 dark:border-dark-border">
+          {#each tabs as tab}
+            <button
+              onclick={() => (activeTab = tab.id)}
+              class={[
+                'px-4 py-2 text-xs font-medium transition-colors border-b-2 -mb-px',
+                activeTab === tab.id
+                  ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-accent'
+                  : 'border-transparent text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary',
+              ]}
+            >
+              {tab.label}
+            </button>
+          {/each}
+        </div>
 
-    <!-- Tab content -->
-    <pre
-      class="p-4 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto leading-relaxed">{getActiveExample(
-        activeTab,
-        exampleModel,
-        baseUrl
-      )}</pre>
+        <!-- Tab content -->
+        <pre
+          class="p-4 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto leading-relaxed">{getActiveExample(
+            activeTab,
+            exampleModel,
+            baseUrl
+          )}</pre>
+      </div>
+    </details>
   </div>
 
   <!-- Opencode Config -->
@@ -419,30 +426,31 @@ func main() {
       <!-- Provider Selection -->
       <div class="flex flex-col sm:flex-row sm:items-end gap-4">
         <div class="space-y-2 flex-1">
-          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Filter by Provider</label
-          >
-          <select
-            value={selectedProviderKey}
-            onchange={handleProviderChange}
-            class="w-full sm:w-64 text-sm border-gray-300 dark:border-dark-border shadow-sm focus:border-gray-900 dark:focus:border-accent focus:ring-gray-900 dark:focus:ring-accent bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text"
-          >
-            <option value="">All Providers</option>
-            {#each providers as p}
-              <option value={p.key}>{p.key}</option>
-            {/each}
-          </select>
+          <label class="block text-xs text-gray-700 dark:text-dark-text-secondary">
+            Filter by Provider
+            <select
+              value={selectedProviderKey}
+              onchange={handleProviderChange}
+              class="block w-full sm:w-64 text-sm border border-gray-300 dark:border-dark-border focus:border-gray-900 dark:focus:border-accent focus:ring-gray-900 dark:focus:ring-accent bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text mt-1"
+            >
+              <option value="">All Providers</option>
+              {#each providers as p}
+                <option value={p.key}>{p.key}</option>
+              {/each}
+            </select>
+          </label>
         </div>
         <div class="flex gap-2">
           <button
             onclick={selectAll}
-            class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-base border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-base border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
           >
             <CheckSquare size={14} />
             Select All
           </button>
           <button
             onclick={selectNone}
-            class="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-base border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            class="flex items-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-base border border-gray-300 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
           >
             <Square size={14} />
             Select None
@@ -452,9 +460,9 @@ func main() {
 
       <!-- Models Selection -->
       {#each visibleProviders as p}
-        <div class="space-y-2">
-          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary"
-            >Models ({p.key})</label
+        <fieldset class="space-y-2">
+          <legend class="block text-xs text-gray-700 dark:text-dark-text-secondary"
+            >Models ({p.key})</legend
           >
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
             {#each p.models && p.models.length ? p.models : [p.default_model] as m}
@@ -484,7 +492,7 @@ func main() {
               </button>
             {/each}
           </div>
-        </div>
+        </fieldset>
       {/each}
 
       <!-- Output -->
@@ -505,17 +513,24 @@ func main() {
 
   <!-- List Models -->
   <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center justify-between">
-      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">List Models</h3>
-      <button
-        onclick={() => copyCode('models', curlModelsExample(baseUrl))}
-        class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
-      >
-        <Copy size={12} />
-        {copiedId === 'models' ? 'Copied' : 'Copy'}
-      </button>
-    </div>
-    <pre class="p-4 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto leading-relaxed">{curlModelsExample(baseUrl)}</pre>
+    <details class="group">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none">
+        <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">List Models</h3>
+        <div class="flex items-center gap-2">
+          <button
+            onclick={(e) => { e.preventDefault(); copyCode('models', curlModelsExample(baseUrl)); }}
+            class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+          >
+            <Copy size={12} />
+            {copiedId === 'models' ? 'Copied' : 'Copy'}
+          </button>
+          <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+        </div>
+      </summary>
+      <div class="border-t border-gray-200 dark:border-dark-border">
+        <pre class="p-4 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto leading-relaxed">{curlModelsExample(baseUrl)}</pre>
+      </div>
+    </details>
   </div>
 
   <!-- Available Models -->

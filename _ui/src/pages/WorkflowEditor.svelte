@@ -837,9 +837,9 @@
               placeholder="Workflow name"
             />
             <div class="flex items-center gap-1 group relative">
-              <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-faint cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
+              <button type="button" class="text-[10px] font-mono text-gray-400 dark:text-dark-text-faint cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary" title="Click to copy ID" onclick={() => { navigator.clipboard.writeText(workflow?.id || ''); addToast('ID copied', 'info'); }}>
                  {workflow.id}
-              </span>
+              </button>
             </div>
           </div>
             <input

@@ -46,7 +46,7 @@
   <!-- Stats -->
   <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
     <!-- Providers count -->
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-5 shadow-sm">
+    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-5">
       <div class="flex items-center gap-2 mb-2">
         <div class="p-1.5 bg-gray-100 dark:bg-dark-elevated">
           <Cpu size={14} class="text-gray-500 dark:text-dark-text-muted" />
@@ -68,7 +68,7 @@
     </div>
 
     <!-- Models count -->
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-5 shadow-sm">
+    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-5">
       <div class="flex items-center gap-2 mb-2">
         <div class="p-1.5 bg-gray-100 dark:bg-dark-elevated">
           <Layers size={14} class="text-gray-500 dark:text-dark-text-muted" />
@@ -84,7 +84,7 @@
     </div>
 
     <!-- Store -->
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-5 shadow-sm">
+    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-5">
       <div class="flex items-center gap-2 mb-2">
         <div class="p-1.5 bg-gray-100 dark:bg-dark-elevated">
           <Database size={14} class="text-gray-500 dark:text-dark-text-muted" />
@@ -138,7 +138,7 @@
   </div>
 
   <!-- Provider list -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
     <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border">
       <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Registered Providers</span>
       <button
@@ -192,7 +192,7 @@
   </div>
 
   <!-- API endpoint info -->
-  <div class="mt-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+  <div class="mt-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
     <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
       <span class="text-sm font-medium text-gray-900 dark:text-dark-text">API Endpoints</span>
     </div>

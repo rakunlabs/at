@@ -222,7 +222,7 @@
 
   <!-- Form -->
   {#if showForm}
-    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+    <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
         <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
           {editingId ? `Edit: ${formName}` : 'New Config'}
@@ -421,7 +421,7 @@
   {/if}
 
   <!-- Config list -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
     {#if loading}
       <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-faint text-sm">Loading...</div>
     {:else if configs.length === 0 && !showForm}

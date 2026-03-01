@@ -63,7 +63,7 @@
 
 <div class="p-6 max-w-5xl mx-auto">
   <!-- Rotate Encryption Key -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm">
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
     <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center gap-2">
       <RotateCw size={14} class="text-gray-500 dark:text-dark-text-muted" />
       <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Rotate Encryption Key</h3>

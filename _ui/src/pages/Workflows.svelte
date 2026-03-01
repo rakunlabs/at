@@ -111,7 +111,7 @@
 
       <!-- Create Form -->
       {#if showCreateForm}
-        <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+        <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
           <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
             <span class="text-sm font-medium text-gray-900 dark:text-dark-text">New Workflow</span>
             <button onclick={() => (showCreateForm = false)} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
@@ -161,7 +161,7 @@
       {/if}
 
       <!-- Table -->
-      <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-sm overflow-hidden">
+      <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
         {#if loading}
           <div class="px-4 py-10 text-center text-sm text-gray-400 dark:text-dark-text-muted">Loading...</div>
         {:else if workflows.length === 0}
