@@ -29,6 +29,9 @@
   import EmailNode from '@/lib/components/workflow/EmailNode.svelte';
   import LogNode from '@/lib/components/workflow/LogNode.svelte';
   import WorkflowCallNode from '@/lib/components/workflow/WorkflowCallNode.svelte';
+  import RagSearchNode from '@/lib/components/workflow/RagSearchNode.svelte';
+  import GitFetchNode from '@/lib/components/workflow/GitFetchNode.svelte';
+  import RagIngestNode from '@/lib/components/workflow/RagIngestNode.svelte';
   import MarkdownStickyNote from '@/lib/components/workflow/MarkdownStickyNote.svelte';
 
   // ─── Property Panel Components ───
@@ -51,6 +54,9 @@
   import EmailProps from '@/lib/components/workflow/EmailProps.svelte';
   import LogProps from '@/lib/components/workflow/LogProps.svelte';
   import WorkflowCallProps from '@/lib/components/workflow/WorkflowCallProps.svelte';
+  import RagSearchProps from '@/lib/components/workflow/RagSearchProps.svelte';
+  import GitFetchProps from '@/lib/components/workflow/GitFetchProps.svelte';
+  import RagIngestProps from '@/lib/components/workflow/RagIngestProps.svelte';
   import GroupProps from '@/lib/components/workflow/GroupProps.svelte';
   import StickyNoteProps from '@/lib/components/workflow/StickyNoteProps.svelte';
 
@@ -75,6 +81,9 @@
     email: EmailProps,
     log: LogProps,
     workflow_call: WorkflowCallProps,
+    rag_search: RagSearchProps,
+    git_fetch: GitFetchProps,
+    rag_ingest: RagIngestProps,
     group: GroupProps,
     sticky_note: StickyNoteProps,
   };
@@ -105,6 +114,9 @@
     email: EmailNode,
     log: LogNode,
     workflow_call: WorkflowCallNode,
+    rag_search: RagSearchNode,
+    git_fetch: GitFetchNode,
+    rag_ingest: RagIngestNode,
     group: GroupNode,
     sticky_note: MarkdownStickyNote,
   };
@@ -130,6 +142,14 @@
         { type: 'script', label: 'Script', description: 'Run JavaScript code' },
         { type: 'exec', label: 'Exec', description: 'Run a shell command' },
         { type: 'log', label: 'Log', description: 'Log data and pass through' },
+      ],
+    },
+    {
+      label: 'Knowledge',
+      nodes: [
+        { type: 'rag_search', label: 'RAG Search', description: 'Query vector database' },
+        { type: 'git_fetch', label: 'Git Fetch', description: 'Clone/pull repository' },
+        { type: 'rag_ingest', label: 'RAG Ingest', description: 'Ingest files into RAG' },
       ],
     },
     {
@@ -335,6 +355,15 @@
     }
     if (type === 'log') {
       return { label: 'Log', level: 'info', message: '' };
+    }
+    if (type === 'rag_search') {
+      return { label: 'RAG Search', query: '', num_results: 5, score_threshold: 0.5 };
+    }
+    if (type === 'git_fetch') {
+      return { label: 'Git Fetch', repo_url: '', branch: 'main', file_pattern: '*.md' };
+    }
+    if (type === 'rag_ingest') {
+      return { label: 'RAG Ingest', collection_id: '' };
     }
     return {};
   }

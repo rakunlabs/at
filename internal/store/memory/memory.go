@@ -29,6 +29,7 @@ type Memory struct {
 	variables        map[string]service.Variable          // id -> variable
 	nodeConfigs      map[string]service.NodeConfig        // id -> node config
 	agents           map[string]service.Agent             // id -> agent
+	ragCollections   map[string]service.RAGCollection     // id -> rag collection
 }
 
 func New() *Memory {
@@ -45,6 +46,7 @@ func New() *Memory {
 		variables:        make(map[string]service.Variable),
 		nodeConfigs:      make(map[string]service.NodeConfig),
 		agents:           make(map[string]service.Agent),
+		ragCollections:   make(map[string]service.RAGCollection),
 	}
 }
 

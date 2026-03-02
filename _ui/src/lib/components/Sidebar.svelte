@@ -15,6 +15,7 @@
     WandSparkles,
     SlidersHorizontal,
     Bot,
+    Database,
   } from "lucide-svelte";
 
 
@@ -76,6 +77,19 @@
     >
       <Cpu size={14} />
       <span>Providers</span>
+    </a>
+    <a
+      href="#/rag"
+      onclick={(e) => navigate(e, "/rag")}
+      class={[
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/rag"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Database size={14} />
+      <span>RAG</span>
     </a>
     <a
       href="#/tokens"
@@ -200,6 +214,7 @@
           <SlidersHorizontal size={14} />
           <span>Node Configs</span>
         </a>
+
       </div>
     </div>
   </div>

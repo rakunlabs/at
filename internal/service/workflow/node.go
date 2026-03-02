@@ -178,6 +178,29 @@ type Registry struct {
 	// Used by agent_call nodes to load pre-configured agent settings.
 	AgentLookup AgentLookup
 
+	// RAGSearch performs a similarity search across RAG collections.
+	// Used by rag_search nodes to query the knowledge base.
+	// nil when RAG is not configured.
+	RAGSearch RAGSearchFunc
+
+	// RAGIngest ingests document chunks into a RAG collection.
+	// Used by rag_ingest nodes. nil when RAG is not configured.
+	RAGIngest RAGIngestFunc
+
+	// RAGIngestFile ingests a raw file into a RAG collection.
+	// Used by rag_ingest nodes. nil when RAG is not configured.
+	RAGIngestFile RAGIngestFileFunc
+
+	// RAGDeleteBySource deletes documents from a RAG collection by source metadata.
+	// Used by rag_ingest nodes to remove stale chunks before re-ingestion.
+	// nil when RAG is not configured.
+	RAGDeleteBySource RAGDeleteBySourceFunc
+
+	// VarSave creates or updates a variable by key.
+	// Used by git_fetch and rag_ingest nodes to persist sync state.
+	// nil when variable store is not configured.
+	VarSave VarSaveFunc
+
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
 
@@ -215,21 +238,59 @@ type WorkflowLookup func(ctx context.Context, id string) (*service.Workflow, err
 // AgentLookup resolves an agent ID to its definition.
 type AgentLookup func(ctx context.Context, id string) (*service.Agent, error)
 
+// RAGSearchResult holds a single search hit from the RAG engine.
+type RAGSearchResult struct {
+	Content      string         `json:"content"`
+	Metadata     map[string]any `json:"metadata,omitempty"`
+	Score        float32        `json:"score"`
+	CollectionID string         `json:"collection_id"`
+}
+
+// RAGSearchFunc performs a similarity search across RAG collections.
+type RAGSearchFunc func(ctx context.Context, query string, collectionIDs []string, numResults int, scoreThreshold float32) ([]RAGSearchResult, error)
+
+// RAGIngestFunc ingests pre-split document chunks into a RAG collection.
+// Returns the number of chunks stored.
+type RAGIngestFunc func(ctx context.Context, collectionID string, chunks []RAGIngestDocument) (int, error)
+
+// RAGIngestFileFunc ingests a raw file into a RAG collection — handles content
+// type detection, chunking, and embedding. Returns the number of chunks stored.
+// extraMetadata is merged into every chunk (e.g. repo_url, commit_sha).
+type RAGIngestFileFunc func(ctx context.Context, collectionID string, content []byte, source string, extraMetadata map[string]any) (int, error)
+
+// RAGDeleteBySourceFunc deletes all chunks whose "source" metadata matches value.
+type RAGDeleteBySourceFunc func(ctx context.Context, collectionID, source string) error
+
+// RAGIngestDocument represents a single document chunk for ingestion.
+type RAGIngestDocument struct {
+	PageContent string         `json:"page_content"`
+	Metadata    map[string]any `json:"metadata,omitempty"`
+}
+
+// VarSaveFunc creates or updates a variable by key. If the variable already
+// exists it is updated; otherwise a new one is created.
+type VarSaveFunc func(ctx context.Context, key, value string) error
+
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
 	return &Registry{
-		ProviderLookup:   lookup,
-		SkillLookup:      skillLookup,
-		VarLookup:        varLookup,
-		VarLister:        varLister,
-		NodeConfigLookup: nodeConfigLookup,
-		WorkflowLookup:   workflowLookup,
-		AgentLookup:      agentLookup,
-		RunInputs:        inputs,
-		outputs:          make(map[string]any),
+		ProviderLookup:    lookup,
+		SkillLookup:       skillLookup,
+		VarLookup:         varLookup,
+		VarLister:         varLister,
+		NodeConfigLookup:  nodeConfigLookup,
+		WorkflowLookup:    workflowLookup,
+		AgentLookup:       agentLookup,
+		RAGSearch:         ragSearch,
+		RAGIngest:         ragIngest,
+		RAGIngestFile:     ragIngestFile,
+		RAGDeleteBySource: ragDeleteBySource,
+		VarSave:           varSave,
+		RunInputs:         inputs,
+		outputs:           make(map[string]any),
 	}
 }
 

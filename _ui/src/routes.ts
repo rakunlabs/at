@@ -9,6 +9,7 @@ import NodeConfigs from '@/pages/NodeConfigs.svelte';
 import Workflows from '@/pages/Workflows.svelte';
 import WorkflowEditor from '@/pages/WorkflowEditor.svelte';
 import Runs from '@/pages/Runs.svelte';
+import Rag from '@/pages/Rag.svelte';
 import Docs from '@/pages/Docs.svelte';
 import Settings from '@/pages/Settings.svelte';
 import NotFound from '@/pages/NotFound.svelte';
@@ -25,6 +26,7 @@ export default {
   '/workflows': Workflows,
   '/workflows/:id': WorkflowEditor,
   '/runs': Runs,
+  '/rag': Rag,
   '/docs': Docs,
   '/settings': Settings,
   '*': NotFound

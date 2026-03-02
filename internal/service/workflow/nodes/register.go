@@ -25,4 +25,7 @@
 //   - exec           — sandboxed shell command execution (/bin/sh -c)
 //   - email          — send email via SMTP with NodeConfig-based server settings
 //   - log            — log data at configurable level and pass through unchanged
+//   - rag_search     — similarity search against RAG collections
+//   - git_fetch      — clones/pulls a git repo and outputs changed files
+//   - rag_ingest     — ingests files into a RAG collection, handling deletions
 package nodes

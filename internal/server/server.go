@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"fmt"
@@ -16,7 +17,9 @@ import (
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/at/internal/service/workflow"
+	"github.com/tmc/langchaingo/schema"
 
 	mfolder "github.com/rakunlabs/ada/handler/folder"
 	mcors "github.com/rakunlabs/ada/middleware/cors"
@@ -78,6 +81,12 @@ type Server struct {
 
 	// agentStore is the persistent store for agent definitions.
 	agentStore service.AgentStorer
+
+	// ragCollectionStore is the persistent store for RAG collection configs.
+	ragCollectionStore service.RAGCollectionStorer
+
+	// ragService is the RAG ingestion and search engine (nil if ragCollectionStore is nil).
+	ragService *rag.Service
 
 	// scheduler is the cron trigger scheduler (nil if triggerStore is nil).
 	scheduler *workflow.Scheduler
@@ -174,7 +183,7 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -198,6 +207,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		variableStore:        variableStore,
 		nodeConfigStore:      nodeConfigStore,
 		agentStore:           agentStore,
+		ragCollectionStore:   ragCollectionStore,
 		providerFactory:      factory,
 		storeType:            storeType,
 		authTokens:           gatewayCfg.AuthTokens,
@@ -218,6 +228,24 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			}
 		}
 	}()
+
+	// Initialize RAG service if collection store is available.
+	if ragCollectionStore != nil {
+		providerLookupForRAG := func(ctx context.Context, key string) (*config.LLMConfig, error) {
+			if store == nil {
+				return nil, fmt.Errorf("provider store not configured")
+			}
+			rec, err := store.GetProvider(ctx, key)
+			if err != nil {
+				return nil, err
+			}
+			if rec == nil {
+				return nil, fmt.Errorf("provider %q not found", key)
+			}
+			return &rec.Config, nil
+		}
+		s.ragService = rag.NewService(ragCollectionStore, providerLookupForRAG)
+	}
 
 	// Initialize cron trigger scheduler if trigger store is available.
 	if triggerStore != nil {
@@ -281,7 +309,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, cl)
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
@@ -308,6 +336,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
 	webhookGroup.POST("/{id}", s.WebhookAPI)
+
+	// MCP server for RAG (top-level, accessible by external tools like Claude Desktop)
+	mux.Group(cfg.BasePath+"/mcp").POST("/rag", s.RAGMCPHandler)
 
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
@@ -386,6 +417,20 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.GET("/v1/agents/{id}", s.GetAgentAPI)
 	apiGroup.PUT("/v1/agents/{id}", s.UpdateAgentAPI)
 	apiGroup.DELETE("/v1/agents/{id}", s.DeleteAgentAPI)
+
+	// RAG collection management
+	apiGroup.GET("/v1/rag/collections", s.ListRAGCollectionsAPI)
+	apiGroup.POST("/v1/rag/collections", s.CreateRAGCollectionAPI)
+	apiGroup.GET("/v1/rag/collections/{id}", s.GetRAGCollectionAPI)
+	apiGroup.PUT("/v1/rag/collections/{id}", s.UpdateRAGCollectionAPI)
+	apiGroup.DELETE("/v1/rag/collections/{id}", s.DeleteRAGCollectionAPI)
+
+	// RAG document ingestion
+	apiGroup.POST("/v1/rag/collections/{id}/documents", s.UploadRAGDocumentAPI)
+	apiGroup.POST("/v1/rag/collections/{id}/import/url", s.ImportRAGFromURLAPI)
+
+	// RAG search
+	apiGroup.POST("/v1/rag/search", s.SearchRAGAPI)
 
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
@@ -504,5 +549,112 @@ func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
 
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// ragSearchFunc returns a workflow.RAGSearchFunc that delegates to the server's
+// ragService. Returns nil when RAG is not configured, which is safe — nodes
+// should check for nil before calling.
+func (s *Server) ragSearchFunc() workflow.RAGSearchFunc {
+	if s.ragService == nil {
+		return nil
+	}
+	return func(ctx context.Context, query string, collectionIDs []string, numResults int, scoreThreshold float32) ([]workflow.RAGSearchResult, error) {
+		results, err := s.ragService.Search(ctx, rag.SearchRequest{
+			Query:          query,
+			CollectionIDs:  collectionIDs,
+			NumResults:     numResults,
+			ScoreThreshold: scoreThreshold,
+		})
+		if err != nil {
+			return nil, err
+		}
+		out := make([]workflow.RAGSearchResult, len(results))
+		for i, r := range results {
+			out[i] = workflow.RAGSearchResult{
+				Content:      r.Content,
+				Metadata:     r.Metadata,
+				Score:        r.Score,
+				CollectionID: r.CollectionID,
+			}
+		}
+		return out, nil
+	}
+}
+
+// ragIngestFunc returns a workflow.RAGIngestFunc that delegates to the server's
+// ragService. Returns nil when RAG is not configured.
+func (s *Server) ragIngestFunc() workflow.RAGIngestFunc {
+	if s.ragService == nil {
+		return nil
+	}
+	return func(ctx context.Context, collectionID string, chunks []workflow.RAGIngestDocument) (int, error) {
+		// Convert workflow documents to langchaingo schema documents.
+		docs := make([]schema.Document, len(chunks))
+		for i, c := range chunks {
+			docs[i] = schema.Document{
+				PageContent: c.PageContent,
+				Metadata:    c.Metadata,
+			}
+		}
+		return s.ragService.IngestChunks(ctx, collectionID, docs)
+	}
+}
+
+// ragIngestFileFunc returns a workflow.RAGIngestFileFunc that delegates to the
+// server's ragService. Returns nil when RAG is not configured.
+func (s *Server) ragIngestFileFunc() workflow.RAGIngestFileFunc {
+	if s.ragService == nil {
+		return nil
+	}
+	return func(ctx context.Context, collectionID string, content []byte, source string, extraMetadata map[string]any) (int, error) {
+		result, err := s.ragService.Ingest(ctx, collectionID, bytes.NewReader(content), "", source, extraMetadata)
+		if err != nil {
+			return 0, err
+		}
+		return result.ChunksStored, nil
+	}
+}
+
+// ragDeleteBySourceFunc returns a workflow.RAGDeleteBySourceFunc that delegates
+// to the server's ragService. Returns nil when RAG is not configured.
+func (s *Server) ragDeleteBySourceFunc() workflow.RAGDeleteBySourceFunc {
+	if s.ragService == nil {
+		return nil
+	}
+	return func(ctx context.Context, collectionID, source string) error {
+		return s.ragService.DeleteDocumentsBySource(ctx, collectionID, source)
+	}
+}
+
+// varSaveFunc returns a workflow.VarSaveFunc that creates or updates a variable
+// by key. Returns nil when variable store is not configured.
+func (s *Server) varSaveFunc() workflow.VarSaveFunc {
+	if s.variableStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, key, value string) error {
+		existing, err := s.variableStore.GetVariableByKey(ctx, key)
+		if err != nil {
+			return fmt.Errorf("lookup variable %q: %w", key, err)
+		}
+		if existing != nil {
+			// Update existing variable.
+			existing.Value = value
+			_, err = s.variableStore.UpdateVariable(ctx, existing.ID, *existing)
+			if err != nil {
+				return fmt.Errorf("update variable %q: %w", key, err)
+			}
+			return nil
+		}
+		// Create new variable.
+		_, err = s.variableStore.CreateVariable(ctx, service.Variable{
+			Key:   key,
+			Value: value,
+		})
+		if err != nil {
+			return fmt.Errorf("create variable %q: %w", key, err)
+		}
+		return nil
 	}
 }

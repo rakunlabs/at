@@ -44,6 +44,11 @@ type Scheduler struct {
 	varLister            VarLister
 	nodeConfigLookup     NodeConfigLookup
 	agentStore           service.AgentStorer
+	ragSearch            RAGSearchFunc
+	ragIngest            RAGIngestFunc
+	ragIngestFile        RAGIngestFileFunc
+	ragDeleteBySource    RAGDeleteBySourceFunc
+	varSave              VarSaveFunc
 	runRegistrar         RunRegistrar
 
 	cluster *cluster.Cluster
@@ -55,7 +60,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, cl *cluster.Cluster) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
 		triggerStore:         ts,
 		workflowStore:        ws,
@@ -66,6 +71,11 @@ func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs servi
 		varLister:            varLister,
 		nodeConfigLookup:     nodeConfigLookup,
 		agentStore:           agentStore,
+		ragSearch:            ragSearch,
+		ragIngest:            ragIngest,
+		ragIngestFile:        ragIngestFile,
+		ragDeleteBySource:    ragDeleteBySource,
+		varSave:              varSave,
 		cluster:              cl,
 	}
 }
@@ -340,7 +350,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup)
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave)
 
 		// Find the specific cron_trigger node that matches this trigger's ID.
 		var entryNodeIDs []string
