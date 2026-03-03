@@ -289,12 +289,12 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 				return v.Value, nil
 			}
 			schedulerVarLister = func() (map[string]string, error) {
-				vars, err := variableStore.ListVariables(ctx)
+				vars, err := variableStore.ListVariables(ctx, nil)
 				if err != nil {
 					return nil, err
 				}
-				m := make(map[string]string, len(vars))
-				for _, v := range vars {
+				m := make(map[string]string, len(vars.Data))
+				for _, v := range vars.Data {
 					m[v.Key] = v.Value
 				}
 				return m, nil

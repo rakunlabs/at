@@ -12,6 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 	"github.com/worldline-go/types"
 )
 
@@ -54,7 +55,7 @@ func (m *Memory) Close() {}
 
 // ─── Provider CRUD ───
 
-func (m *Memory) ListProviders(_ context.Context) ([]service.ProviderRecord, error) {
+func (m *Memory) ListProviders(_ context.Context, q *query.Query) (*service.ListResult[service.ProviderRecord], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -73,7 +74,7 @@ func (m *Memory) ListProviders(_ context.Context) ([]service.ProviderRecord, err
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) GetProvider(_ context.Context, key string) (*service.ProviderRecord, error) {
@@ -157,7 +158,7 @@ func (m *Memory) DeleteProvider(_ context.Context, key string) error {
 
 // ─── API Token CRUD ───
 
-func (m *Memory) ListAPITokens(_ context.Context) ([]service.APIToken, error) {
+func (m *Memory) ListAPITokens(_ context.Context, q *query.Query) (*service.ListResult[service.APIToken], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -179,7 +180,7 @@ func (m *Memory) ListAPITokens(_ context.Context) ([]service.APIToken, error) {
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) GetAPITokenByHash(_ context.Context, hash string) (*service.APIToken, error) {
@@ -270,7 +271,7 @@ func (m *Memory) UpdateLastUsed(_ context.Context, id string) error {
 
 // ─── Workflow CRUD ───
 
-func (m *Memory) ListWorkflows(_ context.Context) ([]service.Workflow, error) {
+func (m *Memory) ListWorkflows(_ context.Context, q *query.Query) (*service.ListResult[service.Workflow], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -289,7 +290,7 @@ func (m *Memory) ListWorkflows(_ context.Context) ([]service.Workflow, error) {
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) GetWorkflow(_ context.Context, id string) (*service.Workflow, error) {
@@ -603,7 +604,7 @@ func (m *Memory) ListEnabledCronTriggers(_ context.Context) ([]service.Trigger, 
 
 // ─── Skill CRUD ───
 
-func (m *Memory) ListSkills(_ context.Context) ([]service.Skill, error) {
+func (m *Memory) ListSkills(_ context.Context, q *query.Query) (*service.ListResult[service.Skill], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -622,7 +623,7 @@ func (m *Memory) ListSkills(_ context.Context) ([]service.Skill, error) {
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) GetSkill(_ context.Context, id string) (*service.Skill, error) {
@@ -724,7 +725,7 @@ func (m *Memory) DeleteSkill(_ context.Context, id string) error {
 
 // ─── Variable CRUD ───
 
-func (m *Memory) ListVariables(_ context.Context) ([]service.Variable, error) {
+func (m *Memory) ListVariables(_ context.Context, q *query.Query) (*service.ListResult[service.Variable], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -743,7 +744,7 @@ func (m *Memory) ListVariables(_ context.Context) ([]service.Variable, error) {
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) GetVariable(_ context.Context, id string) (*service.Variable, error) {
@@ -826,7 +827,7 @@ func (m *Memory) DeleteVariable(_ context.Context, id string) error {
 
 // ─── Node Config CRUD ───
 
-func (m *Memory) ListNodeConfigs(_ context.Context) ([]service.NodeConfig, error) {
+func (m *Memory) ListNodeConfigs(_ context.Context, q *query.Query) (*service.ListResult[service.NodeConfig], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -845,7 +846,7 @@ func (m *Memory) ListNodeConfigs(_ context.Context) ([]service.NodeConfig, error
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) ListNodeConfigsByType(_ context.Context, configType string) ([]service.NodeConfig, error) {

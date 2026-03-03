@@ -8,6 +8,10 @@
     deleteVariable,
     type Variable,
   } from '@/lib/api/secrets';
+  import { formatDate } from '@/lib/helper/format';
+  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import DataTable from '@/lib/components/DataTable.svelte';
+  import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import { Braces, Plus, Pencil, Trash2, X, Save, RefreshCw, Eye, EyeOff } from 'lucide-svelte';
 
   storeNavbar.title = 'Variables';
@@ -16,6 +20,16 @@
 
   let variables = $state<Variable[]>([]);
   let loading = $state(true);
+  
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(10);
+  let total = $state(0);
+
+  // Search & Sort
+  let searchQuery = $state('');
+  let sorts = $state<SortEntry[]>([]);
+
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
@@ -34,12 +48,30 @@
   async function load() {
     loading = true;
     try {
-      variables = await listVariables();
+      const params: any = { _offset: offset, _limit: limit };
+      if (searchQuery) params['key[like]'] = `%${searchQuery}%`;
+      const sortParam = buildSortParam(sorts);
+      if (sortParam) params._sort = sortParam;
+      const res = await listVariables(params);
+      variables = res.data || [];
+      total = res.meta?.total || 0;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load variables', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  function handleSearch(value: string) {
+    searchQuery = value;
+    offset = 0;
+    load();
+  }
+
+  function handleSort(field: string, multiSort: boolean) {
+    sorts = toggleSort(sorts, field, multiSort);
+    offset = 0;
+    load();
   }
 
   load();
@@ -126,12 +158,6 @@
       addToast(e?.response?.data?.message || 'Failed to delete variable', 'alert');
     }
   }
-
-  function formatDate(dateStr: string): string {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  }
 </script>
 
 <svelte:head>
@@ -144,7 +170,7 @@
     <div class="flex items-center gap-2">
       <Braces size={16} class="text-gray-500 dark:text-dark-text-muted" />
       <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Variables</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({variables.length})</span>
+      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
     </div>
     <div class="flex items-center gap-2">
       <button
@@ -279,14 +305,21 @@
   {/if}
 
   <!-- Variable list -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    {#if loading}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
-    {:else if variables.length === 0 && !showForm}
-      <div class="px-4 py-10 text-center">
-        <Braces size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
-        <div class="text-gray-400 dark:text-dark-text-muted mb-1">No variables configured</div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">Variables store configuration values and credentials for use in skill handlers</div>
+  {#if loading || variables.length > 0 || !showForm}
+    <DataTable
+      items={variables}
+      {loading}
+      {total}
+      {limit}
+      bind:offset
+      onchange={load}
+      onsearch={handleSearch}
+      searchPlaceholder="Search by key..."
+      emptyIcon={Braces}
+      emptyTitle="No variables configured"
+      emptyDescription="Variables store configuration values and credentials for use in skill handlers"
+    >
+      {#snippet emptyAction()}
         <button
           onclick={openCreate}
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors mx-auto"
@@ -294,70 +327,65 @@
           <Plus size={12} />
           New Variable
         </button>
-      </div>
-    {:else if variables.length > 0}
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Key</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Value</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Updated</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
-          {#each variables as variable}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{variable.key}</td>
-              <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted max-w-48 truncate">
-                {#if variable.secret}
-                  <span class="text-gray-400 dark:text-dark-text-muted">***</span>
-                {:else}
-                  <span class="text-gray-700 dark:text-dark-text-secondary">{variable.value}</span>
-                {/if}
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-48 truncate" title={variable.description}>
-                {variable.description || '-'}
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(variable.updated_at)}</td>
-              <td class="px-4 py-2.5 text-right">
-                <div class="flex justify-end gap-1">
-                  <button
-                    onclick={() => openEdit(variable)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-                    title="Edit"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  {#if deleteConfirm === variable.id}
-                    <button
-                      onclick={() => handleDelete(variable.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  {:else}
-                    <button
-                      onclick={() => (deleteConfirm = variable.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  {/if}
-                </div>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    {/if}
-  </div>
+      {/snippet}
+
+      {#snippet header()}
+        <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Value</th>
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+        <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
+        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+      {/snippet}
+
+      {#snippet row(variable)}
+        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+          <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{variable.key}</td>
+          <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted max-w-48 truncate">
+            {#if variable.secret}
+              <span class="text-gray-400 dark:text-dark-text-muted">***</span>
+            {:else}
+              <span class="text-gray-700 dark:text-dark-text-secondary">{variable.value}</span>
+            {/if}
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-48 truncate" title={variable.description}>
+            {variable.description || '-'}
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(variable.updated_at)}</td>
+          <td class="px-4 py-2.5 text-right">
+            <div class="flex justify-end gap-1">
+              <button
+                onclick={() => openEdit(variable)}
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                title="Edit"
+              >
+                <Pencil size={14} />
+              </button>
+              {#if deleteConfirm === variable.id}
+                <button
+                  onclick={() => handleDelete(variable.id)}
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onclick={() => (deleteConfirm = null)}
+                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                >
+                  Cancel
+                </button>
+              {:else}
+                <button
+                  onclick={() => (deleteConfirm = variable.id)}
+                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              {/if}
+            </div>
+          </td>
+        </tr>
+      {/snippet}
+    </DataTable>
+  {/if}
 </div>

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // agentsResponse wraps a list of agent records for JSON output.
@@ -21,7 +22,13 @@ func (s *Server) ListAgentsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := s.agentStore.ListAgents(r.Context())
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	records, err := s.agentStore.ListAgents(r.Context(), q)
 	if err != nil {
 		slog.Error("list agents failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list agents: %v", err), http.StatusInternalServerError)
@@ -29,10 +36,10 @@ func (s *Server) ListAgentsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if records == nil {
-		records = []service.Agent{}
+		records = &service.ListResult[service.Agent]{Data: []service.Agent{}}
 	}
 
-	httpResponseJSON(w, agentsResponse{Agents: records}, http.StatusOK)
+	httpResponseJSON(w, records, http.StatusOK)
 }
 
 // GetAgentAPI handles GET /api/v1/agents/:id.

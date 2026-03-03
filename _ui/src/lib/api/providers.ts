@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -24,13 +25,9 @@ export interface ProviderRecord {
   updated_at: string;
 }
 
-interface ProvidersResponse {
-  providers: ProviderRecord[];
-}
-
-export async function listProviders(): Promise<ProviderRecord[]> {
-  const res = await api.get<ProvidersResponse>('/providers');
-  return res.data.providers;
+export async function listProviders(params?: ListParams): Promise<ListResult<ProviderRecord>> {
+  const res = await api.get<ListResult<ProviderRecord>>('/providers', { params });
+  return res.data;
 }
 
 export async function getProvider(key: string): Promise<ProviderRecord> {

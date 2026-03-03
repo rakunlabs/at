@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -24,15 +25,11 @@ export interface Skill {
   updated_at: string;
 }
 
-interface SkillsResponse {
-  skills: Skill[];
-}
-
 // ─── API Functions ───
 
-export async function listSkills(): Promise<Skill[]> {
-  const res = await api.get<SkillsResponse>('/skills');
-  return res.data.skills;
+export async function listSkills(params?: ListParams): Promise<ListResult<Skill>> {
+  const res = await api.get<ListResult<Skill>>('/skills', { params });
+  return res.data;
 }
 
 export async function getSkill(id: string): Promise<Skill> {

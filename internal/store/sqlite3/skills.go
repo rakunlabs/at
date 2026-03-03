@@ -11,6 +11,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Skill CRUD ───
@@ -27,22 +28,19 @@ type skillRow struct {
 	UpdatedBy    string `db:"updated_by"`
 }
 
-func (s *SQLite) ListSkills(ctx context.Context) ([]service.Skill, error) {
-	query, _, err := s.goqu.From(s.tableSkills).
-		Select("id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
-		Order(goqu.I("name").Asc()).
-		ToSQL()
+func (s *SQLite) ListSkills(ctx context.Context, q *query.Query) (*service.ListResult[service.Skill], error) {
+	sql, total, err := s.buildListQuery(ctx, s.tableSkills, q, "id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list skills query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list skills: %w", err)
 	}
 	defer rows.Close()
 
-	var result []service.Skill
+	var items []service.Skill
 	for rows.Next() {
 		var row skillRow
 		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
@@ -53,10 +51,19 @@ func (s *SQLite) ListSkills(ctx context.Context) ([]service.Skill, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *sk)
+		items = append(items, *sk)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.Skill]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (s *SQLite) GetSkill(ctx context.Context, id string) (*service.Skill, error) {

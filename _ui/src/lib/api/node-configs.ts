@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -15,16 +16,11 @@ export interface NodeConfig {
   updated_at: string;
 }
 
-interface NodeConfigsResponse {
-  node_configs: NodeConfig[];
-}
-
 // ─── API Functions ───
 
-export async function listNodeConfigs(type?: string): Promise<NodeConfig[]> {
-  const params = type ? { type } : {};
-  const res = await api.get<NodeConfigsResponse>('/node-configs', { params });
-  return res.data.node_configs;
+export async function listNodeConfigs(params?: ListParams): Promise<ListResult<NodeConfig>> {
+  const res = await api.get<ListResult<NodeConfig>>('/node-configs', { params });
+  return res.data;
 }
 
 export async function getNodeConfig(id: string): Promise<NodeConfig> {

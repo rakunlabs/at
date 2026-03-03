@@ -11,6 +11,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 type ragCollectionRow struct {
@@ -30,22 +31,19 @@ type ragCollectionRow struct {
 	UpdatedBy         sql.NullString  `db:"updated_by"`
 }
 
-func (p *Postgres) ListRAGCollections(ctx context.Context) ([]service.RAGCollection, error) {
-	query, _, err := p.goqu.From(p.tableRAGCollections).
-		Select("id", "name", "description", "vector_store_config", "embedding_provider", "embedding_model", "embedding_url", "embedding_api_type", "chunk_size", "chunk_overlap", "created_at", "updated_at", "created_by", "updated_by").
-		Order(goqu.I("name").Asc()).
-		ToSQL()
+func (p *Postgres) ListRAGCollections(ctx context.Context, q *query.Query) (*service.ListResult[service.RAGCollection], error) {
+	sql, total, err := p.buildListQuery(ctx, p.tableRAGCollections, q, "id", "name", "description", "vector_store_config", "embedding_provider", "embedding_model", "embedding_url", "embedding_api_type", "chunk_size", "chunk_overlap", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list rag collections query: %w", err)
 	}
 
-	rows, err := p.db.QueryContext(ctx, query)
+	rows, err := p.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list rag collections: %w", err)
 	}
 	defer rows.Close()
 
-	var result []service.RAGCollection
+	var items []service.RAGCollection
 	for rows.Next() {
 		var row ragCollectionRow
 		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.VectorStoreConfig, &row.EmbeddingProvider, &row.EmbeddingModel, &row.EmbeddingURL, &row.EmbeddingAPIType, &row.ChunkSize, &row.ChunkOverlap, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
@@ -56,10 +54,19 @@ func (p *Postgres) ListRAGCollections(ctx context.Context) ([]service.RAGCollect
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *rec)
+		items = append(items, *rec)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.RAGCollection]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (p *Postgres) GetRAGCollection(ctx context.Context, id string) (*service.RAGCollection, error) {

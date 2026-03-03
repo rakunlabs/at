@@ -31,6 +31,7 @@
   import WorkflowCallNode from '@/lib/components/workflow/WorkflowCallNode.svelte';
   import RagSearchNode from '@/lib/components/workflow/RagSearchNode.svelte';
   import GitFetchNode from '@/lib/components/workflow/GitFetchNode.svelte';
+  import GitDiffNode from '@/lib/components/workflow/GitDiffNode.svelte';
   import RagIngestNode from '@/lib/components/workflow/RagIngestNode.svelte';
   import MarkdownStickyNote from '@/lib/components/workflow/MarkdownStickyNote.svelte';
 
@@ -56,6 +57,7 @@
   import WorkflowCallProps from '@/lib/components/workflow/WorkflowCallProps.svelte';
   import RagSearchProps from '@/lib/components/workflow/RagSearchProps.svelte';
   import GitFetchProps from '@/lib/components/workflow/GitFetchProps.svelte';
+  import GitDiffProps from '@/lib/components/workflow/GitDiffProps.svelte';
   import RagIngestProps from '@/lib/components/workflow/RagIngestProps.svelte';
   import GroupProps from '@/lib/components/workflow/GroupProps.svelte';
   import StickyNoteProps from '@/lib/components/workflow/StickyNoteProps.svelte';
@@ -83,6 +85,7 @@
     workflow_call: WorkflowCallProps,
     rag_search: RagSearchProps,
     git_fetch: GitFetchProps,
+    git_diff: GitDiffProps,
     rag_ingest: RagIngestProps,
     group: GroupProps,
     sticky_note: StickyNoteProps,
@@ -116,6 +119,7 @@
     workflow_call: WorkflowCallNode,
     rag_search: RagSearchNode,
     git_fetch: GitFetchNode,
+    git_diff: GitDiffNode,
     rag_ingest: RagIngestNode,
     group: GroupNode,
     sticky_note: MarkdownStickyNote,
@@ -149,6 +153,7 @@
       nodes: [
         { type: 'rag_search', label: 'RAG Search', description: 'Query vector database' },
         { type: 'git_fetch', label: 'Git Fetch', description: 'Clone/pull repository' },
+        { type: 'git_diff', label: 'Git Diff', description: 'Detect changed files' },
         { type: 'rag_ingest', label: 'RAG Ingest', description: 'Ingest files into RAG' },
       ],
     },
@@ -207,6 +212,19 @@
   let runInputsJson = $state('');
   let runInputMode = $state<'text' | 'json'>('text');
   let runSync = $state(true);
+  let runEntryNodeId = $state<string>(''); // '' means all input nodes
+
+  // Collect input nodes from the canvas for the entry-node selector.
+  function getInputNodes(): { id: string; label: string }[] {
+    if (!canvasRef) return [];
+    const flow = canvasRef.getFlow();
+    return flow.nodes
+      .filter((n: any) => n.type === 'input')
+      .map((n: any) => ({
+        id: n.id,
+        label: n.data?.label || 'Input',
+      }));
+  }
 
   // Versioning
   let versions = $state<WorkflowVersion[]>([]);
@@ -360,7 +378,10 @@
       return { label: 'RAG Search', query: '', num_results: 5, score_threshold: 0.5 };
     }
     if (type === 'git_fetch') {
-      return { label: 'Git Fetch', repo_url: '', branch: 'main', file_pattern: '*.md' };
+      return { label: 'Git Fetch', repo_url: '', branch: 'main' };
+    }
+    if (type === 'git_diff') {
+      return { label: 'Git Diff', file_pattern: '*.md', variable_key_prefix: 'rag_sync' };
     }
     if (type === 'rag_ingest') {
       return { label: 'RAG Ingest', collection_id: '' };
@@ -404,7 +425,8 @@
 
   async function loadProviders() {
     try {
-      providers = await listProviders();
+      const res = await listProviders();
+      providers = res.data || [];
     } catch {
       // Non-critical
     }
@@ -412,7 +434,8 @@
 
   async function loadAllWorkflows() {
     try {
-      allWorkflows = await listWorkflows();
+      const res = await listWorkflows();
+      allWorkflows = res.data || [];
     } catch {
       // Non-critical
     }
@@ -420,7 +443,8 @@
 
   async function loadSkills() {
     try {
-      skills = await listSkills();
+      const res = await listSkills();
+      skills = res.data || [];
     } catch {
       // Non-critical
     }
@@ -428,7 +452,8 @@
 
   async function loadNodeConfigs() {
     try {
-      nodeConfigs = await listNodeConfigs('email');
+      const res = await listNodeConfigs({ type: 'email' });
+      nodeConfigs = res.data || [];
     } catch {
       // Non-critical
     }
@@ -540,7 +565,8 @@
       const inputs = runInputMode === 'json'
         ? JSON.parse(runInputsJson || '{}')
         : { text: runInputsJson };
-      runResult = await runWorkflow(workflow.id, inputs, runSync, runVersion);
+      const entryNodeIds = runEntryNodeId ? [runEntryNodeId] : undefined;
+      runResult = await runWorkflow(workflow.id, inputs, runSync, runVersion, entryNodeIds);
     } catch (e: any) {
       if (e instanceof SyntaxError) {
         runError = 'Invalid JSON in inputs';
@@ -1188,6 +1214,24 @@
                 >Async</button>
               </div>
             </div>
+            {#if getInputNodes().length > 1}
+              <div>
+                <label for="run-entry-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Entry Point</label>
+                <select
+                  id="run-entry-select"
+                  bind:value={runEntryNodeId}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                >
+                  <option value="">All input nodes</option>
+                  {#each getInputNodes() as node}
+                    <option value={node.id}>{node.label} ({node.id.slice(0, 6)})</option>
+                  {/each}
+                </select>
+                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
+                  {runEntryNodeId ? 'Only the selected input node will run' : 'All input nodes will be triggered'}
+                </div>
+              </div>
+            {/if}
             {#if versions.length > 0}
               <div>
                 <label for="run-version-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Version</label>

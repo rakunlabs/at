@@ -4,8 +4,8 @@
   let { data }: { data: Record<string, any> } = $props();
   let collections = $state<RAGCollection[]>([]);
 
-  listCollections().then((cols) => {
-    collections = cols;
+  listCollections().then((res) => {
+    collections = res.data || [];
   });
 </script>
 

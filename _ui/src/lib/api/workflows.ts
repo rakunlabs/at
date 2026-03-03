@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -59,9 +60,6 @@ export interface WorkflowVersion {
   created_by?: string;
 }
 
-interface WorkflowsResponse {
-  workflows: Workflow[];
-}
 
 interface WorkflowVersionsResponse {
   versions: WorkflowVersion[];
@@ -69,9 +67,9 @@ interface WorkflowVersionsResponse {
 
 // ─── API Functions ───
 
-export async function listWorkflows(): Promise<Workflow[]> {
-  const res = await api.get<WorkflowsResponse>('/workflows');
-  return res.data.workflows;
+export async function listWorkflows(params?: ListParams): Promise<ListResult<Workflow>> {
+  const res = await api.get<ListResult<Workflow>>('/workflows', { params });
+  return res.data;
 }
 
 export async function getWorkflow(id: string): Promise<Workflow> {
@@ -93,13 +91,17 @@ export async function deleteWorkflow(id: string): Promise<void> {
   await api.delete(`/workflows/${id}`);
 }
 
-export async function runWorkflow(id: string, inputs: Record<string, any>, sync = false, version?: number): Promise<Record<string, any>> {
+export async function runWorkflow(id: string, inputs: Record<string, any>, sync = false, version?: number, entryNodeIds?: string[]): Promise<Record<string, any>> {
   const params = new URLSearchParams();
   if (sync) params.set('sync', 'true');
   if (version !== undefined) params.set('version', String(version));
   const qs = params.toString();
   const url = `/workflows/run/${id}${qs ? '?' + qs : ''}`;
-  const res = await api.post<Record<string, any>>(url, { inputs });
+  const body: Record<string, any> = { inputs };
+  if (entryNodeIds && entryNodeIds.length > 0) {
+    body.entry_node_ids = entryNodeIds;
+  }
+  const res = await api.post<Record<string, any>>(url, body);
   return res.data;
 }
 

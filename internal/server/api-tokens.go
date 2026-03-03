@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 	"github.com/worldline-go/types"
 )
 
@@ -53,7 +54,13 @@ func (s *Server) ListAPITokensAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tokens, err := s.tokenStore.ListAPITokens(r.Context())
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	tokens, err := s.tokenStore.ListAPITokens(r.Context(), q)
 	if err != nil {
 		slog.Error("list api tokens failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list tokens: %v", err), http.StatusInternalServerError)
@@ -61,10 +68,10 @@ func (s *Server) ListAPITokensAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if tokens == nil {
-		tokens = []service.APIToken{}
+		tokens = &service.ListResult[service.APIToken]{Data: []service.APIToken{}}
 	}
 
-	httpResponseJSON(w, apiTokensResponse{Tokens: tokens}, http.StatusOK)
+	httpResponseJSON(w, tokens, http.StatusOK)
 }
 
 // CreateAPITokenAPI handles POST /api/v1/api-tokens.

@@ -189,13 +189,14 @@ func (s *Server) mcpRAGSearch(w http.ResponseWriter, r *http.Request, id int, ar
 }
 
 func (s *Server) mcpRAGListCollections(w http.ResponseWriter, r *http.Request, id int) {
-	collections, err := s.ragCollectionStore.ListRAGCollections(r.Context())
+	collectionsResult, err := s.ragCollectionStore.ListRAGCollections(r.Context(), nil)
 	if err != nil {
 		slog.Error("mcp rag_list_collections failed", "error", err)
 		mcpError(w, id, -32000, fmt.Sprintf("list collections failed: %v", err))
 		return
 	}
 
+	collections := collectionsResult.Data
 	if collections == nil {
 		collections = []service.RAGCollection{}
 	}

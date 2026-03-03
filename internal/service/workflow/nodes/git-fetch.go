@@ -6,61 +6,62 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/rytsh/mugo/templatex"
+
+	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
-// gitFetchNode clones or pulls a git repository, detects changed files since
-// the last sync, and outputs file paths and contents for downstream processing
-// (typically a rag_ingest node).
+// gitFetchNode clones or pulls a git repository and outputs the local
+// repository path along with the HEAD commit SHA. It is a pure git
+// operation node — no file reading, pattern matching, or variable
+// lookups. Connect its output to a git_diff node for change detection.
+//
+// All config fields (repo_url, branch, token, ssh_key) support Go
+// templates with access to input data and variables via {{ getVar "key" }}.
 //
 // Configuration (node.Data):
 //
-//	repo_url            string  — git repository URL (HTTPS or SSH) (required)
-//	branch              string  — branch to track (default "main")
-//	token               string  — HTTPS auth token (optional; injected into URL)
-//	ssh_key             string  — SSH private key content (optional; written to temp file)
-//	file_pattern        string  — glob pattern for files to include (default "*.md")
-//	cache_dir           string  — root directory for cloned repos (default "/tmp/at-git-cache")
-//	variable_key_prefix string  — prefix for variable store keys (default "rag_sync")
-//	timeout             float64 — git operation timeout in seconds (default 120)
+//	repo_url  string  — git repository URL (HTTPS or SSH) (required)
+//	branch    string  — branch to track (default "main")
+//	token     string  — HTTPS auth token (optional; injected into URL)
+//	ssh_key   string  — SSH private key content (optional; written to temp file)
+//	cache_dir string  — root directory for cloned repos (default "/tmp/at-git-cache")
+//	timeout   float64 — git operation timeout in seconds (default 120)
 //
 // Inputs:
 //
-//	(none required — all config is static)
+//	repo_url string — runtime override for repo URL (optional)
+//	branch   string — runtime override for branch (optional)
 //
 // Outputs:
 //
-//	files         []map[string]any — changed/added files [{path, content, status}]
-//	deleted_files []string         — files removed since last sync
-//	commit_sha    string           — HEAD commit SHA after fetch
-//	repo_url      string           — the repository URL
-//	variable_key  string           — the variable key used to track sync state
+//	repo_dir     string — local filesystem path of the cloned repository
+//	commit_sha   string — HEAD commit SHA after fetch
+//	repo_url     string — the repository URL
+//	branch       string — the branch that was fetched
+//	is_new_clone bool   — true if this was a fresh clone (no prior cache)
 type gitFetchNode struct {
-	repoURL           string
-	branch            string
-	token             string
-	sshKey            string
-	filePattern       string
-	cacheDir          string
-	variableKeyPrefix string
-	timeout           time.Duration
+	repoURL  string
+	branch   string
+	token    string
+	sshKey   string
+	cacheDir string
+	timeout  time.Duration
 }
 
 const (
-	defaultGitCacheDir  = "/tmp/at-git-cache"
-	defaultGitBranch    = "main"
-	defaultFilePattern  = "*.md"
-	defaultVarKeyPrefix = "rag_sync"
-	defaultGitTimeout   = 120 * time.Second
-	maxGitTimeout       = 600 * time.Second
+	defaultGitCacheDir = "/tmp/at-git-cache"
+	defaultGitBranch   = "main"
+	defaultGitTimeout  = 120 * time.Second
+	maxGitTimeout      = 600 * time.Second
 )
 
 func init() {
@@ -69,11 +70,9 @@ func init() {
 
 func newGitFetchNode(node service.WorkflowNode) (workflow.Noder, error) {
 	n := &gitFetchNode{
-		branch:            defaultGitBranch,
-		filePattern:       defaultFilePattern,
-		cacheDir:          defaultGitCacheDir,
-		variableKeyPrefix: defaultVarKeyPrefix,
-		timeout:           defaultGitTimeout,
+		branch:   defaultGitBranch,
+		cacheDir: defaultGitCacheDir,
+		timeout:  defaultGitTimeout,
 	}
 
 	if v, ok := node.Data["repo_url"].(string); ok {
@@ -88,14 +87,8 @@ func newGitFetchNode(node service.WorkflowNode) (workflow.Noder, error) {
 	if v, ok := node.Data["ssh_key"].(string); ok {
 		n.sshKey = strings.TrimSpace(v)
 	}
-	if v, ok := node.Data["file_pattern"].(string); ok && v != "" {
-		n.filePattern = strings.TrimSpace(v)
-	}
 	if v, ok := node.Data["cache_dir"].(string); ok && v != "" {
 		n.cacheDir = strings.TrimSpace(v)
-	}
-	if v, ok := node.Data["variable_key_prefix"].(string); ok && v != "" {
-		n.variableKeyPrefix = strings.TrimSpace(v)
 	}
 	if t, ok := node.Data["timeout"].(float64); ok && t > 0 {
 		n.timeout = time.Duration(t) * time.Second
@@ -110,59 +103,65 @@ func newGitFetchNode(node service.WorkflowNode) (workflow.Noder, error) {
 func (n *gitFetchNode) Type() string { return "git_fetch" }
 
 func (n *gitFetchNode) Validate(_ context.Context, _ *workflow.Registry) error {
-	if n.repoURL == "" {
-		return fmt.Errorf("git_fetch: 'repo_url' is required")
-	}
 	return nil
 }
 
 func (n *gitFetchNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
-	// Allow runtime override from inputs.
-	repoURL := n.repoURL
+	// Render config fields as Go templates with input data + variables.
+	funcs := varFuncMap(reg)
+	tmplData := inputs
+
+	repoURL, err := renderField(n.repoURL, tmplData, funcs)
+	if err != nil {
+		return nil, fmt.Errorf("git_fetch: render repo_url: %w", err)
+	}
+	branch, err := renderField(n.branch, tmplData, funcs)
+	if err != nil {
+		return nil, fmt.Errorf("git_fetch: render branch: %w", err)
+	}
+	token, err := renderField(n.token, tmplData, funcs)
+	if err != nil {
+		return nil, fmt.Errorf("git_fetch: render token: %w", err)
+	}
+	sshKey, err := renderField(n.sshKey, tmplData, funcs)
+	if err != nil {
+		return nil, fmt.Errorf("git_fetch: render ssh_key: %w", err)
+	}
+
+	// Allow runtime override from inputs (takes precedence over rendered config).
 	if v, ok := inputs["repo_url"].(string); ok && v != "" {
 		repoURL = v
 	}
-	branch := n.branch
 	if v, ok := inputs["branch"].(string); ok && v != "" {
 		branch = v
+	}
+
+	if repoURL == "" {
+		return nil, fmt.Errorf("git_fetch: 'repo_url' is empty after rendering")
 	}
 
 	// Compute a stable hash for the repo directory name.
 	repoHash := hashRepoKey(repoURL, branch)
 	repoDir := filepath.Join(n.cacheDir, repoHash)
 
-	// Variable key for tracking last synced commit.
-	variableKey := fmt.Sprintf("%s_%s", n.variableKeyPrefix, repoHash)
-
-	// Lookup last synced commit SHA.
-	var lastSyncSHA string
-	if reg.VarLookup != nil {
-		val, err := reg.VarLookup(variableKey)
-		if err == nil {
-			lastSyncSHA = val
-		}
-		// Not found is fine — means first sync.
-	}
-
 	execCtx, cancel := context.WithTimeout(ctx, n.timeout)
 	defer cancel()
 
 	// Prepare auth for HTTPS token.
 	authURL := repoURL
-	if n.token != "" && strings.HasPrefix(repoURL, "https://") {
-		authURL = injectHTTPSToken(repoURL, n.token)
+	if token != "" && strings.HasPrefix(repoURL, "https://") {
+		authURL = injectHTTPSToken(repoURL, token)
 	}
 
 	// Prepare SSH environment if SSH key is provided.
-	var sshKeyFile string
 	var envVars []string
-	if n.sshKey != "" {
+	if sshKey != "" {
 		tmpFile, err := os.CreateTemp("", "at-git-ssh-*")
 		if err != nil {
 			return nil, fmt.Errorf("git_fetch: create ssh key temp file: %w", err)
 		}
 		defer os.Remove(tmpFile.Name())
-		if _, err := tmpFile.WriteString(n.sshKey + "\n"); err != nil {
+		if _, err := tmpFile.WriteString(sshKey + "\n"); err != nil {
 			tmpFile.Close()
 			return nil, fmt.Errorf("git_fetch: write ssh key: %w", err)
 		}
@@ -170,29 +169,13 @@ func (n *gitFetchNode) Run(ctx context.Context, reg *workflow.Registry, inputs m
 		if err := os.Chmod(tmpFile.Name(), 0o600); err != nil {
 			return nil, fmt.Errorf("git_fetch: chmod ssh key: %w", err)
 		}
-		sshKeyFile = tmpFile.Name()
-		envVars = append(envVars, fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", sshKeyFile))
+		envVars = append(envVars, fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", tmpFile.Name()))
 	}
 
-	// Clone or pull.
-	isNew := false
-	if _, err := os.Stat(filepath.Join(repoDir, ".git")); os.IsNotExist(err) {
-		// Clone.
-		isNew = true
-		if err := os.MkdirAll(n.cacheDir, 0o755); err != nil {
-			return nil, fmt.Errorf("git_fetch: create cache dir: %w", err)
-		}
-		if err := runGit(execCtx, n.cacheDir, envVars, "clone", "--branch", branch, "--single-branch", "--depth", "0", authURL, repoHash); err != nil {
-			return nil, fmt.Errorf("git_fetch: clone: %w", err)
-		}
-	} else {
-		// Pull.
-		if err := runGit(execCtx, repoDir, envVars, "fetch", "origin", branch); err != nil {
-			return nil, fmt.Errorf("git_fetch: fetch: %w", err)
-		}
-		if err := runGit(execCtx, repoDir, envVars, "reset", "--hard", "origin/"+branch); err != nil {
-			return nil, fmt.Errorf("git_fetch: reset: %w", err)
-		}
+	// Clone or fetch+reset. Handle corrupted/partial clones gracefully.
+	isNewClone, err := n.ensureRepo(execCtx, repoDir, repoHash, authURL, branch, envVars)
+	if err != nil {
+		return nil, err
 	}
 
 	// Get HEAD SHA.
@@ -202,50 +185,89 @@ func (n *gitFetchNode) Run(ctx context.Context, reg *workflow.Registry, inputs m
 	}
 	headSHA = strings.TrimSpace(headSHA)
 
-	// Determine changed, added, and deleted files.
-	var changedFiles []map[string]any
-	var deletedFiles []string
-
-	if isNew || lastSyncSHA == "" {
-		// First sync: all matching files are "added".
-		changedFiles, err = collectAllFiles(repoDir, n.filePattern)
-		if err != nil {
-			return nil, fmt.Errorf("git_fetch: collect files: %w", err)
-		}
-	} else if lastSyncSHA != headSHA {
-		// Diff since last sync.
-		changedFiles, deletedFiles, err = diffFiles(execCtx, repoDir, envVars, lastSyncSHA, headSHA, n.filePattern)
-		if err != nil {
-			// If diff fails (e.g. SHA was garbage-collected due to shallow clone),
-			// fall back to full re-sync.
-			slog.Warn("git_fetch: diff failed, falling back to full sync", "error", err)
-			changedFiles, err = collectAllFiles(repoDir, n.filePattern)
-			if err != nil {
-				return nil, fmt.Errorf("git_fetch: collect files (fallback): %w", err)
-			}
-		}
-	}
-	// If lastSyncSHA == headSHA, no changes — changedFiles and deletedFiles remain empty.
-
-	// Build deleted files list as []any for JSON output.
-	deletedAny := make([]any, len(deletedFiles))
-	for i, f := range deletedFiles {
-		deletedAny[i] = f
-	}
-
-	// Build files list as []any for JSON output.
-	filesAny := make([]any, len(changedFiles))
-	for i, f := range changedFiles {
-		filesAny[i] = f
-	}
-
 	return workflow.NewResult(map[string]any{
-		"files":         filesAny,
-		"deleted_files": deletedAny,
-		"commit_sha":    headSHA,
-		"repo_url":      repoURL,
-		"variable_key":  variableKey,
+		"repo_dir":     repoDir,
+		"commit_sha":   headSHA,
+		"repo_url":     repoURL,
+		"branch":       branch,
+		"is_new_clone": isNewClone,
 	}), nil
+}
+
+// ensureRepo clones the repo if it doesn't exist, or fetches+resets if it does.
+// If the existing clone is corrupted (e.g. from an interrupted previous run),
+// it removes the directory and re-clones.
+func (n *gitFetchNode) ensureRepo(ctx context.Context, repoDir, repoHash, authURL, branch string, envVars []string) (isNewClone bool, err error) {
+	gitDir := filepath.Join(repoDir, ".git")
+
+	if _, statErr := os.Stat(gitDir); os.IsNotExist(statErr) {
+		// No .git directory — need a fresh clone.
+		// But the directory itself might exist (leftover from a failed clone).
+		if err := os.RemoveAll(repoDir); err != nil {
+			return false, fmt.Errorf("git_fetch: clean stale dir: %w", err)
+		}
+		if err := n.cloneRepo(ctx, repoDir, repoHash, authURL, branch, envVars); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	// .git exists — verify the repo is healthy before fetching.
+	if err := runGit(ctx, repoDir, envVars, "rev-parse", "--git-dir"); err != nil {
+		// Repository is corrupted. Remove and re-clone.
+		if rmErr := os.RemoveAll(repoDir); rmErr != nil {
+			return false, fmt.Errorf("git_fetch: remove corrupted repo: %w", rmErr)
+		}
+		if err := n.cloneRepo(ctx, repoDir, repoHash, authURL, branch, envVars); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
+
+	// Healthy repo — fetch and reset.
+	if err := runGit(ctx, repoDir, envVars, "fetch", "origin", branch); err != nil {
+		return false, fmt.Errorf("git_fetch: fetch: %w", err)
+	}
+	if err := runGit(ctx, repoDir, envVars, "reset", "--hard", "origin/"+branch); err != nil {
+		return false, fmt.Errorf("git_fetch: reset: %w", err)
+	}
+	// Clean any leftover untracked files from previous operations.
+	_ = runGit(ctx, repoDir, envVars, "clean", "-fd")
+
+	return false, nil
+}
+
+// cloneRepo performs the initial clone into the cache directory.
+func (n *gitFetchNode) cloneRepo(ctx context.Context, repoDir, repoHash, authURL, branch string, envVars []string) error {
+	if err := os.MkdirAll(n.cacheDir, 0o755); err != nil {
+		return fmt.Errorf("git_fetch: create cache dir: %w", err)
+	}
+
+	err := runGit(ctx, n.cacheDir, envVars, "clone", "--branch", branch, "--single-branch", authURL, repoHash)
+	if err != nil {
+		// Clean up partial clone on failure.
+		_ = os.RemoveAll(repoDir)
+		return fmt.Errorf("git_fetch: clone: %w", err)
+	}
+
+	return nil
+}
+
+// ─── Template Helpers ───
+
+// renderField renders a config string as a Go template. If the string
+// contains no template directives it is returned as-is with no overhead.
+func renderField(tmpl string, data any, funcs map[string]any) (string, error) {
+	if tmpl == "" {
+		return "", nil
+	}
+
+	result, err := render.ExecuteWithData(tmpl, data, templatex.WithExecFuncMap(funcs))
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(result)), nil
 }
 
 // ─── Git Helpers ───
@@ -297,152 +319,5 @@ func hashRepoKey(repoURL, branch string) string {
 // injectHTTPSToken injects a token into an HTTPS URL for git auth.
 // "https://github.com/foo/bar.git" → "https://x-token-auth:{token}@github.com/foo/bar.git"
 func injectHTTPSToken(repoURL, token string) string {
-	// Replace "https://" with "https://x-token-auth:{token}@"
 	return strings.Replace(repoURL, "https://", "https://x-token-auth:"+token+"@", 1)
-}
-
-// collectAllFiles finds all files matching the pattern in a repo and reads them.
-func collectAllFiles(repoDir, pattern string) ([]map[string]any, error) {
-	var files []map[string]any
-
-	err := filepath.Walk(repoDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			// Skip .git directory.
-			if info.Name() == ".git" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		relPath, err := filepath.Rel(repoDir, path)
-		if err != nil {
-			return err
-		}
-
-		// Check against pattern.
-		matched, err := matchFilePattern(relPath, pattern)
-		if err != nil || !matched {
-			return err
-		}
-
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return fmt.Errorf("read %s: %w", relPath, err)
-		}
-
-		files = append(files, map[string]any{
-			"path":    relPath,
-			"content": string(content),
-			"status":  "added",
-		})
-
-		return nil
-	})
-
-	return files, err
-}
-
-// diffFiles computes changed and deleted files between two commits matching a pattern.
-func diffFiles(ctx context.Context, repoDir string, envVars []string, fromSHA, toSHA, pattern string) (changed []map[string]any, deleted []string, err error) {
-	// Get diff --name-status between the two commits.
-	output, err := gitOutput(ctx, repoDir, envVars, "diff", "--name-status", fromSHA, toSHA)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	lines := strings.Split(strings.TrimSpace(output), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) < 2 {
-			continue
-		}
-
-		status := parts[0]
-		filePath := parts[1]
-
-		// Handle renames (R100 old\tnew).
-		if strings.HasPrefix(status, "R") {
-			renameParts := strings.SplitN(filePath, "\t", 2)
-			if len(renameParts) == 2 {
-				oldPath := renameParts[0]
-				filePath = renameParts[1]
-				// Treat old path as deleted.
-				matched, _ := matchFilePattern(oldPath, pattern)
-				if matched {
-					deleted = append(deleted, oldPath)
-				}
-			}
-		}
-
-		matched, _ := matchFilePattern(filePath, pattern)
-		if !matched {
-			continue
-		}
-
-		switch {
-		case status == "D":
-			deleted = append(deleted, filePath)
-		case status == "A" || status == "M" || strings.HasPrefix(status, "R"):
-			fullPath := filepath.Join(repoDir, filePath)
-			content, readErr := os.ReadFile(fullPath)
-			if readErr != nil {
-				slog.Warn("git_fetch: cannot read changed file", "path", filePath, "error", readErr)
-				continue
-			}
-
-			fileStatus := "modified"
-			if status == "A" {
-				fileStatus = "added"
-			}
-
-			changed = append(changed, map[string]any{
-				"path":    filePath,
-				"content": string(content),
-				"status":  fileStatus,
-			})
-		}
-	}
-
-	return changed, deleted, nil
-}
-
-// matchFilePattern checks if a file path matches a glob pattern.
-// Supports comma-separated patterns like "*.md,*.txt,docs/**/*.rst".
-func matchFilePattern(filePath, pattern string) (bool, error) {
-	patterns := strings.Split(pattern, ",")
-	for _, p := range patterns {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-
-		// filepath.Match only matches the basename against simple patterns.
-		// For patterns without path separators, match against basename.
-		// For patterns with path separators, match against the full relative path.
-		if strings.ContainsRune(p, '/') || strings.ContainsRune(p, filepath.Separator) {
-			matched, err := filepath.Match(p, filePath)
-			if err != nil {
-				return false, err
-			}
-			if matched {
-				return true, nil
-			}
-		} else {
-			matched, err := filepath.Match(p, filepath.Base(filePath))
-			if err != nil {
-				return false, err
-			}
-			if matched {
-				return true, nil
-			}
-		}
-	}
-	return false, nil
 }

@@ -211,22 +211,22 @@
 
   async function loadSkills() {
     try {
-      const skills = await listSkills();
-      skillsInfo = skills.map(s => ({ name: s.name, description: s.description }));
+      const res = await listSkills();
+      skillsInfo = res.data.map(s => ({ name: s.name, description: s.description }));
     } catch {}
   }
 
   async function loadVariables() {
     try {
-      const vars = await listVariables();
-      variablesInfo = vars.map(v => ({ key: v.key, description: v.description }));
+      const res = await listVariables();
+      variablesInfo = res.data.map(v => ({ key: v.key, description: v.description }));
     } catch {}
   }
 
   async function loadNodeConfigs() {
     try {
-      const configs = await listNodeConfigs();
-      nodeConfigsInfo = configs.map(c => ({ id: c.id, name: c.name, type: c.type }));
+      const res = await listNodeConfigs();
+      nodeConfigsInfo = res.data.map(c => ({ id: c.id, name: c.name, type: c.type }));
     } catch {}
   }
 

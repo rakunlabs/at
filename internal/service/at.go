@@ -5,8 +5,22 @@ import (
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/query"
 	"github.com/worldline-go/types"
 )
+
+// ListMeta contains pagination metadata.
+type ListMeta struct {
+	Total  uint64 `json:"total,omitempty"`
+	Offset uint64 `json:"offset,omitempty"`
+	Limit  uint64 `json:"limit,omitempty"`
+}
+
+// ListResult is a generic paginated response.
+type ListResult[T any] struct {
+	Data []T      `json:"data"`
+	Meta ListMeta `json:"meta"`
+}
 
 // Generic LLM Interface
 type LLMProvider interface {
@@ -76,7 +90,7 @@ type ProviderRecord struct {
 // ProviderStorer defines CRUD operations for provider configurations
 // stored in a persistent backend (e.g., PostgreSQL).
 type ProviderStorer interface {
-	ListProviders(ctx context.Context) ([]ProviderRecord, error)
+	ListProviders(ctx context.Context, q *query.Query) (*ListResult[ProviderRecord], error)
 	GetProvider(ctx context.Context, key string) (*ProviderRecord, error)
 	CreateProvider(ctx context.Context, record ProviderRecord) (*ProviderRecord, error)
 	UpdateProvider(ctx context.Context, key string, record ProviderRecord) (*ProviderRecord, error)
@@ -119,7 +133,7 @@ type APIToken struct {
 
 // APITokenStorer defines CRUD operations for API tokens.
 type APITokenStorer interface {
-	ListAPITokens(ctx context.Context) ([]APIToken, error)
+	ListAPITokens(ctx context.Context, q *query.Query) (*ListResult[APIToken], error)
 	GetAPITokenByHash(ctx context.Context, hash string) (*APIToken, error)
 	CreateAPIToken(ctx context.Context, token APIToken, tokenHash string) (*APIToken, error)
 	UpdateAPIToken(ctx context.Context, id string, token APIToken) (*APIToken, error)
@@ -248,7 +262,7 @@ type WorkflowVersion struct {
 
 // WorkflowStorer defines CRUD operations for workflow definitions.
 type WorkflowStorer interface {
-	ListWorkflows(ctx context.Context) ([]Workflow, error)
+	ListWorkflows(ctx context.Context, q *query.Query) (*ListResult[Workflow], error)
 	GetWorkflow(ctx context.Context, id string) (*Workflow, error)
 	CreateWorkflow(ctx context.Context, w Workflow) (*Workflow, error)
 	UpdateWorkflow(ctx context.Context, id string, w Workflow) (*Workflow, error)
@@ -311,7 +325,7 @@ type Skill struct {
 
 // SkillStorer defines CRUD operations for skill definitions.
 type SkillStorer interface {
-	ListSkills(ctx context.Context) ([]Skill, error)
+	ListSkills(ctx context.Context, q *query.Query) (*ListResult[Skill], error)
 	GetSkill(ctx context.Context, id string) (*Skill, error)
 	GetSkillByName(ctx context.Context, name string) (*Skill, error)
 	CreateSkill(ctx context.Context, s Skill) (*Skill, error)
@@ -339,7 +353,7 @@ type Variable struct {
 
 // VariableStorer defines CRUD operations for variables.
 type VariableStorer interface {
-	ListVariables(ctx context.Context) ([]Variable, error)
+	ListVariables(ctx context.Context, q *query.Query) (*ListResult[Variable], error)
 	GetVariable(ctx context.Context, id string) (*Variable, error)
 	GetVariableByKey(ctx context.Context, key string) (*Variable, error)
 	CreateVariable(ctx context.Context, v Variable) (*Variable, error)
@@ -365,7 +379,7 @@ type NodeConfig struct {
 
 // NodeConfigStorer defines CRUD operations for node configs.
 type NodeConfigStorer interface {
-	ListNodeConfigs(ctx context.Context) ([]NodeConfig, error)
+	ListNodeConfigs(ctx context.Context, q *query.Query) (*ListResult[NodeConfig], error)
 	ListNodeConfigsByType(ctx context.Context, configType string) ([]NodeConfig, error)
 	GetNodeConfig(ctx context.Context, id string) (*NodeConfig, error)
 	CreateNodeConfig(ctx context.Context, nc NodeConfig) (*NodeConfig, error)
@@ -396,7 +410,7 @@ type Agent struct {
 
 // AgentStorer defines CRUD operations for agents.
 type AgentStorer interface {
-	ListAgents(ctx context.Context) ([]Agent, error)
+	ListAgents(ctx context.Context, q *query.Query) (*ListResult[Agent], error)
 	GetAgent(ctx context.Context, id string) (*Agent, error)
 	CreateAgent(ctx context.Context, agent Agent) (*Agent, error)
 	UpdateAgent(ctx context.Context, id string, agent Agent) (*Agent, error)
@@ -433,7 +447,7 @@ type RAGVectorStoreConfig struct {
 
 // RAGCollectionStorer defines CRUD operations for RAG collection configurations.
 type RAGCollectionStorer interface {
-	ListRAGCollections(ctx context.Context) ([]RAGCollection, error)
+	ListRAGCollections(ctx context.Context, q *query.Query) (*ListResult[RAGCollection], error)
 	GetRAGCollection(ctx context.Context, id string) (*RAGCollection, error)
 	GetRAGCollectionByName(ctx context.Context, name string) (*RAGCollection, error)
 	CreateRAGCollection(ctx context.Context, c RAGCollection) (*RAGCollection, error)

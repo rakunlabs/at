@@ -371,7 +371,8 @@ Tool input schemas use JSON Schema format:
 
         case 'list_variables': {
           try {
-            const variables = await listVariables();
+            const res = await listVariables();
+            const variables = res.data;
             return JSON.stringify({
               variables: variables.map(v => ({ key: v.key, description: v.description, secret: v.secret })),
               count: variables.length,
@@ -428,8 +429,8 @@ Tool input schemas use JSON Schema format:
 
         case 'load_skill': {
           try {
-            const allSkills = await listSkills();
-            const found = allSkills.find(
+            const res = await listSkills();
+            const found = res.data.find(
               s => s.id === args.name_or_id || s.name === args.name_or_id
             );
             if (!found) {

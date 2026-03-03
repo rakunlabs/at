@@ -11,6 +11,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Variable CRUD ───
@@ -27,16 +28,13 @@ type variableRow struct {
 	UpdatedBy   string `db:"updated_by"`
 }
 
-func (s *SQLite) ListVariables(ctx context.Context) ([]service.Variable, error) {
-	query, _, err := s.goqu.From(s.tableVariables).
-		Select("id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by").
-		Order(goqu.I("key").Asc()).
-		ToSQL()
+func (s *SQLite) ListVariables(ctx context.Context, q *query.Query) (*service.ListResult[service.Variable], error) {
+	sql, total, err := s.buildListQuery(ctx, s.tableVariables, q, "id", "key", "value", "description", "secret", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list variables query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list variables: %w", err)
 	}
@@ -46,7 +44,7 @@ func (s *SQLite) ListVariables(ctx context.Context) ([]service.Variable, error) 
 	encKey := s.encKey
 	s.encKeyMu.RUnlock()
 
-	var result []service.Variable
+	var items []service.Variable
 	for rows.Next() {
 		var row variableRow
 		if err := rows.Scan(&row.ID, &row.Key, &row.Value, &row.Description, &row.Secret, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
@@ -57,10 +55,19 @@ func (s *SQLite) ListVariables(ctx context.Context) ([]service.Variable, error) 
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *rec)
+		items = append(items, *rec)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.Variable]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (s *SQLite) GetVariable(ctx context.Context, id string) (*service.Variable, error) {

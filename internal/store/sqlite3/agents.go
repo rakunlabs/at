@@ -11,6 +11,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 type agentRow struct {
@@ -30,22 +31,19 @@ type agentRow struct {
 	UpdatedBy     sql.NullString `db:"updated_by"`
 }
 
-func (s *SQLite) ListAgents(ctx context.Context) ([]service.Agent, error) {
-	query, _, err := s.goqu.From(s.tableAgents).
-		Select("id", "name", "description", "provider", "model", "system_prompt", "skills", "mcp_urls", "max_iterations", "tool_timeout", "created_at", "updated_at", "created_by", "updated_by").
-		Order(goqu.I("name").Asc()).
-		ToSQL()
+func (s *SQLite) ListAgents(ctx context.Context, q *query.Query) (*service.ListResult[service.Agent], error) {
+	sql, total, err := s.buildListQuery(ctx, s.tableAgents, q, "id", "name", "description", "provider", "model", "system_prompt", "skills", "mcp_urls", "max_iterations", "tool_timeout", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list agents query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list agents: %w", err)
 	}
 	defer rows.Close()
 
-	var result []service.Agent
+	var items []service.Agent
 	for rows.Next() {
 		var row agentRow
 		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Provider, &row.Model, &row.SystemPrompt, &row.Skills, &row.MCPs, &row.MaxIterations, &row.ToolTimeout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
@@ -56,10 +54,19 @@ func (s *SQLite) ListAgents(ctx context.Context) ([]service.Agent, error) {
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *agent)
+		items = append(items, *agent)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.Agent]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (s *SQLite) GetAgent(ctx context.Context, id string) (*service.Agent, error) {

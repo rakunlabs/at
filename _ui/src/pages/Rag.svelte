@@ -29,6 +29,10 @@
     ChevronDown,
     ChevronRight,
   } from 'lucide-svelte';
+  import { formatDate } from '@/lib/helper/format';
+  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import DataTable from '@/lib/components/DataTable.svelte';
+  import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
   storeNavbar.title = 'RAG';
 
@@ -37,6 +41,16 @@
   let collections = $state<RAGCollection[]>([]);
   let providers = $state<ProviderRecord[]>([]);
   let loading = $state(true);
+  
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(10);
+  let total = $state(0);
+
+  // Search & Sort (table filter, not RAG search)
+  let nameSearch = $state('');
+  let sorts = $state<SortEntry[]>([]);
+
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
@@ -101,15 +115,34 @@
   async function load() {
     loading = true;
     try {
-      [collections, providers] = await Promise.all([
-        listCollections(),
-        listProviders().catch(() => []),
+      const params: any = { _offset: offset, _limit: limit };
+      if (nameSearch) params['name[like]'] = `%${nameSearch}%`;
+      const sortParam = buildSortParam(sorts);
+      if (sortParam) params._sort = sortParam;
+      const [cRes, pRes] = await Promise.all([
+        listCollections(params),
+        listProviders().catch(() => ({ data: [], meta: { total: 0, offset: 0, limit: 0 } })),
       ]);
+      collections = cRes.data || [];
+      total = cRes.meta?.total || 0;
+      providers = pRes.data || [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load collections', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  function handleTableSearch(value: string) {
+    nameSearch = value;
+    offset = 0;
+    load();
+  }
+
+  function handleSort(field: string, multiSort: boolean) {
+    sorts = toggleSort(sorts, field, multiSort);
+    offset = 0;
+    load();
   }
 
   load();
@@ -288,12 +321,6 @@
     }
   }
 
-  function formatDate(dateStr: string): string {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  }
-
   function toggleExpand(id: string) {
     expandedId = expandedId === id ? null : id;
     // Close upload/import when collapsing
@@ -314,7 +341,7 @@
     <div class="flex items-center gap-2">
       <Database size={16} class="text-gray-500 dark:text-dark-text-muted" />
       <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">RAG Collections</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({collections.length})</span>
+      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
     </div>
     <div class="flex items-center gap-2">
       <button
@@ -620,176 +647,186 @@
   {/if}
 
   <!-- Collection List -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    {#if loading}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
-    {:else if collections.length === 0 && !showForm}
-      <div class="px-4 py-10 text-center">
-        <Database size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
-        <div class="text-gray-400 dark:text-dark-text-muted mb-1">No RAG collections</div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">Create a collection to start ingesting and searching documents</div>
-      </div>
-    {:else if collections.length > 0}
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-6"></th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Vector Store</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Embedding</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Updated</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
-          {#each collections as c}
-            <!-- Collection Row -->
-            <tr
-              class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer"
-              onclick={() => toggleExpand(c.id)}
-            >
-              <td class="px-4 py-2.5 text-gray-400 dark:text-dark-text-muted">
-                {#if expandedId === c.id}
-                  <ChevronDown size={14} />
-                {:else}
-                  <ChevronRight size={14} />
-                {/if}
-              </td>
-              <td class="px-4 py-2.5">
-                <div class="font-medium text-gray-900 dark:text-dark-text">{c.name}</div>
-                {#if c.description}
-                  <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48">{c.description}</div>
-                {/if}
-              </td>
-              <td class="px-4 py-2.5">
-                <span class="text-xs font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">{c.vector_store.type}</span>
-              </td>
-              <td class="px-4 py-2.5">
-                <div class="text-xs text-gray-600 dark:text-dark-text-secondary">{c.embedding_provider}</div>
-                <div class="text-xs font-mono text-gray-400 dark:text-dark-text-muted">{c.embedding_model}</div>
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(c.updated_at)}</td>
-              <td class="px-4 py-2.5 text-right" onclick={(e) => e.stopPropagation()}>
-                <div class="flex justify-end gap-1">
-                  <button
-                    onclick={() => openEdit(c)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-                    title="Edit"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  {#if deleteConfirm === c.id}
+  {#if loading || collections.length > 0 || !showForm}
+    <DataTable
+      items={collections}
+      {loading}
+      {total}
+      {limit}
+      bind:offset
+      onchange={load}
+      onsearch={handleTableSearch}
+      searchPlaceholder="Search by name..."
+      emptyIcon={Database}
+      emptyTitle="No RAG collections"
+      emptyDescription="Create a collection to start ingesting and searching documents"
+    >
+      {#snippet emptyAction()}
+        <button
+          onclick={openCreate}
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors mx-auto"
+        >
+          <Plus size={12} />
+          New Collection
+        </button>
+      {/snippet}
+
+      {#snippet header()}
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-6"></th>
+        <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Vector Store</th>
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Embedding</th>
+        <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
+        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+      {/snippet}
+
+      {#snippet row(c)}
+        <!-- Collection Row -->
+        <tr
+          class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer"
+          onclick={() => toggleExpand(c.id)}
+        >
+          <td class="px-4 py-2.5 text-gray-400 dark:text-dark-text-muted">
+            {#if expandedId === c.id}
+              <ChevronDown size={14} />
+            {:else}
+              <ChevronRight size={14} />
+            {/if}
+          </td>
+          <td class="px-4 py-2.5">
+            <div class="font-medium text-gray-900 dark:text-dark-text">{c.name}</div>
+            {#if c.description}
+              <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48">{c.description}</div>
+            {/if}
+          </td>
+          <td class="px-4 py-2.5">
+            <span class="text-xs font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">{c.vector_store.type}</span>
+          </td>
+          <td class="px-4 py-2.5">
+            <div class="text-xs text-gray-600 dark:text-dark-text-secondary">{c.embedding_provider}</div>
+            <div class="text-xs font-mono text-gray-400 dark:text-dark-text-muted">{c.embedding_model}</div>
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(c.updated_at)}</td>
+          <td class="px-4 py-2.5 text-right" onclick={(e) => e.stopPropagation()}>
+            <div class="flex justify-end gap-1">
+              <button
+                onclick={() => openEdit(c)}
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                title="Edit"
+              >
+                <Pencil size={14} />
+              </button>
+              {#if deleteConfirm === c.id}
+                <button
+                  onclick={() => handleDelete(c.id)}
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onclick={() => (deleteConfirm = null)}
+                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                >
+                  Cancel
+                </button>
+              {:else}
+                <button
+                  onclick={() => (deleteConfirm = c.id)}
+                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              {/if}
+            </div>
+          </td>
+        </tr>
+
+        <!-- Expanded Actions Row -->
+        {#if expandedId === c.id}
+          <tr class="bg-gray-50/50 dark:bg-dark-base/50">
+            <td colspan="6" class="px-4 py-3">
+              <div class="flex items-center gap-3 flex-wrap">
+                <!-- Upload Button -->
+                <div class="flex items-center gap-2">
+                  {#if uploadCollectionId === c.id}
+                    <input
+                      type="file"
+                      accept=".md,.txt,.pdf,.html,.csv,.json"
+                      multiple
+                      onchange={handleFileUpload}
+                      disabled={uploading}
+                      class="text-xs file:mr-2 file:px-3 file:py-1 file:text-xs file:border file:border-gray-300 dark:file:border-dark-border-subtle file:bg-white dark:file:bg-dark-elevated file:text-gray-700 dark:file:text-dark-text-secondary file:cursor-pointer hover:file:bg-gray-50 dark:hover:file:bg-dark-base disabled:opacity-50"
+                    />
+                    {#if uploading}
+                      <span class="text-xs text-gray-500 dark:text-dark-text-muted">Uploading...</span>
+                    {/if}
                     <button
-                      onclick={() => handleDelete(c.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                      onclick={() => (uploadCollectionId = null)}
+                      class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted transition-colors"
                     >
-                      Confirm
-                    </button>
-                    <button
-                      onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
-                    >
-                      Cancel
+                      <X size={12} />
                     </button>
                   {:else}
                     <button
-                      onclick={() => (deleteConfirm = c.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                      title="Delete"
+                      onclick={() => { uploadCollectionId = c.id; importCollectionId = null; }}
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
                     >
-                      <Trash2 size={14} />
+                      <Upload size={12} />
+                      Upload Document
                     </button>
                   {/if}
                 </div>
-              </td>
-            </tr>
 
-            <!-- Expanded Actions Row -->
-            {#if expandedId === c.id}
-              <tr class="bg-gray-50/50 dark:bg-dark-base/50">
-                <td colspan="6" class="px-4 py-3">
-                  <div class="flex items-center gap-3 flex-wrap">
-                    <!-- Upload Button -->
-                    <div class="flex items-center gap-2">
-                      {#if uploadCollectionId === c.id}
-                        <input
-                          type="file"
-                          accept=".md,.txt,.pdf,.html,.csv,.json"
-                          multiple
-                          onchange={handleFileUpload}
-                          disabled={uploading}
-                          class="text-xs file:mr-2 file:px-3 file:py-1 file:text-xs file:border file:border-gray-300 dark:file:border-dark-border-subtle file:bg-white dark:file:bg-dark-elevated file:text-gray-700 dark:file:text-dark-text-secondary file:cursor-pointer hover:file:bg-gray-50 dark:hover:file:bg-dark-base disabled:opacity-50"
-                        />
-                        {#if uploading}
-                          <span class="text-xs text-gray-500 dark:text-dark-text-muted">Uploading...</span>
-                        {/if}
-                        <button
-                          onclick={() => (uploadCollectionId = null)}
-                          class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted transition-colors"
-                        >
-                          <X size={12} />
-                        </button>
-                      {:else}
-                        <button
-                          onclick={() => { uploadCollectionId = c.id; importCollectionId = null; }}
-                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
-                        >
-                          <Upload size={12} />
-                          Upload Document
-                        </button>
-                      {/if}
-                    </div>
+                <!-- URL Import -->
+                <div class="flex items-center gap-2">
+                  {#if importCollectionId === c.id}
+                    <form onsubmit={(e) => { e.preventDefault(); handleImportURL(); }} class="flex items-center gap-2">
+                      <input
+                        type="url"
+                        bind:value={importURL}
+                        placeholder="https://example.com/page.html"
+                        class="w-72 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                      />
+                      <button
+                        type="submit"
+                        disabled={importing || !importURL.trim()}
+                        class="px-3 py-1 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                      >
+                        {importing ? 'Importing...' : 'Import'}
+                      </button>
+                      <button
+                        type="button"
+                        onclick={() => { importCollectionId = null; importURL = ''; }}
+                        class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    </form>
+                  {:else}
+                    <button
+                      onclick={() => { importCollectionId = c.id; uploadCollectionId = null; }}
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                    >
+                      <Link size={12} />
+                      Import URL
+                    </button>
+                  {/if}
+                </div>
 
-                    <!-- URL Import -->
-                    <div class="flex items-center gap-2">
-                      {#if importCollectionId === c.id}
-                        <form onsubmit={(e) => { e.preventDefault(); handleImportURL(); }} class="flex items-center gap-2">
-                          <input
-                            type="url"
-                            bind:value={importURL}
-                            placeholder="https://example.com/page.html"
-                            class="w-72 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                          />
-                          <button
-                            type="submit"
-                            disabled={importing || !importURL.trim()}
-                            class="px-3 py-1 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
-                          >
-                            {importing ? 'Importing...' : 'Import'}
-                          </button>
-                          <button
-                            type="button"
-                            onclick={() => { importCollectionId = null; importURL = ''; }}
-                            class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted transition-colors"
-                          >
-                            <X size={12} />
-                          </button>
-                        </form>
-                      {:else}
-                        <button
-                          onclick={() => { importCollectionId = c.id; uploadCollectionId = null; }}
-                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
-                        >
-                          <Link size={12} />
-                          Import URL
-                        </button>
-                      {/if}
-                    </div>
+                <!-- Details -->
+                <div class="ml-auto flex items-center gap-4 text-xs text-gray-400 dark:text-dark-text-muted">
+                  <span>Chunk: {c.chunk_size}/{c.chunk_overlap}</span>
+                  {#if c.created_by}
+                    <span>by {c.created_by}</span>
+                  {/if}
+                </div>
+              </div>
+            </td>
+          </tr>
+        {/if}
+      {/snippet}
+    </DataTable>
+  {/if}
 
-                    <!-- Details -->
-                    <div class="ml-auto flex items-center gap-4 text-xs text-gray-400 dark:text-dark-text-muted">
-                      <span>Chunk: {c.chunk_size}/{c.chunk_overlap}</span>
-                      {#if c.created_by}
-                        <span>by {c.created_by}</span>
-                      {/if}
-                    </div>
-                  </div>
-                </td>
-              </tr>
-            {/if}
-          {/each}
-        </tbody>
-      </table>
-    {/if}
-  </div>
 </div>

@@ -451,12 +451,12 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 			return v.Value, nil
 		}
 		varLister = func() (map[string]string, error) {
-			vars, err := s.variableStore.ListVariables(ctx)
+			vars, err := s.variableStore.ListVariables(ctx, nil)
 			if err != nil {
 				return nil, err
 			}
-			m := make(map[string]string, len(vars))
-			for _, v := range vars {
+			m := make(map[string]string, len(vars.Data))
+			for _, v := range vars.Data {
 				m[v.Key] = v.Value
 			}
 			return m, nil

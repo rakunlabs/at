@@ -14,6 +14,9 @@
   } from '@/lib/api/providers';
   import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check } from 'lucide-svelte';
   import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
+  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import DataTable from '@/lib/components/DataTable.svelte';
+  import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
   storeNavbar.title = 'Providers';
 
@@ -325,6 +328,16 @@
 
   let providers = $state<ProviderRecord[]>([]);
   let loading = $state(true);
+  
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(10);
+  let total = $state(0);
+
+  // Search & Sort
+  let searchQuery = $state('');
+  let sorts = $state<SortEntry[]>([]);
+
   let showForm = $state(false);
   let showPresets = $state(false);
   let editingKey = $state<string | null>(null);
@@ -364,12 +377,30 @@
   async function load() {
     loading = true;
     try {
-      providers = await listProviders();
+      const params: any = { _offset: offset, _limit: limit };
+      if (searchQuery) params['key[like]'] = `%${searchQuery}%`;
+      const sortParam = buildSortParam(sorts);
+      if (sortParam) params._sort = sortParam;
+      const res = await listProviders(params);
+      providers = res.data || [];
+      total = res.meta?.total || 0;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load providers', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  function handleSearch(value: string) {
+    searchQuery = value;
+    offset = 0;
+    load();
+  }
+
+  function handleSort(field: string, multiSort: boolean) {
+    sorts = toggleSort(sorts, field, multiSort);
+    offset = 0;
+    load();
   }
 
   load();
@@ -655,6 +686,7 @@
     <div>
       <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Providers</h1>
       <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">Configure LLM backends for the gateway</p>
+      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
     </div>
     <div class="flex gap-2">
       <button
@@ -1050,13 +1082,21 @@
   {/if}
 
   <!-- Provider list -->
-  {#if loading}
-    <div class="text-center py-12 text-gray-400 dark:text-dark-text-faint text-sm">Loading...</div>
-  {:else if providers.length === 0 && !showForm && !showPresets}
-    <div class="border border-dashed border-gray-300 dark:border-dark-border-subtle py-12 bg-white dark:bg-dark-surface">
-      <div class="text-center">
-        <div class="text-gray-400 dark:text-dark-text-faint mb-1">No providers configured</div>
-        <p class="text-sm text-gray-400 dark:text-dark-text-faint mb-4">Add a provider to start routing requests</p>
+  {#if loading || providers.length > 0 || (!showForm && !showPresets)}
+    <DataTable
+      items={providers}
+      {loading}
+      {total}
+      {limit}
+      bind:offset
+      onchange={load}
+      onsearch={handleSearch}
+      searchPlaceholder="Search by key..."
+      emptyIcon={Layers}
+      emptyTitle="No providers configured"
+      emptyDescription="Add a provider to start routing requests"
+    >
+      {#snippet emptyAction()}
         <div class="flex justify-center gap-2">
           <button
             onclick={openPresets}
@@ -1073,80 +1113,73 @@
             Custom
           </button>
         </div>
-      </div>
-    </div>
-  {:else if providers.length > 0}
-    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Key</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Model</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Base URL</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-28"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
-          {#each providers as rec}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
-              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{rec.key}</td>
-              <td class="px-4 py-2.5">
-                <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{rec.config.type}</span>
-              </td>
-              <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{rec.config.model}</td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                {(rec.config.models || []).length > 0 ? (rec.config.models || []).join(', ') : '-'}
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48" title={rec.config.base_url || ''}>
-                {rec.config.base_url || 'default'}
-              </td>
-              <td class="px-4 py-2.5 text-right">
-                <div class="flex justify-end gap-1">
-                  <button
-                    onclick={() => openConfigView(rec)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
-                    title="View Config"
-                  >
-                    <FileCode size={14} />
-                  </button>
-                  <button
-                    onclick={() => openEdit(rec)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
-                    title="Edit"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  {#if deleteConfirm === rec.key}
-                    <button
-                      onclick={() => handleDelete(rec.key)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  {:else}
-                    <button
-                      onclick={() => (deleteConfirm = rec.key)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  {/if}
-                </div>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    </div>
+      {/snippet}
+
+      {#snippet header()}
+        <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />
+        <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />
+        <SortableHeader field="model" label="Model" {sorts} onsort={handleSort} />
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Base URL</th>
+        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-28"></th>
+      {/snippet}
+
+      {#snippet row(rec)}
+        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
+          <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{rec.key}</td>
+          <td class="px-4 py-2.5">
+            <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{rec.config.type}</span>
+          </td>
+          <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{rec.config.model}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            {(rec.config.models || []).length > 0 ? (rec.config.models || []).join(', ') : '-'}
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48" title={rec.config.base_url || ''}>
+            {rec.config.base_url || 'default'}
+          </td>
+          <td class="px-4 py-2.5 text-right">
+            <div class="flex justify-end gap-1">
+              <button
+                onclick={() => openConfigView(rec)}
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                title="View Config"
+              >
+                <FileCode size={14} />
+              </button>
+              <button
+                onclick={() => openEdit(rec)}
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                title="Edit"
+              >
+                <Pencil size={14} />
+              </button>
+              {#if deleteConfirm === rec.key}
+                <button
+                  onclick={() => handleDelete(rec.key)}
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onclick={() => (deleteConfirm = null)}
+                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
+                >
+                  Cancel
+                </button>
+              {:else}
+                <button
+                  onclick={() => (deleteConfirm = rec.key)}
+                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              {/if}
+            </div>
+          </td>
+        </tr>
+      {/snippet}
+    </DataTable>
   {/if}
 
   <!-- Config Viewer Modal -->

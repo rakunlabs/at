@@ -8,6 +8,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Info API ───
@@ -82,23 +83,29 @@ func (s *Server) ListProvidersAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := s.store.ListProviders(r.Context())
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.store.ListProviders(r.Context(), q)
 	if err != nil {
 		slog.Error("list providers failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list providers: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	if records == nil {
-		records = []service.ProviderRecord{}
+	if result == nil {
+		result = &service.ListResult[service.ProviderRecord]{Data: []service.ProviderRecord{}}
 	}
 
 	// Redact secrets before sending to the client.
-	for i := range records {
-		redactProviderRecord(&records[i])
+	for i := range result.Data {
+		redactProviderRecord(&result.Data[i])
 	}
 
-	httpResponseJSON(w, providersResponse{Providers: records}, http.StatusOK)
+	httpResponseJSON(w, result, http.StatusOK)
 }
 
 // GetProviderAPI handles GET /api/v1/providers/:key.

@@ -9,9 +9,10 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
-func (m *Memory) ListRAGCollections(_ context.Context) ([]service.RAGCollection, error) {
+func (m *Memory) ListRAGCollections(_ context.Context, q *query.Query) (*service.ListResult[service.RAGCollection], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -30,7 +31,7 @@ func (m *Memory) ListRAGCollections(_ context.Context) ([]service.RAGCollection,
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) GetRAGCollection(_ context.Context, id string) (*service.RAGCollection, error) {

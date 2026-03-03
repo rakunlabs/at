@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -28,10 +29,6 @@ export interface RAGCollection {
   updated_by: string;
 }
 
-interface CollectionsResponse {
-  collections: RAGCollection[];
-}
-
 export interface UploadResult {
   chunks_stored: number;
   source: string;
@@ -44,10 +41,6 @@ export interface SearchResult {
   collection_id: string;
 }
 
-interface SearchResponse {
-  results: SearchResult[];
-}
-
 export interface SearchRequest {
   query: string;
   collection_ids?: string[];
@@ -57,9 +50,9 @@ export interface SearchRequest {
 
 // ─── Collection CRUD ───
 
-export async function listCollections(): Promise<RAGCollection[]> {
-  const res = await api.get<CollectionsResponse>('/rag/collections');
-  return res.data.collections;
+export async function listCollections(params?: ListParams): Promise<ListResult<RAGCollection>> {
+  const res = await api.get<ListResult<RAGCollection>>('/rag/collections', { params });
+  return res.data;
 }
 
 export async function getCollection(id: string): Promise<RAGCollection> {
@@ -101,6 +94,6 @@ export async function importFromURL(collectionId: string, url: string, contentTy
 // ─── Search ───
 
 export async function searchRAG(req: SearchRequest): Promise<SearchResult[]> {
-  const res = await api.post<SearchResponse>('/rag/search', req);
+  const res = await api.post<{ results: SearchResult[] }>('/rag/search', req);
   return res.data.results;
 }

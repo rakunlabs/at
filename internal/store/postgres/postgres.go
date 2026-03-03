@@ -14,6 +14,7 @@ import (
 	"github.com/rakunlabs/at/internal/config"
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -166,16 +167,13 @@ type providerRow struct {
 	UpdatedBy string          `db:"updated_by"`
 }
 
-func (p *Postgres) ListProviders(ctx context.Context) ([]service.ProviderRecord, error) {
-	query, _, err := p.goqu.From(p.tableProviders).
-		Select("id", "key", "config", "created_at", "updated_at", "created_by", "updated_by").
-		Order(goqu.I("key").Asc()).
-		ToSQL()
+func (p *Postgres) ListProviders(ctx context.Context, q *query.Query) (*service.ListResult[service.ProviderRecord], error) {
+	sql, total, err := p.buildListQuery(ctx, p.tableProviders, q, "id", "key", "config", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list query: %w", err)
 	}
 
-	rows, err := p.db.QueryContext(ctx, query)
+	rows, err := p.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list providers: %w", err)
 	}
@@ -185,7 +183,7 @@ func (p *Postgres) ListProviders(ctx context.Context) ([]service.ProviderRecord,
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
-	var result []service.ProviderRecord
+	var items []service.ProviderRecord
 	for rows.Next() {
 		var row providerRow
 		if err := rows.Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
@@ -196,10 +194,19 @@ func (p *Postgres) ListProviders(ctx context.Context) ([]service.ProviderRecord,
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *rec)
+		items = append(items, *rec)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.ProviderRecord]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (p *Postgres) GetProvider(ctx context.Context, key string) (*service.ProviderRecord, error) {

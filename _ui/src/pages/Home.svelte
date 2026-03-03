@@ -3,6 +3,7 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { Database, Cpu, Layers, MessageSquare, ArrowRight, RefreshCw } from 'lucide-svelte';
+  import DataTable from '@/lib/components/DataTable.svelte';
 
   storeNavbar.title = 'Dashboard';
 
@@ -18,7 +19,7 @@
     loading = true;
     try {
       const info = await getInfo();
-      providers = info.providers;
+      providers = info.providers || [];
       storeType = info.store_type;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load info', 'alert');
@@ -138,58 +139,54 @@
   </div>
 
   <!-- Provider list -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border">
-      <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Registered Providers</span>
-      <button
-        onclick={load}
-        class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
-        title="Refresh"
-      >
-        <RefreshCw size={14} />
-      </button>
-    </div>
-    {#if loading}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
-    {:else if providers.length === 0}
-      <div class="px-4 py-10 text-center">
-        <div class="text-gray-400 dark:text-dark-text-muted mb-2">No providers registered</div>
-        <a href="#/providers" class="text-sm text-gray-500 dark:text-accent-text hover:text-gray-900 dark:hover:text-accent underline underline-offset-2 transition-colors">
-          Add your first provider
-        </a>
-      </div>
-    {:else}
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-100 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50">
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Provider</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Default Model</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-50 dark:divide-dark-border">
-          {#each providers as p}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{p.key}</td>
-              <td class="px-4 py-2.5">
-                <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{p.type}</span>
-              </td>
-              <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{p.default_model}</td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                {#if p.models && p.models.length > 0}
-                  {p.models.length} model{p.models.length !== 1 ? 's' : ''}
-                  <span class="text-gray-400 dark:text-dark-text-muted ml-1" title={p.models.join(', ')}>{p.models.slice(0, 3).join(', ')}{p.models.length > 3 ? '...' : ''}</span>
-                {:else}
-                  1 model
-                {/if}
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    {/if}
+  <div class="flex items-center justify-between mb-2 mt-6 px-1">
+    <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Registered Providers</span>
+    <button
+      onclick={load}
+      class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors rounded"
+      title="Refresh"
+    >
+      <RefreshCw size={14} />
+    </button>
   </div>
+
+  <DataTable
+    items={providers}
+    {loading}
+    emptyIcon={Layers}
+    emptyTitle="No providers registered"
+  >
+    {#snippet emptyAction()}
+      <a href="#/providers" class="text-sm text-gray-500 dark:text-accent-text hover:text-gray-900 dark:hover:text-accent underline underline-offset-2 transition-colors">
+        Add your first provider
+      </a>
+    {/snippet}
+
+    {#snippet header()}
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Provider</th>
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Default Model</th>
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Models</th>
+    {/snippet}
+
+    {#snippet row(p)}
+      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+        <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{p.key}</td>
+        <td class="px-4 py-2.5">
+          <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{p.type}</span>
+        </td>
+        <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{p.default_model}</td>
+        <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+          {#if p.models && p.models.length > 0}
+            {p.models.length} model{p.models.length !== 1 ? 's' : ''}
+            <span class="text-gray-400 dark:text-dark-text-muted ml-1" title={p.models.join(', ')}>{p.models.slice(0, 3).join(', ')}{p.models.length > 3 ? '...' : ''}</span>
+          {:else}
+            1 model
+          {/if}
+        </td>
+      </tr>
+    {/snippet}
+  </DataTable>
 
   <!-- API endpoint info -->
   <div class="mt-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">

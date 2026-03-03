@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Node Config CRUD API ───
@@ -30,31 +31,51 @@ func (s *Server) ListNodeConfigsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var records []service.NodeConfig
-	var err error
-
-	configType := r.URL.Query().Get("type")
-	if configType != "" {
-		records, err = s.nodeConfigStore.ListNodeConfigsByType(r.Context(), configType)
-	} else {
-		records, err = s.nodeConfigStore.ListNodeConfigs(r.Context())
-	}
+	q, err := query.Parse(r.URL.RawQuery)
 	if err != nil {
-		slog.Error("list node configs failed", "error", err)
-		httpResponse(w, fmt.Sprintf("failed to list node configs: %v", err), http.StatusInternalServerError)
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	if records == nil {
-		records = []service.NodeConfig{}
+	var listResult *service.ListResult[service.NodeConfig]
+
+	configType := r.URL.Query().Get("type")
+	if configType != "" {
+		records, err := s.nodeConfigStore.ListNodeConfigsByType(r.Context(), configType)
+		if err != nil {
+			slog.Error("list node configs by type failed", "error", err)
+			httpResponse(w, fmt.Sprintf("failed to list node configs: %v", err), http.StatusInternalServerError)
+			return
+		}
+		listResult = &service.ListResult[service.NodeConfig]{
+			Data: records,
+			Meta: service.ListMeta{
+				Total:  uint64(len(records)),
+				Offset: 0,
+				Limit:  uint64(len(records)),
+			},
+		}
+	} else {
+		listResult, err = s.nodeConfigStore.ListNodeConfigs(r.Context(), q)
+		if err != nil {
+			slog.Error("list node configs failed", "error", err)
+			httpResponse(w, fmt.Sprintf("failed to list node configs: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if listResult == nil {
+		listResult = &service.ListResult[service.NodeConfig]{Data: []service.NodeConfig{}}
+	} else if listResult.Data == nil {
+		listResult.Data = []service.NodeConfig{}
 	}
 
 	// Redact sensitive fields in list responses.
-	for i := range records {
-		records[i].Data = redactNodeConfigData(records[i].Type, records[i].Data)
+	for i := range listResult.Data {
+		listResult.Data[i].Data = redactNodeConfigData(listResult.Data[i].Type, listResult.Data[i].Data)
 	}
 
-	httpResponseJSON(w, nodeConfigsResponse{NodeConfigs: records}, http.StatusOK)
+	httpResponseJSON(w, listResult, http.StatusOK)
 }
 
 // GetNodeConfigAPI handles GET /api/v1/node-configs/:id.

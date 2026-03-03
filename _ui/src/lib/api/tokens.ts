@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -38,13 +39,9 @@ export interface CreateTokenResponse {
   info: APIToken;
 }
 
-interface TokensResponse {
-  tokens: APIToken[];
-}
-
-export async function listTokens(): Promise<APIToken[]> {
-  const res = await api.get<TokensResponse>('/api-tokens');
-  return res.data.tokens;
+export async function listTokens(params?: ListParams): Promise<ListResult<APIToken>> {
+  const res = await api.get<ListResult<APIToken>>('/api-tokens', { params });
+  return res.data;
 }
 
 export async function createToken(req: CreateTokenRequest): Promise<CreateTokenResponse> {

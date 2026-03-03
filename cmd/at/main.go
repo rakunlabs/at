@@ -127,12 +127,12 @@ func run(ctx context.Context) error {
 	defer st.Close()
 
 	// Load DB providers on top of YAML providers (DB overrides YAML).
-	dbRecords, err := st.ListProviders(ctx)
+	dbRecords, err := st.ListProviders(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to load providers from DB: %w", err)
 	}
 
-	for _, rec := range dbRecords {
+	for _, rec := range dbRecords.Data {
 		provider, err := newProvider(rec.Config)
 		if err != nil {
 			slog.Warn("failed to create DB provider, skipping", "key", rec.Key, "error", err)

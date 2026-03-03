@@ -12,6 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Node Config CRUD ───
@@ -33,16 +34,13 @@ var sensitiveFields = map[string][]string{
 	"email": {"password"},
 }
 
-func (p *Postgres) ListNodeConfigs(ctx context.Context) ([]service.NodeConfig, error) {
-	query, _, err := p.goqu.From(p.tableNodeConfigs).
-		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by").
-		Order(goqu.I("name").Asc()).
-		ToSQL()
+func (p *Postgres) ListNodeConfigs(ctx context.Context, q *query.Query) (*service.ListResult[service.NodeConfig], error) {
+	sql, total, err := p.buildListQuery(ctx, p.tableNodeConfigs, q, "id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list node configs query: %w", err)
 	}
 
-	rows, err := p.db.QueryContext(ctx, query)
+	rows, err := p.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list node configs: %w", err)
 	}
@@ -52,7 +50,7 @@ func (p *Postgres) ListNodeConfigs(ctx context.Context) ([]service.NodeConfig, e
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
-	var result []service.NodeConfig
+	var items []service.NodeConfig
 	for rows.Next() {
 		var row nodeConfigRow
 		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
@@ -63,10 +61,19 @@ func (p *Postgres) ListNodeConfigs(ctx context.Context) ([]service.NodeConfig, e
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *rec)
+		items = append(items, *rec)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.NodeConfig]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (p *Postgres) ListNodeConfigsByType(ctx context.Context, configType string) ([]service.NodeConfig, error) {

@@ -10,27 +10,25 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 	"github.com/worldline-go/types"
 )
 
 // ─── API Token CRUD ───
 
-func (p *Postgres) ListAPITokens(ctx context.Context) ([]service.APIToken, error) {
-	query, _, err := p.goqu.From(p.tableAPITokens).
-		Select("id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at", "created_by", "updated_by").
-		Order(goqu.I("created_at").Desc()).
-		ToSQL()
+func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.ListResult[service.APIToken], error) {
+	sql, total, err := p.buildListQuery(ctx, p.tableAPITokens, q, "id", "name", "token_prefix", "allowed_providers", "allowed_models", "allowed_webhooks", "expires_at", "created_at", "last_used_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list tokens query: %w", err)
 	}
 
-	rows, err := p.db.QueryContext(ctx, query)
+	rows, err := p.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list tokens: %w", err)
 	}
 	defer rows.Close()
 
-	var result []service.APIToken
+	var items []service.APIToken
 	for rows.Next() {
 		var t service.APIToken
 		if err := rows.Scan(
@@ -40,10 +38,19 @@ func (p *Postgres) ListAPITokens(ctx context.Context) ([]service.APIToken, error
 		); err != nil {
 			return nil, fmt.Errorf("scan api_token row: %w", err)
 		}
-		result = append(result, t)
+		items = append(items, t)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.APIToken]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (p *Postgres) GetAPITokenByHash(ctx context.Context, hash string) (*service.APIToken, error) {

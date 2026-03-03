@@ -7,12 +7,26 @@
   import { listTriggers, type Trigger } from '@/lib/api/triggers';
   import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
+  import { formatDateTime } from '@/lib/helper/format';
+  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import DataTable from '@/lib/components/DataTable.svelte';
+  import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
   storeNavbar.title = 'API Tokens';
 
   // ─── State ───
   let tokens = $state<APIToken[]>([]);
   let loading = $state(true);
+  
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(10);
+  let total = $state(0);
+
+  // Search & Sort
+  let searchQuery = $state('');
+  let sorts = $state<SortEntry[]>([]);
+
   let providers = $state<InfoProvider[]>([]);
 
   // Webhook data
@@ -53,12 +67,30 @@
   async function loadTokens() {
     loading = true;
     try {
-      tokens = await listTokens();
+      const params: any = { _offset: offset, _limit: limit };
+      if (searchQuery) params['name[like]'] = `%${searchQuery}%`;
+      const sortParam = buildSortParam(sorts);
+      if (sortParam) params._sort = sortParam;
+      const res = await listTokens(params);
+      tokens = res.data || [];
+      total = res.meta?.total || 0;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load tokens', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  function handleSearch(value: string) {
+    searchQuery = value;
+    offset = 0;
+    loadTokens();
+  }
+
+  function handleSort(field: string, multiSort: boolean) {
+    sorts = toggleSort(sorts, field, multiSort);
+    offset = 0;
+    loadTokens();
   }
 
   async function loadProviders() {
@@ -70,10 +102,10 @@
 
   async function loadWebhooks() {
     try {
-      const wfs = await listWorkflows();
-      workflows = wfs;
+      const wfsResult = await listWorkflows();
+      workflows = wfsResult.data || [];
       const results: { trigger: Trigger; workflowName: string }[] = [];
-      for (const wf of wfs) {
+      for (const wf of workflows) {
         try {
           const triggers = await listTriggers(wf.id);
           for (const t of triggers) {
@@ -172,12 +204,6 @@
     navigator.clipboard.writeText(text);
     copied = true;
     setTimeout(() => (copied = false), 2000);
-  }
-
-  function formatDate(dateStr: string | null): string {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
 
   function isExpired(expiresAt: string | null): boolean {
@@ -333,7 +359,7 @@
     <div class="flex items-center gap-2">
       <Key size={16} class="text-gray-500 dark:text-dark-text-muted" />
       <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">API Tokens</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({tokens.length})</span>
+      <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
     </div>
     <div class="flex items-center gap-2">
       <button
@@ -526,274 +552,271 @@
   {/if}
 
   <!-- Token list -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    {#if loading}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
-    {:else if tokens.length === 0}
-      <div class="px-4 py-10 text-center">
-        <Key size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
-        <div class="text-gray-400 dark:text-dark-text-muted mb-1">No API tokens</div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-muted">Create a token to authenticate API requests</div>
-      </div>
-    {:else}
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-100 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50">
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Token</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Scope</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Expires</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Created By</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Last Used</th>
-            <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-16"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-50 dark:divide-dark-border">
-          {#each tokens as token}
-            {#if editingTokenId === token.id}
-              <!-- Edit form row -->
-              <tr class="bg-blue-50/30 dark:bg-blue-900/10">
-                <td colspan="7" class="px-4 py-3">
-                  <div class="space-y-3">
-                    <div class="flex items-center gap-2 mb-1">
-                      <Pencil size={12} class="text-gray-400 dark:text-dark-text-muted" />
-                      <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Editing token</span>
-                      <code class="text-xs font-mono text-gray-400 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
-                    </div>
+  <DataTable
+    items={tokens}
+    {loading}
+    {total}
+    {limit}
+    bind:offset
+    onchange={loadTokens}
+    onsearch={handleSearch}
+    searchPlaceholder="Search by name..."
+    emptyIcon={Key}
+    emptyTitle="No API tokens"
+    emptyDescription="Create a token to authenticate API requests"
+  >
+    {#snippet header()}
+      <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Token</th>
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Scope</th>
+      <SortableHeader field="expires_at" label="Expires" {sorts} onsort={handleSort} />
+      <SortableHeader field="created_by" label="Created By" {sorts} onsort={handleSort} />
+      <SortableHeader field="last_used_at" label="Last Used" {sorts} onsort={handleSort} />
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-16"></th>
+    {/snippet}
 
-                    <div class="grid grid-cols-4 gap-3">
-                      <label for="edit-token-name" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Name</label>
-                      <input
-                        id="edit-token-name"
-                        type="text"
-                        bind:value={editName}
-                        class="col-span-3 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
-                      />
-                    </div>
+    {#snippet row(token)}
+      {#if editingTokenId === token.id}
+        <!-- Edit form row -->
+        <tr class="bg-blue-50/30 dark:bg-blue-900/10">
+          <td colspan="7" class="px-4 py-3">
+            <div class="space-y-3">
+              <div class="flex items-center gap-2 mb-1">
+                <Pencil size={12} class="text-gray-400 dark:text-dark-text-muted" />
+                <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Editing token</span>
+                <code class="text-xs font-mono text-gray-400 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
+              </div>
 
-                    <div class="grid grid-cols-4 gap-3">
-                      <label for="edit-token-expires" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Expires At</label>
-                      <div class="col-span-3 flex items-center gap-2">
-                        <input
-                          id="edit-token-expires"
-                          type="datetime-local"
-                          bind:value={editExpiresAt}
-                          class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
-                        />
-                        {#if editExpiresAt}
+              <div class="grid grid-cols-4 gap-3">
+                <label for="edit-token-name" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Name</label>
+                <input
+                  id="edit-token-name"
+                  type="text"
+                  bind:value={editName}
+                  class="col-span-3 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+                />
+              </div>
+
+              <div class="grid grid-cols-4 gap-3">
+                <label for="edit-token-expires" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Expires At</label>
+                <div class="col-span-3 flex items-center gap-2">
+                  <input
+                    id="edit-token-expires"
+                    type="datetime-local"
+                    bind:value={editExpiresAt}
+                    class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+                  />
+                  {#if editExpiresAt}
+                    <button
+                      onclick={() => (editExpiresAt = '')}
+                      class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                    >
+                      Clear (no expiry)
+                    </button>
+                  {:else}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No expiry</span>
+                  {/if}
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-3">
+                <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Providers</span>
+                <div class="col-span-3">
+                  {#if allProviderKeys.length > 0}
+                    <div class="flex flex-wrap gap-1.5">
+                      {#each allProviderKeys as key}
+                        <button
+                          onclick={() => toggleEditProvider(key)}
+                          class={[
+                            'px-2 py-1 text-xs border transition-colors',
+                            editSelectedProviders.includes(key)
+                              ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                          ]}
+                        >
+                          {key}
+                        </button>
+                      {/each}
+                    </div>
+                    <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all providers allowed</p>
+                  {:else}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
+                  {/if}
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-3">
+                <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Models</span>
+                <div class="col-span-3">
+                  {#if allModels.length > 0}
+                    <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
+                      <div class="flex flex-wrap gap-1.5">
+                        {#each allModels as model}
                           <button
-                            onclick={() => (editExpiresAt = '')}
-                            class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                            onclick={() => toggleEditModel(model)}
+                            class={[
+                              'px-2 py-0.5 text-xs border font-mono transition-colors',
+                              editSelectedModels.includes(model)
+                                ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                            ]}
                           >
-                            Clear (no expiry)
+                            {model}
                           </button>
-                        {:else}
-                          <span class="text-xs text-gray-400 dark:text-dark-text-muted">No expiry</span>
-                        {/if}
+                        {/each}
                       </div>
                     </div>
+                    <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all models allowed</p>
+                  {:else}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
+                  {/if}
+                </div>
+              </div>
 
-                    <div class="grid grid-cols-4 gap-3">
-                      <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Providers</span>
-                      <div class="col-span-3">
-                        {#if allProviderKeys.length > 0}
+              <div class="grid grid-cols-4 gap-3">
+                <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Webhooks</span>
+                <div class="col-span-3">
+                  {#if webhookTriggers.length > 0}
+                    <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
+                      {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
+                        <div>
+                          <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
                           <div class="flex flex-wrap gap-1.5">
-                            {#each allProviderKeys as key}
+                            {#each items as { trigger }}
                               <button
-                                onclick={() => toggleEditProvider(key)}
+                                onclick={() => toggleEditWebhook(trigger.id)}
                                 class={[
-                                  'px-2 py-1 text-xs border transition-colors',
-                                  editSelectedProviders.includes(key)
+                                  'px-2 py-0.5 text-xs border font-mono transition-colors',
+                                  editSelectedWebhooks.includes(trigger.id)
                                     ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                                     : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
                                 ]}
                               >
-                                {key}
+                                {trigger.alias || trigger.id}
                               </button>
                             {/each}
                           </div>
-                          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all providers allowed</p>
-                        {:else}
-                          <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
-                        {/if}
-                      </div>
+                        </div>
+                      {/each}
                     </div>
+                    <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all webhooks allowed</p>
+                  {:else}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
+                  {/if}
+                </div>
+              </div>
 
-                    <div class="grid grid-cols-4 gap-3">
-                      <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Models</span>
-                      <div class="col-span-3">
-                        {#if allModels.length > 0}
-                          <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
-                            <div class="flex flex-wrap gap-1.5">
-                              {#each allModels as model}
-                                <button
-                                  onclick={() => toggleEditModel(model)}
-                                  class={[
-                                    'px-2 py-0.5 text-xs border font-mono transition-colors',
-                                    editSelectedModels.includes(model)
-                                      ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                                  ]}
-                                >
-                                  {model}
-                                </button>
-                              {/each}
-                            </div>
-                          </div>
-                          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all models allowed</p>
-                        {:else}
-                          <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
-                        {/if}
-                      </div>
-                    </div>
-
-                    <div class="grid grid-cols-4 gap-3">
-                      <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Webhooks</span>
-                      <div class="col-span-3">
-                        {#if webhookTriggers.length > 0}
-                          <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
-                            {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
-                              <div>
-                                <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
-                                <div class="flex flex-wrap gap-1.5">
-                                  {#each items as { trigger }}
-                                    <button
-                                      onclick={() => toggleEditWebhook(trigger.id)}
-                                      class={[
-                                        'px-2 py-0.5 text-xs border font-mono transition-colors',
-                                        editSelectedWebhooks.includes(trigger.id)
-                                          ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                                      ]}
-                                    >
-                                      {trigger.alias || trigger.id}
-                                    </button>
-                                  {/each}
-                                </div>
-                              </div>
-                            {/each}
-                          </div>
-                          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all webhooks allowed</p>
-                        {:else}
-                          <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
-                        {/if}
-                      </div>
-                    </div>
-
-                    <div class="flex items-center gap-2 pt-1">
-                      <button
-                        onclick={handleSaveEdit}
-                        disabled={saving}
-                        class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
-                      >
-                        {saving ? 'Saving...' : 'Save'}
-                      </button>
-                      <button
-                        onclick={cancelEditing}
-                        class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                </td>
-              </tr>
+              <div class="flex items-center gap-2 pt-1">
+                <button
+                  onclick={handleSaveEdit}
+                  disabled={saving}
+                  class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                >
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onclick={cancelEditing}
+                  class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </td>
+        </tr>
+      {:else}
+        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">{token.name}</td>
+          <td class="px-4 py-2.5">
+            <code class="text-xs font-mono text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            {#if !token.allowed_providers && !token.allowed_models && !token.allowed_webhooks}
+              <span class="text-gray-400 dark:text-dark-text-muted">All access</span>
             {:else}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-              <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">{token.name}</td>
-              <td class="px-4 py-2.5">
-                <code class="text-xs font-mono text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                {#if !token.allowed_providers && !token.allowed_models && !token.allowed_webhooks}
-                  <span class="text-gray-400 dark:text-dark-text-muted">All access</span>
-                {:else}
-                  <div class="space-y-0.5">
-                    {#if token.allowed_providers && token.allowed_providers.length > 0}
-                      <div>
-                        <span class="text-gray-400 dark:text-dark-text-muted">Providers:</span>
-                        {token.allowed_providers.join(', ')}
-                      </div>
-                    {/if}
-                    {#if token.allowed_models && token.allowed_models.length > 0}
-                      <div>
-                        <span class="text-gray-400 dark:text-dark-text-muted">Models:</span>
-                        {token.allowed_models.slice(0, 3).join(', ')}{token.allowed_models.length > 3 ? ` +${token.allowed_models.length - 3}` : ''}
-                      </div>
-                    {/if}
-                    {#if token.allowed_webhooks && token.allowed_webhooks.length > 0}
-                      <div>
-                        <span class="text-gray-400 dark:text-dark-text-muted">Webhooks:</span>
-                        {token.allowed_webhooks.slice(0, 3).join(', ')}{token.allowed_webhooks.length > 3 ? ` +${token.allowed_webhooks.length - 3}` : ''}
-                      </div>
-                    {/if}
+              <div class="space-y-0.5">
+                {#if token.allowed_providers && token.allowed_providers.length > 0}
+                  <div>
+                    <span class="text-gray-400 dark:text-dark-text-muted">Providers:</span>
+                    {token.allowed_providers.join(', ')}
                   </div>
                 {/if}
-              </td>
-              <td class="px-4 py-2.5 text-xs">
-                {#if token.expires_at}
-                  <span class={isExpired(token.expires_at) ? 'text-red-500' : 'text-gray-500 dark:text-dark-text-muted'}>
-                    {isExpired(token.expires_at) ? 'Expired' : formatDate(token.expires_at)}
-                  </span>
-                {:else}
-                  <span class="text-gray-400 dark:text-dark-text-muted">Never</span>
-                {/if}
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-[150px] truncate" title={token.created_by}>
-                {token.created_by || '-'}
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                {formatDate(token.last_used_at)}
-              </td>
-              <td class="px-4 py-2.5 text-right">
-                {#if deleteConfirmId === token.id}
-                  <div class="flex items-center gap-1 justify-end">
-                    <button
-                      onclick={() => handleDelete(token.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      onclick={() => (deleteConfirmId = null)}
-                      class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                {:else}
-                  <div class="flex items-center gap-1 justify-end">
-                    <button
-                      onclick={() => openConfigView(token)}
-                      class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
-                      title="View Config"
-                    >
-                      <FileCode size={14} />
-                    </button>
-                    <button
-                      onclick={() => startEditing(token)}
-                      class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
-                      title="Edit"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onclick={() => (deleteConfirmId = token.id)}
-                      class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                {#if token.allowed_models && token.allowed_models.length > 0}
+                  <div>
+                    <span class="text-gray-400 dark:text-dark-text-muted">Models:</span>
+                    {token.allowed_models.slice(0, 3).join(', ')}{token.allowed_models.length > 3 ? ` +${token.allowed_models.length - 3}` : ''}
                   </div>
                 {/if}
-              </td>
-            </tr>
+                {#if token.allowed_webhooks && token.allowed_webhooks.length > 0}
+                  <div>
+                    <span class="text-gray-400 dark:text-dark-text-muted">Webhooks:</span>
+                    {token.allowed_webhooks.slice(0, 3).join(', ')}{token.allowed_webhooks.length > 3 ? ` +${token.allowed_webhooks.length - 3}` : ''}
+                  </div>
+                {/if}
+              </div>
             {/if}
-          {/each}
-        </tbody>
-      </table>
-    {/if}
-  </div>
+          </td>
+          <td class="px-4 py-2.5 text-xs">
+            {#if token.expires_at}
+              <span class={isExpired(token.expires_at) ? 'text-red-500' : 'text-gray-500 dark:text-dark-text-muted'}>
+                {isExpired(token.expires_at) ? 'Expired' : formatDateTime(token.expires_at)}
+              </span>
+            {:else}
+              <span class="text-gray-400 dark:text-dark-text-muted">Never</span>
+            {/if}
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-[150px] truncate" title={token.created_by}>
+            {token.created_by || '-'}
+          </td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+            {formatDateTime(token.last_used_at)}
+          </td>
+          <td class="px-4 py-2.5 text-right">
+            {#if deleteConfirmId === token.id}
+              <div class="flex items-center gap-1 justify-end">
+                <button
+                  onclick={() => handleDelete(token.id)}
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onclick={() => (deleteConfirmId = null)}
+                  class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            {:else}
+              <div class="flex items-center gap-1 justify-end">
+                <button
+                  onclick={() => openConfigView(token)}
+                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                  title="View Config"
+                >
+                  <FileCode size={14} />
+                </button>
+                <button
+                  onclick={() => startEditing(token)}
+                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                  title="Edit"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onclick={() => (deleteConfirmId = token.id)}
+                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            {/if}
+          </td>
+        </tr>
+      {/if}
+    {/snippet}
+  </DataTable>
 
   <!-- Config Viewer Modal -->
   {#if configViewToken}

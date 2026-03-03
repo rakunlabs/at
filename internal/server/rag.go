@@ -10,6 +10,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/rag"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Collection CRUD ───
@@ -26,7 +27,13 @@ func (s *Server) ListRAGCollectionsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := s.ragCollectionStore.ListRAGCollections(r.Context())
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	records, err := s.ragCollectionStore.ListRAGCollections(r.Context(), q)
 	if err != nil {
 		slog.Error("list rag collections failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list rag collections: %v", err), http.StatusInternalServerError)
@@ -34,10 +41,10 @@ func (s *Server) ListRAGCollectionsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if records == nil {
-		records = []service.RAGCollection{}
+		records = &service.ListResult[service.RAGCollection]{Data: []service.RAGCollection{}}
 	}
 
-	httpResponseJSON(w, ragCollectionsResponse{Collections: records}, http.StatusOK)
+	httpResponseJSON(w, records, http.StatusOK)
 }
 
 // GetRAGCollectionAPI handles GET /api/v1/rag/collections/{id}.

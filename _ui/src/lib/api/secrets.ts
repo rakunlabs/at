@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -16,15 +17,11 @@ export interface Variable {
   updated_at: string;
 }
 
-interface VariablesResponse {
-  variables: Variable[];
-}
-
 // ─── API Functions ───
 
-export async function listVariables(): Promise<Variable[]> {
-  const res = await api.get<VariablesResponse>('/variables');
-  return res.data.variables;
+export async function listVariables(params?: ListParams): Promise<ListResult<Variable>> {
+  const res = await api.get<ListResult<Variable>>('/variables', { params });
+  return res.data;
 }
 
 export async function getVariable(id: string): Promise<Variable> {

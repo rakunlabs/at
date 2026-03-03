@@ -13,7 +13,7 @@
         : []
   );
 
-  listAgents().then(a => agents = a).catch(() => {});
+  listAgents().then(res => agents = res.data).catch(() => {});
 </script>
 
 <div>

@@ -8,6 +8,10 @@
     deleteNodeConfig,
     type NodeConfig,
   } from '@/lib/api/node-configs';
+  import { formatDate } from '@/lib/helper/format';
+  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import DataTable from '@/lib/components/DataTable.svelte';
+  import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import { Settings, Plus, Pencil, Trash2, X, Save, RefreshCw, Eye, EyeOff } from 'lucide-svelte';
 
   storeNavbar.title = 'Node Configs';
@@ -16,6 +20,16 @@
 
   let configs = $state<NodeConfig[]>([]);
   let loading = $state(true);
+  
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(10);
+  let total = $state(0);
+
+  // Search & Sort
+  let searchQuery = $state('');
+  let sorts = $state<SortEntry[]>([]);
+
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
@@ -43,12 +57,30 @@
   async function load() {
     loading = true;
     try {
-      configs = await listNodeConfigs();
+      const params: any = { _offset: offset, _limit: limit };
+      if (searchQuery) params['name[like]'] = `%${searchQuery}%`;
+      const sortParam = buildSortParam(sorts);
+      if (sortParam) params._sort = sortParam;
+      const res = await listNodeConfigs(params);
+      configs = res.data || [];
+      total = res.meta?.total || 0;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load node configs', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  function handleSearch(value: string) {
+    searchQuery = value;
+    offset = 0;
+    load();
+  }
+
+  function handleSort(field: string, multiSort: boolean) {
+    sorts = toggleSort(sorts, field, multiSort);
+    offset = 0;
+    load();
   }
 
   load();
@@ -171,12 +203,6 @@
     }
   }
 
-  function formatDate(dateStr: string): string {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  }
-
   function parseConfigSummary(config: NodeConfig): string {
     try {
       const data = JSON.parse(config.data);
@@ -200,9 +226,10 @@
     <div class="flex items-center gap-2">
       <Settings size={16} class="text-gray-500 dark:text-dark-text-muted" />
       <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Node Configs</h2>
-      <span class="text-xs text-gray-400 dark:text-dark-text-faint">({configs.length})</span>
+      <span class="text-xs text-gray-400 dark:text-dark-text-faint">({total})</span>
     </div>
     <div class="flex items-center gap-2">
+
       <button
         onclick={load}
         class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
@@ -421,14 +448,21 @@
   {/if}
 
   <!-- Config list -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    {#if loading}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-faint text-sm">Loading...</div>
-    {:else if configs.length === 0 && !showForm}
-      <div class="px-4 py-10 text-center">
-        <Settings size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
-        <div class="text-gray-400 dark:text-dark-text-faint mb-1">No node configs configured</div>
-        <div class="text-xs text-gray-400 dark:text-dark-text-faint mb-3">Node configs store reusable settings like SMTP servers for workflow nodes</div>
+  {#if loading || configs.length > 0 || !showForm}
+    <DataTable
+      items={configs}
+      {loading}
+      {total}
+      {limit}
+      bind:offset
+      onchange={load}
+      onsearch={handleSearch}
+      searchPlaceholder="Search by name..."
+      emptyIcon={Settings}
+      emptyTitle="No node configs configured"
+      emptyDescription="Node configs store reusable settings like SMTP servers for workflow nodes"
+    >
+      {#snippet emptyAction()}
         <button
           onclick={openCreate}
           class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors mx-auto"
@@ -436,62 +470,57 @@
           <Plus size={12} />
           New Config
         </button>
-      </div>
-    {:else if configs.length > 0}
-      <table class="w-full text-sm">
-        <thead>
-          <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Details</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Updated</th>
-            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
-          </tr>
-        </thead>
-        <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
-          {#each configs as config}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
-              <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text">{config.name}</td>
-              <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{config.type}</td>
-              <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{parseConfigSummary(config)}</td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(config.updated_at)}</td>
-              <td class="px-4 py-2.5 text-right">
-                <div class="flex justify-end gap-1">
-                  <button
-                    onclick={() => openEdit(config)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-                    title="Edit"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  {#if deleteConfirm === config.id}
-                    <button
-                      onclick={() => handleDelete(config.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  {:else}
-                    <button
-                      onclick={() => (deleteConfirm = config.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  {/if}
-                </div>
-              </td>
-            </tr>
-          {/each}
-        </tbody>
-      </table>
-    {/if}
-  </div>
+      {/snippet}
+
+      {#snippet header()}
+        <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
+        <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />
+        <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Details</th>
+        <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
+        <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+      {/snippet}
+
+      {#snippet row(config)}
+        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
+          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text">{config.name}</td>
+          <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{config.type}</td>
+          <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{parseConfigSummary(config)}</td>
+          <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(config.updated_at)}</td>
+          <td class="px-4 py-2.5 text-right">
+            <div class="flex justify-end gap-1">
+              <button
+                onclick={() => openEdit(config)}
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                title="Edit"
+              >
+                <Pencil size={14} />
+              </button>
+              {#if deleteConfirm === config.id}
+                <button
+                  onclick={() => handleDelete(config.id)}
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                >
+                  Confirm
+                </button>
+                <button
+                  onclick={() => (deleteConfirm = null)}
+                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
+                >
+                  Cancel
+                </button>
+              {:else}
+                <button
+                  onclick={() => (deleteConfirm = config.id)}
+                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 size={14} />
+                </button>
+              {/if}
+            </div>
+          </td>
+        </tr>
+      {/snippet}
+    </DataTable>
+  {/if}
 </div>

@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Variable CRUD API ───
@@ -24,7 +25,13 @@ func (s *Server) ListVariablesAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := s.variableStore.ListVariables(r.Context())
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	records, err := s.variableStore.ListVariables(r.Context(), q)
 	if err != nil {
 		slog.Error("list variables failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list variables: %v", err), http.StatusInternalServerError)
@@ -32,17 +39,17 @@ func (s *Server) ListVariablesAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if records == nil {
-		records = []service.Variable{}
+		records = &service.ListResult[service.Variable]{Data: []service.Variable{}}
 	}
 
 	// Redact values only for secret variables.
-	for i := range records {
-		if records[i].Secret {
-			records[i].Value = "***"
+	for i := range records.Data {
+		if records.Data[i].Secret {
+			records.Data[i].Value = "***"
 		}
 	}
 
-	httpResponseJSON(w, variablesResponse{Variables: records}, http.StatusOK)
+	httpResponseJSON(w, records, http.StatusOK)
 }
 
 // GetVariableAPI handles GET /api/v1/variables/:id.

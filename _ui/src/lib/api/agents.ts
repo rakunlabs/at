@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ListResult, ListParams } from './types';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
@@ -19,9 +20,9 @@ export interface Agent {
   updated_by: string;
 }
 
-export async function listAgents(): Promise<Agent[]> {
-  const res = await api.get<{ agents: Agent[] }>('/agents');
-  return res.data.agents || [];
+export async function listAgents(params?: ListParams): Promise<ListResult<Agent>> {
+  const res = await api.get<ListResult<Agent>>('/agents', { params });
+  return res.data;
 }
 
 export async function getAgent(id: string): Promise<Agent> {

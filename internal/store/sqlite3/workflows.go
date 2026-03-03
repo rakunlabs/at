@@ -11,6 +11,7 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // ─── Workflow CRUD ───
@@ -27,22 +28,19 @@ type workflowRow struct {
 	UpdatedBy     string `db:"updated_by"`
 }
 
-func (s *SQLite) ListWorkflows(ctx context.Context) ([]service.Workflow, error) {
-	query, _, err := s.goqu.From(s.tableWorkflows).
-		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by").
-		Order(goqu.I("name").Asc()).
-		ToSQL()
+func (s *SQLite) ListWorkflows(ctx context.Context, q *query.Query) (*service.ListResult[service.Workflow], error) {
+	sql, total, err := s.buildListQuery(ctx, s.tableWorkflows, q, "id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list workflows query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, query)
+	rows, err := s.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list workflows: %w", err)
 	}
 	defer rows.Close()
 
-	var result []service.Workflow
+	var items []service.Workflow
 	for rows.Next() {
 		var row workflowRow
 		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
@@ -53,10 +51,19 @@ func (s *SQLite) ListWorkflows(ctx context.Context) ([]service.Workflow, error) 
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, *w)
+		items = append(items, *w)
 	}
 
-	return result, rows.Err()
+	offset, limit := getPagination(q)
+
+	return &service.ListResult[service.Workflow]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
 }
 
 func (s *SQLite) GetWorkflow(ctx context.Context, id string) (*service.Workflow, error) {

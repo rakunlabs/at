@@ -11,13 +11,26 @@
   } from '@/lib/api/skills';
   import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste } from 'lucide-svelte';
   import SkillBuilderPanel from '@/lib/components/SkillBuilderPanel.svelte';
+  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import DataTable from '@/lib/components/DataTable.svelte';
+  import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
   storeNavbar.title = 'Skills';
 
   // ─── State ───
-
+  
   let skills = $state<Skill[]>([]);
   let loading = $state(true);
+  
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(10);
+  let total = $state(0);
+
+  // Search & Sort
+  let searchQuery = $state('');
+  let sorts = $state<SortEntry[]>([]);
+
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
@@ -78,12 +91,30 @@
   async function load() {
     loading = true;
     try {
-      skills = await listSkills();
+      const params: any = { _offset: offset, _limit: limit };
+      if (searchQuery) params['name[like]'] = `%${searchQuery}%`;
+      const sortParam = buildSortParam(sorts);
+      if (sortParam) params._sort = sortParam;
+      const res = await listSkills(params);
+      skills = res.data || [];
+      total = res.meta?.total || 0;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load skills', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  function handleSearch(value: string) {
+    searchQuery = value;
+    offset = 0;
+    load();
+  }
+
+  function handleSort(field: string, multiSort: boolean) {
+    sorts = toggleSort(sorts, field, multiSort);
+    offset = 0;
+    load();
   }
 
   load();
@@ -194,7 +225,7 @@
         <div class="flex items-center gap-2">
           <Wand2 size={16} class="text-gray-500 dark:text-dark-text-muted" />
           <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Skills</h2>
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({skills.length})</span>
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
         </div>
         <div class="flex items-center gap-2">
           <button
@@ -385,14 +416,21 @@
       {/if}
 
       <!-- Skill list -->
-      <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-        {#if loading}
-          <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
-        {:else if skills.length === 0 && !showForm}
-          <div class="px-4 py-10 text-center">
-            <Wand2 size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
-            <div class="text-gray-400 dark:text-dark-text-muted mb-1">No skills configured</div>
-            <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">Skills define reusable tool sets for agent workflows</div>
+      {#if loading || skills.length > 0 || !showForm}
+        <DataTable
+          items={skills}
+          {loading}
+          {total}
+          {limit}
+          bind:offset
+          onchange={load}
+          onsearch={handleSearch}
+          searchPlaceholder="Search by name..."
+          emptyIcon={Wand2}
+          emptyTitle="No skills configured"
+          emptyDescription="Skills define reusable tool sets for agent workflows"
+        >
+          {#snippet emptyAction()}
             <button
               onclick={openCreate}
               class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors mx-auto"
@@ -400,89 +438,84 @@
               <Plus size={12} />
               New Skill
             </button>
-          </div>
-        {:else if skills.length > 0}
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Tools</th>
-                <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
-              {#each skills as skill}
-                <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-                  <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{skill.name}</td>
-                  <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={skill.description}>
-                    {skill.description || '-'}
-                  </td>
-                  <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                    {#if skill.tools && skill.tools.length > 0}
-                      <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
-                        {skill.tools.length} tool{skill.tools.length !== 1 ? 's' : ''}
-                      </span>
-                      <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
-                        {skill.tools.map((t) => t.name).join(', ')}
-                      </span>
-                    {:else}
-                      <span class="text-gray-400 dark:text-dark-text-muted">none</span>
-                    {/if}
-                  </td>
-                  <td class="px-4 py-2.5 text-right">
-                    <div class="flex justify-end gap-1">
-                      <button
-                        onclick={() => copySkill(skill)}
-                        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
-                        title="Copy skill"
-                      >
-                        <Copy size={14} />
-                      </button>
-                      <button
-                        onclick={() => openEditWithAI(skill)}
-                        class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-gray-400 hover:text-blue-600 dark:text-dark-text-muted dark:hover:text-accent-text transition-colors"
-                        title="Edit with AI"
-                      >
-                        <Bot size={14} />
-                      </button>
-                      <button
-                        onclick={() => openEdit(skill)}
-                        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
-                        title="Edit"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      {#if deleteConfirm === skill.id}
-                        <button
-                          onclick={() => handleDelete(skill.id)}
-                          class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onclick={() => (deleteConfirm = null)}
-                          class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      {:else}
-                        <button
-                          onclick={() => (deleteConfirm = skill.id)}
-                          class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      {/if}
-                    </div>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </div>
+          {/snippet}
+
+          {#snippet header()}
+            <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Tools</th>
+            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+          {/snippet}
+
+          {#snippet row(skill)}
+            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{skill.name}</td>
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={skill.description}>
+                {skill.description || '-'}
+              </td>
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+                {#if skill.tools && skill.tools.length > 0}
+                  <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
+                    {skill.tools.length} tool{skill.tools.length !== 1 ? 's' : ''}
+                  </span>
+                  <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
+                    {skill.tools.map((t) => t.name).join(', ')}
+                  </span>
+                {:else}
+                  <span class="text-gray-400 dark:text-dark-text-muted">none</span>
+                {/if}
+              </td>
+              <td class="px-4 py-2.5 text-right">
+                <div class="flex justify-end gap-1">
+                  <button
+                    onclick={() => copySkill(skill)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    title="Copy skill"
+                  >
+                    <Copy size={14} />
+                  </button>
+                  <button
+                    onclick={() => openEditWithAI(skill)}
+                    class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-gray-400 hover:text-blue-600 dark:text-dark-text-muted dark:hover:text-accent-text transition-colors"
+                    title="Edit with AI"
+                  >
+                    <Bot size={14} />
+                  </button>
+                  <button
+                    onclick={() => openEdit(skill)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    title="Edit"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  {#if deleteConfirm === skill.id}
+                    <button
+                      onclick={() => handleDelete(skill.id)}
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onclick={() => (deleteConfirm = null)}
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  {:else}
+                    <button
+                      onclick={() => (deleteConfirm = skill.id)}
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  {/if}
+                </div>
+              </td>
+            </tr>
+          {/snippet}
+        </DataTable>
+      {/if}
     </div>
   </div>
 

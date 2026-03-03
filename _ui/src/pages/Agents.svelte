@@ -5,6 +5,9 @@
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste } from 'lucide-svelte';
+  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import DataTable from '@/lib/components/DataTable.svelte';
+  import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
   storeNavbar.title = 'Agents';
 
@@ -19,6 +22,12 @@
   let deleteConfirm = $state<string | null>(null);
   let saving = $state(false);
   let searchQuery = $state('');
+  let sorts = $state<SortEntry[]>([]);
+  
+  // Pagination
+  let offset = $state(0);
+  let limit = $state(10);
+  let total = $state(0);
 
   // Form fields
   let formName = $state('');
@@ -32,7 +41,7 @@
   let formToolTimeout = $state(60);
 
   // Copy / Paste via system clipboard
-
+  
   async function copyAgent(agent: Agent) {
     const exportData = {
       name: agent.name,
@@ -83,15 +92,35 @@
   async function loadData() {
     loading = true;
     try {
-      const [a, p, s] = await Promise.all([listAgents(), listProviders(), listSkills()]);
-      agents = a;
-      providers = p;
-      skills = s;
+      const params: any = { _offset: offset, _limit: limit };
+      if (searchQuery) {
+        params['name[like]'] = `%${searchQuery}%`;
+      }
+      const sortParam = buildSortParam(sorts);
+      if (sortParam) params._sort = sortParam;
+      
+      const [aResult, pResult, sResult] = await Promise.all([listAgents(params), listProviders(), listSkills()]);
+      agents = aResult.data || [];
+      total = aResult.meta?.total || 0;
+      providers = pResult.data || [];
+      skills = sResult.data || [];
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  function handleSearch(value: string) {
+    searchQuery = value;
+    offset = 0;
+    loadData();
+  }
+
+  function handleSort(field: string, multiSort: boolean) {
+    sorts = toggleSort(sorts, field, multiSort);
+    offset = 0;
+    loadData();
   }
 
   loadData();
@@ -208,13 +237,6 @@
         ? [selectedProviderConfig.config.model]
         : []
   );
-
-  let filteredAgents = $derived(
-    agents.filter(a =>
-      a.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.description.toLowerCase().includes(searchQuery.toLowerCase())
-    )
-  );
 </script>
 
 <svelte:head>
@@ -229,18 +251,9 @@
         <div class="flex items-center gap-2">
           <Bot size={16} class="text-gray-500 dark:text-dark-text-muted" />
           <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Agents</h2>
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({agents.length})</span>
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
         </div>
         <div class="flex items-center gap-2">
-          <div class="relative w-48 mr-2">
-            <Search class="absolute left-2 top-1.5 text-gray-400 dark:text-dark-text-muted" size={12} />
-            <input
-              type="text"
-              bind:value={searchQuery}
-              placeholder="Search..."
-              class="w-full pl-7 pr-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:border-gray-500 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-            />
-          </div>
           <button
             onclick={loadData}
             class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
@@ -457,14 +470,21 @@
       {/if}
 
       <!-- Agent list -->
-      <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-        {#if loading}
-          <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
-        {:else if filteredAgents.length === 0 && !showForm}
-          <div class="px-4 py-10 text-center">
-            <Bot size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
-            <div class="text-gray-400 dark:text-dark-text-muted mb-1">No agents configured</div>
-            <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">Agents combine LLM providers with skills for autonomous workflows</div>
+      {#if loading || agents.length > 0 || !showForm}
+        <DataTable
+          items={agents}
+          {loading}
+          {total}
+          {limit}
+          bind:offset
+          onchange={loadData}
+          onsearch={handleSearch}
+          searchPlaceholder="Search by name..."
+          emptyIcon={Bot}
+          emptyTitle="No agents configured"
+          emptyDescription="Agents combine LLM providers with skills for autonomous workflows"
+        >
+          {#snippet emptyAction()}
             <button
               onclick={openCreate}
               class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors mx-auto"
@@ -472,91 +492,86 @@
               <Plus size={12} />
               New Agent
             </button>
-          </div>
-        {:else if filteredAgents.length > 0}
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Provider / Model</th>
-                <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Skills</th>
-                <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
-              {#each filteredAgents as agent (agent.id)}
-                <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-                  <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</td>
-                  <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={agent.description}>
-                    {agent.description || '-'}
-                  </td>
-                  <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                    <div class="flex flex-col gap-0.5">
-                      <span class="font-mono text-gray-700 dark:text-dark-text-secondary">{agent.provider}</span>
-                      {#if agent.model}
-                        <span class="font-mono text-gray-400 dark:text-dark-text-muted text-[10px]">{agent.model}</span>
-                      {/if}
-                    </div>
-                  </td>
-                  <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                    {#if agent.skills && agent.skills.length > 0}
-                      <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
-                        {agent.skills.length} skill{agent.skills.length !== 1 ? 's' : ''}
-                      </span>
-                      <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
-                        {agent.skills.join(', ')}
-                      </span>
-                    {:else}
-                      <span class="text-gray-400 dark:text-dark-text-muted">none</span>
-                    {/if}
-                  </td>
-                  <td class="px-4 py-2.5 text-right">
-                    <div class="flex justify-end gap-1">
-                      <button
-                        onclick={() => copyAgent(agent)}
-                        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
-                        title="Copy agent"
-                      >
-                        <Copy size={14} />
-                      </button>
-                      <button
-                        onclick={() => openEdit(agent)}
-                        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
-                        title="Edit"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      {#if deleteConfirm === agent.id}
-                        <button
-                          onclick={() => handleDelete(agent.id)}
-                          class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
-                        >
-                          Confirm
-                        </button>
-                        <button
-                          onclick={() => (deleteConfirm = null)}
-                          class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      {:else}
-                        <button
-                          onclick={() => (deleteConfirm = agent.id)}
-                          class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
-                          title="Delete"
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      {/if}
-                    </div>
-                  </td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </div>
+          {/snippet}
+
+          {#snippet header()}
+            <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
+            <SortableHeader field="provider" label="Provider / Model" {sorts} onsort={handleSort} />
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Skills</th>
+            <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
+          {/snippet}
+
+          {#snippet row(agent)}
+            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</td>
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={agent.description}>
+                {agent.description || '-'}
+              </td>
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+                <div class="flex flex-col gap-0.5">
+                  <span class="font-mono text-gray-700 dark:text-dark-text-secondary">{agent.provider}</span>
+                  {#if agent.model}
+                    <span class="font-mono text-gray-400 dark:text-dark-text-muted text-[10px]">{agent.model}</span>
+                  {/if}
+                </div>
+              </td>
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+                {#if agent.skills && agent.skills.length > 0}
+                  <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
+                    {agent.skills.length} skill{agent.skills.length !== 1 ? 's' : ''}
+                  </span>
+                  <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
+                    {agent.skills.join(', ')}
+                  </span>
+                {:else}
+                  <span class="text-gray-400 dark:text-dark-text-muted">none</span>
+                {/if}
+              </td>
+              <td class="px-4 py-2.5 text-right">
+                <div class="flex justify-end gap-1">
+                  <button
+                    onclick={() => copyAgent(agent)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    title="Copy agent"
+                  >
+                    <Copy size={14} />
+                  </button>
+                  <button
+                    onclick={() => openEdit(agent)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    title="Edit"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  {#if deleteConfirm === agent.id}
+                    <button
+                      onclick={() => handleDelete(agent.id)}
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onclick={() => (deleteConfirm = null)}
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  {:else}
+                    <button
+                      onclick={() => (deleteConfirm = agent.id)}
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  {/if}
+                </div>
+              </td>
+            </tr>
+          {/snippet}
+        </DataTable>
+      {/if}
     </div>
   </div>
 </div>

@@ -250,10 +250,12 @@ func (s *Service) Search(ctx context.Context, req SearchRequest) ([]SearchResult
 		}
 	} else {
 		var err error
-		collections, err = s.collectionStore.ListRAGCollections(ctx)
+		var result *service.ListResult[service.RAGCollection]
+		result, err = s.collectionStore.ListRAGCollections(ctx, nil)
 		if err != nil {
 			return nil, fmt.Errorf("list collections: %w", err)
 		}
+		collections = result.Data
 	}
 
 	if len(collections) == 0 {

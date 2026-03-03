@@ -7,9 +7,10 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
-func (m *Memory) ListAgents(_ context.Context) ([]service.Agent, error) {
+func (m *Memory) ListAgents(_ context.Context, q *query.Query) (*service.ListResult[service.Agent], error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -28,7 +29,7 @@ func (m *Memory) ListAgents(_ context.Context) ([]service.Agent, error) {
 		return 0
 	})
 
-	return result, nil
+	return paginate(result, q), nil
 }
 
 func (m *Memory) GetAgent(_ context.Context, id string) (*service.Agent, error) {

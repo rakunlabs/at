@@ -11,6 +11,7 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/logi"
+	"github.com/rakunlabs/query"
 
 	// Blank import triggers init() registration of all built-in node types.
 	_ "github.com/rakunlabs/at/internal/service/workflow/nodes"
@@ -32,7 +33,13 @@ func (s *Server) ListWorkflowsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	records, err := s.workflowStore.ListWorkflows(r.Context())
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	records, err := s.workflowStore.ListWorkflows(r.Context(), q)
 	if err != nil {
 		slog.Error("list workflows failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list workflows: %v", err), http.StatusInternalServerError)
@@ -40,10 +47,10 @@ func (s *Server) ListWorkflowsAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if records == nil {
-		records = []service.Workflow{}
+		records = &service.ListResult[service.Workflow]{Data: []service.Workflow{}}
 	}
 
-	httpResponseJSON(w, workflowsResponse{Workflows: records}, http.StatusOK)
+	httpResponseJSON(w, records, http.StatusOK)
 }
 
 // GetWorkflowAPI handles GET /api/v1/workflows/:id.
@@ -264,7 +271,8 @@ func (s *Server) DeleteWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 
 // runWorkflowRequest is the JSON body for POST /api/v1/workflows/run/:id.
 type runWorkflowRequest struct {
-	Inputs map[string]any `json:"inputs"`
+	Inputs       map[string]any `json:"inputs"`
+	EntryNodeIDs []string       `json:"entry_node_ids,omitempty"`
 }
 
 // runWorkflowResponse is returned when a workflow is started (async) or completed (sync).
@@ -399,12 +407,12 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 			return v.Value, nil
 		}
 		varLister = func() (map[string]string, error) {
-			vars, err := s.variableStore.ListVariables(ctx)
+			vars, err := s.variableStore.ListVariables(ctx, nil)
 			if err != nil {
 				return nil, err
 			}
-			m := make(map[string]string, len(vars))
-			for _, v := range vars {
+			m := make(map[string]string, len(vars.Data))
+			for _, v := range vars.Data {
 				m[v.Key] = v.Value
 			}
 			return m, nil
@@ -438,15 +446,29 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc())
 
 	// Manual/API runs start from "input" nodes only.
+	// Collect all input node IDs and check for output nodes.
+	allInputNodeIDs := make(map[string]bool)
 	var entryNodeIDs []string
 	hasOutputNode := false
 	for _, n := range graphToRun.Nodes {
 		if n.Type == "input" {
+			allInputNodeIDs[n.ID] = true
 			entryNodeIDs = append(entryNodeIDs, n.ID)
 		}
 		if n.Type == "output" {
 			hasOutputNode = true
 		}
+	}
+
+	// If the caller specified entry_node_ids, validate and use those instead.
+	if len(req.EntryNodeIDs) > 0 {
+		for _, id := range req.EntryNodeIDs {
+			if !allInputNodeIDs[id] {
+				httpResponse(w, fmt.Sprintf("entry_node_id %q is not an input node in this workflow", id), http.StatusBadRequest)
+				return
+			}
+		}
+		entryNodeIDs = req.EntryNodeIDs
 	}
 
 	if syncMode && hasOutputNode {
