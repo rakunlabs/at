@@ -179,8 +179,8 @@
     formDescription = c.config.description || '';
     formVectorStoreType = c.config.vector_store.type;
     formVectorStoreConfig = JSON.stringify(c.config.vector_store.config || {}, null, 2);
-    formEmbeddingProvider = c.config.embedding_provider;
-    formEmbeddingModel = c.config.embedding_model;
+    formEmbeddingProvider = c.config.embedding_provider || '';
+    formEmbeddingModel = c.config.embedding_model || '';
     formEmbeddingURL = c.config.embedding_url || '';
     formEmbeddingAPIType = c.config.embedding_api_type || 'openai';
     formEmbeddingBearerAuth = c.config.embedding_bearer_auth || false;
@@ -213,6 +213,9 @@
 
     saving = true;
     try {
+      const chunkSize = Number(formChunkSize) || 512;
+      const chunkOverlap = Number(formChunkOverlap) || 100;
+
       const payload = {
         name: formName.trim(),
         config: {
@@ -226,8 +229,8 @@
           embedding_url: formEmbeddingURL.trim(),
           embedding_api_type: formEmbeddingAPIType,
           embedding_bearer_auth: formEmbeddingBearerAuth,
-          chunk_size: formChunkSize,
-          chunk_overlap: formChunkOverlap,
+          chunk_size: chunkSize,
+          chunk_overlap: chunkOverlap,
         },
       };
 
@@ -479,7 +482,7 @@
         </button>
       </div>
 
-      <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+      <form novalidate onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
         <!-- Name -->
         <div class="grid grid-cols-4 gap-3 items-center">
           <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>

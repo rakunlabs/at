@@ -109,6 +109,16 @@ func NewATEmbedderClient(cfg ATEmbedderConfig) (*ATEmbedderClient, error) {
 		return nil, fmt.Errorf("embedding model is required when embedding URL is not set")
 	}
 
+	// When an explicit EmbeddingURL is provided for Gemini, try to extract
+	// the model name from the URL so it can be included in each batch request.
+	// The Gemini batchEmbedContents API requires the model field in every
+	// request element, even when the URL already contains the model.
+	// URL pattern: .../models/{model}:batchEmbedContents
+	model := cfg.Model
+	if cfg.EmbeddingURL != "" && model == "" && apiType == "gemini" {
+		model = extractModelFromGeminiURL(cfg.EmbeddingURL)
+	}
+
 	// Determine the embeddings endpoint URL.
 	var embeddingsURL string
 	if cfg.EmbeddingURL != "" {
@@ -118,7 +128,7 @@ func NewATEmbedderClient(cfg ATEmbedderConfig) (*ATEmbedderClient, error) {
 		case "gemini":
 			// Gemini batch endpoint: {base}/v1beta/models/{model}:batchEmbedContents
 			base := strings.TrimSuffix(cfg.BaseURL, "/")
-			embeddingsURL = fmt.Sprintf("%s/v1beta/models/%s:batchEmbedContents", base, cfg.Model)
+			embeddingsURL = fmt.Sprintf("%s/v1beta/models/%s:batchEmbedContents", base, model)
 		default:
 			// OpenAI-compatible: derive from provider base URL.
 			var err error
@@ -143,7 +153,7 @@ func NewATEmbedderClient(cfg ATEmbedderConfig) (*ATEmbedderClient, error) {
 
 	return &ATEmbedderClient{
 		embeddingsURL: embeddingsURL,
-		model:         cfg.Model,
+		model:         model,
 		apiKey:        cfg.APIKey,
 		bearerAuth:    cfg.BearerAuth,
 		apiType:       apiType,
@@ -355,6 +365,29 @@ func deriveEmbeddingsURL(baseURL string) (string, error) {
 	u.Path = path
 
 	return u.String(), nil
+}
+
+// extractModelFromGeminiURL attempts to extract the model name from a Gemini
+// batchEmbedContents URL. The expected pattern is:
+//
+//	.../models/{model}:batchEmbedContents
+//
+// If the model cannot be extracted, an empty string is returned.
+func extractModelFromGeminiURL(rawURL string) string {
+	// Find the "/models/" segment.
+	const prefix = "/models/"
+	idx := strings.LastIndex(rawURL, prefix)
+	if idx == -1 {
+		return ""
+	}
+
+	// Everything after "/models/" up to the next ":" or "/" or end of string.
+	rest := rawURL[idx+len(prefix):]
+	if i := strings.IndexAny(rest, ":/"); i > 0 {
+		return rest[:i]
+	}
+
+	return rest
 }
 
 // ─── OpenAI Embeddings API Types ───
