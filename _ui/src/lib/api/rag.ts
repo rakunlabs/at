@@ -12,17 +12,22 @@ export interface VectorStoreConfig {
   config: Record<string, any>;
 }
 
-export interface RAGCollection {
-  id: string;
-  name: string;
+export interface RAGCollectionConfig {
   description: string;
   vector_store: VectorStoreConfig;
   embedding_provider: string;
   embedding_model: string;
   embedding_url: string;
   embedding_api_type: string;
+  embedding_bearer_auth: boolean;
   chunk_size: number;
   chunk_overlap: number;
+}
+
+export interface RAGCollection {
+  id: string;
+  name: string;
+  config: RAGCollectionConfig;
   created_at: string;
   updated_at: string;
   created_by: string;

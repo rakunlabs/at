@@ -31,6 +31,7 @@ type Memory struct {
 	nodeConfigs      map[string]service.NodeConfig        // id -> node config
 	agents           map[string]service.Agent             // id -> agent
 	ragCollections   map[string]service.RAGCollection     // id -> rag collection
+	ragStates        map[string]service.RAGState          // key -> rag state
 }
 
 func New() *Memory {
@@ -48,6 +49,7 @@ func New() *Memory {
 		nodeConfigs:      make(map[string]service.NodeConfig),
 		agents:           make(map[string]service.Agent),
 		ragCollections:   make(map[string]service.RAGCollection),
+		ragStates:        make(map[string]service.RAGState),
 	}
 }
 

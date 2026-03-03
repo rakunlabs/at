@@ -3,9 +3,7 @@ import type { ListResult, ListParams } from './types';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
-export interface Agent {
-  id: string;
-  name: string;
+export interface AgentConfig {
   description: string;
   provider: string;
   model: string;
@@ -14,6 +12,12 @@ export interface Agent {
   mcp_urls: string[];
   max_iterations: number;
   tool_timeout: number;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  config: AgentConfig;
   created_at: string;
   updated_at: string;
   created_by: string;

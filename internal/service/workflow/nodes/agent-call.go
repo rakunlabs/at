@@ -176,7 +176,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// 2. Resolve provider key.
 	providerKey := n.providerKey
 	if providerKey == "" && preset != nil {
-		providerKey = preset.Provider
+		providerKey = preset.Config.Provider
 	}
 	if providerKey == "" {
 		return nil, fmt.Errorf("agent_call: no provider specified (node or agent preset)")
@@ -190,7 +190,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// 3. Resolve model.
 	model := n.model
 	if model == "" && preset != nil {
-		model = preset.Model
+		model = preset.Config.Model
 	}
 	if model == "" {
 		model = defaultModel
@@ -233,7 +233,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	mcpURLs := append([]string{}, n.mcpURLs...)
 	// Add preset URLs
 	if preset != nil {
-		mcpURLs = append(mcpURLs, preset.MCPs...)
+		mcpURLs = append(mcpURLs, preset.Config.MCPs...)
 	}
 
 	if edgeMCP, ok := inputs["mcp"]; ok {
@@ -294,7 +294,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// Merge skill names from static config + agent preset + edge inputs.
 	rawSkillNames := append([]string{}, n.skillNames...)
 	if preset != nil {
-		rawSkillNames = append(rawSkillNames, preset.Skills...)
+		rawSkillNames = append(rawSkillNames, preset.Config.Skills...)
 	}
 
 	if edgeSkills, ok := inputs["skills"]; ok {
@@ -422,7 +422,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}, subAgent.Name)
 		toolName := "delegate_to_" + strings.ToLower(safeName)
 
-		toolDesc := fmt.Sprintf("Delegate a task to %s. %s", subAgent.Name, subAgent.Description)
+		toolDesc := fmt.Sprintf("Delegate a task to %s. %s", subAgent.Name, subAgent.Config.Description)
 		tool := service.Tool{
 			Name:        toolName,
 			Description: toolDesc,
@@ -450,11 +450,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// ─── Build System Prompt ───
 
 	systemPrompt := n.systemPrompt
-	if preset != nil && preset.SystemPrompt != "" {
+	if preset != nil && preset.Config.SystemPrompt != "" {
 		if systemPrompt != "" {
-			systemPrompt = preset.SystemPrompt + "\n\n" + systemPrompt
+			systemPrompt = preset.Config.SystemPrompt + "\n\n" + systemPrompt
 		} else {
-			systemPrompt = preset.SystemPrompt
+			systemPrompt = preset.Config.SystemPrompt
 		}
 	}
 	for _, fragment := range skillPromptFragments {
@@ -510,8 +510,8 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// Resolve maxIterations
 	maxIterations := n.maxIterations
 	if maxIterations == -1 {
-		if preset != nil && preset.MaxIterations > 0 {
-			maxIterations = preset.MaxIterations
+		if preset != nil && preset.Config.MaxIterations > 0 {
+			maxIterations = preset.Config.MaxIterations
 		} else {
 			maxIterations = 10 // Default
 		}
@@ -520,8 +520,8 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// Resolve toolTimeout
 	toolTimeout := n.toolTimeout
 	if toolTimeout == -1 {
-		if preset != nil && preset.ToolTimeout > 0 {
-			toolTimeout = time.Duration(preset.ToolTimeout) * time.Second
+		if preset != nil && preset.Config.ToolTimeout > 0 {
+			toolTimeout = time.Duration(preset.Config.ToolTimeout) * time.Second
 		} else {
 			toolTimeout = 60 * time.Second // Default
 		}

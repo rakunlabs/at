@@ -45,14 +45,16 @@
   async function copyAgent(agent: Agent) {
     const exportData = {
       name: agent.name,
-      description: agent.description,
-      provider: agent.provider,
-      model: agent.model,
-      system_prompt: agent.system_prompt,
-      skills: agent.skills || [],
-      mcp_urls: agent.mcp_urls || [],
-      max_iterations: agent.max_iterations,
-      tool_timeout: agent.tool_timeout,
+      config: {
+        description: agent.config.description,
+        provider: agent.config.provider,
+        model: agent.config.model,
+        system_prompt: agent.config.system_prompt,
+        skills: agent.config.skills || [],
+        mcp_urls: agent.config.mcp_urls || [],
+        max_iterations: agent.config.max_iterations,
+        tool_timeout: agent.config.tool_timeout,
+      },
     };
     try {
       await navigator.clipboard.writeText(JSON.stringify(exportData, null, 2));
@@ -72,14 +74,16 @@
       }
       resetForm();
       formName = src.name + '_copy';
-      formDescription = src.description || '';
-      formProvider = src.provider || '';
-      formModel = src.model || '';
-      formSystemPrompt = src.system_prompt || '';
-      formSkills = src.skills || [];
-      formMCPs = src.mcp_urls && src.mcp_urls.length > 0 ? [...src.mcp_urls] : [''];
-      formMaxIterations = src.max_iterations || 10;
-      formToolTimeout = src.tool_timeout || 60;
+      // Support both old flat format and new nested config format
+      const cfg = src.config || src;
+      formDescription = cfg.description || '';
+      formProvider = cfg.provider || '';
+      formModel = cfg.model || '';
+      formSystemPrompt = cfg.system_prompt || '';
+      formSkills = cfg.skills || [];
+      formMCPs = cfg.mcp_urls && cfg.mcp_urls.length > 0 ? [...cfg.mcp_urls] : [''];
+      formMaxIterations = cfg.max_iterations || 10;
+      formToolTimeout = cfg.tool_timeout || 60;
       editingId = null;
       showForm = true;
     } catch {
@@ -150,14 +154,14 @@
     resetForm();
     editingId = agent.id;
     formName = agent.name;
-    formDescription = agent.description;
-    formProvider = agent.provider;
-    formModel = agent.model;
-    formSystemPrompt = agent.system_prompt;
-    formSkills = [...agent.skills];
-    formMCPs = agent.mcp_urls && agent.mcp_urls.length > 0 ? [...agent.mcp_urls] : [''];
-    formMaxIterations = agent.max_iterations || 10;
-    formToolTimeout = agent.tool_timeout || 60;
+    formDescription = agent.config.description;
+    formProvider = agent.config.provider;
+    formModel = agent.config.model;
+    formSystemPrompt = agent.config.system_prompt;
+    formSkills = [...(agent.config.skills || [])];
+    formMCPs = agent.config.mcp_urls && agent.config.mcp_urls.length > 0 ? [...agent.config.mcp_urls] : [''];
+    formMaxIterations = agent.config.max_iterations || 10;
+    formToolTimeout = agent.config.tool_timeout || 60;
     showForm = true;
   }
 
@@ -176,14 +180,16 @@
       const cleanMCPs = formMCPs.filter(u => u.trim() !== '');
       const payload = {
         name: formName.trim(),
-        description: formDescription.trim(),
-        provider: formProvider,
-        model: formModel,
-        system_prompt: formSystemPrompt,
-        skills: formSkills,
-        mcp_urls: cleanMCPs,
-        max_iterations: formMaxIterations,
-        tool_timeout: formToolTimeout,
+        config: {
+          description: formDescription.trim(),
+          provider: formProvider,
+          model: formModel,
+          system_prompt: formSystemPrompt,
+          skills: formSkills,
+          mcp_urls: cleanMCPs,
+          max_iterations: formMaxIterations,
+          tool_timeout: formToolTimeout,
+        },
       };
 
       if (editingId) {
@@ -505,24 +511,24 @@
           {#snippet row(agent)}
             <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
               <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={agent.description}>
-                {agent.description || '-'}
+              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={agent.config.description}>
+                {agent.config.description || '-'}
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
                 <div class="flex flex-col gap-0.5">
-                  <span class="font-mono text-gray-700 dark:text-dark-text-secondary">{agent.provider}</span>
-                  {#if agent.model}
-                    <span class="font-mono text-gray-400 dark:text-dark-text-muted text-[10px]">{agent.model}</span>
+                  <span class="font-mono text-gray-700 dark:text-dark-text-secondary">{agent.config.provider}</span>
+                  {#if agent.config.model}
+                    <span class="font-mono text-gray-400 dark:text-dark-text-muted text-[10px]">{agent.config.model}</span>
                   {/if}
                 </div>
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                {#if agent.skills && agent.skills.length > 0}
+                {#if agent.config.skills && agent.config.skills.length > 0}
                   <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
-                    {agent.skills.length} skill{agent.skills.length !== 1 ? 's' : ''}
+                    {agent.config.skills.length} skill{agent.config.skills.length !== 1 ? 's' : ''}
                   </span>
                   <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
-                    {agent.skills.join(', ')}
+                    {agent.config.skills.join(', ')}
                   </span>
                 {:else}
                   <span class="text-gray-400 dark:text-dark-text-muted">none</span>

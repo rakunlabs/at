@@ -201,6 +201,12 @@ type Registry struct {
 	// nil when variable store is not configured.
 	VarSave VarSaveFunc
 
+	// RAGStateLookup retrieves RAG sync state (e.g. last commit hash).
+	RAGStateLookup RAGStateLookupFunc
+
+	// RAGStateSave saves RAG sync state.
+	RAGStateSave RAGStateSaveFunc
+
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
 
@@ -271,8 +277,14 @@ type RAGIngestDocument struct {
 // exists it is updated; otherwise a new one is created.
 type VarSaveFunc func(ctx context.Context, key, value string) error
 
+// RAGStateLookupFunc retrieves RAG sync state (e.g. last commit hash).
+type RAGStateLookupFunc func(ctx context.Context, key string) (*service.RAGState, error)
+
+// RAGStateSaveFunc saves RAG sync state.
+type RAGStateSaveFunc func(ctx context.Context, key, value string) error
+
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
@@ -289,6 +301,8 @@ func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLo
 		RAGIngestFile:     ragIngestFile,
 		RAGDeleteBySource: ragDeleteBySource,
 		VarSave:           varSave,
+		RAGStateLookup:    ragStateLookup,
+		RAGStateSave:      ragStateSave,
 		RunInputs:         inputs,
 		outputs:           make(map[string]any),
 	}

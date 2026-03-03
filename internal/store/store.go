@@ -23,6 +23,7 @@ type StorerClose interface {
 	service.NodeConfigStorer
 	service.AgentStorer
 	service.RAGCollectionStorer
+	service.RAGStateStorer
 	Close()
 }
 

@@ -65,6 +65,7 @@
   let formEmbeddingModel = $state('');
   let formEmbeddingURL = $state('');
   let formEmbeddingAPIType = $state('openai');
+  let formEmbeddingBearerAuth = $state(false);
   let formChunkSize = $state(512);
   let formChunkOverlap = $state(100);
 
@@ -158,6 +159,7 @@
     formEmbeddingModel = '';
     formEmbeddingURL = '';
     formEmbeddingAPIType = 'openai';
+    formEmbeddingBearerAuth = false;
     formChunkSize = 512;
     formChunkOverlap = 100;
     editingId = null;
@@ -174,15 +176,16 @@
     resetForm();
     editingId = c.id;
     formName = c.name;
-    formDescription = c.description || '';
-    formVectorStoreType = c.vector_store.type;
-    formVectorStoreConfig = JSON.stringify(c.vector_store.config || {}, null, 2);
-    formEmbeddingProvider = c.embedding_provider;
-    formEmbeddingModel = c.embedding_model;
-    formEmbeddingURL = c.embedding_url || '';
-    formEmbeddingAPIType = c.embedding_api_type || 'openai';
-    formChunkSize = c.chunk_size || 512;
-    formChunkOverlap = c.chunk_overlap || 100;
+    formDescription = c.config.description || '';
+    formVectorStoreType = c.config.vector_store.type;
+    formVectorStoreConfig = JSON.stringify(c.config.vector_store.config || {}, null, 2);
+    formEmbeddingProvider = c.config.embedding_provider;
+    formEmbeddingModel = c.config.embedding_model;
+    formEmbeddingURL = c.config.embedding_url || '';
+    formEmbeddingAPIType = c.config.embedding_api_type || 'openai';
+    formEmbeddingBearerAuth = c.config.embedding_bearer_auth || false;
+    formChunkSize = c.config.chunk_size || 512;
+    formChunkOverlap = c.config.chunk_overlap || 100;
     showForm = true;
   }
 
@@ -212,17 +215,20 @@
     try {
       const payload = {
         name: formName.trim(),
-        description: formDescription.trim(),
-        vector_store: {
-          type: formVectorStoreType,
-          config: vsConfig,
+        config: {
+          description: formDescription.trim(),
+          vector_store: {
+            type: formVectorStoreType,
+            config: vsConfig,
+          },
+          embedding_provider: formEmbeddingProvider.trim(),
+          embedding_model: formEmbeddingModel.trim(),
+          embedding_url: formEmbeddingURL.trim(),
+          embedding_api_type: formEmbeddingAPIType,
+          embedding_bearer_auth: formEmbeddingBearerAuth,
+          chunk_size: formChunkSize,
+          chunk_overlap: formChunkOverlap,
         },
-        embedding_provider: formEmbeddingProvider.trim(),
-        embedding_model: formEmbeddingModel.trim(),
-        embedding_url: formEmbeddingURL.trim(),
-        embedding_api_type: formEmbeddingAPIType,
-        chunk_size: formChunkSize,
-        chunk_overlap: formChunkOverlap,
       };
 
       if (editingId) {
@@ -590,6 +596,25 @@
           </div>
         </div>
 
+        <!-- Bearer Auth (optional) -->
+        <div class="grid grid-cols-4 gap-3 items-center">
+          <label for="form-emb-bearer-auth" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Bearer Auth</label>
+          <div class="col-span-3 flex items-center gap-3">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                id="form-emb-bearer-auth"
+                type="checkbox"
+                bind:checked={formEmbeddingBearerAuth}
+                class="sr-only peer"
+              />
+              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-900/10 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:after:border-dark-border-subtle peer-checked:bg-gray-900 dark:peer-checked:bg-accent"></div>
+            </label>
+            <span class="text-xs text-gray-400 dark:text-dark-text-muted">
+              Send provider API key as Bearer token (for gateway proxy endpoints)
+            </span>
+          </div>
+        </div>
+
         <!-- Chunk Size / Overlap -->
         <div class="grid grid-cols-4 gap-3 items-center">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Chunking</span>
@@ -695,16 +720,16 @@
           </td>
           <td class="px-4 py-2.5">
             <div class="font-medium text-gray-900 dark:text-dark-text">{c.name}</div>
-            {#if c.description}
-              <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48">{c.description}</div>
+            {#if c.config.description}
+              <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48">{c.config.description}</div>
             {/if}
           </td>
           <td class="px-4 py-2.5">
-            <span class="text-xs font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">{c.vector_store.type}</span>
+            <span class="text-xs font-mono px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">{c.config.vector_store.type}</span>
           </td>
           <td class="px-4 py-2.5">
-            <div class="text-xs text-gray-600 dark:text-dark-text-secondary">{c.embedding_provider}</div>
-            <div class="text-xs font-mono text-gray-400 dark:text-dark-text-muted">{c.embedding_model}</div>
+            <div class="text-xs text-gray-600 dark:text-dark-text-secondary">{c.config.embedding_provider}</div>
+            <div class="text-xs font-mono text-gray-400 dark:text-dark-text-muted">{c.config.embedding_model}</div>
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(c.updated_at)}</td>
           <td class="px-4 py-2.5 text-right" onclick={(e) => e.stopPropagation()}>
@@ -816,7 +841,7 @@
 
                 <!-- Details -->
                 <div class="ml-auto flex items-center gap-4 text-xs text-gray-400 dark:text-dark-text-muted">
-                  <span>Chunk: {c.chunk_size}/{c.chunk_overlap}</span>
+                  <span>Chunk: {c.config.chunk_size}/{c.config.chunk_overlap}</span>
                   {#if c.created_by}
                     <span>by {c.created_by}</span>
                   {/if}

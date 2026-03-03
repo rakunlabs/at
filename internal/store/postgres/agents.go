@@ -17,24 +17,17 @@ import (
 // ─── Agent CRUD ───
 
 type agentRow struct {
-	ID            string          `db:"id"`
-	Name          string          `db:"name"`
-	Description   sql.NullString  `db:"description"`
-	Provider      string          `db:"provider"`
-	Model         sql.NullString  `db:"model"`
-	SystemPrompt  sql.NullString  `db:"system_prompt"`
-	Skills        json.RawMessage `db:"skills"`
-	MCPs          json.RawMessage `db:"mcp_urls"`
-	MaxIterations int             `db:"max_iterations"`
-	ToolTimeout   int             `db:"tool_timeout"`
-	CreatedAt     time.Time       `db:"created_at"`
-	UpdatedAt     time.Time       `db:"updated_at"`
-	CreatedBy     sql.NullString  `db:"created_by"`
-	UpdatedBy     sql.NullString  `db:"updated_by"`
+	ID        string          `db:"id"`
+	Name      string          `db:"name"`
+	Config    json.RawMessage `db:"config"`
+	CreatedAt time.Time       `db:"created_at"`
+	UpdatedAt time.Time       `db:"updated_at"`
+	CreatedBy sql.NullString  `db:"created_by"`
+	UpdatedBy sql.NullString  `db:"updated_by"`
 }
 
 func (p *Postgres) ListAgents(ctx context.Context, q *query.Query) (*service.ListResult[service.Agent], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableAgents, q, "id", "name", "description", "provider", "model", "system_prompt", "skills", "mcp_urls", "max_iterations", "tool_timeout", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableAgents, q, "id", "name", "config", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list agents query: %w", err)
 	}
@@ -48,7 +41,7 @@ func (p *Postgres) ListAgents(ctx context.Context, q *query.Query) (*service.Lis
 	var items []service.Agent
 	for rows.Next() {
 		var row agentRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Provider, &row.Model, &row.SystemPrompt, &row.Skills, &row.MCPs, &row.MaxIterations, &row.ToolTimeout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan agent row: %w", err)
 		}
 
@@ -73,7 +66,7 @@ func (p *Postgres) ListAgents(ctx context.Context, q *query.Query) (*service.Lis
 
 func (p *Postgres) GetAgent(ctx context.Context, id string) (*service.Agent, error) {
 	query, _, err := p.goqu.From(p.tableAgents).
-		Select("id", "name", "description", "provider", "model", "system_prompt", "skills", "mcp_urls", "max_iterations", "tool_timeout", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -81,7 +74,7 @@ func (p *Postgres) GetAgent(ctx context.Context, id string) (*service.Agent, err
 	}
 
 	var row agentRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Provider, &row.Model, &row.SystemPrompt, &row.Skills, &row.MCPs, &row.MaxIterations, &row.ToolTimeout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -93,13 +86,9 @@ func (p *Postgres) GetAgent(ctx context.Context, id string) (*service.Agent, err
 }
 
 func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*service.Agent, error) {
-	skillsJSON, err := json.Marshal(agent.Skills)
+	configJSON, err := json.Marshal(agent.Config)
 	if err != nil {
-		return nil, fmt.Errorf("marshal agent skills: %w", err)
-	}
-	mcpsJSON, err := json.Marshal(agent.MCPs)
-	if err != nil {
-		return nil, fmt.Errorf("marshal agent mcps: %w", err)
+		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
 
 	id := ulid.Make().String()
@@ -107,20 +96,13 @@ func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*servi
 
 	query, _, err := p.goqu.Insert(p.tableAgents).Rows(
 		goqu.Record{
-			"id":             id,
-			"name":           agent.Name,
-			"description":    agent.Description,
-			"provider":       agent.Provider,
-			"model":          agent.Model,
-			"system_prompt":  agent.SystemPrompt,
-			"skills":         skillsJSON,
-			"mcp_urls":       mcpsJSON,
-			"max_iterations": agent.MaxIterations,
-			"tool_timeout":   agent.ToolTimeout,
-			"created_at":     now,
-			"updated_at":     now,
-			"created_by":     agent.CreatedBy,
-			"updated_by":     agent.UpdatedBy,
+			"id":         id,
+			"name":       agent.Name,
+			"config":     configJSON,
+			"created_at": now,
+			"updated_at": now,
+			"created_by": agent.CreatedBy,
+			"updated_by": agent.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -132,48 +114,30 @@ func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*servi
 	}
 
 	return &service.Agent{
-		ID:            id,
-		Name:          agent.Name,
-		Description:   agent.Description,
-		Provider:      agent.Provider,
-		Model:         agent.Model,
-		SystemPrompt:  agent.SystemPrompt,
-		Skills:        agent.Skills,
-		MCPs:          agent.MCPs,
-		MaxIterations: agent.MaxIterations,
-		ToolTimeout:   agent.ToolTimeout,
-		CreatedAt:     now.Format(time.RFC3339),
-		UpdatedAt:     now.Format(time.RFC3339),
-		CreatedBy:     agent.CreatedBy,
-		UpdatedBy:     agent.UpdatedBy,
+		ID:        id,
+		Name:      agent.Name,
+		Config:    agent.Config,
+		CreatedAt: now.Format(time.RFC3339),
+		UpdatedAt: now.Format(time.RFC3339),
+		CreatedBy: agent.CreatedBy,
+		UpdatedBy: agent.UpdatedBy,
 	}, nil
 }
 
 func (p *Postgres) UpdateAgent(ctx context.Context, id string, agent service.Agent) (*service.Agent, error) {
-	skillsJSON, err := json.Marshal(agent.Skills)
+	configJSON, err := json.Marshal(agent.Config)
 	if err != nil {
-		return nil, fmt.Errorf("marshal agent skills: %w", err)
-	}
-	mcpsJSON, err := json.Marshal(agent.MCPs)
-	if err != nil {
-		return nil, fmt.Errorf("marshal agent mcps: %w", err)
+		return nil, fmt.Errorf("marshal agent config: %w", err)
 	}
 
 	now := time.Now().UTC()
 
 	query, _, err := p.goqu.Update(p.tableAgents).Set(
 		goqu.Record{
-			"name":           agent.Name,
-			"description":    agent.Description,
-			"provider":       agent.Provider,
-			"model":          agent.Model,
-			"system_prompt":  agent.SystemPrompt,
-			"skills":         skillsJSON,
-			"mcp_urls":       mcpsJSON,
-			"max_iterations": agent.MaxIterations,
-			"tool_timeout":   agent.ToolTimeout,
-			"updated_at":     now,
-			"updated_by":     agent.UpdatedBy,
+			"name":       agent.Name,
+			"config":     configJSON,
+			"updated_at": now,
+			"updated_by": agent.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -213,38 +177,20 @@ func (p *Postgres) DeleteAgent(ctx context.Context, id string) error {
 }
 
 func agentRowToRecord(row agentRow) (*service.Agent, error) {
-	var skills []string
-	if len(row.Skills) > 0 {
-		if err := json.Unmarshal(row.Skills, &skills); err != nil {
-			return nil, fmt.Errorf("unmarshal agent skills for %q: %w", row.ID, err)
+	var cfg service.AgentConfig
+	if len(row.Config) > 0 {
+		if err := json.Unmarshal(row.Config, &cfg); err != nil {
+			return nil, fmt.Errorf("unmarshal agent config for %q: %w", row.ID, err)
 		}
-	} else {
-		skills = []string{}
-	}
-
-	var mcps []string
-	if len(row.MCPs) > 0 {
-		if err := json.Unmarshal(row.MCPs, &mcps); err != nil {
-			return nil, fmt.Errorf("unmarshal agent mcps for %q: %w", row.ID, err)
-		}
-	} else {
-		mcps = []string{}
 	}
 
 	return &service.Agent{
-		ID:            row.ID,
-		Name:          row.Name,
-		Description:   row.Description.String,
-		Provider:      row.Provider,
-		Model:         row.Model.String,
-		SystemPrompt:  row.SystemPrompt.String,
-		Skills:        skills,
-		MCPs:          mcps,
-		MaxIterations: row.MaxIterations,
-		ToolTimeout:   row.ToolTimeout,
-		CreatedAt:     row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:     row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy:     row.CreatedBy.String,
-		UpdatedBy:     row.UpdatedBy.String,
+		ID:        row.ID,
+		Name:      row.Name,
+		Config:    cfg,
+		CreatedAt: row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt: row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy: row.CreatedBy.String,
+		UpdatedBy: row.UpdatedBy.String,
 	}, nil
 }

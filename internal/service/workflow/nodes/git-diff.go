@@ -95,12 +95,12 @@ func (n *gitDiffNode) Run(ctx context.Context, reg *workflow.Registry, inputs ma
 	repoHash := hashRepoKey(repoURL, branch)
 	variableKey := fmt.Sprintf("%s_%s", n.variableKeyPrefix, repoHash)
 
-	// Lookup last synced commit SHA from the variable store.
+	// Lookup last synced commit SHA from the RAG state store.
 	var lastSyncSHA string
-	if reg.VarLookup != nil {
-		val, err := reg.VarLookup(variableKey)
-		if err == nil {
-			lastSyncSHA = val
+	if reg.RAGStateLookup != nil {
+		state, err := reg.RAGStateLookup(ctx, variableKey)
+		if err == nil && state != nil {
+			lastSyncSHA = state.Value
 		}
 		// Not found is fine — means first sync.
 	}

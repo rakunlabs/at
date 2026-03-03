@@ -85,6 +85,9 @@ type Server struct {
 	// ragCollectionStore is the persistent store for RAG collection configs.
 	ragCollectionStore service.RAGCollectionStorer
 
+	// ragStateStore is the persistent store for RAG sync states.
+	ragStateStore service.RAGStateStorer
+
 	// ragService is the RAG ingestion and search engine (nil if ragCollectionStore is nil).
 	ragService *rag.Service
 
@@ -183,7 +186,8 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+// New creates a new server instance.
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -208,6 +212,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		nodeConfigStore:      nodeConfigStore,
 		agentStore:           agentStore,
 		ragCollectionStore:   ragCollectionStore,
+		ragStateStore:        ragStateStore,
 		providerFactory:      factory,
 		storeType:            storeType,
 		authTokens:           gatewayCfg.AuthTokens,
@@ -309,7 +314,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), cl)
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
@@ -656,5 +661,27 @@ func (s *Server) varSaveFunc() workflow.VarSaveFunc {
 			return fmt.Errorf("create variable %q: %w", key, err)
 		}
 		return nil
+	}
+}
+
+// ragStateLookupFunc returns a workflow.RAGStateLookupFunc that delegates to the
+// server's ragStateStore. Returns nil when store is not configured.
+func (s *Server) ragStateLookupFunc() workflow.RAGStateLookupFunc {
+	if s.ragStateStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, key string) (*service.RAGState, error) {
+		return s.ragStateStore.GetRAGState(ctx, key)
+	}
+}
+
+// ragStateSaveFunc returns a workflow.RAGStateSaveFunc that delegates to the
+// server's ragStateStore. Returns nil when store is not configured.
+func (s *Server) ragStateSaveFunc() workflow.RAGStateSaveFunc {
+	if s.ragStateStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, key, value string) error {
+		return s.ragStateStore.SetRAGState(ctx, key, value)
 	}
 }

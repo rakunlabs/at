@@ -93,27 +93,27 @@ func (s *Server) CreateRAGCollectionAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.VectorStore.Type == "" {
+	if req.Config.VectorStore.Type == "" {
 		httpResponse(w, "vector_store.type is required", http.StatusBadRequest)
 		return
 	}
 
-	if req.EmbeddingProvider == "" {
+	if req.Config.EmbeddingProvider == "" {
 		httpResponse(w, "embedding_provider is required", http.StatusBadRequest)
 		return
 	}
 
-	if req.EmbeddingModel == "" && req.EmbeddingURL == "" {
+	if req.Config.EmbeddingModel == "" && req.Config.EmbeddingURL == "" {
 		httpResponse(w, "embedding_model is required when embedding_url is not set", http.StatusBadRequest)
 		return
 	}
 
 	// Set defaults.
-	if req.ChunkSize <= 0 {
-		req.ChunkSize = 512
+	if req.Config.ChunkSize <= 0 {
+		req.Config.ChunkSize = 512
 	}
-	if req.ChunkOverlap < 0 {
-		req.ChunkOverlap = 100
+	if req.Config.ChunkOverlap < 0 {
+		req.Config.ChunkOverlap = 100
 	}
 
 	userEmail := s.getUserEmail(r)
@@ -154,17 +154,17 @@ func (s *Server) UpdateRAGCollectionAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.VectorStore.Type == "" {
+	if req.Config.VectorStore.Type == "" {
 		httpResponse(w, "vector_store.type is required", http.StatusBadRequest)
 		return
 	}
 
-	if req.EmbeddingProvider == "" {
+	if req.Config.EmbeddingProvider == "" {
 		httpResponse(w, "embedding_provider is required", http.StatusBadRequest)
 		return
 	}
 
-	if req.EmbeddingModel == "" && req.EmbeddingURL == "" {
+	if req.Config.EmbeddingModel == "" && req.Config.EmbeddingURL == "" {
 		httpResponse(w, "embedding_model is required when embedding_url is not set", http.StatusBadRequest)
 		return
 	}

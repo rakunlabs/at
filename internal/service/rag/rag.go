@@ -105,7 +105,7 @@ func (s *Service) Ingest(ctx context.Context, collectionID string, content io.Re
 	}
 
 	// Load and split the document.
-	chunks, err := LoadDocuments(ctx, content, contentType, source, collection.ChunkSize, collection.ChunkOverlap, extraMetadata)
+	chunks, err := LoadDocuments(ctx, content, contentType, source, collection.Config.ChunkSize, collection.Config.ChunkOverlap, extraMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("load documents: %w", err)
 	}
@@ -317,13 +317,13 @@ func (s *Service) getVectorStore(ctx context.Context, collection *service.RAGCol
 	// Create a new vector store connection.
 	embedder, err := s.createEmbedder(ctx, collection)
 	if err != nil {
-		return nil, fmt.Errorf("create embedder for provider %q: %w", collection.EmbeddingProvider, err)
+		return nil, fmt.Errorf("create embedder for provider %q: %w", collection.Config.EmbeddingProvider, err)
 	}
 
 	namespace := collection.Name // Use collection name as namespace.
-	vs, err = NewVectorStore(ctx, collection.VectorStore, embedder, namespace)
+	vs, err = NewVectorStore(ctx, collection.Config.VectorStore, embedder, namespace)
 	if err != nil {
-		return nil, fmt.Errorf("create vector store %q: %w", collection.VectorStore.Type, err)
+		return nil, fmt.Errorf("create vector store %q: %w", collection.Config.VectorStore.Type, err)
 	}
 
 	// Cache it.
@@ -343,17 +343,18 @@ func (s *Service) getVectorStore(ctx context.Context, collection *service.RAGCol
 
 // createEmbedder builds a langchaingo Embedder from a RAG collection's provider config.
 func (s *Service) createEmbedder(ctx context.Context, collection *service.RAGCollection) (embeddings.Embedder, error) {
-	cfg, err := s.providerLookup(ctx, collection.EmbeddingProvider)
+	cfg, err := s.providerLookup(ctx, collection.Config.EmbeddingProvider)
 	if err != nil {
-		return nil, fmt.Errorf("lookup provider %q: %w", collection.EmbeddingProvider, err)
+		return nil, fmt.Errorf("lookup provider %q: %w", collection.Config.EmbeddingProvider, err)
 	}
 
 	client, err := NewATEmbedderClient(ATEmbedderConfig{
 		BaseURL:            cfg.BaseURL,
-		EmbeddingURL:       collection.EmbeddingURL,
-		APIType:            collection.EmbeddingAPIType,
-		Model:              collection.EmbeddingModel,
+		EmbeddingURL:       collection.Config.EmbeddingURL,
+		APIType:            collection.Config.EmbeddingAPIType,
+		Model:              collection.Config.EmbeddingModel,
 		APIKey:             cfg.APIKey,
+		BearerAuth:         collection.Config.EmbeddingBearerAuth,
 		Proxy:              cfg.Proxy,
 		InsecureSkipVerify: cfg.InsecureSkipVerify,
 	})

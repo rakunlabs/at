@@ -443,7 +443,7 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc())
+	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc())
 
 	// Manual/API runs start from "input" nodes only.
 	// Collect all input node IDs and check for output nodes.

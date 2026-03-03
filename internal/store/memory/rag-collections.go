@@ -61,43 +61,34 @@ func (m *Memory) GetRAGCollectionByName(_ context.Context, name string) (*servic
 
 func (m *Memory) CreateRAGCollection(_ context.Context, c service.RAGCollection) (*service.RAGCollection, error) {
 	// Round-trip through JSON to normalize.
-	raw, err := json.Marshal(c.VectorStore)
+	raw, err := json.Marshal(c.Config)
 	if err != nil {
-		return nil, fmt.Errorf("marshal vector store config: %w", err)
+		return nil, fmt.Errorf("marshal rag collection config: %w", err)
 	}
-	var normalized service.RAGVectorStoreConfig
+	var normalized service.RAGCollectionConfig
 	if err := json.Unmarshal(raw, &normalized); err != nil {
-		return nil, fmt.Errorf("unmarshal vector store config: %w", err)
+		return nil, fmt.Errorf("unmarshal rag collection config: %w", err)
 	}
 
 	id := ulid.Make().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	// Default chunk settings.
-	chunkSize := c.ChunkSize
-	if chunkSize <= 0 {
-		chunkSize = 1000
+	if normalized.ChunkSize <= 0 {
+		normalized.ChunkSize = 1000
 	}
-	chunkOverlap := c.ChunkOverlap
-	if chunkOverlap < 0 {
-		chunkOverlap = 200
+	if normalized.ChunkOverlap < 0 {
+		normalized.ChunkOverlap = 200
 	}
 
 	rec := service.RAGCollection{
-		ID:                id,
-		Name:              c.Name,
-		Description:       c.Description,
-		VectorStore:       normalized,
-		EmbeddingProvider: c.EmbeddingProvider,
-		EmbeddingModel:    c.EmbeddingModel,
-		EmbeddingURL:      c.EmbeddingURL,
-		EmbeddingAPIType:  c.EmbeddingAPIType,
-		ChunkSize:         chunkSize,
-		ChunkOverlap:      chunkOverlap,
-		CreatedAt:         now,
-		UpdatedAt:         now,
-		CreatedBy:         c.CreatedBy,
-		UpdatedBy:         c.UpdatedBy,
+		ID:        id,
+		Name:      c.Name,
+		Config:    normalized,
+		CreatedAt: now,
+		UpdatedAt: now,
+		CreatedBy: c.CreatedBy,
+		UpdatedBy: c.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -108,13 +99,13 @@ func (m *Memory) CreateRAGCollection(_ context.Context, c service.RAGCollection)
 }
 
 func (m *Memory) UpdateRAGCollection(_ context.Context, id string, c service.RAGCollection) (*service.RAGCollection, error) {
-	raw, err := json.Marshal(c.VectorStore)
+	raw, err := json.Marshal(c.Config)
 	if err != nil {
-		return nil, fmt.Errorf("marshal vector store config: %w", err)
+		return nil, fmt.Errorf("marshal rag collection config: %w", err)
 	}
-	var normalized service.RAGVectorStoreConfig
+	var normalized service.RAGCollectionConfig
 	if err := json.Unmarshal(raw, &normalized); err != nil {
-		return nil, fmt.Errorf("unmarshal vector store config: %w", err)
+		return nil, fmt.Errorf("unmarshal rag collection config: %w", err)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -128,14 +119,7 @@ func (m *Memory) UpdateRAGCollection(_ context.Context, id string, c service.RAG
 	}
 
 	existing.Name = c.Name
-	existing.Description = c.Description
-	existing.VectorStore = normalized
-	existing.EmbeddingProvider = c.EmbeddingProvider
-	existing.EmbeddingModel = c.EmbeddingModel
-	existing.EmbeddingURL = c.EmbeddingURL
-	existing.EmbeddingAPIType = c.EmbeddingAPIType
-	existing.ChunkSize = c.ChunkSize
-	existing.ChunkOverlap = c.ChunkOverlap
+	existing.Config = normalized
 	existing.UpdatedAt = now
 	existing.UpdatedBy = c.UpdatedBy
 	m.ragCollections[id] = existing

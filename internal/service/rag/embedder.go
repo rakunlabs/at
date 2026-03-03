@@ -40,6 +40,12 @@ type ATEmbedderClient struct {
 	// apiKey is the authentication key (Bearer token for OpenAI, x-goog-api-key for Gemini).
 	apiKey string
 
+	// bearerAuth forces the API key to be sent as "Authorization: Bearer <apiKey>"
+	// regardless of the apiType. This is useful when the embedding URL points to
+	// a gateway proxy (e.g. another AT instance) that authenticates via Bearer
+	// token and injects the provider-specific key itself.
+	bearerAuth bool
+
 	// apiType is the embedding API format: "openai" or "gemini".
 	apiType string
 
@@ -73,6 +79,12 @@ type ATEmbedderConfig struct {
 
 	// APIKey is the authentication key. May be empty for local providers (Ollama).
 	APIKey string
+
+	// BearerAuth forces the API key to be sent as "Authorization: Bearer <APIKey>"
+	// regardless of the APIType. This is useful when the embedding URL points to
+	// a gateway proxy (e.g. another AT instance) that authenticates via Bearer
+	// token and injects the provider-specific key itself.
+	BearerAuth bool
 
 	// Proxy is an optional proxy URL.
 	Proxy string
@@ -133,6 +145,7 @@ func NewATEmbedderClient(cfg ATEmbedderConfig) (*ATEmbedderClient, error) {
 		embeddingsURL: embeddingsURL,
 		model:         cfg.Model,
 		apiKey:        cfg.APIKey,
+		bearerAuth:    cfg.BearerAuth,
 		apiType:       apiType,
 		client:        &http.Client{Transport: transport},
 	}, nil
@@ -272,7 +285,14 @@ func (c *ATEmbedderClient) doGeminiRequest(ctx context.Context, targetURL string
 
 	req.Header.Set("Content-Type", "application/json")
 	if c.apiKey != "" {
-		req.Header.Set("x-goog-api-key", c.apiKey)
+		if c.bearerAuth {
+			// Gateway proxy auth: send API key as Bearer token. The gateway's
+			// Proxy() method will inject the provider-specific API key header
+			// (x-goog-api-key) when forwarding to Gemini.
+			req.Header.Set("Authorization", "Bearer "+c.apiKey)
+		} else {
+			req.Header.Set("x-goog-api-key", c.apiKey)
+		}
 	}
 
 	resp, err := c.client.Do(req)

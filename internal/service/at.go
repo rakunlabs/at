@@ -389,23 +389,28 @@ type NodeConfigStorer interface {
 
 // ─── Agent Registry ───
 
+// AgentConfig holds the configuration fields for an agent, stored as JSON in the database.
+type AgentConfig struct {
+	Description   string   `json:"description,omitempty"`
+	Provider      string   `json:"provider"`                // Provider key
+	Model         string   `json:"model,omitempty"`         // Model identifier
+	SystemPrompt  string   `json:"system_prompt,omitempty"` // System prompt
+	Skills        []string `json:"skills,omitempty"`        // List of skill IDs/names
+	MCPs          []string `json:"mcp_urls,omitempty"`      // List of MCP server URLs
+	MaxIterations int      `json:"max_iterations"`          // Max iterations for the loop
+	ToolTimeout   int      `json:"tool_timeout"`            // Timeout in seconds
+}
+
 // Agent represents a reusable agent configuration that can be referenced
 // by agent_call nodes in workflows.
 type Agent struct {
-	ID            string   `json:"id"`
-	Name          string   `json:"name"`
-	Description   string   `json:"description"`
-	Provider      string   `json:"provider"`       // Provider key
-	Model         string   `json:"model"`          // Model identifier
-	SystemPrompt  string   `json:"system_prompt"`  // System prompt
-	Skills        []string `json:"skills"`         // List of skill IDs/names
-	MCPs          []string `json:"mcp_urls"`       // List of MCP server URLs
-	MaxIterations int      `json:"max_iterations"` // Max iterations for the loop
-	ToolTimeout   int      `json:"tool_timeout"`   // Timeout in seconds
-	CreatedAt     string   `json:"created_at"`
-	UpdatedAt     string   `json:"updated_at"`
-	CreatedBy     string   `json:"created_by"`
-	UpdatedBy     string   `json:"updated_by"`
+	ID        string      `json:"id"`
+	Name      string      `json:"name"`
+	Config    AgentConfig `json:"config"`
+	CreatedAt string      `json:"created_at"`
+	UpdatedAt string      `json:"updated_at"`
+	CreatedBy string      `json:"created_by"`
+	UpdatedBy string      `json:"updated_by"`
 }
 
 // AgentStorer defines CRUD operations for agents.
@@ -419,24 +424,30 @@ type AgentStorer interface {
 
 // ─── RAG Collections ───
 
+// RAGCollectionConfig holds the configuration fields for a RAG collection, stored as JSON in the database.
+type RAGCollectionConfig struct {
+	Description         string               `json:"description,omitempty"`
+	VectorStore         RAGVectorStoreConfig `json:"vector_store"`
+	EmbeddingProvider   string               `json:"embedding_provider"` // key into AT providers
+	EmbeddingModel      string               `json:"embedding_model,omitempty"`
+	EmbeddingURL        string               `json:"embedding_url,omitempty"`         // optional custom embedding endpoint URL
+	EmbeddingAPIType    string               `json:"embedding_api_type,omitempty"`    // "openai" (default) or "gemini"
+	EmbeddingBearerAuth bool                 `json:"embedding_bearer_auth,omitempty"` // if true, use Bearer auth header
+	ChunkSize           int                  `json:"chunk_size"`
+	ChunkOverlap        int                  `json:"chunk_overlap"`
+}
+
 // RAGCollection represents a named namespace for RAG documents.
 // Each collection has its own vector store backend and embedding configuration.
 // Documents are stored directly in the vector store (no separate document metadata table).
 type RAGCollection struct {
-	ID                string               `json:"id"`
-	Name              string               `json:"name"`
-	Description       string               `json:"description,omitempty"`
-	VectorStore       RAGVectorStoreConfig `json:"vector_store"`
-	EmbeddingProvider string               `json:"embedding_provider"` // key into AT providers
-	EmbeddingModel    string               `json:"embedding_model"`
-	EmbeddingURL      string               `json:"embedding_url,omitempty"`      // optional custom embedding endpoint URL
-	EmbeddingAPIType  string               `json:"embedding_api_type,omitempty"` // "openai" (default) or "gemini"
-	ChunkSize         int                  `json:"chunk_size"`
-	ChunkOverlap      int                  `json:"chunk_overlap"`
-	CreatedAt         string               `json:"created_at"`
-	UpdatedAt         string               `json:"updated_at"`
-	CreatedBy         string               `json:"created_by"`
-	UpdatedBy         string               `json:"updated_by"`
+	ID        string              `json:"id"`
+	Name      string              `json:"name"`
+	Config    RAGCollectionConfig `json:"config"`
+	CreatedAt string              `json:"created_at"`
+	UpdatedAt string              `json:"updated_at"`
+	CreatedBy string              `json:"created_by"`
+	UpdatedBy string              `json:"updated_by"`
 }
 
 // RAGVectorStoreConfig holds the type and connection parameters for a vector store backend.
@@ -453,4 +464,19 @@ type RAGCollectionStorer interface {
 	CreateRAGCollection(ctx context.Context, c RAGCollection) (*RAGCollection, error)
 	UpdateRAGCollection(ctx context.Context, id string, c RAGCollection) (*RAGCollection, error)
 	DeleteRAGCollection(ctx context.Context, id string) error
+}
+
+// ─── RAG State ───
+
+// RAGState represents the last processed state for a RAG source (e.g. git commit hash).
+type RAGState struct {
+	Key       string     `json:"key"`
+	Value     string     `json:"value"`
+	UpdatedAt types.Time `json:"updated_at"`
+}
+
+// RAGStateStorer defines CRUD operations for RAG states.
+type RAGStateStorer interface {
+	GetRAGState(ctx context.Context, key string) (*RAGState, error)
+	SetRAGState(ctx context.Context, key string, value string) error
 }

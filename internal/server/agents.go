@@ -88,17 +88,17 @@ func (s *Server) CreateAgentAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Provider == "" {
+	if req.Config.Provider == "" {
 		httpResponse(w, "provider is required", http.StatusBadRequest)
 		return
 	}
 
 	// Set defaults if missing
-	if req.MaxIterations == 0 {
-		req.MaxIterations = 10
+	if req.Config.MaxIterations == 0 {
+		req.Config.MaxIterations = 10
 	}
-	if req.ToolTimeout == 0 {
-		req.ToolTimeout = 60
+	if req.Config.ToolTimeout == 0 {
+		req.Config.ToolTimeout = 60
 	}
 
 	userEmail := s.getUserEmail(r)
@@ -139,7 +139,7 @@ func (s *Server) UpdateAgentAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Provider == "" {
+	if req.Config.Provider == "" {
 		httpResponse(w, "provider is required", http.StatusBadRequest)
 		return
 	}

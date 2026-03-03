@@ -176,8 +176,8 @@ func (n *ragIngestNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}
 
 	// 3. Update sync state variable.
-	if variableKey != "" && commitSHA != "" && reg.VarSave != nil {
-		if err := reg.VarSave(ctx, variableKey, commitSHA); err != nil {
+	if variableKey != "" && commitSHA != "" && reg.RAGStateSave != nil {
+		if err := reg.RAGStateSave(ctx, variableKey, commitSHA); err != nil {
 			// Don't fail the whole workflow if variable save fails, but log it.
 			// Actually, if we don't save, the next run will re-ingest everything.
 			// It's safer to return error here to ensure data consistency?
@@ -188,7 +188,7 @@ func (n *ragIngestNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				"error", err,
 			)
 			// Return error to alert the user/system.
-			return nil, fmt.Errorf("rag_ingest: save variable %q: %w", variableKey, err)
+			return nil, fmt.Errorf("rag_ingest: save rag state %q: %w", variableKey, err)
 		}
 	}
 

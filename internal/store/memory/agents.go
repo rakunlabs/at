@@ -49,20 +49,13 @@ func (m *Memory) CreateAgent(_ context.Context, agent service.Agent) (*service.A
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	rec := service.Agent{
-		ID:            id,
-		Name:          agent.Name,
-		Description:   agent.Description,
-		Provider:      agent.Provider,
-		Model:         agent.Model,
-		SystemPrompt:  agent.SystemPrompt,
-		Skills:        agent.Skills,
-		MCPs:          agent.MCPs,
-		MaxIterations: agent.MaxIterations,
-		ToolTimeout:   agent.ToolTimeout,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		CreatedBy:     agent.CreatedBy,
-		UpdatedBy:     agent.UpdatedBy,
+		ID:        id,
+		Name:      agent.Name,
+		Config:    agent.Config,
+		CreatedAt: now,
+		UpdatedAt: now,
+		CreatedBy: agent.CreatedBy,
+		UpdatedBy: agent.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -84,14 +77,7 @@ func (m *Memory) UpdateAgent(_ context.Context, id string, agent service.Agent) 
 	}
 
 	existing.Name = agent.Name
-	existing.Description = agent.Description
-	existing.Provider = agent.Provider
-	existing.Model = agent.Model
-	existing.SystemPrompt = agent.SystemPrompt
-	existing.Skills = agent.Skills
-	existing.MCPs = agent.MCPs
-	existing.MaxIterations = agent.MaxIterations
-	existing.ToolTimeout = agent.ToolTimeout
+	existing.Config = agent.Config
 	existing.UpdatedAt = now
 	existing.UpdatedBy = agent.UpdatedBy
 

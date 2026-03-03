@@ -15,24 +15,17 @@ import (
 )
 
 type ragCollectionRow struct {
-	ID                string         `db:"id"`
-	Name              string         `db:"name"`
-	Description       sql.NullString `db:"description"`
-	VectorStoreConfig sql.NullString `db:"vector_store_config"`
-	EmbeddingProvider string         `db:"embedding_provider"`
-	EmbeddingModel    string         `db:"embedding_model"`
-	EmbeddingURL      sql.NullString `db:"embedding_url"`
-	EmbeddingAPIType  sql.NullString `db:"embedding_api_type"`
-	ChunkSize         int            `db:"chunk_size"`
-	ChunkOverlap      int            `db:"chunk_overlap"`
-	CreatedAt         string         `db:"created_at"`
-	UpdatedAt         string         `db:"updated_at"`
-	CreatedBy         sql.NullString `db:"created_by"`
-	UpdatedBy         sql.NullString `db:"updated_by"`
+	ID        string         `db:"id"`
+	Name      string         `db:"name"`
+	Config    sql.NullString `db:"config"`
+	CreatedAt string         `db:"created_at"`
+	UpdatedAt string         `db:"updated_at"`
+	CreatedBy sql.NullString `db:"created_by"`
+	UpdatedBy sql.NullString `db:"updated_by"`
 }
 
 func (s *SQLite) ListRAGCollections(ctx context.Context, q *query.Query) (*service.ListResult[service.RAGCollection], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableRAGCollections, q, "id", "name", "description", "vector_store_config", "embedding_provider", "embedding_model", "embedding_url", "embedding_api_type", "chunk_size", "chunk_overlap", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := s.buildListQuery(ctx, s.tableRAGCollections, q, "id", "name", "config", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list rag collections query: %w", err)
 	}
@@ -46,7 +39,7 @@ func (s *SQLite) ListRAGCollections(ctx context.Context, q *query.Query) (*servi
 	var items []service.RAGCollection
 	for rows.Next() {
 		var row ragCollectionRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.VectorStoreConfig, &row.EmbeddingProvider, &row.EmbeddingModel, &row.EmbeddingURL, &row.EmbeddingAPIType, &row.ChunkSize, &row.ChunkOverlap, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan rag collection row: %w", err)
 		}
 
@@ -71,7 +64,7 @@ func (s *SQLite) ListRAGCollections(ctx context.Context, q *query.Query) (*servi
 
 func (s *SQLite) GetRAGCollection(ctx context.Context, id string) (*service.RAGCollection, error) {
 	query, _, err := s.goqu.From(s.tableRAGCollections).
-		Select("id", "name", "description", "vector_store_config", "embedding_provider", "embedding_model", "embedding_url", "embedding_api_type", "chunk_size", "chunk_overlap", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -79,7 +72,7 @@ func (s *SQLite) GetRAGCollection(ctx context.Context, id string) (*service.RAGC
 	}
 
 	var row ragCollectionRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.VectorStoreConfig, &row.EmbeddingProvider, &row.EmbeddingModel, &row.EmbeddingURL, &row.EmbeddingAPIType, &row.ChunkSize, &row.ChunkOverlap, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -92,7 +85,7 @@ func (s *SQLite) GetRAGCollection(ctx context.Context, id string) (*service.RAGC
 
 func (s *SQLite) GetRAGCollectionByName(ctx context.Context, name string) (*service.RAGCollection, error) {
 	query, _, err := s.goqu.From(s.tableRAGCollections).
-		Select("id", "name", "description", "vector_store_config", "embedding_provider", "embedding_model", "embedding_url", "embedding_api_type", "chunk_size", "chunk_overlap", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -100,7 +93,7 @@ func (s *SQLite) GetRAGCollectionByName(ctx context.Context, name string) (*serv
 	}
 
 	var row ragCollectionRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.VectorStoreConfig, &row.EmbeddingProvider, &row.EmbeddingModel, &row.EmbeddingURL, &row.EmbeddingAPIType, &row.ChunkSize, &row.ChunkOverlap, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -112,40 +105,31 @@ func (s *SQLite) GetRAGCollectionByName(ctx context.Context, name string) (*serv
 }
 
 func (s *SQLite) CreateRAGCollection(ctx context.Context, c service.RAGCollection) (*service.RAGCollection, error) {
-	vsConfigJSON, err := json.Marshal(c.VectorStore)
+	// Default chunk settings.
+	if c.Config.ChunkSize <= 0 {
+		c.Config.ChunkSize = 1000
+	}
+	if c.Config.ChunkOverlap < 0 {
+		c.Config.ChunkOverlap = 200
+	}
+
+	configJSON, err := json.Marshal(c.Config)
 	if err != nil {
-		return nil, fmt.Errorf("marshal vector store config: %w", err)
+		return nil, fmt.Errorf("marshal rag collection config: %w", err)
 	}
 
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	// Default chunk settings.
-	chunkSize := c.ChunkSize
-	if chunkSize <= 0 {
-		chunkSize = 1000
-	}
-	chunkOverlap := c.ChunkOverlap
-	if chunkOverlap < 0 {
-		chunkOverlap = 200
-	}
-
 	query, _, err := s.goqu.Insert(s.tableRAGCollections).Rows(
 		goqu.Record{
-			"id":                  id,
-			"name":                c.Name,
-			"description":         c.Description,
-			"vector_store_config": string(vsConfigJSON),
-			"embedding_provider":  c.EmbeddingProvider,
-			"embedding_model":     c.EmbeddingModel,
-			"embedding_url":       c.EmbeddingURL,
-			"embedding_api_type":  c.EmbeddingAPIType,
-			"chunk_size":          chunkSize,
-			"chunk_overlap":       chunkOverlap,
-			"created_at":          now.Format(time.RFC3339),
-			"updated_at":          now.Format(time.RFC3339),
-			"created_by":          c.CreatedBy,
-			"updated_by":          c.UpdatedBy,
+			"id":         id,
+			"name":       c.Name,
+			"config":     string(configJSON),
+			"created_at": now.Format(time.RFC3339),
+			"updated_at": now.Format(time.RFC3339),
+			"created_by": c.CreatedBy,
+			"updated_by": c.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -157,44 +141,30 @@ func (s *SQLite) CreateRAGCollection(ctx context.Context, c service.RAGCollectio
 	}
 
 	return &service.RAGCollection{
-		ID:                id,
-		Name:              c.Name,
-		Description:       c.Description,
-		VectorStore:       c.VectorStore,
-		EmbeddingProvider: c.EmbeddingProvider,
-		EmbeddingModel:    c.EmbeddingModel,
-		EmbeddingURL:      c.EmbeddingURL,
-		EmbeddingAPIType:  c.EmbeddingAPIType,
-		ChunkSize:         chunkSize,
-		ChunkOverlap:      chunkOverlap,
-		CreatedAt:         now.Format(time.RFC3339),
-		UpdatedAt:         now.Format(time.RFC3339),
-		CreatedBy:         c.CreatedBy,
-		UpdatedBy:         c.UpdatedBy,
+		ID:        id,
+		Name:      c.Name,
+		Config:    c.Config,
+		CreatedAt: now.Format(time.RFC3339),
+		UpdatedAt: now.Format(time.RFC3339),
+		CreatedBy: c.CreatedBy,
+		UpdatedBy: c.UpdatedBy,
 	}, nil
 }
 
 func (s *SQLite) UpdateRAGCollection(ctx context.Context, id string, c service.RAGCollection) (*service.RAGCollection, error) {
-	vsConfigJSON, err := json.Marshal(c.VectorStore)
+	configJSON, err := json.Marshal(c.Config)
 	if err != nil {
-		return nil, fmt.Errorf("marshal vector store config: %w", err)
+		return nil, fmt.Errorf("marshal rag collection config: %w", err)
 	}
 
 	now := time.Now().UTC()
 
 	query, _, err := s.goqu.Update(s.tableRAGCollections).Set(
 		goqu.Record{
-			"name":                c.Name,
-			"description":         c.Description,
-			"vector_store_config": string(vsConfigJSON),
-			"embedding_provider":  c.EmbeddingProvider,
-			"embedding_model":     c.EmbeddingModel,
-			"embedding_url":       c.EmbeddingURL,
-			"embedding_api_type":  c.EmbeddingAPIType,
-			"chunk_size":          c.ChunkSize,
-			"chunk_overlap":       c.ChunkOverlap,
-			"updated_at":          now.Format(time.RFC3339),
-			"updated_by":          c.UpdatedBy,
+			"name":       c.Name,
+			"config":     string(configJSON),
+			"updated_at": now.Format(time.RFC3339),
+			"updated_by": c.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -234,27 +204,20 @@ func (s *SQLite) DeleteRAGCollection(ctx context.Context, id string) error {
 }
 
 func ragCollectionRowToRecord(row ragCollectionRow) (*service.RAGCollection, error) {
-	var vsConfig service.RAGVectorStoreConfig
-	if row.VectorStoreConfig.Valid && row.VectorStoreConfig.String != "" {
-		if err := json.Unmarshal([]byte(row.VectorStoreConfig.String), &vsConfig); err != nil {
-			return nil, fmt.Errorf("unmarshal vector store config for %q: %w", row.ID, err)
+	var cfg service.RAGCollectionConfig
+	if row.Config.Valid && row.Config.String != "" {
+		if err := json.Unmarshal([]byte(row.Config.String), &cfg); err != nil {
+			return nil, fmt.Errorf("unmarshal rag collection config for %q: %w", row.ID, err)
 		}
 	}
 
 	return &service.RAGCollection{
-		ID:                row.ID,
-		Name:              row.Name,
-		Description:       row.Description.String,
-		VectorStore:       vsConfig,
-		EmbeddingProvider: row.EmbeddingProvider,
-		EmbeddingModel:    row.EmbeddingModel,
-		EmbeddingURL:      row.EmbeddingURL.String,
-		EmbeddingAPIType:  row.EmbeddingAPIType.String,
-		ChunkSize:         row.ChunkSize,
-		ChunkOverlap:      row.ChunkOverlap,
-		CreatedAt:         row.CreatedAt,
-		UpdatedAt:         row.UpdatedAt,
-		CreatedBy:         row.CreatedBy.String,
-		UpdatedBy:         row.UpdatedBy.String,
+		ID:        row.ID,
+		Name:      row.Name,
+		Config:    cfg,
+		CreatedAt: row.CreatedAt,
+		UpdatedAt: row.UpdatedAt,
+		CreatedBy: row.CreatedBy.String,
+		UpdatedBy: row.UpdatedBy.String,
 	}, nil
 }
