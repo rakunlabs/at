@@ -14,6 +14,10 @@ import (
 	"github.com/tmc/langchaingo/embeddings"
 )
 
+// geminiBatchLimit is the maximum number of requests allowed in a single
+// Gemini batchEmbedContents call. The API returns INVALID_ARGUMENT if exceeded.
+const geminiBatchLimit = 100
+
 // Ensure ATEmbedderClient implements the langchaingo EmbedderClient interface.
 var _ embeddings.EmbedderClient = (*ATEmbedderClient)(nil)
 
@@ -236,6 +240,10 @@ func (c *ATEmbedderClient) createEmbeddingOpenAI(ctx context.Context, texts []st
 // createEmbeddingGemini always uses the batchEmbedContents endpoint since
 // langchaingo's EmbedderImpl always sends texts as batches (even single texts
 // are sent as []string{text}).
+//
+// Gemini batchEmbedContents allows at most 100 requests per call. If the
+// caller sends more (e.g. the langchaingo batch size is set higher), we
+// split into sub-batches of geminiBatchLimit and concatenate the results.
 func (c *ATEmbedderClient) createEmbeddingGemini(ctx context.Context, texts []string) ([][]float32, error) {
 	// Build the model field for the request body.
 	// If model is set, use "models/{model}". If empty (URL already contains model),
@@ -245,40 +253,49 @@ func (c *ATEmbedderClient) createEmbeddingGemini(ctx context.Context, texts []st
 		modelField = "models/" + c.model
 	}
 
-	requests := make([]geminiEmbedContentRequest, len(texts))
-	for i, text := range texts {
-		requests[i] = geminiEmbedContentRequest{
-			Model: modelField,
-			Content: geminiContent{
-				Parts: []geminiPart{{Text: text}},
-			},
+	// Split texts into sub-batches that fit within the Gemini limit.
+	var allEmbs [][]float32
+	for start := 0; start < len(texts); start += geminiBatchLimit {
+		end := start + geminiBatchLimit
+		if end > len(texts) {
+			end = len(texts)
+		}
+		batch := texts[start:end]
+
+		requests := make([]geminiEmbedContentRequest, len(batch))
+		for i, text := range batch {
+			requests[i] = geminiEmbedContentRequest{
+				Model: modelField,
+				Content: geminiContent{
+					Parts: []geminiPart{{Text: text}},
+				},
+			}
+		}
+
+		reqBody := geminiBatchEmbedRequest{
+			Requests: requests,
+		}
+
+		result, err := c.doGeminiRequest(ctx, c.embeddingsURL, reqBody)
+		if err != nil {
+			return nil, err
+		}
+
+		var resp geminiBatchEmbedResponse
+		if err := json.Unmarshal(result, &resp); err != nil {
+			return nil, fmt.Errorf("unmarshal gemini batch embedding response: %w", err)
+		}
+
+		if resp.Error != nil {
+			return nil, fmt.Errorf("gemini batch embedding error: %s (code %d)", resp.Error.Message, resp.Error.Code)
+		}
+
+		for _, e := range resp.Embeddings {
+			allEmbs = append(allEmbs, e.Values)
 		}
 	}
 
-	reqBody := geminiBatchEmbedRequest{
-		Requests: requests,
-	}
-
-	result, err := c.doGeminiRequest(ctx, c.embeddingsURL, reqBody)
-	if err != nil {
-		return nil, err
-	}
-
-	var resp geminiBatchEmbedResponse
-	if err := json.Unmarshal(result, &resp); err != nil {
-		return nil, fmt.Errorf("unmarshal gemini batch embedding response: %w", err)
-	}
-
-	if resp.Error != nil {
-		return nil, fmt.Errorf("gemini batch embedding error: %s (code %d)", resp.Error.Message, resp.Error.Code)
-	}
-
-	embs := make([][]float32, len(resp.Embeddings))
-	for i, e := range resp.Embeddings {
-		embs[i] = e.Values
-	}
-
-	return embs, nil
+	return allEmbs, nil
 }
 
 // doGeminiRequest performs an HTTP POST to a Gemini endpoint with the given body.

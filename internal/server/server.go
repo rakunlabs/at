@@ -443,6 +443,10 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// RAG search
 	apiGroup.POST("/v1/rag/search", s.SearchRAGAPI)
 
+	// RAG embedding tools
+	apiGroup.POST("/v1/rag/discover-embedding-models", s.DiscoverEmbeddingModelsAPI)
+	apiGroup.POST("/v1/rag/test-embedding", s.TestEmbeddingAPI)
+
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 

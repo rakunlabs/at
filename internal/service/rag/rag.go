@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 
 	"github.com/tmc/langchaingo/embeddings"
@@ -320,7 +321,11 @@ func (s *Service) getVectorStore(ctx context.Context, collection *service.RAGCol
 		return nil, fmt.Errorf("create embedder for provider %q: %w", collection.Config.EmbeddingProvider, err)
 	}
 
-	namespace := collection.Name // Use collection name as namespace.
+	// Prefer explicit collection_name from vector store config, fall back to collection name.
+	namespace := getString(collection.Config.VectorStore.Config, "collection_name")
+	if namespace == "" {
+		namespace = collection.Name
+	}
 	vs, err = NewVectorStore(ctx, collection.Config.VectorStore, embedder, namespace)
 	if err != nil {
 		return nil, fmt.Errorf("create vector store %q: %w", collection.Config.VectorStore.Type, err)
@@ -362,7 +367,15 @@ func (s *Service) createEmbedder(ctx context.Context, collection *service.RAGCol
 		return nil, fmt.Errorf("create embedder client: %w", err)
 	}
 
-	embedder, err := embeddings.NewEmbedder(client)
+	// Gemini batchEmbedContents allows at most 100 requests per batch.
+	// The langchaingo default batch size is 512, which would exceed the limit.
+	var embOpts []embeddings.Option
+	apiType := strings.ToLower(collection.Config.EmbeddingAPIType)
+	if apiType == "gemini" {
+		embOpts = append(embOpts, embeddings.WithBatchSize(geminiBatchLimit))
+	}
+
+	embedder, err := embeddings.NewEmbedder(client, embOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("create embedder: %w", err)
 	}

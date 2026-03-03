@@ -1,12 +1,15 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/rag"
@@ -402,4 +405,248 @@ func (s *Server) SearchRAGAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, map[string]any{
 		"results": results,
 	}, http.StatusOK)
+}
+
+// ─── Embedding Model Discovery ───
+
+// discoverEmbeddingModelsRequest is the JSON body for POST /api/v1/rag/discover-embedding-models.
+type discoverEmbeddingModelsRequest struct {
+	// EmbeddingProvider is the key of the AT provider whose credentials and
+	// base URL are used to list available embedding models.
+	EmbeddingProvider string `json:"embedding_provider"`
+
+	// EmbeddingAPIType selects the embedding API format: "openai" or "gemini".
+	// When empty, defaults to the provider's type.
+	EmbeddingAPIType string `json:"embedding_api_type,omitempty"`
+
+	// EmbeddingURL is an optional explicit embedding endpoint URL. When set,
+	// its scheme+host is used as the base URL for model discovery instead of
+	// the provider's base URL.
+	EmbeddingURL string `json:"embedding_url,omitempty"`
+
+	// EmbeddingBearerAuth sends the provider API key as a Bearer token instead
+	// of the provider-native header (e.g. x-goog-api-key for Gemini).
+	EmbeddingBearerAuth bool `json:"embedding_bearer_auth,omitempty"`
+}
+
+// DiscoverEmbeddingModelsAPI handles POST /api/v1/rag/discover-embedding-models.
+// It looks up the given provider's config and calls the upstream model listing
+// API, returning only embedding-capable models.
+func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req discoverEmbeddingModelsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.EmbeddingProvider == "" {
+		httpResponse(w, "embedding_provider is required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up provider config from store.
+	rec, err := s.store.GetProvider(r.Context(), req.EmbeddingProvider)
+	if err != nil {
+		slog.Error("discover embedding models: lookup provider failed", "key", req.EmbeddingProvider, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to lookup provider: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if rec == nil {
+		httpResponse(w, fmt.Sprintf("provider %q not found", req.EmbeddingProvider), http.StatusNotFound)
+		return
+	}
+
+	cfg := rec.Config
+
+	// If an explicit embedding URL is provided, use its origin (scheme+host)
+	// as the base URL for model discovery instead of the provider's base URL.
+	if req.EmbeddingURL != "" {
+		if base, err := extractBaseURL(req.EmbeddingURL); err == nil {
+			cfg.BaseURL = base
+		}
+	}
+
+	// Determine the effective API type.
+	apiType := strings.ToLower(req.EmbeddingAPIType)
+	if apiType == "" {
+		apiType = strings.ToLower(cfg.Type)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	var models []string
+
+	switch apiType {
+	case "gemini":
+		models, err = discoverGeminiEmbeddingModels(ctx, cfg, req.EmbeddingBearerAuth)
+	case "openai":
+		// OpenAI /v1/models returns all models; include all since there is no
+		// standard method-based filter for embedding models.
+		models, err = discoverOpenAIModels(ctx, cfg)
+	default:
+		httpResponse(w, fmt.Sprintf("embedding model discovery is not supported for API type %q", apiType), http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		slog.Error("discover embedding models failed", "provider", req.EmbeddingProvider, "api_type", apiType, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to discover embedding models: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	httpResponseJSON(w, discoverResponse{Models: models}, http.StatusOK)
+}
+
+// ─── Test Embedding ───
+
+// testEmbeddingRequest is the JSON body for POST /api/v1/rag/test-embedding.
+type testEmbeddingRequest struct {
+	EmbeddingProvider   string `json:"embedding_provider"`
+	EmbeddingModel      string `json:"embedding_model,omitempty"`
+	EmbeddingURL        string `json:"embedding_url,omitempty"`
+	EmbeddingAPIType    string `json:"embedding_api_type,omitempty"`
+	EmbeddingBearerAuth bool   `json:"embedding_bearer_auth,omitempty"`
+}
+
+// testEmbeddingResponse is returned by the test-embedding endpoint on success.
+type testEmbeddingResponse struct {
+	Success    bool   `json:"success"`
+	Model      string `json:"model,omitempty"`
+	Dimensions int    `json:"dimensions"`
+}
+
+// TestEmbeddingAPI handles POST /api/v1/rag/test-embedding.
+// It creates a temporary embedder from the provided config and sends a single
+// test embedding request to validate the configuration works.
+func (s *Server) TestEmbeddingAPI(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req testEmbeddingRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.EmbeddingProvider == "" {
+		httpResponse(w, "embedding_provider is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.EmbeddingModel == "" && req.EmbeddingURL == "" {
+		httpResponse(w, "embedding_model or embedding_url is required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up provider config from store.
+	rec, err := s.store.GetProvider(r.Context(), req.EmbeddingProvider)
+	if err != nil {
+		slog.Error("test embedding: lookup provider failed", "key", req.EmbeddingProvider, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to lookup provider: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if rec == nil {
+		httpResponse(w, fmt.Sprintf("provider %q not found", req.EmbeddingProvider), http.StatusNotFound)
+		return
+	}
+
+	cfg := rec.Config
+
+	client, err := rag.NewATEmbedderClient(rag.ATEmbedderConfig{
+		BaseURL:            cfg.BaseURL,
+		EmbeddingURL:       req.EmbeddingURL,
+		APIType:            req.EmbeddingAPIType,
+		Model:              req.EmbeddingModel,
+		APIKey:             cfg.APIKey,
+		BearerAuth:         req.EmbeddingBearerAuth,
+		Proxy:              cfg.Proxy,
+		InsecureSkipVerify: cfg.InsecureSkipVerify,
+	})
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid embedding config: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	// Send a minimal test embedding request.
+	embeddings, err := client.CreateEmbedding(ctx, []string{"test"})
+	if err != nil {
+		slog.Error("test embedding failed", "provider", req.EmbeddingProvider, "model", req.EmbeddingModel, "error", err)
+		httpResponse(w, fmt.Sprintf("embedding test failed: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	dimensions := 0
+	if len(embeddings) > 0 {
+		dimensions = len(embeddings[0])
+	}
+
+	httpResponseJSON(w, testEmbeddingResponse{
+		Success:    true,
+		Model:      req.EmbeddingModel,
+		Dimensions: dimensions,
+	}, http.StatusOK)
+}
+
+// extractBaseURL extracts the base URL from an embedding endpoint URL by
+// stripping known API path suffixes. This handles URLs with path prefixes
+// (e.g. behind a gateway proxy).
+//
+// Examples:
+//
+//	"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents"
+//	  → "https://generativelanguage.googleapis.com"
+//
+//	"https://proxy.example.com/at/gateway/proxy/google-ai/v1beta/models/text-embedding-005:batchEmbedContents"
+//	  → "https://proxy.example.com/at/gateway/proxy/google-ai"
+//
+//	"https://api.openai.com/v1/embeddings"
+//	  → "https://api.openai.com/v1/embeddings"  (returned as-is, discoverOpenAIModels handles derivation)
+func extractBaseURL(rawURL string) (string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return "", fmt.Errorf("missing scheme or host in %q", rawURL)
+	}
+
+	path := u.Path
+
+	// Gemini pattern: strip from "/v1beta/models/..." or "/v1/models/..."
+	for _, prefix := range []string{"/v1beta/models", "/v1/models"} {
+		if idx := strings.Index(path, prefix); idx != -1 {
+			u.Path = strings.TrimSuffix(path[:idx], "/")
+			u.RawQuery = ""
+			u.Fragment = ""
+
+			return u.String(), nil
+		}
+	}
+
+	// OpenAI pattern: strip "/v1/embeddings" suffix
+	if idx := strings.Index(path, "/v1/embeddings"); idx != -1 {
+		u.Path = path[:idx] + "/v1/chat/completions"
+		u.RawQuery = ""
+		u.Fragment = ""
+
+		return u.String(), nil
+	}
+
+	// Fallback: return the full URL without query/fragment; let the caller
+	// deal with path derivation.
+	u.RawQuery = ""
+	u.Fragment = ""
+
+	return u.String(), nil
 }

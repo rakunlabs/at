@@ -9,6 +9,8 @@
     uploadDocument,
     importFromURL,
     searchRAG,
+    discoverEmbeddingModels,
+    testEmbedding,
     type RAGCollection,
     type SearchResult,
   } from '@/lib/api/rag';
@@ -28,6 +30,7 @@
     FileText,
     ChevronDown,
     ChevronRight,
+    Zap,
   } from 'lucide-svelte';
   import { formatDate } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -88,6 +91,14 @@
 
   // Expanded row for actions
   let expandedId = $state<string | null>(null);
+
+  // Embedding model discovery
+  let fetchingModels = $state(false);
+  let discoveredModels = $state<string[]>([]);
+
+  // Embedding test
+  let testingEmbedding = $state(false);
+  let testResult = $state<{ success: boolean; dimensions: number; error?: string } | null>(null);
 
   const vectorStoreTypes = ['pgvector', 'chroma', 'qdrant', 'weaviate', 'pinecone', 'milvus'];
 
@@ -164,6 +175,8 @@
     formChunkOverlap = 100;
     editingId = null;
     showForm = false;
+    discoveredModels = [];
+    testResult = null;
   }
 
   function openCreate() {
@@ -336,6 +349,72 @@
     if (expandedId !== id) {
       if (uploadCollectionId === id) uploadCollectionId = null;
       if (importCollectionId === id) importCollectionId = null;
+    }
+  }
+
+  // ─── Embedding Model Discovery ───
+
+  async function handleDiscoverModels() {
+    if (!formEmbeddingProvider.trim()) {
+      addToast('Select an embedding provider first', 'warn');
+      return;
+    }
+
+    fetchingModels = true;
+    discoveredModels = [];
+    try {
+      const models = await discoverEmbeddingModels({
+        embedding_provider: formEmbeddingProvider.trim(),
+        embedding_api_type: formEmbeddingAPIType || undefined,
+        embedding_url: formEmbeddingURL.trim() || undefined,
+        embedding_bearer_auth: formEmbeddingBearerAuth || undefined,
+      });
+      discoveredModels = models;
+      if (models.length === 0) {
+        addToast('No embedding models found for this provider', 'warn');
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to discover embedding models', 'alert');
+    } finally {
+      fetchingModels = false;
+    }
+  }
+
+  function selectModel(model: string) {
+    formEmbeddingModel = model;
+    discoveredModels = [];
+  }
+
+  // ─── Test Embedding ───
+
+  async function handleTestEmbedding() {
+    if (!formEmbeddingProvider.trim()) {
+      addToast('Select an embedding provider first', 'warn');
+      return;
+    }
+    if (!formEmbeddingModel.trim() && !formEmbeddingURL.trim()) {
+      addToast('Embedding model or URL is required', 'warn');
+      return;
+    }
+
+    testingEmbedding = true;
+    testResult = null;
+    try {
+      const result = await testEmbedding({
+        embedding_provider: formEmbeddingProvider.trim(),
+        embedding_model: formEmbeddingModel.trim() || undefined,
+        embedding_url: formEmbeddingURL.trim() || undefined,
+        embedding_api_type: formEmbeddingAPIType || undefined,
+        embedding_bearer_auth: formEmbeddingBearerAuth || undefined,
+      });
+      testResult = { success: true, dimensions: result.dimensions };
+      addToast(`Embedding test passed (${result.dimensions} dimensions)`);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || 'Embedding test failed';
+      testResult = { success: false, dimensions: 0, error: msg };
+      addToast(msg, 'alert');
+    } finally {
+      testingEmbedding = false;
     }
   }
 </script>
@@ -562,13 +641,40 @@
         <!-- Embedding Model -->
         <div class="grid grid-cols-4 gap-3 items-center">
           <label for="form-emb-model" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Embed Model</label>
-          <input
-            id="form-emb-model"
-            type="text"
-            bind:value={formEmbeddingModel}
-            placeholder="e.g., text-embedding-3-small"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-          />
+          <div class="col-span-3 flex items-center gap-2">
+            <input
+              id="form-emb-model"
+              type="text"
+              bind:value={formEmbeddingModel}
+              placeholder="e.g., text-embedding-3-small"
+              class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+            />
+            <button
+              type="button"
+              disabled={fetchingModels || !formEmbeddingProvider}
+              onclick={handleDiscoverModels}
+              class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors disabled:opacity-50 whitespace-nowrap"
+              title="Fetch available embedding models from the provider"
+            >
+              <RefreshCw size={12} class={fetchingModels ? 'animate-spin' : ''} />
+              {fetchingModels ? 'Fetching...' : 'Fetch'}
+            </button>
+          </div>
+          {#if discoveredModels.length > 0}
+            <div class="col-start-2 col-span-3 -mt-2">
+              <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface max-h-40 overflow-y-auto">
+                {#each discoveredModels as model}
+                  <button
+                    type="button"
+                    onclick={() => selectModel(model)}
+                    class="w-full text-left px-3 py-1.5 text-xs font-mono hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors border-b border-gray-100 dark:border-dark-border last:border-b-0"
+                  >
+                    {model}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         <!-- Embedding API Type -->
@@ -649,26 +755,53 @@
         </div>
 
         <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
-          <button
-            type="button"
-            onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={saving}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
-          >
-            <Save size={14} />
-            {#if saving}
-              Saving...
-            {:else}
-              {editingId ? 'Update' : 'Create'}
+        <div class="flex justify-between items-center pt-3 border-t border-gray-100 dark:border-dark-border">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={testingEmbedding || !formEmbeddingProvider}
+              onclick={handleTestEmbedding}
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors disabled:opacity-50"
+              title="Send a test embedding request to verify the configuration"
+            >
+              <Zap size={12} />
+              {#if testingEmbedding}
+                Testing...
+              {:else}
+                Test Embedding
+              {/if}
+            </button>
+            {#if testResult}
+              <span class="text-xs {testResult.success ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}">
+                {#if testResult.success}
+                  OK ({testResult.dimensions}d)
+                {:else}
+                  Failed
+                {/if}
+              </span>
             {/if}
-          </button>
+          </div>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              onclick={resetForm}
+              class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+            >
+              <Save size={14} />
+              {#if saving}
+                Saving...
+              {:else}
+                {editingId ? 'Update' : 'Create'}
+              {/if}
+            </button>
+          </div>
         </div>
       </form>
     </div>

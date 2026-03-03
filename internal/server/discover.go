@@ -284,8 +284,17 @@ func klientForConfig(cfg config.LLMConfig) (*klient.Client, error) {
 	return klient.New(klientOpts...)
 }
 
-// discoverGeminiModels calls GET /v1beta/models on the Google Generative Language API.
-func discoverGeminiModels(ctx context.Context, cfg config.LLMConfig) ([]string, error) {
+// geminiModel represents a model returned by the Gemini /v1beta/models endpoint.
+type geminiModel struct {
+	Name                       string   `json:"name"`
+	SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+}
+
+// listGeminiModels calls GET /v1beta/models on the Google Generative Language API
+// and returns all models without filtering. When bearerAuth is true the API key
+// is sent as an Authorization Bearer token instead of the native x-goog-api-key
+// header (useful when the request goes through a gateway proxy).
+func listGeminiModels(ctx context.Context, cfg config.LLMConfig, bearerAuth bool) ([]geminiModel, error) {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = "https://generativelanguage.googleapis.com"
@@ -300,7 +309,11 @@ func discoverGeminiModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 	}
 
 	if cfg.APIKey != "" {
-		req.Header.Set("x-goog-api-key", cfg.APIKey)
+		if bearerAuth {
+			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		} else {
+			req.Header.Set("x-goog-api-key", cfg.APIKey)
+		}
 	}
 
 	client, err := klientForConfig(cfg)
@@ -325,35 +338,52 @@ func discoverGeminiModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 
 	// Google's /v1beta/models returns: { "models": [{ "name": "models/gemini-2.5-flash", ... }] }
 	var modelsResp struct {
-		Models []struct {
-			Name                       string   `json:"name"`
-			SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
-		} `json:"models"`
+		Models []geminiModel `json:"models"`
 	}
 	if err := json.Unmarshal(body, &modelsResp); err != nil {
 		return nil, fmt.Errorf("parse response: %w", err)
 	}
 
-	var models []string
-	for _, m := range modelsResp.Models {
-		// Only include models that support generateContent (chat).
-		supportsChat := false
-		for _, method := range m.SupportedGenerationMethods {
-			if method == "generateContent" {
-				supportsChat = true
+	return modelsResp.Models, nil
+}
+
+// filterGeminiModelsByMethod returns model IDs that support the given generation method.
+func filterGeminiModelsByMethod(models []geminiModel, method string) []string {
+	var result []string
+	for _, m := range models {
+		for _, supported := range m.SupportedGenerationMethods {
+			if supported == method {
+				id := strings.TrimPrefix(m.Name, "models/")
+				if id != "" {
+					result = append(result, id)
+				}
+
 				break
 			}
 		}
-		if !supportsChat {
-			continue
-		}
-
-		// Strip the "models/" prefix to get the model ID.
-		id := strings.TrimPrefix(m.Name, "models/")
-		if id != "" {
-			models = append(models, id)
-		}
 	}
 
-	return models, nil
+	return result
+}
+
+// discoverGeminiModels calls GET /v1beta/models on the Google Generative Language API
+// and returns models that support generateContent (chat).
+func discoverGeminiModels(ctx context.Context, cfg config.LLMConfig) ([]string, error) {
+	models, err := listGeminiModels(ctx, cfg, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return filterGeminiModelsByMethod(models, "generateContent"), nil
+}
+
+// discoverGeminiEmbeddingModels calls GET /v1beta/models on the Google Generative Language API
+// and returns models that support embedContent (embedding).
+func discoverGeminiEmbeddingModels(ctx context.Context, cfg config.LLMConfig, bearerAuth bool) ([]string, error) {
+	models, err := listGeminiModels(ctx, cfg, bearerAuth)
+	if err != nil {
+		return nil, err
+	}
+
+	return filterGeminiModelsByMethod(models, "embedContent"), nil
 }

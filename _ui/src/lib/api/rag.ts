@@ -102,3 +102,38 @@ export async function searchRAG(req: SearchRequest): Promise<SearchResult[]> {
   const res = await api.post<{ results: SearchResult[] }>('/rag/search', req);
   return res.data.results;
 }
+
+// ─── Embedding Model Discovery ───
+
+export interface DiscoverEmbeddingModelsRequest {
+  embedding_provider: string;
+  embedding_api_type?: string;
+  embedding_url?: string;
+  embedding_bearer_auth?: boolean;
+}
+
+export async function discoverEmbeddingModels(req: DiscoverEmbeddingModelsRequest): Promise<string[]> {
+  const res = await api.post<{ models: string[] }>('/rag/discover-embedding-models', req);
+  return res.data.models;
+}
+
+// ─── Test Embedding ───
+
+export interface TestEmbeddingRequest {
+  embedding_provider: string;
+  embedding_model?: string;
+  embedding_url?: string;
+  embedding_api_type?: string;
+  embedding_bearer_auth?: boolean;
+}
+
+export interface TestEmbeddingResponse {
+  success: boolean;
+  model?: string;
+  dimensions: number;
+}
+
+export async function testEmbedding(req: TestEmbeddingRequest): Promise<TestEmbeddingResponse> {
+  const res = await api.post<TestEmbeddingResponse>('/rag/test-embedding', req);
+  return res.data;
+}
