@@ -103,8 +103,8 @@ func (s *Server) CreateRAGCollectionAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.EmbeddingModel == "" {
-		httpResponse(w, "embedding_model is required", http.StatusBadRequest)
+	if req.EmbeddingModel == "" && req.EmbeddingURL == "" {
+		httpResponse(w, "embedding_model is required when embedding_url is not set", http.StatusBadRequest)
 		return
 	}
 
@@ -164,8 +164,8 @@ func (s *Server) UpdateRAGCollectionAPI(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	if req.EmbeddingModel == "" {
-		httpResponse(w, "embedding_model is required", http.StatusBadRequest)
+	if req.EmbeddingModel == "" && req.EmbeddingURL == "" {
+		httpResponse(w, "embedding_model is required when embedding_url is not set", http.StatusBadRequest)
 		return
 	}
 

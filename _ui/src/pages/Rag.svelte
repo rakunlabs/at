@@ -195,8 +195,8 @@
       addToast('Embedding provider is required', 'warn');
       return;
     }
-    if (!formEmbeddingModel.trim()) {
-      addToast('Embedding model is required', 'warn');
+    if (!formEmbeddingModel.trim() && !formEmbeddingURL.trim()) {
+      addToast('Embedding model is required when embed URL is not set', 'warn');
       return;
     }
 

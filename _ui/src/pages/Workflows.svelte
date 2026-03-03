@@ -21,7 +21,7 @@
 
   // Search & Sort
   let searchQuery = $state('');
-  let sorts = $state<SortEntry[]>([]);
+  let sorts = $state<SortEntry[]>([{ field: 'updated_at', desc: true }]);
 
   // Create form state
   let showCreateForm = $state(false);
