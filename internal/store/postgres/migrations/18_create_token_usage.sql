@@ -1,0 +1,15 @@
+CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}token_usage (
+    token_id TEXT NOT NULL,
+    model TEXT NOT NULL,
+    prompt_tokens BIGINT NOT NULL DEFAULT 0,
+    completion_tokens BIGINT NOT NULL DEFAULT 0,
+    total_tokens BIGINT NOT NULL DEFAULT 0,
+    request_count BIGINT NOT NULL DEFAULT 0,
+    last_request_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (token_id, model),
+    FOREIGN KEY (token_id) REFERENCES ${TABLE_PREFIX}tokens(id) ON DELETE CASCADE
+);
+
+ALTER TABLE ${TABLE_PREFIX}tokens ADD COLUMN total_token_limit BIGINT DEFAULT NULL;
+ALTER TABLE ${TABLE_PREFIX}tokens ADD COLUMN limit_reset_interval TEXT DEFAULT NULL;
+ALTER TABLE ${TABLE_PREFIX}tokens ADD COLUMN last_reset_at TIMESTAMPTZ DEFAULT NULL;

@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	str2duration "github.com/xhit/go-str2duration/v2"
+
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
 	"github.com/worldline-go/types"
@@ -20,20 +22,24 @@ import (
 
 // createTokenRequest is the JSON body for POST /api/v1/api-tokens.
 type createTokenRequest struct {
-	Name             string   `json:"name"`
-	AllowedProviders []string `json:"allowed_providers,omitempty"` // nil = all
-	AllowedModels    []string `json:"allowed_models,omitempty"`    // nil = all
-	AllowedWebhooks  []string `json:"allowed_webhooks,omitempty"`  // nil = all
-	ExpiresAt        *string  `json:"expires_at,omitempty"`        // RFC3339 timestamp, nil/empty = no expiry
+	Name               string   `json:"name"`
+	AllowedProviders   []string `json:"allowed_providers,omitempty"`    // nil = all
+	AllowedModels      []string `json:"allowed_models,omitempty"`       // nil = all
+	AllowedWebhooks    []string `json:"allowed_webhooks,omitempty"`     // nil = all
+	ExpiresAt          *string  `json:"expires_at,omitempty"`           // RFC3339 timestamp, nil/empty = no expiry
+	TotalTokenLimit    *int64   `json:"total_token_limit,omitempty"`    // max total tokens; nil = unlimited
+	LimitResetInterval *string  `json:"limit_reset_interval,omitempty"` // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
 // updateTokenRequest is the JSON body for PUT /api/v1/api-tokens/{id}.
 type updateTokenRequest struct {
-	Name             string   `json:"name"`
-	AllowedProviders []string `json:"allowed_providers,omitempty"` // nil = all
-	AllowedModels    []string `json:"allowed_models,omitempty"`    // nil = all
-	AllowedWebhooks  []string `json:"allowed_webhooks,omitempty"`  // nil = all
-	ExpiresAt        *string  `json:"expires_at,omitempty"`        // RFC3339 timestamp, nil/empty = no expiry
+	Name               string   `json:"name"`
+	AllowedProviders   []string `json:"allowed_providers,omitempty"`    // nil = all
+	AllowedModels      []string `json:"allowed_models,omitempty"`       // nil = all
+	AllowedWebhooks    []string `json:"allowed_webhooks,omitempty"`     // nil = all
+	ExpiresAt          *string  `json:"expires_at,omitempty"`           // RFC3339 timestamp, nil/empty = no expiry
+	TotalTokenLimit    *int64   `json:"total_token_limit,omitempty"`    // max total tokens; nil = unlimited
+	LimitResetInterval *string  `json:"limit_reset_interval,omitempty"` // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
 // createTokenResponse is returned once on creation (the only time the full token is shown).
@@ -119,16 +125,26 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		expiresAt = types.NewTimeNull(t.UTC())
 	}
 
+	// Validate reset interval if provided.
+	if req.LimitResetInterval != nil && *req.LimitResetInterval != "" {
+		if _, err := str2duration.ParseDuration(*req.LimitResetInterval); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid limit_reset_interval %q: %v", *req.LimitResetInterval, err), http.StatusBadRequest)
+			return
+		}
+	}
+
 	userEmail := s.getUserEmail(r)
 	token := service.APIToken{
-		Name:             req.Name,
-		TokenPrefix:      tokenPrefix,
-		AllowedProviders: req.AllowedProviders,
-		AllowedModels:    req.AllowedModels,
-		AllowedWebhooks:  req.AllowedWebhooks,
-		ExpiresAt:        expiresAt,
-		CreatedBy:        userEmail,
-		UpdatedBy:        userEmail,
+		Name:               req.Name,
+		TokenPrefix:        tokenPrefix,
+		AllowedProviders:   req.AllowedProviders,
+		AllowedModels:      req.AllowedModels,
+		AllowedWebhooks:    req.AllowedWebhooks,
+		ExpiresAt:          expiresAt,
+		TotalTokenLimit:    toNullInt64(req.TotalTokenLimit),
+		LimitResetInterval: toNullString(req.LimitResetInterval),
+		CreatedBy:          userEmail,
+		UpdatedBy:          userEmail,
 	}
 
 	created, err := s.tokenStore.CreateAPIToken(r.Context(), token, tokenHash)
@@ -200,14 +216,24 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		expiresAt = types.NewTimeNull(t.UTC())
 	}
 
+	// Validate reset interval if provided.
+	if req.LimitResetInterval != nil && *req.LimitResetInterval != "" {
+		if _, err := str2duration.ParseDuration(*req.LimitResetInterval); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid limit_reset_interval %q: %v", *req.LimitResetInterval, err), http.StatusBadRequest)
+			return
+		}
+	}
+
 	userEmail := s.getUserEmail(r)
 	token := service.APIToken{
-		Name:             req.Name,
-		AllowedProviders: req.AllowedProviders,
-		AllowedModels:    req.AllowedModels,
-		AllowedWebhooks:  req.AllowedWebhooks,
-		ExpiresAt:        expiresAt,
-		UpdatedBy:        userEmail,
+		Name:               req.Name,
+		AllowedProviders:   req.AllowedProviders,
+		AllowedModels:      req.AllowedModels,
+		AllowedWebhooks:    req.AllowedWebhooks,
+		ExpiresAt:          expiresAt,
+		TotalTokenLimit:    toNullInt64(req.TotalTokenLimit),
+		LimitResetInterval: toNullString(req.LimitResetInterval),
+		UpdatedBy:          userEmail,
 	}
 
 	updated, err := s.tokenStore.UpdateAPIToken(r.Context(), id, token)
@@ -222,4 +248,69 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, updated, http.StatusOK)
+}
+
+// GetTokenUsageAPI handles GET /api/v1/api-tokens/:id/usage.
+func (s *Server) GetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
+	if s.tokenUsageStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "token id is required", http.StatusBadRequest)
+		return
+	}
+
+	usage, err := s.tokenUsageStore.GetTokenUsage(r.Context(), id)
+	if err != nil {
+		slog.Error("get token usage failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get token usage: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if usage == nil {
+		usage = []service.TokenUsage{}
+	}
+
+	httpResponseJSON(w, usage, http.StatusOK)
+}
+
+// ResetTokenUsageAPI handles POST /api/v1/api-tokens/:id/usage/reset.
+func (s *Server) ResetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
+	if s.tokenUsageStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "token id is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.tokenUsageStore.ResetTokenUsage(r.Context(), id); err != nil {
+		slog.Error("reset token usage failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to reset token usage: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	httpResponse(w, "usage reset", http.StatusOK)
+}
+
+// toNullInt64 converts a *int64 to types.Null[int64].
+func toNullInt64(v *int64) types.Null[int64] {
+	if v == nil {
+		return types.Null[int64]{}
+	}
+	return types.NewNull(*v)
+}
+
+// toNullString converts a *string to types.Null[string].
+func toNullString(v *string) types.Null[string] {
+	if v == nil {
+		return types.Null[string]{}
+	}
+	return types.NewNull(*v)
 }

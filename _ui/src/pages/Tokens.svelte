@@ -1,11 +1,11 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listTokens, createToken, deleteToken, updateToken, type APIToken, type CreateTokenResponse } from '@/lib/api/tokens';
+  import { listTokens, createToken, deleteToken, updateToken, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listTriggers, type Trigger } from '@/lib/api/triggers';
-  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check } from 'lucide-svelte';
+  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
   import { formatDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -40,6 +40,9 @@
   let formSelectedProviders = $state<string[]>([]);
   let formSelectedModels = $state<string[]>([]);
   let formSelectedWebhooks = $state<string[]>([]);
+  let formTotalTokenLimit = $state('');
+  let formLimitResetInterval = $state('');
+  let formResetPreset = $state('');
   let creating = $state(false);
 
   // Created token modal
@@ -56,7 +59,16 @@
   let editSelectedProviders = $state<string[]>([]);
   let editSelectedModels = $state<string[]>([]);
   let editSelectedWebhooks = $state<string[]>([]);
+  let editTotalTokenLimit = $state('');
+  let editLimitResetInterval = $state('');
+  let editResetPreset = $state('');
   let saving = $state(false);
+
+  // Usage state
+  let expandedUsageTokenId = $state<string | null>(null);
+  let tokenUsageMap = $state<Record<string, TokenUsage[]>>({});
+  let loadingUsage = $state<Record<string, boolean>>({});
+  let resettingUsage = $state<Record<string, boolean>>({});
 
   // Config viewer state
   let configViewToken = $state<APIToken | null>(null);
@@ -151,6 +163,9 @@
     formSelectedProviders = [];
     formSelectedModels = [];
     formSelectedWebhooks = [];
+    formTotalTokenLimit = '';
+    formLimitResetInterval = '';
+    formResetPreset = '';
   }
 
   async function handleCreate() {
@@ -174,6 +189,13 @@
       }
       if (formExpiresAt) {
         req.expires_at = new Date(formExpiresAt).toISOString();
+      }
+      if (formTotalTokenLimit) {
+        const limit = parseInt(formTotalTokenLimit, 10);
+        if (!isNaN(limit) && limit > 0) req.total_token_limit = limit;
+      }
+      if (formLimitResetInterval) {
+        req.limit_reset_interval = formLimitResetInterval;
       }
 
       const resp: CreateTokenResponse = await createToken(req);
@@ -242,6 +264,11 @@
     editSelectedProviders = token.allowed_providers ? [...token.allowed_providers] : [];
     editSelectedModels = token.allowed_models ? [...token.allowed_models] : [];
     editSelectedWebhooks = token.allowed_webhooks ? [...token.allowed_webhooks] : [];
+    editTotalTokenLimit = token.total_token_limit != null ? String(token.total_token_limit) : '';
+    editLimitResetInterval = token.limit_reset_interval || '';
+    // Determine if the interval matches a preset or is custom.
+    const presets = ['', '1h', '12h', '24h', '7d', '30d'];
+    editResetPreset = presets.includes(editLimitResetInterval) ? editLimitResetInterval : 'custom';
     // Convert expires_at to datetime-local format for the input
     if (token.expires_at) {
       const d = new Date(token.expires_at);
@@ -258,6 +285,9 @@
     editSelectedProviders = [];
     editSelectedModels = [];
     editSelectedWebhooks = [];
+    editTotalTokenLimit = '';
+    editLimitResetInterval = '';
+    editResetPreset = '';
   }
 
   function toggleEditProvider(key: string) {
@@ -307,6 +337,13 @@
       if (editExpiresAt) {
         req.expires_at = new Date(editExpiresAt).toISOString();
       }
+      if (editTotalTokenLimit) {
+        const limit = parseInt(editTotalTokenLimit, 10);
+        if (!isNaN(limit) && limit > 0) req.total_token_limit = limit;
+      }
+      if (editLimitResetInterval) {
+        req.limit_reset_interval = editLimitResetInterval;
+      }
 
       await updateToken(editingTokenId, req);
       addToast('Token updated', 'info');
@@ -317,6 +354,57 @@
     } finally {
       saving = false;
     }
+  }
+
+  // ─── Usage Actions ───
+
+  async function toggleUsage(tokenId: string) {
+    if (expandedUsageTokenId === tokenId) {
+      expandedUsageTokenId = null;
+      return;
+    }
+    expandedUsageTokenId = tokenId;
+    await loadUsage(tokenId);
+  }
+
+  async function loadUsage(tokenId: string) {
+    loadingUsage = { ...loadingUsage, [tokenId]: true };
+    try {
+      const usage = await getTokenUsage(tokenId);
+      tokenUsageMap = { ...tokenUsageMap, [tokenId]: usage || [] };
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load usage', 'alert');
+    } finally {
+      loadingUsage = { ...loadingUsage, [tokenId]: false };
+    }
+  }
+
+  async function handleResetUsage(tokenId: string) {
+    resettingUsage = { ...resettingUsage, [tokenId]: true };
+    try {
+      await resetTokenUsage(tokenId);
+      tokenUsageMap = { ...tokenUsageMap, [tokenId]: [] };
+      addToast('Usage counters reset', 'info');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to reset usage', 'alert');
+    } finally {
+      resettingUsage = { ...resettingUsage, [tokenId]: false };
+    }
+  }
+
+  function getTotalUsage(tokenId: string): { totalTokens: number; requestCount: number } {
+    const usage = tokenUsageMap[tokenId];
+    if (!usage || usage.length === 0) return { totalTokens: 0, requestCount: 0 };
+    return usage.reduce(
+      (acc, u) => ({ totalTokens: acc.totalTokens + u.total_tokens, requestCount: acc.requestCount + u.request_count }),
+      { totalTokens: 0, requestCount: 0 }
+    );
+  }
+
+  function formatNumber(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+    return String(n);
   }
 
   // ─── Config Viewer ───
@@ -500,7 +588,7 @@
       </div>
 
       <!-- Webhook restrictions -->
-      <div class="grid grid-cols-4 gap-3 mb-4">
+      <div class="grid grid-cols-4 gap-3 mb-3">
         <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Webhooks</span>
         <div class="col-span-3">
           {#if webhookTriggers.length > 0}
@@ -533,6 +621,52 @@
         </div>
       </div>
 
+      <!-- Token limit -->
+      <div class="grid grid-cols-4 gap-3 mb-3">
+        <label for="create-token-limit" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Token Limit</label>
+        <div class="col-span-3 flex items-center gap-2">
+          <input
+            id="create-token-limit"
+            type="number"
+            bind:value={formTotalTokenLimit}
+            placeholder="e.g. 1000000"
+            min="1"
+            class="w-40 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+          />
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">Total tokens across all models. Empty = unlimited</span>
+        </div>
+      </div>
+
+      <!-- Limit reset interval -->
+      <div class="grid grid-cols-4 gap-3 mb-4">
+        <label for="create-reset-interval" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Auto Reset</label>
+        <div class="col-span-3 flex items-center gap-2">
+          <select
+            id="create-reset-interval"
+            bind:value={formResetPreset}
+            onchange={() => { if (formResetPreset !== 'custom') formLimitResetInterval = formResetPreset; else formLimitResetInterval = ''; }}
+            class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+          >
+            <option value="">None</option>
+            <option value="1h">Every hour</option>
+            <option value="12h">Every 12 hours</option>
+            <option value="24h">Daily (24h)</option>
+            <option value="7d">Weekly (7d)</option>
+            <option value="30d">Monthly (30d)</option>
+            <option value="custom">Custom</option>
+          </select>
+          {#if formResetPreset === 'custom'}
+            <input
+              type="text"
+              bind:value={formLimitResetInterval}
+              placeholder="e.g. 2w3d, 48h, 90d"
+              class="w-36 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            />
+          {/if}
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">Periodically reset usage counters</span>
+        </div>
+      </div>
+
       <div class="flex items-center gap-2">
         <button
           onclick={handleCreate}
@@ -549,6 +683,203 @@
         </button>
       </div>
     </div>
+  {/if}
+
+  <!-- Edit form (standalone panel above table) -->
+  {#if editingTokenId}
+    {@const editingToken = tokens.find(t => t.id === editingTokenId)}
+    {#if editingToken}
+      <div class="mb-4 border border-red-200 dark:border-red-800 bg-red-50/30 dark:bg-red-900/10 p-4">
+        <div class="space-y-3">
+          <div class="flex items-center gap-2 mb-1">
+            <Pencil size={12} class="text-gray-400 dark:text-dark-text-muted" />
+            <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Editing token</span>
+            <code class="text-xs font-mono text-gray-400 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{editingToken.token_prefix}...</code>
+          </div>
+
+          <div class="grid grid-cols-4 gap-3">
+            <label for="edit-token-name" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Name</label>
+            <input
+              id="edit-token-name"
+              type="text"
+              bind:value={editName}
+              class="col-span-3 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            />
+          </div>
+
+          <div class="grid grid-cols-4 gap-3">
+            <label for="edit-token-expires" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Expires At</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <input
+                id="edit-token-expires"
+                type="datetime-local"
+                bind:value={editExpiresAt}
+                class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+              />
+              {#if editExpiresAt}
+                <button
+                  onclick={() => (editExpiresAt = '')}
+                  class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                >
+                  Clear (no expiry)
+                </button>
+              {:else}
+                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No expiry</span>
+              {/if}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-4 gap-3">
+            <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Providers</span>
+            <div class="col-span-3">
+              {#if allProviderKeys.length > 0}
+                <div class="flex flex-wrap gap-1.5">
+                  {#each allProviderKeys as key}
+                    <button
+                      onclick={() => toggleEditProvider(key)}
+                      class={[
+                        'px-2 py-1 text-xs border transition-colors',
+                        editSelectedProviders.includes(key)
+                          ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                      ]}
+                    >
+                      {key}
+                    </button>
+                  {/each}
+                </div>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all providers allowed</p>
+              {:else}
+                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
+              {/if}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-4 gap-3">
+            <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Models</span>
+            <div class="col-span-3">
+              {#if allModels.length > 0}
+                <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
+                  <div class="flex flex-wrap gap-1.5">
+                    {#each allModels as model}
+                      <button
+                        onclick={() => toggleEditModel(model)}
+                        class={[
+                          'px-2 py-0.5 text-xs border font-mono transition-colors',
+                          editSelectedModels.includes(model)
+                            ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                        ]}
+                      >
+                        {model}
+                      </button>
+                    {/each}
+                  </div>
+                </div>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all models allowed</p>
+              {:else}
+                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
+              {/if}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-4 gap-3">
+            <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Webhooks</span>
+            <div class="col-span-3">
+              {#if webhookTriggers.length > 0}
+                <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
+                  {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
+                    <div>
+                      <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
+                      <div class="flex flex-wrap gap-1.5">
+                        {#each items as { trigger }}
+                          <button
+                            onclick={() => toggleEditWebhook(trigger.id)}
+                            class={[
+                              'px-2 py-0.5 text-xs border font-mono transition-colors',
+                              editSelectedWebhooks.includes(trigger.id)
+                                ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                            ]}
+                          >
+                            {trigger.alias || trigger.id}
+                          </button>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all webhooks allowed</p>
+              {:else}
+                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
+              {/if}
+            </div>
+          </div>
+
+          <!-- Token limit -->
+          <div class="grid grid-cols-4 gap-3">
+            <label for="edit-token-limit" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Token Limit</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <input
+                id="edit-token-limit"
+                type="number"
+                bind:value={editTotalTokenLimit}
+                placeholder="e.g. 1000000"
+                min="1"
+                class="w-40 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+              />
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">Empty = unlimited</span>
+            </div>
+          </div>
+
+          <!-- Limit reset interval -->
+          <div class="grid grid-cols-4 gap-3">
+            <label for="edit-reset-interval" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Auto Reset</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <select
+                id="edit-reset-interval"
+                bind:value={editResetPreset}
+                onchange={() => { if (editResetPreset !== 'custom') editLimitResetInterval = editResetPreset; else editLimitResetInterval = ''; }}
+                class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+              >
+                <option value="">None</option>
+                <option value="1h">Every hour</option>
+                <option value="12h">Every 12 hours</option>
+                <option value="24h">Daily (24h)</option>
+                <option value="7d">Weekly (7d)</option>
+                <option value="30d">Monthly (30d)</option>
+                <option value="custom">Custom</option>
+              </select>
+              {#if editResetPreset === 'custom'}
+                <input
+                  type="text"
+                  bind:value={editLimitResetInterval}
+                  placeholder="e.g. 2w3d, 48h, 90d"
+                  class="w-36 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+                />
+              {/if}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">Periodically reset usage counters</span>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 pt-1">
+            <button
+              onclick={handleSaveEdit}
+              disabled={saving}
+              class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : 'Save'}
+            </button>
+            <button
+              onclick={cancelEditing}
+              class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    {/if}
   {/if}
 
   <!-- Token list -->
@@ -569,6 +900,7 @@
       <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
       <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Token</th>
       <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Scope</th>
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Usage</th>
       <SortableHeader field="expires_at" label="Expires" {sorts} onsort={handleSort} />
       <SortableHeader field="created_by" label="Created By" {sorts} onsort={handleSort} />
       <SortableHeader field="last_used_at" label="Last Used" {sorts} onsort={handleSort} />
@@ -576,156 +908,7 @@
     {/snippet}
 
     {#snippet row(token)}
-      {#if editingTokenId === token.id}
-        <!-- Edit form row -->
-        <tr class="bg-blue-50/30 dark:bg-blue-900/10">
-          <td colspan="7" class="px-4 py-3">
-            <div class="space-y-3">
-              <div class="flex items-center gap-2 mb-1">
-                <Pencil size={12} class="text-gray-400 dark:text-dark-text-muted" />
-                <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Editing token</span>
-                <code class="text-xs font-mono text-gray-400 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
-              </div>
-
-              <div class="grid grid-cols-4 gap-3">
-                <label for="edit-token-name" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Name</label>
-                <input
-                  id="edit-token-name"
-                  type="text"
-                  bind:value={editName}
-                  class="col-span-3 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
-                />
-              </div>
-
-              <div class="grid grid-cols-4 gap-3">
-                <label for="edit-token-expires" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Expires At</label>
-                <div class="col-span-3 flex items-center gap-2">
-                  <input
-                    id="edit-token-expires"
-                    type="datetime-local"
-                    bind:value={editExpiresAt}
-                    class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
-                  />
-                  {#if editExpiresAt}
-                    <button
-                      onclick={() => (editExpiresAt = '')}
-                      class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
-                    >
-                      Clear (no expiry)
-                    </button>
-                  {:else}
-                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No expiry</span>
-                  {/if}
-                </div>
-              </div>
-
-              <div class="grid grid-cols-4 gap-3">
-                <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Providers</span>
-                <div class="col-span-3">
-                  {#if allProviderKeys.length > 0}
-                    <div class="flex flex-wrap gap-1.5">
-                      {#each allProviderKeys as key}
-                        <button
-                          onclick={() => toggleEditProvider(key)}
-                          class={[
-                            'px-2 py-1 text-xs border transition-colors',
-                            editSelectedProviders.includes(key)
-                              ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                          ]}
-                        >
-                          {key}
-                        </button>
-                      {/each}
-                    </div>
-                    <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all providers allowed</p>
-                  {:else}
-                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
-                  {/if}
-                </div>
-              </div>
-
-              <div class="grid grid-cols-4 gap-3">
-                <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Models</span>
-                <div class="col-span-3">
-                  {#if allModels.length > 0}
-                    <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
-                      <div class="flex flex-wrap gap-1.5">
-                        {#each allModels as model}
-                          <button
-                            onclick={() => toggleEditModel(model)}
-                            class={[
-                              'px-2 py-0.5 text-xs border font-mono transition-colors',
-                              editSelectedModels.includes(model)
-                                ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                            ]}
-                          >
-                            {model}
-                          </button>
-                        {/each}
-                      </div>
-                    </div>
-                    <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all models allowed</p>
-                  {:else}
-                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
-                  {/if}
-                </div>
-              </div>
-
-              <div class="grid grid-cols-4 gap-3">
-                <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Webhooks</span>
-                <div class="col-span-3">
-                  {#if webhookTriggers.length > 0}
-                    <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
-                      {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
-                        <div>
-                          <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
-                          <div class="flex flex-wrap gap-1.5">
-                            {#each items as { trigger }}
-                              <button
-                                onclick={() => toggleEditWebhook(trigger.id)}
-                                class={[
-                                  'px-2 py-0.5 text-xs border font-mono transition-colors',
-                                  editSelectedWebhooks.includes(trigger.id)
-                                    ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                                ]}
-                              >
-                                {trigger.alias || trigger.id}
-                              </button>
-                            {/each}
-                          </div>
-                        </div>
-                      {/each}
-                    </div>
-                    <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all webhooks allowed</p>
-                  {:else}
-                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
-                  {/if}
-                </div>
-              </div>
-
-              <div class="flex items-center gap-2 pt-1">
-                <button
-                  onclick={handleSaveEdit}
-                  disabled={saving}
-                  class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
-                >
-                  {saving ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  onclick={cancelEditing}
-                  class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </td>
-        </tr>
-      {:else}
-        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+        <tr class={editingTokenId === token.id ? 'bg-red-50/30 dark:bg-red-900/10' : 'hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors'}>
           <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">{token.name}</td>
           <td class="px-4 py-2.5">
             <code class="text-xs font-mono text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
@@ -755,6 +938,24 @@
                 {/if}
               </div>
             {/if}
+          </td>
+          <td class="px-4 py-2.5 text-xs">
+            <button
+              onclick={() => toggleUsage(token.id)}
+              class="flex items-center gap-1 text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+              title="View usage"
+            >
+              <BarChart3 size={12} />
+              {#if tokenUsageMap[token.id]}
+                {@const usage = getTotalUsage(token.id)}
+                <span>{formatNumber(usage.totalTokens)} tokens</span>
+                {#if token.total_token_limit}
+                  <span class="text-gray-400 dark:text-dark-text-muted">/ {formatNumber(token.total_token_limit)}</span>
+                {/if}
+              {:else}
+                <span class="text-gray-400 dark:text-dark-text-muted">View</span>
+              {/if}
+            </button>
           </td>
           <td class="px-4 py-2.5 text-xs">
             {#if token.expires_at}
@@ -814,7 +1015,78 @@
             {/if}
           </td>
         </tr>
-      {/if}
+        <!-- Expanded usage row -->
+        {#if expandedUsageTokenId === token.id}
+          <tr class="bg-gray-50/50 dark:bg-dark-elevated/30">
+            <td colspan="8" class="px-4 py-3">
+              <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                  <BarChart3 size={12} class="text-gray-400 dark:text-dark-text-muted" />
+                  <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Usage Breakdown</span>
+                  {#if token.total_token_limit}
+                    {@const usage = getTotalUsage(token.id)}
+                    {@const pct = Math.min(100, Math.round((usage.totalTokens / token.total_token_limit) * 100))}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">
+                      {formatNumber(usage.totalTokens)} / {formatNumber(token.total_token_limit)} ({pct}%)
+                    </span>
+                    <div class="w-24 h-1.5 bg-gray-200 dark:bg-dark-border rounded-full overflow-hidden">
+                      <div
+                        class="h-full rounded-full transition-all {pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}"
+                        style="width: {pct}%"
+                      ></div>
+                    </div>
+                  {/if}
+                  {#if token.limit_reset_interval}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border px-1.5 py-0.5 rounded">
+                      resets {token.limit_reset_interval}
+                    </span>
+                  {/if}
+                </div>
+                <button
+                  onclick={() => handleResetUsage(token.id)}
+                  disabled={resettingUsage[token.id]}
+                  class="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 border border-gray-200 dark:border-dark-border hover:border-red-300 dark:hover:border-red-800 transition-colors disabled:opacity-50"
+                  title="Reset all usage counters"
+                >
+                  <RotateCcw size={10} />
+                  {resettingUsage[token.id] ? 'Resetting...' : 'Reset'}
+                </button>
+              </div>
+              {#if loadingUsage[token.id]}
+                <div class="text-xs text-gray-400 dark:text-dark-text-muted py-2">Loading...</div>
+              {:else if !tokenUsageMap[token.id] || tokenUsageMap[token.id].length === 0}
+                <div class="text-xs text-gray-400 dark:text-dark-text-muted py-2">No usage recorded yet</div>
+              {:else}
+                <div class="border border-gray-200 dark:border-dark-border overflow-hidden">
+                  <table class="w-full">
+                    <thead>
+                      <tr class="bg-gray-100/50 dark:bg-dark-base/50">
+                        <th class="text-left px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Model</th>
+                        <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Prompt</th>
+                        <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Completion</th>
+                        <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Total</th>
+                        <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Requests</th>
+                        <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Last Used</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {#each tokenUsageMap[token.id] as usage}
+                        <tr class="border-t border-gray-100 dark:border-dark-border">
+                          <td class="px-3 py-1.5 text-xs font-mono text-gray-700 dark:text-dark-text-secondary">{usage.model}</td>
+                          <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatNumber(usage.prompt_tokens)}</td>
+                          <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatNumber(usage.completion_tokens)}</td>
+                          <td class="px-3 py-1.5 text-xs text-gray-700 dark:text-dark-text-secondary text-right font-medium">{formatNumber(usage.total_tokens)}</td>
+                          <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{usage.request_count}</td>
+                          <td class="px-3 py-1.5 text-xs text-gray-400 dark:text-dark-text-muted text-right">{formatDateTime(usage.last_request_at)}</td>
+                        </tr>
+                      {/each}
+                    </tbody>
+                  </table>
+                </div>
+              {/if}
+            </td>
+          </tr>
+        {/if}
     {/snippet}
   </DataTable>
 

@@ -20,18 +20,19 @@ import (
 // Data does not survive process restarts.
 type Memory struct {
 	mu               sync.RWMutex
-	providers        map[string]service.ProviderRecord    // key -> record
-	tokens           map[string]service.APIToken          // id -> token
-	tokensByHash     map[string]string                    // hash -> id
-	workflows        map[string]service.Workflow          // id -> workflow
-	workflowVersions map[string][]service.WorkflowVersion // workflow_id -> versions (sorted by version desc)
-	triggers         map[string]service.Trigger           // id -> trigger
-	skills           map[string]service.Skill             // id -> skill
-	variables        map[string]service.Variable          // id -> variable
-	nodeConfigs      map[string]service.NodeConfig        // id -> node config
-	agents           map[string]service.Agent             // id -> agent
-	ragCollections   map[string]service.RAGCollection     // id -> rag collection
-	ragStates        map[string]service.RAGState          // key -> rag state
+	providers        map[string]service.ProviderRecord         // key -> record
+	tokens           map[string]service.APIToken               // id -> token
+	tokensByHash     map[string]string                         // hash -> id
+	workflows        map[string]service.Workflow               // id -> workflow
+	workflowVersions map[string][]service.WorkflowVersion      // workflow_id -> versions (sorted by version desc)
+	triggers         map[string]service.Trigger                // id -> trigger
+	skills           map[string]service.Skill                  // id -> skill
+	variables        map[string]service.Variable               // id -> variable
+	nodeConfigs      map[string]service.NodeConfig             // id -> node config
+	agents           map[string]service.Agent                  // id -> agent
+	ragCollections   map[string]service.RAGCollection          // id -> rag collection
+	ragStates        map[string]service.RAGState               // key -> rag state
+	tokenUsage       map[string]map[string]*service.TokenUsage // token_id -> model -> usage
 }
 
 func New() *Memory {
@@ -50,6 +51,7 @@ func New() *Memory {
 		agents:           make(map[string]service.Agent),
 		ragCollections:   make(map[string]service.RAGCollection),
 		ragStates:        make(map[string]service.RAGState),
+		tokenUsage:       make(map[string]map[string]*service.TokenUsage),
 	}
 }
 
@@ -231,6 +233,8 @@ func (m *Memory) UpdateAPIToken(_ context.Context, id string, token service.APIT
 	existing.AllowedModels = token.AllowedModels
 	existing.AllowedWebhooks = token.AllowedWebhooks
 	existing.ExpiresAt = token.ExpiresAt
+	existing.TotalTokenLimit = token.TotalTokenLimit
+	existing.LimitResetInterval = token.LimitResetInterval
 	existing.UpdatedBy = token.UpdatedBy
 	m.tokens[id] = existing
 
@@ -250,6 +254,7 @@ func (m *Memory) DeleteAPIToken(_ context.Context, id string) error {
 	}
 
 	delete(m.tokens, id)
+	delete(m.tokenUsage, id)
 
 	return nil
 }

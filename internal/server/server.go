@@ -61,6 +61,9 @@ type Server struct {
 	// tokenStore is the optional persistent store for API token management.
 	tokenStore service.APITokenStorer
 
+	// tokenUsageStore is the optional persistent store for per-token usage tracking.
+	tokenUsageStore service.TokenUsageStorer
+
 	// workflowStore is the persistent store for workflow definitions.
 	workflowStore service.WorkflowStorer
 
@@ -187,7 +190,7 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -204,6 +207,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		providers:            providers,
 		store:                store,
 		tokenStore:           tokenStore,
+		tokenUsageStore:      tokenUsageStore,
 		workflowStore:        workflowStore,
 		workflowVersionStore: workflowVersionStore,
 		triggerStore:         triggerStore,
@@ -373,6 +377,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.POST("/v1/api-tokens", s.CreateAPITokenAPI)
 	apiGroup.PUT("/v1/api-tokens/{id}", s.UpdateAPITokenAPI)
 	apiGroup.DELETE("/v1/api-tokens/{id}", s.DeleteAPITokenAPI)
+	apiGroup.GET("/v1/api-tokens/{id}/usage", s.GetTokenUsageAPI)
+	apiGroup.POST("/v1/api-tokens/{id}/usage/reset", s.ResetTokenUsageAPI)
 
 	// Workflow management
 	apiGroup.GET("/v1/workflows", s.ListWorkflowsAPI)

@@ -11,10 +11,11 @@ import (
 	"github.com/rakunlabs/at/internal/store/sqlite3"
 )
 
-// StorerClose combines the ProviderStorer, APITokenStorer, WorkflowStorer, WorkflowVersionStorer, TriggerStorer, SkillStorer, VariableStorer, NodeConfigStorer, AgentStorer and RAGCollectionStorer interfaces with a Close method.
+// StorerClose combines the ProviderStorer, APITokenStorer, TokenUsageStorer, WorkflowStorer, WorkflowVersionStorer, TriggerStorer, SkillStorer, VariableStorer, NodeConfigStorer, AgentStorer and RAGCollectionStorer interfaces with a Close method.
 type StorerClose interface {
 	service.ProviderStorer
 	service.APITokenStorer
+	service.TokenUsageStorer
 	service.WorkflowStorer
 	service.WorkflowVersionStorer
 	service.TriggerStorer

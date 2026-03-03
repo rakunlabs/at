@@ -32,6 +32,7 @@ require (
 	github.com/worldline-go/hardloop v0.3.2
 	github.com/worldline-go/klient v0.9.17
 	github.com/worldline-go/types v0.5.6
+	github.com/xhit/go-str2duration/v2 v2.1.0
 	golang.org/x/oauth2 v0.35.0
 	modernc.org/sqlite v1.46.1
 )
@@ -158,7 +159,6 @@ require (
 	github.com/weaviate/weaviate-go-client/v5 v5.0.2 // indirect
 	github.com/worldline-go/logz v0.5.5 // indirect
 	github.com/worldline-go/struct2 v1.4.0 // indirect
-	github.com/xhit/go-str2duration/v2 v2.1.0 // indirect
 	gitlab.com/golang-commonmark/html v0.0.0-20191124015941-a22733972181 // indirect
 	gitlab.com/golang-commonmark/linkify v0.0.0-20191026162114-a0c2df6c8f82 // indirect
 	gitlab.com/golang-commonmark/markdown v0.0.0-20211110145824-bf3e522c626a // indirect

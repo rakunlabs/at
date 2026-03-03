@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	str2duration "github.com/xhit/go-str2duration/v2"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -115,6 +117,21 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Token usage limit check (DB tokens only).
+	if exceeded, resetErr := s.checkTokenLimit(r.Context(), auth); resetErr != nil {
+		slog.Error("token limit check failed", "error", resetErr)
+		// Non-fatal: allow the request through on check failure.
+	} else if exceeded {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": "token usage limit exceeded",
+				"type":    "tokens",
+				"code":    "rate_limit_exceeded",
+			},
+		}, http.StatusTooManyRequests)
+		return
+	}
+
 	// Look up provider
 	info, ok := s.getProviderInfo(providerKey)
 	if !ok {
@@ -178,7 +195,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Stream {
-		s.handleStreamingChat(w, r, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions)
+		s.handleStreamingChat(w, r, auth, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions)
 		return
 	}
 
@@ -206,6 +223,10 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Cache thought_signatures before sending the response to the client.
 	s.cacheThoughtSignatures(resp.ToolCalls)
 	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
+
+	// Fire-and-forget usage recording for DB tokens.
+	s.recordUsageAsync(r.Context(), auth, req.Model, resp.Usage)
+
 	httpResponseJSON(w, chatResp, http.StatusOK)
 }
 
@@ -500,6 +521,7 @@ func (s *Server) availableProviderKeys() []string {
 func (s *Server) handleStreamingChat(
 	w http.ResponseWriter,
 	r *http.Request,
+	auth *authResult,
 	provider service.LLMProvider,
 	providerKey, actualModel, fullModel string,
 	messages []service.Message,
@@ -659,6 +681,15 @@ func (s *Server) handleStreamingChat(
 				Usage:   streamUsage,
 			})
 		}
+
+		// Fire-and-forget usage recording for DB tokens (true streaming).
+		if streamUsage != nil {
+			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{
+				PromptTokens:     streamUsage.PromptTokens,
+				CompletionTokens: streamUsage.CompletionTokens,
+				TotalTokens:      streamUsage.TotalTokens,
+			})
+		}
 	} else {
 		// Fallback: fake streaming via non-streaming Chat call.
 		slog.Debug("fake streaming (provider doesn't support streaming)", "provider", providerKey, "model", actualModel)
@@ -769,6 +800,9 @@ func (s *Server) handleStreamingChat(
 				},
 			})
 		}
+
+		// Fire-and-forget usage recording for DB tokens (fake streaming).
+		s.recordUsageAsync(r.Context(), auth, fullModel, resp.Usage)
 	}
 
 	// End the stream
@@ -840,4 +874,88 @@ func writeSSEError(w http.ResponseWriter, flusher http.Flusher, chatID, model, e
 	})
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
+}
+
+// ─── Token Usage Helpers ───
+
+// checkTokenLimit checks whether a DB token has exceeded its total token budget.
+// If the token has a configured limit_reset_interval, a lazy reset is performed
+// when the reset period has elapsed.
+// Returns (exceeded bool, err error). On error the caller should log and allow
+// the request through (non-fatal).
+func (s *Server) checkTokenLimit(ctx context.Context, auth *authResult) (bool, error) {
+	if auth == nil || auth.token == nil || auth.token.ID == "" {
+		return false, nil // config token or unrestricted — no limit
+	}
+	if s.tokenUsageStore == nil {
+		return false, nil
+	}
+
+	token := auth.token
+	if !token.TotalTokenLimit.Valid || token.TotalTokenLimit.V <= 0 {
+		return false, nil // no limit configured
+	}
+
+	// Lazy periodic reset: if a reset interval is configured and enough time
+	// has passed since the last reset, reset the counters now.
+	if token.LimitResetInterval.Valid && token.LimitResetInterval.V != "" {
+		if s.shouldResetUsage(token) {
+			if err := s.tokenUsageStore.ResetTokenUsage(ctx, token.ID); err != nil {
+				return false, fmt.Errorf("lazy reset usage: %w", err)
+			}
+			// After reset, usage is 0 — no need to check.
+			return false, nil
+		}
+	}
+
+	total, err := s.tokenUsageStore.GetTokenTotalUsage(ctx, token.ID)
+	if err != nil {
+		return false, fmt.Errorf("get total usage: %w", err)
+	}
+
+	return total >= token.TotalTokenLimit.V, nil
+}
+
+// shouldResetUsage determines whether a token's usage counters should be
+// lazily reset based on its LimitResetInterval and LastResetAt.
+func (s *Server) shouldResetUsage(token *service.APIToken) bool {
+	if !token.LimitResetInterval.Valid {
+		return false
+	}
+
+	period, err := str2duration.ParseDuration(token.LimitResetInterval.V)
+	if err != nil {
+		slog.Warn("invalid limit_reset_interval, skipping reset",
+			"token_id", token.ID, "interval", token.LimitResetInterval.V, "error", err)
+		return false
+	}
+
+	// If never reset, use token creation time as the anchor.
+	anchor := token.CreatedAt.Time
+	if token.LastResetAt.Valid {
+		anchor = token.LastResetAt.V.Time
+	}
+
+	return time.Since(anchor) >= period
+}
+
+// recordUsageAsync fires a goroutine to record token usage.
+// Failures are logged but do not affect the request.
+func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullModel string, usage service.Usage) {
+	if auth == nil || auth.token == nil || auth.token.ID == "" {
+		return // config token or unrestricted — no tracking
+	}
+	if s.tokenUsageStore == nil {
+		return
+	}
+	if usage.TotalTokens == 0 && usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
+		return // no usage to record
+	}
+
+	tokenID := auth.token.ID
+	go func() {
+		if err := s.tokenUsageStore.RecordUsage(context.WithoutCancel(ctx), tokenID, fullModel, usage); err != nil {
+			slog.Error("failed to record token usage", "token_id", tokenID, "model", fullModel, "error", err)
+		}
+	}()
 }
