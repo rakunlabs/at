@@ -30,7 +30,7 @@ import (
 // Configuration (node.Data):
 //
 //	repo_url  string  — git repository URL (HTTPS or SSH) (required)
-//	branch    string  — branch to track (default "main")
+//	branch    string  — branch to track (empty = auto-detect remote default)
 //	token     string  — HTTPS auth token (optional; injected into URL)
 //	ssh_key   string  — SSH private key content (optional; written to temp file)
 //	cache_dir string  — root directory for cloned repos (default "/tmp/at-git-cache")
@@ -49,12 +49,13 @@ import (
 //	branch       string — the branch that was fetched
 //	is_new_clone bool   — true if this was a fresh clone (no prior cache)
 type gitFetchNode struct {
-	repoURL  string
-	branch   string
-	token    string
-	sshKey   string
-	cacheDir string
-	timeout  time.Duration
+	repoURL   string
+	branch    string
+	token     string
+	tokenUser string
+	sshKey    string
+	cacheDir  string
+	timeout   time.Duration
 }
 
 const (
@@ -70,7 +71,6 @@ func init() {
 
 func newGitFetchNode(node service.WorkflowNode) (workflow.Noder, error) {
 	n := &gitFetchNode{
-		branch:   defaultGitBranch,
 		cacheDir: defaultGitCacheDir,
 		timeout:  defaultGitTimeout,
 	}
@@ -83,6 +83,9 @@ func newGitFetchNode(node service.WorkflowNode) (workflow.Noder, error) {
 	}
 	if v, ok := node.Data["token"].(string); ok {
 		n.token = strings.TrimSpace(v)
+	}
+	if v, ok := node.Data["token_user"].(string); ok {
+		n.tokenUser = strings.TrimSpace(v)
 	}
 	if v, ok := node.Data["ssh_key"].(string); ok {
 		n.sshKey = strings.TrimSpace(v)
@@ -123,6 +126,10 @@ func (n *gitFetchNode) Run(ctx context.Context, reg *workflow.Registry, inputs m
 	if err != nil {
 		return nil, fmt.Errorf("git_fetch: render token: %w", err)
 	}
+	tokenUser, err := renderField(n.tokenUser, tmplData, funcs)
+	if err != nil {
+		return nil, fmt.Errorf("git_fetch: render token_user: %w", err)
+	}
 	sshKey, err := renderField(n.sshKey, tmplData, funcs)
 	if err != nil {
 		return nil, fmt.Errorf("git_fetch: render ssh_key: %w", err)
@@ -140,17 +147,13 @@ func (n *gitFetchNode) Run(ctx context.Context, reg *workflow.Registry, inputs m
 		return nil, fmt.Errorf("git_fetch: 'repo_url' is empty after rendering")
 	}
 
-	// Compute a stable hash for the repo directory name.
-	repoHash := hashRepoKey(repoURL, branch)
-	repoDir := filepath.Join(n.cacheDir, repoHash)
-
 	execCtx, cancel := context.WithTimeout(ctx, n.timeout)
 	defer cancel()
 
 	// Prepare auth for HTTPS token.
 	authURL := repoURL
 	if token != "" && strings.HasPrefix(repoURL, "https://") {
-		authURL = injectHTTPSToken(repoURL, token)
+		authURL = injectHTTPSToken(repoURL, token, tokenUser)
 	}
 
 	// Prepare SSH environment if SSH key is provided.
@@ -171,6 +174,21 @@ func (n *gitFetchNode) Run(ctx context.Context, reg *workflow.Registry, inputs m
 		}
 		envVars = append(envVars, fmt.Sprintf("GIT_SSH_COMMAND=ssh -i %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null", tmpFile.Name()))
 	}
+
+	// Auto-detect remote default branch when not explicitly set.
+	if branch == "" {
+		detected, err := resolveDefaultBranch(execCtx, authURL, envVars)
+		if err != nil {
+			// Fall back to "main" if detection fails.
+			branch = defaultGitBranch
+		} else {
+			branch = detected
+		}
+	}
+
+	// Compute a stable hash for the repo directory name.
+	repoHash := hashRepoKey(repoURL, branch)
+	repoDir := filepath.Join(n.cacheDir, repoHash)
 
 	// Clone or fetch+reset. Handle corrupted/partial clones gracefully.
 	isNewClone, err := n.ensureRepo(execCtx, repoDir, repoHash, authURL, branch, envVars)
@@ -316,8 +334,46 @@ func hashRepoKey(repoURL, branch string) string {
 	return hex.EncodeToString(h[:8])
 }
 
+// defaultTokenUser is the fallback username for HTTPS token auth.
+// "x-token-auth" works with GitHub, GitLab and Bitbucket.
+// Users can override per-node via token_user (e.g. "oauth2" for GitLab OAuth tokens).
+const defaultTokenUser = "x-token-auth"
+
 // injectHTTPSToken injects a token into an HTTPS URL for git auth.
-// "https://github.com/foo/bar.git" → "https://x-token-auth:{token}@github.com/foo/bar.git"
-func injectHTTPSToken(repoURL, token string) string {
-	return strings.Replace(repoURL, "https://", "https://x-token-auth:"+token+"@", 1)
+// user controls the username portion; pass "" to use the default.
+// "https://github.com/foo/bar.git" → "https://{user}:{token}@github.com/foo/bar.git"
+func injectHTTPSToken(repoURL, token, user string) string {
+	if user == "" {
+		user = defaultTokenUser
+	}
+	return strings.Replace(repoURL, "https://", "https://"+user+":"+token+"@", 1)
+}
+
+// resolveDefaultBranch queries the remote to determine its default branch
+// using "git ls-remote --symref <url> HEAD". Returns the branch name
+// (e.g. "main", "master") or an error if detection fails.
+func resolveDefaultBranch(ctx context.Context, repoURL string, envVars []string) (string, error) {
+	// git ls-remote --symref outputs something like:
+	//   ref: refs/heads/main	HEAD
+	//   <sha>	HEAD
+	output, err := gitOutput(ctx, os.TempDir(), envVars, "ls-remote", "--symref", repoURL, "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("ls-remote: %w", err)
+	}
+
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ref: refs/heads/") {
+			// "ref: refs/heads/main\tHEAD" → "main"
+			parts := strings.Fields(line)
+			if len(parts) >= 2 {
+				branch := strings.TrimPrefix(parts[0], "ref: refs/heads/")
+				if branch != "" {
+					return branch, nil
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("could not detect default branch from ls-remote output")
 }

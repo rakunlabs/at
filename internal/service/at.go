@@ -521,6 +521,9 @@ type RAGMCPServerConfig struct {
 	FetchMode         string   `json:"fetch_mode"`                    // "auto" | "local" | "remote"
 	GitCacheDir       string   `json:"git_cache_dir,omitempty"`       // default: /tmp/at-git-cache
 	DefaultNumResults int      `json:"default_num_results,omitempty"` // default: 10
+	TokenVariable     string   `json:"token_variable,omitempty"`      // variable key for HTTPS auth token (resolved via VariableStorer)
+	TokenUser         string   `json:"token_user,omitempty"`          // username for HTTPS token auth (default: "x-token-auth"); e.g. "oauth2" for GitLab
+	SSHKeyVariable    string   `json:"ssh_key_variable,omitempty"`    // variable key for SSH private key (resolved via VariableStorer)
 }
 
 // RAGMCPServer represents a named, gateway-facing MCP endpoint that exposes

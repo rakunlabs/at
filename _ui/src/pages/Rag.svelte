@@ -19,6 +19,7 @@
     type SearchResult,
     type RAGMCPServer,
   } from '@/lib/api/rag';
+  import { listVariables, type Variable } from '@/lib/api/secrets';
   import { listProviders } from '@/lib/api/providers';
   import type { ProviderRecord } from '@/lib/api/providers';
   import {
@@ -443,6 +444,12 @@
   let mcpFormFetchMode = $state('auto');
   let mcpFormGitCacheDir = $state('');
   let mcpFormDefaultNumResults = $state(10);
+  let mcpFormTokenVariable = $state('');
+  let mcpFormTokenUser = $state('');
+  let mcpFormSSHKeyVariable = $state('');
+
+  // Variables for auth field suggestions
+  let availableVariables = $state<Variable[]>([]);
 
   const allMcpTools = [
     { id: 'rag_search', label: 'Search', desc: 'Search across collections' },
@@ -465,6 +472,15 @@
 
   loadMcpServers();
 
+  async function loadAvailableVariables() {
+    try {
+      const res = await listVariables({ _limit: 500 });
+      availableVariables = res.data || [];
+    } catch {}
+  }
+
+  loadAvailableVariables();
+
   function resetMcpForm() {
     mcpFormName = '';
     mcpFormDescription = '';
@@ -473,6 +489,9 @@
     mcpFormFetchMode = 'auto';
     mcpFormGitCacheDir = '';
     mcpFormDefaultNumResults = 10;
+    mcpFormTokenVariable = '';
+    mcpFormTokenUser = '';
+    mcpFormSSHKeyVariable = '';
     mcpEditingId = null;
     showMcpForm = false;
   }
@@ -492,6 +511,9 @@
     mcpFormFetchMode = s.config.fetch_mode || 'auto';
     mcpFormGitCacheDir = s.config.git_cache_dir || '';
     mcpFormDefaultNumResults = s.config.default_num_results || 10;
+    mcpFormTokenVariable = s.config.token_variable || '';
+    mcpFormTokenUser = s.config.token_user || '';
+    mcpFormSSHKeyVariable = s.config.ssh_key_variable || '';
     showMcpForm = true;
   }
 
@@ -516,6 +538,9 @@
           fetch_mode: mcpFormFetchMode,
           git_cache_dir: mcpFormGitCacheDir.trim(),
           default_num_results: Number(mcpFormDefaultNumResults) || 10,
+          token_variable: mcpFormTokenVariable.trim(),
+          token_user: mcpFormTokenUser.trim(),
+          ssh_key_variable: mcpFormSSHKeyVariable.trim(),
         },
       };
 
@@ -1281,6 +1306,64 @@
                 <option value="remote">remote (HTTP only)</option>
               </select>
             </div>
+          </div>
+
+          <!-- Git Auth -->
+          <div class="space-y-3 border border-gray-200 dark:border-dark-border-subtle p-3">
+            <p class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Git Authentication</p>
+
+            <!-- Token Variable -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="mcp-token-var" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Token Variable</label>
+              <div class="col-span-3">
+                <input
+                  id="mcp-token-var"
+                  type="text"
+                  list="mcp-var-list"
+                  bind:value={mcpFormTokenVariable}
+                  placeholder="e.g. github_token"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                />
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Variable key containing HTTPS token for private repos.</p>
+              </div>
+            </div>
+
+            <!-- Token User -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="mcp-token-user" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Token User</label>
+              <div class="col-span-3">
+                <input
+                  id="mcp-token-user"
+                  type="text"
+                  bind:value={mcpFormTokenUser}
+                  placeholder="x-token-auth (default)"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                />
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Username for HTTPS token auth. Use "oauth2" for GitLab OAuth tokens.</p>
+              </div>
+            </div>
+
+            <!-- SSH Key Variable -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="mcp-ssh-key-var" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">SSH Key Variable</label>
+              <div class="col-span-3">
+                <input
+                  id="mcp-ssh-key-var"
+                  type="text"
+                  list="mcp-var-list"
+                  bind:value={mcpFormSSHKeyVariable}
+                  placeholder="e.g. deploy_ssh_key"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                />
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Variable key containing SSH private key for git+ssh repos.</p>
+              </div>
+            </div>
+
+            <datalist id="mcp-var-list">
+              {#each availableVariables as v}
+                <option value={v.key}>{v.key}{v.description ? ` — ${v.description}` : ''}</option>
+              {/each}
+            </datalist>
           </div>
 
           <!-- Git Cache Dir -->

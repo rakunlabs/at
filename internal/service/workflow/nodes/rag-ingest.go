@@ -24,6 +24,7 @@ import (
 //	deleted_files []string         — files removed since last sync
 //	commit_sha    string           — HEAD commit SHA (optional, for tracking)
 //	repo_url      string           — repository URL (optional, for metadata)
+//	branch        string           — branch name (optional, for metadata)
 //	variable_key  string           — variable key to update with commit_sha (optional)
 //
 // Outputs:
@@ -86,6 +87,7 @@ func (n *ragIngestNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	commitSHA, _ := inputs["commit_sha"].(string)
 	repoURL, _ := inputs["repo_url"].(string)
+	branch, _ := inputs["branch"].(string)
 	variableKey, _ := inputs["variable_key"].(string)
 
 	chunksAdded := 0
@@ -159,6 +161,9 @@ func (n *ragIngestNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 		if repoURL != "" {
 			extraMetadata["repo_url"] = repoURL
+		}
+		if branch != "" {
+			extraMetadata["branch"] = branch
 		}
 		extraMetadata["path"] = path
 

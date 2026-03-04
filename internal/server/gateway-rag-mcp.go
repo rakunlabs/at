@@ -1,22 +1,28 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/rag"
 )
+
+const defaultRAGGitCacheDir = "/tmp/at-git-cache"
 
 // GatewayRAGMCPHandler handles MCP protocol requests at /gateway/v1/mcp/rag/{name}.
 // Each named endpoint is configured with specific collections, tools, and fetch options.
@@ -165,7 +171,7 @@ func (s *Server) gwMCPListTools(w http.ResponseWriter, req service.MCPRequest, s
 		case "rag_fetch_source":
 			tools = append(tools, service.Tool{
 				Name:        "rag_fetch_source",
-				Description: "Fetch the original full content of a document by its source URL or path. Supports HTTP/HTTPS URLs and local git cache. Use this after rag_search to retrieve the complete original file when chunks are insufficient.",
+				Description: "Fetch the original full content of a document by its source URL or path. Supports HTTP/HTTPS URLs and local git cache. Use this after rag_search to retrieve the complete original file when chunks are insufficient. Pass commit_sha and repo_url from search result metadata for exact version fetching.",
 				InputSchema: map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -176,6 +182,18 @@ func (s *Server) gwMCPListTools(w http.ResponseWriter, req service.MCPRequest, s
 						"max_size": map[string]any{
 							"type":        "integer",
 							"description": "Maximum content size in bytes to return (default: 102400, max: 1048576). Content is truncated if larger.",
+						},
+						"commit_sha": map[string]any{
+							"type":        "string",
+							"description": "The commit SHA from search result metadata. When provided with repo_url, fetches the file at this exact commit.",
+						},
+						"branch": map[string]any{
+							"type":        "string",
+							"description": "The branch name from search result metadata. Used for cache lookup when commit_sha is not available.",
+						},
+						"repo_url": map[string]any{
+							"type":        "string",
+							"description": "The repository URL from search result metadata. Required for git-based fetching when commit_sha is provided.",
 						},
 					},
 					"required": []string{"source"},
@@ -330,6 +348,7 @@ func (s *Server) gwMCPSearch(w http.ResponseWriter, r *http.Request, id int, arg
 			path, _ := res.Metadata["path"].(string)
 			repoURL, _ := res.Metadata["repo_url"].(string)
 			commitSHA, _ := res.Metadata["commit_sha"].(string)
+			branch, _ := res.Metadata["branch"].(string)
 			contentType, _ := res.Metadata["content_type"].(string)
 
 			text += fmt.Sprintf("--- Result %d (score: %.4f) ---\n", i+1, res.Score)
@@ -344,6 +363,9 @@ func (s *Server) gwMCPSearch(w http.ResponseWriter, r *http.Request, id int, arg
 			}
 			if commitSHA != "" {
 				text += fmt.Sprintf("commit_sha: %s\n", commitSHA)
+			}
+			if branch != "" {
+				text += fmt.Sprintf("branch: %s\n", branch)
 			}
 			if contentType != "" {
 				text += fmt.Sprintf("content_type: %s\n", contentType)
@@ -423,7 +445,58 @@ func (s *Server) gwMCPFetchSource(w http.ResponseWriter, r *http.Request, id int
 		maxSize = 1048576
 	}
 
-	content, err := fetchSourceContent(r.Context(), source, srv, maxSize)
+	// Optional git metadata for precise fetching.
+	commitSHA, _ := args["commit_sha"].(string)
+	branch, _ := args["branch"].(string)
+	repoURL, _ := args["repo_url"].(string)
+
+	// Resolve auth from server config.
+	auth, err := resolveGitAuth(r.Context(), s.variableStore, srv)
+	if err != nil {
+		slog.Warn("gateway mcp rag_fetch_source: failed to resolve git auth", "error", err)
+	}
+	if auth != nil && auth.cleanup != nil {
+		defer auth.cleanup()
+	}
+
+	var envVars []string
+	if auth != nil {
+		envVars = auth.envVars
+	}
+
+	// If commitSHA and repoURL are provided, try commit-specific checkout first.
+	if commitSHA != "" && repoURL != "" {
+		gitCacheDir := srv.Config.GitCacheDir
+		if gitCacheDir == "" {
+			gitCacheDir = defaultRAGGitCacheDir
+		}
+
+		authURL := repoURL
+		if auth != nil {
+			authURL = auth.authURL(repoURL)
+		}
+
+		repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, repoURL, commitSHA, gitCacheDir, envVars)
+		if err == nil {
+			_, filePath := splitSourceToRepoAndPath(source)
+			if filePath != "" {
+				content, readErr := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
+				if readErr == nil {
+					mcpResult(w, id, service.CallToolResult{
+						Content: []service.ToolContent{
+							{Type: "text", Text: content},
+						},
+					})
+					return
+				}
+			}
+		} else {
+			slog.Warn("gateway mcp rag_fetch_source: commit-specific checkout failed, falling back",
+				"repo_url", repoURL, "commit_sha", commitSHA, "error", err)
+		}
+	}
+
+	content, err := fetchSourceContent(r.Context(), source, srv, maxSize, commitSHA, branch, envVars)
 	if err != nil {
 		slog.Error("gateway mcp rag_fetch_source failed", "source", source, "mcp_server", srv.Name, "error", err)
 		mcpError(w, id, -32000, err.Error())
@@ -519,19 +592,36 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
+	// ── Resolve auth for git operations ──
+	auth, authErr := resolveGitAuth(r.Context(), s.variableStore, srv)
+	if authErr != nil {
+		slog.Warn("gateway mcp rag_search_and_fetch: failed to resolve git auth", "error", authErr)
+	}
+	if auth != nil && auth.cleanup != nil {
+		defer auth.cleanup()
+	}
+
 	// ── Format search results ──
 	var text strings.Builder
 	text.WriteString("## Search Results\n\n")
 
-	// Collect unique sources in order of best score.
+	// Collect unique sources in order of best score, along with their git metadata.
+	type sourceInfo struct {
+		source    string
+		repoURL   string
+		commitSHA string
+		branch    string
+		path      string
+	}
 	seen := make(map[string]bool)
-	var uniqueSources []string
+	var uniqueSources []sourceInfo
 
 	for i, res := range results {
 		source, _ := res.Metadata["source"].(string)
 		path, _ := res.Metadata["path"].(string)
 		repoURL, _ := res.Metadata["repo_url"].(string)
 		commitSHA, _ := res.Metadata["commit_sha"].(string)
+		branch, _ := res.Metadata["branch"].(string)
 		contentType, _ := res.Metadata["content_type"].(string)
 
 		fmt.Fprintf(&text, "--- Result %d (score: %.4f) ---\n", i+1, res.Score)
@@ -547,6 +637,9 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 		if commitSHA != "" {
 			fmt.Fprintf(&text, "commit_sha: %s\n", commitSHA)
 		}
+		if branch != "" {
+			fmt.Fprintf(&text, "branch: %s\n", branch)
+		}
 		if contentType != "" {
 			fmt.Fprintf(&text, "content_type: %s\n", contentType)
 		}
@@ -555,7 +648,13 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 		// Track unique sources for fetching.
 		if source != "" && !seen[source] {
 			seen[source] = true
-			uniqueSources = append(uniqueSources, source)
+			uniqueSources = append(uniqueSources, sourceInfo{
+				source:    source,
+				repoURL:   repoURL,
+				commitSHA: commitSHA,
+				branch:    branch,
+				path:      path,
+			})
 		}
 	}
 
@@ -567,14 +666,47 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 	if len(uniqueSources) > 0 {
 		text.WriteString("## Fetched Sources\n\n")
 
-		for _, source := range uniqueSources {
-			// Derive a display label — use the path portion if available.
-			label := source
-			if _, filePath := splitSourceToRepoAndPath(source); filePath != "" {
+		gitCacheDir := srv.Config.GitCacheDir
+		if gitCacheDir == "" {
+			gitCacheDir = defaultRAGGitCacheDir
+		}
+
+		var envVars []string
+		if auth != nil {
+			envVars = auth.envVars
+		}
+
+		for _, si := range uniqueSources {
+			// Derive a display label — use the path if available.
+			label := si.source
+			if si.path != "" {
+				label = si.path
+			} else if _, filePath := splitSourceToRepoAndPath(si.source); filePath != "" {
 				label = filePath
 			}
 
-			content, err := fetchSourceContent(r.Context(), source, srv, maxSourceSize)
+			// Try commit-specific checkout first when metadata is available.
+			if si.commitSHA != "" && si.repoURL != "" && si.path != "" {
+				authURL := si.repoURL
+				if auth != nil {
+					authURL = auth.authURL(si.repoURL)
+				}
+
+				repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, si.repoURL, si.commitSHA, gitCacheDir, envVars)
+				if err == nil {
+					content, readErr := readFileWithLimit(filepath.Join(repoDir, si.path), maxSourceSize)
+					if readErr == nil {
+						fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
+						continue
+					}
+				} else {
+					slog.Warn("gateway mcp rag_search_and_fetch: commit-specific checkout failed, falling back",
+						"source", si.source, "commit_sha", si.commitSHA, "error", err)
+				}
+			}
+
+			// Fall back to fetchSourceContent (cache lookup, clone, or HTTP).
+			content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars)
 			if err != nil {
 				fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
 				continue
@@ -595,7 +727,11 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 
 // fetchSourceContent fetches the full content of a source file, respecting the server's fetch mode.
 // It tries the local git cache first (for "auto"/"local" modes), then falls back to HTTP (for "auto"/"remote" modes).
-func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPServer, maxSize int) (string, error) {
+// SSH sources (git@host:... or ssh://...) are always resolved from the local git cache — no HTTP fallback.
+//
+// When commitSHA is provided, commit-specific cache lookup and clone are attempted first.
+// envVars are passed to git commands for auth (e.g. GIT_SSH_COMMAND for SSH keys).
+func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPServer, maxSize int, commitSHA, branch string, envVars []string) (string, error) {
 	fetchMode := srv.Config.FetchMode
 	if fetchMode == "" {
 		fetchMode = "auto"
@@ -603,17 +739,40 @@ func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPS
 
 	gitCacheDir := srv.Config.GitCacheDir
 	if gitCacheDir == "" {
-		gitCacheDir = "/tmp/at-git-cache"
+		gitCacheDir = defaultRAGGitCacheDir
+	}
+
+	isSSH := isSSHSource(source)
+
+	// SSH sources are always served from the local git cache (populated by git_fetch workflow).
+	if isSSH {
+		content, found := tryLocalGitCache(source, gitCacheDir, maxSize, commitSHA, branch)
+		if found {
+			return content, nil
+		}
+		// Fallback: try a clone if the cache doesn't have it yet.
+		repoURL, filePath := splitSourceToRepoAndPath(source)
+		content, found = fallbackCloneAndRead(ctx, repoURL, branch, filePath, gitCacheDir, maxSize, commitSHA, envVars)
+		if found {
+			return content, nil
+		}
+		return "", fmt.Errorf("source not found in local git cache (SSH sources are resolved from the git cache maintained by the git_fetch workflow)")
 	}
 
 	// Try local git cache first (for "auto" or "local" modes).
 	if fetchMode == "auto" || fetchMode == "local" {
-		content, found := tryLocalGitCache(source, gitCacheDir, maxSize)
+		content, found := tryLocalGitCache(source, gitCacheDir, maxSize, commitSHA, branch)
 		if found {
 			return content, nil
 		}
 
 		if fetchMode == "local" {
+			// Fallback: try a clone before giving up.
+			repoURL, filePath := splitSourceToRepoAndPath(source)
+			content, found = fallbackCloneAndRead(ctx, repoURL, branch, filePath, gitCacheDir, maxSize, commitSHA, envVars)
+			if found {
+				return content, nil
+			}
 			return "", fmt.Errorf("source not found in local git cache and fetch mode is 'local'")
 		}
 	}
@@ -681,57 +840,220 @@ func convertToRawURL(source string) string {
 	return source
 }
 
+// cloneInFlight tracks repos currently being cloned to prevent concurrent clones
+// of the same repository. Key is the cache directory hash.
+var cloneInFlight sync.Map
+
 // tryLocalGitCache attempts to read a file from the local git cache.
 // The source from RAG metadata is typically "repo_url/path" — we try to
 // find it by scanning the git cache directory for matching repos.
-func tryLocalGitCache(source, gitCacheDir string, maxSize int) (string, bool) {
-	// Stat the cache dir — if it doesn't exist, return early.
-	if _, err := os.Stat(gitCacheDir); os.IsNotExist(err) {
+//
+// When commitSHA is provided, the commit-specific cache directory is tried first
+// (highest precision). When branch is provided, the branch-specific directory is
+// tried before falling back to common branch names and directory scanning.
+func tryLocalGitCache(source, gitCacheDir string, maxSize int, commitSHA, branch string) (string, bool) {
+	repoURL, filePath := splitSourceToRepoAndPath(source)
+	if repoURL == "" || filePath == "" {
 		return "", false
 	}
 
-	// Strategy 1: If the source looks like a GitHub-style URL with a path,
-	// try to decompose it into repo + path and scan cache directories.
-	repoURL, filePath := splitSourceToRepoAndPath(source)
-	if repoURL != "" && filePath != "" {
-		// Try common branches.
-		for _, branch := range []string{"main", "master", "develop"} {
-			cacheKey := repoURL + "\x00" + branch
-			hash := sha256.Sum256([]byte(cacheKey))
-			dirName := fmt.Sprintf("%x", hash[:])[:8]
+	// Strategy 0: Try commit-specific cache directory (most precise).
+	if commitSHA != "" {
+		dirName := hashRepoCommitKey(repoURL, commitSHA)
+		fullPath := filepath.Join(gitCacheDir, dirName, filePath)
+		content, err := readFileWithLimit(fullPath, maxSize)
+		if err == nil {
+			return content, true
+		}
+	}
+
+	// Strategy 1: Try the exact hash-based directory for the known branch,
+	// or fall back to common branches.
+	// The git_fetch node hashes repoURL + "\x00" + branch using SHA-256 and
+	// takes the first 8 bytes as hex (16 hex chars) for the directory name.
+	if branch != "" {
+		dirName := hashCacheKey(repoURL, branch)
+		fullPath := filepath.Join(gitCacheDir, dirName, filePath)
+		content, err := readFileWithLimit(fullPath, maxSize)
+		if err == nil {
+			return content, true
+		}
+	} else {
+		for _, b := range []string{"main", "master", "develop"} {
+			dirName := hashCacheKey(repoURL, b)
 			fullPath := filepath.Join(gitCacheDir, dirName, filePath)
-
 			content, err := readFileWithLimit(fullPath, maxSize)
 			if err == nil {
 				return content, true
 			}
 		}
+	}
 
-		// Strategy 2: Scan all cache directories for the file path.
-		entries, err := os.ReadDir(gitCacheDir)
-		if err != nil {
-			return "", false
+	// Strategy 2: Scan all cache directories for the file path.
+	// This covers custom branches and other hash variations.
+	entries, err := os.ReadDir(gitCacheDir)
+	if err != nil {
+		return "", false
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
-		for _, entry := range entries {
-			if !entry.IsDir() {
-				continue
-			}
-			fullPath := filepath.Join(gitCacheDir, entry.Name(), filePath)
-			content, err := readFileWithLimit(fullPath, maxSize)
-			if err == nil {
-				return content, true
-			}
+		fullPath := filepath.Join(gitCacheDir, entry.Name(), filePath)
+		content, err := readFileWithLimit(fullPath, maxSize)
+		if err == nil {
+			return content, true
 		}
 	}
 
 	return "", false
 }
 
+// fallbackCloneAndRead performs a one-time clone of a repository when the
+// git cache directory does not contain the needed file. This is a best-effort
+// fallback for cases where the git_fetch workflow hasn't populated the cache yet.
+//
+// When commitSHA is provided, a full clone + checkout at that commit is performed
+// (not shallow, since arbitrary commits may not be reachable with shallow clone).
+// When commitSHA is empty, a shallow single-branch clone is used for speed.
+//
+// It uses a sync.Map to prevent concurrent clones of the same repo+ref.
+// envVars are passed to git commands for auth (e.g. GIT_SSH_COMMAND).
+// If cloning fails, it returns ("", false) gracefully — the caller should
+// treat this as a cache miss.
+func fallbackCloneAndRead(ctx context.Context, repoURL, branch, filePath, gitCacheDir string, maxSize int, commitSHA string, envVars []string) (string, bool) {
+	if repoURL == "" || filePath == "" {
+		return "", false
+	}
+
+	// Determine the cache key and directory.
+	var dirName string
+	if commitSHA != "" {
+		dirName = hashRepoCommitKey(repoURL, commitSHA)
+	} else {
+		if branch == "" {
+			branch = "main"
+		}
+		dirName = hashCacheKey(repoURL, branch)
+	}
+	repoDir := filepath.Join(gitCacheDir, dirName)
+
+	// If the directory already exists (race with another goroutine or workflow), just read.
+	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
+		content, err := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
+		if err == nil {
+			return content, true
+		}
+		return "", false
+	}
+
+	// Use sync.Map to ensure only one clone per repo+ref at a time.
+	// LoadOrStore returns (actual value, loaded); if loaded=true another goroutine is already cloning.
+	ch := make(chan struct{})
+	if actual, loaded := cloneInFlight.LoadOrStore(dirName, ch); loaded {
+		// Another goroutine is cloning this repo — wait for it to finish.
+		waitCh, ok := actual.(chan struct{})
+		if ok {
+			select {
+			case <-waitCh:
+			case <-ctx.Done():
+				return "", false
+			}
+		}
+		// Re-try the file read after the other clone completes.
+		content, err := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
+		if err == nil {
+			return content, true
+		}
+		return "", false
+	}
+	// We won the race — we'll do the clone.
+	defer func() {
+		close(ch)
+		cloneInFlight.Delete(dirName)
+	}()
+
+	// Create cache dir if it doesn't exist.
+	if err := os.MkdirAll(gitCacheDir, 0o755); err != nil {
+		slog.Warn("fallback clone: failed to create cache dir", "dir", gitCacheDir, "error", err)
+		return "", false
+	}
+
+	gitEnvList := mcpGitEnv(envVars)
+
+	if commitSHA != "" {
+		// Full clone + checkout at specific commit.
+		cloneArgs := []string{"clone", "--no-checkout", repoURL, dirName}
+		cmd := exec.CommandContext(ctx, "git", cloneArgs...)
+		cmd.Dir = gitCacheDir
+		cmd.Env = gitEnvList
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+
+		slog.Info("fallback clone: cloning repository for commit", "repo", repoURL, "commit_sha", commitSHA)
+		if err := cmd.Run(); err != nil {
+			_ = os.RemoveAll(repoDir)
+			slog.Warn("fallback clone: clone failed", "repo", repoURL, "commit_sha", commitSHA, "error", err, "stderr", stderr.String())
+			return "", false
+		}
+
+		// Checkout the specific commit.
+		checkoutCmd := exec.CommandContext(ctx, "git", "checkout", commitSHA)
+		checkoutCmd.Dir = repoDir
+		checkoutCmd.Env = gitEnvList
+		var checkoutStderr bytes.Buffer
+		checkoutCmd.Stderr = &checkoutStderr
+		if err := checkoutCmd.Run(); err != nil {
+			_ = os.RemoveAll(repoDir)
+			slog.Warn("fallback clone: checkout failed", "repo", repoURL, "commit_sha", commitSHA, "error", err, "stderr", checkoutStderr.String())
+			return "", false
+		}
+	} else {
+		// Shallow clone — depth 1, single branch.
+		cloneArgs := []string{"clone", "--depth", "1", "--single-branch", "--branch", branch, repoURL, dirName}
+		cmd := exec.CommandContext(ctx, "git", cloneArgs...)
+		cmd.Dir = gitCacheDir
+		cmd.Env = gitEnvList
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+
+		slog.Info("fallback clone: cloning repository", "repo", repoURL, "branch", branch)
+		if err := cmd.Run(); err != nil {
+			_ = os.RemoveAll(repoDir)
+			slog.Warn("fallback clone: clone failed", "repo", repoURL, "branch", branch, "error", err, "stderr", stderr.String())
+			return "", false
+		}
+	}
+
+	// Read the requested file.
+	content, err := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
+	if err == nil {
+		return content, true
+	}
+	return "", false
+}
+
+// hashCacheKey produces the same directory name as the git_fetch workflow node:
+// SHA-256 of (repoURL + "\x00" + branch), first 8 bytes as hex (16 hex chars).
+func hashCacheKey(repoURL, branch string) string {
+	h := sha256.Sum256([]byte(repoURL + "\x00" + branch))
+	return hex.EncodeToString(h[:8])
+}
+
 // splitSourceToRepoAndPath tries to split a source string into repo URL and file path.
 // Handles formats like:
 //   - https://github.com/user/repo/path/to/file.go → (https://github.com/user/repo, path/to/file.go)
 //   - https://github.com/user/repo/blob/main/path/to/file.go → (https://github.com/user/repo, path/to/file.go)
+//   - git@github.com:user/repo.git/path/to/file.go → (git@github.com:user/repo.git, path/to/file.go)
+//   - ssh://git@github.com/user/repo.git/path/to/file.go → (ssh://git@github.com/user/repo.git, path/to/file.go)
 func splitSourceToRepoAndPath(source string) (string, string) {
+	// Try SSH SCP-style URL: git@host:user/repo.git/path/to/file
+	// The rag_ingest node builds source as repoURL + "/" + path, so for SSH repos
+	// we get: git@github.com:user/repo.git/path/to/file.md
+	if repoURL, filePath := splitSSHSource(source); repoURL != "" {
+		return repoURL, filePath
+	}
+
 	// Try GitHub blob URL pattern first.
 	matches := githubBlobRe.FindStringSubmatch(source)
 	if matches != nil {
@@ -760,6 +1082,79 @@ func splitSourceToRepoAndPath(source string) (string, string) {
 	}
 
 	return "", ""
+}
+
+// splitSSHSource handles SSH-style git source URLs.
+// Two formats are supported:
+//
+//	SCP-style: git@host:user/repo.git/path/to/file → (git@host:user/repo.git, path/to/file)
+//	URI-style: ssh://git@host/user/repo.git/path/to/file → (ssh://git@host/user/repo.git, path/to/file)
+//
+// If the URL contains ".git/" we split on the first ".git/" boundary.
+// If it doesn't contain ".git" but matches the SCP pattern (user@host:...),
+// we fall back to splitting after the third path segment (host:owner/repo/rest).
+func splitSSHSource(source string) (string, string) {
+	// Strategy 1: Split on ".git/" boundary — works for both SCP and URI styles.
+	if idx := strings.Index(source, ".git/"); idx >= 0 {
+		repoURL := source[:idx+4]  // include ".git"
+		filePath := source[idx+5:] // skip ".git/"
+		if filePath != "" {
+			return repoURL, filePath
+		}
+	}
+
+	// Strategy 2: SCP-style without .git suffix — user@host:owner/repo/path/to/file
+	// Detect by looking for the ":" after "@" (SCP format).
+	if atIdx := strings.Index(source, "@"); atIdx >= 0 {
+		afterAt := source[atIdx+1:]
+		colonIdx := strings.Index(afterAt, ":")
+		// Make sure the colon is before any "/" (SCP-style, not a port number in URI).
+		slashIdx := strings.Index(afterAt, "/")
+		if colonIdx > 0 && (slashIdx < 0 || colonIdx < slashIdx) {
+			// afterAt[colonIdx+1:] is "owner/repo/path/to/file"
+			rest := afterAt[colonIdx+1:]
+			// Split into owner/repo/filepath (3 segments minimum).
+			parts := strings.SplitN(rest, "/", 3)
+			if len(parts) == 3 && parts[2] != "" {
+				repoURL := source[:atIdx+1+colonIdx+1+len(parts[0])+1+len(parts[1])]
+				return repoURL, parts[2]
+			}
+		}
+	}
+
+	// Strategy 3: ssh:// URI style without .git suffix — ssh://git@host/owner/repo/path/to/file
+	if strings.HasPrefix(source, "ssh://") {
+		withoutScheme := source[6:] // strip "ssh://"
+		// Find the host part (may include user@).
+		hostEnd := strings.Index(withoutScheme, "/")
+		if hostEnd > 0 {
+			rest := withoutScheme[hostEnd+1:]
+			// rest is "owner/repo/path/to/file"
+			parts := strings.SplitN(rest, "/", 3)
+			if len(parts) == 3 && parts[2] != "" {
+				repoURL := "ssh://" + withoutScheme[:hostEnd] + "/" + parts[0] + "/" + parts[1]
+				return repoURL, parts[2]
+			}
+		}
+	}
+
+	return "", ""
+}
+
+// isSSHSource returns true if the source looks like an SSH git URL.
+func isSSHSource(source string) bool {
+	if strings.HasPrefix(source, "ssh://") {
+		return true
+	}
+	// SCP-style: user@host:path — has "@" before ":" and ":" is before first "/".
+	atIdx := strings.Index(source, "@")
+	if atIdx < 0 {
+		return false
+	}
+	afterAt := source[atIdx+1:]
+	colonIdx := strings.Index(afterAt, ":")
+	slashIdx := strings.Index(afterAt, "/")
+	return colonIdx > 0 && (slashIdx < 0 || colonIdx < slashIdx)
 }
 
 // readFileWithLimit reads a file up to maxSize bytes, appending a truncation note if needed.

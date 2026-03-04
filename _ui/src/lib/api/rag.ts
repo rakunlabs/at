@@ -147,6 +147,9 @@ export interface RAGMCPServerConfig {
   fetch_mode: string;
   git_cache_dir: string;
   default_num_results: number;
+  token_variable: string;
+  token_user: string;
+  ssh_key_variable: string;
 }
 
 export interface RAGMCPServer {

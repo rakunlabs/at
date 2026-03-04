@@ -12,10 +12,11 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
-  import { listMCPTools, callMCPTool, callSkillTool, listBuiltinTools, callBuiltinTool, listRAGTools, callRAGTool, type MCPToolInfo, type BuiltinToolDef, type RAGToolDef } from '@/lib/api/mcp';
+  import { listMCPTools, callMCPTool, callSkillTool, listBuiltinTools, callBuiltinTool, listRAGTools, callRAGTool, type MCPToolInfo, type BuiltinToolDef, type RAGToolDef, type RAGAuthConfig } from '@/lib/api/mcp';
   import { listCollections, type RAGCollection } from '@/lib/api/rag';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { listVariables, type Variable } from '@/lib/api/secrets';
   import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-svelte';
   import { md, renderMarkdown } from '@/lib/helper/markdown';
 
@@ -169,6 +170,10 @@
   let enabledRagTools = $state<string[]>([]);
   let ragCollections = $state<RAGCollection[]>([]);
   let selectedRagCollectionIds = $state<string[]>([]);
+  let ragTokenVariable = $state('');
+  let ragTokenUser = $state('');
+  let ragSSHKeyVariable = $state('');
+  let chatVariables = $state<Variable[]>([]);
 
   // Frontend-only tools
   let enabledFrontendTools = $state<string[]>([]);
@@ -269,6 +274,15 @@
   loadBuiltinTools();
   loadRAGTools();
   loadRAGCollections();
+
+  async function loadChatVariables() {
+    try {
+      const res = await listVariables({ _limit: 500 });
+      chatVariables = res.data || [];
+    } catch {}
+  }
+
+  loadChatVariables();
 
   // ─── Scroll ───
 
@@ -586,7 +600,11 @@
         if ((tc.function.name === 'rag_search' || tc.function.name === 'rag_search_and_fetch') && selectedRagCollectionIds.length > 0) {
           args.collection_ids = selectedRagCollectionIds;
         }
-        const res = await callRAGTool(tc.function.name, args);
+        const ragAuth: RAGAuthConfig = {};
+        if (ragTokenVariable) ragAuth.token_variable = ragTokenVariable;
+        if (ragTokenUser) ragAuth.token_user = ragTokenUser;
+        if (ragSSHKeyVariable) ragAuth.ssh_key_variable = ragSSHKeyVariable;
+        const res = await callRAGTool(tc.function.name, args, ragAuth);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'frontend') {
@@ -1108,6 +1126,41 @@
                     </button>
                   {/each}
                 </div>
+              </div>
+            {/if}
+            {#if enabledRagTools.some(t => t === 'rag_fetch_source' || t === 'rag_search_and_fetch')}
+              <div class="space-y-1">
+                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted block">Git Auth (optional)</span>
+                <div class="flex flex-wrap gap-1.5">
+                  <input
+                    type="text"
+                    list="chat-var-list"
+                    bind:value={ragTokenVariable}
+                    placeholder="Token variable"
+                    class="w-36 border border-gray-300 dark:border-dark-border-subtle px-2 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                    title="Variable key containing HTTPS token for private repos"
+                  />
+                  <input
+                    type="text"
+                    bind:value={ragTokenUser}
+                    placeholder="Token user"
+                    class="w-28 border border-gray-300 dark:border-dark-border-subtle px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                    title="Username for HTTPS token auth (default: x-token-auth)"
+                  />
+                  <input
+                    type="text"
+                    list="chat-var-list"
+                    bind:value={ragSSHKeyVariable}
+                    placeholder="SSH key variable"
+                    class="w-36 border border-gray-300 dark:border-dark-border-subtle px-2 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                    title="Variable key containing SSH private key for git+ssh repos"
+                  />
+                </div>
+                <datalist id="chat-var-list">
+                  {#each chatVariables as v}
+                    <option value={v.key}>{v.key}{v.description ? ` — ${v.description}` : ''}</option>
+                  {/each}
+                </datalist>
               </div>
             {/if}
           </div>

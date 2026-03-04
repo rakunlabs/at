@@ -350,9 +350,6 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
 	webhookGroup.POST("/{id}", s.WebhookAPI)
 
-	// MCP server for RAG (top-level, accessible by external tools like Claude Desktop)
-	mux.Group(cfg.BasePath+"/mcp").POST("/rag", s.RAGMCPHandler)
-
 	// Gateway MCP endpoints for named RAG MCP servers (auth-gated)
 	gatewayGroup.POST("/v1/mcp/rag/{name}", s.GatewayRAGMCPHandler)
 

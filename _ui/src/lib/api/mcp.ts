@@ -133,15 +133,28 @@ export async function listRAGTools(): Promise<RAGToolListResponse> {
 }
 
 /**
- * Call a RAG tool by name (rag_search, rag_list_collections, rag_fetch_source).
+ * Optional git auth config for RAG tool calls.
+ */
+export interface RAGAuthConfig {
+  token_variable?: string;
+  token_user?: string;
+  ssh_key_variable?: string;
+}
+
+/**
+ * Call a RAG tool by name (rag_search, rag_list_collections, rag_fetch_source, rag_search_and_fetch).
  */
 export async function callRAGTool(
   name: string,
   args: Record<string, any>,
+  auth?: RAGAuthConfig,
 ): Promise<RAGCallToolResponse> {
   const res = await api.post<RAGCallToolResponse>('/mcp/call-rag-tool', {
     name,
     arguments: args,
+    ...(auth?.token_variable && { token_variable: auth.token_variable }),
+    ...(auth?.token_user && { token_user: auth.token_user }),
+    ...(auth?.ssh_key_variable && { ssh_key_variable: auth.ssh_key_variable }),
   });
   return res.data;
 }

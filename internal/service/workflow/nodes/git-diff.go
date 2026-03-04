@@ -38,6 +38,7 @@ import (
 //	deleted_files []string         — files removed since last sync
 //	commit_sha    string           — HEAD commit SHA
 //	repo_url      string           — the repository URL
+//	branch        string           — the branch that was fetched
 //	variable_key  string           — the variable key used to track sync state
 type gitDiffNode struct {
 	filePattern       string
@@ -146,6 +147,7 @@ func (n *gitDiffNode) Run(ctx context.Context, reg *workflow.Registry, inputs ma
 		"deleted_files": deletedAny,
 		"commit_sha":    commitSHA,
 		"repo_url":      repoURL,
+		"branch":        branch,
 		"variable_key":  variableKey,
 	}), nil
 }
