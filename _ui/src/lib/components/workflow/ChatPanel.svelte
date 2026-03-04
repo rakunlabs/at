@@ -14,6 +14,7 @@
   import { listVariables } from '@/lib/api/secrets';
   import { listNodeConfigs } from '@/lib/api/node-configs';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
+  import snarkdown from 'snarkdown';
 
   // ─── Props ───
   let { onclose, flow }: { onclose: () => void; flow: FlowState } = $props();
@@ -719,7 +720,7 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
         <div class="flex justify-start">
           <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-[11px]">
             {#if getTextContent(msg.content)}
-              <span class="whitespace-pre-wrap text-gray-700">{getTextContent(msg.content)}</span>
+              <div class="markdown-body text-gray-700">{@html snarkdown(getTextContent(msg.content))}</div>
             {:else if streaming && i === messages.length - 1}
               <span class="text-gray-400 italic">Thinking...</span>
             {/if}
@@ -778,3 +779,51 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
     {/if}
   </div>
 </div>
+
+<style>
+  @reference "../../../style/global.css";
+
+  .markdown-body :global(p) {
+    @apply mb-1.5 last:mb-0;
+  }
+  .markdown-body :global(a) {
+    @apply underline underline-offset-2 hover:opacity-80;
+  }
+  .markdown-body :global(strong) {
+    @apply font-semibold;
+  }
+  .markdown-body :global(code) {
+    @apply font-mono text-[0.85em] bg-gray-100 px-1 py-0.5 rounded;
+  }
+  .markdown-body :global(pre) {
+    @apply bg-gray-100 px-2 py-1.5 my-1.5 overflow-x-auto text-[0.85em] rounded;
+  }
+  .markdown-body :global(pre code) {
+    @apply bg-transparent px-0 py-0;
+  }
+  .markdown-body :global(ul) {
+    @apply list-disc pl-4 mb-1.5;
+  }
+  .markdown-body :global(ol) {
+    @apply list-decimal pl-4 mb-1.5;
+  }
+  .markdown-body :global(li) {
+    @apply mb-0.5;
+  }
+  .markdown-body :global(blockquote) {
+    @apply border-l-2 border-gray-300 pl-2 my-1.5 text-gray-500;
+  }
+  .markdown-body :global(h1),
+  .markdown-body :global(h2),
+  .markdown-body :global(h3) {
+    @apply font-semibold mb-1;
+  }
+  .markdown-body :global(h4),
+  .markdown-body :global(h5),
+  .markdown-body :global(h6) {
+    @apply font-medium mb-1;
+  }
+  .markdown-body :global(hr) {
+    @apply border-t border-gray-200 my-2;
+  }
+</style>

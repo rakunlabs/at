@@ -450,6 +450,19 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 
+	// MCP proxy endpoints (used by Chat UI for tool-calling loop)
+	apiGroup.POST("/v1/mcp/list-tools", s.MCPListToolsAPI)
+	apiGroup.POST("/v1/mcp/call-tool", s.MCPCallToolAPI)
+	apiGroup.POST("/v1/mcp/call-skill-tool", s.SkillCallToolAPI)
+
+	// Built-in tools (server-side tools for Chat UI: http, bash, js, url_fetch)
+	apiGroup.GET("/v1/mcp/builtin-tools", s.BuiltinToolListAPI)
+	apiGroup.POST("/v1/mcp/call-builtin-tool", s.BuiltinToolCallAPI)
+
+	// RAG tools (direct access for Chat UI, bypasses MCP protocol)
+	apiGroup.GET("/v1/mcp/rag-tools", s.RAGToolListAPI)
+	apiGroup.POST("/v1/mcp/call-rag-tool", s.RAGToolCallAPI)
+
 	// Workflow run management
 	apiGroup.GET("/v1/runs", s.ListActiveRunsAPI)
 	apiGroup.POST("/v1/runs/{id}/cancel", s.CancelRunAPI)
