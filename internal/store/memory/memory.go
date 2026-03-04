@@ -32,6 +32,7 @@ type Memory struct {
 	agents           map[string]service.Agent                  // id -> agent
 	ragCollections   map[string]service.RAGCollection          // id -> rag collection
 	ragStates        map[string]service.RAGState               // key -> rag state
+	ragMCPServers    map[string]service.RAGMCPServer           // id -> rag mcp server
 	tokenUsage       map[string]map[string]*service.TokenUsage // token_id -> model -> usage
 }
 
@@ -51,6 +52,7 @@ func New() *Memory {
 		agents:           make(map[string]service.Agent),
 		ragCollections:   make(map[string]service.RAGCollection),
 		ragStates:        make(map[string]service.RAGState),
+		ragMCPServers:    make(map[string]service.RAGMCPServer),
 		tokenUsage:       make(map[string]map[string]*service.TokenUsage),
 	}
 }
@@ -232,6 +234,7 @@ func (m *Memory) UpdateAPIToken(_ context.Context, id string, token service.APIT
 	existing.AllowedProviders = token.AllowedProviders
 	existing.AllowedModels = token.AllowedModels
 	existing.AllowedWebhooks = token.AllowedWebhooks
+	existing.AllowedRAGMCPs = token.AllowedRAGMCPs
 	existing.ExpiresAt = token.ExpiresAt
 	existing.TotalTokenLimit = token.TotalTokenLimit
 	existing.LimitResetInterval = token.LimitResetInterval
@@ -470,6 +473,28 @@ func (m *Memory) SetActiveVersion(_ context.Context, workflowID string, version 
 }
 
 // ─── Trigger CRUD ───
+
+func (m *Memory) ListAllTriggers(_ context.Context) ([]service.Trigger, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []service.Trigger
+	for _, t := range m.triggers {
+		result = append(result, t)
+	}
+
+	slices.SortFunc(result, func(a, b service.Trigger) int {
+		if a.CreatedAt < b.CreatedAt {
+			return -1
+		}
+		if a.CreatedAt > b.CreatedAt {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
 
 func (m *Memory) ListTriggers(_ context.Context, workflowID string) ([]service.Trigger, error) {
 	m.mu.RLock()

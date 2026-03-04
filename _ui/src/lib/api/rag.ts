@@ -137,3 +137,48 @@ export async function testEmbedding(req: TestEmbeddingRequest): Promise<TestEmbe
   const res = await api.post<TestEmbeddingResponse>('/rag/test-embedding', req);
   return res.data;
 }
+
+// ─── RAG MCP Servers ───
+
+export interface RAGMCPServerConfig {
+  description: string;
+  collection_ids: string[];
+  enabled_tools: string[];
+  fetch_mode: string;
+  git_cache_dir: string;
+  default_num_results: number;
+}
+
+export interface RAGMCPServer {
+  id: string;
+  name: string;
+  config: RAGMCPServerConfig;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
+
+export async function listRAGMCPServers(params?: ListParams): Promise<ListResult<RAGMCPServer>> {
+  const res = await api.get<ListResult<RAGMCPServer>>('/rag/mcp-servers', { params });
+  return res.data;
+}
+
+export async function getRAGMCPServer(id: string): Promise<RAGMCPServer> {
+  const res = await api.get<RAGMCPServer>(`/rag/mcp-servers/${id}`);
+  return res.data;
+}
+
+export async function createRAGMCPServer(data: Partial<RAGMCPServer>): Promise<RAGMCPServer> {
+  const res = await api.post<RAGMCPServer>('/rag/mcp-servers', data);
+  return res.data;
+}
+
+export async function updateRAGMCPServer(id: string, data: Partial<RAGMCPServer>): Promise<RAGMCPServer> {
+  const res = await api.put<RAGMCPServer>(`/rag/mcp-servers/${id}`, data);
+  return res.data;
+}
+
+export async function deleteRAGMCPServer(id: string): Promise<void> {
+  await api.delete(`/rag/mcp-servers/${id}`);
+}

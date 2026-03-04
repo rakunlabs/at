@@ -158,7 +158,7 @@
   // RAG tools
   let ragTools = $state<RAGToolDef[]>([]);
   let ragAvailable = $state(false);
-  let ragEnabled = $state(false);
+  let enabledRagTools = $state<string[]>([]);
   let ragCollections = $state<RAGCollection[]>([]);
   let selectedRagCollectionIds = $state<string[]>([]);
 
@@ -422,8 +422,12 @@
     refreshTools();
   }
 
-  function toggleRAG() {
-    ragEnabled = !ragEnabled;
+  function toggleRagTool(toolName: string) {
+    if (enabledRagTools.includes(toolName)) {
+      enabledRagTools = enabledRagTools.filter(t => t !== toolName);
+    } else {
+      enabledRagTools = [...enabledRagTools, toolName];
+    }
     refreshTools();
   }
 
@@ -433,9 +437,9 @@
     } else {
       selectedRagCollectionIds = [...selectedRagCollectionIds, collectionId];
     }
-    // Auto-enable RAG when a collection is selected
-    if (selectedRagCollectionIds.length > 0 && !ragEnabled) {
-      ragEnabled = true;
+    // Auto-enable rag_search when a collection is selected
+    if (selectedRagCollectionIds.length > 0 && enabledRagTools.length === 0) {
+      enabledRagTools = ['rag_search'];
       refreshTools();
     }
   }
@@ -516,9 +520,10 @@
         newSourceMap[def.function.name] = { type: 'frontend' };
       }
 
-      // 5. Add RAG tools when enabled
-      if (ragEnabled && ragAvailable) {
+      // 5. Add selected RAG tools
+      if (enabledRagTools.length > 0 && ragAvailable) {
         for (const tool of ragTools) {
+          if (!enabledRagTools.includes(tool.name)) continue;
           if (newSourceMap[tool.name]) continue;
           newTools.push({
             type: 'function',
@@ -570,7 +575,7 @@
         return res.result;
       } else if (source.type === 'rag') {
         // If user selected specific collections, inject them into rag_search
-        if (tc.function.name === 'rag_search' && selectedRagCollectionIds.length > 0) {
+        if ((tc.function.name === 'rag_search' || tc.function.name === 'rag_search_and_fetch') && selectedRagCollectionIds.length > 0) {
           args.collection_ids = selectedRagCollectionIds;
         }
         const res = await callRAGTool(tc.function.name, args);
@@ -1050,19 +1055,20 @@
         <div>
           <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">RAG Knowledge Base</label>
           <div class="space-y-1.5">
-            <div class="flex items-center gap-2">
-              <button
-                onclick={toggleRAG}
-                class="px-2.5 py-1 text-xs border transition-colors {ragEnabled
-                  ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                  : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-                title="Enable RAG tools to search your knowledge base from chat"
-              >
-                {ragEnabled ? 'Enabled' : 'Enable RAG'}
-                <span class="ml-1 opacity-60">({ragTools.length} tool{ragTools.length !== 1 ? 's' : ''})</span>
-              </button>
+            <div class="flex flex-wrap gap-1.5">
+              {#each ragTools as tool}
+                <button
+                  onclick={() => toggleRagTool(tool.name)}
+                  class="px-2.5 py-1 text-xs border transition-colors {enabledRagTools.includes(tool.name)
+                    ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
+                    : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                  title={tool.description}
+                >
+                  {tool.name}
+                </button>
+              {/each}
             </div>
-            {#if ragEnabled && ragCollections.length > 0}
+            {#if enabledRagTools.length > 0 && ragCollections.length > 0}
               <div>
                 <span class="text-[10px] text-gray-400 dark:text-dark-text-muted mb-1 block">Collections {selectedRagCollectionIds.length > 0 ? `(${selectedRagCollectionIds.length} selected)` : '(all)'}</span>
                 <div class="flex flex-wrap gap-1.5">
@@ -1094,7 +1100,7 @@
           <span>{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
           <span class="text-gray-300 dark:text-dark-border">|</span>
           <span class="truncate">{discoveredTools.map(t => t.function.name).join(', ')}</span>
-        {:else if mcpUrls.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || ragEnabled}
+        {:else if mcpUrls.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || enabledRagTools.length > 0}
           <span>No tools discovered</span>
         {:else}
           <span>Add MCP servers, enable skills, or toggle tools above</span>

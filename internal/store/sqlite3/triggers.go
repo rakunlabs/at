@@ -29,6 +29,38 @@ type triggerRow struct {
 	UpdatedBy  string         `db:"updated_by"`
 }
 
+func (s *SQLite) ListAllTriggers(ctx context.Context) ([]service.Trigger, error) {
+	query, _, err := s.goqu.From(s.tableTriggers).
+		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Order(goqu.I("created_at").Asc()).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list all triggers query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list all triggers: %w", err)
+	}
+	defer rows.Close()
+
+	var result []service.Trigger
+	for rows.Next() {
+		var row triggerRow
+		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+			return nil, fmt.Errorf("scan trigger row: %w", err)
+		}
+
+		t, err := triggerRowToRecord(row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, *t)
+	}
+
+	return result, rows.Err()
+}
+
 func (s *SQLite) ListTriggers(ctx context.Context, workflowID string) ([]service.Trigger, error) {
 	query, _, err := s.goqu.From(s.tableTriggers).
 		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").

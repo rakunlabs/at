@@ -124,6 +124,7 @@ type APIToken struct {
 	AllowedProviders   types.Slice[string]    `json:"allowed_providers"`    // nil = all providers allowed
 	AllowedModels      types.Slice[string]    `json:"allowed_models"`       // nil = all models allowed ("provider/model" format)
 	AllowedWebhooks    types.Slice[string]    `json:"allowed_webhooks"`     // nil = all webhooks allowed (trigger IDs or aliases)
+	AllowedRAGMCPs     types.Slice[string]    `json:"allowed_rag_mcps"`     // nil = all RAG MCP servers allowed (server names)
 	ExpiresAt          types.Null[types.Time] `json:"expires_at"`           // zero value = no expiry
 	TotalTokenLimit    types.Null[int64]      `json:"total_token_limit"`    // max total tokens allowed (across all models); nil = unlimited
 	LimitResetInterval types.Null[string]     `json:"limit_reset_interval"` // "daily", "weekly", "monthly", or nil = manual only
@@ -325,6 +326,7 @@ type Trigger struct {
 
 // TriggerStorer defines CRUD operations for workflow triggers.
 type TriggerStorer interface {
+	ListAllTriggers(ctx context.Context) ([]Trigger, error)
 	ListTriggers(ctx context.Context, workflowID string) ([]Trigger, error)
 	GetTrigger(ctx context.Context, id string) (*Trigger, error)
 	GetTriggerByAlias(ctx context.Context, alias string) (*Trigger, error)
@@ -507,4 +509,39 @@ type RAGState struct {
 type RAGStateStorer interface {
 	GetRAGState(ctx context.Context, key string) (*RAGState, error)
 	SetRAGState(ctx context.Context, key string, value string) error
+}
+
+// ─── RAG MCP Servers ───
+
+// RAGMCPServerConfig holds the configuration for a named RAG MCP endpoint.
+type RAGMCPServerConfig struct {
+	Description       string   `json:"description,omitempty"`
+	CollectionIDs     []string `json:"collection_ids"`                // which RAG collections this MCP searches
+	EnabledTools      []string `json:"enabled_tools"`                 // subset of: rag_search, rag_list_collections, rag_fetch_source
+	FetchMode         string   `json:"fetch_mode"`                    // "auto" | "local" | "remote"
+	GitCacheDir       string   `json:"git_cache_dir,omitempty"`       // default: /tmp/at-git-cache
+	DefaultNumResults int      `json:"default_num_results,omitempty"` // default: 10
+}
+
+// RAGMCPServer represents a named, gateway-facing MCP endpoint that exposes
+// RAG tools scoped to specific collections. External agents connect to
+// /gateway/v1/mcp/rag/{name} to use these tools.
+type RAGMCPServer struct {
+	ID        string             `json:"id"`
+	Name      string             `json:"name"` // URL-safe slug used in the endpoint path
+	Config    RAGMCPServerConfig `json:"config"`
+	CreatedAt string             `json:"created_at"`
+	UpdatedAt string             `json:"updated_at"`
+	CreatedBy string             `json:"created_by"`
+	UpdatedBy string             `json:"updated_by"`
+}
+
+// RAGMCPServerStorer defines CRUD operations for RAG MCP server configurations.
+type RAGMCPServerStorer interface {
+	ListRAGMCPServers(ctx context.Context, q *query.Query) (*ListResult[RAGMCPServer], error)
+	GetRAGMCPServer(ctx context.Context, id string) (*RAGMCPServer, error)
+	GetRAGMCPServerByName(ctx context.Context, name string) (*RAGMCPServer, error)
+	CreateRAGMCPServer(ctx context.Context, s RAGMCPServer) (*RAGMCPServer, error)
+	UpdateRAGMCPServer(ctx context.Context, id string, s RAGMCPServer) (*RAGMCPServer, error)
+	DeleteRAGMCPServer(ctx context.Context, id string) error
 }

@@ -46,6 +46,7 @@ type Postgres struct {
 	tableAgents           exp.IdentifierExpression
 	tableRAGCollections   exp.IdentifierExpression
 	tableRAGStates        exp.IdentifierExpression
+	tableRAGMCPServers    exp.IdentifierExpression
 	tableTokenUsage       exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
@@ -146,6 +147,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableAgents:           goqu.T(tablePrefix + "agents"),
 		tableRAGCollections:   goqu.T(tablePrefix + "rag_collections"),
 		tableRAGStates:        goqu.T(tablePrefix + "rag_states"),
+		tableRAGMCPServers:    goqu.T(tablePrefix + "rag_mcp_servers"),
 		tableTokenUsage:       goqu.T(tablePrefix + "token_usage"),
 		encKey:                encKey,
 	}, nil

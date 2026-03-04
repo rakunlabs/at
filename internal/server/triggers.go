@@ -27,6 +27,38 @@ type triggersResponse struct {
 	Triggers []service.Trigger `json:"triggers"`
 }
 
+// ListAllTriggersAPI handles GET /api/v1/triggers.
+// Supports optional ?type=http or ?type=cron query parameter to filter by trigger type.
+func (s *Server) ListAllTriggersAPI(w http.ResponseWriter, r *http.Request) {
+	if s.triggerStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	records, err := s.triggerStore.ListAllTriggers(r.Context())
+	if err != nil {
+		slog.Error("list all triggers failed", "error", err)
+		httpResponse(w, fmt.Sprintf("failed to list triggers: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if filterType := r.URL.Query().Get("type"); filterType != "" {
+		filtered := make([]service.Trigger, 0, len(records))
+		for _, t := range records {
+			if t.Type == filterType {
+				filtered = append(filtered, t)
+			}
+		}
+		records = filtered
+	}
+
+	if records == nil {
+		records = []service.Trigger{}
+	}
+
+	httpResponseJSON(w, triggersResponse{Triggers: records}, http.StatusOK)
+}
+
 // ListTriggersAPI handles GET /api/v1/workflows/:wf_id/triggers.
 func (s *Server) ListTriggersAPI(w http.ResponseWriter, r *http.Request) {
 	if s.triggerStore == nil {
@@ -34,7 +66,7 @@ func (s *Server) ListTriggersAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wfID := r.PathValue("workflow_id")
+	wfID := r.PathValue("id")
 	if wfID == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return
@@ -61,7 +93,7 @@ func (s *Server) CreateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	wfID := r.PathValue("workflow_id")
+	wfID := r.PathValue("id")
 	if wfID == "" {
 		httpResponse(w, "workflow id is required", http.StatusBadRequest)
 		return

@@ -160,6 +160,10 @@ type AuthTokenConfig struct {
 	// by trigger ID or alias. If empty/nil, all webhooks are accessible.
 	AllowedWebhooks []string `cfg:"allowed_webhooks" json:"allowed_webhooks"`
 
+	// AllowedRAGMCPs restricts this token to specific RAG MCP server
+	// names. If empty/nil, all RAG MCP servers are accessible.
+	AllowedRAGMCPs []string `cfg:"allowed_rag_mcps" json:"allowed_rag_mcps"`
+
 	// ExpiresAt is an optional RFC3339 expiration timestamp.
 	// After this time the token is rejected. If empty, the token never expires.
 	ExpiresAt string `cfg:"expires_at" json:"expires_at"`

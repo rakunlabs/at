@@ -4,7 +4,8 @@
   import { listTokens, createToken, deleteToken, updateToken, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { listTriggers, type Trigger } from '@/lib/api/triggers';
+  import { listAllTriggers, type Trigger } from '@/lib/api/triggers';
+  import { listRAGMCPServers, type RAGMCPServer } from '@/lib/api/rag';
   import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
   import { formatDateTime } from '@/lib/helper/format';
@@ -33,6 +34,9 @@
   let workflows = $state<Workflow[]>([]);
   let webhookTriggers = $state<{ trigger: Trigger; workflowName: string }[]>([]);
 
+  // RAG MCP servers
+  let ragMcpServers = $state<RAGMCPServer[]>([]);
+
   // Create form
   let showCreate = $state(false);
   let formName = $state('');
@@ -40,6 +44,7 @@
   let formSelectedProviders = $state<string[]>([]);
   let formSelectedModels = $state<string[]>([]);
   let formSelectedWebhooks = $state<string[]>([]);
+  let formSelectedRagMcps = $state<string[]>([]);
   let formTotalTokenLimit = $state('');
   let formLimitResetInterval = $state('');
   let formResetPreset = $state('');
@@ -59,6 +64,7 @@
   let editSelectedProviders = $state<string[]>([]);
   let editSelectedModels = $state<string[]>([]);
   let editSelectedWebhooks = $state<string[]>([]);
+  let editSelectedRagMcps = $state<string[]>([]);
   let editTotalTokenLimit = $state('');
   let editLimitResetInterval = $state('');
   let editResetPreset = $state('');
@@ -114,26 +120,29 @@
 
   async function loadWebhooks() {
     try {
-      const wfsResult = await listWorkflows();
+      const [wfsResult, allTriggers] = await Promise.all([
+        listWorkflows(),
+        listAllTriggers('http'),
+      ]);
       workflows = wfsResult.data || [];
-      const results: { trigger: Trigger; workflowName: string }[] = [];
-      for (const wf of workflows) {
-        try {
-          const triggers = await listTriggers(wf.id);
-          for (const t of triggers) {
-            if (t.type === 'http') {
-              results.push({ trigger: t, workflowName: wf.name });
-            }
-          }
-        } catch (_) {}
-      }
-      webhookTriggers = results;
+      const wfMap = new Map(workflows.map((wf) => [wf.id, wf.name]));
+      webhookTriggers = allTriggers
+        .filter((t) => wfMap.has(t.workflow_id))
+        .map((t) => ({ trigger: t, workflowName: wfMap.get(t.workflow_id)! }));
+    } catch (_) {}
+  }
+
+  async function loadRagMcpServers() {
+    try {
+      const res = await listRAGMCPServers({ _limit: 100 });
+      ragMcpServers = res.data || [];
     } catch (_) {}
   }
 
   loadTokens();
   loadProviders();
   loadWebhooks();
+  loadRagMcpServers();
 
   // ─── Computed ───
   let allModels = $derived(
@@ -146,6 +155,8 @@
   );
 
   let allProviderKeys = $derived(providers.map((p) => p.key));
+
+  let allRagMcpNames = $derived(ragMcpServers.map((s) => s.name));
 
   // Group webhooks by workflow name for the picker UI.
   let webhooksByWorkflow = $derived(
@@ -163,6 +174,7 @@
     formSelectedProviders = [];
     formSelectedModels = [];
     formSelectedWebhooks = [];
+    formSelectedRagMcps = [];
     formTotalTokenLimit = '';
     formLimitResetInterval = '';
     formResetPreset = '';
@@ -186,6 +198,9 @@
       }
       if (formSelectedWebhooks.length > 0) {
         req.allowed_webhooks = formSelectedWebhooks;
+      }
+      if (formSelectedRagMcps.length > 0) {
+        req.allowed_rag_mcps = formSelectedRagMcps;
       }
       if (formExpiresAt) {
         req.expires_at = new Date(formExpiresAt).toISOString();
@@ -257,6 +272,14 @@
     }
   }
 
+  function toggleRagMcp(name: string) {
+    if (formSelectedRagMcps.includes(name)) {
+      formSelectedRagMcps = formSelectedRagMcps.filter((m) => m !== name);
+    } else {
+      formSelectedRagMcps = [...formSelectedRagMcps, name];
+    }
+  }
+
   // ─── Edit Actions ───
   function startEditing(token: APIToken) {
     editingTokenId = token.id;
@@ -264,6 +287,7 @@
     editSelectedProviders = token.allowed_providers ? [...token.allowed_providers] : [];
     editSelectedModels = token.allowed_models ? [...token.allowed_models] : [];
     editSelectedWebhooks = token.allowed_webhooks ? [...token.allowed_webhooks] : [];
+    editSelectedRagMcps = token.allowed_rag_mcps ? [...token.allowed_rag_mcps] : [];
     editTotalTokenLimit = token.total_token_limit != null ? String(token.total_token_limit) : '';
     editLimitResetInterval = token.limit_reset_interval || '';
     // Determine if the interval matches a preset or is custom.
@@ -285,6 +309,7 @@
     editSelectedProviders = [];
     editSelectedModels = [];
     editSelectedWebhooks = [];
+    editSelectedRagMcps = [];
     editTotalTokenLimit = '';
     editLimitResetInterval = '';
     editResetPreset = '';
@@ -314,6 +339,14 @@
     }
   }
 
+  function toggleEditRagMcp(name: string) {
+    if (editSelectedRagMcps.includes(name)) {
+      editSelectedRagMcps = editSelectedRagMcps.filter((m) => m !== name);
+    } else {
+      editSelectedRagMcps = [...editSelectedRagMcps, name];
+    }
+  }
+
   async function handleSaveEdit() {
     if (!editingTokenId) return;
     if (!editName.trim()) {
@@ -333,6 +366,9 @@
       }
       if (editSelectedWebhooks.length > 0) {
         req.allowed_webhooks = editSelectedWebhooks;
+      }
+      if (editSelectedRagMcps.length > 0) {
+        req.allowed_rag_mcps = editSelectedRagMcps;
       }
       if (editExpiresAt) {
         req.expires_at = new Date(editExpiresAt).toISOString();
@@ -621,6 +657,33 @@
         </div>
       </div>
 
+      <!-- RAG MCP restrictions -->
+      <div class="grid grid-cols-4 gap-3 mb-3">
+        <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed RAG MCPs</span>
+        <div class="col-span-3">
+          {#if allRagMcpNames.length > 0}
+            <div class="flex flex-wrap gap-1.5">
+              {#each allRagMcpNames as name}
+                <button
+                  onclick={() => toggleRagMcp(name)}
+                  class={[
+                    'px-2 py-1 text-xs border transition-colors',
+                    formSelectedRagMcps.includes(name)
+                      ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                  ]}
+                >
+                  {name}
+                </button>
+              {/each}
+            </div>
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all RAG MCP servers allowed</p>
+          {:else}
+            <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+          {/if}
+        </div>
+      </div>
+
       <!-- Token limit -->
       <div class="grid grid-cols-4 gap-3 mb-3">
         <label for="create-token-limit" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Token Limit</label>
@@ -816,6 +879,33 @@
             </div>
           </div>
 
+          <!-- RAG MCP restrictions -->
+          <div class="grid grid-cols-4 gap-3">
+            <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed RAG MCPs</span>
+            <div class="col-span-3">
+              {#if allRagMcpNames.length > 0}
+                <div class="flex flex-wrap gap-1.5">
+                  {#each allRagMcpNames as name}
+                    <button
+                      onclick={() => toggleEditRagMcp(name)}
+                      class={[
+                        'px-2 py-1 text-xs border transition-colors',
+                        editSelectedRagMcps.includes(name)
+                          ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                      ]}
+                    >
+                      {name}
+                    </button>
+                  {/each}
+                </div>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all RAG MCP servers allowed</p>
+              {:else}
+                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+              {/if}
+            </div>
+          </div>
+
           <!-- Token limit -->
           <div class="grid grid-cols-4 gap-3">
             <label for="edit-token-limit" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Token Limit</label>
@@ -914,7 +1004,7 @@
             <code class="text-xs font-mono text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-            {#if !token.allowed_providers && !token.allowed_models && !token.allowed_webhooks}
+            {#if !token.allowed_providers && !token.allowed_models && !token.allowed_webhooks && !token.allowed_rag_mcps}
               <span class="text-gray-400 dark:text-dark-text-muted">All access</span>
             {:else}
               <div class="space-y-0.5">
@@ -934,6 +1024,12 @@
                   <div>
                     <span class="text-gray-400 dark:text-dark-text-muted">Webhooks:</span>
                     {token.allowed_webhooks.slice(0, 3).join(', ')}{token.allowed_webhooks.length > 3 ? ` +${token.allowed_webhooks.length - 3}` : ''}
+                  </div>
+                {/if}
+                {#if token.allowed_rag_mcps && token.allowed_rag_mcps.length > 0}
+                  <div>
+                    <span class="text-gray-400 dark:text-dark-text-muted">RAG MCPs:</span>
+                    {token.allowed_rag_mcps.slice(0, 3).join(', ')}{token.allowed_rag_mcps.length > 3 ? ` +${token.allowed_rag_mcps.length - 3}` : ''}
                   </div>
                 {/if}
               </div>

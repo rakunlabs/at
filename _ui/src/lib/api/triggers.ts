@@ -24,6 +24,12 @@ interface TriggersResponse {
 
 // ─── API Functions ───
 
+export async function listAllTriggers(type?: string): Promise<Trigger[]> {
+  const params = type ? { type } : undefined;
+  const res = await api.get<TriggersResponse>('/triggers', { params });
+  return res.data.triggers ?? [];
+}
+
 export async function listTriggers(workflowId: string): Promise<Trigger[]> {
   const res = await api.get<TriggersResponse>(`/workflows/${workflowId}/triggers`);
   return res.data.triggers;

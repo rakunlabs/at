@@ -417,7 +417,7 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 		}
 
 		// If no scoping is configured, return unrestricted access.
-		if len(cfgToken.AllowedProviders) == 0 && len(cfgToken.AllowedModels) == 0 && len(cfgToken.AllowedWebhooks) == 0 {
+		if len(cfgToken.AllowedProviders) == 0 && len(cfgToken.AllowedModels) == 0 && len(cfgToken.AllowedWebhooks) == 0 && len(cfgToken.AllowedRAGMCPs) == 0 {
 			r.Header.Del("Authorization")
 			return &authResult{}, ""
 		}
@@ -434,6 +434,9 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 		}
 		if len(cfgToken.AllowedWebhooks) > 0 {
 			syntheticToken.AllowedWebhooks = cfgToken.AllowedWebhooks
+		}
+		if len(cfgToken.AllowedRAGMCPs) > 0 {
+			syntheticToken.AllowedRAGMCPs = cfgToken.AllowedRAGMCPs
 		}
 
 		r.Header.Del("Authorization")

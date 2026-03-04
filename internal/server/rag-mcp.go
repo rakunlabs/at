@@ -121,6 +121,41 @@ func (s *Server) mcpRAGListTools(w http.ResponseWriter, req service.MCPRequest) 
 					"required": []string{"source"},
 				},
 			},
+			{
+				Name:        "rag_search_and_fetch",
+				Description: "Search the RAG knowledge base and automatically fetch the full source files for the top results. Combines rag_search + rag_fetch_source into a single call — returns both search result chunks with metadata and the complete original file contents, deduplicated by source.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"query": map[string]any{
+							"type":        "string",
+							"description": "The natural language search query",
+						},
+						"collection_ids": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Optional list of collection IDs to search. If empty, searches all collections.",
+						},
+						"num_results": map[string]any{
+							"type":        "integer",
+							"description": "Maximum number of search results to return (default: 5)",
+						},
+						"score_threshold": map[string]any{
+							"type":        "number",
+							"description": "Minimum similarity score threshold (0-1). Results below this are filtered out.",
+						},
+						"max_sources": map[string]any{
+							"type":        "integer",
+							"description": "Maximum number of unique source files to fetch (default: 3, max: 5). Sources are deduplicated and fetched in order of best search score.",
+						},
+						"max_source_size": map[string]any{
+							"type":        "integer",
+							"description": "Maximum size in bytes per fetched source file (default: 102400). Content is truncated if larger.",
+						},
+					},
+					"required": []string{"query"},
+				},
+			},
 		},
 	}
 
@@ -148,6 +183,8 @@ func (s *Server) mcpRAGCallTool(w http.ResponseWriter, r *http.Request, req serv
 		s.mcpRAGListCollections(w, r, req.ID)
 	case "rag_fetch_source":
 		s.mcpRAGFetchSource(w, r, req.ID, params.Arguments)
+	case "rag_search_and_fetch":
+		s.mcpRAGSearchAndFetch(w, r, req.ID, params.Arguments)
 	default:
 		mcpError(w, req.ID, -32602, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -303,6 +340,21 @@ func (s *Server) mcpRAGFetchSource(w http.ResponseWriter, r *http.Request, id in
 	})
 }
 
+func (s *Server) mcpRAGSearchAndFetch(w http.ResponseWriter, r *http.Request, id int, args map[string]any) {
+	result, err := s.execRAGSearchAndFetch(r, args)
+	if err != nil {
+		slog.Error("mcp rag_search_and_fetch failed", "error", err)
+		mcpError(w, id, -32000, err.Error())
+		return
+	}
+
+	mcpResult(w, id, service.CallToolResult{
+		Content: []service.ToolContent{
+			{Type: "text", Text: result},
+		},
+	})
+}
+
 // ─── RAG Chat UI Endpoints ───
 //
 // These endpoints expose RAG tools directly to the Chat UI without requiring
@@ -377,6 +429,41 @@ func (s *Server) RAGToolListAPI(w http.ResponseWriter, r *http.Request) {
 				"required": []string{"source"},
 			},
 		},
+		{
+			Name:        "rag_search_and_fetch",
+			Description: "Search the RAG knowledge base and automatically fetch the full source files for the top results. Combines rag_search + rag_fetch_source into a single call — returns both search result chunks with metadata and the complete original file contents, deduplicated by source.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "The natural language search query",
+					},
+					"collection_ids": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Optional list of collection IDs to search. If empty, searches all collections.",
+					},
+					"num_results": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of search results to return (default: 5)",
+					},
+					"score_threshold": map[string]any{
+						"type":        "number",
+						"description": "Minimum similarity score threshold (0-1). Results below this are filtered out.",
+					},
+					"max_sources": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of unique source files to fetch (default: 3, max: 5). Sources are deduplicated and fetched in order of best search score.",
+					},
+					"max_source_size": map[string]any{
+						"type":        "integer",
+						"description": "Maximum size in bytes per fetched source file (default: 102400). Content is truncated if larger.",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 
 	httpResponseJSON(w, map[string]any{
@@ -432,6 +519,8 @@ func (s *Server) RAGToolCallAPI(w http.ResponseWriter, r *http.Request) {
 		result, execErr = s.execRAGListCollections(r)
 	case "rag_fetch_source":
 		result, execErr = s.execRAGFetchSource(r, req.Arguments)
+	case "rag_search_and_fetch":
+		result, execErr = s.execRAGSearchAndFetch(r, req.Arguments)
 	default:
 		httpResponse(w, fmt.Sprintf("unknown RAG tool: %q", req.Name), http.StatusBadRequest)
 		return
@@ -568,6 +657,138 @@ func (s *Server) execRAGFetchSource(r *http.Request, args map[string]any) (strin
 	}
 
 	return text, nil
+}
+
+// execRAGSearchAndFetch executes the rag_search_and_fetch tool directly (without MCP protocol).
+// It searches, then fetches the top unique source files via HTTP and returns combined results.
+func (s *Server) execRAGSearchAndFetch(r *http.Request, args map[string]any) (string, error) {
+	// ── Parse arguments ──
+	var searchReq rag.SearchRequest
+
+	if q, ok := args["query"].(string); ok {
+		searchReq.Query = q
+	}
+	if searchReq.Query == "" {
+		return "", fmt.Errorf("query argument is required")
+	}
+
+	if ids, ok := args["collection_ids"].([]any); ok {
+		for _, v := range ids {
+			if s, ok := v.(string); ok {
+				searchReq.CollectionIDs = append(searchReq.CollectionIDs, s)
+			}
+		}
+	}
+
+	if n, ok := args["num_results"].(float64); ok {
+		searchReq.NumResults = int(n)
+	}
+
+	if t, ok := args["score_threshold"].(float64); ok {
+		searchReq.ScoreThreshold = float32(t)
+	}
+
+	maxSources := 3
+	if n, ok := args["max_sources"].(float64); ok && int(n) > 0 {
+		maxSources = int(n)
+	}
+	if maxSources > 5 {
+		maxSources = 5
+	}
+
+	maxSourceSize := 102400 // 100KB default per source file
+	if n, ok := args["max_source_size"].(float64); ok && int(n) > 0 {
+		maxSourceSize = int(n)
+	}
+	if maxSourceSize > 1048576 {
+		maxSourceSize = 1048576
+	}
+
+	// ── Search ──
+	results, err := s.ragService.Search(r.Context(), searchReq)
+	if err != nil {
+		return "", fmt.Errorf("search failed: %w", err)
+	}
+
+	if len(results) == 0 {
+		return "No results found.", nil
+	}
+
+	// ── Format search results ──
+	var text strings.Builder
+	text.WriteString("## Search Results\n\n")
+
+	// Collect unique sources in order of best score.
+	seen := make(map[string]bool)
+	var uniqueSources []string
+
+	for i, res := range results {
+		source := ""
+		if s, ok := res.Metadata["source"].(string); ok {
+			source = s
+		}
+		fmt.Fprintf(&text, "--- Result %d (score: %.4f, source: %s) ---\n%s\n\n",
+			i+1, res.Score, source, res.Content)
+
+		// Track unique sources for fetching.
+		if source != "" && !seen[source] {
+			seen[source] = true
+			uniqueSources = append(uniqueSources, source)
+		}
+	}
+
+	// ── Fetch source files (HTTP only — no git cache in non-gateway version) ──
+	if len(uniqueSources) > maxSources {
+		uniqueSources = uniqueSources[:maxSources]
+	}
+
+	if len(uniqueSources) > 0 {
+		text.WriteString("## Fetched Sources\n\n")
+
+		for _, source := range uniqueSources {
+			sourceLower := strings.ToLower(source)
+			if !strings.HasPrefix(sourceLower, "http://") && !strings.HasPrefix(sourceLower, "https://") {
+				fmt.Fprintf(&text, "=== %s (skipped: not an HTTP URL) ===\n\n", source)
+				continue
+			}
+
+			httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, source, nil)
+			if err != nil {
+				fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", source, err.Error())
+				continue
+			}
+
+			resp, err := http.DefaultClient.Do(httpReq)
+			if err != nil {
+				fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", source, err.Error())
+				continue
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				resp.Body.Close()
+				fmt.Fprintf(&text, "=== %s (fetch failed: HTTP %d) ===\n\n", source, resp.StatusCode)
+				continue
+			}
+
+			limitReader := io.LimitReader(resp.Body, int64(maxSourceSize+1))
+			body, err := io.ReadAll(limitReader)
+			resp.Body.Close()
+			if err != nil {
+				fmt.Fprintf(&text, "=== %s (read failed: %s) ===\n\n", source, err.Error())
+				continue
+			}
+
+			content := string(body)
+			if len(body) > maxSourceSize {
+				content = string(body[:maxSourceSize])
+				content += fmt.Sprintf("\n\n[Content truncated at %d bytes]", maxSourceSize)
+			}
+
+			fmt.Fprintf(&text, "=== %s ===\n%s\n\n", source, content)
+		}
+	}
+
+	return text.String(), nil
 }
 
 // ─── MCP Response Helpers ───
