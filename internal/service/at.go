@@ -116,23 +116,50 @@ type EncryptionKeyUpdater interface {
 
 // ─── API Token Management ───
 
+// Restriction mode constants for APIToken allowed_*_mode fields.
+// "" (empty) and "all" mean unrestricted, "none" means deny all,
+// "list" means only items in the corresponding slice are allowed.
+const (
+	AccessModeAll  = "all"
+	AccessModeNone = "none"
+	AccessModeList = "list"
+)
+
 // APIToken represents a bearer token stored in the database for gateway auth.
 type APIToken struct {
-	ID                 string                 `json:"id"`
-	Name               string                 `json:"name"`
-	TokenPrefix        string                 `json:"token_prefix"`         // first 8 chars for display (e.g. "at_xxxx…")
-	AllowedProviders   types.Slice[string]    `json:"allowed_providers"`    // nil = all providers allowed
-	AllowedModels      types.Slice[string]    `json:"allowed_models"`       // nil = all models allowed ("provider/model" format)
-	AllowedWebhooks    types.Slice[string]    `json:"allowed_webhooks"`     // nil = all webhooks allowed (trigger IDs or aliases)
-	AllowedRAGMCPs     types.Slice[string]    `json:"allowed_rag_mcps"`     // nil = all RAG MCP servers allowed (server names)
-	ExpiresAt          types.Null[types.Time] `json:"expires_at"`           // zero value = no expiry
-	TotalTokenLimit    types.Null[int64]      `json:"total_token_limit"`    // max total tokens allowed (across all models); nil = unlimited
-	LimitResetInterval types.Null[string]     `json:"limit_reset_interval"` // "daily", "weekly", "monthly", or nil = manual only
-	LastResetAt        types.Null[types.Time] `json:"last_reset_at"`        // last time usage counters were reset
-	CreatedAt          types.Time             `json:"created_at"`
-	LastUsedAt         types.Null[types.Time] `json:"last_used_at"`
-	CreatedBy          string                 `json:"created_by"`
-	UpdatedBy          string                 `json:"updated_by"`
+	ID                   string                 `json:"id"`
+	Name                 string                 `json:"name"`
+	TokenPrefix          string                 `json:"token_prefix"`           // first 8 chars for display (e.g. "at_xxxx…")
+	AllowedProvidersMode string                 `json:"allowed_providers_mode"` // "all" (default/""), "none", or "list"
+	AllowedProviders     types.Slice[string]    `json:"allowed_providers"`      // used when mode = "list"
+	AllowedModelsMode    string                 `json:"allowed_models_mode"`    // "all" (default/""), "none", or "list"
+	AllowedModels        types.Slice[string]    `json:"allowed_models"`         // used when mode = "list" ("provider/model" format)
+	AllowedWebhooksMode  string                 `json:"allowed_webhooks_mode"`  // "all" (default/""), "none", or "list"
+	AllowedWebhooks      types.Slice[string]    `json:"allowed_webhooks"`       // used when mode = "list" (trigger IDs or aliases)
+	AllowedRAGMCPsMode   string                 `json:"allowed_rag_mcps_mode"`  // "all" (default/""), "none", or "list"
+	AllowedRAGMCPs       types.Slice[string]    `json:"allowed_rag_mcps"`       // used when mode = "list" (server names)
+	ExpiresAt            types.Null[types.Time] `json:"expires_at"`             // zero value = no expiry
+	TotalTokenLimit      types.Null[int64]      `json:"total_token_limit"`      // max total tokens allowed (across all models); nil = unlimited
+	LimitResetInterval   types.Null[string]     `json:"limit_reset_interval"`   // "daily", "weekly", "monthly", or nil = manual only
+	LastResetAt          types.Null[types.Time] `json:"last_reset_at"`          // last time usage counters were reset
+	CreatedAt            types.Time             `json:"created_at"`
+	LastUsedAt           types.Null[types.Time] `json:"last_used_at"`
+	CreatedBy            string                 `json:"created_by"`
+	UpdatedBy            string                 `json:"updated_by"`
+}
+
+// ResolveAccessMode returns the effective mode for a restriction field.
+// It handles backward compatibility: if mode is empty but the slice has items,
+// it returns "list"; otherwise empty is treated as "all".
+func ResolveAccessMode(mode string, items []string) string {
+	if mode != "" {
+		return mode
+	}
+	// Backward compat: old tokens have no mode but may have a populated list.
+	if len(items) > 0 {
+		return AccessModeList
+	}
+	return AccessModeAll
 }
 
 // APITokenStorer defines CRUD operations for API tokens.

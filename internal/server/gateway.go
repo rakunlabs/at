@@ -34,29 +34,41 @@ func (a *authResult) isModelAllowed(providerKey, fullModelID string) bool {
 		return true // unrestricted access
 	}
 
-	hasProviderRestrictions := len(a.token.AllowedProviders) > 0
-	hasModelRestrictions := len(a.token.AllowedModels) > 0
+	providerMode := service.ResolveAccessMode(a.token.AllowedProvidersMode, a.token.AllowedProviders)
+	modelMode := service.ResolveAccessMode(a.token.AllowedModelsMode, a.token.AllowedModels)
 
-	if !hasProviderRestrictions && !hasModelRestrictions {
-		return true // no restrictions
+	// If both are "all", no restrictions.
+	if providerMode == service.AccessModeAll && modelMode == service.AccessModeAll {
+		return true
+	}
+
+	// If both are "none", deny everything.
+	if providerMode == service.AccessModeNone && modelMode == service.AccessModeNone {
+		return false
 	}
 
 	// Check provider-level access (OR logic with model-level).
-	if hasProviderRestrictions {
+	if providerMode == service.AccessModeList {
 		for _, p := range a.token.AllowedProviders {
 			if p == providerKey {
 				return true
 			}
 		}
+	} else if providerMode == service.AccessModeAll {
+		// Provider is unrestricted — allowed by provider.
+		return true
 	}
+	// providerMode == "none" falls through to model check.
 
 	// Check model-level access.
-	if hasModelRestrictions {
+	if modelMode == service.AccessModeList {
 		for _, m := range a.token.AllowedModels {
 			if m == fullModelID {
 				return true
 			}
 		}
+	} else if modelMode == service.AccessModeAll {
+		return true
 	}
 
 	return false
@@ -417,26 +429,27 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 		}
 
 		// If no scoping is configured, return unrestricted access.
-		if len(cfgToken.AllowedProviders) == 0 && len(cfgToken.AllowedModels) == 0 && len(cfgToken.AllowedWebhooks) == 0 && len(cfgToken.AllowedRAGMCPs) == 0 {
+		hasAnyScope := len(cfgToken.AllowedProviders) > 0 || len(cfgToken.AllowedModels) > 0 || len(cfgToken.AllowedWebhooks) > 0 || len(cfgToken.AllowedRAGMCPs) > 0 ||
+			(cfgToken.AllowedProvidersMode != "" && cfgToken.AllowedProvidersMode != service.AccessModeAll) ||
+			(cfgToken.AllowedModelsMode != "" && cfgToken.AllowedModelsMode != service.AccessModeAll) ||
+			(cfgToken.AllowedWebhooksMode != "" && cfgToken.AllowedWebhooksMode != service.AccessModeAll) ||
+			(cfgToken.AllowedRAGMCPsMode != "" && cfgToken.AllowedRAGMCPsMode != service.AccessModeAll)
+		if !hasAnyScope {
 			r.Header.Del("Authorization")
 			return &authResult{}, ""
 		}
 
 		// Build a synthetic APIToken for scope checking.
 		syntheticToken := &service.APIToken{
-			Name: cfgToken.Name,
-		}
-		if len(cfgToken.AllowedProviders) > 0 {
-			syntheticToken.AllowedProviders = cfgToken.AllowedProviders
-		}
-		if len(cfgToken.AllowedModels) > 0 {
-			syntheticToken.AllowedModels = cfgToken.AllowedModels
-		}
-		if len(cfgToken.AllowedWebhooks) > 0 {
-			syntheticToken.AllowedWebhooks = cfgToken.AllowedWebhooks
-		}
-		if len(cfgToken.AllowedRAGMCPs) > 0 {
-			syntheticToken.AllowedRAGMCPs = cfgToken.AllowedRAGMCPs
+			Name:                 cfgToken.Name,
+			AllowedProvidersMode: cfgToken.AllowedProvidersMode,
+			AllowedProviders:     cfgToken.AllowedProviders,
+			AllowedModelsMode:    cfgToken.AllowedModelsMode,
+			AllowedModels:        cfgToken.AllowedModels,
+			AllowedWebhooksMode:  cfgToken.AllowedWebhooksMode,
+			AllowedWebhooks:      cfgToken.AllowedWebhooks,
+			AllowedRAGMCPsMode:   cfgToken.AllowedRAGMCPsMode,
+			AllowedRAGMCPs:       cfgToken.AllowedRAGMCPs,
 		}
 
 		r.Header.Del("Authorization")

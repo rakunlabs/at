@@ -142,7 +142,7 @@ export interface RAGAuthConfig {
 }
 
 /**
- * Call a RAG tool by name (rag_search, rag_list_collections, rag_fetch_source, rag_search_and_fetch).
+ * Call a RAG tool by name (rag_search, rag_list_collections, rag_fetch_source, rag_search_and_fetch, rag_search_and_fetch_org).
  */
 export async function callRAGTool(
   name: string,

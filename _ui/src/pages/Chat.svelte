@@ -597,7 +597,7 @@
         return res.result;
       } else if (source.type === 'rag') {
         // If user selected specific collections, inject them into rag_search
-        if ((tc.function.name === 'rag_search' || tc.function.name === 'rag_search_and_fetch') && selectedRagCollectionIds.length > 0) {
+        if ((tc.function.name === 'rag_search' || tc.function.name === 'rag_search_and_fetch' || tc.function.name === 'rag_search_and_fetch_org') && selectedRagCollectionIds.length > 0) {
           args.collection_ids = selectedRagCollectionIds;
         }
         const ragAuth: RAGAuthConfig = {};
@@ -1128,7 +1128,7 @@
                 </div>
               </div>
             {/if}
-            {#if enabledRagTools.some(t => t === 'rag_fetch_source' || t === 'rag_search_and_fetch')}
+            {#if enabledRagTools.some(t => t === 'rag_fetch_source' || t === 'rag_search_and_fetch' || t === 'rag_search_and_fetch_org')}
               <div class="space-y-1">
                 <span class="text-[10px] text-gray-400 dark:text-dark-text-muted block">Git Auth (optional)</span>
                 <div class="flex flex-wrap gap-1.5">

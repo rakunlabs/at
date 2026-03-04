@@ -22,24 +22,34 @@ import (
 
 // createTokenRequest is the JSON body for POST /api/v1/api-tokens.
 type createTokenRequest struct {
-	Name               string   `json:"name"`
-	AllowedProviders   []string `json:"allowed_providers,omitempty"`    // nil = all
-	AllowedModels      []string `json:"allowed_models,omitempty"`       // nil = all
-	AllowedWebhooks    []string `json:"allowed_webhooks,omitempty"`     // nil = all
-	ExpiresAt          *string  `json:"expires_at,omitempty"`           // RFC3339 timestamp, nil/empty = no expiry
-	TotalTokenLimit    *int64   `json:"total_token_limit,omitempty"`    // max total tokens; nil = unlimited
-	LimitResetInterval *string  `json:"limit_reset_interval,omitempty"` // duration string (e.g. "24h", "7d", "30d"), or nil = manual
+	Name                 string   `json:"name"`
+	AllowedProvidersMode string   `json:"allowed_providers_mode,omitempty"` // "all" (default/""), "none", or "list"
+	AllowedProviders     []string `json:"allowed_providers,omitempty"`      // used when mode = "list"
+	AllowedModelsMode    string   `json:"allowed_models_mode,omitempty"`    // "all" (default/""), "none", or "list"
+	AllowedModels        []string `json:"allowed_models,omitempty"`         // used when mode = "list"
+	AllowedWebhooksMode  string   `json:"allowed_webhooks_mode,omitempty"`  // "all" (default/""), "none", or "list"
+	AllowedWebhooks      []string `json:"allowed_webhooks,omitempty"`       // used when mode = "list"
+	AllowedRAGMCPsMode   string   `json:"allowed_rag_mcps_mode,omitempty"`  // "all" (default/""), "none", or "list"
+	AllowedRAGMCPs       []string `json:"allowed_rag_mcps,omitempty"`       // used when mode = "list"
+	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
+	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
+	LimitResetInterval   *string  `json:"limit_reset_interval,omitempty"`   // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
 // updateTokenRequest is the JSON body for PUT /api/v1/api-tokens/{id}.
 type updateTokenRequest struct {
-	Name               string   `json:"name"`
-	AllowedProviders   []string `json:"allowed_providers,omitempty"`    // nil = all
-	AllowedModels      []string `json:"allowed_models,omitempty"`       // nil = all
-	AllowedWebhooks    []string `json:"allowed_webhooks,omitempty"`     // nil = all
-	ExpiresAt          *string  `json:"expires_at,omitempty"`           // RFC3339 timestamp, nil/empty = no expiry
-	TotalTokenLimit    *int64   `json:"total_token_limit,omitempty"`    // max total tokens; nil = unlimited
-	LimitResetInterval *string  `json:"limit_reset_interval,omitempty"` // duration string (e.g. "24h", "7d", "30d"), or nil = manual
+	Name                 string   `json:"name"`
+	AllowedProvidersMode string   `json:"allowed_providers_mode,omitempty"` // "all" (default/""), "none", or "list"
+	AllowedProviders     []string `json:"allowed_providers,omitempty"`      // used when mode = "list"
+	AllowedModelsMode    string   `json:"allowed_models_mode,omitempty"`    // "all" (default/""), "none", or "list"
+	AllowedModels        []string `json:"allowed_models,omitempty"`         // used when mode = "list"
+	AllowedWebhooksMode  string   `json:"allowed_webhooks_mode,omitempty"`  // "all" (default/""), "none", or "list"
+	AllowedWebhooks      []string `json:"allowed_webhooks,omitempty"`       // used when mode = "list"
+	AllowedRAGMCPsMode   string   `json:"allowed_rag_mcps_mode,omitempty"`  // "all" (default/""), "none", or "list"
+	AllowedRAGMCPs       []string `json:"allowed_rag_mcps,omitempty"`       // used when mode = "list"
+	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
+	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
+	LimitResetInterval   *string  `json:"limit_reset_interval,omitempty"`   // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
 // createTokenResponse is returned once on creation (the only time the full token is shown).
@@ -135,16 +145,21 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 
 	userEmail := s.getUserEmail(r)
 	token := service.APIToken{
-		Name:               req.Name,
-		TokenPrefix:        tokenPrefix,
-		AllowedProviders:   req.AllowedProviders,
-		AllowedModels:      req.AllowedModels,
-		AllowedWebhooks:    req.AllowedWebhooks,
-		ExpiresAt:          expiresAt,
-		TotalTokenLimit:    toNullInt64(req.TotalTokenLimit),
-		LimitResetInterval: toNullString(req.LimitResetInterval),
-		CreatedBy:          userEmail,
-		UpdatedBy:          userEmail,
+		Name:                 req.Name,
+		TokenPrefix:          tokenPrefix,
+		AllowedProvidersMode: req.AllowedProvidersMode,
+		AllowedProviders:     req.AllowedProviders,
+		AllowedModelsMode:    req.AllowedModelsMode,
+		AllowedModels:        req.AllowedModels,
+		AllowedWebhooksMode:  req.AllowedWebhooksMode,
+		AllowedWebhooks:      req.AllowedWebhooks,
+		AllowedRAGMCPsMode:   req.AllowedRAGMCPsMode,
+		AllowedRAGMCPs:       req.AllowedRAGMCPs,
+		ExpiresAt:            expiresAt,
+		TotalTokenLimit:      toNullInt64(req.TotalTokenLimit),
+		LimitResetInterval:   toNullString(req.LimitResetInterval),
+		CreatedBy:            userEmail,
+		UpdatedBy:            userEmail,
 	}
 
 	created, err := s.tokenStore.CreateAPIToken(r.Context(), token, tokenHash)
@@ -226,14 +241,19 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 
 	userEmail := s.getUserEmail(r)
 	token := service.APIToken{
-		Name:               req.Name,
-		AllowedProviders:   req.AllowedProviders,
-		AllowedModels:      req.AllowedModels,
-		AllowedWebhooks:    req.AllowedWebhooks,
-		ExpiresAt:          expiresAt,
-		TotalTokenLimit:    toNullInt64(req.TotalTokenLimit),
-		LimitResetInterval: toNullString(req.LimitResetInterval),
-		UpdatedBy:          userEmail,
+		Name:                 req.Name,
+		AllowedProvidersMode: req.AllowedProvidersMode,
+		AllowedProviders:     req.AllowedProviders,
+		AllowedModelsMode:    req.AllowedModelsMode,
+		AllowedModels:        req.AllowedModels,
+		AllowedWebhooksMode:  req.AllowedWebhooksMode,
+		AllowedWebhooks:      req.AllowedWebhooks,
+		AllowedRAGMCPsMode:   req.AllowedRAGMCPsMode,
+		AllowedRAGMCPs:       req.AllowedRAGMCPs,
+		ExpiresAt:            expiresAt,
+		TotalTokenLimit:      toNullInt64(req.TotalTokenLimit),
+		LimitResetInterval:   toNullString(req.LimitResetInterval),
+		UpdatedBy:            userEmail,
 	}
 
 	updated, err := s.tokenStore.UpdateAPIToken(r.Context(), id, token)

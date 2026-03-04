@@ -32,7 +32,18 @@
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
     placeholder={'{{ getVar "git_token" }}'}
   /></label>
-  <div class="mt-0.5 text-[10px] text-gray-400">For private HTTPS repos. Supports templates.</div>
+  <div class="mt-0.5 text-[10px] text-gray-400">For private repos. SSH URLs are auto-converted to HTTPS when a token is set.</div>
+</div>
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Token User (Optional)</span>
+  <input
+    type="text"
+    bind:value={data.token_user}
+    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
+    placeholder="x-token-auth"
+  /></label>
+  <div class="mt-0.5 text-[10px] text-gray-400">Username for token auth. Default: x-token-auth (works with GitHub, GitLab, Bitbucket). Use "oauth2" for GitLab OAuth.</div>
 </div>
 <div>
   <label class="block">

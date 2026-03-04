@@ -6,11 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -143,6 +147,63 @@ func ensureRepoAtCommitMCP(ctx context.Context, authURL, repoURL, commitSHA, cac
 	}
 
 	return repoDir, nil
+}
+
+// gitReadFileAtCommit reads a file at a specific commit from a local git repository
+// using go-git's in-process object store. This avoids subprocess overhead and does
+// NOT modify the working tree — it reads directly from git's object database.
+//
+// repoDir is the path to a local git repo (must contain .git/).
+// commitSHA is the full hex commit hash.
+// filePath is the repo-relative path (e.g. "docs/readme.md").
+// maxSize limits the returned content in bytes (0 = no limit).
+//
+// Returns the file content or an error if the commit/file is not found.
+func gitReadFileAtCommit(repoDir, commitSHA, filePath string, maxSize int) (string, error) {
+	repo, err := git.PlainOpen(repoDir)
+	if err != nil {
+		return "", fmt.Errorf("open repo %s: %w", repoDir, err)
+	}
+
+	hash := plumbing.NewHash(commitSHA)
+	commit, err := repo.CommitObject(hash)
+	if err != nil {
+		return "", fmt.Errorf("commit %s not found: %w", commitSHA, err)
+	}
+
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("tree for commit %s: %w", commitSHA, err)
+	}
+
+	file, err := tree.File(filePath)
+	if err != nil {
+		return "", fmt.Errorf("file %s at commit %s: %w", filePath, commitSHA, err)
+	}
+
+	reader, err := file.Reader()
+	if err != nil {
+		return "", fmt.Errorf("read file %s: %w", filePath, err)
+	}
+	defer reader.Close()
+
+	var content []byte
+	if maxSize > 0 {
+		content, err = io.ReadAll(io.LimitReader(reader, int64(maxSize+1)))
+	} else {
+		content, err = io.ReadAll(reader)
+	}
+	if err != nil {
+		return "", fmt.Errorf("read file content %s: %w", filePath, err)
+	}
+
+	text := string(content)
+	if maxSize > 0 && len(content) > maxSize {
+		text = text[:maxSize]
+		text += fmt.Sprintf("\n\n[Content truncated at %d bytes]", maxSize)
+	}
+
+	return text, nil
 }
 
 // gitAuthResult holds the resolved git authentication state.

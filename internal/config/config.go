@@ -147,21 +147,33 @@ type AuthTokenConfig struct {
 	// (e.g., "CI Pipeline", "Dev Team").
 	Name string `cfg:"name" json:"name"`
 
+	// AllowedProvidersMode controls provider restriction: "all" (default/""), "none", or "list".
+	AllowedProvidersMode string `cfg:"allowed_providers_mode" json:"allowed_providers_mode"`
+
 	// AllowedProviders restricts this token to specific provider keys.
-	// If empty/nil, all providers are accessible.
+	// Only used when AllowedProvidersMode is "list".
 	AllowedProviders []string `cfg:"allowed_providers" json:"allowed_providers"`
+
+	// AllowedModelsMode controls model restriction: "all" (default/""), "none", or "list".
+	AllowedModelsMode string `cfg:"allowed_models_mode" json:"allowed_models_mode"`
 
 	// AllowedModels restricts this token to specific models in
 	// "provider/model" format (e.g., "openai/gpt-4o").
-	// If empty/nil, all models are accessible.
+	// Only used when AllowedModelsMode is "list".
 	AllowedModels []string `cfg:"allowed_models" json:"allowed_models"`
 
+	// AllowedWebhooksMode controls webhook restriction: "all" (default/""), "none", or "list".
+	AllowedWebhooksMode string `cfg:"allowed_webhooks_mode" json:"allowed_webhooks_mode"`
+
 	// AllowedWebhooks restricts this token to specific webhook triggers
-	// by trigger ID or alias. If empty/nil, all webhooks are accessible.
+	// by trigger ID or alias. Only used when AllowedWebhooksMode is "list".
 	AllowedWebhooks []string `cfg:"allowed_webhooks" json:"allowed_webhooks"`
 
+	// AllowedRAGMCPsMode controls RAG MCP restriction: "all" (default/""), "none", or "list".
+	AllowedRAGMCPsMode string `cfg:"allowed_rag_mcps_mode" json:"allowed_rag_mcps_mode"`
+
 	// AllowedRAGMCPs restricts this token to specific RAG MCP server
-	// names. If empty/nil, all RAG MCP servers are accessible.
+	// names. Only used when AllowedRAGMCPsMode is "list".
 	AllowedRAGMCPs []string `cfg:"allowed_rag_mcps" json:"allowed_rag_mcps"`
 
 	// ExpiresAt is an optional RFC3339 expiration timestamp.

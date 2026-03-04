@@ -58,10 +58,17 @@ func (s *Server) GatewayRAGMCPHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check token scoping for RAG MCP servers.
-	if auth.token != nil && len(auth.token.AllowedRAGMCPs) > 0 {
-		if !slices.Contains(auth.token.AllowedRAGMCPs, name) {
-			httpResponse(w, fmt.Sprintf("token does not have access to RAG MCP server %q", name), http.StatusForbidden)
+	if auth.token != nil {
+		ragMode := service.ResolveAccessMode(auth.token.AllowedRAGMCPsMode, auth.token.AllowedRAGMCPs)
+		if ragMode == service.AccessModeNone {
+			httpResponse(w, "token does not have access to any RAG MCP servers", http.StatusForbidden)
 			return
+		}
+		if ragMode == service.AccessModeList {
+			if !slices.Contains(auth.token.AllowedRAGMCPs, name) {
+				httpResponse(w, fmt.Sprintf("token does not have access to RAG MCP server %q", name), http.StatusForbidden)
+				return
+			}
 		}
 	}
 
@@ -486,7 +493,6 @@ func (s *Server) gwMCPFetchSource(w http.ResponseWriter, r *http.Request, id int
 	// Optional git metadata for precise fetching.
 	commitSHA, _ := args["commit_sha"].(string)
 	branch, _ := args["branch"].(string)
-	repoURL, _ := args["repo_url"].(string)
 
 	// Resolve auth from server config.
 	auth, err := resolveGitAuth(r.Context(), s.variableStore, srv)
@@ -500,38 +506,6 @@ func (s *Server) gwMCPFetchSource(w http.ResponseWriter, r *http.Request, id int
 	var envVars []string
 	if auth != nil {
 		envVars = auth.envVars
-	}
-
-	// If commitSHA and repoURL are provided, try commit-specific checkout first.
-	if commitSHA != "" && repoURL != "" {
-		gitCacheDir := srv.Config.GitCacheDir
-		if gitCacheDir == "" {
-			gitCacheDir = defaultRAGGitCacheDir
-		}
-
-		authURL := repoURL
-		if auth != nil {
-			authURL = auth.authURL(repoURL)
-		}
-
-		repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, repoURL, commitSHA, gitCacheDir, envVars)
-		if err == nil {
-			_, filePath := splitSourceToRepoAndPath(source)
-			if filePath != "" {
-				content, readErr := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
-				if readErr == nil {
-					mcpResult(w, id, service.CallToolResult{
-						Content: []service.ToolContent{
-							{Type: "text", Text: content},
-						},
-					})
-					return
-				}
-			}
-		} else {
-			slog.Warn("gateway mcp rag_fetch_source: commit-specific checkout failed, falling back",
-				"repo_url", repoURL, "commit_sha", commitSHA, "error", err)
-		}
 	}
 
 	content, err := fetchSourceContent(r.Context(), source, srv, maxSize, commitSHA, branch, envVars)
@@ -723,27 +697,7 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 				label = filePath
 			}
 
-			// Try commit-specific checkout first when metadata is available.
-			if si.commitSHA != "" && si.repoURL != "" && si.path != "" {
-				authURL := si.repoURL
-				if auth != nil {
-					authURL = auth.authURL(si.repoURL)
-				}
-
-				repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, si.repoURL, si.commitSHA, gitCacheDir, envVars)
-				if err == nil {
-					content, readErr := readFileWithLimit(filepath.Join(repoDir, si.path), maxSourceSize)
-					if readErr == nil {
-						fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
-						continue
-					}
-				} else {
-					slog.Warn("gateway mcp rag_search_and_fetch: commit-specific checkout failed, falling back",
-						"source", si.source, "commit_sha", si.commitSHA, "error", err)
-				}
-			}
-
-			// Fall back to fetchSourceContent (cache lookup, clone, or HTTP).
+			// Fetch via fetchSourceContent (branch cache with go-git, clone, or HTTP).
 			content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars)
 			if err != nil {
 				fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
@@ -912,27 +866,7 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 			label = filePath
 		}
 
-		// Try commit-specific checkout first when metadata is available.
-		if si.commitSHA != "" && si.repoURL != "" && si.path != "" {
-			authURL := si.repoURL
-			if auth != nil {
-				authURL = auth.authURL(si.repoURL)
-			}
-
-			repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, si.repoURL, si.commitSHA, gitCacheDir, envVars)
-			if err == nil {
-				content, readErr := readFileWithLimit(filepath.Join(repoDir, si.path), maxSourceSize)
-				if readErr == nil {
-					fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
-					continue
-				}
-			} else {
-				slog.Warn("gateway mcp rag_search_and_fetch_org: commit-specific checkout failed, falling back",
-					"source", si.source, "commit_sha", si.commitSHA, "error", err)
-			}
-		}
-
-		// Fall back to fetchSourceContent (cache lookup, clone, or HTTP).
+		// Fetch via fetchSourceContent (branch cache with go-git, clone, or HTTP).
 		content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars)
 		if err != nil {
 			fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
@@ -955,7 +889,9 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 // It tries the local git cache first (for "auto"/"local" modes), then falls back to HTTP (for "auto"/"remote" modes).
 // SSH sources (git@host:... or ssh://...) are always resolved from the local git cache — no HTTP fallback.
 //
-// When commitSHA is provided, commit-specific cache lookup and clone are attempted first.
+// When commitSHA is provided, go-git reads the file at that exact commit from the
+// object store (no checkout, no working tree modification). When commitSHA is empty,
+// falls back to reading from the working tree.
 // envVars are passed to git commands for auth (e.g. GIT_SSH_COMMAND for SSH keys).
 func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPServer, maxSize int, commitSHA, branch string, envVars []string) (string, error) {
 	fetchMode := srv.Config.FetchMode
@@ -1074,42 +1010,55 @@ var cloneInFlight sync.Map
 // The source from RAG metadata is typically "repo_url/path" — we try to
 // find it by scanning the git cache directory for matching repos.
 //
-// When commitSHA is provided, the commit-specific cache directory is tried first
-// (highest precision). When branch is provided, the branch-specific directory is
-// tried before falling back to common branch names and directory scanning.
+// Uses go-git's in-process object store to read the file at the exact
+// commitSHA without modifying the working tree. This is both fast (~μs)
+// and correct (returns the file as it was when indexed, not HEAD).
+//
+// When commitSHA is provided, the file is read from git's object store
+// at that exact commit. When commitSHA is empty, falls back to reading
+// from the working tree.
 func tryLocalGitCache(source, gitCacheDir string, maxSize int, commitSHA, branch string) (string, bool) {
 	repoURL, filePath := splitSourceToRepoAndPath(source)
 	if repoURL == "" || filePath == "" {
 		return "", false
 	}
 
-	// Strategy 0: Try commit-specific cache directory (most precise).
-	if commitSHA != "" {
-		dirName := hashRepoCommitKey(repoURL, commitSHA)
-		fullPath := filepath.Join(gitCacheDir, dirName, filePath)
-		content, err := readFileWithLimit(fullPath, maxSize)
+	// tryDir attempts to read the file from a single cache directory.
+	// If commitSHA is set, uses go-git to read at that exact commit.
+	// Otherwise falls back to a working tree read.
+	tryDir := func(dir string) (string, bool) {
+		repoDir := filepath.Join(gitCacheDir, dir)
+
+		// If commitSHA is available, read from git object store (exact commit).
+		if commitSHA != "" {
+			if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
+				content, err := gitReadFileAtCommit(repoDir, commitSHA, filePath, maxSize)
+				if err == nil {
+					return content, true
+				}
+			}
+		}
+
+		// Fallback: read from working tree (HEAD).
+		content, err := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
 		if err == nil {
 			return content, true
 		}
+
+		return "", false
 	}
 
 	// Strategy 1: Try the exact hash-based directory for the known branch,
 	// or fall back to common branches.
-	// The git_fetch node hashes repoURL + "\x00" + branch using SHA-256 and
-	// takes the first 8 bytes as hex (16 hex chars) for the directory name.
 	if branch != "" {
 		dirName := hashCacheKey(repoURL, branch)
-		fullPath := filepath.Join(gitCacheDir, dirName, filePath)
-		content, err := readFileWithLimit(fullPath, maxSize)
-		if err == nil {
+		if content, ok := tryDir(dirName); ok {
 			return content, true
 		}
 	} else {
 		for _, b := range []string{"main", "master", "develop"} {
 			dirName := hashCacheKey(repoURL, b)
-			fullPath := filepath.Join(gitCacheDir, dirName, filePath)
-			content, err := readFileWithLimit(fullPath, maxSize)
-			if err == nil {
+			if content, ok := tryDir(dirName); ok {
 				return content, true
 			}
 		}
@@ -1125,9 +1074,7 @@ func tryLocalGitCache(source, gitCacheDir string, maxSize int, commitSHA, branch
 		if !entry.IsDir() {
 			continue
 		}
-		fullPath := filepath.Join(gitCacheDir, entry.Name(), filePath)
-		content, err := readFileWithLimit(fullPath, maxSize)
-		if err == nil {
+		if content, ok := tryDir(entry.Name()); ok {
 			return content, true
 		}
 	}
@@ -1139,11 +1086,13 @@ func tryLocalGitCache(source, gitCacheDir string, maxSize int, commitSHA, branch
 // git cache directory does not contain the needed file. This is a best-effort
 // fallback for cases where the git_fetch workflow hasn't populated the cache yet.
 //
-// When commitSHA is provided, a full clone + checkout at that commit is performed
-// (not shallow, since arbitrary commits may not be reachable with shallow clone).
-// When commitSHA is empty, a shallow single-branch clone is used for speed.
+// Always clones at the branch HEAD (shallow, single-branch) so the cache directory
+// is reusable for future requests. When commitSHA is provided and the file is not
+// found in the working tree, go-git reads the file from the object store at the
+// exact commit — but this requires unshallowing the clone first so the commit
+// object is available.
 //
-// It uses a sync.Map to prevent concurrent clones of the same repo+ref.
+// It uses a sync.Map to prevent concurrent clones of the same repo+branch.
 // envVars are passed to git commands for auth (e.g. GIT_SSH_COMMAND).
 // If cloning fails, it returns ("", false) gracefully — the caller should
 // treat this as a cache miss.
@@ -1152,20 +1101,23 @@ func fallbackCloneAndRead(ctx context.Context, repoURL, branch, filePath, gitCac
 		return "", false
 	}
 
-	// Determine the cache key and directory.
-	var dirName string
-	if commitSHA != "" {
-		dirName = hashRepoCommitKey(repoURL, commitSHA)
-	} else {
-		if branch == "" {
-			branch = "main"
-		}
-		dirName = hashCacheKey(repoURL, branch)
+	// Always use branch-based cache directory — reusable across requests.
+	if branch == "" {
+		branch = "main"
 	}
+	dirName := hashCacheKey(repoURL, branch)
 	repoDir := filepath.Join(gitCacheDir, dirName)
 
-	// If the directory already exists (race with another goroutine or workflow), just read.
+	// If the directory already exists (race with another goroutine or workflow), try reading.
 	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err == nil {
+		// Try go-git read at exact commit first.
+		if commitSHA != "" {
+			content, err := gitReadFileAtCommit(repoDir, commitSHA, filePath, maxSize)
+			if err == nil {
+				return content, true
+			}
+		}
+		// Fallback to working tree read.
 		content, err := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
 		if err == nil {
 			return content, true
@@ -1173,8 +1125,7 @@ func fallbackCloneAndRead(ctx context.Context, repoURL, branch, filePath, gitCac
 		return "", false
 	}
 
-	// Use sync.Map to ensure only one clone per repo+ref at a time.
-	// LoadOrStore returns (actual value, loaded); if loaded=true another goroutine is already cloning.
+	// Use sync.Map to ensure only one clone per repo+branch at a time.
 	ch := make(chan struct{})
 	if actual, loaded := cloneInFlight.LoadOrStore(dirName, ch); loaded {
 		// Another goroutine is cloning this repo — wait for it to finish.
@@ -1186,7 +1137,13 @@ func fallbackCloneAndRead(ctx context.Context, repoURL, branch, filePath, gitCac
 				return "", false
 			}
 		}
-		// Re-try the file read after the other clone completes.
+		// Re-try reading after the other clone completes.
+		if commitSHA != "" {
+			content, err := gitReadFileAtCommit(repoDir, commitSHA, filePath, maxSize)
+			if err == nil {
+				return content, true
+			}
+		}
 		content, err := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
 		if err == nil {
 			return content, true
@@ -1207,51 +1164,33 @@ func fallbackCloneAndRead(ctx context.Context, repoURL, branch, filePath, gitCac
 
 	gitEnvList := mcpGitEnv(envVars)
 
-	if commitSHA != "" {
-		// Full clone + checkout at specific commit.
-		cloneArgs := []string{"clone", "--no-checkout", repoURL, dirName}
-		cmd := exec.CommandContext(ctx, "git", cloneArgs...)
-		cmd.Dir = gitCacheDir
-		cmd.Env = gitEnvList
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
+	// Always clone at branch HEAD — the cache directory is reusable.
+	cloneArgs := []string{"clone", "--single-branch", "--branch", branch, repoURL, dirName}
+	cmd := exec.CommandContext(ctx, "git", cloneArgs...)
+	cmd.Dir = gitCacheDir
+	cmd.Env = gitEnvList
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
-		slog.Info("fallback clone: cloning repository for commit", "repo", repoURL, "commit_sha", commitSHA)
-		if err := cmd.Run(); err != nil {
-			_ = os.RemoveAll(repoDir)
-			slog.Warn("fallback clone: clone failed", "repo", repoURL, "commit_sha", commitSHA, "error", err, "stderr", stderr.String())
-			return "", false
-		}
-
-		// Checkout the specific commit.
-		checkoutCmd := exec.CommandContext(ctx, "git", "checkout", commitSHA)
-		checkoutCmd.Dir = repoDir
-		checkoutCmd.Env = gitEnvList
-		var checkoutStderr bytes.Buffer
-		checkoutCmd.Stderr = &checkoutStderr
-		if err := checkoutCmd.Run(); err != nil {
-			_ = os.RemoveAll(repoDir)
-			slog.Warn("fallback clone: checkout failed", "repo", repoURL, "commit_sha", commitSHA, "error", err, "stderr", checkoutStderr.String())
-			return "", false
-		}
-	} else {
-		// Shallow clone — depth 1, single branch.
-		cloneArgs := []string{"clone", "--depth", "1", "--single-branch", "--branch", branch, repoURL, dirName}
-		cmd := exec.CommandContext(ctx, "git", cloneArgs...)
-		cmd.Dir = gitCacheDir
-		cmd.Env = gitEnvList
-		var stderr bytes.Buffer
-		cmd.Stderr = &stderr
-
-		slog.Info("fallback clone: cloning repository", "repo", repoURL, "branch", branch)
-		if err := cmd.Run(); err != nil {
-			_ = os.RemoveAll(repoDir)
-			slog.Warn("fallback clone: clone failed", "repo", repoURL, "branch", branch, "error", err, "stderr", stderr.String())
-			return "", false
-		}
+	slog.Info("fallback clone: cloning repository", "repo", repoURL, "branch", branch)
+	if err := cmd.Run(); err != nil {
+		_ = os.RemoveAll(repoDir)
+		slog.Warn("fallback clone: clone failed", "repo", repoURL, "branch", branch, "error", err, "stderr", stderr.String())
+		return "", false
 	}
 
-	// Read the requested file.
+	// Try go-git read at exact commit.
+	if commitSHA != "" {
+		content, err := gitReadFileAtCommit(repoDir, commitSHA, filePath, maxSize)
+		if err == nil {
+			return content, true
+		}
+		// The commit might not be available if it's very old — log and fall through.
+		slog.Debug("fallback clone: gitReadFileAtCommit failed, trying working tree",
+			"repo", repoURL, "commit_sha", commitSHA, "file", filePath, "error", err)
+	}
+
+	// Fallback to working tree read.
 	content, err := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
 	if err == nil {
 		return content, true

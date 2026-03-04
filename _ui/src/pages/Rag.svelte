@@ -486,7 +486,7 @@
     mcpFormName = '';
     mcpFormDescription = '';
     mcpFormCollectionIds = [];
-    mcpFormEnabledTools = ['rag_search', 'rag_list_collections', 'rag_fetch_source', 'rag_search_and_fetch'];
+    mcpFormEnabledTools = ['rag_search', 'rag_list_collections', 'rag_fetch_source', 'rag_search_and_fetch', 'rag_search_and_fetch_org'];
     mcpFormFetchMode = 'auto';
     mcpFormGitCacheDir = '';
     mcpFormDefaultNumResults = 10;
@@ -508,7 +508,7 @@
     mcpFormName = s.name;
     mcpFormDescription = s.config.description || '';
     mcpFormCollectionIds = s.config.collection_ids ?? [];
-    mcpFormEnabledTools = s.config.enabled_tools ?? ['rag_search', 'rag_list_collections', 'rag_fetch_source', 'rag_search_and_fetch'];
+    mcpFormEnabledTools = s.config.enabled_tools ?? ['rag_search', 'rag_list_collections', 'rag_fetch_source', 'rag_search_and_fetch', 'rag_search_and_fetch_org'];
     mcpFormFetchMode = s.config.fetch_mode || 'auto';
     mcpFormGitCacheDir = s.config.git_cache_dir || '';
     mcpFormDefaultNumResults = s.config.default_num_results || 10;

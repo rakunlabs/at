@@ -231,9 +231,13 @@ func (m *Memory) UpdateAPIToken(_ context.Context, id string, token service.APIT
 	}
 
 	existing.Name = token.Name
+	existing.AllowedProvidersMode = token.AllowedProvidersMode
 	existing.AllowedProviders = token.AllowedProviders
+	existing.AllowedModelsMode = token.AllowedModelsMode
 	existing.AllowedModels = token.AllowedModels
+	existing.AllowedWebhooksMode = token.AllowedWebhooksMode
 	existing.AllowedWebhooks = token.AllowedWebhooks
+	existing.AllowedRAGMCPsMode = token.AllowedRAGMCPsMode
 	existing.AllowedRAGMCPs = token.AllowedRAGMCPs
 	existing.ExpiresAt = token.ExpiresAt
 	existing.TotalTokenLimit = token.TotalTokenLimit

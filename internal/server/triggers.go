@@ -339,17 +339,24 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 
 		// Check webhook scoping: if the token restricts webhooks,
 		// verify this trigger's ID or alias is in the allowed list.
-		if auth.token != nil && len(auth.token.AllowedWebhooks) > 0 {
-			allowed := false
-			for _, w := range auth.token.AllowedWebhooks {
-				if w == trigger.ID || (trigger.Alias != "" && w == trigger.Alias) {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				httpResponse(w, "token does not have access to this webhook", http.StatusForbidden)
+		if auth.token != nil {
+			webhookMode := service.ResolveAccessMode(auth.token.AllowedWebhooksMode, auth.token.AllowedWebhooks)
+			if webhookMode == service.AccessModeNone {
+				httpResponse(w, "token does not have access to any webhooks", http.StatusForbidden)
 				return
+			}
+			if webhookMode == service.AccessModeList {
+				allowed := false
+				for _, w := range auth.token.AllowedWebhooks {
+					if w == trigger.ID || (trigger.Alias != "" && w == trigger.Alias) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					httpResponse(w, "token does not have access to this webhook", http.StatusForbidden)
+					return
+				}
 			}
 		}
 	}

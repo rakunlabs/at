@@ -6,12 +6,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	git "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/rytsh/mugo/templatex"
 
 	"github.com/rakunlabs/at/internal/render"
@@ -338,6 +341,49 @@ func gitEnv(extra []string) []string {
 	}
 	env = append(env, extra...)
 	return env
+}
+
+// gitReadFileAtCommit reads a file at a specific commit from a local git
+// repository using go-git's in-process object store. This does NOT modify
+// the working tree — it reads directly from git's object database.
+//
+// repoDir is the path to a local git repo (must contain .git/).
+// commitSHA is the full hex commit hash.
+// filePath is the repo-relative path (e.g. "docs/readme.md").
+func gitReadFileAtCommit(repoDir, commitSHA, filePath string) (string, error) {
+	repo, err := git.PlainOpen(repoDir)
+	if err != nil {
+		return "", fmt.Errorf("open repo %s: %w", repoDir, err)
+	}
+
+	hash := plumbing.NewHash(commitSHA)
+	commit, err := repo.CommitObject(hash)
+	if err != nil {
+		return "", fmt.Errorf("commit %s not found: %w", commitSHA, err)
+	}
+
+	tree, err := commit.Tree()
+	if err != nil {
+		return "", fmt.Errorf("tree for commit %s: %w", commitSHA, err)
+	}
+
+	file, err := tree.File(filePath)
+	if err != nil {
+		return "", fmt.Errorf("file %s at commit %s: %w", filePath, commitSHA, err)
+	}
+
+	reader, err := file.Reader()
+	if err != nil {
+		return "", fmt.Errorf("read file %s: %w", filePath, err)
+	}
+	defer reader.Close()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return "", fmt.Errorf("read file content %s: %w", filePath, err)
+	}
+
+	return string(content), nil
 }
 
 // hashRepoKey creates a short deterministic hash from repo URL + branch.

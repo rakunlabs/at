@@ -41,9 +41,13 @@
   let showCreate = $state(false);
   let formName = $state('');
   let formExpiresAt = $state('');
+  let formProvidersMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedProviders = $state<string[]>([]);
+  let formModelsMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedModels = $state<string[]>([]);
+  let formWebhooksMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedWebhooks = $state<string[]>([]);
+  let formRagMcpsMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedRagMcps = $state<string[]>([]);
   let formTotalTokenLimit = $state('');
   let formLimitResetInterval = $state('');
@@ -61,9 +65,13 @@
   let editingTokenId = $state<string | null>(null);
   let editName = $state('');
   let editExpiresAt = $state('');
+  let editProvidersMode = $state<'all' | 'none' | 'list'>('all');
   let editSelectedProviders = $state<string[]>([]);
+  let editModelsMode = $state<'all' | 'none' | 'list'>('all');
   let editSelectedModels = $state<string[]>([]);
+  let editWebhooksMode = $state<'all' | 'none' | 'list'>('all');
   let editSelectedWebhooks = $state<string[]>([]);
+  let editRagMcpsMode = $state<'all' | 'none' | 'list'>('all');
   let editSelectedRagMcps = $state<string[]>([]);
   let editTotalTokenLimit = $state('');
   let editLimitResetInterval = $state('');
@@ -171,9 +179,13 @@
   function resetForm() {
     formName = '';
     formExpiresAt = '';
+    formProvidersMode = 'all';
     formSelectedProviders = [];
+    formModelsMode = 'all';
     formSelectedModels = [];
+    formWebhooksMode = 'all';
     formSelectedWebhooks = [];
+    formRagMcpsMode = 'all';
     formSelectedRagMcps = [];
     formTotalTokenLimit = '';
     formLimitResetInterval = '';
@@ -190,16 +202,28 @@
     try {
       const req: any = { name: formName.trim() };
 
-      if (formSelectedProviders.length > 0) {
+      if (formProvidersMode !== 'all') {
+        req.allowed_providers_mode = formProvidersMode;
+      }
+      if (formProvidersMode === 'list' && formSelectedProviders.length > 0) {
         req.allowed_providers = formSelectedProviders;
       }
-      if (formSelectedModels.length > 0) {
+      if (formModelsMode !== 'all') {
+        req.allowed_models_mode = formModelsMode;
+      }
+      if (formModelsMode === 'list' && formSelectedModels.length > 0) {
         req.allowed_models = formSelectedModels;
       }
-      if (formSelectedWebhooks.length > 0) {
+      if (formWebhooksMode !== 'all') {
+        req.allowed_webhooks_mode = formWebhooksMode;
+      }
+      if (formWebhooksMode === 'list' && formSelectedWebhooks.length > 0) {
         req.allowed_webhooks = formSelectedWebhooks;
       }
-      if (formSelectedRagMcps.length > 0) {
+      if (formRagMcpsMode !== 'all') {
+        req.allowed_rag_mcps_mode = formRagMcpsMode;
+      }
+      if (formRagMcpsMode === 'list' && formSelectedRagMcps.length > 0) {
         req.allowed_rag_mcps = formSelectedRagMcps;
       }
       if (formExpiresAt) {
@@ -281,12 +305,27 @@
   }
 
   // ─── Edit Actions ───
+
+  /** Resolve the effective mode for a restriction field (backward compat). */
+  function resolveMode(mode: string | undefined | null, items: string[] | null): 'all' | 'none' | 'list' {
+    if (mode === 'none') return 'none';
+    if (mode === 'list') return 'list';
+    if (mode && mode !== 'all') return 'all'; // unknown mode → default
+    // Backward compat: empty mode but non-empty list → 'list'.
+    if (!mode && items && items.length > 0) return 'list';
+    return 'all';
+  }
+
   function startEditing(token: APIToken) {
     editingTokenId = token.id;
     editName = token.name;
+    editProvidersMode = resolveMode(token.allowed_providers_mode, token.allowed_providers);
     editSelectedProviders = token.allowed_providers ? [...token.allowed_providers] : [];
+    editModelsMode = resolveMode(token.allowed_models_mode, token.allowed_models);
     editSelectedModels = token.allowed_models ? [...token.allowed_models] : [];
+    editWebhooksMode = resolveMode(token.allowed_webhooks_mode, token.allowed_webhooks);
     editSelectedWebhooks = token.allowed_webhooks ? [...token.allowed_webhooks] : [];
+    editRagMcpsMode = resolveMode(token.allowed_rag_mcps_mode, token.allowed_rag_mcps);
     editSelectedRagMcps = token.allowed_rag_mcps ? [...token.allowed_rag_mcps] : [];
     editTotalTokenLimit = token.total_token_limit != null ? String(token.total_token_limit) : '';
     editLimitResetInterval = token.limit_reset_interval || '';
@@ -306,9 +345,13 @@
     editingTokenId = null;
     editName = '';
     editExpiresAt = '';
+    editProvidersMode = 'all';
     editSelectedProviders = [];
+    editModelsMode = 'all';
     editSelectedModels = [];
+    editWebhooksMode = 'all';
     editSelectedWebhooks = [];
+    editRagMcpsMode = 'all';
     editSelectedRagMcps = [];
     editTotalTokenLimit = '';
     editLimitResetInterval = '';
@@ -358,16 +401,28 @@
     try {
       const req: any = { name: editName.trim() };
 
-      if (editSelectedProviders.length > 0) {
+      if (editProvidersMode !== 'all') {
+        req.allowed_providers_mode = editProvidersMode;
+      }
+      if (editProvidersMode === 'list' && editSelectedProviders.length > 0) {
         req.allowed_providers = editSelectedProviders;
       }
-      if (editSelectedModels.length > 0) {
+      if (editModelsMode !== 'all') {
+        req.allowed_models_mode = editModelsMode;
+      }
+      if (editModelsMode === 'list' && editSelectedModels.length > 0) {
         req.allowed_models = editSelectedModels;
       }
-      if (editSelectedWebhooks.length > 0) {
+      if (editWebhooksMode !== 'all') {
+        req.allowed_webhooks_mode = editWebhooksMode;
+      }
+      if (editWebhooksMode === 'list' && editSelectedWebhooks.length > 0) {
         req.allowed_webhooks = editSelectedWebhooks;
       }
-      if (editSelectedRagMcps.length > 0) {
+      if (editRagMcpsMode !== 'all') {
+        req.allowed_rag_mcps_mode = editRagMcpsMode;
+      }
+      if (editRagMcpsMode === 'list' && editSelectedRagMcps.length > 0) {
         req.allowed_rag_mcps = editSelectedRagMcps;
       }
       if (editExpiresAt) {
@@ -571,25 +626,45 @@
       <div class="grid grid-cols-4 gap-3 mb-3">
         <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Providers</span>
         <div class="col-span-3">
-          {#if allProviderKeys.length > 0}
-            <div class="flex flex-wrap gap-1.5">
-              {#each allProviderKeys as key}
-                <button
-                  onclick={() => toggleProvider(key)}
-                  class={[
-                    'px-2 py-1 text-xs border transition-colors',
-                    formSelectedProviders.includes(key)
-                      ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                  ]}
-                >
-                  {key}
-                </button>
-              {/each}
-            </div>
-            <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all providers allowed</p>
+          <div class="flex gap-1 mb-2">
+            {#each ['all', 'none', 'list'] as mode}
+              <button
+                onclick={() => { formProvidersMode = mode as any; }}
+                class={[
+                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  formProvidersMode === mode
+                    ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                ]}
+              >
+                {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+              </button>
+            {/each}
+          </div>
+          {#if formProvidersMode === 'list'}
+            {#if allProviderKeys.length > 0}
+              <div class="flex flex-wrap gap-1.5">
+                {#each allProviderKeys as key}
+                  <button
+                    onclick={() => toggleProvider(key)}
+                    class={[
+                      'px-2 py-1 text-xs border transition-colors',
+                      formSelectedProviders.includes(key)
+                        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                    ]}
+                  >
+                    {key}
+                  </button>
+                {/each}
+              </div>
+            {:else}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
+            {/if}
+          {:else if formProvidersMode === 'none'}
+            <p class="text-xs text-red-500 dark:text-red-400">All providers denied</p>
           {:else}
-            <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted">All providers allowed</p>
           {/if}
         </div>
       </div>
@@ -598,27 +673,47 @@
       <div class="grid grid-cols-4 gap-3 mb-3">
         <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Models</span>
         <div class="col-span-3">
-          {#if allModels.length > 0}
-            <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
-              <div class="flex flex-wrap gap-1.5">
-                {#each allModels as model}
-                  <button
-                    onclick={() => toggleModel(model)}
-                    class={[
-                      'px-2 py-0.5 text-xs border font-mono transition-colors',
-                      formSelectedModels.includes(model)
-                        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                    ]}
-                  >
-                    {model}
-                  </button>
-                {/each}
+          <div class="flex gap-1 mb-2">
+            {#each ['all', 'none', 'list'] as mode}
+              <button
+                onclick={() => { formModelsMode = mode as any; }}
+                class={[
+                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  formModelsMode === mode
+                    ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                ]}
+              >
+                {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+              </button>
+            {/each}
+          </div>
+          {#if formModelsMode === 'list'}
+            {#if allModels.length > 0}
+              <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
+                <div class="flex flex-wrap gap-1.5">
+                  {#each allModels as model}
+                    <button
+                      onclick={() => toggleModel(model)}
+                      class={[
+                        'px-2 py-0.5 text-xs border font-mono transition-colors',
+                        formSelectedModels.includes(model)
+                          ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                      ]}
+                    >
+                      {model}
+                    </button>
+                  {/each}
+                </div>
               </div>
-            </div>
-            <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all models allowed</p>
+            {:else}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
+            {/if}
+          {:else if formModelsMode === 'none'}
+            <p class="text-xs text-red-500 dark:text-red-400">All models denied</p>
           {:else}
-            <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted">All models allowed</p>
           {/if}
         </div>
       </div>
@@ -627,32 +722,52 @@
       <div class="grid grid-cols-4 gap-3 mb-3">
         <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Webhooks</span>
         <div class="col-span-3">
-          {#if webhookTriggers.length > 0}
-            <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
-              {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
-                <div>
-                  <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
-                  <div class="flex flex-wrap gap-1.5">
-                    {#each items as { trigger }}
-                      <button
-                        onclick={() => toggleWebhook(trigger.id)}
-                        class={[
-                          'px-2 py-0.5 text-xs border font-mono transition-colors',
-                          formSelectedWebhooks.includes(trigger.id)
-                            ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                        ]}
-                      >
-                        {trigger.alias || trigger.id}
-                      </button>
-                    {/each}
+          <div class="flex gap-1 mb-2">
+            {#each ['all', 'none', 'list'] as mode}
+              <button
+                onclick={() => { formWebhooksMode = mode as any; }}
+                class={[
+                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  formWebhooksMode === mode
+                    ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                ]}
+              >
+                {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+              </button>
+            {/each}
+          </div>
+          {#if formWebhooksMode === 'list'}
+            {#if webhookTriggers.length > 0}
+              <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
+                {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
+                  <div>
+                    <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
+                    <div class="flex flex-wrap gap-1.5">
+                      {#each items as { trigger }}
+                        <button
+                          onclick={() => toggleWebhook(trigger.id)}
+                          class={[
+                            'px-2 py-0.5 text-xs border font-mono transition-colors',
+                            formSelectedWebhooks.includes(trigger.id)
+                              ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                          ]}
+                        >
+                          {trigger.alias || trigger.id}
+                        </button>
+                      {/each}
+                    </div>
                   </div>
-                </div>
-              {/each}
-            </div>
-            <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all webhooks allowed</p>
+                {/each}
+              </div>
+            {:else}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
+            {/if}
+          {:else if formWebhooksMode === 'none'}
+            <p class="text-xs text-red-500 dark:text-red-400">All webhooks denied</p>
           {:else}
-            <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted">All webhooks allowed</p>
           {/if}
         </div>
       </div>
@@ -661,25 +776,45 @@
       <div class="grid grid-cols-4 gap-3 mb-3">
         <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed RAG MCPs</span>
         <div class="col-span-3">
-          {#if allRagMcpNames.length > 0}
-            <div class="flex flex-wrap gap-1.5">
-              {#each allRagMcpNames as name}
-                <button
-                  onclick={() => toggleRagMcp(name)}
-                  class={[
-                    'px-2 py-1 text-xs border transition-colors',
-                    formSelectedRagMcps.includes(name)
-                      ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                      : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                  ]}
-                >
-                  {name}
-                </button>
-              {/each}
-            </div>
-            <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all RAG MCP servers allowed</p>
+          <div class="flex gap-1 mb-2">
+            {#each ['all', 'none', 'list'] as mode}
+              <button
+                onclick={() => { formRagMcpsMode = mode as any; }}
+                class={[
+                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  formRagMcpsMode === mode
+                    ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                ]}
+              >
+                {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+              </button>
+            {/each}
+          </div>
+          {#if formRagMcpsMode === 'list'}
+            {#if allRagMcpNames.length > 0}
+              <div class="flex flex-wrap gap-1.5">
+                {#each allRagMcpNames as name}
+                  <button
+                    onclick={() => toggleRagMcp(name)}
+                    class={[
+                      'px-2 py-1 text-xs border transition-colors',
+                      formSelectedRagMcps.includes(name)
+                        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                        : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                    ]}
+                  >
+                    {name}
+                  </button>
+                {/each}
+              </div>
+            {:else}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+            {/if}
+          {:else if formRagMcpsMode === 'none'}
+            <p class="text-xs text-red-500 dark:text-red-400">All RAG MCP servers denied</p>
           {:else}
-            <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted">All RAG MCP servers allowed</p>
           {/if}
         </div>
       </div>
@@ -795,25 +930,45 @@
           <div class="grid grid-cols-4 gap-3">
             <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Providers</span>
             <div class="col-span-3">
-              {#if allProviderKeys.length > 0}
-                <div class="flex flex-wrap gap-1.5">
-                  {#each allProviderKeys as key}
-                    <button
-                      onclick={() => toggleEditProvider(key)}
-                      class={[
-                        'px-2 py-1 text-xs border transition-colors',
-                        editSelectedProviders.includes(key)
-                          ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                      ]}
-                    >
-                      {key}
-                    </button>
-                  {/each}
-                </div>
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all providers allowed</p>
+              <div class="flex gap-1 mb-2">
+                {#each ['all', 'none', 'list'] as mode}
+                  <button
+                    onclick={() => { editProvidersMode = mode as any; }}
+                    class={[
+                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      editProvidersMode === mode
+                        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                    ]}
+                  >
+                    {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+                  </button>
+                {/each}
+              </div>
+              {#if editProvidersMode === 'list'}
+                {#if allProviderKeys.length > 0}
+                  <div class="flex flex-wrap gap-1.5">
+                    {#each allProviderKeys as key}
+                      <button
+                        onclick={() => toggleEditProvider(key)}
+                        class={[
+                          'px-2 py-1 text-xs border transition-colors',
+                          editSelectedProviders.includes(key)
+                            ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                        ]}
+                      >
+                        {key}
+                      </button>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
+                {/if}
+              {:else if editProvidersMode === 'none'}
+                <p class="text-xs text-red-500 dark:text-red-400">All providers denied</p>
               {:else}
-                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No providers available</span>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">All providers allowed</p>
               {/if}
             </div>
           </div>
@@ -821,27 +976,47 @@
           <div class="grid grid-cols-4 gap-3">
             <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Models</span>
             <div class="col-span-3">
-              {#if allModels.length > 0}
-                <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
-                  <div class="flex flex-wrap gap-1.5">
-                    {#each allModels as model}
-                      <button
-                        onclick={() => toggleEditModel(model)}
-                        class={[
-                          'px-2 py-0.5 text-xs border font-mono transition-colors',
-                          editSelectedModels.includes(model)
-                            ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                        ]}
-                      >
-                        {model}
-                      </button>
-                    {/each}
+              <div class="flex gap-1 mb-2">
+                {#each ['all', 'none', 'list'] as mode}
+                  <button
+                    onclick={() => { editModelsMode = mode as any; }}
+                    class={[
+                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      editModelsMode === mode
+                        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                    ]}
+                  >
+                    {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+                  </button>
+                {/each}
+              </div>
+              {#if editModelsMode === 'list'}
+                {#if allModels.length > 0}
+                  <div class="max-h-32 overflow-y-auto border border-gray-200 dark:border-dark-border p-2">
+                    <div class="flex flex-wrap gap-1.5">
+                      {#each allModels as model}
+                        <button
+                          onclick={() => toggleEditModel(model)}
+                          class={[
+                            'px-2 py-0.5 text-xs border font-mono transition-colors',
+                            editSelectedModels.includes(model)
+                              ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                          ]}
+                        >
+                          {model}
+                        </button>
+                      {/each}
+                    </div>
                   </div>
-                </div>
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all models allowed</p>
+                {:else}
+                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
+                {/if}
+              {:else if editModelsMode === 'none'}
+                <p class="text-xs text-red-500 dark:text-red-400">All models denied</p>
               {:else}
-                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No models available</span>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">All models allowed</p>
               {/if}
             </div>
           </div>
@@ -849,32 +1024,52 @@
           <div class="grid grid-cols-4 gap-3">
             <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed Webhooks</span>
             <div class="col-span-3">
-              {#if webhookTriggers.length > 0}
-                <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
-                  {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
-                    <div>
-                      <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
-                      <div class="flex flex-wrap gap-1.5">
-                        {#each items as { trigger }}
-                          <button
-                            onclick={() => toggleEditWebhook(trigger.id)}
-                            class={[
-                              'px-2 py-0.5 text-xs border font-mono transition-colors',
-                              editSelectedWebhooks.includes(trigger.id)
-                                ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                                : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                            ]}
-                          >
-                            {trigger.alias || trigger.id}
-                          </button>
-                        {/each}
+              <div class="flex gap-1 mb-2">
+                {#each ['all', 'none', 'list'] as mode}
+                  <button
+                    onclick={() => { editWebhooksMode = mode as any; }}
+                    class={[
+                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      editWebhooksMode === mode
+                        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                    ]}
+                  >
+                    {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+                  </button>
+                {/each}
+              </div>
+              {#if editWebhooksMode === 'list'}
+                {#if webhookTriggers.length > 0}
+                  <div class="max-h-40 overflow-y-auto border border-gray-200 dark:border-dark-border p-2 space-y-2">
+                    {#each Object.entries(webhooksByWorkflow) as [wfName, items]}
+                      <div>
+                        <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-1">{wfName}</div>
+                        <div class="flex flex-wrap gap-1.5">
+                          {#each items as { trigger }}
+                            <button
+                              onclick={() => toggleEditWebhook(trigger.id)}
+                              class={[
+                                'px-2 py-0.5 text-xs border font-mono transition-colors',
+                                editSelectedWebhooks.includes(trigger.id)
+                                  ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                              ]}
+                            >
+                              {trigger.alias || trigger.id}
+                            </button>
+                          {/each}
+                        </div>
                       </div>
-                    </div>
-                  {/each}
-                </div>
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all webhooks allowed</p>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
+                {/if}
+              {:else if editWebhooksMode === 'none'}
+                <p class="text-xs text-red-500 dark:text-red-400">All webhooks denied</p>
               {:else}
-                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No webhooks available</span>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">All webhooks allowed</p>
               {/if}
             </div>
           </div>
@@ -883,25 +1078,45 @@
           <div class="grid grid-cols-4 gap-3">
             <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed RAG MCPs</span>
             <div class="col-span-3">
-              {#if allRagMcpNames.length > 0}
-                <div class="flex flex-wrap gap-1.5">
-                  {#each allRagMcpNames as name}
-                    <button
-                      onclick={() => toggleEditRagMcp(name)}
-                      class={[
-                        'px-2 py-1 text-xs border transition-colors',
-                        editSelectedRagMcps.includes(name)
-                          ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                          : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                      ]}
-                    >
-                      {name}
-                    </button>
-                  {/each}
-                </div>
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all RAG MCP servers allowed</p>
+              <div class="flex gap-1 mb-2">
+                {#each ['all', 'none', 'list'] as mode}
+                  <button
+                    onclick={() => { editRagMcpsMode = mode as any; }}
+                    class={[
+                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      editRagMcpsMode === mode
+                        ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                        : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
+                    ]}
+                  >
+                    {mode === 'all' ? 'All' : mode === 'none' ? 'None' : 'Custom'}
+                  </button>
+                {/each}
+              </div>
+              {#if editRagMcpsMode === 'list'}
+                {#if allRagMcpNames.length > 0}
+                  <div class="flex flex-wrap gap-1.5">
+                    {#each allRagMcpNames as name}
+                      <button
+                        onclick={() => toggleEditRagMcp(name)}
+                        class={[
+                          'px-2 py-1 text-xs border transition-colors',
+                          editSelectedRagMcps.includes(name)
+                            ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                        ]}
+                      >
+                        {name}
+                      </button>
+                    {/each}
+                  </div>
+                {:else}
+                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+                {/if}
+              {:else if editRagMcpsMode === 'none'}
+                <p class="text-xs text-red-500 dark:text-red-400">All RAG MCP servers denied</p>
               {:else}
-                <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">All RAG MCP servers allowed</p>
               {/if}
             </div>
           </div>
@@ -1004,35 +1219,49 @@
             <code class="text-xs font-mono text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-            {#if !token.allowed_providers && !token.allowed_models && !token.allowed_webhooks && !token.allowed_rag_mcps}
-              <span class="text-gray-400 dark:text-dark-text-muted">All access</span>
-            {:else}
-              <div class="space-y-0.5">
-                {#if token.allowed_providers && token.allowed_providers.length > 0}
-                  <div>
-                    <span class="text-gray-400 dark:text-dark-text-muted">Providers:</span>
-                    {token.allowed_providers.join(', ')}
-                  </div>
-                {/if}
-                {#if token.allowed_models && token.allowed_models.length > 0}
-                  <div>
-                    <span class="text-gray-400 dark:text-dark-text-muted">Models:</span>
-                    {token.allowed_models.slice(0, 3).join(', ')}{token.allowed_models.length > 3 ? ` +${token.allowed_models.length - 3}` : ''}
-                  </div>
-                {/if}
-                {#if token.allowed_webhooks && token.allowed_webhooks.length > 0}
-                  <div>
-                    <span class="text-gray-400 dark:text-dark-text-muted">Webhooks:</span>
-                    {token.allowed_webhooks.slice(0, 3).join(', ')}{token.allowed_webhooks.length > 3 ? ` +${token.allowed_webhooks.length - 3}` : ''}
-                  </div>
-                {/if}
-                {#if token.allowed_rag_mcps && token.allowed_rag_mcps.length > 0}
-                  <div>
-                    <span class="text-gray-400 dark:text-dark-text-muted">RAG MCPs:</span>
-                    {token.allowed_rag_mcps.slice(0, 3).join(', ')}{token.allowed_rag_mcps.length > 3 ? ` +${token.allowed_rag_mcps.length - 3}` : ''}
-                  </div>
-                {/if}
-              </div>
+            {#if true}
+              {@const pMode = resolveMode(token.allowed_providers_mode, token.allowed_providers)}
+              {@const mMode = resolveMode(token.allowed_models_mode, token.allowed_models)}
+              {@const wMode = resolveMode(token.allowed_webhooks_mode, token.allowed_webhooks)}
+              {@const rMode = resolveMode(token.allowed_rag_mcps_mode, token.allowed_rag_mcps)}
+              {#if pMode === 'all' && mMode === 'all' && wMode === 'all' && rMode === 'all'}
+                <span class="text-gray-400 dark:text-dark-text-muted">All access</span>
+              {:else}
+                <div class="space-y-0.5">
+                  {#if pMode === 'none'}
+                    <div><span class="text-red-500 dark:text-red-400">Providers: None</span></div>
+                  {:else if pMode === 'list' && token.allowed_providers && token.allowed_providers.length > 0}
+                    <div>
+                      <span class="text-gray-400 dark:text-dark-text-muted">Providers:</span>
+                      {token.allowed_providers.join(', ')}
+                    </div>
+                  {/if}
+                  {#if mMode === 'none'}
+                    <div><span class="text-red-500 dark:text-red-400">Models: None</span></div>
+                  {:else if mMode === 'list' && token.allowed_models && token.allowed_models.length > 0}
+                    <div>
+                      <span class="text-gray-400 dark:text-dark-text-muted">Models:</span>
+                      {token.allowed_models.slice(0, 3).join(', ')}{token.allowed_models.length > 3 ? ` +${token.allowed_models.length - 3}` : ''}
+                    </div>
+                  {/if}
+                  {#if wMode === 'none'}
+                    <div><span class="text-red-500 dark:text-red-400">Webhooks: None</span></div>
+                  {:else if wMode === 'list' && token.allowed_webhooks && token.allowed_webhooks.length > 0}
+                    <div>
+                      <span class="text-gray-400 dark:text-dark-text-muted">Webhooks:</span>
+                      {token.allowed_webhooks.slice(0, 3).join(', ')}{token.allowed_webhooks.length > 3 ? ` +${token.allowed_webhooks.length - 3}` : ''}
+                    </div>
+                  {/if}
+                  {#if rMode === 'none'}
+                    <div><span class="text-red-500 dark:text-red-400">RAG MCPs: None</span></div>
+                  {:else if rMode === 'list' && token.allowed_rag_mcps && token.allowed_rag_mcps.length > 0}
+                    <div>
+                      <span class="text-gray-400 dark:text-dark-text-muted">RAG MCPs:</span>
+                      {token.allowed_rag_mcps.slice(0, 3).join(', ')}{token.allowed_rag_mcps.length > 3 ? ` +${token.allowed_rag_mcps.length - 3}` : ''}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             {/if}
           </td>
           <td class="px-4 py-2.5 text-xs">

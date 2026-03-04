@@ -255,9 +255,10 @@ func (n *ragSearchNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	}), nil
 }
 
-// enrichWithOriginalContent clones repos at specific commits and reads
-// the full original files for each search result that has the required
-// metadata (repo_url, commit_sha, path).
+// enrichWithOriginalContent reads the full original files for each search
+// result using go-git's in-process object store to read at the exact commit
+// recorded in chunk metadata. No git checkout — reads directly from the
+// object database of the branch-based cache maintained by git_fetch.
 func (n *ragSearchNode) enrichWithOriginalContent(ctx context.Context, reg *workflow.Registry, results []any) {
 	// Render template fields for auth.
 	funcs := varFuncMap(reg)
@@ -311,6 +312,7 @@ func (n *ragSearchNode) enrichWithOriginalContent(ctx context.Context, reg *work
 		repoURL, _ := meta["repo_url"].(string)
 		commitSHA, _ := meta["commit_sha"].(string)
 		filePath, _ := meta["path"].(string)
+		branch, _ := meta["branch"].(string)
 
 		// Use config repo_url as override if set.
 		if n.repoURL != "" {
@@ -321,9 +323,7 @@ func (n *ragSearchNode) enrichWithOriginalContent(ctx context.Context, reg *work
 			continue
 		}
 
-		// Build auth URL.
-		// When a token is configured and the URL is SSH, convert to HTTPS first
-		// so that token-based authentication works with SSH-style repo URLs.
+		// Build auth URL for fallback clone.
 		authURL := repoURL
 		if token != "" {
 			if !strings.HasPrefix(repoURL, "https://") {
@@ -334,69 +334,102 @@ func (n *ragSearchNode) enrichWithOriginalContent(ctx context.Context, reg *work
 			}
 		}
 
-		// Ensure repo is cloned at this commit.
-		repoDir, err := n.ensureRepoAtCommit(execCtx, authURL, repoURL, commitSHA, envVars)
-		if err != nil {
-			slog.Warn("rag_search: failed to ensure repo at commit",
-				"repo_url", repoURL,
-				"commit_sha", commitSHA,
-				"error", err,
-			)
-			continue
-		}
-
-		// Read the original file.
-		fullPath := filepath.Join(repoDir, filePath)
-		content, err := os.ReadFile(fullPath)
+		// Read file at exact commit using branch-based cache + go-git.
+		content, err := n.readFileFromCache(execCtx, repoURL, authURL, commitSHA, filePath, branch, envVars)
 		if err != nil {
 			slog.Warn("rag_search: failed to read original file",
+				"repo_url", repoURL,
+				"commit_sha", commitSHA,
 				"path", filePath,
-				"repo_dir", repoDir,
 				"error", err,
 			)
 			continue
 		}
 
-		m["original_content"] = string(content)
+		m["original_content"] = content
 	}
 }
 
-// ensureRepoAtCommit clones a repo and checks out a specific commit.
-// The clone directory is <cache_dir>/<hash(repo_url, commit_sha)> using the
-// same hashing scheme as git_fetch (hashRepoKey) for consistency.
-// If the directory already exists, it is reused (already at the right commit).
-func (n *ragSearchNode) ensureRepoAtCommit(ctx context.Context, authURL, repoURL, commitSHA string, envVars []string) (string, error) {
-	// Hash repo_url + commit_sha for a stable, collision-free directory name.
-	dirName := hashRepoKey(repoURL, commitSHA)
+// readFileFromCache reads a file at a specific commit from the local git cache.
+// It scans branch-based cache directories and uses go-git to read from the
+// object store — no checkout, no working tree modification.
+//
+// Strategy:
+//  1. Try the known branch cache dir (if branch is available)
+//  2. Try common branches (main, master, develop)
+//  3. Scan all cache dirs
+//  4. Fallback: clone at branch HEAD, then read via go-git
+func (n *ragSearchNode) readFileFromCache(ctx context.Context, repoURL, authURL, commitSHA, filePath, branch string, envVars []string) (string, error) {
+	// tryDir attempts gitReadFileAtCommit on a cache directory.
+	tryDir := func(dir string) (string, bool) {
+		repoDir := filepath.Join(n.cacheDir, dir)
+		if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
+			return "", false
+		}
+		content, err := gitReadFileAtCommit(repoDir, commitSHA, filePath)
+		if err == nil {
+			return content, true
+		}
+		return "", false
+	}
+
+	// Strategy 1: Try the exact branch cache dir.
+	if branch != "" {
+		dirName := hashRepoKey(repoURL, branch)
+		if content, ok := tryDir(dirName); ok {
+			return content, nil
+		}
+	}
+
+	// Strategy 2: Try common branches.
+	for _, b := range []string{"main", "master", "develop"} {
+		if b == branch {
+			continue // already tried above
+		}
+		dirName := hashRepoKey(repoURL, b)
+		if content, ok := tryDir(dirName); ok {
+			return content, nil
+		}
+	}
+
+	// Strategy 3: Scan all cache directories.
+	entries, err := os.ReadDir(n.cacheDir)
+	if err == nil {
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			if content, ok := tryDir(entry.Name()); ok {
+				return content, nil
+			}
+		}
+	}
+
+	// Strategy 4: Clone at branch HEAD and read via go-git.
+	cloneBranch := branch
+	if cloneBranch == "" {
+		cloneBranch = "main"
+	}
+
+	dirName := hashRepoKey(repoURL, cloneBranch)
 	repoDir := filepath.Join(n.cacheDir, dirName)
 
-	// If directory exists and has a .git, it is already at the right commit.
-	gitDir := filepath.Join(repoDir, ".git")
-	if _, err := os.Stat(gitDir); err == nil {
-		// Verify health with a quick rev-parse.
-		if err := runGit(ctx, repoDir, envVars, "rev-parse", "--git-dir"); err == nil {
-			return repoDir, nil
+	// Only clone if the directory doesn't exist yet.
+	if _, err := os.Stat(filepath.Join(repoDir, ".git")); err != nil {
+		if err := os.MkdirAll(n.cacheDir, 0o755); err != nil {
+			return "", fmt.Errorf("create cache dir: %w", err)
 		}
-		// Corrupted — remove and re-clone.
-		_ = os.RemoveAll(repoDir)
+
+		if err := runGit(ctx, n.cacheDir, envVars, "clone", "--single-branch", "--branch", cloneBranch, authURL, dirName); err != nil {
+			_ = os.RemoveAll(repoDir)
+			return "", fmt.Errorf("clone %s branch %s: %w", repoURL, cloneBranch, err)
+		}
 	}
 
-	// Clone the repo.
-	if err := os.MkdirAll(n.cacheDir, 0o755); err != nil {
-		return "", fmt.Errorf("create cache dir: %w", err)
+	content, err := gitReadFileAtCommit(repoDir, commitSHA, filePath)
+	if err != nil {
+		return "", fmt.Errorf("read file at commit: %w", err)
 	}
 
-	// Clone without specifying a branch — we'll checkout the commit directly.
-	if err := runGit(ctx, n.cacheDir, envVars, "clone", "--no-checkout", authURL, dirName); err != nil {
-		_ = os.RemoveAll(repoDir)
-		return "", fmt.Errorf("clone: %w", err)
-	}
-
-	// Checkout the specific commit (detached HEAD).
-	if err := runGit(ctx, repoDir, envVars, "checkout", commitSHA); err != nil {
-		_ = os.RemoveAll(repoDir)
-		return "", fmt.Errorf("checkout %s: %w", commitSHA, err)
-	}
-
-	return repoDir, nil
+	return content, nil
 }

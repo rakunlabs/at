@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -376,32 +375,10 @@ func (s *Server) execRAGFetchSource(r *http.Request, args map[string]any, auth *
 	// Optional git metadata for precise fetching.
 	commitSHA, _ := args["commit_sha"].(string)
 	branch, _ := args["branch"].(string)
-	repoURL, _ := args["repo_url"].(string)
-
-	// If commitSHA and repoURL are provided, try commit-specific checkout first.
-	if commitSHA != "" && repoURL != "" {
-		authURL := repoURL
-		var envVars []string
-		if auth != nil {
-			authURL = auth.authURL(repoURL)
-			envVars = auth.envVars
-		}
-		repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, repoURL, commitSHA, defaultRAGGitCacheDir, envVars)
-		if err == nil {
-			_, filePath := splitSourceToRepoAndPath(source)
-			if filePath != "" {
-				content, readErr := readFileWithLimit(filepath.Join(repoDir, filePath), maxSize)
-				if readErr == nil {
-					return content, nil
-				}
-			}
-		} else {
-			slog.Warn("exec rag_fetch_source: commit-specific checkout failed, falling back",
-				"repo_url", repoURL, "commit_sha", commitSHA, "error", err)
-		}
-	}
 
 	// SSH sources are resolved from the local git cache (populated by git_fetch workflow).
+	// tryLocalGitCache uses go-git to read files at the exact commitSHA from the
+	// object store — no checkout, no working tree modification.
 	if isSSHSource(source) {
 		content, found := tryLocalGitCache(source, defaultRAGGitCacheDir, maxSize, commitSHA, branch)
 		if !found {
@@ -589,28 +566,8 @@ func (s *Server) execRAGSearchAndFetch(r *http.Request, args map[string]any, aut
 				label = filePath
 			}
 
-			// Try commit-specific checkout first when metadata is available.
-			if si.commitSHA != "" && si.repoURL != "" && si.path != "" {
-				authURL := si.repoURL
-				var envVars []string
-				if auth != nil {
-					authURL = auth.authURL(si.repoURL)
-					envVars = auth.envVars
-				}
-				repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, si.repoURL, si.commitSHA, defaultRAGGitCacheDir, envVars)
-				if err == nil {
-					content, readErr := readFileWithLimit(filepath.Join(repoDir, si.path), maxSourceSize)
-					if readErr == nil {
-						fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
-						continue
-					}
-				} else {
-					slog.Warn("exec rag_search_and_fetch: commit-specific checkout failed, falling back",
-						"source", si.source, "commit_sha", si.commitSHA, "error", err)
-				}
-			}
-
 			// SSH sources are resolved from the local git cache.
+			// tryLocalGitCache uses go-git to read at the exact commitSHA.
 			if isSSHSource(si.source) {
 				sshRepoURL, filePath := splitSourceToRepoAndPath(si.source)
 
@@ -778,28 +735,8 @@ func (s *Server) execRAGFetchSourcesOrg(r *http.Request, args map[string]any, au
 			label = filePath
 		}
 
-		// Try commit-specific checkout first when metadata is available.
-		if si.commitSHA != "" && si.repoURL != "" && si.path != "" {
-			authURL := si.repoURL
-			var envVars []string
-			if auth != nil {
-				authURL = auth.authURL(si.repoURL)
-				envVars = auth.envVars
-			}
-			repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, si.repoURL, si.commitSHA, defaultRAGGitCacheDir, envVars)
-			if err == nil {
-				content, readErr := readFileWithLimit(filepath.Join(repoDir, si.path), maxSourceSize)
-				if readErr == nil {
-					fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
-					continue
-				}
-			} else {
-				slog.Warn("exec rag_search_and_fetch_org: commit-specific checkout failed, falling back",
-					"source", si.source, "commit_sha", si.commitSHA, "error", err)
-			}
-		}
-
 		// SSH sources are resolved from the local git cache.
+		// tryLocalGitCache uses go-git to read at the exact commitSHA.
 		if isSSHSource(si.source) {
 			sshRepoURL, filePath := splitSourceToRepoAndPath(si.source)
 

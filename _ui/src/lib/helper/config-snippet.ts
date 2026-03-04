@@ -95,18 +95,30 @@ function buildCleanAuthToken(token: APIToken): Record<string, unknown> {
     clean.name = token.name;
   }
 
+  if (token.allowed_providers_mode && token.allowed_providers_mode !== 'all') {
+    clean.allowed_providers_mode = token.allowed_providers_mode;
+  }
   if (token.allowed_providers && token.allowed_providers.length > 0) {
     clean.allowed_providers = token.allowed_providers;
   }
 
+  if (token.allowed_models_mode && token.allowed_models_mode !== 'all') {
+    clean.allowed_models_mode = token.allowed_models_mode;
+  }
   if (token.allowed_models && token.allowed_models.length > 0) {
     clean.allowed_models = token.allowed_models;
   }
 
+  if (token.allowed_webhooks_mode && token.allowed_webhooks_mode !== 'all') {
+    clean.allowed_webhooks_mode = token.allowed_webhooks_mode;
+  }
   if (token.allowed_webhooks && token.allowed_webhooks.length > 0) {
     clean.allowed_webhooks = token.allowed_webhooks;
   }
 
+  if (token.allowed_rag_mcps_mode && token.allowed_rag_mcps_mode !== 'all') {
+    clean.allowed_rag_mcps_mode = token.allowed_rag_mcps_mode;
+  }
   if (token.allowed_rag_mcps && token.allowed_rag_mcps.length > 0) {
     clean.allowed_rag_mcps = token.allowed_rag_mcps;
   }

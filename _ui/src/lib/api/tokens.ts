@@ -9,9 +9,13 @@ export interface APIToken {
   id: string;
   name: string;
   token_prefix: string;
+  allowed_providers_mode: string;
   allowed_providers: string[] | null;
+  allowed_models_mode: string;
   allowed_models: string[] | null;
+  allowed_webhooks_mode: string;
   allowed_webhooks: string[] | null;
+  allowed_rag_mcps_mode: string;
   allowed_rag_mcps: string[] | null;
   expires_at: string | null;
   total_token_limit: number | null;
@@ -34,9 +38,13 @@ export interface TokenUsage {
 
 export interface CreateTokenRequest {
   name: string;
+  allowed_providers_mode?: string;
   allowed_providers?: string[];
+  allowed_models_mode?: string;
   allowed_models?: string[];
+  allowed_webhooks_mode?: string;
   allowed_webhooks?: string[];
+  allowed_rag_mcps_mode?: string;
   allowed_rag_mcps?: string[];
   expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
   total_token_limit?: number;
@@ -45,9 +53,13 @@ export interface CreateTokenRequest {
 
 export interface UpdateTokenRequest {
   name: string;
+  allowed_providers_mode?: string;
   allowed_providers?: string[];
+  allowed_models_mode?: string;
   allowed_models?: string[];
+  allowed_webhooks_mode?: string;
   allowed_webhooks?: string[];
+  allowed_rag_mcps_mode?: string;
   allowed_rag_mcps?: string[];
   expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
   total_token_limit?: number;
