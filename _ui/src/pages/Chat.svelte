@@ -7,6 +7,7 @@
     type ChatMessage,
     type ToolCall,
     type ToolDefinition,
+    type ChatUsage,
     getTextContent,
     mergeDeltaContent,
     streamChatCompletion,
@@ -16,7 +17,7 @@
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-svelte';
-  import snarkdown from 'snarkdown';
+  import { md, renderMarkdown } from '@/lib/helper/markdown';
 
   storeNavbar.title = 'Chat';
 
@@ -140,6 +141,13 @@
   let pendingImages = $state<PendingImage[]>([]);
   let fileInput: HTMLInputElement | undefined = $state();
   let dragging = $state(false);
+
+  // ─── Token Usage State ───
+
+  /** Cumulative token usage across all completion calls in the conversation. */
+  let contextTokens = $state(0);
+  let completionTokens = $state(0);
+  let totalTokens = $state(0);
 
   // ─── Tools State ───
 
@@ -709,6 +717,7 @@
           messages: reqMessages,
           tools: discoveredTools.length > 0 ? discoveredTools : undefined,
           stream: true,
+          stream_options: { include_usage: true },
         },
         {
           onDelta: (deltaContent) => {
@@ -725,6 +734,11 @@
           },
           onError: (error) => {
             addToast(error, 'alert');
+          },
+          onUsage: (usage) => {
+            contextTokens = usage.prompt_tokens;
+            completionTokens += usage.completion_tokens;
+            totalTokens = contextTokens + completionTokens;
           },
         },
         controller.signal,
@@ -787,6 +801,9 @@
     pendingImages = [];
     todos = [];
     pendingQuestion = null;
+    contextTokens = 0;
+    completionTokens = 0;
+    totalTokens = 0;
   }
 
   /** Retry from a specific user message index. */
@@ -899,11 +916,18 @@
       </button>
     {/if}
 
+    <!-- Token usage (right-aligned) -->
+    {#if totalTokens > 0}
+      <div class="ml-auto text-[11px] text-gray-400 dark:text-dark-text-muted font-mono tabular-nums" title="Context: {contextTokens.toLocaleString()} prompt + {completionTokens.toLocaleString()} completion = {totalTokens.toLocaleString()} total tokens">
+        {totalTokens.toLocaleString()} tok
+      </div>
+    {/if}
+
     <!-- Clear -->
     <button
       onclick={clearChat}
       disabled={messages.length === 0 && !systemPrompt && pendingImages.length === 0}
-      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 transition-colors"
+      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 transition-colors {totalTokens === 0 ? 'ml-auto' : ''}"
       title="Clear chat"
     >
       <Trash2 size={14} />
@@ -1213,14 +1237,14 @@
                   {#if !msg.content && streaming && i === messages.length - 1}
                     <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
                   {:else}
-                    <div class="markdown-body">{@html snarkdown(msg.content)}</div>
+                    <div class="markdown-body" use:renderMarkdown>{@html md(msg.content)}</div>
                   {/if}
                 {:else}
                   {#each msg.content as part}
                     {#if part.type === 'image_url' && part.image_url?.url}
                       <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border" />
                     {:else if part.type === 'text' && part.text}
-                      <div class="markdown-body">{@html snarkdown(part.text)}</div>
+                      <div class="markdown-body" use:renderMarkdown>{@html md(part.text)}</div>
                     {/if}
                   {/each}
                 {/if}

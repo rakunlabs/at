@@ -14,7 +14,7 @@
   import { listVariables } from '@/lib/api/secrets';
   import { listNodeConfigs } from '@/lib/api/node-configs';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
-  import snarkdown from 'snarkdown';
+  import { md, renderMarkdown } from '@/lib/helper/markdown';
 
   // ─── Props ───
   let { onclose, flow }: { onclose: () => void; flow: FlowState } = $props();
@@ -720,7 +720,7 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
         <div class="flex justify-start">
           <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-[11px]">
             {#if getTextContent(msg.content)}
-              <div class="markdown-body text-gray-700">{@html snarkdown(getTextContent(msg.content))}</div>
+              <div class="markdown-body text-gray-700" use:renderMarkdown>{@html md(getTextContent(msg.content))}</div>
             {:else if streaming && i === messages.length - 1}
               <span class="text-gray-400 italic">Thinking...</span>
             {/if}

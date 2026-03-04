@@ -13,6 +13,17 @@ export default defineConfig({
       '@': '/src'
     }
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'highlight': ['highlight.js'],
+          'katex': ['katex'],
+          'marked': ['marked'],
+        }
+      }
+    }
+  },
   server: {
     proxy: {
       '^/(api|gateway)/': {

@@ -29,7 +29,10 @@
     "vite": "^6.3.0"
   },
   "dependencies": {
+    "highlight.js": "^11.11.1",
+    "katex": "^0.16.33",
     "kaykay": "^0.1.7",
-    "snarkdown": "^2.0.0"
+    "marked": "^17.0.3",
+    "mermaid": "^11.12.3"
   }
 }

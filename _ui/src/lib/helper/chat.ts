@@ -31,6 +31,12 @@ export interface ToolDefinition {
   };
 }
 
+export interface ChatUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
 // ─── Content Helpers ───
 
 /** Extract display text from a ChatMessage's content. */
@@ -87,6 +93,7 @@ export interface StreamCallbacks {
   onDelta: (deltaContent: string | ContentPart[]) => void;
   onToolCalls: (toolCalls: ToolCall[]) => void;
   onError: (error: string) => void;
+  onUsage?: (usage: ChatUsage) => void;
 }
 
 /**
@@ -106,6 +113,7 @@ export async function streamChatCompletion(
     messages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }>;
     tools?: ToolDefinition[];
     stream: boolean;
+    stream_options?: { include_usage: boolean };
   },
   callbacks: StreamCallbacks,
   signal: AbortSignal,
@@ -158,6 +166,12 @@ export async function streamChatCompletion(
 
       try {
         const chunk = JSON.parse(data);
+
+        // Usage data arrives in a final chunk with empty choices.
+        if (chunk.usage && callbacks.onUsage) {
+          callbacks.onUsage(chunk.usage);
+        }
+
         const delta = chunk.choices?.[0]?.delta;
         if (!delta) continue;
 

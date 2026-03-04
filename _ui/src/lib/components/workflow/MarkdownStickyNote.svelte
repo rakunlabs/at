@@ -1,7 +1,7 @@
 <script lang="ts">
   import { StickyNoteNode } from 'kaykay';
   import type { NodeProps } from 'kaykay';
-  import snarkdown from 'snarkdown';
+  import { md } from '@/lib/helper/markdown';
 
   interface StickyNoteData {
     text: string;
@@ -13,6 +13,6 @@
 
 <StickyNoteNode {id} {data} {selected}>
   {#snippet children(text)}
-    {@html snarkdown(text)}
+    {@html md(text)}
   {/snippet}
 </StickyNoteNode>
