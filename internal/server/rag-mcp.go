@@ -133,6 +133,41 @@ func (s *Server) RAGToolListAPI(w http.ResponseWriter, r *http.Request) {
 				"required": []string{"query"},
 			},
 		},
+		{
+			Name:        "rag_search_and_fetch_org",
+			Description: "Search the RAG knowledge base and return only the full original source files without chunks. Uses semantic search internally to identify relevant files, then fetches and returns the complete original content of each unique source file, deduplicated by source.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{
+						"type":        "string",
+						"description": "The natural language search query",
+					},
+					"collection_ids": map[string]any{
+						"type":        "array",
+						"items":       map[string]any{"type": "string"},
+						"description": "Optional list of collection IDs to search. If empty, searches all collections.",
+					},
+					"num_results": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of search results to examine for unique sources (default: 5)",
+					},
+					"score_threshold": map[string]any{
+						"type":        "number",
+						"description": "Minimum similarity score threshold (0-1). Results below this are filtered out.",
+					},
+					"max_sources": map[string]any{
+						"type":        "integer",
+						"description": "Maximum number of unique source files to fetch (default: 3, max: 5). Sources are deduplicated and fetched in order of best search score.",
+					},
+					"max_source_size": map[string]any{
+						"type":        "integer",
+						"description": "Maximum size in bytes per fetched source file (default: 102400). Content is truncated if larger.",
+					},
+				},
+				"required": []string{"query"},
+			},
+		},
 	}
 
 	httpResponseJSON(w, map[string]any{
@@ -217,6 +252,8 @@ func (s *Server) RAGToolCallAPI(w http.ResponseWriter, r *http.Request) {
 		result, execErr = s.execRAGFetchSource(r, req.Arguments, auth)
 	case "rag_search_and_fetch":
 		result, execErr = s.execRAGSearchAndFetch(r, req.Arguments, auth)
+	case "rag_search_and_fetch_org":
+		result, execErr = s.execRAGFetchSourcesOrg(r, req.Arguments, auth)
 	default:
 		httpResponse(w, fmt.Sprintf("unknown RAG tool: %q", req.Name), http.StatusBadRequest)
 		return
@@ -637,6 +674,198 @@ func (s *Server) execRAGSearchAndFetch(r *http.Request, args map[string]any, aut
 	}
 
 	return text.String(), nil
+}
+
+// execRAGFetchSourcesOrg executes the rag_search_and_fetch_org tool directly (without MCP protocol).
+// It searches for relevant chunks, then returns only the full original source files — no chunk content.
+func (s *Server) execRAGFetchSourcesOrg(r *http.Request, args map[string]any, auth *gitAuthResult) (string, error) {
+	// ── Parse arguments ──
+	var searchReq rag.SearchRequest
+
+	if q, ok := args["query"].(string); ok {
+		searchReq.Query = q
+	}
+	if searchReq.Query == "" {
+		return "", fmt.Errorf("query argument is required")
+	}
+
+	if ids, ok := args["collection_ids"].([]any); ok {
+		for _, v := range ids {
+			if s, ok := v.(string); ok {
+				searchReq.CollectionIDs = append(searchReq.CollectionIDs, s)
+			}
+		}
+	}
+
+	if n, ok := args["num_results"].(float64); ok {
+		searchReq.NumResults = int(n)
+	}
+
+	if t, ok := args["score_threshold"].(float64); ok {
+		searchReq.ScoreThreshold = float32(t)
+	}
+
+	maxSources := 3
+	if n, ok := args["max_sources"].(float64); ok && int(n) > 0 {
+		maxSources = int(n)
+	}
+	if maxSources > 5 {
+		maxSources = 5
+	}
+
+	maxSourceSize := 102400 // 100KB default per source file
+	if n, ok := args["max_source_size"].(float64); ok && int(n) > 0 {
+		maxSourceSize = int(n)
+	}
+	if maxSourceSize > 1048576 {
+		maxSourceSize = 1048576
+	}
+
+	// ── Search ──
+	results, err := s.ragService.Search(r.Context(), searchReq)
+	if err != nil {
+		return "", fmt.Errorf("search failed: %w", err)
+	}
+
+	if len(results) == 0 {
+		return "No results found.", nil
+	}
+
+	// ── Collect unique sources (no chunk output) ──
+	type sourceInfo struct {
+		source    string
+		repoURL   string
+		commitSHA string
+		branch    string
+		path      string
+	}
+	seen := make(map[string]bool)
+	var uniqueSources []sourceInfo
+
+	for _, res := range results {
+		source, _ := res.Metadata["source"].(string)
+		if source == "" || seen[source] {
+			continue
+		}
+		seen[source] = true
+
+		path, _ := res.Metadata["path"].(string)
+		repoURL, _ := res.Metadata["repo_url"].(string)
+		commitSHA, _ := res.Metadata["commit_sha"].(string)
+		branch, _ := res.Metadata["branch"].(string)
+
+		uniqueSources = append(uniqueSources, sourceInfo{
+			source:    source,
+			repoURL:   repoURL,
+			commitSHA: commitSHA,
+			branch:    branch,
+			path:      path,
+		})
+	}
+
+	if len(uniqueSources) > maxSources {
+		uniqueSources = uniqueSources[:maxSources]
+	}
+
+	// ── Fetch source files ──
+	var text strings.Builder
+
+	for _, si := range uniqueSources {
+		label := si.source
+		if si.path != "" {
+			label = si.path
+		} else if _, filePath := splitSourceToRepoAndPath(si.source); filePath != "" {
+			label = filePath
+		}
+
+		// Try commit-specific checkout first when metadata is available.
+		if si.commitSHA != "" && si.repoURL != "" && si.path != "" {
+			authURL := si.repoURL
+			var envVars []string
+			if auth != nil {
+				authURL = auth.authURL(si.repoURL)
+				envVars = auth.envVars
+			}
+			repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, si.repoURL, si.commitSHA, defaultRAGGitCacheDir, envVars)
+			if err == nil {
+				content, readErr := readFileWithLimit(filepath.Join(repoDir, si.path), maxSourceSize)
+				if readErr == nil {
+					fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
+					continue
+				}
+			} else {
+				slog.Warn("exec rag_search_and_fetch_org: commit-specific checkout failed, falling back",
+					"source", si.source, "commit_sha", si.commitSHA, "error", err)
+			}
+		}
+
+		// SSH sources are resolved from the local git cache.
+		if isSSHSource(si.source) {
+			sshRepoURL, filePath := splitSourceToRepoAndPath(si.source)
+
+			content, found := tryLocalGitCache(si.source, defaultRAGGitCacheDir, maxSourceSize, si.commitSHA, si.branch)
+			if !found {
+				var envVars []string
+				if auth != nil {
+					envVars = auth.envVars
+				}
+				content, found = fallbackCloneAndRead(r.Context(), sshRepoURL, si.branch, filePath, defaultRAGGitCacheDir, maxSourceSize, si.commitSHA, envVars)
+			}
+			if !found {
+				fmt.Fprintf(&text, "=== %s (not found in git cache) ===\n\n", label)
+				continue
+			}
+			fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
+			continue
+		}
+
+		sourceLower := strings.ToLower(si.source)
+		if !strings.HasPrefix(sourceLower, "http://") && !strings.HasPrefix(sourceLower, "https://") {
+			fmt.Fprintf(&text, "=== %s (skipped: not an HTTP URL) ===\n\n", si.source)
+			continue
+		}
+
+		httpReq, err := http.NewRequestWithContext(r.Context(), http.MethodGet, si.source, nil)
+		if err != nil {
+			fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
+			continue
+		}
+
+		resp, err := http.DefaultClient.Do(httpReq)
+		if err != nil {
+			fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			fmt.Fprintf(&text, "=== %s (fetch failed: HTTP %d) ===\n\n", label, resp.StatusCode)
+			continue
+		}
+
+		limitReader := io.LimitReader(resp.Body, int64(maxSourceSize+1))
+		body, err := io.ReadAll(limitReader)
+		resp.Body.Close()
+		if err != nil {
+			fmt.Fprintf(&text, "=== %s (read failed: %s) ===\n\n", label, err.Error())
+			continue
+		}
+
+		content := string(body)
+		if len(body) > maxSourceSize {
+			content = string(body[:maxSourceSize])
+			content += fmt.Sprintf("\n\n[Content truncated at %d bytes]", maxSourceSize)
+		}
+
+		fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
+	}
+
+	result := text.String()
+	if result == "" {
+		return "No source files could be fetched.", nil
+	}
+
+	return result, nil
 }
 
 // ─── MCP Response Helpers ───

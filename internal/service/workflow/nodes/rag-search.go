@@ -322,9 +322,16 @@ func (n *ragSearchNode) enrichWithOriginalContent(ctx context.Context, reg *work
 		}
 
 		// Build auth URL.
+		// When a token is configured and the URL is SSH, convert to HTTPS first
+		// so that token-based authentication works with SSH-style repo URLs.
 		authURL := repoURL
-		if token != "" && strings.HasPrefix(repoURL, "https://") {
-			authURL = injectHTTPSToken(repoURL, token, tokenUser)
+		if token != "" {
+			if !strings.HasPrefix(repoURL, "https://") {
+				authURL = sshToHTTPS(repoURL)
+			}
+			if strings.HasPrefix(authURL, "https://") {
+				authURL = injectHTTPSToken(authURL, token, tokenUser)
+			}
 		}
 
 		// Ensure repo is cloned at this commit.

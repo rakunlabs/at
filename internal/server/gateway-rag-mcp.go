@@ -124,7 +124,7 @@ func (s *Server) gwMCPListTools(w http.ResponseWriter, req service.MCPRequest, s
 	enabledTools := srv.Config.EnabledTools
 	if len(enabledTools) == 0 {
 		// Default: enable all tools.
-		enabledTools = []string{"rag_search", "rag_list_collections", "rag_fetch_source", "rag_search_and_fetch"}
+		enabledTools = []string{"rag_search", "rag_list_collections", "rag_fetch_source", "rag_search_and_fetch", "rag_search_and_fetch_org"}
 	}
 
 	var tools []service.Tool
@@ -235,6 +235,42 @@ func (s *Server) gwMCPListTools(w http.ResponseWriter, req service.MCPRequest, s
 					"required": []string{"query"},
 				},
 			})
+		case "rag_search_and_fetch_org":
+			tools = append(tools, service.Tool{
+				Name:        "rag_search_and_fetch_org",
+				Description: "Search the RAG knowledge base and return only the full original source files without chunks. Uses semantic search internally to identify relevant files, then fetches and returns the complete original content of each unique source file, deduplicated by source.",
+				InputSchema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"query": map[string]any{
+							"type":        "string",
+							"description": "The natural language search query",
+						},
+						"collection_ids": map[string]any{
+							"type":        "array",
+							"items":       map[string]any{"type": "string"},
+							"description": "Optional list of collection IDs to search. If empty, searches all collections configured for this MCP server.",
+						},
+						"num_results": map[string]any{
+							"type":        "integer",
+							"description": fmt.Sprintf("Maximum number of search results to examine for unique sources (default: %d)", gwDefaultNumResults(srv.Config.DefaultNumResults)),
+						},
+						"score_threshold": map[string]any{
+							"type":        "number",
+							"description": "Minimum similarity score threshold (0-1). Results below this are filtered out.",
+						},
+						"max_sources": map[string]any{
+							"type":        "integer",
+							"description": "Maximum number of unique source files to fetch (default: 3, max: 5). Sources are deduplicated and fetched in order of best search score.",
+						},
+						"max_source_size": map[string]any{
+							"type":        "integer",
+							"description": "Maximum size in bytes per fetched source file (default: 102400). Content is truncated if larger.",
+						},
+					},
+					"required": []string{"query"},
+				},
+			})
 		}
 	}
 
@@ -257,7 +293,7 @@ func (s *Server) gwMCPCallTool(w http.ResponseWriter, r *http.Request, req servi
 	// Check if the tool is enabled for this MCP server.
 	enabledTools := srv.Config.EnabledTools
 	if len(enabledTools) == 0 {
-		enabledTools = []string{"rag_search", "rag_list_collections", "rag_fetch_source", "rag_search_and_fetch"}
+		enabledTools = []string{"rag_search", "rag_list_collections", "rag_fetch_source", "rag_search_and_fetch", "rag_search_and_fetch_org"}
 	}
 	if !slices.Contains(enabledTools, params.Name) {
 		mcpError(w, req.ID, -32602, fmt.Sprintf("tool %q is not enabled for this MCP server", params.Name))
@@ -273,6 +309,8 @@ func (s *Server) gwMCPCallTool(w http.ResponseWriter, r *http.Request, req servi
 		s.gwMCPFetchSource(w, r, req.ID, params.Arguments, srv)
 	case "rag_search_and_fetch":
 		s.gwMCPSearchAndFetch(w, r, req.ID, params.Arguments, srv)
+	case "rag_search_and_fetch_org":
+		s.gwMCPFetchSourcesOrg(w, r, req.ID, params.Arguments, srv)
 	default:
 		mcpError(w, req.ID, -32602, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
@@ -714,6 +752,194 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 
 			fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
 		}
+	}
+
+	mcpResult(w, id, service.CallToolResult{
+		Content: []service.ToolContent{
+			{Type: "text", Text: text.String()},
+		},
+	})
+}
+
+// gwMCPFetchSourcesOrg searches the RAG knowledge base and returns only the full
+// original source files — no chunk content. It uses the search internally to
+// identify relevant files, deduplicates by source, then fetches the complete
+// original content of each file.
+func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *service.RAGMCPServer) {
+	// ── Parse arguments ──
+	var searchReq rag.SearchRequest
+
+	if q, ok := args["query"].(string); ok {
+		searchReq.Query = q
+	}
+	if searchReq.Query == "" {
+		mcpError(w, id, -32602, "query argument is required")
+		return
+	}
+
+	if ids, ok := args["collection_ids"].([]any); ok {
+		for _, v := range ids {
+			if s, ok := v.(string); ok {
+				searchReq.CollectionIDs = append(searchReq.CollectionIDs, s)
+			}
+		}
+	}
+
+	// Scope collections to server config.
+	if len(searchReq.CollectionIDs) == 0 && len(srv.Config.CollectionIDs) > 0 {
+		searchReq.CollectionIDs = srv.Config.CollectionIDs
+	}
+	if len(searchReq.CollectionIDs) > 0 && len(srv.Config.CollectionIDs) > 0 {
+		var scoped []string
+		for _, cid := range searchReq.CollectionIDs {
+			if slices.Contains(srv.Config.CollectionIDs, cid) {
+				scoped = append(scoped, cid)
+			}
+		}
+		searchReq.CollectionIDs = scoped
+		if len(scoped) == 0 {
+			mcpError(w, id, -32602, "none of the requested collection_ids are available on this MCP server")
+			return
+		}
+	}
+
+	if n, ok := args["num_results"].(float64); ok {
+		searchReq.NumResults = int(n)
+	}
+	if searchReq.NumResults <= 0 {
+		searchReq.NumResults = gwDefaultNumResults(srv.Config.DefaultNumResults)
+	}
+
+	if t, ok := args["score_threshold"].(float64); ok {
+		searchReq.ScoreThreshold = float32(t)
+	}
+
+	maxSources := 3
+	if n, ok := args["max_sources"].(float64); ok && int(n) > 0 {
+		maxSources = int(n)
+	}
+	if maxSources > 5 {
+		maxSources = 5
+	}
+
+	maxSourceSize := 102400 // 100KB default per source file
+	if n, ok := args["max_source_size"].(float64); ok && int(n) > 0 {
+		maxSourceSize = int(n)
+	}
+	if maxSourceSize > 1048576 {
+		maxSourceSize = 1048576
+	}
+
+	// ── Search ──
+	results, err := s.ragService.Search(r.Context(), searchReq)
+	if err != nil {
+		slog.Error("gateway mcp rag_search_and_fetch_org: search failed", "mcp_server", srv.Name, "error", err)
+		mcpError(w, id, -32000, fmt.Sprintf("search failed: %v", err))
+		return
+	}
+
+	if len(results) == 0 {
+		mcpResult(w, id, service.CallToolResult{
+			Content: []service.ToolContent{
+				{Type: "text", Text: "No results found."},
+			},
+		})
+		return
+	}
+
+	// ── Resolve auth for git operations ──
+	auth, authErr := resolveGitAuth(r.Context(), s.variableStore, srv)
+	if authErr != nil {
+		slog.Warn("gateway mcp rag_search_and_fetch_org: failed to resolve git auth", "error", authErr)
+	}
+	if auth != nil && auth.cleanup != nil {
+		defer auth.cleanup()
+	}
+
+	// ── Collect unique sources from search results (skip chunk output) ──
+	type sourceInfo struct {
+		source    string
+		repoURL   string
+		commitSHA string
+		branch    string
+		path      string
+	}
+	seen := make(map[string]bool)
+	var uniqueSources []sourceInfo
+
+	for _, res := range results {
+		source, _ := res.Metadata["source"].(string)
+		path, _ := res.Metadata["path"].(string)
+		repoURL, _ := res.Metadata["repo_url"].(string)
+		commitSHA, _ := res.Metadata["commit_sha"].(string)
+		branch, _ := res.Metadata["branch"].(string)
+
+		if source != "" && !seen[source] {
+			seen[source] = true
+			uniqueSources = append(uniqueSources, sourceInfo{
+				source:    source,
+				repoURL:   repoURL,
+				commitSHA: commitSHA,
+				branch:    branch,
+				path:      path,
+			})
+		}
+	}
+
+	// ── Fetch source files ──
+	if len(uniqueSources) > maxSources {
+		uniqueSources = uniqueSources[:maxSources]
+	}
+
+	var text strings.Builder
+
+	gitCacheDir := srv.Config.GitCacheDir
+	if gitCacheDir == "" {
+		gitCacheDir = defaultRAGGitCacheDir
+	}
+
+	var envVars []string
+	if auth != nil {
+		envVars = auth.envVars
+	}
+
+	for _, si := range uniqueSources {
+		// Derive a display label — use the path if available.
+		label := si.source
+		if si.path != "" {
+			label = si.path
+		} else if _, filePath := splitSourceToRepoAndPath(si.source); filePath != "" {
+			label = filePath
+		}
+
+		// Try commit-specific checkout first when metadata is available.
+		if si.commitSHA != "" && si.repoURL != "" && si.path != "" {
+			authURL := si.repoURL
+			if auth != nil {
+				authURL = auth.authURL(si.repoURL)
+			}
+
+			repoDir, err := ensureRepoAtCommitMCP(r.Context(), authURL, si.repoURL, si.commitSHA, gitCacheDir, envVars)
+			if err == nil {
+				content, readErr := readFileWithLimit(filepath.Join(repoDir, si.path), maxSourceSize)
+				if readErr == nil {
+					fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
+					continue
+				}
+			} else {
+				slog.Warn("gateway mcp rag_search_and_fetch_org: commit-specific checkout failed, falling back",
+					"source", si.source, "commit_sha", si.commitSHA, "error", err)
+			}
+		}
+
+		// Fall back to fetchSourceContent (cache lookup, clone, or HTTP).
+		content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars)
+		if err != nil {
+			fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
+			continue
+		}
+
+		fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
 	}
 
 	mcpResult(w, id, service.CallToolResult{

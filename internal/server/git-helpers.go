@@ -23,11 +23,16 @@ import (
 // rag-mcp.go for commit-specific checkout and auth.
 
 // mcpGitEnv builds the environment for git commands.
+// Includes a default GIT_SSH_COMMAND that disables host-key verification so
+// SSH clones work even when HOME points to a temp dir (no known_hosts).
+// Callers that supply an explicit GIT_SSH_COMMAND in extra (e.g. with -i key)
+// override this default because later env entries take precedence.
 func mcpGitEnv(extra []string) []string {
 	env := []string{
 		"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		"HOME=" + os.TempDir(),
 		"GIT_TERMINAL_PROMPT=0",
+		"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
 	}
 	env = append(env, extra...)
 	return env
@@ -59,6 +64,37 @@ func mcpInjectHTTPSToken(repoURL, token, user string) string {
 		user = defaultTokenUser
 	}
 	return strings.Replace(repoURL, "https://", "https://"+user+":"+token+"@", 1)
+}
+
+// mcpSSHToHTTPS converts an SSH git URL to an HTTPS URL so that token-based
+// authentication can be used. Handles both SCP-style and URI-style SSH URLs:
+//
+//	git@gitlab.com:org/repo.git    → https://gitlab.com/org/repo.git
+//	ssh://git@gitlab.com/org/repo  → https://gitlab.com/org/repo
+//
+// If the URL is already HTTPS or cannot be parsed, it is returned unchanged.
+func mcpSSHToHTTPS(repoURL string) string {
+	// SCP-style: user@host:path (e.g. git@gitlab.com:org/repo.git)
+	if atIdx := strings.Index(repoURL, "@"); atIdx >= 0 && !strings.Contains(repoURL, "://") {
+		afterAt := repoURL[atIdx+1:]
+		if colonIdx := strings.Index(afterAt, ":"); colonIdx > 0 {
+			host := afterAt[:colonIdx]
+			path := afterAt[colonIdx+1:]
+			return "https://" + host + "/" + path
+		}
+	}
+
+	// URI-style: ssh://[user@]host/path
+	if strings.HasPrefix(repoURL, "ssh://") {
+		stripped := strings.TrimPrefix(repoURL, "ssh://")
+		// Remove user@ prefix if present.
+		if atIdx := strings.Index(stripped, "@"); atIdx >= 0 {
+			stripped = stripped[atIdx+1:]
+		}
+		return "https://" + stripped
+	}
+
+	return repoURL
 }
 
 // hashRepoCommitKey creates a short deterministic hash from repo URL + commit SHA.
@@ -125,9 +161,17 @@ type gitAuthResult struct {
 }
 
 // authURL returns the repo URL with credentials embedded, if applicable.
+// When a token is configured and the URL is SSH, it converts to HTTPS first
+// so that token-based authentication works with SSH-style source URLs.
 func (a *gitAuthResult) authURL(repoURL string) string {
-	if a.token != "" && strings.HasPrefix(repoURL, "https://") {
-		return mcpInjectHTTPSToken(repoURL, a.token, a.tokenUser)
+	if a.token != "" {
+		url := repoURL
+		if !strings.HasPrefix(url, "https://") {
+			url = mcpSSHToHTTPS(url)
+		}
+		if strings.HasPrefix(url, "https://") {
+			return mcpInjectHTTPSToken(url, a.token, a.tokenUser)
+		}
 	}
 	return repoURL
 }

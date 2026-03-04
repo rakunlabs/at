@@ -145,26 +145,22 @@
           </div>
           <div class="p-4 space-y-4">
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label class="text-sm text-gray-700 dark:text-dark-text-secondary">
-                Name
-                <input
-                  type="text"
-                  bind:value={newName}
-                  placeholder="Workflow name"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                />
-              </label>
+              <label class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
+              <input
+                type="text"
+                bind:value={newName}
+                placeholder="Workflow name"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              />
             </div>
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label class="text-sm text-gray-700 dark:text-dark-text-secondary">
-                Description
-                <input
-                  type="text"
-                  bind:value={newDescription}
-                  placeholder="Description (optional)"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                />
-              </label>
+              <label class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
+              <input
+                type="text"
+                bind:value={newDescription}
+                placeholder="Description (optional)"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              />
             </div>
             <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
               <button

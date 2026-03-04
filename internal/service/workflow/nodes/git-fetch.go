@@ -151,9 +151,16 @@ func (n *gitFetchNode) Run(ctx context.Context, reg *workflow.Registry, inputs m
 	defer cancel()
 
 	// Prepare auth for HTTPS token.
+	// When a token is configured and the URL is SSH, convert to HTTPS first
+	// so that token-based authentication works with SSH-style repo URLs.
 	authURL := repoURL
-	if token != "" && strings.HasPrefix(repoURL, "https://") {
-		authURL = injectHTTPSToken(repoURL, token, tokenUser)
+	if token != "" {
+		if !strings.HasPrefix(repoURL, "https://") {
+			authURL = sshToHTTPS(repoURL)
+		}
+		if strings.HasPrefix(authURL, "https://") {
+			authURL = injectHTTPSToken(authURL, token, tokenUser)
+		}
 	}
 
 	// Prepare SSH environment if SSH key is provided.
@@ -318,11 +325,16 @@ func gitOutput(ctx context.Context, dir string, extraEnv []string, args ...strin
 }
 
 // gitEnv builds the environment for git commands.
+// Includes a default GIT_SSH_COMMAND that disables host-key verification so
+// SSH clones work even when HOME points to a temp dir (no known_hosts).
+// Callers that supply an explicit GIT_SSH_COMMAND in extra (e.g. with -i key)
+// override this default because later env entries take precedence.
 func gitEnv(extra []string) []string {
 	env := []string{
 		"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		"HOME=" + os.TempDir(),
 		"GIT_TERMINAL_PROMPT=0",
+		"GIT_SSH_COMMAND=ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null",
 	}
 	env = append(env, extra...)
 	return env
@@ -347,6 +359,37 @@ func injectHTTPSToken(repoURL, token, user string) string {
 		user = defaultTokenUser
 	}
 	return strings.Replace(repoURL, "https://", "https://"+user+":"+token+"@", 1)
+}
+
+// sshToHTTPS converts an SSH git URL to an HTTPS URL so that token-based
+// authentication can be used. Handles both SCP-style and URI-style SSH URLs:
+//
+//	git@gitlab.com:org/repo.git    → https://gitlab.com/org/repo.git
+//	ssh://git@gitlab.com/org/repo  → https://gitlab.com/org/repo
+//
+// If the URL is already HTTPS or cannot be parsed, it is returned unchanged.
+func sshToHTTPS(repoURL string) string {
+	// SCP-style: user@host:path (e.g. git@gitlab.com:org/repo.git)
+	if atIdx := strings.Index(repoURL, "@"); atIdx >= 0 && !strings.Contains(repoURL, "://") {
+		afterAt := repoURL[atIdx+1:]
+		if colonIdx := strings.Index(afterAt, ":"); colonIdx > 0 {
+			host := afterAt[:colonIdx]
+			path := afterAt[colonIdx+1:]
+			return "https://" + host + "/" + path
+		}
+	}
+
+	// URI-style: ssh://[user@]host/path
+	if strings.HasPrefix(repoURL, "ssh://") {
+		stripped := strings.TrimPrefix(repoURL, "ssh://")
+		// Remove user@ prefix if present.
+		if atIdx := strings.Index(stripped, "@"); atIdx >= 0 {
+			stripped = stripped[atIdx+1:]
+		}
+		return "https://" + stripped
+	}
+
+	return repoURL
 }
 
 // resolveDefaultBranch queries the remote to determine its default branch

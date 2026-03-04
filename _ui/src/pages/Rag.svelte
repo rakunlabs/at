@@ -440,7 +440,7 @@
   let mcpFormName = $state('');
   let mcpFormDescription = $state('');
   let mcpFormCollectionIds = $state<string[]>([]);
-  let mcpFormEnabledTools = $state<string[]>(['rag_search', 'rag_list_collections', 'rag_fetch_source', 'rag_search_and_fetch']);
+  let mcpFormEnabledTools = $state<string[]>(['rag_search', 'rag_list_collections', 'rag_fetch_source', 'rag_search_and_fetch', 'rag_search_and_fetch_org']);
   let mcpFormFetchMode = $state('auto');
   let mcpFormGitCacheDir = $state('');
   let mcpFormDefaultNumResults = $state(10);
@@ -456,6 +456,7 @@
     { id: 'rag_list_collections', label: 'List Collections', desc: 'List available collections' },
     { id: 'rag_fetch_source', label: 'Fetch Source', desc: 'Fetch original file content' },
     { id: 'rag_search_and_fetch', label: 'Search & Fetch', desc: 'Search + auto-fetch full source files' },
+    { id: 'rag_search_and_fetch_org', label: 'Search & Fetch Original', desc: 'Search + return only original files' },
   ];
 
   async function loadMcpServers() {
