@@ -4,7 +4,8 @@
   import { listAgents, createAgent, updateAgent, deleteAgent, type Agent } from '@/lib/api/agents';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste } from 'lucide-svelte';
+  import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
+  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste, Server } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -16,6 +17,7 @@
   let agents = $state<Agent[]>([]);
   let providers = $state<ProviderRecord[]>([]);
   let skills = $state<Skill[]>([]);
+  let mcpServers = $state<MCPServer[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
@@ -103,11 +105,12 @@
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       
-      const [aResult, pResult, sResult] = await Promise.all([listAgents(params), listProviders(), listSkills()]);
+      const [aResult, pResult, sResult, mResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPServers({ _limit: 500 })]);
       agents = aResult.data || [];
       total = aResult.meta?.total || 0;
       providers = pResult.data || [];
       skills = sResult.data || [];
+      mcpServers = mResult.data || [];
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -231,6 +234,31 @@
 
   function updateMcpInput(i: number, val: string) {
     formMCPs[i] = val;
+  }
+
+  function mcpGatewayURL(name: string): string {
+    return `${window.location.origin}/gateway/v1/mcp/${name}`;
+  }
+
+  function toggleMCPServer(name: string) {
+    const url = mcpGatewayURL(name);
+    if (formMCPs.includes(url)) {
+      formMCPs = formMCPs.filter(u => u !== url);
+    } else {
+      // Replace the empty trailing entry or append
+      const emptyIdx = formMCPs.findIndex(u => u.trim() === '');
+      if (emptyIdx >= 0) {
+        formMCPs[emptyIdx] = url;
+        formMCPs = [...formMCPs];
+      } else {
+        formMCPs = [...formMCPs, url];
+      }
+    }
+  }
+
+  function isMCPServerSelected(name: string): boolean {
+    const url = mcpGatewayURL(name);
+    return formMCPs.includes(url);
   }
 
   // ─── Derived ───
@@ -399,6 +427,31 @@
             <div class="grid grid-cols-4 gap-3 items-start">
               <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">MCP Servers</span>
               <div class="col-span-3 space-y-2">
+                {#if mcpServers.length > 0}
+                  <div class="bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border space-y-1.5">
+                    <div class="flex items-center gap-1.5 mb-1">
+                      <Server size={12} class="text-gray-400 dark:text-dark-text-muted" />
+                      <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Your MCP Servers</span>
+                    </div>
+                    <div class="flex flex-wrap gap-1.5">
+                      {#each mcpServers as srv}
+                        <button
+                          type="button"
+                          onclick={() => toggleMCPServer(srv.name)}
+                          class={[
+                            'px-2 py-1 text-xs border transition-colors',
+                            isMCPServerSelected(srv.name)
+                              ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
+                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
+                          ]}
+                          title={srv.config.description || srv.name}
+                        >
+                          {srv.name}
+                        </button>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
                 {#each formMCPs as url, i}
                   <div class="flex gap-2 items-center">
                     <input
