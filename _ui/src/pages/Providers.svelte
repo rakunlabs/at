@@ -1096,25 +1096,6 @@
       emptyTitle="No providers configured"
       emptyDescription="Add a provider to start routing requests"
     >
-      {#snippet emptyAction()}
-        <div class="flex justify-center gap-2">
-          <button
-            onclick={openPresets}
-            class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 dark:bg-accent text-white text-sm hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
-          >
-            <Layers size={14} />
-            From Template
-          </button>
-          <button
-            onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary transition-colors"
-          >
-            <Plus size={14} />
-            Custom
-          </button>
-        </div>
-      {/snippet}
-
       {#snippet header()}
         <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />
         <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />

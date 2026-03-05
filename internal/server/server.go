@@ -94,6 +94,9 @@ type Server struct {
 	// ragMCPServerStore is the persistent store for named RAG MCP server configurations.
 	ragMCPServerStore service.RAGMCPServerStorer
 
+	// mcpServerStore is the persistent store for general MCP server configurations.
+	mcpServerStore service.MCPServerStorer
+
 	// ragService is the RAG ingestion and search engine (nil if ragCollectionStore is nil).
 	ragService *rag.Service
 
@@ -193,7 +196,7 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -221,6 +224,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		ragCollectionStore:   ragCollectionStore,
 		ragStateStore:        ragStateStore,
 		ragMCPServerStore:    ragMCPServerStore,
+		mcpServerStore:       mcpServerStore,
 		providerFactory:      factory,
 		storeType:            storeType,
 		authTokens:           gatewayCfg.AuthTokens,
@@ -353,6 +357,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// Gateway MCP endpoints for named RAG MCP servers (auth-gated)
 	gatewayGroup.POST("/v1/mcp/rag/{name}", s.GatewayRAGMCPHandler)
 
+	// General MCP gateway endpoint (auth-gated)
+	gatewayGroup.POST("/v1/mcp/{name}", s.GatewayMCPHandler)
+
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
 		slog.Info("forward auth enabled", "url", cfg.ForwardAuth.Address)
@@ -458,6 +465,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// RAG embedding tools
 	apiGroup.POST("/v1/rag/discover-embedding-models", s.DiscoverEmbeddingModelsAPI)
 	apiGroup.POST("/v1/rag/test-embedding", s.TestEmbeddingAPI)
+
+	// General MCP server management
+	apiGroup.GET("/v1/mcp/servers", s.ListMCPServersAPI)
+	apiGroup.POST("/v1/mcp/servers", s.CreateMCPServerAPI)
+	apiGroup.GET("/v1/mcp/servers/{id}", s.GetMCPServerAPI)
+	apiGroup.PUT("/v1/mcp/servers/{id}", s.UpdateMCPServerAPI)
+	apiGroup.DELETE("/v1/mcp/servers/{id}", s.DeleteMCPServerAPI)
 
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)

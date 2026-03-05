@@ -319,16 +319,6 @@
       emptyTitle="No variables configured"
       emptyDescription="Variables store configuration values and credentials for use in skill handlers"
     >
-      {#snippet emptyAction()}
-        <button
-          onclick={openCreate}
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors mx-auto"
-        >
-          <Plus size={12} />
-          New Variable
-        </button>
-      {/snippet}
-
       {#snippet header()}
         <SortableHeader field="key" label="Key" {sorts} onsort={handleSort} />
         <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Value</th>

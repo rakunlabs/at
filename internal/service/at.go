@@ -575,3 +575,69 @@ type RAGMCPServerStorer interface {
 	UpdateRAGMCPServer(ctx context.Context, id string, s RAGMCPServer) (*RAGMCPServer, error)
 	DeleteRAGMCPServer(ctx context.Context, id string) error
 }
+
+// ─── General MCP Servers ───
+
+// MCPHTTPTool defines a custom HTTP-based tool exposed via an MCP server.
+type MCPHTTPTool struct {
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	Method       string            `json:"method"`                  // GET, POST, PUT, DELETE, PATCH, HEAD
+	URL          string            `json:"url"`                     // URL template with {{.param}} placeholders
+	Headers      map[string]string `json:"headers,omitempty"`       // Static/template headers
+	BodyTemplate string            `json:"body_template,omitempty"` // Body template with {{.param}} placeholders
+	InputSchema  map[string]any    `json:"input_schema"`            // JSON schema for the tool inputs
+}
+
+// MCPServerConfig holds the configuration for a general MCP server endpoint.
+type MCPServerConfig struct {
+	Description string `json:"description,omitempty"`
+
+	// RAG tool integration (optional).
+	EnabledRAGTools   []string `json:"enabled_rag_tools,omitempty"`
+	CollectionIDs     []string `json:"collection_ids,omitempty"`
+	FetchMode         string   `json:"fetch_mode,omitempty"`
+	GitCacheDir       string   `json:"git_cache_dir,omitempty"`
+	DefaultNumResults int      `json:"default_num_results,omitempty"`
+	TokenVariable     string   `json:"token_variable,omitempty"`
+	TokenUser         string   `json:"token_user,omitempty"`
+	SSHKeyVariable    string   `json:"ssh_key_variable,omitempty"`
+
+	// Custom HTTP tools.
+	HTTPTools []MCPHTTPTool `json:"http_tools,omitempty"`
+
+	// Upstream MCP servers to proxy tools from.
+	MCPUpstreams []MCPUpstream `json:"mcp_upstreams,omitempty"`
+
+	// Skill tools — names of skills whose tools should be exposed.
+	EnabledSkills []string `json:"enabled_skills,omitempty"`
+}
+
+// MCPUpstream represents an upstream MCP server URL with optional headers.
+type MCPUpstream struct {
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+// MCPServer represents a named, gateway-facing MCP endpoint that can expose
+// RAG tools, custom HTTP tools, or both. External agents connect to
+// /gateway/v1/mcp/{name} to use these tools.
+type MCPServer struct {
+	ID        string          `json:"id"`
+	Name      string          `json:"name"` // URL-safe slug used in the endpoint path
+	Config    MCPServerConfig `json:"config"`
+	CreatedAt string          `json:"created_at"`
+	UpdatedAt string          `json:"updated_at"`
+	CreatedBy string          `json:"created_by"`
+	UpdatedBy string          `json:"updated_by"`
+}
+
+// MCPServerStorer defines CRUD operations for general MCP server configurations.
+type MCPServerStorer interface {
+	ListMCPServers(ctx context.Context, q *query.Query) (*ListResult[MCPServer], error)
+	GetMCPServer(ctx context.Context, id string) (*MCPServer, error)
+	GetMCPServerByName(ctx context.Context, name string) (*MCPServer, error)
+	CreateMCPServer(ctx context.Context, s MCPServer) (*MCPServer, error)
+	UpdateMCPServer(ctx context.Context, id string, s MCPServer) (*MCPServer, error)
+	DeleteMCPServer(ctx context.Context, id string) error
+}

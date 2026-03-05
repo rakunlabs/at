@@ -5,7 +5,7 @@
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listAllTriggers, type Trigger } from '@/lib/api/triggers';
-  import { listRAGMCPServers, type RAGMCPServer } from '@/lib/api/rag';
+  import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
   import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
   import { formatDateTime } from '@/lib/helper/format';
@@ -34,8 +34,8 @@
   let workflows = $state<Workflow[]>([]);
   let webhookTriggers = $state<{ trigger: Trigger; workflowName: string }[]>([]);
 
-  // RAG MCP servers
-  let ragMcpServers = $state<RAGMCPServer[]>([]);
+  // MCP servers
+  let mcpServers = $state<MCPServer[]>([]);
 
   // Create form
   let showCreate = $state(false);
@@ -47,8 +47,8 @@
   let formSelectedModels = $state<string[]>([]);
   let formWebhooksMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedWebhooks = $state<string[]>([]);
-  let formRagMcpsMode = $state<'all' | 'none' | 'list'>('all');
-  let formSelectedRagMcps = $state<string[]>([]);
+  let formMcpServersMode = $state<'all' | 'none' | 'list'>('all');
+  let formSelectedMcpServers = $state<string[]>([]);
   let formTotalTokenLimit = $state('');
   let formLimitResetInterval = $state('');
   let formResetPreset = $state('');
@@ -71,8 +71,8 @@
   let editSelectedModels = $state<string[]>([]);
   let editWebhooksMode = $state<'all' | 'none' | 'list'>('all');
   let editSelectedWebhooks = $state<string[]>([]);
-  let editRagMcpsMode = $state<'all' | 'none' | 'list'>('all');
-  let editSelectedRagMcps = $state<string[]>([]);
+  let editMcpServersMode = $state<'all' | 'none' | 'list'>('all');
+  let editSelectedMcpServers = $state<string[]>([]);
   let editTotalTokenLimit = $state('');
   let editLimitResetInterval = $state('');
   let editResetPreset = $state('');
@@ -140,17 +140,17 @@
     } catch (_) {}
   }
 
-  async function loadRagMcpServers() {
+  async function loadMcpServers() {
     try {
-      const res = await listRAGMCPServers({ _limit: 100 });
-      ragMcpServers = res.data || [];
+      const res = await listMCPServers({ _limit: 100 });
+      mcpServers = res.data || [];
     } catch (_) {}
   }
 
   loadTokens();
   loadProviders();
   loadWebhooks();
-  loadRagMcpServers();
+  loadMcpServers();
 
   // ─── Computed ───
   let allModels = $derived(
@@ -164,7 +164,7 @@
 
   let allProviderKeys = $derived(providers.map((p) => p.key));
 
-  let allRagMcpNames = $derived(ragMcpServers.map((s) => s.name));
+  let allMcpServerNames = $derived(mcpServers.map((s) => s.name));
 
   // Group webhooks by workflow name for the picker UI.
   let webhooksByWorkflow = $derived(
@@ -185,8 +185,8 @@
     formSelectedModels = [];
     formWebhooksMode = 'all';
     formSelectedWebhooks = [];
-    formRagMcpsMode = 'all';
-    formSelectedRagMcps = [];
+    formMcpServersMode = 'all';
+    formSelectedMcpServers = [];
     formTotalTokenLimit = '';
     formLimitResetInterval = '';
     formResetPreset = '';
@@ -220,11 +220,11 @@
       if (formWebhooksMode === 'list' && formSelectedWebhooks.length > 0) {
         req.allowed_webhooks = formSelectedWebhooks;
       }
-      if (formRagMcpsMode !== 'all') {
-        req.allowed_rag_mcps_mode = formRagMcpsMode;
+      if (formMcpServersMode !== 'all') {
+        req.allowed_rag_mcps_mode = formMcpServersMode;
       }
-      if (formRagMcpsMode === 'list' && formSelectedRagMcps.length > 0) {
-        req.allowed_rag_mcps = formSelectedRagMcps;
+      if (formMcpServersMode === 'list' && formSelectedMcpServers.length > 0) {
+        req.allowed_rag_mcps = formSelectedMcpServers;
       }
       if (formExpiresAt) {
         req.expires_at = new Date(formExpiresAt).toISOString();
@@ -296,11 +296,11 @@
     }
   }
 
-  function toggleRagMcp(name: string) {
-    if (formSelectedRagMcps.includes(name)) {
-      formSelectedRagMcps = formSelectedRagMcps.filter((m) => m !== name);
+  function toggleMcpServer(name: string) {
+    if (formSelectedMcpServers.includes(name)) {
+      formSelectedMcpServers = formSelectedMcpServers.filter((m) => m !== name);
     } else {
-      formSelectedRagMcps = [...formSelectedRagMcps, name];
+      formSelectedMcpServers = [...formSelectedMcpServers, name];
     }
   }
 
@@ -325,8 +325,8 @@
     editSelectedModels = token.allowed_models ? [...token.allowed_models] : [];
     editWebhooksMode = resolveMode(token.allowed_webhooks_mode, token.allowed_webhooks);
     editSelectedWebhooks = token.allowed_webhooks ? [...token.allowed_webhooks] : [];
-    editRagMcpsMode = resolveMode(token.allowed_rag_mcps_mode, token.allowed_rag_mcps);
-    editSelectedRagMcps = token.allowed_rag_mcps ? [...token.allowed_rag_mcps] : [];
+    editMcpServersMode = resolveMode(token.allowed_rag_mcps_mode, token.allowed_rag_mcps);
+    editSelectedMcpServers = token.allowed_rag_mcps ? [...token.allowed_rag_mcps] : [];
     editTotalTokenLimit = token.total_token_limit != null ? String(token.total_token_limit) : '';
     editLimitResetInterval = token.limit_reset_interval || '';
     // Determine if the interval matches a preset or is custom.
@@ -351,8 +351,8 @@
     editSelectedModels = [];
     editWebhooksMode = 'all';
     editSelectedWebhooks = [];
-    editRagMcpsMode = 'all';
-    editSelectedRagMcps = [];
+    editMcpServersMode = 'all';
+    editSelectedMcpServers = [];
     editTotalTokenLimit = '';
     editLimitResetInterval = '';
     editResetPreset = '';
@@ -382,11 +382,11 @@
     }
   }
 
-  function toggleEditRagMcp(name: string) {
-    if (editSelectedRagMcps.includes(name)) {
-      editSelectedRagMcps = editSelectedRagMcps.filter((m) => m !== name);
+  function toggleEditMcpServer(name: string) {
+    if (editSelectedMcpServers.includes(name)) {
+      editSelectedMcpServers = editSelectedMcpServers.filter((m) => m !== name);
     } else {
-      editSelectedRagMcps = [...editSelectedRagMcps, name];
+      editSelectedMcpServers = [...editSelectedMcpServers, name];
     }
   }
 
@@ -419,11 +419,11 @@
       if (editWebhooksMode === 'list' && editSelectedWebhooks.length > 0) {
         req.allowed_webhooks = editSelectedWebhooks;
       }
-      if (editRagMcpsMode !== 'all') {
-        req.allowed_rag_mcps_mode = editRagMcpsMode;
+      if (editMcpServersMode !== 'all') {
+        req.allowed_rag_mcps_mode = editMcpServersMode;
       }
-      if (editRagMcpsMode === 'list' && editSelectedRagMcps.length > 0) {
-        req.allowed_rag_mcps = editSelectedRagMcps;
+      if (editMcpServersMode === 'list' && editSelectedMcpServers.length > 0) {
+        req.allowed_rag_mcps = editSelectedMcpServers;
       }
       if (editExpiresAt) {
         req.expires_at = new Date(editExpiresAt).toISOString();
@@ -772,17 +772,17 @@
         </div>
       </div>
 
-      <!-- RAG MCP restrictions -->
+      <!-- MCP Server restrictions -->
       <div class="grid grid-cols-4 gap-3 mb-3">
-        <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed RAG MCPs</span>
+        <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed MCP Servers</span>
         <div class="col-span-3">
           <div class="flex gap-1 mb-2">
             {#each ['all', 'none', 'list'] as mode}
               <button
-                onclick={() => { formRagMcpsMode = mode as any; }}
+                onclick={() => { formMcpServersMode = mode as any; }}
                 class={[
                   'px-2.5 py-1 text-xs font-medium border transition-colors',
-                  formRagMcpsMode === mode
+                  formMcpServersMode === mode
                     ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                     : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
                 ]}
@@ -791,15 +791,15 @@
               </button>
             {/each}
           </div>
-          {#if formRagMcpsMode === 'list'}
-            {#if allRagMcpNames.length > 0}
+          {#if formMcpServersMode === 'list'}
+            {#if allMcpServerNames.length > 0}
               <div class="flex flex-wrap gap-1.5">
-                {#each allRagMcpNames as name}
+                {#each allMcpServerNames as name}
                   <button
-                    onclick={() => toggleRagMcp(name)}
+                    onclick={() => toggleMcpServer(name)}
                     class={[
                       'px-2 py-1 text-xs border transition-colors',
-                      formSelectedRagMcps.includes(name)
+                      formSelectedMcpServers.includes(name)
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
                     ]}
@@ -809,12 +809,12 @@
                 {/each}
               </div>
             {:else}
-              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No MCP servers available</span>
             {/if}
-          {:else if formRagMcpsMode === 'none'}
-            <p class="text-xs text-red-500 dark:text-red-400">All RAG MCP servers denied</p>
+          {:else if formMcpServersMode === 'none'}
+            <p class="text-xs text-red-500 dark:text-red-400">All MCP servers denied</p>
           {:else}
-            <p class="text-xs text-gray-400 dark:text-dark-text-muted">All RAG MCP servers allowed</p>
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted">All MCP servers allowed</p>
           {/if}
         </div>
       </div>
@@ -1074,17 +1074,17 @@
             </div>
           </div>
 
-          <!-- RAG MCP restrictions -->
+          <!-- MCP Server restrictions -->
           <div class="grid grid-cols-4 gap-3">
-            <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed RAG MCPs</span>
+            <span class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Allowed MCP Servers</span>
             <div class="col-span-3">
               <div class="flex gap-1 mb-2">
                 {#each ['all', 'none', 'list'] as mode}
                   <button
-                    onclick={() => { editRagMcpsMode = mode as any; }}
+                    onclick={() => { editMcpServersMode = mode as any; }}
                     class={[
                       'px-2.5 py-1 text-xs font-medium border transition-colors',
-                      editRagMcpsMode === mode
+                      editMcpServersMode === mode
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
                     ]}
@@ -1093,15 +1093,15 @@
                   </button>
                 {/each}
               </div>
-              {#if editRagMcpsMode === 'list'}
-                {#if allRagMcpNames.length > 0}
+              {#if editMcpServersMode === 'list'}
+                {#if allMcpServerNames.length > 0}
                   <div class="flex flex-wrap gap-1.5">
-                    {#each allRagMcpNames as name}
+                    {#each allMcpServerNames as name}
                       <button
-                        onclick={() => toggleEditRagMcp(name)}
+                        onclick={() => toggleEditMcpServer(name)}
                         class={[
                           'px-2 py-1 text-xs border transition-colors',
-                          editSelectedRagMcps.includes(name)
+                          editSelectedMcpServers.includes(name)
                             ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                             : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
                         ]}
@@ -1111,12 +1111,12 @@
                     {/each}
                   </div>
                 {:else}
-                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">No RAG MCP servers available</span>
+                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">No MCP servers available</span>
                 {/if}
-              {:else if editRagMcpsMode === 'none'}
-                <p class="text-xs text-red-500 dark:text-red-400">All RAG MCP servers denied</p>
+              {:else if editMcpServersMode === 'none'}
+                <p class="text-xs text-red-500 dark:text-red-400">All MCP servers denied</p>
               {:else}
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted">All RAG MCP servers allowed</p>
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">All MCP servers allowed</p>
               {/if}
             </div>
           </div>
@@ -1253,10 +1253,10 @@
                     </div>
                   {/if}
                   {#if rMode === 'none'}
-                    <div><span class="text-red-500 dark:text-red-400">RAG MCPs: None</span></div>
+                    <div><span class="text-red-500 dark:text-red-400">MCP Servers: None</span></div>
                   {:else if rMode === 'list' && token.allowed_rag_mcps && token.allowed_rag_mcps.length > 0}
                     <div>
-                      <span class="text-gray-400 dark:text-dark-text-muted">RAG MCPs:</span>
+                      <span class="text-gray-400 dark:text-dark-text-muted">MCP Servers:</span>
                       {token.allowed_rag_mcps.slice(0, 3).join(', ')}{token.allowed_rag_mcps.length > 3 ? ` +${token.allowed_rag_mcps.length - 3}` : ''}
                     </div>
                   {/if}

@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 // ─── MCP Proxy API ───
@@ -237,42 +236,7 @@ func (s *Server) SkillCallToolAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Execute the handler using the same logic as TestHandlerAPI.
-	var result string
-	var execErr error
-
-	if tool.HandlerType == "bash" {
-		var varLister workflow.VarLister
-		if s.variableStore != nil {
-			varLister = func() (map[string]string, error) {
-				vars, err := s.variableStore.ListVariables(r.Context(), nil)
-				if err != nil {
-					return nil, err
-				}
-				m := make(map[string]string, len(vars.Data))
-				for _, v := range vars.Data {
-					m[v.Key] = v.Value
-				}
-				return m, nil
-			}
-		}
-		result, execErr = workflow.ExecuteBashHandler(r.Context(), tool.Handler, req.Arguments, varLister, 0)
-	} else {
-		var varLookup workflow.VarLookup
-		if s.variableStore != nil {
-			varLookup = func(key string) (string, error) {
-				v, err := s.variableStore.GetVariableByKey(r.Context(), key)
-				if err != nil {
-					return "", err
-				}
-				if v == nil {
-					return "", fmt.Errorf("variable %q not found", key)
-				}
-				return v.Value, nil
-			}
-		}
-		result, execErr = workflow.ExecuteJSHandler(tool.Handler, req.Arguments, varLookup)
-	}
+	result, execErr := s.executeSkillTool(r.Context(), tool, req.Arguments)
 
 	resp := skillCallToolResponse{Result: result}
 	if execErr != nil {

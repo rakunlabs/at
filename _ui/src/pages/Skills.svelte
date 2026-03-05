@@ -430,16 +430,6 @@
           emptyTitle="No skills configured"
           emptyDescription="Skills define reusable tool sets for agent workflows"
         >
-          {#snippet emptyAction()}
-            <button
-              onclick={openCreate}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors mx-auto"
-            >
-              <Plus size={12} />
-              New Skill
-            </button>
-          {/snippet}
-
           {#snippet header()}
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
             <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>

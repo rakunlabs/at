@@ -10,6 +10,7 @@ import Workflows from '@/pages/Workflows.svelte';
 import WorkflowEditor from '@/pages/WorkflowEditor.svelte';
 import Runs from '@/pages/Runs.svelte';
 import Rag from '@/pages/Rag.svelte';
+import McpServers from '@/pages/McpServers.svelte';
 import Docs from '@/pages/Docs.svelte';
 import Settings from '@/pages/Settings.svelte';
 import NotFound from '@/pages/NotFound.svelte';
@@ -27,6 +28,7 @@ export default {
   '/workflows/:id': WorkflowEditor,
   '/runs': Runs,
   '/rag': Rag,
+  '/mcp-servers': McpServers,
   '/docs': Docs,
   '/settings': Settings,
   '*': NotFound

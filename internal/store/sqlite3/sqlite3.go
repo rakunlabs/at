@@ -41,6 +41,7 @@ type SQLite struct {
 	tableRAGCollections   exp.IdentifierExpression
 	tableRAGStates        exp.IdentifierExpression
 	tableRAGMCPServers    exp.IdentifierExpression
+	tableMCPServers       exp.IdentifierExpression
 	tableTokenUsage       exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
@@ -133,6 +134,7 @@ func New(ctx context.Context, cfg *config.StoreSQLite, encKey []byte) (*SQLite, 
 		tableRAGCollections:   goqu.T(tablePrefix + "rag_collections"),
 		tableRAGStates:        goqu.T(tablePrefix + "rag_states"),
 		tableRAGMCPServers:    goqu.T(tablePrefix + "rag_mcp_servers"),
+		tableMCPServers:       goqu.T(tablePrefix + "mcp_servers"),
 		tableTokenUsage:       goqu.T(tablePrefix + "token_usage"),
 		encKey:                encKey,
 	}, nil

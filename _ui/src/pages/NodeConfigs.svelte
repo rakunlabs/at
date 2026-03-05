@@ -462,16 +462,6 @@
       emptyTitle="No node configs configured"
       emptyDescription="Node configs store reusable settings like SMTP servers for workflow nodes"
     >
-      {#snippet emptyAction()}
-        <button
-          onclick={openCreate}
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors mx-auto"
-        >
-          <Plus size={12} />
-          New Config
-        </button>
-      {/snippet}
-
       {#snippet header()}
         <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
         <SortableHeader field="type" label="Type" {sorts} onsort={handleSort} />

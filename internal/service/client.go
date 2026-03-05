@@ -63,13 +63,18 @@ type HTTPMCPClient struct {
 	httpClient *http.Client
 	sessionID  string
 	nextID     int32
+	headers    map[string]string
 }
 
-func NewHTTPMCPClient(ctx context.Context, baseURL string) (*HTTPMCPClient, error) {
+func NewHTTPMCPClient(ctx context.Context, baseURL string, opts ...HTTPMCPClientOption) (*HTTPMCPClient, error) {
 	client := &HTTPMCPClient{
 		baseURL:    baseURL,
 		httpClient: &http.Client{},
 		nextID:     1,
+	}
+
+	for _, opt := range opts {
+		opt(client)
 	}
 
 	if err := client.initialize(ctx); err != nil {
@@ -77,6 +82,16 @@ func NewHTTPMCPClient(ctx context.Context, baseURL string) (*HTTPMCPClient, erro
 	}
 
 	return client, nil
+}
+
+// HTTPMCPClientOption configures an HTTPMCPClient.
+type HTTPMCPClientOption func(*HTTPMCPClient)
+
+// WithHeaders sets extra headers sent with every request.
+func WithHeaders(headers map[string]string) HTTPMCPClientOption {
+	return func(c *HTTPMCPClient) {
+		c.headers = headers
+	}
 }
 
 func (c *HTTPMCPClient) getNextID() int {
@@ -95,6 +110,9 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
+	for k, v := range c.headers {
+		httpReq.Header.Set(k, v)
+	}
 	if c.sessionID != "" {
 		httpReq.Header.Set("X-Session-ID", c.sessionID)
 	}

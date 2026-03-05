@@ -3,7 +3,6 @@
   import { storeInfo } from "@/lib/store/store.svelte";
   import { getInfo } from "@/lib/api/gateway";
     import {
-    Home,
     MessageSquare,
     Cpu,
     Key,
@@ -16,6 +15,8 @@
     SlidersHorizontal,
     Bot,
     Database,
+    Server,
+    House,
   } from "lucide-svelte";
 
 
@@ -49,7 +50,7 @@
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
     >
-      <Home size={14} />
+      <House size={14} />
       <span>Dashboard</span>
     </a>
     <a
@@ -90,6 +91,58 @@
     >
       <Database size={14} />
       <span>RAG</span>
+    </a>
+    <a
+      href="#/mcp-servers"
+      onclick={(e) => navigate(e, "/mcp-servers")}
+      class={[
+        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/mcp-servers"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Server size={14} />
+      <span>MCP</span>
+    </a>
+    <a
+      href="#/skills"
+      onclick={(e) => navigate(e, "/skills")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/skills"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <WandSparkles size={14} />
+      <span>Skills</span>
+    </a>
+    <a
+      href="#/variables"
+      onclick={(e) => navigate(e, "/variables")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/variables"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Braces size={14} />
+      <span>Variables</span>
+    </a>
+    <a
+      href="#/agents"
+      onclick={(e) => navigate(e, "/agents")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/agents"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Bot size={14} />
+      <span>Agents</span>
     </a>
     <a
       href="#/tokens"
@@ -161,45 +214,6 @@
         >
           <Activity size={14} />
           <span>Runs</span>
-        </a>
-        <a
-          href="#/agents"
-          onclick={(e) => navigate(e, "/agents")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/agents"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <Bot size={14} />
-          <span>Agents</span>
-        </a>
-        <a
-          href="#/skills"
-          onclick={(e) => navigate(e, "/skills")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/skills"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <WandSparkles size={14} />
-          <span>Skills</span>
-        </a>
-        <a
-          href="#/variables"
-          onclick={(e) => navigate(e, "/variables")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/variables"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <Braces size={14} />
-          <span>Variables</span>
         </a>
         <a
           href="#/node-configs"

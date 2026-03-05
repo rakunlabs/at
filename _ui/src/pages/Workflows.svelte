@@ -195,16 +195,6 @@
         emptyTitle="No workflows yet"
         emptyDescription="Create a workflow to start building visual agent pipelines"
       >
-        {#snippet emptyAction()}
-          <button
-            onclick={() => (showCreateForm = true)}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors mx-auto"
-          >
-            <Plus size={12} />
-            New Workflow
-          </button>
-        {/snippet}
-
         {#snippet header()}
           <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
           <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>

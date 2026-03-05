@@ -33,6 +33,7 @@ type Memory struct {
 	ragCollections   map[string]service.RAGCollection          // id -> rag collection
 	ragStates        map[string]service.RAGState               // key -> rag state
 	ragMCPServers    map[string]service.RAGMCPServer           // id -> rag mcp server
+	mcpServers       map[string]service.MCPServer             // id -> general mcp server
 	tokenUsage       map[string]map[string]*service.TokenUsage // token_id -> model -> usage
 }
 
@@ -53,6 +54,7 @@ func New() *Memory {
 		ragCollections:   make(map[string]service.RAGCollection),
 		ragStates:        make(map[string]service.RAGState),
 		ragMCPServers:    make(map[string]service.RAGMCPServer),
+		mcpServers:       make(map[string]service.MCPServer),
 		tokenUsage:       make(map[string]map[string]*service.TokenUsage),
 	}
 }
