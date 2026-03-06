@@ -1,0 +1,76 @@
+{
+  "slug": "slack-messages",
+  "name": "Slack Messages",
+  "description": "Read and send Slack messages",
+  "category": "Communication",
+  "tags": ["slack", "messaging", "chat"],
+  "required_variables": [
+    {
+      "key": "slack_bot_token",
+      "description": "Slack Bot User OAuth Token (xoxb-...)",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "slack_messages",
+    "description": "Read and send Slack messages",
+    "system_prompt": "You have access to Slack messaging tools. Use list_channels to discover channels, read_messages to view recent messages, and send_message to post. Be respectful of channel topics and avoid spamming.",
+    "tools": [
+      {
+        "name": "list_channels",
+        "description": "List Slack channels the bot has access to",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "limit": {
+              "type": "number",
+              "description": "Maximum number of channels (default 20)"
+            }
+          }
+        },
+        "handler": "var token = getVar('slack_bot_token');\nvar limit = args.limit || 20;\nvar resp = httpGet('https://slack.com/api/conversations.list?limit=' + limit + '&types=public_channel,private_channel', {'Authorization': 'Bearer ' + token});\nvar body = resp.body;\nif (!body.ok) return JSON.stringify({error: body.error});\nvar channels = (body.channels || []).map(function(c) {\n  return {id: c.id, name: c.name, topic: (c.topic && c.topic.value) || '', member_count: c.num_members};\n});\nreturn JSON.stringify(channels, null, 2);",
+        "handler_type": "js"
+      },
+      {
+        "name": "read_messages",
+        "description": "Read recent messages from a Slack channel",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "type": "string",
+              "description": "Channel ID"
+            },
+            "limit": {
+              "type": "number",
+              "description": "Number of messages to read (default 10)"
+            }
+          },
+          "required": ["channel"]
+        },
+        "handler": "var token = getVar('slack_bot_token');\nvar limit = args.limit || 10;\nvar resp = httpGet('https://slack.com/api/conversations.history?channel=' + args.channel + '&limit=' + limit, {'Authorization': 'Bearer ' + token});\nvar body = resp.body;\nif (!body.ok) return JSON.stringify({error: body.error});\nvar messages = (body.messages || []).map(function(m) {\n  return {user: m.user || m.bot_id || 'unknown', text: m.text, ts: m.ts, type: m.type};\n});\nreturn JSON.stringify(messages, null, 2);",
+        "handler_type": "js"
+      },
+      {
+        "name": "send_message",
+        "description": "Send a message to a Slack channel",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "channel": {
+              "type": "string",
+              "description": "Channel ID"
+            },
+            "text": {
+              "type": "string",
+              "description": "Message text"
+            }
+          },
+          "required": ["channel", "text"]
+        },
+        "handler": "var token = getVar('slack_bot_token');\nvar resp = httpPost('https://slack.com/api/chat.postMessage', JSON.stringify({channel: args.channel, text: args.text}), {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'});\nvar body = resp.body;\nif (!body.ok) return JSON.stringify({error: body.error});\nreturn JSON.stringify({ok: true, ts: body.ts, channel: body.channel}, null, 2);",
+        "handler_type": "js"
+      }
+    ]
+  }
+}

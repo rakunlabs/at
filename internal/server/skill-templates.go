@@ -1,0 +1,145 @@
+package server
+
+import (
+	"embed"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/rakunlabs/at/internal/service"
+)
+
+//go:embed skill_templates/*.json
+var skillTemplateFS embed.FS
+
+// SkillTemplate is a predefined skill that ships with AT.
+type SkillTemplate struct {
+	Slug              string             `json:"slug"`
+	Name              string             `json:"name"`
+	Description       string             `json:"description"`
+	Category          string             `json:"category"`
+	Tags              []string           `json:"tags"`
+	RequiredVariables []RequiredVariable  `json:"required_variables"`
+	OAuth             string             `json:"oauth,omitempty"` // OAuth provider name (e.g. "google") — signals frontend to show connect flow
+	Skill             SkillTemplateData   `json:"skill"`
+}
+
+// SkillTemplateData holds the skill payload to be installed.
+type SkillTemplateData struct {
+	Name         string         `json:"name"`
+	Description  string         `json:"description"`
+	SystemPrompt string         `json:"system_prompt"`
+	Tools        []service.Tool `json:"tools"`
+}
+
+// RequiredVariable describes a variable the skill needs at runtime.
+type RequiredVariable struct {
+	Key         string `json:"key"`
+	Description string `json:"description"`
+	Secret      bool   `json:"secret"`
+}
+
+// loadSkillTemplates reads all embedded JSON template files.
+func (s *Server) loadSkillTemplates() {
+	entries, err := skillTemplateFS.ReadDir("skill_templates")
+	if err != nil {
+		slog.Warn("failed to read skill_templates dir", "error", err)
+		return
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+
+		data, err := skillTemplateFS.ReadFile("skill_templates/" + entry.Name())
+		if err != nil {
+			slog.Warn("failed to read skill template", "file", entry.Name(), "error", err)
+			continue
+		}
+
+		var tmpl SkillTemplate
+		if err := json.Unmarshal(data, &tmpl); err != nil {
+			slog.Warn("failed to parse skill template", "file", entry.Name(), "error", err)
+			continue
+		}
+
+		s.skillTemplates = append(s.skillTemplates, tmpl)
+	}
+
+	slog.Info("loaded skill templates", "count", len(s.skillTemplates))
+}
+
+// ListSkillTemplatesAPI handles GET /api/v1/skill-templates.
+func (s *Server) ListSkillTemplatesAPI(w http.ResponseWriter, r *http.Request) {
+	category := r.URL.Query().Get("category")
+
+	var result []SkillTemplate
+	for _, t := range s.skillTemplates {
+		if category != "" && !strings.EqualFold(t.Category, category) {
+			continue
+		}
+		result = append(result, t)
+	}
+
+	if result == nil {
+		result = []SkillTemplate{}
+	}
+
+	httpResponseJSON(w, result, http.StatusOK)
+}
+
+// GetSkillTemplateAPI handles GET /api/v1/skill-templates/{slug}.
+func (s *Server) GetSkillTemplateAPI(w http.ResponseWriter, r *http.Request) {
+	slug := r.PathValue("slug")
+	for _, t := range s.skillTemplates {
+		if t.Slug == slug {
+			httpResponseJSON(w, t, http.StatusOK)
+			return
+		}
+	}
+	httpResponse(w, fmt.Sprintf("template %q not found", slug), http.StatusNotFound)
+}
+
+// InstallSkillTemplateAPI handles POST /api/v1/skill-templates/{slug}/install.
+func (s *Server) InstallSkillTemplateAPI(w http.ResponseWriter, r *http.Request) {
+	if s.skillStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	slug := r.PathValue("slug")
+	var tmpl *SkillTemplate
+	for i := range s.skillTemplates {
+		if s.skillTemplates[i].Slug == slug {
+			tmpl = &s.skillTemplates[i]
+			break
+		}
+	}
+	if tmpl == nil {
+		httpResponse(w, fmt.Sprintf("template %q not found", slug), http.StatusNotFound)
+		return
+	}
+
+	userEmail := s.getUserEmail(r)
+
+	skill := service.Skill{
+		Name:         tmpl.Skill.Name,
+		Description:  tmpl.Skill.Description,
+		SystemPrompt: tmpl.Skill.SystemPrompt,
+		Tools:        tmpl.Skill.Tools,
+		CreatedBy:    userEmail,
+		UpdatedBy:    userEmail,
+	}
+
+	record, err := s.skillStore.CreateSkill(r.Context(), skill)
+	if err != nil {
+		slog.Error("install skill template failed", "slug", slug, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to install template: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	httpResponseJSON(w, record, http.StatusCreated)
+}

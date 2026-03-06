@@ -4,6 +4,7 @@
   import { getInfo } from "@/lib/api/gateway";
     import {
     MessageSquare,
+    MessagesSquare,
     Cpu,
     Key,
     Braces,
@@ -14,6 +15,7 @@
     WandSparkles,
     SlidersHorizontal,
     Bot,
+    Radio,
     Database,
     Server,
     House,
@@ -44,7 +46,7 @@
       href="#/"
       onclick={(e) => navigate(e, "/")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
@@ -57,7 +59,7 @@
       href="#/chat"
       onclick={(e) => navigate(e, "/chat")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/chat"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
@@ -67,10 +69,23 @@
       <span>Chat</span>
     </a>
     <a
+      href="#/sessions"
+      onclick={(e) => navigate(e, "/sessions")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/sessions"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <MessagesSquare size={14} />
+      <span>Sessions</span>
+    </a>
+    <a
       href="#/providers"
       onclick={(e) => navigate(e, "/providers")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/providers"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
@@ -83,7 +98,7 @@
       href="#/rag"
       onclick={(e) => navigate(e, "/rag")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/rag"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
@@ -96,7 +111,7 @@
       href="#/mcp-servers"
       onclick={(e) => navigate(e, "/mcp-servers")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/mcp-servers"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
@@ -145,10 +160,23 @@
       <span>Agents</span>
     </a>
     <a
+      href="#/bots"
+      onclick={(e) => navigate(e, "/bots")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/bots"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Radio size={14} />
+      <span>Bots</span>
+    </a>
+    <a
       href="#/tokens"
       onclick={(e) => navigate(e, "/tokens")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/tokens"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
@@ -161,7 +189,7 @@
       href="#/docs"
       onclick={(e) => navigate(e, "/docs")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/docs"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
@@ -174,7 +202,7 @@
       href="#/settings"
       onclick={(e) => navigate(e, "/settings")}
       class={[
-        "flex items-center gap-2 px-3 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
         $location === "/settings"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",

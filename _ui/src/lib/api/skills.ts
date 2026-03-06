@@ -51,6 +51,66 @@ export async function deleteSkill(id: string): Promise<void> {
   await api.delete(`/skills/${id}`);
 }
 
+// ─── Skill Templates ───
+
+export interface RequiredVariable {
+  key: string;
+  description: string;
+  secret: boolean;
+}
+
+export interface SkillTemplate {
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  tags: string[];
+  required_variables: RequiredVariable[];
+  oauth?: string; // e.g. "google" — needs OAuth connect flow
+  skill: Omit<Skill, 'id' | 'created_at' | 'updated_at'>;
+}
+
+// ─── OAuth ───
+
+export async function getOAuthStartURL(provider: string): Promise<string> {
+  const res = await api.get<{ url: string }>('/oauth/start', { params: { provider } });
+  return res.data.url;
+}
+
+export async function listSkillTemplates(category?: string): Promise<SkillTemplate[]> {
+  const params: any = {};
+  if (category) params.category = category;
+  const res = await api.get<SkillTemplate[]>('/skill-templates', { params });
+  return res.data;
+}
+
+export async function installSkillTemplate(slug: string): Promise<Skill> {
+  const res = await api.post<Skill>(`/skill-templates/${slug}/install`);
+  return res.data;
+}
+
+// ─── Import / Export ───
+
+export async function importSkill(skill: Partial<Skill>): Promise<Skill> {
+  const res = await api.post<Skill>('/skills/import', skill);
+  return res.data;
+}
+
+export async function exportSkill(id: string): Promise<Partial<Skill>> {
+  const res = await api.get<Partial<Skill>>(`/skills/${id}/export`);
+  return res.data;
+}
+
+export async function importSkillFromURL(url: string): Promise<Skill> {
+  const res = await api.post<Skill>('/skills/import-url', { url });
+  return res.data;
+}
+
+export async function previewImportURL(url: string): Promise<Partial<Skill>> {
+  const res = await api.post<Partial<Skill>>('/skills/import-url/preview', { url });
+  return res.data;
+}
+
 // ─── Test Handler ───
 
 export interface TestHandlerRequest {

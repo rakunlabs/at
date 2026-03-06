@@ -30,11 +30,15 @@ type Memory struct {
 	variables        map[string]service.Variable               // id -> variable
 	nodeConfigs      map[string]service.NodeConfig             // id -> node config
 	agents           map[string]service.Agent                  // id -> agent
+	chatSessions     map[string]service.ChatSession            // id -> chat session
+	chatMessages     map[string][]service.ChatMessage          // session_id -> messages (sorted by created_at)
 	ragCollections   map[string]service.RAGCollection          // id -> rag collection
 	ragStates        map[string]service.RAGState               // key -> rag state
 	ragMCPServers    map[string]service.RAGMCPServer           // id -> rag mcp server
 	mcpServers       map[string]service.MCPServer             // id -> general mcp server
-	tokenUsage       map[string]map[string]*service.TokenUsage // token_id -> model -> usage
+	botConfigs         map[string]service.BotConfig             // id -> bot config
+	marketplaceSources map[string]service.MarketplaceSource    // id -> marketplace source
+	tokenUsage         map[string]map[string]*service.TokenUsage // token_id -> model -> usage
 }
 
 func New() *Memory {
@@ -51,11 +55,15 @@ func New() *Memory {
 		variables:        make(map[string]service.Variable),
 		nodeConfigs:      make(map[string]service.NodeConfig),
 		agents:           make(map[string]service.Agent),
+		chatSessions:     make(map[string]service.ChatSession),
+		chatMessages:     make(map[string][]service.ChatMessage),
 		ragCollections:   make(map[string]service.RAGCollection),
 		ragStates:        make(map[string]service.RAGState),
 		ragMCPServers:    make(map[string]service.RAGMCPServer),
 		mcpServers:       make(map[string]service.MCPServer),
-		tokenUsage:       make(map[string]map[string]*service.TokenUsage),
+		botConfigs:         make(map[string]service.BotConfig),
+		marketplaceSources: make(map[string]service.MarketplaceSource),
+		tokenUsage:         make(map[string]map[string]*service.TokenUsage),
 	}
 }
 

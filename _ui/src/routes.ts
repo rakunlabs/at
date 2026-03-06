@@ -4,6 +4,7 @@ import Skills from '@/pages/Skills.svelte';
 import Agents from '@/pages/Agents.svelte';
 import Secrets from '@/pages/Secrets.svelte';
 import Chat from '@/pages/Chat.svelte';
+import ChatSessions from '@/pages/ChatSessions.svelte';
 import Tokens from '@/pages/Tokens.svelte';
 import NodeConfigs from '@/pages/NodeConfigs.svelte';
 import Workflows from '@/pages/Workflows.svelte';
@@ -11,6 +12,7 @@ import WorkflowEditor from '@/pages/WorkflowEditor.svelte';
 import Runs from '@/pages/Runs.svelte';
 import Rag from '@/pages/Rag.svelte';
 import McpServers from '@/pages/McpServers.svelte';
+import Bots from '@/pages/Bots.svelte';
 import Docs from '@/pages/Docs.svelte';
 import Settings from '@/pages/Settings.svelte';
 import NotFound from '@/pages/NotFound.svelte';
@@ -22,6 +24,7 @@ export default {
   '/agents': Agents,
   '/variables': Secrets,
   '/chat': Chat,
+  '/sessions': ChatSessions,
   '/tokens': Tokens,
   '/node-configs': NodeConfigs,
   '/workflows': Workflows,
@@ -29,6 +32,7 @@ export default {
   '/runs': Runs,
   '/rag': Rag,
   '/mcp-servers': McpServers,
+  '/bots': Bots,
   '/docs': Docs,
   '/settings': Settings,
   '*': NotFound

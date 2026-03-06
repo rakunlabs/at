@@ -23,10 +23,13 @@ type StorerClose interface {
 	service.VariableStorer
 	service.NodeConfigStorer
 	service.AgentStorer
+	service.ChatSessionStorer
 	service.RAGCollectionStorer
 	service.RAGStateStorer
 	service.RAGMCPServerStorer
 	service.MCPServerStorer
+	service.BotConfigStorer
+	service.MarketplaceSourceStorer
 	Close()
 }
 

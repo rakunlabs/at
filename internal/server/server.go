@@ -49,6 +49,9 @@ type ProviderFactory func(cfg config.LLMConfig) (service.LLMProvider, error)
 type Server struct {
 	config config.Server
 
+	// ctx is the server-level context used for long-lived goroutines (bots, etc.).
+	ctx context.Context
+
 	server *ada.Server
 
 	// Provider registry for the gateway (protected by providerMu).
@@ -85,6 +88,9 @@ type Server struct {
 	// agentStore is the persistent store for agent definitions.
 	agentStore service.AgentStorer
 
+	// chatSessionStore is the persistent store for chat sessions and messages.
+	chatSessionStore service.ChatSessionStorer
+
 	// ragCollectionStore is the persistent store for RAG collection configs.
 	ragCollectionStore service.RAGCollectionStorer
 
@@ -96,6 +102,15 @@ type Server struct {
 
 	// mcpServerStore is the persistent store for general MCP server configurations.
 	mcpServerStore service.MCPServerStorer
+
+	// botConfigStore is the persistent store for bot configurations.
+	botConfigStore service.BotConfigStorer
+
+	// marketplaceSourceStore is the persistent store for marketplace source configurations.
+	marketplaceSourceStore service.MarketplaceSourceStorer
+
+	// marketplaceClient is used for outbound HTTP requests to marketplace APIs.
+	marketplaceClient *http.Client
 
 	// ragService is the RAG ingestion and search engine (nil if ragCollectionStore is nil).
 	ragService *rag.Service
@@ -135,6 +150,12 @@ type Server struct {
 	activeRuns sync.Map
 
 	version string
+
+	// botsCfg holds optional Discord/Telegram bot configuration.
+	botsCfg config.Bots
+
+	// skillTemplates holds predefined skill templates loaded from embedded JSON.
+	skillTemplates []SkillTemplate
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
@@ -196,7 +217,7 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -209,6 +230,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 
 	s := &Server{
 		config:               cfg,
+		ctx:                  ctx,
 		server:               mux,
 		providers:            providers,
 		store:                store,
@@ -221,16 +243,24 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 		variableStore:        variableStore,
 		nodeConfigStore:      nodeConfigStore,
 		agentStore:           agentStore,
+		chatSessionStore:     chatSessionStore,
 		ragCollectionStore:   ragCollectionStore,
 		ragStateStore:        ragStateStore,
 		ragMCPServerStore:    ragMCPServerStore,
 		mcpServerStore:       mcpServerStore,
-		providerFactory:      factory,
+		botConfigStore:         botConfigStore,
+		marketplaceSourceStore: marketplaceSourceStore,
+		marketplaceClient:     &http.Client{Timeout: 10 * time.Second},
+		providerFactory:        factory,
 		storeType:            storeType,
 		authTokens:           gatewayCfg.AuthTokens,
 		cluster:              cl,
 		version:              version,
+		botsCfg:              botsCfg,
 	}
+
+	// Load predefined skill templates from embedded JSON files.
+	s.loadSkillTemplates()
 
 	// Start background sweep for expired thought_signature cache entries.
 	go func() {
@@ -416,9 +446,19 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.GET("/v1/skills", s.ListSkillsAPI)
 	apiGroup.POST("/v1/skills", s.CreateSkillAPI)
 	apiGroup.POST("/v1/skills/test-handler", s.TestHandlerAPI) // before wildcard
+	apiGroup.POST("/v1/skills/import", s.ImportSkillAPI)
+	apiGroup.POST("/v1/skills/import-url", s.ImportSkillFromURLAPI)
+	apiGroup.POST("/v1/skills/import-url/preview", s.PreviewImportURLAPI)
+	apiGroup.POST("/v1/skills/import-skillmd", s.ImportSkillMDAPI)
 	apiGroup.GET("/v1/skills/{id}", s.GetSkillAPI)
 	apiGroup.PUT("/v1/skills/{id}", s.UpdateSkillAPI)
 	apiGroup.DELETE("/v1/skills/{id}", s.DeleteSkillAPI)
+	apiGroup.GET("/v1/skills/{id}/export", s.ExportSkillAPI)
+
+	// Skill templates (predefined / store)
+	apiGroup.GET("/v1/skill-templates", s.ListSkillTemplatesAPI)
+	apiGroup.GET("/v1/skill-templates/{slug}", s.GetSkillTemplateAPI)
+	apiGroup.POST("/v1/skill-templates/{slug}/install", s.InstallSkillTemplateAPI)
 
 	// Variable management
 	apiGroup.GET("/v1/variables", s.ListVariablesAPI)
@@ -440,6 +480,16 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	apiGroup.GET("/v1/agents/{id}", s.GetAgentAPI)
 	apiGroup.PUT("/v1/agents/{id}", s.UpdateAgentAPI)
 	apiGroup.DELETE("/v1/agents/{id}", s.DeleteAgentAPI)
+
+	// Chat session management
+	apiGroup.GET("/v1/chat/sessions", s.ListChatSessionsAPI)
+	apiGroup.POST("/v1/chat/sessions", s.CreateChatSessionAPI)
+	apiGroup.GET("/v1/chat/sessions/{id}", s.GetChatSessionAPI)
+	apiGroup.PUT("/v1/chat/sessions/{id}", s.UpdateChatSessionAPI)
+	apiGroup.DELETE("/v1/chat/sessions/{id}", s.DeleteChatSessionAPI)
+	apiGroup.GET("/v1/chat/sessions/{id}/messages", s.ListChatMessagesAPI)
+	apiGroup.DELETE("/v1/chat/sessions/{id}/messages", s.DeleteChatMessagesAPI)
+	apiGroup.POST("/v1/chat/sessions/{id}/messages", s.SendChatMessageAPI)
 
 	// RAG collection management
 	apiGroup.GET("/v1/rag/collections", s.ListRAGCollectionsAPI)
@@ -465,6 +515,27 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	// RAG embedding tools
 	apiGroup.POST("/v1/rag/discover-embedding-models", s.DiscoverEmbeddingModelsAPI)
 	apiGroup.POST("/v1/rag/test-embedding", s.TestEmbeddingAPI)
+
+	// Bot config management
+	apiGroup.GET("/v1/bots", s.ListBotConfigsAPI)
+	apiGroup.POST("/v1/bots", s.CreateBotConfigAPI)
+	apiGroup.GET("/v1/bots/{id}", s.GetBotConfigAPI)
+	apiGroup.PUT("/v1/bots/{id}", s.UpdateBotConfigAPI)
+	apiGroup.DELETE("/v1/bots/{id}", s.DeleteBotConfigAPI)
+
+	// Marketplace management
+	apiGroup.GET("/v1/marketplace/sources", s.ListMarketplaceSourcesAPI)
+	apiGroup.POST("/v1/marketplace/sources", s.CreateMarketplaceSourceAPI)
+	apiGroup.PUT("/v1/marketplace/sources/{id}", s.UpdateMarketplaceSourceAPI)
+	apiGroup.DELETE("/v1/marketplace/sources/{id}", s.DeleteMarketplaceSourceAPI)
+	apiGroup.GET("/v1/marketplace/search", s.MarketplaceSearchAPI)
+	apiGroup.GET("/v1/marketplace/top", s.MarketplaceTopAPI)
+	apiGroup.POST("/v1/marketplace/preview", s.MarketplacePreviewAPI)
+	apiGroup.POST("/v1/marketplace/import", s.MarketplaceImportAPI)
+
+	// OAuth2 flow (generic, provider in query param)
+	apiGroup.GET("/v1/oauth/start", s.OAuthStartAPI)
+	apiGroup.GET("/v1/oauth/callback", s.OAuthCallbackAPI)
 
 	// General MCP server management
 	apiGroup.GET("/v1/mcp/servers", s.ListMCPServersAPI)
@@ -525,6 +596,17 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, prov
 	folderM.SetFs(http.FS(f))
 
 	baseGroup.Handle("/*", folderM)
+
+	// Start bot adapters from YAML config (non-fatal on failure).
+	if botsCfg.Discord != nil && botsCfg.Discord.Token != "" {
+		s.startDiscordBot(ctx, botsCfg.Discord)
+	}
+	if botsCfg.Telegram != nil && botsCfg.Telegram.Token != "" {
+		s.startTelegramBot(ctx, botsCfg.Telegram)
+	}
+
+	// Start bot adapters from DB config.
+	s.startBotsFromDB(ctx)
 
 	return s, nil
 }

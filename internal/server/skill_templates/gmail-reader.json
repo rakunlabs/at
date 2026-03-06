@@ -1,0 +1,63 @@
+{
+  "slug": "gmail-reader",
+  "name": "Gmail Reader",
+  "description": "Search and read Gmail messages via Google API",
+  "category": "Email",
+  "tags": ["google", "gmail", "email"],
+  "required_variables": [
+    {
+      "key": "google_client_id",
+      "description": "Google OAuth2 client ID (from Google Cloud Console)",
+      "secret": false
+    },
+    {
+      "key": "google_client_secret",
+      "description": "Google OAuth2 client secret",
+      "secret": true
+    }
+  ],
+  "oauth": "google",
+  "skill": {
+    "name": "gmail_reader",
+    "description": "Search and read Gmail messages",
+    "system_prompt": "You have access to Gmail tools. Use search_emails to find messages and read_email to get full content. Always respect user privacy.",
+    "tools": [
+      {
+        "name": "search_emails",
+        "description": "Search Gmail messages using a query string (same syntax as Gmail search bar)",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Gmail search query (e.g. 'from:alice subject:meeting')"
+            },
+            "max_results": {
+              "type": "number",
+              "description": "Maximum number of results (default 10)"
+            }
+          },
+          "required": ["query"]
+        },
+        "handler": "function googleToken() {\n  var resp = httpPost('https://oauth2.googleapis.com/token', 'client_id=' + encodeURIComponent(getVar('google_client_id')) + '&client_secret=' + encodeURIComponent(getVar('google_client_secret')) + '&refresh_token=' + encodeURIComponent(getVar('google_refresh_token')) + '&grant_type=refresh_token', {'Content-Type': 'application/x-www-form-urlencoded'});\n  var t = resp.body;\n  if (t.error) throw new Error('token refresh failed: ' + t.error);\n  return t.access_token;\n}\nvar token = googleToken();\nvar max = args.max_results || 10;\nvar resp = httpGet('https://gmail.googleapis.com/gmail/v1/users/me/messages?q=' + encodeURIComponent(args.query) + '&maxResults=' + max, {'Authorization': 'Bearer ' + token});\nvar body = resp.body;\nif (!body.messages) return JSON.stringify([]);\nvar results = [];\nfor (var i = 0; i < body.messages.length; i++) {\n  var msg = httpGet('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + body.messages[i].id + '?format=metadata&metadataHeaders=Subject&metadataHeaders=From&metadataHeaders=Date', {'Authorization': 'Bearer ' + token});\n  var m = msg.body;\n  var headers = {};\n  if (m.payload && m.payload.headers) {\n    for (var j = 0; j < m.payload.headers.length; j++) {\n      headers[m.payload.headers[j].name] = m.payload.headers[j].value;\n    }\n  }\n  results.push({id: m.id, subject: headers['Subject'] || '', from: headers['From'] || '', date: headers['Date'] || '', snippet: m.snippet || ''});\n}\nreturn JSON.stringify(results, null, 2);",
+        "handler_type": "js"
+      },
+      {
+        "name": "read_email",
+        "description": "Read the full content of a specific Gmail message by ID",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "message_id": {
+              "type": "string",
+              "description": "Gmail message ID"
+            }
+          },
+          "required": ["message_id"]
+        },
+        "handler": "function googleToken() {\n  var resp = httpPost('https://oauth2.googleapis.com/token', 'client_id=' + encodeURIComponent(getVar('google_client_id')) + '&client_secret=' + encodeURIComponent(getVar('google_client_secret')) + '&refresh_token=' + encodeURIComponent(getVar('google_refresh_token')) + '&grant_type=refresh_token', {'Content-Type': 'application/x-www-form-urlencoded'});\n  var t = resp.body;\n  if (t.error) throw new Error('token refresh failed: ' + t.error);\n  return t.access_token;\n}\nvar token = googleToken();\nvar resp = httpGet('https://gmail.googleapis.com/gmail/v1/users/me/messages/' + args.message_id + '?format=full', {'Authorization': 'Bearer ' + token});\nvar m = resp.body;\nvar headers = {};\nif (m.payload && m.payload.headers) {\n  for (var i = 0; i < m.payload.headers.length; i++) {\n    headers[m.payload.headers[i].name] = m.payload.headers[i].value;\n  }\n}\nfunction getBody(payload) {\n  if (payload.body && payload.body.data) {\n    return atob(payload.body.data.replace(/-/g, '+').replace(/_/g, '/'));\n  }\n  if (payload.parts) {\n    for (var i = 0; i < payload.parts.length; i++) {\n      if (payload.parts[i].mimeType === 'text/plain') {\n        return atob(payload.parts[i].body.data.replace(/-/g, '+').replace(/_/g, '/'));\n      }\n    }\n    for (var i = 0; i < payload.parts.length; i++) {\n      var r = getBody(payload.parts[i]);\n      if (r) return r;\n    }\n  }\n  return '';\n}\nreturn JSON.stringify({id: m.id, subject: headers['Subject'] || '', from: headers['From'] || '', to: headers['To'] || '', date: headers['Date'] || '', body: getBody(m.payload)}, null, 2);",
+        "handler_type": "js"
+      }
+    ]
+  }
+}

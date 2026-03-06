@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}marketplace_sources (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL DEFAULT '',
+    type TEXT NOT NULL DEFAULT 'generic',
+    search_url TEXT NOT NULL DEFAULT '',
+    top_url TEXT NOT NULL DEFAULT '',
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+

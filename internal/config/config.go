@@ -79,7 +79,28 @@ type Config struct {
 
 	Store     Store       `cfg:"store"`
 	Server    Server      `cfg:"server"`
+	Bots      Bots        `cfg:"bots"`
 	Telemetry tell.Config `cfg:"telemetry,noprefix"`
+}
+
+// Bots holds configuration for chat bot integrations.
+type Bots struct {
+	Discord  *DiscordBotConfig  `cfg:"discord"`
+	Telegram *TelegramBotConfig `cfg:"telegram"`
+}
+
+// DiscordBotConfig holds Discord bot settings.
+type DiscordBotConfig struct {
+	Token          string            `cfg:"token" log:"-"`
+	DefaultAgentID string            `cfg:"default_agent_id"`
+	ChannelAgents  map[string]string `cfg:"channel_agents"`
+}
+
+// TelegramBotConfig holds Telegram bot settings.
+type TelegramBotConfig struct {
+	Token          string            `cfg:"token" log:"-"`
+	DefaultAgentID string            `cfg:"default_agent_id"`
+	ChatAgents     map[string]string `cfg:"chat_agents"`
 }
 
 type Server struct {

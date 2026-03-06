@@ -1,0 +1,102 @@
+{
+  "slug": "json-api",
+  "name": "JSON API Client",
+  "description": "Generic REST API client for JSON endpoints",
+  "category": "Utilities",
+  "tags": ["api", "rest", "http", "json"],
+  "required_variables": [
+    {
+      "key": "api_base_url",
+      "description": "Base URL for the API (e.g. https://api.example.com)",
+      "secret": false
+    },
+    {
+      "key": "api_auth_header",
+      "description": "Authorization header value (e.g. 'Bearer token123'). Optional.",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "json_api_client",
+    "description": "Generic REST API client for making HTTP requests to JSON APIs",
+    "system_prompt": "You have access to a generic REST API client. Use api_get, api_post, api_put, and api_delete to interact with JSON APIs. The base URL and auth header are configured via variables.",
+    "tools": [
+      {
+        "name": "api_get",
+        "description": "Make a GET request to a JSON API endpoint",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "API path (appended to base URL)"
+            },
+            "query": {
+              "type": "object",
+              "description": "Query parameters as key-value pairs"
+            }
+          },
+          "required": ["path"]
+        },
+        "handler": "var base = getVar('api_base_url').replace(/\\/$/, '');\nvar headers = {'Accept': 'application/json'};\ntry { var auth = getVar('api_auth_header'); if (auth) headers['Authorization'] = auth; } catch(e) {}\nvar url = base + args.path;\nif (args.query) {\n  var params = [];\n  for (var k in args.query) params.push(encodeURIComponent(k) + '=' + encodeURIComponent(args.query[k]));\n  if (params.length) url += '?' + params.join('&');\n}\nvar resp = httpGet(url, headers);\nreturn resp.body;",
+        "handler_type": "js"
+      },
+      {
+        "name": "api_post",
+        "description": "Make a POST request to a JSON API endpoint",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "API path (appended to base URL)"
+            },
+            "body": {
+              "type": "object",
+              "description": "Request body (JSON object)"
+            }
+          },
+          "required": ["path"]
+        },
+        "handler": "var base = getVar('api_base_url').replace(/\\/$/, '');\nvar headers = {'Accept': 'application/json', 'Content-Type': 'application/json'};\ntry { var auth = getVar('api_auth_header'); if (auth) headers['Authorization'] = auth; } catch(e) {}\nvar resp = httpPost(base + args.path, JSON.stringify(args.body || {}), headers);\nreturn resp.body;",
+        "handler_type": "js"
+      },
+      {
+        "name": "api_put",
+        "description": "Make a PUT request to a JSON API endpoint",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "API path (appended to base URL)"
+            },
+            "body": {
+              "type": "object",
+              "description": "Request body (JSON object)"
+            }
+          },
+          "required": ["path"]
+        },
+        "handler": "var base = getVar('api_base_url').replace(/\\/$/, '');\nvar headers = {'Accept': 'application/json', 'Content-Type': 'application/json'};\ntry { var auth = getVar('api_auth_header'); if (auth) headers['Authorization'] = auth; } catch(e) {}\nvar resp = httpPut(base + args.path, JSON.stringify(args.body || {}), headers);\nreturn resp.body;",
+        "handler_type": "js"
+      },
+      {
+        "name": "api_delete",
+        "description": "Make a DELETE request to a JSON API endpoint",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "API path (appended to base URL)"
+            }
+          },
+          "required": ["path"]
+        },
+        "handler": "var base = getVar('api_base_url').replace(/\\/$/, '');\nvar headers = {'Accept': 'application/json'};\ntry { var auth = getVar('api_auth_header'); if (auth) headers['Authorization'] = auth; } catch(e) {}\nvar resp = httpDelete(base + args.path, headers);\nreturn resp.body;",
+        "handler_type": "js"
+      }
+    ]
+  }
+}

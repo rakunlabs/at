@@ -1,0 +1,30 @@
+{
+  "slug": "current-datetime",
+  "name": "Current Date & Time",
+  "description": "Get the current date, time, and timezone information",
+  "category": "Utilities",
+  "tags": ["date", "time", "datetime", "timezone", "utility"],
+  "required_variables": [],
+  "skill": {
+    "name": "current_datetime",
+    "description": "Get the current date and time",
+    "system_prompt": "You have access to a tool that returns the current date and time. Use it whenever the user asks about today's date, the current time, or any time-related question. Always call the tool rather than guessing the date or time.",
+    "tools": [
+      {
+        "name": "get_current_datetime",
+        "description": "Returns the current date, time, day of week, and timezone",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "timezone": {
+              "type": "string",
+              "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London'). Defaults to UTC."
+            }
+          }
+        },
+        "handler": "var now = new Date();\nvar tz = args.timezone || 'UTC';\ntry {\n  var opts = {timeZone: tz, year: 'numeric', month: 'long', day: 'numeric', weekday: 'long', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false, timeZoneName: 'long'};\n  var formatted = now.toLocaleString('en-US', opts);\n  var iso = now.toISOString();\n  var parts = {iso: iso, formatted: formatted, timezone: tz, unix: Math.floor(now.getTime() / 1000)};\n  return JSON.stringify(parts, null, 2);\n} catch(e) {\n  var iso = now.toISOString();\n  return JSON.stringify({iso: iso, formatted: now.toUTCString(), timezone: 'UTC', unix: Math.floor(now.getTime() / 1000), note: 'Invalid timezone, showing UTC'}, null, 2);\n}",
+        "handler_type": "js"
+      }
+    ]
+  }
+}

@@ -108,6 +108,25 @@ func (s *Server) CreateVariableAPI(w http.ResponseWriter, r *http.Request) {
 	req.CreatedBy = userEmail
 	req.UpdatedBy = userEmail
 
+	// Upsert: if a variable with this key already exists, update it.
+	existing, _ := s.variableStore.GetVariableByKey(r.Context(), req.Key)
+	if existing != nil {
+		existing.Value = req.Value
+		if req.Description != "" {
+			existing.Description = req.Description
+		}
+		existing.Secret = req.Secret
+		existing.UpdatedBy = userEmail
+		record, err := s.variableStore.UpdateVariable(r.Context(), existing.ID, *existing)
+		if err != nil {
+			slog.Error("update variable failed", "key", req.Key, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to update variable: %v", err), http.StatusInternalServerError)
+			return
+		}
+		httpResponseJSON(w, record, http.StatusOK)
+		return
+	}
+
 	record, err := s.variableStore.CreateVariable(r.Context(), req)
 	if err != nil {
 		slog.Error("create variable failed", "key", req.Key, "error", err)

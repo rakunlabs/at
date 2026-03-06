@@ -479,6 +479,106 @@ type AgentStorer interface {
 	DeleteAgent(ctx context.Context, id string) error
 }
 
+// ─── Chat Sessions ───
+
+// ChatSessionConfig holds extensible session metadata.
+type ChatSessionConfig struct {
+	Platform          string `json:"platform,omitempty"`
+	PlatformUserID    string `json:"platform_user_id,omitempty"`
+	PlatformChannelID string `json:"platform_channel_id,omitempty"`
+}
+
+// ChatSession represents a persistent chat session tied to an agent.
+type ChatSession struct {
+	ID        string            `json:"id"`
+	AgentID   string            `json:"agent_id"`
+	Name      string            `json:"name"`
+	Config    ChatSessionConfig `json:"config"`
+	CreatedAt string            `json:"created_at"`
+	UpdatedAt string            `json:"updated_at"`
+	CreatedBy string            `json:"created_by"`
+	UpdatedBy string            `json:"updated_by"`
+}
+
+// ChatMessageData holds the extensible payload of a chat message.
+type ChatMessageData struct {
+	Content    any    `json:"content"`                // string or []ContentBlock
+	ToolCalls  any    `json:"tool_calls,omitempty"`   // []ToolCall for assistant messages
+	ToolCallID string `json:"tool_call_id,omitempty"` // for tool result messages
+}
+
+// ChatMessage represents a single message in a chat session.
+type ChatMessage struct {
+	ID        string          `json:"id"`
+	SessionID string          `json:"session_id"`
+	Role      string          `json:"role"` // "user", "assistant", "system", "tool"
+	Data      ChatMessageData `json:"data"`
+	CreatedAt string          `json:"created_at"`
+}
+
+// ChatSessionStorer defines CRUD operations for chat sessions and messages.
+type ChatSessionStorer interface {
+	ListChatSessions(ctx context.Context, q *query.Query) (*ListResult[ChatSession], error)
+	GetChatSession(ctx context.Context, id string) (*ChatSession, error)
+	GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID string) (*ChatSession, error)
+	CreateChatSession(ctx context.Context, session ChatSession) (*ChatSession, error)
+	UpdateChatSession(ctx context.Context, id string, session ChatSession) (*ChatSession, error)
+	DeleteChatSession(ctx context.Context, id string) error
+	ListChatMessages(ctx context.Context, sessionID string) ([]ChatMessage, error)
+	CreateChatMessage(ctx context.Context, msg ChatMessage) (*ChatMessage, error)
+	CreateChatMessages(ctx context.Context, msgs []ChatMessage) error
+	DeleteChatMessages(ctx context.Context, sessionID string) error
+}
+
+// ─── Bot Configs ───
+
+// BotConfig represents a Discord or Telegram bot configuration stored in the database.
+type BotConfig struct {
+	ID             string            `json:"id"`
+	Platform       string            `json:"platform"`        // "discord" or "telegram"
+	Name           string            `json:"name"`            // human-readable label
+	Token          string            `json:"token"`           // bot token
+	DefaultAgentID string            `json:"default_agent_id"`
+	ChannelAgents  map[string]string `json:"channel_agents,omitempty"` // channel/chat ID -> agent ID overrides
+	Enabled        bool              `json:"enabled"`
+	CreatedAt      string            `json:"created_at"`
+	UpdatedAt      string            `json:"updated_at"`
+	CreatedBy      string            `json:"created_by"`
+	UpdatedBy      string            `json:"updated_by"`
+}
+
+// BotConfigStorer defines CRUD operations for bot configurations.
+type BotConfigStorer interface {
+	ListBotConfigs(ctx context.Context, q *query.Query) (*ListResult[BotConfig], error)
+	GetBotConfig(ctx context.Context, id string) (*BotConfig, error)
+	CreateBotConfig(ctx context.Context, bot BotConfig) (*BotConfig, error)
+	UpdateBotConfig(ctx context.Context, id string, bot BotConfig) (*BotConfig, error)
+	DeleteBotConfig(ctx context.Context, id string) error
+}
+
+// ─── Marketplace Sources ───
+
+// MarketplaceSource represents a configurable skill marketplace source.
+type MarketplaceSource struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Type      string `json:"type"`       // "generic"
+	SearchURL string `json:"search_url"`
+	TopURL    string `json:"top_url"`
+	Enabled   bool   `json:"enabled"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// MarketplaceSourceStorer defines CRUD operations for marketplace source configurations.
+type MarketplaceSourceStorer interface {
+	ListMarketplaceSources(ctx context.Context) ([]MarketplaceSource, error)
+	GetMarketplaceSource(ctx context.Context, id string) (*MarketplaceSource, error)
+	CreateMarketplaceSource(ctx context.Context, src MarketplaceSource) (*MarketplaceSource, error)
+	UpdateMarketplaceSource(ctx context.Context, id string, src MarketplaceSource) (*MarketplaceSource, error)
+	DeleteMarketplaceSource(ctx context.Context, id string) error
+}
+
 // ─── RAG Collections ───
 
 // RAGCollectionConfig holds the configuration fields for a RAG collection, stored as JSON in the database.

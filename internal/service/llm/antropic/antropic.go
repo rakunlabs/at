@@ -149,10 +149,14 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		case "text":
 			llmResp.Content += block.Text
 		case "tool_use":
+			input := block.Input
+			if input == nil {
+				input = map[string]any{}
+			}
 			llmResp.ToolCalls = append(llmResp.ToolCalls, service.ToolCall{
 				ID:        block.ID,
 				Name:      block.Name,
-				Arguments: block.Input,
+				Arguments: input,
 			})
 		}
 	}
@@ -330,7 +334,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			case "content_block_stop":
 				// If we were accumulating tool input, parse and emit it now.
 				if currentToolID != "" {
-					var args map[string]any
+					args := map[string]any{}
 					if toolInputBuf.Len() > 0 {
 						json.Unmarshal([]byte(toolInputBuf.String()), &args)
 					}

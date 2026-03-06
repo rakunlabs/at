@@ -558,11 +558,15 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			})
 		}
 		for _, tc := range resp.ToolCalls {
+			input := tc.Arguments
+			if input == nil {
+				input = map[string]any{}
+			}
 			assistantContent = append(assistantContent, service.ContentBlock{
 				Type:             "tool_use",
 				ID:               tc.ID,
 				Name:             tc.Name,
-				Input:            tc.Arguments,
+				Input:            input,
 				ThoughtSignature: tc.ThoughtSignature,
 			})
 		}
@@ -647,7 +651,6 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			toolResults = append(toolResults, service.ContentBlock{
 				Type:      "tool_result",
 				ToolUseID: tc.ID,
-				Name:      tc.Name,
 				Content:   result,
 			})
 		}
