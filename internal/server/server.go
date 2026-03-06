@@ -103,6 +103,9 @@ type Server struct {
 	// mcpServerStore is the persistent store for general MCP server configurations.
 	mcpServerStore service.MCPServerStorer
 
+	// mcpSetStore is the persistent store for MCP set configurations.
+	mcpSetStore service.MCPSetStorer
+
 	// botConfigStore is the persistent store for bot configurations.
 	botConfigStore service.BotConfigStorer
 
@@ -217,7 +220,7 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, mcpSetStore service.MCPSetStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -248,6 +251,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		ragStateStore:        ragStateStore,
 		ragMCPServerStore:    ragMCPServerStore,
 		mcpServerStore:       mcpServerStore,
+		mcpSetStore:          mcpSetStore,
 		botConfigStore:         botConfigStore,
 		marketplaceSourceStore: marketplaceSourceStore,
 		marketplaceClient:     &http.Client{Timeout: 10 * time.Second},
@@ -389,6 +393,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 	// General MCP gateway endpoint (auth-gated)
 	gatewayGroup.POST("/v1/mcp/{name}", s.GatewayMCPHandler)
+
+	// MCP Set gateway endpoint — serves tools from an MCP Set's own config
+	gatewayGroup.POST("/v1/mcp-set/{name}", s.GatewayMCPSetHandler)
 
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
@@ -544,6 +551,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.PUT("/v1/mcp/servers/{id}", s.UpdateMCPServerAPI)
 	apiGroup.DELETE("/v1/mcp/servers/{id}", s.DeleteMCPServerAPI)
 
+	// MCP set management
+	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
+	apiGroup.POST("/v1/mcp/sets", s.CreateMCPSetAPI)
+	apiGroup.GET("/v1/mcp/sets/{id}", s.GetMCPSetAPI)
+	apiGroup.PUT("/v1/mcp/sets/{id}", s.UpdateMCPSetAPI)
+	apiGroup.DELETE("/v1/mcp/sets/{id}", s.DeleteMCPSetAPI)
+
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 
@@ -599,10 +613,10 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 	// Start bot adapters from YAML config (non-fatal on failure).
 	if botsCfg.Discord != nil && botsCfg.Discord.Token != "" {
-		s.startDiscordBot(ctx, botsCfg.Discord)
+		s.startDiscordBot(ctx, "", botsCfg.Discord)
 	}
 	if botsCfg.Telegram != nil && botsCfg.Telegram.Token != "" {
-		s.startTelegramBot(ctx, botsCfg.Telegram)
+		s.startTelegramBot(ctx, "", botsCfg.Telegram)
 	}
 
 	// Start bot adapters from DB config.

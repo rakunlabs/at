@@ -311,8 +311,39 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	var allTools []service.Tool
 
+	// Collect MCP URLs from legacy mcp_urls and from MCP Sets.
+	var mcpURLs []string
+	mcpURLs = append(mcpURLs, agent.Config.MCPs...)
+
+	// Resolve MCP Sets to URLs.
+	if s.mcpSetStore != nil {
+		for _, setName := range agent.Config.MCPSets {
+			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
+			if err != nil {
+				slog.Warn("agentic loop: failed to get MCP set", "set", setName, "error", err)
+				continue
+			}
+			if set == nil {
+				slog.Warn("agentic loop: MCP set not found", "set", setName)
+				continue
+			}
+			// Resolve server names to gateway URLs.
+			for _, serverName := range set.Servers {
+				gatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
+				mcpURLs = append(mcpURLs, gatewayURL)
+			}
+			mcpURLs = append(mcpURLs, set.URLs...)
+
+			// If the MCP set has its own tool config, add its own gateway URL.
+			if mcpSetHasOwnTools(set.Config) {
+				setGatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp-set/%s", s.config.Port, s.config.BasePath, setName)
+				mcpURLs = append(mcpURLs, setGatewayURL)
+			}
+		}
+	}
+
 	// MCP tools
-	for _, url := range agent.Config.MCPs {
+	for _, url := range mcpURLs {
 		client, err := service.NewHTTPMCPClient(ctx, url)
 		if err != nil {
 			slog.Warn("agentic loop: failed to connect to MCP server, skipping", "url", url, "error", err)

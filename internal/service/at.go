@@ -453,7 +453,8 @@ type AgentConfig struct {
 	Model         string   `json:"model,omitempty"`         // Model identifier
 	SystemPrompt  string   `json:"system_prompt,omitempty"` // System prompt
 	Skills        []string `json:"skills,omitempty"`        // List of skill IDs/names
-	MCPs          []string `json:"mcp_urls,omitempty"`      // List of MCP server URLs
+	MCPs          []string `json:"mcp_urls,omitempty"`      // List of MCP server URLs (legacy)
+	MCPSets       []string `json:"mcp_sets,omitempty"`      // List of MCP Set names
 	MaxIterations int      `json:"max_iterations"`          // Max iterations for the loop
 	ToolTimeout   int      `json:"tool_timeout"`            // Timeout in seconds
 }
@@ -540,6 +541,10 @@ type BotConfig struct {
 	Token          string            `json:"token"`           // bot token
 	DefaultAgentID string            `json:"default_agent_id"`
 	ChannelAgents  map[string]string `json:"channel_agents,omitempty"` // channel/chat ID -> agent ID overrides
+	AccessMode      string            `json:"access_mode"`              // "open" (default) or "allowlist"
+	PendingApproval bool              `json:"pending_approval"`         // when true, unknown users in allowlist mode get "pending approval" reply
+	AllowedUsers    []string          `json:"allowed_users"`
+	PendingUsers    []string          `json:"pending_users"`
 	Enabled        bool              `json:"enabled"`
 	CreatedAt      string            `json:"created_at"`
 	UpdatedAt      string            `json:"updated_at"`
@@ -711,6 +716,9 @@ type MCPServerConfig struct {
 
 	// Skill tools — names of skills whose tools should be exposed.
 	EnabledSkills []string `json:"enabled_skills,omitempty"`
+
+	// MCPs — names of MCPs whose tools should be included.
+	MCPs []string `json:"mcps,omitempty"`
 }
 
 // MCPUpstream represents an upstream MCP server URL with optional headers.
@@ -740,4 +748,32 @@ type MCPServerStorer interface {
 	CreateMCPServer(ctx context.Context, s MCPServer) (*MCPServer, error)
 	UpdateMCPServer(ctx context.Context, id string, s MCPServer) (*MCPServer, error)
 	DeleteMCPServer(ctx context.Context, id string) error
+}
+
+// ─── MCP Sets ───
+
+// MCPSet represents a named bundle of MCP server references, custom URLs,
+// and its own tool configuration (RAG/HTTP/External/Skills).
+// Agents reference MCP Sets by name instead of manually entering gateway URLs.
+type MCPSet struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Config      MCPServerConfig `json:"config"`   // RAG/HTTP/External/Skills config (own tools)
+	Servers     []string        `json:"servers"`   // MCP Server names (resolved to gateway URLs at runtime)
+	URLs        []string        `json:"urls"`      // Custom MCP endpoint URLs
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	CreatedBy   string          `json:"created_by"`
+	UpdatedBy   string          `json:"updated_by"`
+}
+
+// MCPSetStorer defines CRUD operations for MCP set configurations.
+type MCPSetStorer interface {
+	ListMCPSets(ctx context.Context, q *query.Query) (*ListResult[MCPSet], error)
+	GetMCPSet(ctx context.Context, id string) (*MCPSet, error)
+	GetMCPSetByName(ctx context.Context, name string) (*MCPSet, error)
+	CreateMCPSet(ctx context.Context, s MCPSet) (*MCPSet, error)
+	UpdateMCPSet(ctx context.Context, id string, s MCPSet) (*MCPSet, error)
+	DeleteMCPSet(ctx context.Context, id string) error
 }

@@ -28,6 +28,7 @@ type StorerClose interface {
 	service.RAGStateStorer
 	service.RAGMCPServerStorer
 	service.MCPServerStorer
+	service.MCPSetStorer
 	service.BotConfigStorer
 	service.MarketplaceSourceStorer
 	Close()

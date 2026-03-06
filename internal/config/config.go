@@ -91,16 +91,22 @@ type Bots struct {
 
 // DiscordBotConfig holds Discord bot settings.
 type DiscordBotConfig struct {
-	Token          string            `cfg:"token" log:"-"`
-	DefaultAgentID string            `cfg:"default_agent_id"`
-	ChannelAgents  map[string]string `cfg:"channel_agents"`
+	Token           string            `cfg:"token" log:"-"`
+	DefaultAgentID  string            `cfg:"default_agent_id"`
+	ChannelAgents   map[string]string `cfg:"channel_agents"`
+	AccessMode      string            `cfg:"access_mode"`
+	PendingApproval bool              `cfg:"pending_approval"`
+	AllowedUsers    []string          `cfg:"allowed_users"`
 }
 
 // TelegramBotConfig holds Telegram bot settings.
 type TelegramBotConfig struct {
-	Token          string            `cfg:"token" log:"-"`
-	DefaultAgentID string            `cfg:"default_agent_id"`
-	ChatAgents     map[string]string `cfg:"chat_agents"`
+	Token           string            `cfg:"token" log:"-"`
+	DefaultAgentID  string            `cfg:"default_agent_id"`
+	ChatAgents      map[string]string `cfg:"chat_agents"`
+	AccessMode      string            `cfg:"access_mode"`
+	PendingApproval bool              `cfg:"pending_approval"`
+	AllowedUsers    []string          `cfg:"allowed_users"`
 }
 
 type Server struct {

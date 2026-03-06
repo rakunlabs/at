@@ -53,6 +53,9 @@ func (m *Memory) CreateBotConfig(_ context.Context, bot service.BotConfig) (*ser
 	if bot.ChannelAgents == nil {
 		bot.ChannelAgents = map[string]string{}
 	}
+	if bot.AccessMode == "" {
+		bot.AccessMode = "open"
+	}
 
 	rec := service.BotConfig{
 		ID:             id,
@@ -61,9 +64,13 @@ func (m *Memory) CreateBotConfig(_ context.Context, bot service.BotConfig) (*ser
 		Token:          bot.Token,
 		DefaultAgentID: bot.DefaultAgentID,
 		ChannelAgents:  bot.ChannelAgents,
-		Enabled:        bot.Enabled,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		AccessMode:      bot.AccessMode,
+		PendingApproval: bot.PendingApproval,
+		AllowedUsers:    bot.AllowedUsers,
+		PendingUsers:    bot.PendingUsers,
+		Enabled:         bot.Enabled,
+		CreatedAt:       now,
+		UpdatedAt:       now,
 		CreatedBy:      bot.CreatedBy,
 		UpdatedBy:      bot.UpdatedBy,
 	}
@@ -95,6 +102,10 @@ func (m *Memory) UpdateBotConfig(_ context.Context, id string, bot service.BotCo
 	existing.Token = bot.Token
 	existing.DefaultAgentID = bot.DefaultAgentID
 	existing.ChannelAgents = bot.ChannelAgents
+	existing.AccessMode = bot.AccessMode
+	existing.PendingApproval = bot.PendingApproval
+	existing.AllowedUsers = bot.AllowedUsers
+	existing.PendingUsers = bot.PendingUsers
 	existing.Enabled = bot.Enabled
 	existing.UpdatedAt = now
 	existing.UpdatedBy = bot.UpdatedBy

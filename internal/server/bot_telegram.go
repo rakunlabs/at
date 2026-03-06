@@ -11,7 +11,7 @@ import (
 )
 
 // startTelegramBot starts a Telegram bot that routes messages to the agentic loop.
-func (s *Server) startTelegramBot(ctx context.Context, cfg *config.TelegramBotConfig) {
+func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config.TelegramBotConfig) {
 	bot, err := tgbotapi.NewBotAPI(cfg.Token)
 	if err != nil {
 		slog.Error("telegram bot: failed to create bot", "error", err)
@@ -44,6 +44,17 @@ func (s *Server) startTelegramBot(ctx context.Context, cfg *config.TelegramBotCo
 					agentID = id
 				}
 				if agentID == "" {
+					continue
+				}
+
+				// Access control check.
+				userIDStr := fmt.Sprintf("%d", update.Message.From.ID)
+				allowed, wasPending := s.checkBotAccess(ctx, botID, userIDStr, cfg.AccessMode, cfg.PendingApproval, cfg.AllowedUsers)
+				if !allowed {
+					if wasPending {
+						reply := tgbotapi.NewMessage(update.Message.Chat.ID, "Your access is pending approval.")
+						bot.Send(reply) //nolint:errcheck
+					}
 					continue
 				}
 

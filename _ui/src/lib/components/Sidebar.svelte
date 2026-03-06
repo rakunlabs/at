@@ -18,6 +18,7 @@
     Radio,
     Database,
     Server,
+    Layers,
     House,
   } from "lucide-svelte";
 
@@ -118,6 +119,19 @@
       ]}
     >
       <Server size={14} />
+      <span>MCP Servers</span>
+    </a>
+    <a
+      href="#/mcps"
+      onclick={(e) => navigate(e, "/mcps")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/mcps"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Layers size={14} />
       <span>MCP</span>
     </a>
     <a

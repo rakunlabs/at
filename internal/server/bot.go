@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -97,18 +98,62 @@ func (s *Server) startBotsFromDB(ctx context.Context) {
 func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig) {
 	switch bot.Platform {
 	case "discord":
-		s.startDiscordBot(ctx, &config.DiscordBotConfig{
-			Token:          bot.Token,
-			DefaultAgentID: bot.DefaultAgentID,
-			ChannelAgents:  bot.ChannelAgents,
+		s.startDiscordBot(ctx, bot.ID, &config.DiscordBotConfig{
+			Token:           bot.Token,
+			DefaultAgentID:  bot.DefaultAgentID,
+			ChannelAgents:   bot.ChannelAgents,
+			AccessMode:      bot.AccessMode,
+			PendingApproval: bot.PendingApproval,
+			AllowedUsers:    bot.AllowedUsers,
 		})
 	case "telegram":
-		s.startTelegramBot(ctx, &config.TelegramBotConfig{
-			Token:          bot.Token,
-			DefaultAgentID: bot.DefaultAgentID,
-			ChatAgents:     bot.ChannelAgents,
+		s.startTelegramBot(ctx, bot.ID, &config.TelegramBotConfig{
+			Token:           bot.Token,
+			DefaultAgentID:  bot.DefaultAgentID,
+			ChatAgents:      bot.ChannelAgents,
+			AccessMode:      bot.AccessMode,
+			PendingApproval: bot.PendingApproval,
+			AllowedUsers:    bot.AllowedUsers,
 		})
 	default:
 		slog.Warn("unknown bot platform", "platform", bot.Platform, "id", bot.ID)
 	}
+}
+
+// checkBotAccess checks if a user is allowed to use the bot.
+// Returns: allowed bool, wasPending bool (true if pending_approval is on and user was added to pending).
+func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode string, pendingApproval bool, allowedUsers []string) (bool, bool) {
+	// For DB bots, fetch current config for dynamic updates.
+	if botID != "" && s.botConfigStore != nil {
+		dbCfg, err := s.botConfigStore.GetBotConfig(ctx, botID)
+		if err == nil && dbCfg != nil {
+			accessMode = dbCfg.AccessMode
+			pendingApproval = dbCfg.PendingApproval
+			allowedUsers = dbCfg.AllowedUsers
+
+			if accessMode == "allowlist" {
+				if slices.Contains(allowedUsers, userID) {
+					return true, false
+				}
+				if pendingApproval {
+					// Add to pending if not already there.
+					if !slices.Contains(dbCfg.PendingUsers, userID) {
+						dbCfg.PendingUsers = append(dbCfg.PendingUsers, userID)
+						if _, err := s.botConfigStore.UpdateBotConfig(ctx, botID, *dbCfg); err != nil {
+							slog.Error("failed to update pending users", "bot_id", botID, "error", err)
+						}
+					}
+					return false, true
+				}
+				return false, false
+			}
+			return true, false
+		}
+	}
+
+	// Static config (YAML) or fallback.
+	if accessMode == "allowlist" && len(allowedUsers) > 0 {
+		return slices.Contains(allowedUsers, userID), false
+	}
+	return true, false // open mode
 }

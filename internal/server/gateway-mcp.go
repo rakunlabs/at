@@ -177,6 +177,26 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 		tools = append(tools, upstreamTools...)
 	}
 
+	// Add tools from referenced MCPs.
+	if s.mcpSetStore != nil {
+		for _, mcpName := range srv.Config.MCPs {
+			mcpURLs := s.resolveMCPSetURLs(mcpName)
+			for _, url := range mcpURLs {
+				client, err := service.NewHTTPMCPClient(context.Background(), url)
+				if err != nil {
+					slog.Warn("failed to connect to MCP", "mcp", mcpName, "url", url, "error", err)
+					continue
+				}
+				mcpTools, err := client.ListTools(context.Background())
+				if err != nil {
+					slog.Warn("failed to list tools from MCP", "mcp", mcpName, "url", url, "error", err)
+					continue
+				}
+				tools = append(tools, mcpTools...)
+			}
+		}
+	}
+
 	mcpResult(w, req.ID, map[string]any{"tools": tools})
 }
 
@@ -337,7 +357,54 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		return
 	}
 
+	// Try referenced MCPs.
+	if s.mcpSetStore != nil {
+		for _, mcpName := range srv.Config.MCPs {
+			mcpURLs := s.resolveMCPSetURLs(mcpName)
+			for _, url := range mcpURLs {
+				client, err := service.NewHTTPMCPClient(r.Context(), url)
+				if err != nil {
+					continue
+				}
+				result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
+				if err != nil {
+					continue
+				}
+				mcpResult(w, req.ID, map[string]any{
+					"content": []map[string]any{
+						{"type": "text", "text": result},
+					},
+				})
+				return
+			}
+		}
+	}
+
 	mcpError(w, req.ID, -32602, fmt.Sprintf("unknown tool: %s", params.Name))
+}
+
+// resolveMCPSetURLs resolves an MCP name to a list of gateway URLs
+// (from referenced MCP servers, custom URLs, and own-tools gateway).
+func (s *Server) resolveMCPSetURLs(mcpName string) []string {
+	if s.mcpSetStore == nil {
+		return nil
+	}
+
+	set, err := s.mcpSetStore.GetMCPSetByName(context.Background(), mcpName)
+	if err != nil || set == nil {
+		slog.Warn("failed to resolve MCP", "mcp", mcpName, "error", err)
+		return nil
+	}
+
+	var urls []string
+	for _, serverName := range set.Servers {
+		urls = append(urls, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName))
+	}
+	urls = append(urls, set.URLs...)
+	if mcpSetHasOwnTools(set.Config) {
+		urls = append(urls, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp-set/%s", s.config.Port, s.config.BasePath, mcpName))
+	}
+	return urls
 }
 
 // ─── RAG Tool Dispatch ───

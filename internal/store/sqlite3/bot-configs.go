@@ -23,6 +23,10 @@ type botConfigRow struct {
 	Token          string         `db:"token"`
 	DefaultAgentID string         `db:"default_agent_id"`
 	ChannelAgents  sql.NullString `db:"channel_agents"`
+	AccessMode      string         `db:"access_mode"`
+	PendingApproval bool           `db:"pending_approval"`
+	AllowedUsers    sql.NullString `db:"allowed_users"`
+	PendingUsers    sql.NullString `db:"pending_users"`
 	Enabled        bool           `db:"enabled"`
 	CreatedAt      string         `db:"created_at"`
 	UpdatedAt      string         `db:"updated_at"`
@@ -31,7 +35,7 @@ type botConfigRow struct {
 }
 
 func (s *SQLite) ListBotConfigs(ctx context.Context, q *query.Query) (*service.ListResult[service.BotConfig], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableBotConfigs, q, "id", "platform", "name", "token", "default_agent_id", "channel_agents", "enabled", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := s.buildListQuery(ctx, s.tableBotConfigs, q, "id", "platform", "name", "token", "default_agent_id", "channel_agents", "access_mode", "pending_approval", "allowed_users", "pending_users", "enabled", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list bot configs query: %w", err)
 	}
@@ -45,7 +49,7 @@ func (s *SQLite) ListBotConfigs(ctx context.Context, q *query.Query) (*service.L
 	var items []service.BotConfig
 	for rows.Next() {
 		var row botConfigRow
-		if err := rows.Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan bot config row: %w", err)
 		}
 
@@ -70,7 +74,7 @@ func (s *SQLite) ListBotConfigs(ctx context.Context, q *query.Query) (*service.L
 
 func (s *SQLite) GetBotConfig(ctx context.Context, id string) (*service.BotConfig, error) {
 	query, _, err := s.goqu.From(s.tableBotConfigs).
-		Select("id", "platform", "name", "token", "default_agent_id", "channel_agents", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "platform", "name", "token", "default_agent_id", "channel_agents", "access_mode", "pending_approval", "allowed_users", "pending_users", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -78,7 +82,7 @@ func (s *SQLite) GetBotConfig(ctx context.Context, id string) (*service.BotConfi
 	}
 
 	var row botConfigRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -94,9 +98,21 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
 	}
+	allowedUsersJSON, err := json.Marshal(bot.AllowedUsers)
+	if err != nil {
+		return nil, fmt.Errorf("marshal allowed_users: %w", err)
+	}
+	pendingUsersJSON, err := json.Marshal(bot.PendingUsers)
+	if err != nil {
+		return nil, fmt.Errorf("marshal pending_users: %w", err)
+	}
 
 	id := ulid.Make().String()
 	now := time.Now().UTC()
+
+	if bot.AccessMode == "" {
+		bot.AccessMode = "open"
+	}
 
 	query, _, err := s.goqu.Insert(s.tableBotConfigs).Rows(
 		goqu.Record{
@@ -106,11 +122,15 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 			"token":            bot.Token,
 			"default_agent_id": bot.DefaultAgentID,
 			"channel_agents":   string(channelAgentsJSON),
-			"enabled":          bot.Enabled,
-			"created_at":       now.Format(time.RFC3339),
-			"updated_at":       now.Format(time.RFC3339),
-			"created_by":       bot.CreatedBy,
-			"updated_by":       bot.UpdatedBy,
+			"access_mode":       bot.AccessMode,
+			"pending_approval":  bot.PendingApproval,
+			"allowed_users":     string(allowedUsersJSON),
+			"pending_users":     string(pendingUsersJSON),
+			"enabled":           bot.Enabled,
+			"created_at":        now.Format(time.RFC3339),
+			"updated_at":        now.Format(time.RFC3339),
+			"created_by":        bot.CreatedBy,
+			"updated_by":        bot.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -132,11 +152,15 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 		Token:          bot.Token,
 		DefaultAgentID: bot.DefaultAgentID,
 		ChannelAgents:  bot.ChannelAgents,
-		Enabled:        bot.Enabled,
-		CreatedAt:      now.Format(time.RFC3339),
-		UpdatedAt:      now.Format(time.RFC3339),
-		CreatedBy:      bot.CreatedBy,
-		UpdatedBy:      bot.UpdatedBy,
+		AccessMode:      bot.AccessMode,
+		PendingApproval: bot.PendingApproval,
+		AllowedUsers:    bot.AllowedUsers,
+		PendingUsers:    bot.PendingUsers,
+		Enabled:         bot.Enabled,
+		CreatedAt:       now.Format(time.RFC3339),
+		UpdatedAt:       now.Format(time.RFC3339),
+		CreatedBy:       bot.CreatedBy,
+		UpdatedBy:       bot.UpdatedBy,
 	}, nil
 }
 
@@ -144,6 +168,18 @@ func (s *SQLite) UpdateBotConfig(ctx context.Context, id string, bot service.Bot
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
+	}
+	allowedUsersJSON, err := json.Marshal(bot.AllowedUsers)
+	if err != nil {
+		return nil, fmt.Errorf("marshal allowed_users: %w", err)
+	}
+	pendingUsersJSON, err := json.Marshal(bot.PendingUsers)
+	if err != nil {
+		return nil, fmt.Errorf("marshal pending_users: %w", err)
+	}
+
+	if bot.AccessMode == "" {
+		bot.AccessMode = "open"
 	}
 
 	now := time.Now().UTC()
@@ -154,9 +190,13 @@ func (s *SQLite) UpdateBotConfig(ctx context.Context, id string, bot service.Bot
 		"token":            bot.Token,
 		"default_agent_id": bot.DefaultAgentID,
 		"channel_agents":   string(channelAgentsJSON),
-		"enabled":          bot.Enabled,
-		"updated_at":       now.Format(time.RFC3339),
-		"updated_by":       bot.UpdatedBy,
+		"access_mode":       bot.AccessMode,
+		"pending_approval":  bot.PendingApproval,
+		"allowed_users":     string(allowedUsersJSON),
+		"pending_users":     string(pendingUsersJSON),
+		"enabled":           bot.Enabled,
+		"updated_at":        now.Format(time.RFC3339),
+		"updated_by":        bot.UpdatedBy,
 	}
 
 	query, _, err := s.goqu.Update(s.tableBotConfigs).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()
@@ -204,6 +244,25 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 		}
 	}
 
+	var allowedUsers []string
+	if row.AllowedUsers.Valid && row.AllowedUsers.String != "" {
+		if err := json.Unmarshal([]byte(row.AllowedUsers.String), &allowedUsers); err != nil {
+			return nil, fmt.Errorf("unmarshal allowed_users for %q: %w", row.ID, err)
+		}
+	}
+
+	var pendingUsers []string
+	if row.PendingUsers.Valid && row.PendingUsers.String != "" {
+		if err := json.Unmarshal([]byte(row.PendingUsers.String), &pendingUsers); err != nil {
+			return nil, fmt.Errorf("unmarshal pending_users for %q: %w", row.ID, err)
+		}
+	}
+
+	accessMode := row.AccessMode
+	if accessMode == "" {
+		accessMode = "open"
+	}
+
 	return &service.BotConfig{
 		ID:             row.ID,
 		Platform:       row.Platform,
@@ -211,7 +270,11 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 		Token:          row.Token,
 		DefaultAgentID: row.DefaultAgentID,
 		ChannelAgents:  channelAgents,
-		Enabled:        row.Enabled,
+		AccessMode:      accessMode,
+		PendingApproval: row.PendingApproval,
+		AllowedUsers:    allowedUsers,
+		PendingUsers:    pendingUsers,
+		Enabled:         row.Enabled,
 		CreatedAt:      row.CreatedAt,
 		UpdatedAt:      row.UpdatedAt,
 		CreatedBy:      row.CreatedBy.String,

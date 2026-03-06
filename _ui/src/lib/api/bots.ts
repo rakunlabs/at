@@ -10,6 +10,10 @@ export interface BotConfig {
   token: string;
   default_agent_id: string;
   channel_agents: Record<string, string>;
+  access_mode: string;
+  pending_approval: boolean;
+  allowed_users: string[];
+  pending_users: string[];
   enabled: boolean;
   created_at: string;
   updated_at: string;

@@ -33,6 +33,10 @@
   let formToken = $state('');
   let formDefaultAgentID = $state('');
   let formEnabled = $state(true);
+  let formAccessMode = $state('open');
+  let formPendingApproval = $state(false);
+  let formAllowedUsers = $state<{ value: string }[]>([]);
+  let formPendingUsers = $state<string[]>([]);
   let formChannelAgents = $state<{ key: string; value: string }[]>([]);
 
   // ─── Load ───
@@ -80,6 +84,10 @@
     formToken = '';
     formDefaultAgentID = '';
     formEnabled = true;
+    formAccessMode = 'open';
+    formPendingApproval = false;
+    formAllowedUsers = [];
+    formPendingUsers = [];
     formChannelAgents = [];
     editingId = null;
     showForm = false;
@@ -98,6 +106,10 @@
     formToken = bot.token;
     formDefaultAgentID = bot.default_agent_id;
     formEnabled = bot.enabled;
+    formAccessMode = bot.access_mode || 'open';
+    formPendingApproval = bot.pending_approval || false;
+    formAllowedUsers = (bot.allowed_users || []).map((v) => ({ value: v }));
+    formPendingUsers = bot.pending_users || [];
     formChannelAgents = Object.entries(bot.channel_agents || {}).map(([key, value]) => ({ key, value }));
     showForm = true;
   }
@@ -127,6 +139,10 @@
         token: formToken.trim(),
         default_agent_id: formDefaultAgentID,
         channel_agents: channelAgents,
+        access_mode: formAccessMode,
+        pending_approval: formPendingApproval,
+        allowed_users: formAllowedUsers.map((e) => e.value.trim()).filter(Boolean),
+        pending_users: formPendingUsers,
         enabled: formEnabled,
       };
 
@@ -165,6 +181,25 @@
 
   function removeChannelAgent(i: number) {
     formChannelAgents = formChannelAgents.filter((_, idx) => idx !== i);
+  }
+
+  // ─── Allowed/pending users management ───
+
+  function addAllowedUser() {
+    formAllowedUsers = [...formAllowedUsers, { value: '' }];
+  }
+
+  function removeAllowedUser(i: number) {
+    formAllowedUsers = formAllowedUsers.filter((_, idx) => idx !== i);
+  }
+
+  function approvePendingUser(userID: string) {
+    formPendingUsers = formPendingUsers.filter((u) => u !== userID);
+    formAllowedUsers = [...formAllowedUsers, { value: userID }];
+  }
+
+  function denyPendingUser(userID: string) {
+    formPendingUsers = formPendingUsers.filter((u) => u !== userID);
   }
 
   // ─── Helpers ───
@@ -286,6 +321,93 @@
               </label>
             </div>
 
+            <!-- Access Mode -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="form-access-mode" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Access Mode</label>
+              <select
+                id="form-access-mode"
+                bind:value={formAccessMode}
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+              >
+                <option value="open">Open (everyone)</option>
+                <option value="allowlist">Allowlist (approved users only)</option>
+              </select>
+            </div>
+
+            <!-- Allowlist settings (shown when allowlist mode) -->
+            {#if formAccessMode === 'allowlist'}
+              <!-- Pending Approval toggle -->
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Pending Approval</span>
+                <label class="col-span-3 flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" bind:checked={formPendingApproval} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                  <span class="text-sm text-gray-600 dark:text-dark-text-secondary">Unknown users get a "pending approval" reply and appear in the list below</span>
+                </label>
+              </div>
+
+              <div class="grid grid-cols-4 gap-3 items-start">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Allowed Users</span>
+                <div class="col-span-3 space-y-2">
+                  {#each formAllowedUsers as entry, i}
+                    <div class="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        bind:value={entry.value}
+                        placeholder="User ID"
+                        class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                      />
+                      <button
+                        type="button"
+                        onclick={() => removeAllowedUser(i)}
+                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                        title="Remove"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  {/each}
+                  <button
+                    type="button"
+                    onclick={addAllowedUser}
+                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                  >
+                    <Plus size={12} />
+                    Add user ID
+                  </button>
+                </div>
+              </div>
+
+              <!-- Pending Users (shown when pending approval is on and there are pending users) -->
+              {#if formPendingApproval && editingId && formPendingUsers.length > 0}
+                <div class="grid grid-cols-4 gap-3 items-start">
+                  <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Pending Users</span>
+                  <div class="col-span-3 space-y-2">
+                    {#each formPendingUsers as userID}
+                      <div class="flex gap-2 items-center">
+                        <span class="flex-1 px-3 py-1.5 text-sm font-mono bg-gray-50 dark:bg-dark-base/50 border border-gray-200 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary">
+                          {userID}
+                        </span>
+                        <button
+                          type="button"
+                          onclick={() => approvePendingUser(userID)}
+                          class="px-2 py-1 text-xs bg-green-600 text-white hover:bg-green-700 transition-colors"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onclick={() => denyPendingUser(userID)}
+                          class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                </div>
+              {/if}
+            {/if}
+
             <!-- Channel/Agent Overrides -->
             <div class="grid grid-cols-4 gap-3 items-start">
               <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
@@ -376,6 +498,7 @@
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
             <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Agent</th>
             <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Token</th>
+            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Access</th>
             <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
             <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
           {/snippet}
@@ -398,6 +521,16 @@
               </td>
               <td class="px-4 py-2.5 text-xs font-mono text-gray-400 dark:text-dark-text-muted">
                 {maskToken(bot.token)}
+              </td>
+              <td class="px-4 py-2.5">
+                <span class="text-xs text-gray-500 dark:text-dark-text-muted">
+                  {bot.access_mode === 'allowlist' ? 'allowlist' : 'open'}
+                </span>
+                {#if bot.pending_users?.length}
+                  <span class="ml-1 px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
+                    {bot.pending_users.length} pending
+                  </span>
+                {/if}
               </td>
               <td class="px-4 py-2.5">
                 {#if bot.enabled}

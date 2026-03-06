@@ -10,7 +10,7 @@ import (
 )
 
 // startDiscordBot starts a Discord bot that routes messages to the agentic loop.
-func (s *Server) startDiscordBot(ctx context.Context, cfg *config.DiscordBotConfig) {
+func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.DiscordBotConfig) {
 	dg, err := discordgo.New("Bot " + cfg.Token)
 	if err != nil {
 		slog.Error("discord bot: failed to create session", "error", err)
@@ -31,6 +31,15 @@ func (s *Server) startDiscordBot(ctx context.Context, cfg *config.DiscordBotConf
 			agentID = id
 		}
 		if agentID == "" {
+			return
+		}
+
+		// Access control check.
+		allowed, wasPending := s.checkBotAccess(ctx, botID, m.Author.ID, cfg.AccessMode, cfg.PendingApproval, cfg.AllowedUsers)
+		if !allowed {
+			if wasPending {
+				sess.ChannelMessageSend(m.ChannelID, "Your access is pending approval.") //nolint:errcheck
+			}
 			return
 		}
 

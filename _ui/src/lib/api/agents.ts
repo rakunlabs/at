@@ -9,6 +9,7 @@ export interface AgentConfig {
   model: string;
   system_prompt: string;
   skills: string[];
+  mcp_sets: string[];
   mcp_urls: string[];
   max_iterations: number;
   tool_timeout: number;

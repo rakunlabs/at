@@ -4,8 +4,8 @@
   import { listAgents, createAgent, updateAgent, deleteAgent, type Agent } from '@/lib/api/agents';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
-  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste, Server } from 'lucide-svelte';
+  import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
+  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste, Layers } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -17,7 +17,7 @@
   let agents = $state<Agent[]>([]);
   let providers = $state<ProviderRecord[]>([]);
   let skills = $state<Skill[]>([]);
-  let mcpServers = $state<MCPServer[]>([]);
+  let mcpSets = $state<MCPSet[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
@@ -38,6 +38,7 @@
   let formModel = $state('');
   let formSystemPrompt = $state('');
   let formSkills = $state<string[]>([]);
+  let formMCPSets = $state<string[]>([]);
   let formMCPs = $state<string[]>(['']);
   let formMaxIterations = $state(10);
   let formToolTimeout = $state(60);
@@ -53,6 +54,7 @@
         model: agent.config.model,
         system_prompt: agent.config.system_prompt,
         skills: agent.config.skills || [],
+        mcp_sets: agent.config.mcp_sets || [],
         mcp_urls: agent.config.mcp_urls || [],
         max_iterations: agent.config.max_iterations,
         tool_timeout: agent.config.tool_timeout,
@@ -83,6 +85,7 @@
       formModel = cfg.model || '';
       formSystemPrompt = cfg.system_prompt || '';
       formSkills = cfg.skills || [];
+      formMCPSets = cfg.mcp_sets || [];
       formMCPs = cfg.mcp_urls && cfg.mcp_urls.length > 0 ? [...cfg.mcp_urls] : [''];
       formMaxIterations = cfg.max_iterations || 10;
       formToolTimeout = cfg.tool_timeout || 60;
@@ -105,12 +108,12 @@
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       
-      const [aResult, pResult, sResult, mResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPServers({ _limit: 500 })]);
+      const [aResult, pResult, sResult, mResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPSets({ _limit: 500 })]);
       agents = aResult.data || [];
       total = aResult.meta?.total || 0;
       providers = pResult.data || [];
       skills = sResult.data || [];
-      mcpServers = mResult.data || [];
+      mcpSets = mResult.data || [];
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -141,6 +144,7 @@
     formModel = '';
     formSystemPrompt = '';
     formSkills = [];
+    formMCPSets = [];
     formMCPs = [''];
     formMaxIterations = 10;
     formToolTimeout = 60;
@@ -162,6 +166,7 @@
     formModel = agent.config.model;
     formSystemPrompt = agent.config.system_prompt;
     formSkills = [...(agent.config.skills || [])];
+    formMCPSets = [...(agent.config.mcp_sets || [])];
     formMCPs = agent.config.mcp_urls && agent.config.mcp_urls.length > 0 ? [...agent.config.mcp_urls] : [''];
     formMaxIterations = agent.config.max_iterations || 10;
     formToolTimeout = agent.config.tool_timeout || 60;
@@ -189,6 +194,7 @@
           model: formModel,
           system_prompt: formSystemPrompt,
           skills: formSkills,
+          mcp_sets: formMCPSets,
           mcp_urls: cleanMCPs,
           max_iterations: formMaxIterations,
           tool_timeout: formToolTimeout,
@@ -234,31 +240,6 @@
 
   function updateMcpInput(i: number, val: string) {
     formMCPs[i] = val;
-  }
-
-  function mcpGatewayURL(name: string): string {
-    return `${window.location.origin}/gateway/v1/mcp/${name}`;
-  }
-
-  function toggleMCPServer(name: string) {
-    const url = mcpGatewayURL(name);
-    if (formMCPs.includes(url)) {
-      formMCPs = formMCPs.filter(u => u !== url);
-    } else {
-      // Replace the empty trailing entry or append
-      const emptyIdx = formMCPs.findIndex(u => u.trim() === '');
-      if (emptyIdx >= 0) {
-        formMCPs[emptyIdx] = url;
-        formMCPs = [...formMCPs];
-      } else {
-        formMCPs = [...formMCPs, url];
-      }
-    }
-  }
-
-  function isMCPServerSelected(name: string): boolean {
-    const url = mcpGatewayURL(name);
-    return formMCPs.includes(url);
   }
 
   // ─── Derived ───
@@ -423,64 +404,57 @@
               </div>
             </div>
 
-            <!-- MCP Servers -->
+            <!-- MCP -->
             <div class="grid grid-cols-4 gap-3 items-start">
-              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">MCP Servers</span>
-              <div class="col-span-3 space-y-2">
-                {#if mcpServers.length > 0}
-                  <div class="bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border space-y-1.5">
-                    <div class="flex items-center gap-1.5 mb-1">
-                      <Server size={12} class="text-gray-400 dark:text-dark-text-muted" />
-                      <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Your MCP Servers</span>
-                    </div>
-                    <div class="flex flex-wrap gap-1.5">
-                      {#each mcpServers as srv}
-                        <button
-                          type="button"
-                          onclick={() => toggleMCPServer(srv.name)}
-                          class={[
-                            'px-2 py-1 text-xs border transition-colors',
-                            isMCPServerSelected(srv.name)
-                              ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                              : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                          ]}
-                          title={srv.config.description || srv.name}
-                        >
-                          {srv.name}
-                        </button>
-                      {/each}
-                    </div>
-                  </div>
-                {/if}
-                {#each formMCPs as url, i}
-                  <div class="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      value={url}
-                      oninput={(e) => updateMcpInput(i, (e.target as HTMLInputElement).value)}
-                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                      placeholder="http://localhost:8000/sse"
-                    />
-                    <button
-                      type="button"
-                      onclick={() => removeMcpInput(i)}
-                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
-                      title="Remove URL"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">MCP</span>
+              <div class="col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                {#each mcpSets as set}
+                  <label class="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" bind:group={formMCPSets} value={set.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate" title={set.description || set.name}>{set.name}</span>
+                  </label>
                 {/each}
-                <button
-                  type="button"
-                  onclick={addMcpInput}
-                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
-                >
-                  <Plus size={12} />
-                  Add URL
-                </button>
+                {#if mcpSets.length === 0}
+                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No MCPs available</div>
+                {/if}
               </div>
             </div>
+
+            <!-- MCP URLs (legacy) -->
+            {#if formMCPs.some(u => u.trim() !== '')}
+              <div class="grid grid-cols-4 gap-3 items-start">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">MCP URLs</span>
+                <div class="col-span-3 space-y-2">
+                  {#each formMCPs as url, i}
+                    <div class="flex gap-2 items-center">
+                      <input
+                        type="text"
+                        value={url}
+                        oninput={(e) => updateMcpInput(i, (e.target as HTMLInputElement).value)}
+                        class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        placeholder="http://localhost:8000/sse"
+                      />
+                      <button
+                        type="button"
+                        onclick={() => removeMcpInput(i)}
+                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                        title="Remove URL"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  {/each}
+                  <button
+                    type="button"
+                    onclick={addMcpInput}
+                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                  >
+                    <Plus size={12} />
+                    Add URL
+                  </button>
+                </div>
+              </div>
+            {/if}
 
             <!-- Max Iterations / Tool Timeout -->
             <div class="grid grid-cols-4 gap-3 items-center">
