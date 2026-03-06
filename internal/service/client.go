@@ -11,6 +11,13 @@ import (
 	"sync/atomic"
 )
 
+// MCPClient is the interface implemented by both HTTP and stdio MCP clients.
+type MCPClient interface {
+	ListTools(ctx context.Context) ([]Tool, error)
+	CallTool(ctx context.Context, name string, arguments map[string]any) (string, error)
+	Close() error
+}
+
 // MCP Protocol Types
 type MCPRequest struct {
 	Jsonrpc string `json:"jsonrpc"`
@@ -211,6 +218,9 @@ func (c *HTTPMCPClient) ListTools(ctx context.Context) ([]Tool, error) {
 }
 
 func (c *HTTPMCPClient) CallTool(ctx context.Context, name string, arguments map[string]any) (string, error) {
+	if arguments == nil {
+		arguments = map[string]any{}
+	}
 	req := MCPRequest{
 		Jsonrpc: "2.0",
 		ID:      c.getNextID(),

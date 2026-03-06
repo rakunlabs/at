@@ -6,13 +6,61 @@
   import { listCollections, type RAGCollection } from '@/lib/api/rag';
   import { listVariables, type Variable } from '@/lib/api/secrets';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot } from 'lucide-svelte';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Check, Package } from 'lucide-svelte';
+  import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import HTTPToolBuilderPanel from '@/lib/components/HTTPToolBuilderPanel.svelte';
 
   storeNavbar.title = 'MCP';
+
+  // ─── Tab State ───
+
+  let activeTab = $state<'my-mcps' | 'store'>('my-mcps');
+
+  // ─── Store State ───
+
+  let mcpTemplates = $state<MCPTemplate[]>([]);
+  let storeLoading = $state(false);
+  let selectedCategory = $state('');
+  let installedSlugs = $state<Set<string>>(new Set());
+
+  async function loadTemplates() {
+    storeLoading = true;
+    try {
+      const cat = selectedCategory || undefined;
+      mcpTemplates = await listMCPTemplates(cat);
+      const setNames = new Set(sets.map((s) => s.name));
+      installedSlugs = new Set(mcpTemplates.filter((t) => setNames.has(t.mcp_set.name)).map((t) => t.slug));
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load templates', 'alert');
+    } finally {
+      storeLoading = false;
+    }
+  }
+
+  async function handleInstallTemplate(slug: string) {
+    try {
+      await installMCPTemplate(slug);
+      addToast('MCP installed from template');
+      installedSlugs = new Set([...installedSlugs, slug]);
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to install template', 'alert');
+    }
+  }
+
+  function selectCategory(cat: string) {
+    selectedCategory = cat === selectedCategory ? '' : cat;
+    loadTemplates();
+  }
+
+  $effect(() => {
+    if (activeTab === 'store') {
+      loadTemplates();
+    }
+  });
 
   // ─── State ───
 
@@ -170,7 +218,7 @@
     formTokenUser = cfg.token_user || '';
     formSSHKeyVariable = cfg.ssh_key_variable || '';
     formHTTPTools = (cfg.http_tools ?? []).map((t: MCPHTTPTool) => ({ ...t, headers: t.headers ? { ...t.headers } : {}, input_schema: t.input_schema ? JSON.parse(JSON.stringify(t.input_schema)) : { type: 'object', properties: {} } }));
-    formMCPUpstreams = (cfg.mcp_upstreams ?? []).map((u: MCPUpstream) => ({ ...u, headers: u.headers ? { ...u.headers } : {} }));
+    formMCPUpstreams = (cfg.mcp_upstreams ?? []).map((u: MCPUpstream) => ({ ...u, headers: u.headers ? { ...u.headers } : undefined, args: u.args ? [...u.args] : undefined, env: u.env ? { ...u.env } : undefined }));
     formEnabledSkills = cfg.enabled_skills ?? [];
     showRAGSection = formEnabledRAGTools.length > 0;
     showHTTPSection = formHTTPTools.length > 0;
@@ -208,8 +256,10 @@
             url: t.url.trim(),
           })),
           mcp_upstreams: formMCPUpstreams
-            .filter(u => u.url.trim().length > 0)
-            .map(u => ({ url: u.url.trim(), headers: u.headers })),
+            .filter(u => (u.url?.trim() || '').length > 0 || (u.command?.trim() || '').length > 0)
+            .map(u => u.command !== undefined
+              ? { command: u.command!.trim(), args: u.args, env: u.env }
+              : { url: u.url!.trim(), headers: u.headers }),
           enabled_skills: formEnabledSkills,
         },
       };
@@ -315,6 +365,35 @@
     upstreamNewHeaderValue[index] = '';
   }
 
+  // Upstream MCP server env management
+  let upstreamNewEnvKey = $state<Record<number, string>>({});
+  let upstreamNewEnvValue = $state<Record<number, string>>({});
+
+  function addUpstreamEnv(index: number) {
+    const key = (upstreamNewEnvKey[index] || '').trim();
+    const value = (upstreamNewEnvValue[index] || '').trim();
+    if (!key) return;
+    const upstream = formMCPUpstreams[index];
+    if (!upstream.env) upstream.env = {};
+    upstream.env[key] = value;
+    formMCPUpstreams = [...formMCPUpstreams];
+    upstreamNewEnvKey[index] = '';
+    upstreamNewEnvValue[index] = '';
+  }
+
+  // NPM package quick-add
+  let npmPackageInput = $state('');
+
+  function addNpmPackage() {
+    const raw = npmPackageInput.trim();
+    if (!raw) return;
+    // Split "package arg1 arg2" into parts; first part is the package name
+    const parts = raw.split(/\s+/);
+    formMCPUpstreams = [...formMCPUpstreams, { command: 'npx', args: parts, env: {} }];
+    npmPackageInput = '';
+    showUpstreamSection = true;
+  }
+
   // Input schema editing as JSON string per tool
   let httpToolSchemaText = $state<Record<number, string>>({});
 
@@ -344,6 +423,26 @@
 <div class="flex h-full flex-1 min-w-0">
   <div class="flex-1 overflow-y-auto">
     <div class="p-6 max-w-5xl mx-auto">
+      <!-- Tab Bar -->
+      <div class="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border">
+        <button
+          onclick={() => (activeTab = 'my-mcps')}
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'my-mcps' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+        >
+          <Layers size={14} />
+          My MCPs
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+        </button>
+        <button
+          onclick={() => (activeTab = 'store')}
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+        >
+          <Store size={14} />
+          MCP Store
+        </button>
+      </div>
+
+      {#if activeTab === 'my-mcps'}
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -368,7 +467,6 @@
           </button>
         </div>
       </div>
-
       <!-- Inline Form -->
       {#if showForm}
         <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
@@ -730,58 +828,149 @@
                     <div class="border border-gray-200 dark:border-dark-border p-3 space-y-3 relative">
                       <div class="flex items-center justify-between">
                         <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Server #{i + 1}</span>
-                        <button type="button" onclick={() => { formMCPUpstreams = formMCPUpstreams.filter((_, idx) => idx !== i); }} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Remove server">
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-
-                      <div class="grid grid-cols-4 gap-2 items-center">
-                        <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">URL</label>
-                        <input
-                          type="text"
-                          bind:value={formMCPUpstreams[i].url}
-                          placeholder="https://other-server:8000/sse"
-                          class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                        />
-                      </div>
-
-                      <div class="grid grid-cols-4 gap-2 items-start">
-                        <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Headers</label>
-                        <div class="col-span-3 space-y-1">
-                          {#if upstream.headers}
-                            {#each Object.entries(upstream.headers) as [hk, hv]}
-                              <div class="flex items-center gap-1">
-                                <span class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
-                                <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted truncate">{hv}</span>
-                                <button type="button" onclick={() => { if (upstream.headers) { delete upstream.headers[hk]; formMCPUpstreams = [...formMCPUpstreams]; } }} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 transition-colors">
-                                  <X size={10} />
-                                </button>
-                              </div>
-                            {/each}
-                          {/if}
-                          <div class="flex items-center gap-1">
-                            <input type="text" placeholder="Key" bind:value={upstreamNewHeaderKey[i]}
-                              class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
-                            <input type="text" placeholder="Value" bind:value={upstreamNewHeaderValue[i]}
-                              class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
-                            <button type="button" onclick={() => addUpstreamHeader(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary transition-colors">
-                              Add
+                        <div class="flex items-center gap-2">
+                          <div class="flex items-center gap-1 text-xs">
+                            <button type="button" onclick={() => { formMCPUpstreams[i] = { url: upstream.url || '', headers: upstream.headers || {} }; formMCPUpstreams = [...formMCPUpstreams]; }}
+                              class="px-1.5 py-0.5 transition-colors {!upstream.command ? 'bg-gray-800 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}">
+                              HTTP
+                            </button>
+                            <button type="button" onclick={() => { formMCPUpstreams[i] = { command: upstream.command || '', args: upstream.args || [], env: upstream.env || {} }; formMCPUpstreams = [...formMCPUpstreams]; }}
+                              class="px-1.5 py-0.5 transition-colors {upstream.command !== undefined && upstream.command !== null ? 'bg-gray-800 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}">
+                              Local
                             </button>
                           </div>
-                          <p class="text-xs text-gray-400 dark:text-dark-text-muted">Use <code class="font-mono">{"{{var:key}}"}</code> to reference a variable value</p>
+                          <button type="button" onclick={() => { formMCPUpstreams = formMCPUpstreams.filter((_, idx) => idx !== i); }} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Remove server">
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       </div>
+
+                      {#if upstream.command !== undefined && upstream.command !== null}
+                        <!-- Local Command mode -->
+                        <div class="grid grid-cols-4 gap-2 items-center">
+                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Command</label>
+                          <input
+                            type="text"
+                            bind:value={formMCPUpstreams[i].command}
+                            placeholder="npx"
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                          />
+                        </div>
+                        <div class="grid grid-cols-4 gap-2 items-center">
+                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Args</label>
+                          <input
+                            type="text"
+                            value={(upstream.args ?? []).join(' ')}
+                            oninput={(e: Event) => { formMCPUpstreams[i].args = (e.target as HTMLInputElement).value.split(/\s+/).filter(Boolean); formMCPUpstreams = [...formMCPUpstreams]; }}
+                            placeholder="@playwright/mcp@latest --headless"
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                          />
+                        </div>
+                        <div class="grid grid-cols-4 gap-2 items-start">
+                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Env</label>
+                          <div class="col-span-3 space-y-1">
+                            {#if upstream.env}
+                              {#each Object.entries(upstream.env) as [ek, ev]}
+                                <div class="flex items-center gap-1">
+                                  <span class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{ek}=</span>
+                                  <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted truncate">{ev}</span>
+                                  <button type="button" onclick={() => { if (upstream.env) { delete upstream.env[ek]; formMCPUpstreams = [...formMCPUpstreams]; } }} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 transition-colors">
+                                    <X size={10} />
+                                  </button>
+                                </div>
+                              {/each}
+                            {/if}
+                            <div class="flex items-center gap-1">
+                              <input type="text" placeholder="Key" bind:value={upstreamNewEnvKey[i]}
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+                              <input type="text" placeholder="Value" bind:value={upstreamNewEnvValue[i]}
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+                              <button type="button" onclick={() => addUpstreamEnv(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary transition-colors">
+                                Add
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      {:else}
+                        <!-- HTTP mode -->
+                        <div class="grid grid-cols-4 gap-2 items-center">
+                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">URL</label>
+                          <input
+                            type="text"
+                            bind:value={formMCPUpstreams[i].url}
+                            placeholder="https://other-server:8000/sse"
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                          />
+                        </div>
+
+                        <div class="grid grid-cols-4 gap-2 items-start">
+                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Headers</label>
+                          <div class="col-span-3 space-y-1">
+                            {#if upstream.headers}
+                              {#each Object.entries(upstream.headers) as [hk, hv]}
+                                <div class="flex items-center gap-1">
+                                  <span class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
+                                  <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted truncate">{hv}</span>
+                                  <button type="button" onclick={() => { if (upstream.headers) { delete upstream.headers[hk]; formMCPUpstreams = [...formMCPUpstreams]; } }} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 transition-colors">
+                                    <X size={10} />
+                                  </button>
+                                </div>
+                              {/each}
+                            {/if}
+                            <div class="flex items-center gap-1">
+                              <input type="text" placeholder="Key" bind:value={upstreamNewHeaderKey[i]}
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+                              <input type="text" placeholder="Value" bind:value={upstreamNewHeaderValue[i]}
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+                              <button type="button" onclick={() => addUpstreamHeader(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary transition-colors">
+                                Add
+                              </button>
+                            </div>
+                            <p class="text-xs text-gray-400 dark:text-dark-text-muted">Use <code class="font-mono">{"{{var:key}}"}</code> to reference a variable value</p>
+                          </div>
+                        </div>
+                      {/if}
                     </div>
                   {/each}
 
-                  <button
-                    type="button"
-                    onclick={() => { formMCPUpstreams = [...formMCPUpstreams, { url: '', headers: {} }]; }}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors w-full justify-center"
-                  >
-                    <Plus size={12} />
-                    Add External MCP Server
-                  </button>
+                  <!-- NPM Package quick-add -->
+                  <div class="flex items-center gap-2">
+                    <Package size={14} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
+                    <input
+                      type="text"
+                      bind:value={npmPackageInput}
+                      placeholder="@playwright/mcp@latest --headless"
+                      onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); addNpmPackage(); } }}
+                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onclick={addNpmPackage}
+                      class="px-3 py-1.5 text-xs font-medium bg-gray-800 dark:bg-accent text-white hover:bg-gray-700 dark:hover:bg-accent-hover transition-colors shrink-0"
+                    >
+                      Add NPM
+                    </button>
+                  </div>
+                  <p class="text-xs text-gray-400 dark:text-dark-text-muted">Add an npm package as <code class="font-mono">npx &lt;package&gt;</code> MCP server. Append flags after the package name.</p>
+
+                  <div class="flex gap-2">
+                    <button
+                      type="button"
+                      onclick={() => { formMCPUpstreams = [...formMCPUpstreams, { url: '', headers: {} }]; }}
+                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors justify-center"
+                    >
+                      <Globe size={12} />
+                      Add HTTP Server
+                    </button>
+                    <button
+                      type="button"
+                      onclick={() => { formMCPUpstreams = [...formMCPUpstreams, { command: '', args: [], env: {} }]; }}
+                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors justify-center"
+                    >
+                      <Bot size={12} />
+                      Add Local Command
+                    </button>
+                  </div>
                   <p class="text-xs text-gray-400 dark:text-dark-text-muted">Tools from these upstream MCP servers will be merged into this MCP's tools.</p>
                 </div>
               {/if}
@@ -896,6 +1085,101 @@
             </tr>
           {/snippet}
         </DataTable>
+      {/if}
+      {/if}
+
+      <!-- MCP Store Tab -->
+      {#if activeTab === 'store'}
+        <!-- Category Filters -->
+        {#if mcpTemplates.length > 0}
+          {@const categories = [...new Set(mcpTemplates.map((t) => t.category))]}
+          <div class="flex items-center gap-2 mb-4 flex-wrap">
+            <span class="text-xs text-gray-500 dark:text-dark-text-muted">Filter:</span>
+            {#each categories as cat}
+              <button
+                onclick={() => selectCategory(cat)}
+                class="px-2.5 py-1 text-xs font-medium transition-colors {selectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+              >
+                {cat}
+              </button>
+            {/each}
+            {#if selectedCategory}
+              <button
+                onclick={() => selectCategory('')}
+                class="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+              >
+                Clear
+              </button>
+            {/if}
+          </div>
+        {/if}
+
+        {#if storeLoading}
+          <div class="flex items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted">
+            <RefreshCw size={16} class="animate-spin mr-2" />
+            Loading templates...
+          </div>
+        {:else if mcpTemplates.length === 0}
+          <div class="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted">
+            <Store size={24} class="mb-2" />
+            <p class="text-sm">No templates available</p>
+          </div>
+        {:else}
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {#each mcpTemplates as tmpl}
+              <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 flex flex-col">
+                <div class="flex items-start justify-between mb-2">
+                  <div>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{tmpl.name}</h3>
+                    <span class="inline-block mt-1 px-2 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">
+                      {tmpl.category}
+                    </span>
+                  </div>
+                  {#if installedSlugs.has(tmpl.slug)}
+                    <span class="flex items-center gap-1 px-2 py-1 text-xs font-medium text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20">
+                      <Check size={12} />
+                      Installed
+                    </span>
+                  {/if}
+                </div>
+                <p class="text-xs text-gray-500 dark:text-dark-text-muted mb-3 flex-1">{tmpl.description}</p>
+
+                <!-- Tags -->
+                {#if tmpl.tags && tmpl.tags.length > 0}
+                  <div class="flex flex-wrap gap-1 mb-3">
+                    {#each tmpl.tags as tag}
+                      <span class="px-1.5 py-0.5 text-[10px] bg-gray-50 dark:bg-dark-base text-gray-400 dark:text-dark-text-muted">{tag}</span>
+                    {/each}
+                  </div>
+                {/if}
+
+                <!-- Config preview -->
+                <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-3 space-y-0.5">
+                  {#if (tmpl.mcp_set.config.enabled_rag_tools ?? []).length > 0}
+                    <div><span class="font-mono px-1 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">RAG</span> {tmpl.mcp_set.config.enabled_rag_tools?.join(', ')}</div>
+                  {/if}
+                  {#if (tmpl.mcp_set.config.mcp_upstreams ?? []).length > 0}
+                    <div><span class="font-mono px-1 py-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400">External</span> {tmpl.mcp_set.config.mcp_upstreams?.map(u => u.command ? `${u.command} ${(u.args ?? []).join(' ')}` : new URL(u.url!).hostname).join(', ')}</div>
+                  {/if}
+                  {#if (tmpl.mcp_set.config.http_tools ?? []).length > 0}
+                    <div><span class="font-mono px-1 py-0.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400">HTTP</span> {tmpl.mcp_set.config.http_tools?.length} tool{(tmpl.mcp_set.config.http_tools?.length ?? 0) !== 1 ? 's' : ''}</div>
+                  {/if}
+                </div>
+
+                <!-- Install button -->
+                {#if !installedSlugs.has(tmpl.slug)}
+                  <button
+                    onclick={() => handleInstallTemplate(tmpl.slug)}
+                    class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                  >
+                    <Download size={12} />
+                    Install
+                  </button>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {/if}
       {/if}
     </div>
   </div>

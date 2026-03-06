@@ -1,0 +1,16 @@
+{
+  "slug": "playwright",
+  "name": "Playwright MCP",
+  "description": "Browser automation via Playwright. Navigate pages, fill forms, click elements, and extract content.",
+  "category": "Browser",
+  "tags": ["browser", "automation", "testing", "web", "playwright"],
+  "mcp_set": {
+    "name": "playwright",
+    "description": "Browser automation via Playwright MCP",
+    "config": {
+      "mcp_upstreams": [
+        { "command": "npx", "args": ["@playwright/mcp@latest", "--headless"] }
+      ]
+    }
+  }
+}

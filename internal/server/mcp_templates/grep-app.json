@@ -1,0 +1,16 @@
+{
+  "slug": "grep-app",
+  "name": "Grep.app (Vercel)",
+  "description": "Search through code snippets across GitHub repositories. Find real-world usage examples, patterns, and implementations.",
+  "category": "Development",
+  "tags": ["code-search", "github", "examples", "vercel"],
+  "mcp_set": {
+    "name": "grep_app",
+    "description": "GitHub code search via Grep.app",
+    "config": {
+      "mcp_upstreams": [
+        { "url": "https://mcp.grep.app" }
+      ]
+    }
+  }
+}

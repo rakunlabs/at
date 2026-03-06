@@ -159,6 +159,12 @@ type Server struct {
 
 	// skillTemplates holds predefined skill templates loaded from embedded JSON.
 	skillTemplates []SkillTemplate
+
+	// mcpTemplates holds predefined MCP templates loaded from embedded JSON.
+	mcpTemplates []MCPTemplate
+
+	// stdioManager manages stdio-based MCP subprocess lifecycles.
+	stdioManager *service.StdioProcessManager
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
@@ -265,6 +271,16 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 	// Load predefined skill templates from embedded JSON files.
 	s.loadSkillTemplates()
+	s.loadMCPTemplates()
+
+	// Initialize stdio MCP process manager.
+	s.stdioManager = service.NewStdioProcessManager(ctx)
+
+	// Close stdio MCP processes when the server context is cancelled.
+	go func() {
+		<-ctx.Done()
+		s.stdioManager.Close()
+	}()
 
 	// Start background sweep for expired thought_signature cache entries.
 	go func() {
@@ -550,6 +566,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/mcp/servers/{id}", s.GetMCPServerAPI)
 	apiGroup.PUT("/v1/mcp/servers/{id}", s.UpdateMCPServerAPI)
 	apiGroup.DELETE("/v1/mcp/servers/{id}", s.DeleteMCPServerAPI)
+
+	// MCP templates (store)
+	apiGroup.GET("/v1/mcp-templates", s.ListMCPTemplatesAPI)
+	apiGroup.GET("/v1/mcp-templates/{slug}", s.GetMCPTemplateAPI)
+	apiGroup.POST("/v1/mcp-templates/{slug}/install", s.InstallMCPTemplateAPI)
 
 	// MCP set management
 	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)

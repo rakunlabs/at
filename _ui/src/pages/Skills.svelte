@@ -286,7 +286,7 @@
 
   async function loadExistingVars() {
     try {
-      const res = await listVariables({ limit: 1000 });
+      const res = await listVariables({ _limit: 1000 });
       existingVars = new Map(res.data.map((v: Variable) => [v.key, v.id]));
     } catch { /* ignore */ }
   }
@@ -1025,13 +1025,14 @@
                             class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
                           >
                             <ExternalLink size={10} />
-                            Connect {tmpl.oauth.charAt(0).toUpperCase() + tmpl.oauth.slice(1)} Account
+                            Connect {tmpl.oauth.charAt(0).toUpperCase() + tmpl.oauth.slice(1)} Account (Optional)
                           </button>
+                          <p class="text-[10px] text-gray-400 dark:text-dark-text-muted leading-tight">Users can connect their own accounts via /login in chat</p>
                         {/if}
                       {/if}
 
                       <!-- Step 3: Install -->
-                      {#if oauthAllVarsReady(tmpl) && oauthRefreshTokenReady(tmpl.oauth)}
+                      {#if oauthAllVarsReady(tmpl)}
                         <button
                           onclick={() => handleInstallTemplate(tmpl.slug)}
                           class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"

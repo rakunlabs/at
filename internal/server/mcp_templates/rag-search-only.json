@@ -1,0 +1,15 @@
+{
+  "slug": "rag-search-only",
+  "name": "RAG Search",
+  "description": "Lightweight RAG search tool. Provides only semantic search across your document collections without full document fetching.",
+  "category": "Built-in",
+  "tags": ["rag", "search", "lightweight"],
+  "mcp_set": {
+    "name": "rag_search",
+    "description": "Semantic search across RAG collections",
+    "config": {
+      "enabled_rag_tools": ["rag_search", "rag_list_collections"],
+      "default_num_results": 10
+    }
+  }
+}

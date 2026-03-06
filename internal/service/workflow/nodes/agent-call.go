@@ -211,7 +211,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	mcpToolNames := make(map[string]bool)
 
 	// mcpClients holds initialized MCP clients (closed at the end).
-	var mcpClients []*service.HTTPMCPClient
+	var mcpClients []service.MCPClient
 	defer func() {
 		for _, c := range mcpClients {
 			c.Close()
@@ -692,7 +692,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 // callMCPTool dispatches a tool call to the appropriate MCP client.
 // It tries each client in order; the first one that has the tool wins.
-func callMCPTool(ctx context.Context, clients []*service.HTTPMCPClient, name string, args map[string]any) (string, error) {
+func callMCPTool(ctx context.Context, clients []service.MCPClient, name string, args map[string]any) (string, error) {
 	for _, c := range clients {
 		result, err := c.CallTool(ctx, name, args)
 		if err != nil {

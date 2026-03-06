@@ -160,18 +160,14 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 
 	// Add tools from upstream MCP servers.
 	for _, upstream := range srv.Config.MCPUpstreams {
-		var opts []service.HTTPMCPClientOption
-		if len(upstream.Headers) > 0 {
-			opts = append(opts, service.WithHeaders(upstream.Headers))
-		}
-		client, err := service.NewHTTPMCPClient(context.Background(), upstream.URL, opts...)
+		client, err := s.newMCPClient(context.Background(), upstream)
 		if err != nil {
-			slog.Warn("failed to connect to upstream MCP server", "url", upstream.URL, "error", err)
+			slog.Warn("failed to connect to upstream MCP server", "upstream", upstream.URL+upstream.Command, "error", err)
 			continue
 		}
 		upstreamTools, err := client.ListTools(context.Background())
 		if err != nil {
-			slog.Warn("failed to list tools from upstream MCP server", "url", upstream.URL, "error", err)
+			slog.Warn("failed to list tools from upstream MCP server", "upstream", upstream.URL+upstream.Command, "error", err)
 			continue
 		}
 		tools = append(tools, upstreamTools...)
@@ -335,18 +331,14 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 
 	// Try upstream MCP servers.
 	for _, upstream := range srv.Config.MCPUpstreams {
-		var opts []service.HTTPMCPClientOption
-		if len(upstream.Headers) > 0 {
-			opts = append(opts, service.WithHeaders(upstream.Headers))
-		}
-		client, err := service.NewHTTPMCPClient(r.Context(), upstream.URL, opts...)
+		client, err := s.newMCPClient(r.Context(), upstream)
 		if err != nil {
-			slog.Warn("failed to connect to upstream MCP server for call", "url", upstream.URL, "error", err)
+			slog.Warn("failed to connect to upstream MCP server for call", "upstream", upstream.URL+upstream.Command, "error", err)
 			continue
 		}
 		result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
 		if err != nil {
-			slog.Warn("upstream MCP call failed", "url", upstream.URL, "tool", params.Name, "error", err)
+			slog.Warn("upstream MCP call failed", "upstream", upstream.URL+upstream.Command, "tool", params.Name, "error", err)
 			continue
 		}
 		mcpResult(w, req.ID, map[string]any{
@@ -405,6 +397,19 @@ func (s *Server) resolveMCPSetURLs(mcpName string) []string {
 		urls = append(urls, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp-set/%s", s.config.Port, s.config.BasePath, mcpName))
 	}
 	return urls
+}
+
+// newMCPClient creates an MCPClient for the given upstream, dispatching to
+// either the stdio process manager or the HTTP client based on config.
+func (s *Server) newMCPClient(ctx context.Context, upstream service.MCPUpstream) (service.MCPClient, error) {
+	if upstream.Command != "" {
+		return s.stdioManager.GetOrCreate(upstream)
+	}
+	var opts []service.HTTPMCPClientOption
+	if len(upstream.Headers) > 0 {
+		opts = append(opts, service.WithHeaders(upstream.Headers))
+	}
+	return service.NewHTTPMCPClient(ctx, upstream.URL, opts...)
 }
 
 // ─── RAG Tool Dispatch ───

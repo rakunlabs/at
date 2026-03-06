@@ -115,9 +115,24 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			reply := tgbotapi.NewMessage(msg.Chat.ID, "Session cleared. Starting fresh!")
 			bot.Send(reply) //nolint:errcheck
 			return
+		case "login":
+			provider := msg.CommandArguments()
+			if provider == "" {
+				provider = "google"
+			}
+			loginURL := s.buildOAuthLoginURL(ctx, provider, "telegram", userIDStr)
+			if loginURL == "" {
+				reply := tgbotapi.NewMessage(msg.Chat.ID, "OAuth login is not available. Make sure external_url is configured and the provider's client_id variable is set.")
+				bot.Send(reply) //nolint:errcheck
+				return
+			}
+			reply := tgbotapi.NewMessage(msg.Chat.ID, "Click the link below to connect your "+provider+" account:\n"+loginURL)
+			bot.Send(reply) //nolint:errcheck
+			return
 		case "help":
 			helpText := "Available commands:\n" +
 				"/reset - Clear conversation history and start fresh\n" +
+				"/login - Connect your Google account (usage: /login or /login google)\n" +
 				"/help - Show this help message"
 			reply := tgbotapi.NewMessage(msg.Chat.ID, helpText)
 			bot.Send(reply) //nolint:errcheck

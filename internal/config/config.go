@@ -131,6 +131,11 @@ type Server struct {
 	// email address (populated by the forward auth middleware).
 	UserHeader string `cfg:"user_header" default:"X-User"`
 
+	// ExternalURL is the public URL of this server (e.g. "https://at.example.com").
+	// Used to generate OAuth callback links sent to bot users.
+	// If empty, OAuth login commands in bots will not be available.
+	ExternalURL string `cfg:"external_url"`
+
 	// Alan, if set, enables distributed clustering via UDP peer discovery.
 	// This allows multiple AT instances to coordinate encryption key rotation
 	// and other admin operations across the cluster.

@@ -302,7 +302,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}
 	toolHandlers := make(map[string]toolHandlerInfo)
 	mcpToolNames := make(map[string]bool)
-	var mcpClients []*service.HTTPMCPClient
+	var mcpClients []service.MCPClient
 	defer func() {
 		for _, c := range mcpClients {
 			c.Close()
@@ -315,7 +315,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	var mcpURLs []string
 	mcpURLs = append(mcpURLs, agent.Config.MCPs...)
 
-	// Resolve MCP Sets to URLs.
+	// Resolve MCP Sets to URLs and direct clients.
+	var mcpSetUpstreams []service.MCPUpstream
 	if s.mcpSetStore != nil {
 		for _, setName := range agent.Config.MCPSets {
 			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
@@ -334,15 +335,18 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 			mcpURLs = append(mcpURLs, set.URLs...)
 
-			// If the MCP set has its own tool config, add its own gateway URL.
-			if mcpSetHasOwnTools(set.Config) {
+			// Collect upstreams to resolve directly (bypasses gateway).
+			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
+
+			// If the MCP set has non-upstream own tools, add gateway URL.
+			if len(set.Config.EnabledRAGTools) > 0 || len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledSkills) > 0 {
 				setGatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp-set/%s", s.config.Port, s.config.BasePath, setName)
 				mcpURLs = append(mcpURLs, setGatewayURL)
 			}
 		}
 	}
 
-	// MCP tools
+	// MCP tools — HTTP URLs.
 	for _, url := range mcpURLs {
 		client, err := service.NewHTTPMCPClient(ctx, url)
 		if err != nil {
@@ -354,6 +358,26 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		tools, err := client.ListTools(ctx)
 		if err != nil {
 			slog.Warn("agentic loop: failed to list MCP tools, skipping", "url", url, "error", err)
+			continue
+		}
+		for _, t := range tools {
+			mcpToolNames[t.Name] = true
+			allTools = append(allTools, t)
+		}
+	}
+
+	// MCP tools — direct upstreams from MCP sets (HTTP or stdio).
+	for _, upstream := range mcpSetUpstreams {
+		client, err := s.newMCPClient(ctx, upstream)
+		if err != nil {
+			slog.Warn("agentic loop: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
+			continue
+		}
+		mcpClients = append(mcpClients, client)
+
+		tools, err := client.ListTools(ctx)
+		if err != nil {
+			slog.Warn("agentic loop: failed to list MCP upstream tools, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
 			continue
 		}
 		for _, t := range tools {
@@ -498,20 +522,21 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		toolTimeout = 60 * time.Second
 	}
 
-	// Build variable lookup/lister for bash tools.
-	var varLookup workflow.VarLookup
+	// Derive a user identity for per-user variable scoping (e.g. OAuth tokens).
+	// For bot sessions this is "platform::platform_user_id"; for web sessions
+	// it falls back to the session creator.
+	sessionUserID := ""
+	if session.Config.Platform != "" && session.Config.PlatformUserID != "" {
+		sessionUserID = session.Config.Platform + "::" + session.Config.PlatformUserID
+	} else if session.CreatedBy != "" {
+		sessionUserID = session.CreatedBy
+	}
+
+	// Build variable lookup/lister for skill tools.
+	// The lookup checks per-user variables first (key::userID), then global.
+	varLookup := s.userScopedVarLookup(ctx, sessionUserID)
 	var varLister workflow.VarLister
 	if s.variableStore != nil {
-		varLookup = func(key string) (string, error) {
-			v, err := s.variableStore.GetVariableByKey(ctx, key)
-			if err != nil {
-				return "", err
-			}
-			if v == nil {
-				return "", fmt.Errorf("variable %q not found", key)
-			}
-			return v.Value, nil
-		}
 		varLister = func() (map[string]string, error) {
 			vars, err := s.variableStore.ListVariables(ctx, nil)
 			if err != nil {
@@ -755,7 +780,7 @@ func (s *Server) persistToolResults(ctx context.Context, sessionID string, resul
 }
 
 // callMCPToolFromClients dispatches a tool call to the appropriate MCP client.
-func callMCPToolFromClients(ctx context.Context, clients []*service.HTTPMCPClient, name string, args map[string]any) (string, error) {
+func callMCPToolFromClients(ctx context.Context, clients []service.MCPClient, name string, args map[string]any) (string, error) {
 	for _, c := range clients {
 		result, err := c.CallTool(ctx, name, args)
 		if err != nil {

@@ -721,10 +721,13 @@ type MCPServerConfig struct {
 	MCPs []string `json:"mcps,omitempty"`
 }
 
-// MCPUpstream represents an upstream MCP server URL with optional headers.
+// MCPUpstream represents an upstream MCP server — either HTTP or stdio (local command).
 type MCPUpstream struct {
-	URL     string            `json:"url"`
+	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 // MCPServer represents a named, gateway-facing MCP endpoint that can expose

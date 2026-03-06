@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -67,6 +68,38 @@ func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Sessi
 	sessionID, err := s.findOrCreateBotSession(ctx, "discord", m.Author.ID, m.ChannelID, agentID)
 	if err != nil {
 		slog.Error("discord bot: session lookup failed", "error", err)
+		return
+	}
+
+	// Handle bot commands.
+	switch {
+	case m.Content == "!reset":
+		if err := s.chatSessionStore.DeleteChatMessages(ctx, sessionID); err != nil {
+			slog.Error("discord bot: reset failed", "session_id", sessionID, "error", err)
+			sess.ChannelMessageSend(m.ChannelID, "Failed to reset session.") //nolint:errcheck
+			return
+		}
+		sess.ChannelMessageSend(m.ChannelID, "Session cleared. Starting fresh!") //nolint:errcheck
+		return
+	case m.Content == "!login" || strings.HasPrefix(m.Content, "!login "):
+		provider := strings.TrimPrefix(m.Content, "!login")
+		provider = strings.TrimSpace(provider)
+		if provider == "" {
+			provider = "google"
+		}
+		loginURL := s.buildOAuthLoginURL(ctx, provider, "discord", m.Author.ID)
+		if loginURL == "" {
+			sess.ChannelMessageSend(m.ChannelID, "OAuth login is not available. Make sure external_url is configured and the provider's client_id variable is set.") //nolint:errcheck
+			return
+		}
+		sess.ChannelMessageSend(m.ChannelID, "Click the link below to connect your "+provider+" account:\n"+loginURL) //nolint:errcheck
+		return
+	case m.Content == "!help":
+		helpText := "Available commands:\n" +
+			"**!reset** - Clear conversation history and start fresh\n" +
+			"**!login** - Connect your Google account (usage: !login or !login google)\n" +
+			"**!help** - Show this help message"
+		sess.ChannelMessageSend(m.ChannelID, helpText) //nolint:errcheck
 		return
 	}
 

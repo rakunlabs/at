@@ -472,6 +472,13 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 	}
 
+	// Convert content blocks to raw maps so we control exactly which fields
+	// are present.  Anthropic requires "input" on tool_use blocks, but Go's
+	// omitempty drops empty maps, so struct serialization can't guarantee it.
+	for i := range filteredMessages {
+		filteredMessages[i].Content = convertContent(filteredMessages[i].Content)
+	}
+
 	reqBody := map[string]any{
 		"model":      model,
 		"max_tokens": 4096,
@@ -485,4 +492,69 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 	}
 
 	return reqBody
+}
+
+// convertContent ensures tool_use content blocks always have the "input"
+// field.  It converts []service.ContentBlock to []map[string]any so that
+// json.Marshal cannot drop the field via omitempty.
+func convertContent(content any) any {
+	switch blocks := content.(type) {
+	case []service.ContentBlock:
+		out := make([]map[string]any, 0, len(blocks))
+		for _, b := range blocks {
+			out = append(out, contentBlockToMap(b))
+		}
+		return out
+	case []any:
+		for _, b := range blocks {
+			if m, ok := b.(map[string]any); ok {
+				if m["type"] == "tool_use" {
+					if _, has := m["input"]; !has {
+						m["input"] = map[string]any{}
+					}
+				}
+			}
+		}
+		return blocks
+	default:
+		return content
+	}
+}
+
+func contentBlockToMap(b service.ContentBlock) map[string]any {
+	switch b.Type {
+	case "tool_use":
+		input := b.Input
+		if input == nil {
+			input = map[string]any{}
+		}
+		m := map[string]any{
+			"type":  "tool_use",
+			"id":    b.ID,
+			"name":  b.Name,
+			"input": input,
+		}
+		return m
+	case "tool_result":
+		m := map[string]any{
+			"type":        "tool_result",
+			"tool_use_id": b.ToolUseID,
+		}
+		if b.Content != "" {
+			m["content"] = b.Content
+		}
+		return m
+	case "image":
+		m := map[string]any{"type": "image"}
+		if b.Source != nil {
+			m["source"] = b.Source
+		}
+		return m
+	default: // "text", etc.
+		m := map[string]any{"type": b.Type}
+		if b.Text != "" {
+			m["text"] = b.Text
+		}
+		return m
+	}
 }

@@ -1,0 +1,16 @@
+{
+  "slug": "sentry",
+  "name": "Sentry",
+  "description": "Query Sentry for projects, issues, and error data. Debug production errors and monitor application health directly from your agent.",
+  "category": "DevOps",
+  "tags": ["error-tracking", "monitoring", "debugging", "sentry"],
+  "mcp_set": {
+    "name": "sentry",
+    "description": "Sentry error tracking and issue management",
+    "config": {
+      "mcp_upstreams": [
+        { "url": "https://mcp.sentry.dev/mcp" }
+      ]
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "slug": "rag-knowledge-base",
+  "name": "RAG Knowledge Base",
+  "description": "Expose your RAG document collections as MCP tools. Enables semantic search, collection listing, and full document retrieval.",
+  "category": "Built-in",
+  "tags": ["rag", "search", "documents", "knowledge-base"],
+  "mcp_set": {
+    "name": "rag_knowledge_base",
+    "description": "RAG knowledge base tools for semantic search and document retrieval",
+    "config": {
+      "enabled_rag_tools": ["rag_search", "rag_list_collections", "rag_fetch_source", "rag_search_and_fetch"],
+      "default_num_results": 10
+    }
+  }
+}
