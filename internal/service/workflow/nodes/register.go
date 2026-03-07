@@ -28,4 +28,5 @@
 //   - rag_search     — similarity search against RAG collections
 //   - git_fetch      — clones/pulls a git repo and outputs changed files
 //   - rag_ingest     — ingests files into a RAG collection, handling deletions
+//   - chat_reply     — sends a message to a chat session from a workflow
 package nodes

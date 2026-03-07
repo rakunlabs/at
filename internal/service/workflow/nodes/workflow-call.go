@@ -110,6 +110,8 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		reg.BuiltinToolDispatcher,
 		reg.BuiltinToolDefs,
 		reg.UserPrefLookup,
+		reg.ChatMessageCreator,
+		reg.ChatSessionLookup,
 	)
 
 	// 4. Run the child workflow.

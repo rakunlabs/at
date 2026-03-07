@@ -211,6 +211,16 @@ type Registry struct {
 	// RAGStateSave saves RAG sync state.
 	RAGStateSave RAGStateSaveFunc
 
+	// ChatMessageCreator creates a message in a chat session.
+	// Used by chat_reply nodes to push messages into a conversation.
+	// nil when chat session store is not configured.
+	ChatMessageCreator ChatMessageCreatorFunc
+
+	// ChatSessionLookup resolves a chat session by ID.
+	// Used by chat_reply nodes to verify the target session exists.
+	// nil when chat session store is not configured.
+	ChatSessionLookup ChatSessionLookupFunc
+
 	// BuiltinToolDispatcher dispatches a call to a server-side built-in tool.
 	// nil when builtin tools are not available.
 	BuiltinToolDispatcher BuiltinToolDispatcher
@@ -299,6 +309,14 @@ type RAGStateLookupFunc func(ctx context.Context, key string) (*service.RAGState
 // RAGStateSaveFunc saves RAG sync state.
 type RAGStateSaveFunc func(ctx context.Context, key, value string) error
 
+// ChatMessageCreatorFunc creates a message in a chat session.
+// Used by chat_reply nodes to push messages into a conversation.
+type ChatMessageCreatorFunc func(ctx context.Context, sessionID, role, content string) error
+
+// ChatSessionLookupFunc resolves a chat session by ID.
+// Returns nil, nil if the session does not exist.
+type ChatSessionLookupFunc func(ctx context.Context, id string) (*service.ChatSession, error)
+
 // BuiltinToolDispatcher executes a server-side built-in tool by name.
 // Returns the tool's text result or an error.
 type BuiltinToolDispatcher func(ctx context.Context, name string, args map[string]any) (string, error)
@@ -311,7 +329,7 @@ type BuiltinToolDef struct {
 }
 
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
@@ -331,6 +349,8 @@ func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLo
 		VarSave:               varSave,
 		RAGStateLookup:        ragStateLookup,
 		RAGStateSave:          ragStateSave,
+		ChatMessageCreator:    chatMessageCreator,
+		ChatSessionLookup:     chatSessionLookup,
 		BuiltinToolDispatcher: builtinDispatcher,
 		BuiltinToolDefs:       builtinDefs,
 		RunInputs:             inputs,

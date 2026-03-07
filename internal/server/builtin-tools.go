@@ -423,6 +423,179 @@ var builtinTools = []builtinToolDef{
 		},
 	},
 
+	// ─── Workflow & Trigger Management Tools ───
+	{
+		Name:        "workflow_list",
+		Description: "List all workflows in the system. Returns a summary of each workflow including ID, name, description, node/edge counts, and timestamps.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	},
+	{
+		Name:        "workflow_get",
+		Description: "Get a workflow's full details including its graph (nodes and edges). Use this to inspect an existing workflow's structure before modifying it.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The workflow ID",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name: "workflow_create",
+		Description: `Create a new workflow with a DAG graph of nodes and edges. Available node types:
+- input: starting node, passes trigger inputs downstream (output port: "data")
+- output: terminal node, collects final results
+- llm_call: sends prompt to LLM (config: provider, model, system_prompt; input ports: prompt, context; output port: response)
+- agent_call: full agentic loop with tool support (config: provider, model, system_prompt, max_iterations)
+- template: renders Go text/template (config: template; input port: data; output port: text)
+- conditional: JS expression routing (config: expression; output ports: true, false)
+- loop: JS expression fan-out (config: expression; output port: data)
+- script: arbitrary JS (config: code; output ports: true, false, always)
+- http_request: HTTP client (config: url, method, headers, body; output ports: success, error, always)
+- http_trigger: HTTP webhook trigger (output port: data)
+- cron_trigger: cron schedule trigger (config: schedule, timezone, payload; output port: data)
+- exec: shell command (config: command, sandbox_root; output ports: true, false, always)
+- email: send email via SMTP (config: config_id, to, subject, body)
+- log: log and pass through (config: level, message)
+- chat_reply: send message to a chat session (config: session_id; input port: message; output ports: success, error, always)
+Edges connect source node output ports to target node input ports via source_handle and target_handle.`,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Workflow name",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "Workflow description",
+				},
+				"graph": map[string]any{
+					"type":        "object",
+					"description": "The workflow graph with nodes and edges arrays",
+					"properties": map[string]any{
+						"nodes": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"id":   map[string]any{"type": "string", "description": "Unique node ID"},
+									"type": map[string]any{"type": "string", "description": "Node type name"},
+									"position": map[string]any{
+										"type":        "object",
+										"description": "Visual position {x, y}",
+									},
+									"data": map[string]any{
+										"type":        "object",
+										"description": "Node-type-specific configuration",
+									},
+								},
+								"required": []string{"id", "type"},
+							},
+						},
+						"edges": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type": "object",
+								"properties": map[string]any{
+									"id":            map[string]any{"type": "string", "description": "Unique edge ID"},
+									"source":        map[string]any{"type": "string", "description": "Source node ID"},
+									"target":        map[string]any{"type": "string", "description": "Target node ID"},
+									"source_handle": map[string]any{"type": "string", "description": "Source output port name (default: output)"},
+									"target_handle": map[string]any{"type": "string", "description": "Target input port name (default: input)"},
+								},
+								"required": []string{"id", "source", "target"},
+							},
+						},
+					},
+					"required": []string{"nodes", "edges"},
+				},
+			},
+			"required": []string{"name", "graph"},
+		},
+	},
+	{
+		Name:        "workflow_update",
+		Description: "Update an existing workflow. You can update the name, description, and/or the graph. Only provided fields are changed.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The workflow ID to update",
+				},
+				"name": map[string]any{
+					"type":        "string",
+					"description": "New workflow name (optional)",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "New workflow description (optional)",
+				},
+				"graph": map[string]any{
+					"type":        "object",
+					"description": "New workflow graph with nodes and edges (optional)",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "workflow_delete",
+		Description: "Delete a workflow and all its associated triggers.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The workflow ID to delete",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "workflow_run",
+		Description: "Execute a workflow. Can run synchronously (waits for output) or asynchronously (returns immediately).",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The workflow ID to run",
+				},
+				"inputs": map[string]any{
+					"type":        "object",
+					"description": "Input data to pass to the workflow (optional)",
+				},
+				"sync": map[string]any{
+					"type":        "boolean",
+					"description": "If true, wait for workflow completion and return outputs (default: false)",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "trigger_list",
+		Description: "List workflow triggers. Optionally filter by workflow ID. Shows trigger type (http/cron), config, alias, and enabled status.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"workflow_id": map[string]any{
+					"type":        "string",
+					"description": "Filter triggers by workflow ID (optional — lists all if omitted)",
+				},
+			},
+		},
+	},
+
 	// ─── LSP Tool ───
 	{
 		Name:        "lsp_query",
@@ -739,6 +912,22 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 	// LSP tool.
 	case "lsp_query":
 		return s.execLSPQuery(ctx, args)
+
+	// Workflow & trigger management tools.
+	case "workflow_list":
+		return s.execWorkflowList(ctx, args)
+	case "workflow_get":
+		return s.execWorkflowGet(ctx, args)
+	case "workflow_create":
+		return s.execWorkflowCreate(ctx, args)
+	case "workflow_update":
+		return s.execWorkflowUpdate(ctx, args)
+	case "workflow_delete":
+		return s.execWorkflowDelete(ctx, args)
+	case "workflow_run":
+		return s.execWorkflowRun(ctx, args)
+	case "trigger_list":
+		return s.execTriggerList(ctx, args)
 
 	// User preference tools.
 	case "set_user_preference":
