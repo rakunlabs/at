@@ -24,7 +24,29 @@ type Provider struct {
 	APIKey string
 	Model  string
 
-	client *klient.Client
+	client      *klient.Client
+	tokenSource TokenSource
+}
+
+// Option configures the Provider.
+type Option func(*Provider)
+
+// WithTokenSource sets a token source for per-request authentication.
+// When set, the token source is called before each request and the returned
+// token is used as Authorization: Bearer, overriding the static X-Api-Key.
+func WithTokenSource(ts TokenSource) Option {
+	return func(p *Provider) {
+		p.tokenSource = ts
+	}
+}
+
+// SetTokenRefreshCallback wires a callback on the provider's OAuthTokenSource
+// (if present) so that refreshed tokens can be persisted to the store.
+// This is a no-op if the provider does not use an OAuthTokenSource.
+func (p *Provider) SetTokenRefreshCallback(fn TokenRefreshCallback) {
+	if ts, ok := p.tokenSource.(*OAuthTokenSource); ok {
+		ts.SetRefreshCallback(fn)
+	}
 }
 
 type AnthropicResponse struct {
@@ -58,9 +80,17 @@ type Usage struct {
 	OutputTokens int `json:"output_tokens"`
 }
 
-func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provider, error) {
+func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...Option) (*Provider, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
+	}
+
+	headers := http.Header{
+		"Anthropic-Version": []string{"2023-06-01"},
+		"Content-Type":      []string{"application/json"},
+	}
+	if apiKey != "" {
+		headers["X-Api-Key"] = []string{apiKey}
 	}
 
 	klientOpts := []klient.OptionClientFn{
@@ -68,11 +98,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provid
 		klient.WithLogger(slog.Default()),
 		klient.WithDisableRetry(true),
 		klient.WithDisableEnvValues(true),
-		klient.WithHeaderSet(http.Header{
-			"X-Api-Key":         []string{apiKey},
-			"Anthropic-Version": []string{"2023-06-01"},
-			"Content-Type":      []string{"application/json"},
-		}),
+		klient.WithHeaderSet(headers),
 	}
 	if proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(proxy))
@@ -86,11 +112,17 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provid
 		return nil, err
 	}
 
-	return &Provider{
+	p := &Provider{
 		APIKey: apiKey,
 		Model:  model,
 		client: client,
-	}, nil
+	}
+
+	for _, o := range opts {
+		o(p)
+	}
+
+	return p, nil
 }
 
 func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
@@ -104,6 +136,18 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
+	}
+
+	// If a token source is configured, get a fresh token and use Bearer auth
+	// instead of the static X-Api-Key header.
+	if p.tokenSource != nil {
+		token, err := p.tokenSource.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get auth token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+		req.Header.Del("X-Api-Key")
 	}
 
 	var result AnthropicResponse
@@ -222,6 +266,17 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// Override auth header when a token source is configured (see Chat() comment).
+	if p.tokenSource != nil {
+		token, err := p.tokenSource.Token(ctx)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get auth token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+		req.Header.Del("X-Api-Key")
 	}
 
 	// Use the klient's HTTP client directly for streaming.
@@ -420,7 +475,17 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 			req.Host = targetURL.Host
 
 			// Auth
-			if p.APIKey != "" {
+			if p.tokenSource != nil {
+				token, err := p.tokenSource.Token(req.Context())
+				if err != nil {
+					slog.Error("failed to get auth token in proxy", "error", err)
+				} else {
+					req.Header.Set("Authorization", "Bearer "+token)
+					req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+					req.Header.Del("x-api-key")
+				}
+				req.Header.Set("anthropic-version", "2023-06-01")
+			} else if p.APIKey != "" {
 				req.Header.Set("x-api-key", p.APIKey)
 				req.Header.Set("anthropic-version", "2023-06-01")
 			}

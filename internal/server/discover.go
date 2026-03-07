@@ -45,10 +45,15 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	// When editing an existing provider the UI redacts the API key. If the
 	// request omits the key but includes a provider key, look up the stored
 	// config and use its API key so discovery still works.
-	if req.Config.APIKey == "" && req.Key != "" {
+	if req.Key != "" {
 		existing, err := s.store.GetProvider(r.Context(), req.Key)
 		if err == nil && existing != nil {
-			req.Config.APIKey = existing.Config.APIKey
+			if req.Config.APIKey == "" {
+				req.Config.APIKey = existing.Config.APIKey
+			}
+			if req.Config.AuthType == "" {
+				req.Config.AuthType = existing.Config.AuthType
+			}
 		}
 	}
 
@@ -212,7 +217,10 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 			return nil, fmt.Errorf("build request: %w", err)
 		}
 
-		if cfg.APIKey != "" {
+		if cfg.AuthType == "claude-code" && cfg.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+			req.Header.Set("anthropic-beta", "oauth-2025-04-20")
+		} else if cfg.APIKey != "" {
 			req.Header.Set("x-api-key", cfg.APIKey)
 		}
 		req.Header.Set("anthropic-version", "2023-06-01")

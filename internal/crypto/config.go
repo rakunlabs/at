@@ -22,6 +22,14 @@ func EncryptLLMConfig(cfg config.LLMConfig, key []byte) (config.LLMConfig, error
 		cfg.APIKey = enc
 	}
 
+	if cfg.RefreshToken != "" {
+		enc, err := Encrypt(cfg.RefreshToken, key)
+		if err != nil {
+			return cfg, fmt.Errorf("encrypt refresh_token: %w", err)
+		}
+		cfg.RefreshToken = enc
+	}
+
 	if len(cfg.ExtraHeaders) > 0 {
 		encrypted := make(map[string]string, len(cfg.ExtraHeaders))
 		for k, v := range cfg.ExtraHeaders {
@@ -52,6 +60,14 @@ func DecryptLLMConfig(cfg config.LLMConfig, key []byte) (config.LLMConfig, error
 			return cfg, fmt.Errorf("decrypt api_key: %w", err)
 		}
 		cfg.APIKey = dec
+	}
+
+	if cfg.RefreshToken != "" {
+		dec, err := Decrypt(cfg.RefreshToken, key)
+		if err != nil {
+			return cfg, fmt.Errorf("decrypt refresh_token: %w", err)
+		}
+		cfg.RefreshToken = dec
 	}
 
 	if len(cfg.ExtraHeaders) > 0 {

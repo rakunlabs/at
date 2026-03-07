@@ -17,6 +17,7 @@ import (
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/tmc/langchaingo/schema"
@@ -449,6 +450,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.POST("/v1/providers/discover-models", s.DiscoverModelsAPI)
 	apiGroup.POST("/v1/providers/device-auth", s.DeviceAuthAPI)
 	apiGroup.GET("/v1/providers/device-auth-status", s.DeviceAuthStatusAPI)
+	apiGroup.POST("/v1/providers/claude-auth", s.ClaudeAuthStartAPI)
+	apiGroup.POST("/v1/providers/claude-auth/callback", s.ClaudeAuthCallbackAPI)
 	apiGroup.GET("/v1/providers/{key}", s.GetProviderAPI)
 	apiGroup.PUT("/v1/providers/{key}", s.UpdateProviderAPI)
 	apiGroup.DELETE("/v1/providers/{key}", s.DeleteProviderAPI)
@@ -696,6 +699,39 @@ func (s *Server) reloadProvider(key string, cfg config.LLMConfig) error {
 	provider, err := s.providerFactory(cfg)
 	if err != nil {
 		return fmt.Errorf("create provider %q: %w", key, err)
+	}
+
+	// Wire the token refresh callback for Claude OAuth providers so that
+	// refreshed tokens are persisted to the store automatically.
+	// This only updates the DB — it does NOT trigger reloadProvider again
+	// (which would create an infinite loop).
+	if cfg.Type == "anthropic" && cfg.AuthType == "claude-code" {
+		if ap, ok := provider.(interface {
+			SetTokenRefreshCallback(antropic.TokenRefreshCallback)
+		}); ok {
+			providerKey := key // capture for closure
+			ap.SetTokenRefreshCallback(func(ctx context.Context, accessToken, refreshToken string) {
+				if s.store == nil {
+					return
+				}
+				record, err := s.store.GetProvider(ctx, providerKey)
+				if err != nil || record == nil {
+					slog.Error("claude oauth: failed to read provider for token persist", "key", providerKey, "error", err)
+					return
+				}
+				updCfg := record.Config
+				updCfg.APIKey = accessToken
+				updCfg.RefreshToken = refreshToken
+				if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
+					Key:    providerKey,
+					Config: updCfg,
+				}); err != nil {
+					slog.Error("claude oauth: failed to persist refreshed tokens", "key", providerKey, "error", err)
+				} else {
+					slog.Debug("claude oauth: persisted refreshed tokens", "key", providerKey)
+				}
+			})
+		}
 	}
 
 	info := NewProviderInfo(provider, cfg)

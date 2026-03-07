@@ -85,3 +85,24 @@ export async function getDeviceAuthStatus(key: string): Promise<DeviceAuthStatus
   });
   return res.data;
 }
+
+// ─── Claude Auth (Anthropic OAuth Authorization Code + PKCE) ───
+
+export interface ClaudeAuthStartResponse {
+  auth_url: string;
+  expires_in: number;
+}
+
+export interface ClaudeAuthCallbackResponse {
+  status: 'authorized';
+}
+
+export async function startClaudeAuth(key: string): Promise<ClaudeAuthStartResponse> {
+  const res = await api.post<ClaudeAuthStartResponse>('/providers/claude-auth', { key });
+  return res.data;
+}
+
+export async function submitClaudeAuthCode(key: string, code: string): Promise<ClaudeAuthCallbackResponse> {
+  const res = await api.post<ClaudeAuthCallbackResponse>('/providers/claude-auth/callback', { key, code });
+  return res.data;
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"time"
 
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
@@ -41,11 +42,34 @@ func main() {
 func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 	switch cfg.Type {
 	case "anthropic":
-		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("anthropic provider requires an api_key")
+		var opts []antropic.Option
+
+		switch cfg.AuthType {
+		case "claude-code":
+			if cfg.APIKey != "" {
+				// Build an OAuth token source with auto-refresh.
+				// The onRefresh callback is wired later by the server's
+				// reloadProvider to persist refreshed tokens to the store.
+				ts := antropic.NewOAuthTokenSource(
+					cfg.APIKey,
+					cfg.RefreshToken,
+					time.Time{}, // unknown expiry — will refresh on first 401 or when buffer triggers
+					nil,         // httpClient — will use default
+					nil,         // onRefresh — wired by server after creation
+				)
+				opts = append(opts, antropic.WithTokenSource(ts))
+			}
+			// If no APIKey yet, create the provider without a token source.
+			// The user will need to complete the OAuth flow via the UI.
+		case "":
+			if cfg.APIKey == "" {
+				return nil, fmt.Errorf("anthropic provider requires an api_key")
+			}
+		default:
+			return nil, fmt.Errorf("unknown auth_type %q for anthropic provider (supported: claude-code)", cfg.AuthType)
 		}
 
-		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify)
+		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
 	case "openai":
 		var opts []openai.Option
 

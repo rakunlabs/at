@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 )
 
@@ -409,4 +412,278 @@ func pollAccessToken(ctx context.Context, deviceCode string, httpClient *http.Cl
 	default:
 		return "", fmt.Errorf("GitHub OAuth error: %s", tokenResp.Error)
 	}
+}
+
+// ─── Claude Code OAuth Flow ───
+//
+// Used by auth_type:"claude-code" to authenticate via the Anthropic OAuth flow
+// (Authorization Code + PKCE) for Claude Pro/Max subscription users.
+//
+// Flow:
+//   1. UI calls POST /api/v1/providers/claude-auth with the provider key
+//   2. Backend generates PKCE challenge + auth URL
+//   3. Backend returns auth_url to the UI
+//   4. UI shows the link; user opens it, authenticates, gets a code on the redirect page
+//   5. User pastes the code back into the UI
+//   6. UI calls POST /api/v1/providers/claude-auth/callback with the code
+//   7. Backend exchanges the code for access+refresh tokens via Anthropic's token endpoint
+//   8. Backend saves tokens and hot-reloads the provider
+
+// claudeAuthState tracks a pending Claude OAuth flow (stores the PKCE verifier).
+type claudeAuthState struct {
+	Verifier  string
+	State     string
+	ExpiresAt time.Time
+}
+
+// claudeAuthManager tracks active Claude auth flows per provider key.
+type claudeAuthManager struct {
+	mu    sync.Mutex
+	flows map[string]*claudeAuthState
+}
+
+var claudeAuthFlows = &claudeAuthManager{
+	flows: make(map[string]*claudeAuthState),
+}
+
+func (m *claudeAuthManager) set(key string, state *claudeAuthState) {
+	m.mu.Lock()
+	m.flows[key] = state
+	m.mu.Unlock()
+}
+
+func (m *claudeAuthManager) get(key string) *claudeAuthState {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	s, ok := m.flows[key]
+	if !ok {
+		return nil
+	}
+	return s
+}
+
+func (m *claudeAuthManager) remove(key string) {
+	m.mu.Lock()
+	delete(m.flows, key)
+	m.mu.Unlock()
+}
+
+// ─── Claude Auth Request / Response types ───
+
+type claudeAuthStartRequest struct {
+	Key string `json:"key"`
+}
+
+type claudeAuthStartResponse struct {
+	AuthURL   string `json:"auth_url"`
+	ExpiresIn int    `json:"expires_in"`
+}
+
+type claudeAuthCallbackRequest struct {
+	Key  string `json:"key"`
+	Code string `json:"code"`
+}
+
+type claudeAuthCallbackResponse struct {
+	Status string `json:"status"` // "authorized"
+}
+
+// ─── Claude Auth Handlers ───
+
+// ClaudeAuthStartAPI handles POST /api/v1/providers/claude-auth.
+// Initiates the Claude OAuth flow by generating a PKCE challenge and auth URL.
+func (s *Server) ClaudeAuthStartAPI(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req claudeAuthStartRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" {
+		httpResponse(w, "key is required", http.StatusBadRequest)
+		return
+	}
+
+	// Load the provider to verify it exists and has auth_type=claude-code.
+	record, err := s.store.GetProvider(r.Context(), req.Key)
+	if err != nil {
+		slog.Error("claude auth: get provider failed", "key", req.Key, "error", err)
+		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
+		return
+	}
+	if record.Config.AuthType != "claude-code" {
+		httpResponse(w, "provider auth_type is not \"claude-code\" — save the provider with auth_type set to \"claude-code\" first", http.StatusBadRequest)
+		return
+	}
+
+	// Generate PKCE challenge.
+	pkce, err := antropic.GeneratePKCE()
+	if err != nil {
+		slog.Error("claude auth: failed to generate PKCE", "error", err)
+		httpResponse(w, "failed to generate PKCE challenge", http.StatusInternalServerError)
+		return
+	}
+
+	// Generate random state parameter (32 bytes → 43-char base64url, matching Claude Code CLI).
+	stateBuf := make([]byte, 32)
+	if _, err := rand.Read(stateBuf); err != nil {
+		slog.Error("claude auth: failed to generate state", "error", err)
+		httpResponse(w, "failed to generate state", http.StatusInternalServerError)
+		return
+	}
+	state := base64.RawURLEncoding.EncodeToString(stateBuf)
+
+	// Store the PKCE verifier for the callback.
+	expiresIn := 600 // 10 minutes
+	claudeAuthFlows.set(req.Key, &claudeAuthState{
+		Verifier:  pkce.Verifier,
+		State:     state,
+		ExpiresAt: time.Now().Add(time.Duration(expiresIn) * time.Second),
+	})
+
+	// Clean up expired flows after timeout.
+	go func() {
+		time.Sleep(time.Duration(expiresIn+30) * time.Second)
+		if flow := claudeAuthFlows.get(req.Key); flow != nil && time.Now().After(flow.ExpiresAt) {
+			claudeAuthFlows.remove(req.Key)
+		}
+	}()
+
+	// Build the authorization URL.
+	authURL := antropic.BuildAuthURL(pkce.Challenge, state)
+	slog.Info("claude auth: generated auth URL", "url", authURL)
+
+	httpResponseJSON(w, claudeAuthStartResponse{
+		AuthURL:   authURL,
+		ExpiresIn: expiresIn,
+	}, http.StatusOK)
+}
+
+// ClaudeAuthCallbackAPI handles POST /api/v1/providers/claude-auth/callback.
+// Exchanges the pasted authorization code for OAuth tokens.
+func (s *Server) ClaudeAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req claudeAuthCallbackRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" || req.Code == "" {
+		httpResponse(w, "key and code are required", http.StatusBadRequest)
+		return
+	}
+
+	// Retrieve the stored PKCE verifier.
+	flow := claudeAuthFlows.get(req.Key)
+	if flow == nil {
+		httpResponse(w, "no pending auth flow for this provider (start a new one)", http.StatusBadRequest)
+		return
+	}
+
+	if time.Now().After(flow.ExpiresAt) {
+		claudeAuthFlows.remove(req.Key)
+		httpResponse(w, "auth flow expired — please start a new one", http.StatusBadRequest)
+		return
+	}
+
+	// Build a proxy-aware HTTP client from the provider config.
+	record, err := s.store.GetProvider(r.Context(), req.Key)
+	if err != nil {
+		slog.Error("claude auth callback: get provider failed", "key", req.Key, "error", err)
+		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
+		return
+	}
+
+	httpClient, err := openai.ProxyHTTPClient(record.Config.Proxy, record.Config.InsecureSkipVerify)
+	if err != nil {
+		slog.Error("claude auth callback: failed to create proxy client", "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create proxy client: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+
+	// Exchange the code for tokens.
+	slog.Info("claude auth callback: exchanging code",
+		"key", req.Key,
+		"code_len", len(req.Code),
+		"verifier_len", len(flow.Verifier),
+		"redirect_uri", antropic.ClaudeManualURI,
+		"token_url", antropic.ClaudeTokenURL,
+	)
+	tokenResp, err := antropic.ExchangeAuthCode(r.Context(), req.Code, flow.Verifier, antropic.ClaudeManualURI, httpClient)
+	if err != nil {
+		slog.Error("claude auth callback: token exchange failed", "key", req.Key, "error", err)
+		httpResponse(w, fmt.Sprintf("token exchange failed: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	// Clean up the flow state.
+	claudeAuthFlows.remove(req.Key)
+
+	// Save the tokens to the provider config.
+	if err := s.saveClaudeAuthTokens(req.Key, tokenResp.AccessToken, tokenResp.RefreshToken); err != nil {
+		slog.Error("claude auth callback: failed to save tokens", "key", req.Key, "error", err)
+		httpResponse(w, fmt.Sprintf("authorized but failed to save tokens: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("claude auth: authorized", "key", req.Key)
+
+	httpResponseJSON(w, claudeAuthCallbackResponse{
+		Status: "authorized",
+	}, http.StatusOK)
+}
+
+// saveClaudeAuthTokens updates the provider's tokens and hot-reloads.
+func (s *Server) saveClaudeAuthTokens(providerKey, accessToken, refreshToken string) error {
+	if s.store == nil {
+		return fmt.Errorf("store not configured")
+	}
+
+	record, err := s.store.GetProvider(context.Background(), providerKey)
+	if err != nil {
+		return fmt.Errorf("get provider: %w", err)
+	}
+	if record == nil {
+		return fmt.Errorf("provider %q not found", providerKey)
+	}
+
+	cfg := record.Config
+	cfg.APIKey = accessToken
+	cfg.RefreshToken = refreshToken
+
+	if _, err := s.store.UpdateProvider(context.Background(), providerKey, service.ProviderRecord{
+		Key:       providerKey,
+		Config:    cfg,
+		UpdatedBy: "",
+	}); err != nil {
+		return fmt.Errorf("update provider: %w", err)
+	}
+
+	if err := s.reloadProvider(providerKey, cfg); err != nil {
+		return fmt.Errorf("reload provider: %w", err)
+	}
+
+	return nil
 }

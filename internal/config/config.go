@@ -286,13 +286,27 @@ type LLMConfig struct {
 	ExtraHeaders map[string]string `cfg:"extra_headers" json:"extra_headers"`
 
 	// AuthType selects the authentication mechanism for the provider.
-	// Supported values (only applies to "openai" type):
-	//   - "" (empty):  Use APIKey directly as a static Bearer token (default).
-	//   - "copilot":   GitHub Copilot authentication. Use the device-auth API endpoint
-	//                  to authorize via the GitHub OAuth device flow. The resulting OAuth
-	//                  token is stored in APIKey and exchanged for short-lived Copilot
-	//                  JWTs that are cached and automatically refreshed before expiry.
+	//
+	// For "openai" type:
+	//   - "" (empty):     Use APIKey directly as a static Bearer token (default).
+	//   - "copilot":      GitHub Copilot authentication. Use the device-auth API endpoint
+	//                     to authorize via the GitHub OAuth device flow. The resulting OAuth
+	//                     token is stored in APIKey and exchanged for short-lived Copilot
+	//                     JWTs that are cached and automatically refreshed before expiry.
+	//
+	// For "anthropic" type:
+	//   - "" (empty):     Use APIKey directly as a static X-Api-Key header (default).
+	//   - "claude-code":  Claude Code OAuth. Use the claude-auth API endpoints to
+	//                     authorize via the Anthropic OAuth flow (open link, paste code).
+	//                     The access token is stored in APIKey and the refresh token in
+	//                     RefreshToken. Tokens are automatically refreshed before expiry.
+	//                     Requires a Claude Pro or Max subscription.
 	AuthType string `cfg:"auth_type" json:"auth_type"`
+
+	// RefreshToken stores the OAuth refresh token for providers that use
+	// token-based authentication with automatic refresh (e.g., auth_type="claude-code").
+	// This field is managed automatically by the OAuth flow and should not be set manually.
+	RefreshToken string `cfg:"refresh_token" json:"refresh_token" log:"-"`
 
 	// Proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL to route all requests
 	// through before reaching the provider. For example:

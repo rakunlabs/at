@@ -222,10 +222,10 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserve the existing api_key when the request doesn't provide one.
+	// Preserve existing secrets when the request doesn't provide them.
 	// This prevents the UI (which redacts/hides secrets) from accidentally
-	// wiping the stored token on every update.
-	if req.Config.APIKey == "" {
+	// wiping stored tokens on every update.
+	if req.Config.APIKey == "" || req.Config.RefreshToken == "" {
 		existing, err := s.store.GetProvider(r.Context(), key)
 		if err != nil {
 			slog.Error("update provider: failed to read existing config", "key", key, "error", err)
@@ -233,7 +233,12 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if existing != nil {
-			req.Config.APIKey = existing.Config.APIKey
+			if req.Config.APIKey == "" {
+				req.Config.APIKey = existing.Config.APIKey
+			}
+			if req.Config.RefreshToken == "" {
+				req.Config.RefreshToken = existing.Config.RefreshToken
+			}
 		}
 	}
 
@@ -295,5 +300,8 @@ func (s *Server) DeleteProviderAPI(w http.ResponseWriter, r *http.Request) {
 func redactProviderRecord(rec *service.ProviderRecord) {
 	if rec.Config.APIKey != "" {
 		rec.Config.APIKey = "***"
+	}
+	if rec.Config.RefreshToken != "" {
+		rec.Config.RefreshToken = "***"
 	}
 }

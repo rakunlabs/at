@@ -9,6 +9,8 @@
     discoverModels,
     startDeviceAuth,
     getDeviceAuthStatus,
+    startClaudeAuth,
+    submitClaudeAuthCode,
     type ProviderRecord,
     type LLMConfig,
   } from '@/lib/api/providers';
@@ -175,6 +177,35 @@
       notes: [
         'Requires a paid Anthropic API account',
         'Base URL is auto-configured - leave the Base URL field empty',
+      ],
+    },
+    {
+      id: 'anthropic-claude-code',
+      name: 'Anthropic (Claude Code)',
+      description: 'Use your Claude Pro/Max subscription via OAuth login',
+      key: 'anthropic-claude-code',
+      config: {
+        type: 'anthropic',
+        auth_type: 'claude-code',
+        model: 'claude-sonnet-4-20250514',
+        models: ['claude-sonnet-4-20250514', 'claude-haiku-4-5', 'claude-opus-4-20250514'],
+      },
+      setupSteps: [
+        'You need an active Claude Pro or Max subscription',
+        'Click "Create" to save the provider configuration',
+        'Edit the provider and click "Authorize with Claude"',
+        'A link will appear - open it in your browser and sign in',
+        'After signing in, you\'ll see an authorization code - copy it',
+        'Paste the code back into the input field and click Submit',
+      ],
+      setupLinks: [
+        { label: 'Claude Pricing', url: 'https://claude.com/pricing' },
+      ],
+      notes: [
+        'Requires an active Claude Pro or Max subscription',
+        'Authorization is done via your browser - sign in with your Claude account',
+        'Tokens are stored securely and refreshed automatically',
+        'No separate Anthropic API account needed - uses your Claude subscription',
       ],
     },
     {
@@ -372,6 +403,12 @@
   let deviceAuthPolling = $state(false);
   let deviceAuthTimer = $state<ReturnType<typeof setInterval> | null>(null);
 
+  // Claude auth state (Anthropic OAuth Authorization Code + PKCE)
+  let claudeAuthPending = $state(false);
+  let claudeAuthURL = $state('');
+  let claudeAuthCode = $state('');
+  let claudeAuthSubmitting = $state(false);
+
   // ─── Load ───
 
   async function load() {
@@ -409,6 +446,7 @@
 
   function resetForm() {
     stopDeviceAuthPolling();
+    resetClaudeAuth();
     formKey = '';
     formType = 'openai';
     formApiKey = '';
@@ -604,6 +642,51 @@
     } catch (e: any) {
       deviceAuthPending = false;
       addToast(e?.response?.data?.message || 'Failed to start device authorization', 'alert');
+    }
+  }
+
+  // ─── Claude Auth ───
+
+  function resetClaudeAuth() {
+    claudeAuthPending = false;
+    claudeAuthURL = '';
+    claudeAuthCode = '';
+    claudeAuthSubmitting = false;
+  }
+
+  async function handleClaudeAuth() {
+    if (!editingKey) {
+      addToast('Save the provider first, then click Authorize', 'warn');
+      return;
+    }
+
+    try {
+      claudeAuthPending = true;
+      claudeAuthCode = '';
+      const resp = await startClaudeAuth(editingKey);
+      claudeAuthURL = resp.auth_url;
+    } catch (e: any) {
+      claudeAuthPending = false;
+      addToast(e?.response?.data?.message || 'Failed to start Claude authorization', 'alert');
+    }
+  }
+
+  async function handleClaudeAuthSubmit() {
+    if (!editingKey || !claudeAuthCode.trim()) {
+      addToast('Please paste the authorization code', 'warn');
+      return;
+    }
+
+    claudeAuthSubmitting = true;
+    try {
+      await submitClaudeAuthCode(editingKey, claudeAuthCode.trim());
+      resetClaudeAuth();
+      formHasStoredKey = true;
+      addToast('Claude authorized successfully');
+      await load();
+    } catch (e: any) {
+      claudeAuthSubmitting = false;
+      addToast(e?.response?.data?.message || 'Failed to exchange authorization code', 'alert');
     }
   }
 
@@ -812,6 +895,7 @@
             <select
               id="form-type"
               bind:value={formType}
+              onchange={() => { formAuthType = ''; }}
               class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
             >
               {#each PROVIDER_TYPES as t}
@@ -822,8 +906,8 @@
           </div>
         </div>
 
-        <!-- Auth Type (only for openai) -->
-        {#if formType === 'openai'}
+        <!-- Auth Type (for openai and anthropic) -->
+        {#if formType === 'openai' || formType === 'anthropic'}
           <div class="grid grid-cols-4 gap-3 items-center">
             <label for="form-authtype" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Auth Type</label>
             <div class="col-span-3 relative">
@@ -833,7 +917,12 @@
                 class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
               >
                 <option value="">(none)</option>
-                <option value="copilot">copilot</option>
+                {#if formType === 'openai'}
+                  <option value="copilot">copilot</option>
+                {/if}
+                {#if formType === 'anthropic'}
+                  <option value="claude-code">claude-code</option>
+                {/if}
               </select>
               <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-faint" />
             </div>
@@ -906,6 +995,99 @@
                 <!-- New provider, not yet saved -->
                 <div class="text-sm text-gray-500 dark:text-dark-text-muted py-1.5">
                   Save the provider first, then click Authorize to sign in via GitHub.
+                </div>
+              {/if}
+            </div>
+          </div>
+        {:else if formAuthType === 'claude-code'}
+          <!-- Claude Code OAuth flow -->
+          <div class="grid grid-cols-4 gap-3 items-start">
+            <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Authorization</span>
+            <div class="col-span-3">
+              {#if claudeAuthPending}
+                <!-- Auth flow in progress -->
+                <div class="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-4 space-y-3">
+                  <div class="text-sm text-gray-700 dark:text-dark-text-secondary">
+                    1. Open this link and sign in with your Claude account:
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <a href={claudeAuthURL} target="_blank" rel="noopener noreferrer" class="text-sm font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline break-all">
+                      {claudeAuthURL.length > 80 ? claudeAuthURL.substring(0, 80) + '...' : claudeAuthURL}
+                    </a>
+                    <button
+                      type="button"
+                      onclick={() => { navigator.clipboard.writeText(claudeAuthURL); addToast('URL copied to clipboard'); }}
+                      class="shrink-0 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary transition-colors"
+                    >
+                      Copy
+                    </button>
+                  </div>
+                  <div class="text-sm text-gray-700 dark:text-dark-text-secondary mt-2">
+                    2. After authorizing, you'll see a code on the page. Paste it here:
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <input
+                      type="text"
+                      bind:value={claudeAuthCode}
+                      placeholder="Paste authorization code here"
+                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                    />
+                    <button
+                      type="button"
+                      onclick={handleClaudeAuthSubmit}
+                      disabled={claudeAuthSubmitting || !claudeAuthCode.trim()}
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {#if claudeAuthSubmitting}
+                        <RefreshCw size={13} class="animate-spin" />
+                        Authorizing...
+                      {:else}
+                        <Check size={13} />
+                        Submit
+                      {/if}
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onclick={resetClaudeAuth}
+                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              {:else if editingKey && formHasStoredKey}
+                <!-- Already authorized -->
+                <div class="flex items-center gap-3">
+                  <span class="inline-flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-3 py-1.5">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                    Authorized via Claude
+                  </span>
+                  <button
+                    type="button"
+                    onclick={handleClaudeAuth}
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                  >
+                    <LogIn size={13} />
+                    Re-authorize
+                  </button>
+                </div>
+              {:else if editingKey}
+                <!-- Not yet authorized, editing existing provider -->
+                <div class="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onclick={handleClaudeAuth}
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                  >
+                    <LogIn size={14} />
+                    Authorize with Claude
+                  </button>
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Opens claude.ai in your browser</span>
+                </div>
+              {:else}
+                <!-- New provider, not yet saved -->
+                <div class="text-sm text-gray-500 dark:text-dark-text-muted py-1.5">
+                  Save the provider first, then click Authorize to sign in via Claude.
                 </div>
               {/if}
             </div>
