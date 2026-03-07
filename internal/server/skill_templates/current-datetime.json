@@ -8,7 +8,7 @@
   "skill": {
     "name": "current_datetime",
     "description": "Get the current date and time",
-    "system_prompt": "You have access to a tool that returns the current date and time. Use it whenever the user asks about today's date, the current time, or any time-related question. Always call the tool rather than guessing the date or time.",
+    "system_prompt": "You have access to a tool that returns the current date and time. Use it whenever the user asks about today's date, the current time, or any time-related question. Always call the tool rather than guessing the date or time. If the user's timezone is specified in the system prompt under User preferences, always pass it to the get_current_datetime tool.",
     "tools": [
       {
         "name": "get_current_datetime",

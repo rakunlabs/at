@@ -6,7 +6,8 @@
   import { listCollections, type RAGCollection } from '@/lib/api/rag';
   import { listVariables, type Variable } from '@/lib/api/secrets';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Check, Package } from 'lucide-svelte';
+  import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Check, Package, Wrench } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -68,6 +69,7 @@
   let collections = $state<RAGCollection[]>([]);
   let availableVariables = $state<Variable[]>([]);
   let availableSkills = $state<Skill[]>([]);
+  let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
@@ -98,11 +100,13 @@
   let formHTTPTools = $state<MCPHTTPTool[]>([]);
   let formMCPUpstreams = $state<MCPUpstream[]>([]);
   let formEnabledSkills = $state<string[]>([]);
+  let formBuiltinTools = $state<string[]>([]);
 
   // Section visibility
   let showRAGSection = $state(false);
   let showHTTPSection = $state(false);
   let showSkillsSection = $state(false);
+  let showBuiltinToolsSection = $state(false);
   let showUpstreamSection = $state(false);
 
   const allRAGTools = [
@@ -156,6 +160,13 @@
     } catch {}
   }
 
+  async function loadBuiltinToolDefs() {
+    try {
+      const res = await listBuiltinTools();
+      builtinToolDefs = res.tools || [];
+    } catch {}
+  }
+
   function handleSearch(value: string) {
     searchQuery = value;
     offset = 0;
@@ -172,6 +183,7 @@
   loadCollections();
   loadVariables();
   loadSkills();
+  loadBuiltinToolDefs();
 
   // ─── Form ───
 
@@ -189,11 +201,13 @@
     formHTTPTools = [];
     formMCPUpstreams = [];
     formEnabledSkills = [];
+    formBuiltinTools = [];
     editingId = null;
     showForm = false;
     showRAGSection = false;
     showHTTPSection = false;
     showSkillsSection = false;
+    showBuiltinToolsSection = false;
     showUpstreamSection = false;
   }
 
@@ -220,9 +234,11 @@
     formHTTPTools = (cfg.http_tools ?? []).map((t: MCPHTTPTool) => ({ ...t, headers: t.headers ? { ...t.headers } : {}, input_schema: t.input_schema ? JSON.parse(JSON.stringify(t.input_schema)) : { type: 'object', properties: {} } }));
     formMCPUpstreams = (cfg.mcp_upstreams ?? []).map((u: MCPUpstream) => ({ ...u, headers: u.headers ? { ...u.headers } : undefined, args: u.args ? [...u.args] : undefined, env: u.env ? { ...u.env } : undefined }));
     formEnabledSkills = cfg.enabled_skills ?? [];
+    formBuiltinTools = cfg.enabled_builtin_tools ?? [];
     showRAGSection = formEnabledRAGTools.length > 0;
     showHTTPSection = formHTTPTools.length > 0;
     showSkillsSection = formEnabledSkills.length > 0;
+    showBuiltinToolsSection = formBuiltinTools.length > 0;
     showUpstreamSection = formMCPUpstreams.length > 0;
     showForm = true;
   }
@@ -261,6 +277,7 @@
               ? { command: u.command!.trim(), args: u.args, env: u.env }
               : { url: u.url!.trim(), headers: u.headers }),
           enabled_skills: formEnabledSkills,
+          enabled_builtin_tools: formBuiltinTools,
         },
       };
 
@@ -807,6 +824,53 @@
               {/if}
             </div>
 
+            <!-- ═══ Builtin Tools Section ═══ -->
+            <div class="border border-gray-200 dark:border-dark-border-subtle">
+              <button
+                type="button"
+                onclick={() => showBuiltinToolsSection = !showBuiltinToolsSection}
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+              >
+                {#if showBuiltinToolsSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+                <Wrench size={14} />
+                Builtin Tools
+                {#if formBuiltinTools.length > 0}
+                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">({formBuiltinTools.length} tools)</span>
+                {/if}
+              </button>
+
+              {#if showBuiltinToolsSection}
+                <div class="px-4 pb-4 pt-2 space-y-2 border-t border-gray-200 dark:border-dark-border-subtle">
+                  {#if builtinToolDefs.length > 0}
+                    {#each builtinToolDefs as tool}
+                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={formBuiltinTools.includes(tool.name)}
+                          onchange={() => {
+                            if (formBuiltinTools.includes(tool.name)) {
+                              formBuiltinTools = formBuiltinTools.filter(t => t !== tool.name);
+                            } else {
+                              formBuiltinTools = [...formBuiltinTools, tool.name];
+                            }
+                          }}
+                          class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                        />
+                        <div class="flex-1 min-w-0">
+                          <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{tool.name}</span>
+                          {#if tool.description}
+                            <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{tool.description}</div>
+                          {/if}
+                        </div>
+                      </label>
+                    {/each}
+                  {:else}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No builtin tools available.</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
             <!-- ═══ Upstream MCP Servers Section ═══ -->
             <div class="border border-gray-200 dark:border-dark-border-subtle">
               <button
@@ -1044,7 +1108,10 @@
                   {#if (set.config?.mcp_upstreams ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 font-mono">{(set.config.mcp_upstreams ?? []).length} external</span>
                   {/if}
-                  {#if !(set.config?.enabled_rag_tools?.length) && !(set.config?.http_tools?.length) && !(set.config?.enabled_skills?.length) && !(set.config?.mcp_upstreams?.length)}
+                  {#if (set.config?.enabled_builtin_tools ?? []).length > 0}
+                    <span class="px-1.5 py-0.5 bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 font-mono">{(set.config.enabled_builtin_tools ?? []).length} builtin</span>
+                  {/if}
+                  {#if !(set.config?.enabled_rag_tools?.length) && !(set.config?.http_tools?.length) && !(set.config?.enabled_skills?.length) && !(set.config?.mcp_upstreams?.length) && !(set.config?.enabled_builtin_tools?.length)}
                     <span class="text-gray-400 dark:text-dark-text-muted">-</span>
                   {/if}
                 </div>

@@ -20,7 +20,7 @@
   "skill": {
     "name": "google_calendar",
     "description": "List and create Google Calendar events",
-    "system_prompt": "You have access to Google Calendar tools. Use list_events to view upcoming events and create_event to schedule new ones. Always confirm event details with the user before creating.\n\nIMPORTANT: If a tool returns a message saying the user is not logged in, relay that message to the user and tell them to use /login (Telegram) or !login (Discord) to connect their Google account. Do NOT retry the tool until the user confirms they have logged in.",
+    "system_prompt": "You have access to Google Calendar tools. Use list_events to view upcoming events and create_event to schedule new ones. Always confirm event details with the user before creating. When creating events, use the user's timezone from their preferences (if available in the system prompt under User preferences) to construct correct RFC3339 timestamps with the appropriate UTC offset.\n\nIMPORTANT: If a tool returns a message saying the user is not logged in, relay that message to the user and tell them to use /login (Telegram) or !login (Discord) to connect their Google account. Do NOT retry the tool until the user confirms they have logged in.",
     "tools": [
       {
         "name": "list_events",

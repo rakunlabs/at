@@ -112,6 +112,9 @@ type Server struct {
 	// marketplaceSourceStore is the persistent store for marketplace source configurations.
 	marketplaceSourceStore service.MarketplaceSourceStorer
 
+	// userPrefStore is the persistent store for per-user preferences (timezone, location, tokens, etc.).
+	userPrefStore service.UserPreferenceStorer
+
 	// marketplaceClient is used for outbound HTTP requests to marketplace APIs.
 	marketplaceClient *http.Client
 
@@ -165,6 +168,16 @@ type Server struct {
 
 	// stdioManager manages stdio-based MCP subprocess lifecycles.
 	stdioManager *service.StdioProcessManager
+
+	// todos holds per-session todo lists for the todo_write/todo_read builtin tools.
+	todos *todoStore
+
+	// lspManager manages LSP server processes for the lsp_query builtin tool.
+	lspManager *lspManager
+
+	// pendingConfirmations tracks tool calls awaiting human approval.
+	// Key: "{sessionID}:{toolCallID}", Value: chan confirmationResult.
+	pendingConfirmations sync.Map
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
@@ -226,7 +239,7 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, mcpSetStore service.MCPSetStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, mcpSetStore service.MCPSetStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, userPrefStore service.UserPreferenceStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -238,35 +251,38 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	)
 
 	s := &Server{
-		config:               cfg,
-		ctx:                  ctx,
-		server:               mux,
-		providers:            providers,
-		store:                store,
-		tokenStore:           tokenStore,
-		tokenUsageStore:      tokenUsageStore,
-		workflowStore:        workflowStore,
-		workflowVersionStore: workflowVersionStore,
-		triggerStore:         triggerStore,
-		skillStore:           skillStore,
-		variableStore:        variableStore,
-		nodeConfigStore:      nodeConfigStore,
-		agentStore:           agentStore,
-		chatSessionStore:     chatSessionStore,
-		ragCollectionStore:   ragCollectionStore,
-		ragStateStore:        ragStateStore,
-		ragMCPServerStore:    ragMCPServerStore,
-		mcpServerStore:       mcpServerStore,
-		mcpSetStore:          mcpSetStore,
+		config:                 cfg,
+		ctx:                    ctx,
+		server:                 mux,
+		providers:              providers,
+		store:                  store,
+		tokenStore:             tokenStore,
+		tokenUsageStore:        tokenUsageStore,
+		workflowStore:          workflowStore,
+		workflowVersionStore:   workflowVersionStore,
+		triggerStore:           triggerStore,
+		skillStore:             skillStore,
+		variableStore:          variableStore,
+		nodeConfigStore:        nodeConfigStore,
+		agentStore:             agentStore,
+		chatSessionStore:       chatSessionStore,
+		ragCollectionStore:     ragCollectionStore,
+		ragStateStore:          ragStateStore,
+		ragMCPServerStore:      ragMCPServerStore,
+		mcpServerStore:         mcpServerStore,
+		mcpSetStore:            mcpSetStore,
 		botConfigStore:         botConfigStore,
 		marketplaceSourceStore: marketplaceSourceStore,
-		marketplaceClient:     &http.Client{Timeout: 10 * time.Second},
+		userPrefStore:          userPrefStore,
+		marketplaceClient:      &http.Client{Timeout: 10 * time.Second},
 		providerFactory:        factory,
-		storeType:            storeType,
-		authTokens:           gatewayCfg.AuthTokens,
-		cluster:              cl,
-		version:              version,
-		botsCfg:              botsCfg,
+		storeType:              storeType,
+		authTokens:             gatewayCfg.AuthTokens,
+		cluster:                cl,
+		version:                version,
+		botsCfg:                botsCfg,
+		todos:                  newTodoStore(),
+		lspManager:             newLSPManager(),
 	}
 
 	// Load predefined skill templates from embedded JSON files.
@@ -276,10 +292,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// Initialize stdio MCP process manager.
 	s.stdioManager = service.NewStdioProcessManager(ctx)
 
-	// Close stdio MCP processes when the server context is cancelled.
+	// Close stdio MCP and LSP processes when the server context is cancelled.
 	go func() {
 		<-ctx.Done()
 		s.stdioManager.Close()
+		s.lspManager.close()
 	}()
 
 	// Start background sweep for expired thought_signature cache entries.
@@ -376,7 +393,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), cl)
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
@@ -513,6 +530,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/chat/sessions/{id}/messages", s.ListChatMessagesAPI)
 	apiGroup.DELETE("/v1/chat/sessions/{id}/messages", s.DeleteChatMessagesAPI)
 	apiGroup.POST("/v1/chat/sessions/{id}/messages", s.SendChatMessageAPI)
+	apiGroup.POST("/v1/chat/sessions/{id}/confirm", s.ConfirmToolCallAPI)
 
 	// RAG collection management
 	apiGroup.GET("/v1/rag/collections", s.ListRAGCollectionsAPI)
@@ -555,6 +573,12 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/marketplace/top", s.MarketplaceTopAPI)
 	apiGroup.POST("/v1/marketplace/preview", s.MarketplacePreviewAPI)
 	apiGroup.POST("/v1/marketplace/import", s.MarketplaceImportAPI)
+
+	// User preferences management
+	apiGroup.GET("/v1/user-preferences", s.ListUserPreferencesAPI)
+	apiGroup.GET("/v1/user-preferences/{user_id}/{key}", s.GetUserPreferenceAPI)
+	apiGroup.PUT("/v1/user-preferences", s.SetUserPreferenceAPI)
+	apiGroup.DELETE("/v1/user-preferences/{user_id}/{key}", s.DeleteUserPreferenceAPI)
 
 	// OAuth2 flow (generic, provider in query param)
 	apiGroup.GET("/v1/oauth/start", s.OAuthStartAPI)

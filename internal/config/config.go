@@ -94,6 +94,7 @@ type DiscordBotConfig struct {
 	Token           string            `cfg:"token" log:"-"`
 	DefaultAgentID  string            `cfg:"default_agent_id"`
 	ChannelAgents   map[string]string `cfg:"channel_agents"`
+	AllowedAgentIDs []string          `cfg:"allowed_agent_ids"` // agent IDs users may !switch to; empty = switching disabled
 	AccessMode      string            `cfg:"access_mode"`
 	PendingApproval bool              `cfg:"pending_approval"`
 	AllowedUsers    []string          `cfg:"allowed_users"`
@@ -104,6 +105,7 @@ type TelegramBotConfig struct {
 	Token           string            `cfg:"token" log:"-"`
 	DefaultAgentID  string            `cfg:"default_agent_id"`
 	ChatAgents      map[string]string `cfg:"chat_agents"`
+	AllowedAgentIDs []string          `cfg:"allowed_agent_ids"` // agent IDs users may /switch to; empty = switching disabled
 	AccessMode      string            `cfg:"access_mode"`
 	PendingApproval bool              `cfg:"pending_approval"`
 	AllowedUsers    []string          `cfg:"allowed_users"`

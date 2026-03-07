@@ -19,53 +19,55 @@ import (
 // Memory is an in-memory implementation of the store interfaces.
 // Data does not survive process restarts.
 type Memory struct {
-	mu               sync.RWMutex
-	providers        map[string]service.ProviderRecord         // key -> record
-	tokens           map[string]service.APIToken               // id -> token
-	tokensByHash     map[string]string                         // hash -> id
-	workflows        map[string]service.Workflow               // id -> workflow
-	workflowVersions map[string][]service.WorkflowVersion      // workflow_id -> versions (sorted by version desc)
-	triggers         map[string]service.Trigger                // id -> trigger
-	skills           map[string]service.Skill                  // id -> skill
-	variables        map[string]service.Variable               // id -> variable
-	nodeConfigs      map[string]service.NodeConfig             // id -> node config
-	agents           map[string]service.Agent                  // id -> agent
-	chatSessions     map[string]service.ChatSession            // id -> chat session
-	chatMessages     map[string][]service.ChatMessage          // session_id -> messages (sorted by created_at)
-	ragCollections   map[string]service.RAGCollection          // id -> rag collection
-	ragStates        map[string]service.RAGState               // key -> rag state
-	ragMCPServers    map[string]service.RAGMCPServer           // id -> rag mcp server
-	mcpServers       map[string]service.MCPServer             // id -> general mcp server
-	mcpSets          map[string]service.MCPSet               // id -> mcp set
-	botConfigs         map[string]service.BotConfig             // id -> bot config
-	marketplaceSources map[string]service.MarketplaceSource    // id -> marketplace source
+	mu                 sync.RWMutex
+	providers          map[string]service.ProviderRecord         // key -> record
+	tokens             map[string]service.APIToken               // id -> token
+	tokensByHash       map[string]string                         // hash -> id
+	workflows          map[string]service.Workflow               // id -> workflow
+	workflowVersions   map[string][]service.WorkflowVersion      // workflow_id -> versions (sorted by version desc)
+	triggers           map[string]service.Trigger                // id -> trigger
+	skills             map[string]service.Skill                  // id -> skill
+	variables          map[string]service.Variable               // id -> variable
+	nodeConfigs        map[string]service.NodeConfig             // id -> node config
+	agents             map[string]service.Agent                  // id -> agent
+	chatSessions       map[string]service.ChatSession            // id -> chat session
+	chatMessages       map[string][]service.ChatMessage          // session_id -> messages (sorted by created_at)
+	ragCollections     map[string]service.RAGCollection          // id -> rag collection
+	ragStates          map[string]service.RAGState               // key -> rag state
+	ragMCPServers      map[string]service.RAGMCPServer           // id -> rag mcp server
+	mcpServers         map[string]service.MCPServer              // id -> general mcp server
+	mcpSets            map[string]service.MCPSet                 // id -> mcp set
+	botConfigs         map[string]service.BotConfig              // id -> bot config
+	marketplaceSources map[string]service.MarketplaceSource      // id -> marketplace source
 	tokenUsage         map[string]map[string]*service.TokenUsage // token_id -> model -> usage
+	userPreferences    map[string]service.UserPreference         // "user_id::key" -> preference
 }
 
 func New() *Memory {
 	slog.Info("using in-memory store (data will not persist across restarts)")
 
 	return &Memory{
-		providers:        make(map[string]service.ProviderRecord),
-		tokens:           make(map[string]service.APIToken),
-		tokensByHash:     make(map[string]string),
-		workflows:        make(map[string]service.Workflow),
-		workflowVersions: make(map[string][]service.WorkflowVersion),
-		triggers:         make(map[string]service.Trigger),
-		skills:           make(map[string]service.Skill),
-		variables:        make(map[string]service.Variable),
-		nodeConfigs:      make(map[string]service.NodeConfig),
-		agents:           make(map[string]service.Agent),
-		chatSessions:     make(map[string]service.ChatSession),
-		chatMessages:     make(map[string][]service.ChatMessage),
-		ragCollections:   make(map[string]service.RAGCollection),
-		ragStates:        make(map[string]service.RAGState),
-		ragMCPServers:    make(map[string]service.RAGMCPServer),
-		mcpServers:       make(map[string]service.MCPServer),
-		mcpSets:          make(map[string]service.MCPSet),
+		providers:          make(map[string]service.ProviderRecord),
+		tokens:             make(map[string]service.APIToken),
+		tokensByHash:       make(map[string]string),
+		workflows:          make(map[string]service.Workflow),
+		workflowVersions:   make(map[string][]service.WorkflowVersion),
+		triggers:           make(map[string]service.Trigger),
+		skills:             make(map[string]service.Skill),
+		variables:          make(map[string]service.Variable),
+		nodeConfigs:        make(map[string]service.NodeConfig),
+		agents:             make(map[string]service.Agent),
+		chatSessions:       make(map[string]service.ChatSession),
+		chatMessages:       make(map[string][]service.ChatMessage),
+		ragCollections:     make(map[string]service.RAGCollection),
+		ragStates:          make(map[string]service.RAGState),
+		ragMCPServers:      make(map[string]service.RAGMCPServer),
+		mcpServers:         make(map[string]service.MCPServer),
+		mcpSets:            make(map[string]service.MCPSet),
 		botConfigs:         make(map[string]service.BotConfig),
 		marketplaceSources: make(map[string]service.MarketplaceSource),
 		tokenUsage:         make(map[string]map[string]*service.TokenUsage),
+		userPreferences:    make(map[string]service.UserPreference),
 	}
 }
 
@@ -979,6 +981,76 @@ func (m *Memory) UpdateNodeConfig(_ context.Context, id string, nc service.NodeC
 func (m *Memory) DeleteNodeConfig(_ context.Context, id string) error {
 	m.mu.Lock()
 	delete(m.nodeConfigs, id)
+	m.mu.Unlock()
+
+	return nil
+}
+
+// ─── User Preference CRUD ───
+
+func (m *Memory) ListUserPreferences(_ context.Context, userID string) ([]service.UserPreference, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []service.UserPreference
+	for _, p := range m.userPreferences {
+		if p.UserID == userID {
+			result = append(result, p)
+		}
+	}
+
+	slices.SortFunc(result, func(a, b service.UserPreference) int {
+		if a.Key < b.Key {
+			return -1
+		}
+		if a.Key > b.Key {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) GetUserPreference(_ context.Context, userID, key string) (*service.UserPreference, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	mapKey := userID + "::" + key
+	p, ok := m.userPreferences[mapKey]
+	if !ok {
+		return nil, nil
+	}
+
+	return &p, nil
+}
+
+func (m *Memory) SetUserPreference(_ context.Context, pref service.UserPreference) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	mapKey := pref.UserID + "::" + pref.Key
+
+	if existing, ok := m.userPreferences[mapKey]; ok {
+		existing.Value = pref.Value
+		existing.Secret = pref.Secret
+		existing.UpdatedAt = now
+		m.userPreferences[mapKey] = existing
+	} else {
+		pref.ID = ulid.Make().String()
+		pref.CreatedAt = now
+		pref.UpdatedAt = now
+		m.userPreferences[mapKey] = pref
+	}
+
+	return nil
+}
+
+func (m *Memory) DeleteUserPreference(_ context.Context, userID, key string) error {
+	m.mu.Lock()
+	mapKey := userID + "::" + key
+	delete(m.userPreferences, mapKey)
 	m.mu.Unlock()
 
 	return nil

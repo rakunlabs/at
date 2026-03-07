@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -228,13 +230,23 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 
 // AgenticEvent represents an event emitted by the agentic loop.
 type AgenticEvent struct {
-	Type     string `json:"type"`               // "content", "tool_call", "tool_result", "done", "error"
-	Content  string `json:"content,omitempty"`   // for "content" events
-	ToolName string `json:"tool_name,omitempty"` // for "tool_call" and "tool_result"
-	ToolID   string `json:"tool_id,omitempty"`   // for "tool_call" and "tool_result"
-	Result   string `json:"result,omitempty"`    // for "tool_result"
-	Error    string `json:"error,omitempty"`     // for "error"
+	Type      string `json:"type"`                // "content", "tool_call", "tool_result", "tool_confirm", "done", "error"
+	Content   string `json:"content,omitempty"`   // for "content" events
+	ToolName  string `json:"tool_name,omitempty"` // for "tool_call", "tool_result", and "tool_confirm"
+	ToolID    string `json:"tool_id,omitempty"`   // for "tool_call", "tool_result", and "tool_confirm"
+	Result    string `json:"result,omitempty"`    // for "tool_result"
+	Error     string `json:"error,omitempty"`     // for "error"
+	Arguments string `json:"arguments,omitempty"` // for "tool_confirm": JSON-encoded tool arguments
 }
+
+// confirmationResult carries the human's approval decision for a tool call.
+type confirmationResult struct {
+	approved bool
+}
+
+// confirmationTimeout is how long the agentic loop waits for human approval
+// before auto-rejecting a tool call.
+const confirmationTimeout = 5 * time.Minute
 
 // RunAgenticLoop runs the agentic loop for a chat session, calling onEvent for each event.
 // This is the core loop shared by the HTTP SSE handler and bot adapters.
@@ -415,6 +427,28 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}
 	}
 
+	// Builtin tools (from agent config).
+	for _, toolName := range agent.Config.BuiltinTools {
+		if !isKnownBuiltinTool(toolName) {
+			slog.Warn("agentic loop: unknown builtin tool in agent config", "tool", toolName, "agent", agent.ID)
+			continue
+		}
+		for _, bt := range builtinTools {
+			if bt.Name == toolName {
+				allTools = append(allTools, service.Tool{
+					Name:        bt.Name,
+					Description: bt.Description,
+					InputSchema: bt.InputSchema,
+				})
+				toolHandlers[bt.Name] = toolHandlerInfo{
+					handler:     bt.Name,
+					handlerType: "builtin",
+				}
+				break
+			}
+		}
+	}
+
 	// 7. Build system prompt.
 	systemPrompt := agent.Config.SystemPrompt
 	for _, fragment := range skillPromptFragments {
@@ -424,14 +458,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		systemPrompt += fragment
 	}
 
-	// 8. Build messages for LLM.
+	// NOTE: User preferences are injected into the system prompt after
+	// sessionUserID is derived (below, before the agentic loop starts).
+
+	// 8. Build messages for LLM (system message added after user pref injection below).
 	var llmMessages []service.Message
-	if systemPrompt != "" {
-		llmMessages = append(llmMessages, service.Message{
-			Role:    "system",
-			Content: systemPrompt,
-		})
-	}
 
 	// Convert DB messages to LLM messages.
 	// Consecutive role="tool" messages are grouped into a single role="user"
@@ -532,8 +563,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		sessionUserID = session.CreatedBy
 	}
 
+	// Store session user ID in context for builtin tool executors.
+	ctx = contextWithSessionUserID(ctx, sessionUserID)
+
 	// Build variable lookup/lister for skill tools.
-	// The lookup checks per-user variables first (key::userID), then global.
+	// The lookup checks per-user preferences first, then per-user variables, then global.
 	varLookup := s.userScopedVarLookup(ctx, sessionUserID)
 	var varLister workflow.VarLister
 	if s.variableStore != nil {
@@ -550,7 +584,49 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}
 	}
 
-	// 9. Agentic loop.
+	// Build user preference lookup for JS skill handlers.
+	var userPrefLookup workflow.UserPrefLookup
+	if s.userPrefStore != nil && sessionUserID != "" {
+		userPrefLookup = func(key string) (string, error) {
+			pref, err := s.userPrefStore.GetUserPreference(ctx, sessionUserID, key)
+			if err != nil {
+				return "", err
+			}
+			if pref == nil {
+				return "", fmt.Errorf("user preference %q not found", key)
+			}
+			return string(pref.Value), nil
+		}
+	}
+
+	// 9. Inject user preferences into system prompt (non-secret only).
+	if s.userPrefStore != nil && sessionUserID != "" {
+		prefs, err := s.userPrefStore.ListUserPreferences(ctx, sessionUserID)
+		if err == nil && len(prefs) > 0 {
+			var prefLines []string
+			for _, p := range prefs {
+				if !p.Secret {
+					prefLines = append(prefLines, fmt.Sprintf("- %s: %s", p.Key, string(p.Value)))
+				}
+			}
+			if len(prefLines) > 0 {
+				if systemPrompt != "" {
+					systemPrompt += "\n\n"
+				}
+				systemPrompt += "User preferences:\n" + strings.Join(prefLines, "\n")
+			}
+		}
+	}
+
+	// Prepend system prompt as the first message.
+	if systemPrompt != "" {
+		llmMessages = append([]service.Message{{
+			Role:    "system",
+			Content: systemPrompt,
+		}}, llmMessages...)
+	}
+
+	// 10. Agentic loop.
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		if err := ctx.Err(); err != nil {
 			onEvent(AgenticEvent{Type: "error", Error: "request cancelled"})
@@ -608,6 +684,53 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		// Execute tool calls.
 		var toolResults []service.ContentBlock
 		for _, tc := range resp.ToolCalls {
+			// Check if this tool requires human confirmation.
+			if slices.Contains(agent.Config.ConfirmationRequiredTools, tc.Name) {
+				// Serialize arguments for the UI.
+				argsJSON, _ := json.Marshal(tc.Arguments)
+
+				// Emit confirmation request to the UI.
+				onEvent(AgenticEvent{
+					Type:      "tool_confirm",
+					ToolName:  tc.Name,
+					ToolID:    tc.ID,
+					Arguments: string(argsJSON),
+				})
+
+				// Wait for human approval.
+				confirmKey := sessionID + ":" + tc.ID
+				ch := make(chan confirmationResult, 1)
+				s.pendingConfirmations.Store(confirmKey, ch)
+
+				var approved bool
+				select {
+				case res := <-ch:
+					approved = res.approved
+				case <-time.After(confirmationTimeout):
+					slog.Warn("agentic loop: tool confirmation timed out", "tool", tc.Name, "tool_id", tc.ID)
+				case <-ctx.Done():
+					s.pendingConfirmations.Delete(confirmKey)
+					onEvent(AgenticEvent{Type: "error", Error: "request cancelled"})
+					return nil
+				}
+				s.pendingConfirmations.Delete(confirmKey)
+
+				if !approved {
+					slog.Info("agentic loop: tool call rejected by user", "tool", tc.Name, "tool_id", tc.ID)
+					result := "Error: User rejected this tool call. Please try a different approach or ask the user for guidance."
+
+					onEvent(AgenticEvent{Type: "tool_call", ToolName: tc.Name, ToolID: tc.ID})
+					onEvent(AgenticEvent{Type: "tool_result", ToolName: tc.Name, ToolID: tc.ID, Result: result})
+
+					toolResults = append(toolResults, service.ContentBlock{
+						Type:      "tool_result",
+						ToolUseID: tc.ID,
+						Content:   result,
+					})
+					continue
+				}
+			}
+
 			onEvent(AgenticEvent{Type: "tool_call", ToolName: tc.Name, ToolID: tc.ID})
 
 			var result string
@@ -618,8 +741,13 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
 				if hi.handlerType == "bash" {
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
+				} else if hi.handlerType == "builtin" {
+					result, callErr = s.dispatchBuiltinTool(ctx, tc.Name, tc.Arguments)
 				} else {
-					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, varLookup)
+					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
+						VarLookup:      varLookup,
+						UserPrefLookup: userPrefLookup,
+					})
 				}
 			} else {
 				callErr = fmt.Errorf("no handler for tool %q", tc.Name)
@@ -721,6 +849,8 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 			writeSSE("", map[string]any{"type": "tool_call", "tool_name": ev.ToolName, "tool_id": ev.ToolID})
 		case "tool_result":
 			writeSSE("", map[string]any{"type": "tool_result", "tool_name": ev.ToolName, "tool_id": ev.ToolID, "result": ev.Result})
+		case "tool_confirm":
+			writeSSE("", map[string]any{"type": "tool_confirm", "tool_name": ev.ToolName, "tool_id": ev.ToolID, "arguments": ev.Arguments})
 		case "done":
 			writeSSE("", map[string]any{"type": "done"})
 		}
@@ -730,6 +860,52 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 		slog.Error("send message: agentic loop failed", "session_id", sessionID, "error", err)
 		writeSSE("error", map[string]string{"error": err.Error()})
 	}
+}
+
+// ─── Tool Confirmation ───
+
+// confirmToolCallRequest is the request body for ConfirmToolCallAPI.
+type confirmToolCallRequest struct {
+	ToolID   string `json:"tool_id"`
+	Approved bool   `json:"approved"`
+}
+
+// ConfirmToolCallAPI handles POST /api/v1/chat/sessions/{id}/confirm.
+// It receives the user's approval or rejection for a pending tool call.
+func (s *Server) ConfirmToolCallAPI(w http.ResponseWriter, r *http.Request) {
+	sessionID := r.PathValue("id")
+	if sessionID == "" {
+		httpResponse(w, "session id is required", http.StatusBadRequest)
+		return
+	}
+
+	var req confirmToolCallRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.ToolID == "" {
+		httpResponse(w, "tool_id is required", http.StatusBadRequest)
+		return
+	}
+
+	confirmKey := sessionID + ":" + req.ToolID
+	chVal, ok := s.pendingConfirmations.LoadAndDelete(confirmKey)
+	if !ok {
+		httpResponse(w, "no pending confirmation for this tool call", http.StatusNotFound)
+		return
+	}
+
+	ch, ok := chVal.(chan confirmationResult)
+	if !ok {
+		httpResponse(w, "internal error: invalid confirmation channel", http.StatusInternalServerError)
+		return
+	}
+
+	ch <- confirmationResult{approved: req.Approved}
+
+	httpResponseJSON(w, map[string]string{"status": "ok"}, http.StatusOK)
 }
 
 // ─── Helpers ───

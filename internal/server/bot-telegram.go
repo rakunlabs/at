@@ -4,11 +4,20 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rakunlabs/at/internal/config"
 )
+
+// telegramContext holds per-bot context passed to message handlers.
+type telegramContext struct {
+	botID           string
+	defaultAgentID  string
+	chatAgents      map[string]string
+	allowedAgentIDs []string
+}
 
 // startTelegramBot starts a Telegram bot that routes messages to the agentic loop.
 func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config.TelegramBotConfig) {
@@ -25,6 +34,13 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 
 	updates := bot.GetUpdatesChan(u)
 
+	tgCtx := &telegramContext{
+		botID:           botID,
+		defaultAgentID:  cfg.DefaultAgentID,
+		chatAgents:      cfg.ChatAgents,
+		allowedAgentIDs: cfg.AllowedAgentIDs,
+	}
+
 	go func() {
 		for {
 			select {
@@ -39,8 +55,8 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 
 				// Determine agent ID for this chat.
 				chatIDStr := fmt.Sprintf("%d", update.Message.Chat.ID)
-				agentID := cfg.DefaultAgentID
-				if id, ok := cfg.ChatAgents[chatIDStr]; ok {
+				agentID := tgCtx.defaultAgentID
+				if id, ok := tgCtx.chatAgents[chatIDStr]; ok {
 					agentID = id
 				}
 				if agentID == "" {
@@ -59,14 +75,14 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 				}
 
 				go func(msg *tgbotapi.Message) {
-					s.handleTelegramMessage(ctx, bot, msg, agentID)
+					s.handleTelegramMessage(ctx, bot, msg, agentID, tgCtx)
 				}(update.Message)
 			}
 		}
 	}()
 }
 
-func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, agentID string) {
+func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, agentID string, tgCtx *telegramContext) {
 	chatIDStr := fmt.Sprintf("%d", msg.Chat.ID)
 	userIDStr := fmt.Sprintf("%d", msg.From.ID)
 
@@ -129,10 +145,49 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			reply := tgbotapi.NewMessage(msg.Chat.ID, "Click the link below to connect your "+provider+" account:\n"+loginURL)
 			bot.Send(reply) //nolint:errcheck
 			return
+		case "agents":
+			agents := s.listAllowedAgents(ctx, tgCtx.botID, tgCtx.allowedAgentIDs)
+			if len(agents) == 0 {
+				reply := tgbotapi.NewMessage(msg.Chat.ID, "Agent switching is not enabled for this bot.")
+				bot.Send(reply) //nolint:errcheck
+				return
+			}
+			var sb strings.Builder
+			sb.WriteString("Available agents:\n")
+			for _, a := range agents {
+				desc := a.Config.Description
+				if desc != "" {
+					sb.WriteString(fmt.Sprintf("• %s - %s\n", a.Name, desc))
+				} else {
+					sb.WriteString(fmt.Sprintf("• %s\n", a.Name))
+				}
+			}
+			sb.WriteString("\nUsage: /switch <agent name>")
+			reply := tgbotapi.NewMessage(msg.Chat.ID, sb.String())
+			bot.Send(reply) //nolint:errcheck
+			return
+		case "switch":
+			target := strings.TrimSpace(msg.CommandArguments())
+			if target == "" {
+				reply := tgbotapi.NewMessage(msg.Chat.ID, "Usage: /switch <agent name>\nUse /agents to see available agents.")
+				bot.Send(reply) //nolint:errcheck
+				return
+			}
+			name, switchErr := s.switchBotAgent(ctx, tgCtx.botID, sessionID, target, tgCtx.allowedAgentIDs)
+			if switchErr != nil {
+				reply := tgbotapi.NewMessage(msg.Chat.ID, switchErr.Error())
+				bot.Send(reply) //nolint:errcheck
+				return
+			}
+			reply := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Switched to %s. Session cleared.", name))
+			bot.Send(reply) //nolint:errcheck
+			return
 		case "help":
 			helpText := "Available commands:\n" +
 				"/reset - Clear conversation history and start fresh\n" +
 				"/login - Connect your Google account (usage: /login or /login google)\n" +
+				"/agents - List available agents you can switch to\n" +
+				"/switch - Switch to a different agent (usage: /switch <agent name>)\n" +
 				"/help - Show this help message"
 			reply := tgbotapi.NewMessage(msg.Chat.ID, helpText)
 			bot.Send(reply) //nolint:errcheck

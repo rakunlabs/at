@@ -141,3 +141,15 @@ export function sendMessage(
 
   return controller;
 }
+
+/** Send a tool confirmation (approve or reject) for a pending tool call. */
+export async function confirmToolCall(
+  sessionId: string,
+  toolId: string,
+  approved: boolean,
+): Promise<void> {
+  await api.post(`/chat/sessions/${sessionId}/confirm`, {
+    tool_id: toolId,
+    approved,
+  });
+}

@@ -362,6 +362,28 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
+	// 3. Builtin tools (from agent preset config).
+	if preset != nil && len(preset.Config.BuiltinTools) > 0 && reg.BuiltinToolDispatcher != nil {
+		enabledSet := make(map[string]bool, len(preset.Config.BuiltinTools))
+		for _, name := range preset.Config.BuiltinTools {
+			enabledSet[name] = true
+		}
+		for _, def := range reg.BuiltinToolDefs {
+			if !enabledSet[def.Name] {
+				continue
+			}
+			allTools = append(allTools, service.Tool{
+				Name:        def.Name,
+				Description: def.Description,
+				InputSchema: def.InputSchema,
+			})
+			toolHandlers[def.Name] = toolHandlerInfo{
+				handler:     def.Name,
+				handlerType: "builtin",
+			}
+		}
+	}
+
 	// 4. Sub-agents (Delegates)
 	// Collect agent IDs from input port "agents".
 	var subAgentIDs []string
@@ -598,6 +620,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				if hi.handlerType == "bash" {
 					// Execute bash handler.
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, toolTimeout)
+				} else if hi.handlerType == "builtin" {
+					// Execute builtin tool via dispatcher.
+					result, callErr = reg.BuiltinToolDispatcher(ctx, tc.Name, tc.Arguments)
 				} else if hi.handlerType == "agent" {
 					// Execute sub-agent.
 					// hi.handler contains the agent ID.
@@ -637,7 +662,10 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					}
 				} else {
 					// Execute JS handler via Goja (default).
-					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, reg.VarLookup)
+					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
+						VarLookup:      reg.VarLookup,
+						UserPrefLookup: reg.UserPrefLookup,
+					})
 				}
 			} else {
 				// No handler found — return error to the LLM.

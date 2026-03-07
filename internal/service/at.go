@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -448,15 +449,17 @@ type NodeConfigStorer interface {
 
 // AgentConfig holds the configuration fields for an agent, stored as JSON in the database.
 type AgentConfig struct {
-	Description   string   `json:"description,omitempty"`
-	Provider      string   `json:"provider"`                // Provider key
-	Model         string   `json:"model,omitempty"`         // Model identifier
-	SystemPrompt  string   `json:"system_prompt,omitempty"` // System prompt
-	Skills        []string `json:"skills,omitempty"`        // List of skill IDs/names
-	MCPs          []string `json:"mcp_urls,omitempty"`      // List of MCP server URLs (legacy)
-	MCPSets       []string `json:"mcp_sets,omitempty"`      // List of MCP Set names
-	MaxIterations int      `json:"max_iterations"`          // Max iterations for the loop
-	ToolTimeout   int      `json:"tool_timeout"`            // Timeout in seconds
+	Description               string   `json:"description,omitempty"`
+	Provider                  string   `json:"provider"`                              // Provider key
+	Model                     string   `json:"model,omitempty"`                       // Model identifier
+	SystemPrompt              string   `json:"system_prompt,omitempty"`               // System prompt
+	Skills                    []string `json:"skills,omitempty"`                      // List of skill IDs/names
+	MCPs                      []string `json:"mcp_urls,omitempty"`                    // List of MCP server URLs (legacy)
+	MCPSets                   []string `json:"mcp_sets,omitempty"`                    // List of MCP Set names
+	BuiltinTools              []string `json:"builtin_tools,omitempty"`               // Enabled builtin tool names
+	MaxIterations             int      `json:"max_iterations"`                        // Max iterations for the loop
+	ToolTimeout               int      `json:"tool_timeout"`                          // Timeout in seconds
+	ConfirmationRequiredTools []string `json:"confirmation_required_tools,omitempty"` // Tools that require human confirmation before execution
 }
 
 // Agent represents a reusable agent configuration that can be referenced
@@ -535,21 +538,22 @@ type ChatSessionStorer interface {
 
 // BotConfig represents a Discord or Telegram bot configuration stored in the database.
 type BotConfig struct {
-	ID             string            `json:"id"`
-	Platform       string            `json:"platform"`        // "discord" or "telegram"
-	Name           string            `json:"name"`            // human-readable label
-	Token          string            `json:"token"`           // bot token
-	DefaultAgentID string            `json:"default_agent_id"`
-	ChannelAgents  map[string]string `json:"channel_agents,omitempty"` // channel/chat ID -> agent ID overrides
-	AccessMode      string            `json:"access_mode"`              // "open" (default) or "allowlist"
-	PendingApproval bool              `json:"pending_approval"`         // when true, unknown users in allowlist mode get "pending approval" reply
+	ID              string            `json:"id"`
+	Platform        string            `json:"platform"` // "discord" or "telegram"
+	Name            string            `json:"name"`     // human-readable label
+	Token           string            `json:"token"`    // bot token
+	DefaultAgentID  string            `json:"default_agent_id"`
+	ChannelAgents   map[string]string `json:"channel_agents,omitempty"`    // channel/chat ID -> agent ID overrides
+	AllowedAgentIDs []string          `json:"allowed_agent_ids,omitempty"` // agent IDs users may /switch to; empty = switching disabled
+	AccessMode      string            `json:"access_mode"`                 // "open" (default) or "allowlist"
+	PendingApproval bool              `json:"pending_approval"`            // when true, unknown users in allowlist mode get "pending approval" reply
 	AllowedUsers    []string          `json:"allowed_users"`
 	PendingUsers    []string          `json:"pending_users"`
-	Enabled        bool              `json:"enabled"`
-	CreatedAt      string            `json:"created_at"`
-	UpdatedAt      string            `json:"updated_at"`
-	CreatedBy      string            `json:"created_by"`
-	UpdatedBy      string            `json:"updated_by"`
+	Enabled         bool              `json:"enabled"`
+	CreatedAt       string            `json:"created_at"`
+	UpdatedAt       string            `json:"updated_at"`
+	CreatedBy       string            `json:"created_by"`
+	UpdatedBy       string            `json:"updated_by"`
 }
 
 // BotConfigStorer defines CRUD operations for bot configurations.
@@ -561,13 +565,36 @@ type BotConfigStorer interface {
 	DeleteBotConfig(ctx context.Context, id string) error
 }
 
+// ─── User Preferences ───
+
+// UserPreference stores a per-user key-value preference.
+// Value is a JSON blob allowing structured data (e.g. {"timezone":"Europe/Istanbul","utc_offset":"+03:00"}).
+// Secret preferences (like OAuth tokens) are encrypted at rest and excluded from system prompt injection.
+type UserPreference struct {
+	ID        string          `json:"id"`
+	UserID    string          `json:"user_id"` // platform-scoped user identity (e.g. "telegram::12345")
+	Key       string          `json:"key"`     // preference key (e.g. "timezone", "location", "google_refresh_token")
+	Value     json.RawMessage `json:"value"`   // JSON value (string, object, etc.)
+	Secret    bool            `json:"secret"`  // true = encrypted at rest, excluded from system prompt
+	CreatedAt string          `json:"created_at"`
+	UpdatedAt string          `json:"updated_at"`
+}
+
+// UserPreferenceStorer defines operations for per-user preferences.
+type UserPreferenceStorer interface {
+	ListUserPreferences(ctx context.Context, userID string) ([]UserPreference, error)
+	GetUserPreference(ctx context.Context, userID, key string) (*UserPreference, error)
+	SetUserPreference(ctx context.Context, pref UserPreference) error // upsert by (user_id, key)
+	DeleteUserPreference(ctx context.Context, userID, key string) error
+}
+
 // ─── Marketplace Sources ───
 
 // MarketplaceSource represents a configurable skill marketplace source.
 type MarketplaceSource struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
-	Type      string `json:"type"`       // "generic"
+	Type      string `json:"type"` // "generic"
 	SearchURL string `json:"search_url"`
 	TopURL    string `json:"top_url"`
 	Enabled   bool   `json:"enabled"`
@@ -717,6 +744,9 @@ type MCPServerConfig struct {
 	// Skill tools — names of skills whose tools should be exposed.
 	EnabledSkills []string `json:"enabled_skills,omitempty"`
 
+	// Builtin tools — names of server-side builtin tools to expose.
+	EnabledBuiltinTools []string `json:"enabled_builtin_tools,omitempty"`
+
 	// MCPs — names of MCPs whose tools should be included.
 	MCPs []string `json:"mcps,omitempty"`
 }
@@ -762,9 +792,9 @@ type MCPSet struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
-	Config      MCPServerConfig `json:"config"`   // RAG/HTTP/External/Skills config (own tools)
-	Servers     []string        `json:"servers"`   // MCP Server names (resolved to gateway URLs at runtime)
-	URLs        []string        `json:"urls"`      // Custom MCP endpoint URLs
+	Config      MCPServerConfig `json:"config"`  // RAG/HTTP/External/Skills config (own tools)
+	Servers     []string        `json:"servers"` // MCP Server names (resolved to gateway URLs at runtime)
+	URLs        []string        `json:"urls"`    // Custom MCP endpoint URLs
 	CreatedAt   string          `json:"created_at"`
 	UpdatedAt   string          `json:"updated_at"`
 	CreatedBy   string          `json:"created_by"`

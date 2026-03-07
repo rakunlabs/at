@@ -79,5 +79,6 @@ func mcpSetHasOwnTools(cfg service.MCPServerConfig) bool {
 	return len(cfg.EnabledRAGTools) > 0 ||
 		len(cfg.HTTPTools) > 0 ||
 		len(cfg.MCPUpstreams) > 0 ||
-		len(cfg.EnabledSkills) > 0
+		len(cfg.EnabledSkills) > 0 ||
+		len(cfg.EnabledBuiltinTools) > 0
 }

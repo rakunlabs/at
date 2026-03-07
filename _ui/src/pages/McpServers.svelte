@@ -9,6 +9,7 @@
     type MCPServer,
   } from '@/lib/api/mcp-servers';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
+  import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import {
     Server,
     Plus,
@@ -19,6 +20,7 @@
     RefreshCw,
     Copy,
     Layers,
+    Wrench,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'MCP Servers';
@@ -37,9 +39,11 @@
   let formName = $state('');
   let formDescription = $state('');
   let formMCPs = $state<string[]>([]);
+  let formBuiltinTools = $state<string[]>([]);
 
   // Helpers
   let availableMCPs = $state<MCPSet[]>([]);
+  let builtinToolDefs = $state<BuiltinToolDef[]>([]);
 
   // ─── Load Data ───
 
@@ -64,7 +68,15 @@
     } catch {}
   }
 
+  async function loadBuiltinToolDefs() {
+    try {
+      const res = await listBuiltinTools();
+      builtinToolDefs = res.tools || [];
+    } catch {}
+  }
+
   loadMCPs();
+  loadBuiltinToolDefs();
 
   // ─── Form Logic ───
 
@@ -72,6 +84,7 @@
     formName = '';
     formDescription = '';
     formMCPs = [];
+    formBuiltinTools = [];
     editingId = null;
     showForm = false;
   }
@@ -87,6 +100,7 @@
     formName = s.name;
     formDescription = s.config.description || '';
     formMCPs = s.config.mcps ?? [];
+    formBuiltinTools = s.config.enabled_builtin_tools ?? [];
     showForm = true;
   }
 
@@ -103,6 +117,7 @@
         config: {
           description: formDescription.trim(),
           mcps: formMCPs,
+          enabled_builtin_tools: formBuiltinTools,
         },
       };
 
@@ -250,6 +265,47 @@
               <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Tools from selected MCPs will be served by this endpoint.</p>
             {:else}
               <span class="text-xs text-gray-400 dark:text-dark-text-muted">No MCPs available. Create MCPs first.</span>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Builtin Tools -->
+        <div class="grid grid-cols-4 gap-3 items-start">
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
+            <div class="flex items-center gap-1.5">
+              <Wrench size={14} />
+              Builtin Tools
+            </div>
+          </span>
+          <div class="col-span-3">
+            {#if builtinToolDefs.length > 0}
+              <div class="space-y-1.5 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                {#each builtinToolDefs as tool}
+                  <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-elevated transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formBuiltinTools.includes(tool.name)}
+                      onchange={() => {
+                        if (formBuiltinTools.includes(tool.name)) {
+                          formBuiltinTools = formBuiltinTools.filter(n => n !== tool.name);
+                        } else {
+                          formBuiltinTools = [...formBuiltinTools, tool.name];
+                        }
+                      }}
+                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                    />
+                    <div class="flex-1 min-w-0">
+                      <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{tool.name}</span>
+                      {#if tool.description}
+                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{tool.description}</div>
+                      {/if}
+                    </div>
+                  </label>
+                {/each}
+              </div>
+              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Server-side builtin tools (file ops, shell, etc.) available on this endpoint.</p>
+            {:else}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No builtin tools available.</span>
             {/if}
           </div>
         </div>

@@ -193,6 +193,24 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 		}
 	}
 
+	// Add enabled builtin tools.
+	for _, toolName := range srv.Config.EnabledBuiltinTools {
+		if !isKnownBuiltinTool(toolName) {
+			slog.Warn("unknown builtin tool in MCP server config", "tool", toolName, "server", srv.Name)
+			continue
+		}
+		for _, bt := range builtinTools {
+			if bt.Name == toolName {
+				tools = append(tools, service.Tool{
+					Name:        bt.Name,
+					Description: bt.Description,
+					InputSchema: bt.InputSchema,
+				})
+				break
+			}
+		}
+	}
+
 	mcpResult(w, req.ID, map[string]any{"tools": tools})
 }
 
@@ -206,9 +224,9 @@ func mcpRAGToolDef(name string) *service.Tool {
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"query":          map[string]any{"type": "string", "description": "The natural language search query"},
-					"collection_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional: filter by collection IDs"},
-					"num_results":    map[string]any{"type": "integer", "description": "Number of results to return (default: 10)"},
+					"query":           map[string]any{"type": "string", "description": "The natural language search query"},
+					"collection_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional: filter by collection IDs"},
+					"num_results":     map[string]any{"type": "integer", "description": "Number of results to return (default: 10)"},
 					"score_threshold": map[string]any{"type": "number", "description": "Minimum similarity score (0-1)"},
 				},
 				"required": []string{"query"},
@@ -370,6 +388,21 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 				return
 			}
 		}
+	}
+
+	// Try enabled builtin tools.
+	if slices.Contains(srv.Config.EnabledBuiltinTools, params.Name) && isKnownBuiltinTool(params.Name) {
+		result, err := s.dispatchBuiltinTool(r.Context(), params.Name, params.Arguments)
+		if err != nil {
+			mcpError(w, req.ID, -32000, fmt.Sprintf("builtin tool execution failed: %v", err))
+			return
+		}
+		mcpResult(w, req.ID, map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": result},
+			},
+		})
+		return
 	}
 
 	mcpError(w, req.ID, -32602, fmt.Sprintf("unknown tool: %s", params.Name))
@@ -640,4 +673,3 @@ func (s *Server) resolveTemplate(tmplStr string, args map[string]any) (string, e
 
 	return buf.String(), nil
 }
-

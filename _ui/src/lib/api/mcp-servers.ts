@@ -34,6 +34,8 @@ export interface MCPServerConfig {
   mcp_upstreams?: MCPUpstream[];
   // Skill tools
   enabled_skills?: string[];
+  // Builtin tools
+  enabled_builtin_tools?: string[];
   // MCP references
   mcps?: string[];
 }

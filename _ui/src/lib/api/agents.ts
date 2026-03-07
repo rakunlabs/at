@@ -11,8 +11,10 @@ export interface AgentConfig {
   skills: string[];
   mcp_sets: string[];
   mcp_urls: string[];
+  builtin_tools: string[];
   max_iterations: number;
   tool_timeout: number;
+  confirmation_required_tools?: string[];
 }
 
 export interface Agent {

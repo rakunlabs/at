@@ -102,6 +102,7 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 			Token:           bot.Token,
 			DefaultAgentID:  bot.DefaultAgentID,
 			ChannelAgents:   bot.ChannelAgents,
+			AllowedAgentIDs: bot.AllowedAgentIDs,
 			AccessMode:      bot.AccessMode,
 			PendingApproval: bot.PendingApproval,
 			AllowedUsers:    bot.AllowedUsers,
@@ -111,6 +112,7 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 			Token:           bot.Token,
 			DefaultAgentID:  bot.DefaultAgentID,
 			ChatAgents:      bot.ChannelAgents,
+			AllowedAgentIDs: bot.AllowedAgentIDs,
 			AccessMode:      bot.AccessMode,
 			PendingApproval: bot.PendingApproval,
 			AllowedUsers:    bot.AllowedUsers,
@@ -118,6 +120,92 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 	default:
 		slog.Warn("unknown bot platform", "platform", bot.Platform, "id", bot.ID)
 	}
+}
+
+// listAllowedAgents returns the agents a user may switch to.
+// It resolves agent names from the store for display purposes.
+// The returned slice contains (id, name) pairs.
+func (s *Server) listAllowedAgents(ctx context.Context, botID string, allowedAgentIDs []string) []service.Agent {
+	// For DB bots, fetch current config for dynamic updates.
+	if botID != "" && s.botConfigStore != nil {
+		dbCfg, err := s.botConfigStore.GetBotConfig(ctx, botID)
+		if err == nil && dbCfg != nil {
+			allowedAgentIDs = dbCfg.AllowedAgentIDs
+		}
+	}
+
+	if len(allowedAgentIDs) == 0 || s.agentStore == nil {
+		return nil
+	}
+
+	var agents []service.Agent
+	for _, id := range allowedAgentIDs {
+		agent, err := s.agentStore.GetAgent(ctx, id)
+		if err != nil || agent == nil {
+			continue
+		}
+		agents = append(agents, *agent)
+	}
+
+	return agents
+}
+
+// switchBotAgent switches the session to a different agent and clears conversation history.
+// It returns the agent name on success, or an error message on failure.
+func (s *Server) switchBotAgent(ctx context.Context, botID, sessionID, targetAgent string, allowedAgentIDs []string) (string, error) {
+	// For DB bots, fetch current config for dynamic updates.
+	if botID != "" && s.botConfigStore != nil {
+		dbCfg, err := s.botConfigStore.GetBotConfig(ctx, botID)
+		if err == nil && dbCfg != nil {
+			allowedAgentIDs = dbCfg.AllowedAgentIDs
+		}
+	}
+
+	if len(allowedAgentIDs) == 0 {
+		return "", fmt.Errorf("agent switching is not enabled for this bot")
+	}
+
+	// Find the agent by name or ID.
+	if s.agentStore == nil {
+		return "", fmt.Errorf("agent store not configured")
+	}
+
+	var matchedAgent *service.Agent
+	for _, id := range allowedAgentIDs {
+		agent, err := s.agentStore.GetAgent(ctx, id)
+		if err != nil || agent == nil {
+			continue
+		}
+		if strings.EqualFold(agent.Name, targetAgent) || agent.ID == targetAgent {
+			matchedAgent = agent
+			break
+		}
+	}
+
+	if matchedAgent == nil {
+		return "", fmt.Errorf("agent %q not found in the allowed list", targetAgent)
+	}
+
+	// Load session and update agent ID.
+	session, err := s.chatSessionStore.GetChatSession(ctx, sessionID)
+	if err != nil {
+		return "", fmt.Errorf("load session: %w", err)
+	}
+	if session == nil {
+		return "", fmt.Errorf("session not found")
+	}
+
+	session.AgentID = matchedAgent.ID
+	if _, err := s.chatSessionStore.UpdateChatSession(ctx, sessionID, *session); err != nil {
+		return "", fmt.Errorf("update session: %w", err)
+	}
+
+	// Clear conversation history.
+	if err := s.chatSessionStore.DeleteChatMessages(ctx, sessionID); err != nil {
+		slog.Warn("failed to clear messages on agent switch", "session_id", sessionID, "error", err)
+	}
+
+	return matchedAgent.Name, nil
 }
 
 // checkBotAccess checks if a user is allowed to use the bot.

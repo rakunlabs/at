@@ -10,10 +10,11 @@
     listChatMessages,
     clearChatMessages,
     sendMessage,
+    confirmToolCall,
     type ChatSession,
     type ChatMessage,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX } from 'lucide-svelte';
   import { md, renderMarkdown } from '@/lib/helper/markdown';
 
   storeNavbar.title = 'Sessions';
@@ -32,6 +33,11 @@
   let showAgentPicker = $state(false);
   let showSlashMenu = $state(false);
   let slashFilter = $state('');
+  let pendingConfirmation = $state<{
+    toolName: string;
+    toolId: string;
+    arguments: string;
+  } | null>(null);
   let abortController: AbortController | null = null;
   let messagesEnd: HTMLDivElement;
   let inputEl: HTMLTextAreaElement;
@@ -243,16 +249,25 @@
         } else if (event.type === 'tool_result') {
           toolEvents = [...toolEvents, { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
           scrollToBottom();
+        } else if (event.type === 'tool_confirm') {
+          pendingConfirmation = {
+            toolName: event.tool_name,
+            toolId: event.tool_id,
+            arguments: event.arguments || '{}',
+          };
+          scrollToBottom();
         }
       },
       (error) => {
         addToast(error, 'error');
         sending = false;
         abortController = null;
+        pendingConfirmation = null;
       },
       async () => {
         sending = false;
         abortController = null;
+        pendingConfirmation = null;
         if (selectedSessionId) {
           await loadMessages(selectedSessionId);
         }
@@ -284,6 +299,18 @@
       abortController.abort();
       abortController = null;
       sending = false;
+      pendingConfirmation = null;
+    }
+  }
+
+  async function handleConfirmation(approved: boolean) {
+    if (!pendingConfirmation || !selectedSessionId) return;
+    const { toolId } = pendingConfirmation;
+    pendingConfirmation = null;
+    try {
+      await confirmToolCall(selectedSessionId, toolId, approved);
+    } catch (err: any) {
+      addToast(err.message || 'Failed to send confirmation', 'error');
     }
   }
 
@@ -459,6 +486,41 @@
                   </div>
                 {/if}
               {/each}
+            </div>
+          {/if}
+
+          <!-- Tool confirmation prompt -->
+          {#if pendingConfirmation}
+            <div class="py-2 px-3 my-1 border-l-2 border-orange-400 dark:border-orange-500 bg-orange-50 dark:bg-orange-950/30 rounded-r">
+              <div class="flex items-center gap-1.5 text-[12px] font-semibold text-orange-700 dark:text-orange-400 mb-1.5">
+                <ShieldCheck size={14} />
+                <span>Tool confirmation required</span>
+              </div>
+              <div class="text-[11px] text-gray-700 dark:text-dark-text-secondary mb-1">
+                The agent wants to execute <span class="font-mono font-bold text-orange-700 dark:text-orange-300">{pendingConfirmation.toolName}</span>
+              </div>
+              <details class="mb-2">
+                <summary class="text-[10px] text-gray-500 dark:text-dark-text-muted cursor-pointer hover:text-gray-700 dark:hover:text-dark-text-secondary">
+                  Show arguments
+                </summary>
+                <pre class="text-[10px] text-gray-600 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-1 max-h-40 overflow-y-auto bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded p-2 font-mono">{(() => { try { return JSON.stringify(JSON.parse(pendingConfirmation.arguments), null, 2); } catch { return pendingConfirmation.arguments; } })()}</pre>
+              </details>
+              <div class="flex items-center gap-2">
+                <button
+                  onclick={() => handleConfirmation(true)}
+                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded bg-green-600 hover:bg-green-700 text-white transition-colors"
+                >
+                  <ShieldCheck size={12} />
+                  Approve
+                </button>
+                <button
+                  onclick={() => handleConfirmation(false)}
+                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded bg-red-500 hover:bg-red-600 text-white transition-colors"
+                >
+                  <ShieldX size={12} />
+                  Reject
+                </button>
+              </div>
             </div>
           {/if}
           {#if streamContent}

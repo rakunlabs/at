@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -9,6 +10,14 @@ import (
 	"github.com/bwmarrin/discordgo"
 	"github.com/rakunlabs/at/internal/config"
 )
+
+// discordContext holds per-bot context passed to message handlers.
+type discordContext struct {
+	botID           string
+	defaultAgentID  string
+	channelAgents   map[string]string
+	allowedAgentIDs []string
+}
 
 // startDiscordBot starts a Discord bot that routes messages to the agentic loop.
 func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.DiscordBotConfig) {
@@ -20,6 +29,13 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
 
+	dcCtx := &discordContext{
+		botID:           botID,
+		defaultAgentID:  cfg.DefaultAgentID,
+		channelAgents:   cfg.ChannelAgents,
+		allowedAgentIDs: cfg.AllowedAgentIDs,
+	}
+
 	dg.AddHandler(func(sess *discordgo.Session, m *discordgo.MessageCreate) {
 		// Ignore own messages.
 		if m.Author.ID == sess.State.User.ID {
@@ -27,8 +43,8 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 		}
 
 		// Determine agent ID for this channel.
-		agentID := cfg.DefaultAgentID
-		if id, ok := cfg.ChannelAgents[m.ChannelID]; ok {
+		agentID := dcCtx.defaultAgentID
+		if id, ok := dcCtx.channelAgents[m.ChannelID]; ok {
 			agentID = id
 		}
 		if agentID == "" {
@@ -45,7 +61,7 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 		}
 
 		go func() {
-			s.handleDiscordMessage(ctx, sess, m, agentID)
+			s.handleDiscordMessage(ctx, sess, m, agentID, dcCtx)
 		}()
 	})
 
@@ -64,7 +80,7 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 	}()
 }
 
-func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Session, m *discordgo.MessageCreate, agentID string) {
+func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Session, m *discordgo.MessageCreate, agentID string, dcCtx *discordContext) {
 	sessionID, err := s.findOrCreateBotSession(ctx, "discord", m.Author.ID, m.ChannelID, agentID)
 	if err != nil {
 		slog.Error("discord bot: session lookup failed", "error", err)
@@ -94,10 +110,45 @@ func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Sessi
 		}
 		sess.ChannelMessageSend(m.ChannelID, "Click the link below to connect your "+provider+" account:\n"+loginURL) //nolint:errcheck
 		return
+	case m.Content == "!agents":
+		agents := s.listAllowedAgents(ctx, dcCtx.botID, dcCtx.allowedAgentIDs)
+		if len(agents) == 0 {
+			sess.ChannelMessageSend(m.ChannelID, "Agent switching is not enabled for this bot.") //nolint:errcheck
+			return
+		}
+		var sb strings.Builder
+		sb.WriteString("Available agents:\n")
+		for _, a := range agents {
+			desc := a.Config.Description
+			if desc != "" {
+				sb.WriteString(fmt.Sprintf("**%s** - %s\n", a.Name, desc))
+			} else {
+				sb.WriteString(fmt.Sprintf("**%s**\n", a.Name))
+			}
+		}
+		sb.WriteString("\nUsage: !switch <agent name>")
+		sess.ChannelMessageSend(m.ChannelID, sb.String()) //nolint:errcheck
+		return
+	case m.Content == "!switch" || strings.HasPrefix(m.Content, "!switch "):
+		target := strings.TrimPrefix(m.Content, "!switch")
+		target = strings.TrimSpace(target)
+		if target == "" {
+			sess.ChannelMessageSend(m.ChannelID, "Usage: !switch <agent name>\nUse !agents to see available agents.") //nolint:errcheck
+			return
+		}
+		name, switchErr := s.switchBotAgent(ctx, dcCtx.botID, sessionID, target, dcCtx.allowedAgentIDs)
+		if switchErr != nil {
+			sess.ChannelMessageSend(m.ChannelID, switchErr.Error()) //nolint:errcheck
+			return
+		}
+		sess.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Switched to **%s**. Session cleared.", name)) //nolint:errcheck
+		return
 	case m.Content == "!help":
 		helpText := "Available commands:\n" +
 			"**!reset** - Clear conversation history and start fresh\n" +
 			"**!login** - Connect your Google account (usage: !login or !login google)\n" +
+			"**!agents** - List available agents you can switch to\n" +
+			"**!switch** - Switch to a different agent (usage: !switch <agent name>)\n" +
 			"**!help** - Show this help message"
 		sess.ChannelMessageSend(m.ChannelID, helpText) //nolint:errcheck
 		return

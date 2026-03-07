@@ -31,6 +31,7 @@ type StorerClose interface {
 	service.MCPSetStorer
 	service.BotConfigStorer
 	service.MarketplaceSourceStorer
+	service.UserPreferenceStorer
 	Close()
 }
 

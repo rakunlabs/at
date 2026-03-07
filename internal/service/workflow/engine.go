@@ -35,39 +35,45 @@ type EarlyOutput struct {
 // from those entry points is executed. Annotation nodes (group, sticky_note)
 // and unrelated trigger branches are silently excluded.
 type Engine struct {
-	providerLookup    ProviderLookup
-	skillLookup       SkillLookup
-	varLookup         VarLookup
-	varLister         VarLister
-	nodeConfigLookup  NodeConfigLookup
-	workflowLookup    WorkflowLookup
-	agentLookup       AgentLookup
-	ragSearch         RAGSearchFunc
-	ragIngest         RAGIngestFunc
-	ragIngestFile     RAGIngestFileFunc
-	ragDeleteBySource RAGDeleteBySourceFunc
-	varSave           VarSaveFunc
-	ragStateLookup    RAGStateLookupFunc
-	ragStateSave      RAGStateSaveFunc
+	providerLookup        ProviderLookup
+	skillLookup           SkillLookup
+	varLookup             VarLookup
+	varLister             VarLister
+	nodeConfigLookup      NodeConfigLookup
+	workflowLookup        WorkflowLookup
+	agentLookup           AgentLookup
+	ragSearch             RAGSearchFunc
+	ragIngest             RAGIngestFunc
+	ragIngestFile         RAGIngestFileFunc
+	ragDeleteBySource     RAGDeleteBySourceFunc
+	varSave               VarSaveFunc
+	ragStateLookup        RAGStateLookupFunc
+	ragStateSave          RAGStateSaveFunc
+	builtinToolDispatcher BuiltinToolDispatcher
+	builtinToolDefs       []BuiltinToolDef
+	userPrefLookup        UserPrefLookup
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc) *Engine {
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup) *Engine {
 	return &Engine{
-		providerLookup:    lookup,
-		skillLookup:       skillLookup,
-		varLookup:         varLookup,
-		varLister:         varLister,
-		nodeConfigLookup:  nodeConfigLookup,
-		workflowLookup:    workflowLookup,
-		agentLookup:       agentLookup,
-		ragSearch:         ragSearch,
-		ragIngest:         ragIngest,
-		ragIngestFile:     ragIngestFile,
-		ragDeleteBySource: ragDeleteBySource,
-		varSave:           varSave,
-		ragStateLookup:    ragStateLookup,
-		ragStateSave:      ragStateSave,
+		providerLookup:        lookup,
+		skillLookup:           skillLookup,
+		varLookup:             varLookup,
+		varLister:             varLister,
+		nodeConfigLookup:      nodeConfigLookup,
+		workflowLookup:        workflowLookup,
+		agentLookup:           agentLookup,
+		ragSearch:             ragSearch,
+		ragIngest:             ragIngest,
+		ragIngestFile:         ragIngestFile,
+		ragDeleteBySource:     ragDeleteBySource,
+		varSave:               varSave,
+		ragStateLookup:        ragStateLookup,
+		ragStateSave:          ragStateSave,
+		builtinToolDispatcher: builtinDispatcher,
+		builtinToolDefs:       builtinDefs,
+		userPrefLookup:        userPrefLookup,
 	}
 }
 
@@ -233,7 +239,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, inputs)
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, inputs)
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)

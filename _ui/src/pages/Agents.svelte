@@ -5,7 +5,8 @@
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
-  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste, Layers } from 'lucide-svelte';
+  import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
+  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste, Layers, Wrench, ShieldCheck } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -18,6 +19,7 @@
   let providers = $state<ProviderRecord[]>([]);
   let skills = $state<Skill[]>([]);
   let mcpSets = $state<MCPSet[]>([]);
+  let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
@@ -39,9 +41,11 @@
   let formSystemPrompt = $state('');
   let formSkills = $state<string[]>([]);
   let formMCPSets = $state<string[]>([]);
+  let formBuiltinTools = $state<string[]>([]);
   let formMCPs = $state<string[]>(['']);
   let formMaxIterations = $state(10);
   let formToolTimeout = $state(60);
+  let formConfirmationTools = $state<string[]>([]);
 
   // Copy / Paste via system clipboard
   
@@ -55,9 +59,11 @@
         system_prompt: agent.config.system_prompt,
         skills: agent.config.skills || [],
         mcp_sets: agent.config.mcp_sets || [],
+        builtin_tools: agent.config.builtin_tools || [],
         mcp_urls: agent.config.mcp_urls || [],
         max_iterations: agent.config.max_iterations,
         tool_timeout: agent.config.tool_timeout,
+        confirmation_required_tools: agent.config.confirmation_required_tools || [],
       },
     };
     try {
@@ -86,9 +92,11 @@
       formSystemPrompt = cfg.system_prompt || '';
       formSkills = cfg.skills || [];
       formMCPSets = cfg.mcp_sets || [];
+      formBuiltinTools = cfg.builtin_tools || [];
       formMCPs = cfg.mcp_urls && cfg.mcp_urls.length > 0 ? [...cfg.mcp_urls] : [''];
       formMaxIterations = cfg.max_iterations || 10;
       formToolTimeout = cfg.tool_timeout || 60;
+      formConfirmationTools = cfg.confirmation_required_tools || [];
       editingId = null;
       showForm = true;
     } catch {
@@ -108,12 +116,13 @@
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       
-      const [aResult, pResult, sResult, mResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPSets({ _limit: 500 })]);
+      const [aResult, pResult, sResult, mResult, btResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPSets({ _limit: 500 }), listBuiltinTools()]);
       agents = aResult.data || [];
       total = aResult.meta?.total || 0;
       providers = pResult.data || [];
       skills = sResult.data || [];
       mcpSets = mResult.data || [];
+      builtinToolDefs = btResult.tools || [];
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -145,9 +154,11 @@
     formSystemPrompt = '';
     formSkills = [];
     formMCPSets = [];
+    formBuiltinTools = [];
     formMCPs = [''];
     formMaxIterations = 10;
     formToolTimeout = 60;
+    formConfirmationTools = [];
     editingId = null;
     showForm = false;
   }
@@ -167,9 +178,11 @@
     formSystemPrompt = agent.config.system_prompt;
     formSkills = [...(agent.config.skills || [])];
     formMCPSets = [...(agent.config.mcp_sets || [])];
+    formBuiltinTools = [...(agent.config.builtin_tools || [])];
     formMCPs = agent.config.mcp_urls && agent.config.mcp_urls.length > 0 ? [...agent.config.mcp_urls] : [''];
     formMaxIterations = agent.config.max_iterations || 10;
     formToolTimeout = agent.config.tool_timeout || 60;
+    formConfirmationTools = [...(agent.config.confirmation_required_tools || [])];
     showForm = true;
   }
 
@@ -195,9 +208,11 @@
           system_prompt: formSystemPrompt,
           skills: formSkills,
           mcp_sets: formMCPSets,
+          builtin_tools: formBuiltinTools,
           mcp_urls: cleanMCPs,
           max_iterations: formMaxIterations,
           tool_timeout: formToolTimeout,
+          confirmation_required_tools: formConfirmationTools,
         },
       };
 
@@ -419,6 +434,50 @@
                 {/if}
               </div>
             </div>
+
+            <!-- Builtin Tools -->
+            <div class="grid grid-cols-4 gap-3 items-start">
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
+                <div class="flex items-center gap-1.5">
+                  <Wrench size={14} />
+                  Builtin Tools
+                </div>
+              </span>
+              <div class="col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                {#each builtinToolDefs as tool}
+                  <label class="flex items-center gap-2 cursor-pointer" title={tool.description}>
+                    <input type="checkbox" bind:group={formBuiltinTools} value={tool.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{tool.name}</span>
+                  </label>
+                {/each}
+                {#if builtinToolDefs.length === 0}
+                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No builtin tools available</div>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Confirmation Required Tools -->
+            {#if formBuiltinTools.length > 0}
+              <div class="grid grid-cols-4 gap-3 items-start">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
+                  <div class="flex items-center gap-1.5">
+                    <ShieldCheck size={14} />
+                    Confirm Before Run
+                  </div>
+                  <div class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal mt-0.5">
+                    Selected tools require human approval
+                  </div>
+                </span>
+                <div class="col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-orange-50/50 dark:bg-orange-950/10 p-3 border border-orange-200 dark:border-orange-900/30">
+                  {#each formBuiltinTools as toolName}
+                    <label class="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" bind:group={formConfirmationTools} value={toolName} class="text-orange-600 dark:text-orange-400 focus:ring-orange-500/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                      <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{toolName}</span>
+                    </label>
+                  {/each}
+                </div>
+              </div>
+            {/if}
 
             <!-- MCP URLs (legacy) -->
             {#if formMCPs.some(u => u.trim() !== '')}

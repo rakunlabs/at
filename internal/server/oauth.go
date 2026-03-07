@@ -186,18 +186,33 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine variable key: per-user or global.
-	varKey := provider.RefreshTokenVar
-	if oauthUserID != "" {
-		varKey = provider.RefreshTokenVar + "::" + oauthUserID
-	}
-
-	// Save refresh token as a variable.
+	// Save refresh token.
 	userEmail := s.getUserEmail(r)
-	if err := s.oauthUpsertVar(r, varKey, tokenResp.RefreshToken, true, userEmail); err != nil {
-		slog.Error("failed to save refresh token", "provider", providerName, "error", err)
-		renderOAuthResult(w, false, "failed to save refresh token: "+err.Error())
-		return
+
+	if oauthUserID != "" && s.userPrefStore != nil {
+		// Per-user tokens go to user_preferences (encrypted at rest).
+		tokenJSON, _ := json.Marshal(tokenResp.RefreshToken)
+		if err := s.userPrefStore.SetUserPreference(r.Context(), service.UserPreference{
+			UserID: oauthUserID,
+			Key:    provider.RefreshTokenVar,
+			Value:  json.RawMessage(tokenJSON),
+			Secret: true,
+		}); err != nil {
+			slog.Error("failed to save refresh token to user preferences", "provider", providerName, "error", err)
+			renderOAuthResult(w, false, "failed to save refresh token: "+err.Error())
+			return
+		}
+	} else {
+		// Global tokens (no user scope) still go to variables.
+		varKey := provider.RefreshTokenVar
+		if oauthUserID != "" {
+			varKey = provider.RefreshTokenVar + "::" + oauthUserID
+		}
+		if err := s.oauthUpsertVar(r, varKey, tokenResp.RefreshToken, true, userEmail); err != nil {
+			slog.Error("failed to save refresh token", "provider", providerName, "error", err)
+			renderOAuthResult(w, false, "failed to save refresh token: "+err.Error())
+			return
+		}
 	}
 
 	logFields := []any{"provider", providerName, "user", userEmail}
@@ -250,23 +265,38 @@ func parseOAuthState(state string) (provider, userID string) {
 	return state, ""
 }
 
-// userScopedVarLookup returns a VarLookup that checks for a per-user variable
-// first (key + "::" + userID), then falls back to the global variable.
-// If userID is empty, it behaves like a normal global lookup.
+// userScopedVarLookup returns a VarLookup that checks:
+// 1. Per-user preferences (user_preferences table) — for per-user data like OAuth tokens
+// 2. Per-user variables (key::userID in variables table) — legacy per-user scope
+// 3. Global variables (variables table)
+// If userID is empty, it checks only global variables.
 func (s *Server) userScopedVarLookup(ctx context.Context, userID string) workflow.VarLookup {
 	if s.variableStore == nil {
 		return nil
 	}
 	return func(key string) (string, error) {
-		// Try per-user variable first.
 		if userID != "" {
+			// 1. Check user_preferences first (for per-user tokens, etc.).
+			if s.userPrefStore != nil {
+				pref, err := s.userPrefStore.GetUserPreference(ctx, userID, key)
+				if err == nil && pref != nil {
+					// Unwrap JSON string value for backward compatibility.
+					var strVal string
+					if json.Unmarshal(pref.Value, &strVal) == nil {
+						return strVal, nil
+					}
+					return string(pref.Value), nil
+				}
+			}
+
+			// 2. Check per-user scoped variable (legacy: key::userID).
 			scopedKey := key + "::" + userID
 			v, err := s.variableStore.GetVariableByKey(ctx, scopedKey)
 			if err == nil && v != nil {
 				return v.Value, nil
 			}
 		}
-		// Fall back to global variable.
+		// 3. Fall back to global variable.
 		v, err := s.variableStore.GetVariableByKey(ctx, key)
 		if err != nil {
 			return "", err

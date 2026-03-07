@@ -166,6 +166,10 @@ type Registry struct {
 	// Used by bash tool handlers to inject variables as environment variables.
 	VarLister VarLister
 
+	// UserPrefLookup resolves a per-user preference key to its JSON value string.
+	// Used by getUserPref() in the Goja JS VM.
+	UserPrefLookup UserPrefLookup
+
 	// NodeConfigLookup resolves a node config ID to its full configuration.
 	// Used by nodes that reference external configs (e.g. email node looking up SMTP settings).
 	NodeConfigLookup NodeConfigLookup
@@ -207,6 +211,14 @@ type Registry struct {
 	// RAGStateSave saves RAG sync state.
 	RAGStateSave RAGStateSaveFunc
 
+	// BuiltinToolDispatcher dispatches a call to a server-side built-in tool.
+	// nil when builtin tools are not available.
+	BuiltinToolDispatcher BuiltinToolDispatcher
+
+	// BuiltinToolDefs lists the available built-in tool definitions (name, description, schema).
+	// Used by agent_call nodes to include enabled builtin tools in the LLM tool list.
+	BuiltinToolDefs []BuiltinToolDef
+
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
 
@@ -232,6 +244,10 @@ type VarLookup func(key string) (string, error)
 // VarLister returns all variable key-value pairs.
 // Used by bash tool handlers to inject all variables as environment variables.
 type VarLister func() (map[string]string, error)
+
+// UserPrefLookup resolves a per-user preference key to its JSON value string.
+// Used by getUserPref() in the Goja JS VM.
+type UserPrefLookup func(key string) (string, error)
 
 // NodeConfigLookup resolves a node config ID to its full NodeConfig.
 // Used by nodes that reference external configs (e.g. email node looking up SMTP settings).
@@ -283,28 +299,42 @@ type RAGStateLookupFunc func(ctx context.Context, key string) (*service.RAGState
 // RAGStateSaveFunc saves RAG sync state.
 type RAGStateSaveFunc func(ctx context.Context, key, value string) error
 
+// BuiltinToolDispatcher executes a server-side built-in tool by name.
+// Returns the tool's text result or an error.
+type BuiltinToolDispatcher func(ctx context.Context, name string, args map[string]any) (string, error)
+
+// BuiltinToolDef describes a built-in tool available to agents.
+type BuiltinToolDef struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
 	return &Registry{
-		ProviderLookup:    lookup,
-		SkillLookup:       skillLookup,
-		VarLookup:         varLookup,
-		VarLister:         varLister,
-		NodeConfigLookup:  nodeConfigLookup,
-		WorkflowLookup:    workflowLookup,
-		AgentLookup:       agentLookup,
-		RAGSearch:         ragSearch,
-		RAGIngest:         ragIngest,
-		RAGIngestFile:     ragIngestFile,
-		RAGDeleteBySource: ragDeleteBySource,
-		VarSave:           varSave,
-		RAGStateLookup:    ragStateLookup,
-		RAGStateSave:      ragStateSave,
-		RunInputs:         inputs,
-		outputs:           make(map[string]any),
+		ProviderLookup:        lookup,
+		SkillLookup:           skillLookup,
+		VarLookup:             varLookup,
+		VarLister:             varLister,
+		UserPrefLookup:        userPrefLookup,
+		NodeConfigLookup:      nodeConfigLookup,
+		WorkflowLookup:        workflowLookup,
+		AgentLookup:           agentLookup,
+		RAGSearch:             ragSearch,
+		RAGIngest:             ragIngest,
+		RAGIngestFile:         ragIngestFile,
+		RAGDeleteBySource:     ragDeleteBySource,
+		VarSave:               varSave,
+		RAGStateLookup:        ragStateLookup,
+		RAGStateSave:          ragStateSave,
+		BuiltinToolDispatcher: builtinDispatcher,
+		BuiltinToolDefs:       builtinDefs,
+		RunInputs:             inputs,
+		outputs:               make(map[string]any),
 	}
 }
 

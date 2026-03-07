@@ -21,17 +21,34 @@ import (
 // Example handler:
 //
 //	"return 'Hello, ' + args.name;"
+//
+// JSHandlerOptions holds optional lookups for JS handler execution.
+type JSHandlerOptions struct {
+	VarLookup      VarLookup
+	UserPrefLookup UserPrefLookup
+}
+
 func ExecuteJSHandler(handler string, args map[string]any, varLookup ...VarLookup) (string, error) {
+	return ExecuteJSHandlerWithOptions(handler, args, JSHandlerOptions{
+		VarLookup: firstVarLookup(varLookup),
+	})
+}
+
+// ExecuteJSHandlerWithOptions is like ExecuteJSHandler but accepts all optional lookups.
+func ExecuteJSHandlerWithOptions(handler string, args map[string]any, opts JSHandlerOptions) (string, error) {
 	vm := goja.New()
 
 	// Register all shared helpers (toString, jsonParse, btoa, atob,
-	// JSON_stringify, httpGet, httpPost, httpPut, httpDelete, getVar).
-	var vl VarLookup
-	if len(varLookup) > 0 {
-		vl = varLookup[0]
-	}
-	if err := SetupGojaVM(vm, map[string]any{"args": args}, vl); err != nil {
+	// JSON_stringify, httpGet, httpPost, httpPut, httpDelete, getVar, getUserPref).
+	if err := SetupGojaVM(vm, map[string]any{"args": args}, opts.VarLookup); err != nil {
 		return "", fmt.Errorf("js handler: setup VM: %w", err)
+	}
+
+	// Register getUserPref if a lookup function was provided.
+	if opts.UserPrefLookup != nil {
+		if err := registerUserPrefHelper(vm, opts.UserPrefLookup); err != nil {
+			return "", fmt.Errorf("js handler: register getUserPref: %w", err)
+		}
 	}
 
 	// Wrap the handler body in a function and call it.
@@ -126,4 +143,27 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	}
 
 	return strings.TrimSpace(stdout.String()), nil
+}
+
+// firstVarLookup returns the first VarLookup from a variadic slice, or nil.
+func firstVarLookup(lookups []VarLookup) VarLookup {
+	if len(lookups) > 0 {
+		return lookups[0]
+	}
+	return nil
+}
+
+// registerUserPrefHelper registers the getUserPref(key) function on a Goja VM.
+func registerUserPrefHelper(vm *goja.Runtime, lookup UserPrefLookup) error {
+	return vm.Set("getUserPref", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) == 0 {
+			panic(vm.NewTypeError("getUserPref: key is required"))
+		}
+		key := call.Arguments[0].String()
+		val, err := lookup(key)
+		if err != nil {
+			panic(vm.NewTypeError(fmt.Sprintf("getUserPref: %v", err)))
+		}
+		return vm.ToValue(val)
+	})
 }

@@ -35,23 +35,25 @@ type RunRegistrar func(parent context.Context, workflowID, source string) (runID
 
 // Scheduler manages cron-based workflow triggers.
 type Scheduler struct {
-	triggerStore         service.TriggerStorer
-	workflowStore        service.WorkflowStorer
-	workflowVersionStore service.WorkflowVersionStorer
-	providerLookup       ProviderLookup
-	skillLookup          SkillLookup
-	varLookup            VarLookup
-	varLister            VarLister
-	nodeConfigLookup     NodeConfigLookup
-	agentStore           service.AgentStorer
-	ragSearch            RAGSearchFunc
-	ragIngest            RAGIngestFunc
-	ragIngestFile        RAGIngestFileFunc
-	ragDeleteBySource    RAGDeleteBySourceFunc
-	varSave              VarSaveFunc
-	ragStateLookup       RAGStateLookupFunc
-	ragStateSave         RAGStateSaveFunc
-	runRegistrar         RunRegistrar
+	triggerStore          service.TriggerStorer
+	workflowStore         service.WorkflowStorer
+	workflowVersionStore  service.WorkflowVersionStorer
+	providerLookup        ProviderLookup
+	skillLookup           SkillLookup
+	varLookup             VarLookup
+	varLister             VarLister
+	nodeConfigLookup      NodeConfigLookup
+	agentStore            service.AgentStorer
+	ragSearch             RAGSearchFunc
+	ragIngest             RAGIngestFunc
+	ragIngestFile         RAGIngestFileFunc
+	ragDeleteBySource     RAGDeleteBySourceFunc
+	varSave               VarSaveFunc
+	ragStateLookup        RAGStateLookupFunc
+	ragStateSave          RAGStateSaveFunc
+	builtinToolDispatcher BuiltinToolDispatcher
+	builtinToolDefs       []BuiltinToolDef
+	runRegistrar          RunRegistrar
 
 	cluster *cluster.Cluster
 
@@ -62,25 +64,27 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, cl *cluster.Cluster) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
-		triggerStore:         ts,
-		workflowStore:        ws,
-		workflowVersionStore: wvs,
-		providerLookup:       lookup,
-		skillLookup:          skillLookup,
-		varLookup:            varLookup,
-		varLister:            varLister,
-		nodeConfigLookup:     nodeConfigLookup,
-		agentStore:           agentStore,
-		ragSearch:            ragSearch,
-		ragIngest:            ragIngest,
-		ragIngestFile:        ragIngestFile,
-		ragDeleteBySource:    ragDeleteBySource,
-		varSave:              varSave,
-		ragStateLookup:       ragStateLookup,
-		ragStateSave:         ragStateSave,
-		cluster:              cl,
+		triggerStore:          ts,
+		workflowStore:         ws,
+		workflowVersionStore:  wvs,
+		providerLookup:        lookup,
+		skillLookup:           skillLookup,
+		varLookup:             varLookup,
+		varLister:             varLister,
+		nodeConfigLookup:      nodeConfigLookup,
+		agentStore:            agentStore,
+		ragSearch:             ragSearch,
+		ragIngest:             ragIngest,
+		ragIngestFile:         ragIngestFile,
+		ragDeleteBySource:     ragDeleteBySource,
+		varSave:               varSave,
+		ragStateLookup:        ragStateLookup,
+		ragStateSave:          ragStateSave,
+		builtinToolDispatcher: builtinDispatcher,
+		builtinToolDefs:       builtinDefs,
+		cluster:               cl,
 	}
 }
 
@@ -354,7 +358,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave)
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil)
 
 		// Find the specific cron_trigger node that matches this trigger's ID.
 		var entryNodeIDs []string
