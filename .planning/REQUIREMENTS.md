@@ -9,7 +9,7 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Hierarchy
 
-- [ ] **HIER-01**: Organization has a designated head agent field (nullable, one agent per org)
+- [x] **HIER-01**: Organization has a designated head agent field (nullable, one agent per org)
 - [ ] **HIER-02**: User can select head agent from org's existing agents via UI dropdown
 - [ ] **HIER-03**: Agents can only delegate to their direct reports (children in parent_agent_id tree)
 - [ ] **HIER-04**: Hierarchy validation rejects cycles and orphan branches on save
@@ -29,7 +29,7 @@ Requirements for initial release. Each maps to roadmap phases.
 - [ ] **DELG-03**: Delegated agent runs its own agentic loop (agent_call pattern) to handle the sub-task
 - [ ] **DELG-04**: Delegation chain supports unlimited depth (head -> VP -> director -> manager -> worker)
 - [ ] **DELG-05**: Each level's delegation tools are restricted to that agent's direct reports only
-- [ ] **DELG-06**: Delegation enforces max depth limit (configurable, default 10) to prevent runaway recursion
+- [x] **DELG-06**: Delegation enforces max depth limit (configurable, default 10) to prevent runaway recursion
 
 ### Concurrency
 
@@ -91,7 +91,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HIER-01 | Phase 1 | Pending |
+| HIER-01 | Phase 1 | Complete |
 | HIER-02 | Phase 4 | Pending |
 | HIER-03 | Phase 2 | Pending |
 | HIER-04 | Phase 1 | Pending |
@@ -105,7 +105,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DELG-03 | Phase 2 | Pending |
 | DELG-04 | Phase 3 | Pending |
 | DELG-05 | Phase 2 | Pending |
-| DELG-06 | Phase 1 | Pending |
+| DELG-06 | Phase 1 | Complete |
 | CONC-01 | Phase 3 | Pending |
 | CONC-02 | Phase 3 | Pending |
 | CONC-03 | Phase 2 | Pending |
