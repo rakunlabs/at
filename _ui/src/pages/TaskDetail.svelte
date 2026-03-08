@@ -6,12 +6,13 @@
     getTask,
     updateTask,
     deleteTask,
-    listTasks,
+    getTaskWithSubtasks,
     TASK_STATUSES,
     TASK_STATUS_LABELS,
     TASK_PRIORITIES,
     TASK_PRIORITY_LABELS,
     type Task,
+    type TaskWithSubtasks,
   } from '@/lib/api/tasks';
   import {
     listLabelsForTask,
@@ -26,7 +27,7 @@
     ArrowLeft, Save, Trash2, Pencil, X, Check,
     Tag, MessageSquare, ListTree, Calendar, User,
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
-    Layers,
+    Layers, ChevronRight, ChevronDown,
   } from 'lucide-svelte';
 
   interface Props {
@@ -56,9 +57,10 @@
   let showLabelPicker = $state(false);
   let labelsLoading = $state(false);
 
-  // Sub-tasks
-  let subTasks = $state<Task[]>([]);
+  // Sub-tasks (delegation tree)
+  let taskTree = $state<TaskWithSubtasks | null>(null);
   let subTasksLoading = $state(false);
+  let expandedNodes = $state<Set<string>>(new Set());
 
   // Active tab
   let activeTab = $state<'comments' | 'subtasks' | 'labels'>('comments');
@@ -97,10 +99,13 @@
   async function loadSubTasks() {
     subTasksLoading = true;
     try {
-      const res = await listTasks({ 'parent_id': params.id, _limit: 100 } as any);
-      subTasks = res.data || [];
+      taskTree = await getTaskWithSubtasks(params.id);
+      // Auto-expand root's direct children
+      if (taskTree?.sub_tasks?.length) {
+        expandedNodes = new Set([params.id]);
+      }
     } catch {
-      subTasks = [];
+      taskTree = null;
     } finally {
       subTasksLoading = false;
     }
@@ -250,11 +255,84 @@
       addToast(e?.response?.data?.message || 'Failed to delete task', 'alert');
     }
   }
+  // ─── Tree toggle ───
+
+  function toggleNode(nodeId: string) {
+    const next = new Set(expandedNodes);
+    if (next.has(nodeId)) {
+      next.delete(nodeId);
+    } else {
+      next.add(nodeId);
+    }
+    expandedNodes = next;
+  }
 </script>
 
 <svelte:head>
   <title>AT | {task?.title || 'Task Detail'}</title>
 </svelte:head>
+
+{#snippet delegationNode(node: TaskWithSubtasks, depth: number)}
+  <div class="group" style="padding-left: {depth * 20}px">
+    <div class="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors rounded">
+      <!-- Expand/collapse toggle -->
+      {#if node.sub_tasks?.length}
+        <button
+          onclick={() => toggleNode(node.id)}
+          class="p-0.5 text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors shrink-0"
+        >
+          {#if expandedNodes.has(node.id)}
+            <ChevronDown size={12} />
+          {:else}
+            <ChevronRight size={12} />
+          {/if}
+        </button>
+      {:else}
+        <span class="w-4 shrink-0"></span>
+      {/if}
+
+      <!-- Status badge -->
+      <span class="inline-block px-2 py-0.5 text-[10px] font-medium capitalize shrink-0 {statusClasses(node.status)}">
+        {TASK_STATUS_LABELS[node.status] || node.status}
+      </span>
+
+      <!-- Identifier -->
+      {#if node.identifier}
+        <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted shrink-0">{node.identifier}</span>
+      {/if}
+
+      <!-- Title (clickable link) -->
+      <a
+        href="#/tasks/{node.id}"
+        class="text-sm text-gray-900 dark:text-dark-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate flex-1"
+      >
+        {node.title}
+      </a>
+
+      <!-- Assigned agent -->
+      {#if node.assigned_agent_id}
+        <span class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted shrink-0" title="Assigned to {node.assigned_agent_id}">
+          <User size={10} />
+          <span class="max-w-[80px] truncate">{node.assigned_agent_id}</span>
+        </span>
+      {/if}
+
+      <!-- Child count indicator -->
+      {#if node.sub_tasks?.length}
+        <span class="text-[10px] text-gray-400 dark:text-dark-text-muted shrink-0">
+          {node.sub_tasks.length} sub
+        </span>
+      {/if}
+    </div>
+
+    <!-- Recursive children -->
+    {#if node.sub_tasks?.length && expandedNodes.has(node.id)}
+      {#each node.sub_tasks as child}
+        {@render delegationNode(child, depth + 1)}
+      {/each}
+    {/if}
+  </div>
+{/snippet}
 
 {#if loading}
   <div class="flex items-center justify-center h-full">
@@ -368,8 +446,8 @@
               >
                 <ListTree size={13} />
                 Sub-tasks
-                {#if subTasks.length > 0}
-                  <span class="ml-1 px-1.5 py-0 text-[10px] bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted">{subTasks.length}</span>
+                {#if taskTree?.sub_tasks?.length}
+                  <span class="ml-1 px-1.5 py-0 text-[10px] bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted">{taskTree.sub_tasks.length}</span>
                 {/if}
               </button>
               <button
@@ -391,35 +469,17 @@
               <CommentThread taskId={params.id} />
             {:else if activeTab === 'subtasks'}
               {#if subTasksLoading}
-                <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center">Loading sub-tasks...</div>
-              {:else if subTasks.length === 0}
+                <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center">Loading delegation tree...</div>
+              {:else if !taskTree?.sub_tasks?.length}
                 <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center flex flex-col items-center gap-2">
                   <ListTree size={20} class="text-gray-300 dark:text-dark-text-faint" />
-                  <span>No sub-tasks</span>
-                  <span class="text-[10px]">Tasks with parent_id pointing to this task will appear here</span>
+                  <span>No delegation chain</span>
+                  <span class="text-[10px]">Sub-tasks created by delegation will appear here as a tree</span>
                 </div>
               {:else}
-                <div class="space-y-1">
-                  {#each subTasks as sub}
-                    <a
-                      href="#/tasks/{sub.id}"
-                      class="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors group"
-                    >
-                      <span class="inline-block px-2 py-0.5 text-[10px] font-medium capitalize {statusClasses(sub.status)}">
-                        {TASK_STATUS_LABELS[sub.status] || sub.status}
-                      </span>
-                      {#if sub.identifier}
-                        <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{sub.identifier}</span>
-                      {/if}
-                      <span class="text-sm text-gray-900 dark:text-dark-text group-hover:text-gray-600 dark:group-hover:text-dark-text-secondary transition-colors">
-                        {sub.title}
-                      </span>
-                      {#if sub.priority_level}
-                        <span class="ml-auto text-[10px] capitalize {priorityClasses(sub.priority_level)} px-1.5 py-0">
-                          {sub.priority_level}
-                        </span>
-                      {/if}
-                    </a>
+                <div class="space-y-0.5">
+                  {#each taskTree.sub_tasks as node}
+                    {@render delegationNode(node, 0)}
                   {/each}
                 </div>
               {/if}
