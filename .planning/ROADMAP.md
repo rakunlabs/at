@@ -12,7 +12,7 @@ This roadmap delivers hierarchical agent task routing for the AT LLM gateway —
 
 - [x] **Phase 1: Foundation** - Data model, hierarchy validation, and async task intake API
 - [x] **Phase 2: Core Delegation** - LLM-driven routing from head agent to direct reports with task tracking (completed 2026-03-08)
-- [ ] **Phase 3: Depth & Concurrency** - Multi-level delegation chains, parallel fan-out, and status propagation
+- [x] **Phase 3: Depth & Concurrency** - Multi-level delegation chains, parallel fan-out, and status propagation (completed 2026-03-08)
 - [ ] **Phase 4: UI Integration** - Head agent selector, task submission form, canvas reparenting, and delegation tree view
 
 ## Phase Details
@@ -59,11 +59,11 @@ Plans:
   3. When all child tasks of a parent complete, the parent task is automatically marked complete
   4. Task failure at any level is recorded and the parent agent receives the failure information
   5. GET /api/v1/tasks/{id} returns the task with its full sub-task tree showing status at every level
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 - [x] 03-01-PLAN.md — Store infrastructure (ListChildTasks + UpdateTaskStatus across 3 backends), status propagation (parent auto-complete/fail), sub-task tree API (GET ?include=subtasks)
-- [ ] 03-02-PLAN.md — Concurrent fan-out (WaitGroup + Mutex replacing sequential tool call loop), deep delegation chain verification + tests
+- [x] 03-02-PLAN.md — Concurrent fan-out (WaitGroup + Mutex replacing sequential tool call loop), deep delegation chain verification + tests
 
 ### Phase 4: UI Integration
 **Goal**: Users can manage head agents, submit tasks, visualize delegation chains, and edit hierarchy through the Svelte admin UI
@@ -74,11 +74,11 @@ Plans:
   2. Organization detail page has a "Submit Task" form that calls the intake API and shows the returned task ID
   3. Canvas drag-to-reparent changes an agent's parent_agent_id via the existing API, updating the hierarchy
   4. Task detail page shows the full delegation chain as a parent → child tree with status at each node
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 04-01: TBD
-- [ ] 04-02: TBD
+- [ ] 04-01-PLAN.md — Head agent dropdown selector + task submission form on OrganizationDetail page
+- [ ] 04-02-PLAN.md — Delegation chain tree visualization on TaskDetail page
 
 ## Progress
 
@@ -86,5 +86,5 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-08 |
 | 2. Core Delegation | 2/2 | Complete   | 2026-03-08 |
-| 3. Depth & Concurrency | 1/2 | In Progress|  |
-| 4. UI Integration | 0/? | Not started | - |
+| 3. Depth & Concurrency | 2/2 | Complete | 2026-03-08 |
+| 4. UI Integration | 0/2 | Planning | - |
