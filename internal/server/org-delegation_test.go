@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -60,12 +61,16 @@ func (m *mockOrgAgentStoreForDelegation) DeleteOrganizationAgentByPair(_ context
 }
 
 // mockTaskStoreForDelegation implements service.TaskStorer with recording capability.
+// Thread-safe for concurrent access via mutex.
 type mockTaskStoreForDelegation struct {
+	mu        sync.Mutex
 	tasks     []service.Task
 	idCounter int
 }
 
 func (m *mockTaskStoreForDelegation) CreateTask(_ context.Context, task service.Task) (*service.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.idCounter++
 	task.ID = fmt.Sprintf("task-%d", m.idCounter)
 	m.tasks = append(m.tasks, task)
@@ -73,6 +78,8 @@ func (m *mockTaskStoreForDelegation) CreateTask(_ context.Context, task service.
 }
 
 func (m *mockTaskStoreForDelegation) UpdateTask(_ context.Context, id string, task service.Task) (*service.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, t := range m.tasks {
 		if t.ID == id {
 			if task.Status != "" {
@@ -88,9 +95,12 @@ func (m *mockTaskStoreForDelegation) UpdateTask(_ context.Context, id string, ta
 }
 
 func (m *mockTaskStoreForDelegation) GetTask(_ context.Context, id string) (*service.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, t := range m.tasks {
 		if t.ID == id {
-			return &t, nil
+			cp := t
+			return &cp, nil
 		}
 	}
 	return nil, nil
@@ -110,6 +120,8 @@ func (m *mockTaskStoreForDelegation) ListTasksByGoal(_ context.Context, _ string
 }
 
 func (m *mockTaskStoreForDelegation) ListChildTasks(_ context.Context, parentID string) ([]service.Task, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var result []service.Task
 	for _, t := range m.tasks {
 		if t.ParentID == parentID {
@@ -120,6 +132,8 @@ func (m *mockTaskStoreForDelegation) ListChildTasks(_ context.Context, parentID 
 }
 
 func (m *mockTaskStoreForDelegation) UpdateTaskStatus(_ context.Context, id string, status string, result string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for i, t := range m.tasks {
 		if t.ID == id {
 			m.tasks[i].Status = status
@@ -134,6 +148,7 @@ func (m *mockTaskStoreForDelegation) UpdateTaskStatus(_ context.Context, id stri
 
 // mockOrgStoreForDelegation implements service.OrganizationStorer.
 type mockOrgStoreForDelegation struct {
+	mu         sync.Mutex
 	orgs       map[string]*service.Organization
 	counterSeq int64
 }
@@ -146,6 +161,8 @@ func (m *mockOrgStoreForDelegation) GetOrganization(_ context.Context, id string
 }
 
 func (m *mockOrgStoreForDelegation) IncrementIssueCounter(_ context.Context, orgID string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if org, ok := m.orgs[orgID]; ok {
 		m.counterSeq++
 		org.IssueCounter = m.counterSeq
@@ -542,5 +559,233 @@ func TestGetTaskWithSubtasks(t *testing.T) {
 	// Child2 should have 0 sub-tasks.
 	if len(child2.SubTasks) != 0 {
 		t.Fatalf("expected child2 to have 0 subtasks, got %d", len(child2.SubTasks))
+	}
+}
+
+// --- Test: concurrent delegation (race-safe createDelegationTask) ---
+
+func TestConcurrentDelegation(t *testing.T) {
+	orgStore := &mockOrgStoreForDelegation{
+		orgs: map[string]*service.Organization{
+			"org1": {
+				ID:          "org1",
+				IssuePrefix: "ENG",
+			},
+		},
+	}
+	taskStore := &mockTaskStoreForDelegation{}
+
+	s := testServerWithStores(nil, taskStore, orgStore, nil)
+
+	org := &service.Organization{
+		ID:          "org1",
+		IssuePrefix: "ENG",
+	}
+	parentTask := &service.Task{
+		ID:             "parent-1",
+		OrganizationID: "org1",
+		Title:          "Build the feature",
+	}
+
+	// Fan-out: 3 concurrent createDelegationTask calls (mimics production goroutine pattern).
+	var wg sync.WaitGroup
+	agentIDs := []string{"agent-B", "agent-C", "agent-D"}
+	results := make([]*service.Task, 3)
+	errors := make([]error, 3)
+
+	for i, agentID := range agentIDs {
+		wg.Add(1)
+		go func(idx int, aid string) {
+			defer wg.Done()
+			child, err := s.createDelegationTask(
+				context.Background(),
+				org,
+				parentTask,
+				aid,
+				fmt.Sprintf("Task for %s", aid),
+				0, // depth
+			)
+			results[idx] = child
+			errors[idx] = err
+		}(i, agentID)
+	}
+
+	wg.Wait()
+
+	// Assert no errors.
+	for i, err := range errors {
+		if err != nil {
+			t.Fatalf("createDelegationTask[%d] returned error: %v", i, err)
+		}
+	}
+
+	// Assert all 3 child tasks created.
+	for i, child := range results {
+		if child == nil {
+			t.Fatalf("createDelegationTask[%d] returned nil", i)
+		}
+		if child.ParentID != "parent-1" {
+			t.Errorf("child[%d]: expected ParentID %q, got %q", i, "parent-1", child.ParentID)
+		}
+		if child.RequestDepth != 1 {
+			t.Errorf("child[%d]: expected RequestDepth 1, got %d", i, child.RequestDepth)
+		}
+	}
+
+	// Verify 3 distinct task IDs.
+	ids := make(map[string]bool)
+	for _, child := range results {
+		ids[child.ID] = true
+	}
+	if len(ids) != 3 {
+		t.Errorf("expected 3 distinct task IDs, got %d", len(ids))
+	}
+
+	// Verify all 3 tasks are in the store with correct parent.
+	taskStore.mu.Lock()
+	childCount := 0
+	for _, task := range taskStore.tasks {
+		if task.ParentID == "parent-1" {
+			childCount++
+		}
+	}
+	taskStore.mu.Unlock()
+
+	if childCount != 3 {
+		t.Errorf("expected 3 child tasks in store, got %d", childCount)
+	}
+}
+
+// --- Test: concurrent result collection into indexed slice ---
+
+func TestConcurrentDelegationResults(t *testing.T) {
+	// Simulate production pattern: pre-allocated slice, goroutines write to own index with mutex.
+	toolCallIDs := []string{"tc-1", "tc-2", "tc-3"}
+	toolResults := make([]service.ContentBlock, len(toolCallIDs))
+	var wg sync.WaitGroup
+	var resultMu sync.Mutex
+
+	for i, tcID := range toolCallIDs {
+		wg.Add(1)
+		go func(idx int, id string) {
+			defer wg.Done()
+
+			// Simulate some work.
+			result := fmt.Sprintf("Result from delegation %d", idx)
+
+			resultMu.Lock()
+			toolResults[idx] = service.ContentBlock{
+				Type:      "tool_result",
+				ToolUseID: id,
+				Content:   result,
+			}
+			resultMu.Unlock()
+		}(i, tcID)
+	}
+
+	wg.Wait()
+
+	// Assert all 3 results populated.
+	for i, tr := range toolResults {
+		if tr.Content == "" {
+			t.Errorf("toolResults[%d]: expected non-empty Content", i)
+		}
+		if tr.ToolUseID != toolCallIDs[i] {
+			t.Errorf("toolResults[%d]: expected ToolUseID %q, got %q", i, toolCallIDs[i], tr.ToolUseID)
+		}
+		if tr.Type != "tool_result" {
+			t.Errorf("toolResults[%d]: expected Type %q, got %q", i, "tool_result", tr.Type)
+		}
+	}
+
+	// Verify order: result[0] maps to tc-1, result[1] to tc-2, etc.
+	for i, tr := range toolResults {
+		expected := fmt.Sprintf("Result from delegation %d", i)
+		if tr.Content != expected {
+			t.Errorf("toolResults[%d]: expected Content %q, got %q", i, expected, tr.Content)
+		}
+	}
+}
+
+// --- Test: deep delegation chain (3+ levels) ---
+
+func TestDeepDelegation(t *testing.T) {
+	orgStore := &mockOrgStoreForDelegation{
+		orgs: map[string]*service.Organization{
+			"org1": {
+				ID:          "org1",
+				IssuePrefix: "DEEP",
+			},
+		},
+	}
+	taskStore := &mockTaskStoreForDelegation{}
+
+	s := testServerWithStores(nil, taskStore, orgStore, nil)
+
+	org := &service.Organization{
+		ID:          "org1",
+		IssuePrefix: "DEEP",
+	}
+
+	// Create root task (depth 0).
+	rootTask := &service.Task{
+		ID:             "root",
+		OrganizationID: "org1",
+		Title:          "Top-level task",
+		RequestDepth:   0,
+	}
+
+	// Level 1: head → VP (depth 0 → child gets depth 1).
+	child1, err := s.createDelegationTask(context.Background(), org, rootTask, "agent-vp", "VP task", 0)
+	if err != nil {
+		t.Fatalf("Level 1 createDelegationTask failed: %v", err)
+	}
+	if child1.ParentID != "root" {
+		t.Errorf("Level 1: expected ParentID %q, got %q", "root", child1.ParentID)
+	}
+	if child1.RequestDepth != 1 {
+		t.Errorf("Level 1: expected RequestDepth 1, got %d", child1.RequestDepth)
+	}
+
+	// Level 2: VP → director (depth 1 → child gets depth 2).
+	child2, err := s.createDelegationTask(context.Background(), org, child1, "agent-director", "Director task", 1)
+	if err != nil {
+		t.Fatalf("Level 2 createDelegationTask failed: %v", err)
+	}
+	if child2.ParentID != child1.ID {
+		t.Errorf("Level 2: expected ParentID %q, got %q", child1.ID, child2.ParentID)
+	}
+	if child2.RequestDepth != 2 {
+		t.Errorf("Level 2: expected RequestDepth 2, got %d", child2.RequestDepth)
+	}
+
+	// Level 3: director → worker (depth 2 → child gets depth 3).
+	child3, err := s.createDelegationTask(context.Background(), org, child2, "agent-worker", "Worker task", 2)
+	if err != nil {
+		t.Fatalf("Level 3 createDelegationTask failed: %v", err)
+	}
+	if child3.ParentID != child2.ID {
+		t.Errorf("Level 3: expected ParentID %q, got %q", child2.ID, child3.ParentID)
+	}
+	if child3.RequestDepth != 3 {
+		t.Errorf("Level 3: expected RequestDepth 3, got %d", child3.RequestDepth)
+	}
+
+	// Verify the full chain linkage: root → child1 → child2 → child3.
+	taskStore.mu.Lock()
+	if len(taskStore.tasks) != 3 {
+		t.Errorf("expected 3 tasks in store, got %d", len(taskStore.tasks))
+	}
+	taskStore.mu.Unlock()
+
+	// Verify increasing identifiers (DEEP-1, DEEP-2, DEEP-3).
+	if !strings.HasPrefix(child1.Identifier, "DEEP-") {
+		t.Errorf("Level 1: expected identifier prefix %q, got %q", "DEEP-", child1.Identifier)
+	}
+	if !strings.HasPrefix(child2.Identifier, "DEEP-") {
+		t.Errorf("Level 2: expected identifier prefix %q, got %q", "DEEP-", child2.Identifier)
+	}
+	if !strings.HasPrefix(child3.Identifier, "DEEP-") {
+		t.Errorf("Level 3: expected identifier prefix %q, got %q", "DEEP-", child3.Identifier)
 	}
 }
