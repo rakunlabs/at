@@ -27,16 +27,16 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **DELG-01**: Head agent receives task and uses LLM to decide which direct report handles it
 - [x] **DELG-02**: Each delegation creates a child Task record linked via parent_task_id
 - [x] **DELG-03**: Delegated agent runs its own agentic loop (agent_call pattern) to handle the sub-task
-- [ ] **DELG-04**: Delegation chain supports unlimited depth (head -> VP -> director -> manager -> worker)
+- [x] **DELG-04**: Delegation chain supports unlimited depth (head -> VP -> director -> manager -> worker)
 - [x] **DELG-05**: Each level's delegation tools are restricted to that agent's direct reports only
 - [x] **DELG-06**: Delegation enforces max depth limit (configurable, default 10) to prevent runaway recursion
 
 ### Concurrency
 
-- [ ] **CONC-01**: Manager can delegate to multiple sub-agents simultaneously (async fan-out)
-- [ ] **CONC-02**: Results from parallel sub-agents are collected and returned to the delegating agent
+- [x] **CONC-01**: Manager can delegate to multiple sub-agents simultaneously (async fan-out)
+- [x] **CONC-02**: Results from parallel sub-agents are collected and returned to the delegating agent
 - [x] **CONC-03**: Budget is checked before each agent's LLM call in the delegation chain
-- [ ] **CONC-04**: Delegation runs in background goroutines, not blocking the HTTP request
+- [x] **CONC-04**: Delegation runs in background goroutines, not blocking the HTTP request
 
 ### Status
 
@@ -103,13 +103,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DELG-01 | Phase 2 | Complete |
 | DELG-02 | Phase 2 | Complete |
 | DELG-03 | Phase 2 | Complete |
-| DELG-04 | Phase 3 | Pending |
+| DELG-04 | Phase 3 | Complete |
 | DELG-05 | Phase 2 | Complete |
 | DELG-06 | Phase 1 | Complete |
-| CONC-01 | Phase 3 | Pending |
-| CONC-02 | Phase 3 | Pending |
+| CONC-01 | Phase 3 | Complete |
+| CONC-02 | Phase 3 | Complete |
 | CONC-03 | Phase 2 | Complete |
-| CONC-04 | Phase 3 | Pending |
+| CONC-04 | Phase 3 | Complete |
 | STAT-01 | Phase 3 | Complete |
 | STAT-02 | Phase 3 | Complete |
 | STAT-03 | Phase 3 | Complete |
