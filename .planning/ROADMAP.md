@@ -59,11 +59,11 @@ Plans:
   3. When all child tasks of a parent complete, the parent task is automatically marked complete
   4. Task failure at any level is recorded and the parent agent receives the failure information
   5. GET /api/v1/tasks/{id} returns the task with its full sub-task tree showing status at every level
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 03-01: TBD
-- [ ] 03-02: TBD
+- [ ] 03-01-PLAN.md — Store infrastructure (ListChildTasks + UpdateTaskStatus across 3 backends), status propagation (parent auto-complete/fail), sub-task tree API (GET ?include=subtasks)
+- [ ] 03-02-PLAN.md — Concurrent fan-out (WaitGroup + Mutex replacing sequential tool call loop), deep delegation chain verification + tests
 
 ### Phase 4: UI Integration
 **Goal**: Users can manage head agents, submit tasks, visualize delegation chains, and edit hierarchy through the Svelte admin UI
@@ -86,5 +86,5 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-08 |
 | 2. Core Delegation | 2/2 | Complete   | 2026-03-08 |
-| 3. Depth & Concurrency | 0/? | Not started | - |
+| 3. Depth & Concurrency | 0/2 | In Progress | - |
 | 4. UI Integration | 0/? | Not started | - |
