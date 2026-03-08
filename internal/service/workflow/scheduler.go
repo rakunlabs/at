@@ -55,6 +55,10 @@ type Scheduler struct {
 	builtinToolDefs       []BuiltinToolDef
 	chatMessageCreator    ChatMessageCreatorFunc
 	chatSessionLookup     ChatSessionLookupFunc
+	recordUsage           RecordUsageFunc
+	checkBudget           CheckBudgetFunc
+	recordAudit           RecordAuditFunc
+	goalAncestry          GoalAncestryFunc
 	runRegistrar          RunRegistrar
 
 	cluster *cluster.Cluster
@@ -66,7 +70,7 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, cl *cluster.Cluster) *Scheduler {
+func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
 		triggerStore:          ts,
 		workflowStore:         ws,
@@ -88,6 +92,10 @@ func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs servi
 		builtinToolDefs:       builtinDefs,
 		chatMessageCreator:    chatMessageCreator,
 		chatSessionLookup:     chatSessionLookup,
+		recordUsage:           recordUsage,
+		checkBudget:           checkBudget,
+		recordAudit:           recordAudit,
+		goalAncestry:          goalAncestry,
 		cluster:               cl,
 	}
 }
@@ -362,7 +370,29 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup)
+		// Build a version lookup function for workflow_call nodes.
+		var versionLookup VersionLookupFunc
+		if s.workflowStore != nil && s.workflowVersionStore != nil {
+			versionLookup = func(ctx context.Context, workflowID string) (*service.WorkflowGraph, error) {
+				wf, err := s.workflowStore.GetWorkflow(ctx, workflowID)
+				if err != nil {
+					return nil, fmt.Errorf("get workflow %s: %w", workflowID, err)
+				}
+				if wf == nil || wf.ActiveVersion == nil {
+					return nil, nil
+				}
+				ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, workflowID, *wf.ActiveVersion)
+				if err != nil {
+					return nil, fmt.Errorf("get workflow version %s v%d: %w", workflowID, *wf.ActiveVersion, err)
+				}
+				if ver == nil {
+					return nil, nil
+				}
+				return &ver.Graph, nil
+			}
+		}
+
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordAudit, s.goalAncestry, versionLookup)
 
 		// Find the specific cron_trigger node that matches this trigger's ID.
 		var entryNodeIDs []string

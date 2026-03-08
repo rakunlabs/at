@@ -1,0 +1,95 @@
+import axios from 'axios';
+import type { ListResult, ListParams } from './types';
+
+const api = axios.create({ baseURL: 'api/v1' });
+
+export const TASK_STATUSES = [
+  'backlog', 'todo', 'in_progress', 'in_review', 'blocked', 'done', 'cancelled',
+] as const;
+
+export const TASK_STATUS_LABELS: Record<string, string> = {
+  backlog: 'Backlog',
+  open: 'Open',
+  todo: 'To Do',
+  in_progress: 'In Progress',
+  in_review: 'In Review',
+  blocked: 'Blocked',
+  review: 'Review',
+  completed: 'Completed',
+  done: 'Done',
+  cancelled: 'Cancelled',
+};
+
+export const TASK_PRIORITIES = ['critical', 'high', 'medium', 'low'] as const;
+
+export const TASK_PRIORITY_LABELS: Record<string, string> = {
+  critical: 'Critical',
+  high: 'High',
+  medium: 'Medium',
+  low: 'Low',
+};
+
+export interface Task {
+  id: string;
+  organization_id: string;
+  project_id: string;
+  goal_id: string;
+  parent_id: string;
+  assigned_agent_id: string;
+  identifier: string;
+  title: string;
+  description: string;
+  status: string;
+  priority_level: string;
+  priority: number;
+  result: string;
+  billing_code: string;
+  request_depth: number;
+  checked_out_by: string;
+  checked_out_at: string;
+  started_at: string;
+  completed_at: string;
+  cancelled_at: string;
+  hidden_at: string;
+  created_at: string;
+  updated_at: string;
+  created_by: string;
+  updated_by: string;
+}
+
+export async function listTasks(params?: ListParams): Promise<ListResult<Task>> {
+  const res = await api.get<ListResult<Task>>('/tasks', { params });
+  return res.data;
+}
+
+export async function getTask(id: string): Promise<Task> {
+  const res = await api.get<Task>(`/tasks/${id}`);
+  return res.data;
+}
+
+export async function createTask(data: Partial<Task>): Promise<Task> {
+  const res = await api.post<Task>('/tasks', data);
+  return res.data;
+}
+
+export async function updateTask(id: string, data: Partial<Task>): Promise<Task> {
+  const res = await api.put<Task>(`/tasks/${id}`, data);
+  return res.data;
+}
+
+export async function deleteTask(id: string): Promise<void> {
+  await api.delete(`/tasks/${id}`);
+}
+
+export async function checkoutTask(id: string, agentId: string): Promise<void> {
+  await api.post(`/tasks/${id}/checkout`, { agent_id: agentId });
+}
+
+export async function releaseTask(id: string): Promise<void> {
+  await api.post(`/tasks/${id}/release`);
+}
+
+export async function listTasksByAgent(agentId: string, params?: ListParams): Promise<ListResult<Task>> {
+  const res = await api.get<ListResult<Task>>(`/agents/${agentId}/tasks`, { params });
+  return res.data;
+}

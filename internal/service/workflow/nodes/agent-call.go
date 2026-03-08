@@ -566,9 +566,24 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			return nil, fmt.Errorf("agent_call: cancelled: %w", err)
 		}
 
+		// Check agent budget before making an LLM call.
+		if n.agentID != "" && reg.CheckBudget != nil {
+			if err := reg.CheckBudget(ctx, n.agentID); err != nil {
+				return nil, fmt.Errorf("agent_call: budget exceeded: %w", err)
+			}
+		}
+
 		resp, err := provider.Chat(ctx, model, messages, llmTools)
 		if err != nil {
 			return nil, fmt.Errorf("agent_call: chat failed (iteration %d): %w", iteration, err)
+		}
+
+		// Record token usage for cost tracking.
+		if n.agentID != "" && reg.RecordUsage != nil && resp.Usage.TotalTokens > 0 {
+			if usageErr := reg.RecordUsage(ctx, n.agentID, model, resp.Usage); usageErr != nil {
+				logi.Ctx(ctx).Warn("agent_call: failed to record usage",
+					"agent_id", n.agentID, "error", usageErr)
+			}
 		}
 
 		// Build assistant message with content blocks.
@@ -674,6 +689,26 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 			if callErr != nil {
 				result = fmt.Sprintf("Error: %v", callErr)
+			}
+
+			// Record audit entry for each tool call.
+			if n.agentID != "" && reg.RecordAudit != nil {
+				auditDetails := map[string]any{
+					"tool_name": tc.Name,
+					"iteration": iteration,
+					"has_error": callErr != nil,
+				}
+				if auditErr := reg.RecordAudit(ctx, service.AuditEntry{
+					ActorType:    "agent",
+					ActorID:      n.agentID,
+					Action:       "tool_call",
+					ResourceType: "tool",
+					ResourceID:   tc.ID,
+					Details:      auditDetails,
+				}); auditErr != nil {
+					logi.Ctx(ctx).Warn("agent_call: failed to record audit",
+						"agent_id", n.agentID, "error", auditErr)
+				}
 			}
 
 			toolResults = append(toolResults, service.ContentBlock{

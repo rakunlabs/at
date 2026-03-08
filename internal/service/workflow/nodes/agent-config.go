@@ -36,13 +36,13 @@ func newAgentConfigNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *agentConfigNode) Type() string { return "agent_config" }
 
-func (n *agentConfigNode) Validate(_ context.Context, reg *workflow.Registry) error {
+func (n *agentConfigNode) Validate(ctx context.Context, reg *workflow.Registry) error {
 	if n.agentID == "" {
 		return fmt.Errorf("agent_config: 'agent_id' is required")
 	}
 	// Verify agent exists
 	if reg.AgentLookup != nil {
-		if _, err := reg.AgentLookup(context.Background(), n.agentID); err != nil {
+		if _, err := reg.AgentLookup(ctx, n.agentID); err != nil {
 			return fmt.Errorf("agent_config: agent %q: %w", n.agentID, err)
 		}
 	}

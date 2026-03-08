@@ -478,7 +478,7 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 			}
 
 		case "user":
-			parts := convertToParts(ctx, msg)
+			parts := p.convertToParts(ctx, msg)
 			if len(parts) > 0 {
 				req.Contents = append(req.Contents, content{
 					Role:  "user",
@@ -487,7 +487,7 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 			}
 
 		case "assistant":
-			parts := convertToParts(ctx, msg)
+			parts := p.convertToParts(ctx, msg)
 			if len(parts) > 0 {
 				req.Contents = append(req.Contents, content{
 					Role:  "model",
@@ -519,7 +519,7 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 }
 
 // convertToParts converts a service.Message's content to Google API parts.
-func convertToParts(ctx context.Context, msg service.Message) []part {
+func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []part {
 	switch c := msg.Content.(type) {
 	case string:
 		if c == "" {
@@ -556,7 +556,7 @@ func convertToParts(ctx context.Context, msg service.Message) []part {
 					})
 				} else if url != "" {
 					// Remote URL — fetch and convert to inline base64.
-					if id, err := fetchImageAsInlineData(ctx, url); err == nil {
+					if id, err := p.fetchImageAsInlineData(ctx, url); err == nil {
 						parts = append(parts, part{InlineData: id})
 					} else {
 						slog.Warn("failed to fetch remote image for Gemini", "url", url, "error", err)
@@ -760,7 +760,7 @@ func convertToParts(ctx context.Context, msg service.Message) []part {
 								InlineData: &inlineData{MimeType: mimeType, Data: data},
 							})
 						} else if url != "" {
-							if id, err := fetchImageAsInlineData(ctx, url); err == nil {
+							if id, err := p.fetchImageAsInlineData(ctx, url); err == nil {
 								parts = append(parts, part{InlineData: id})
 							} else {
 								slog.Warn("failed to fetch remote image for Gemini", "url", url, "error", err)
@@ -995,13 +995,13 @@ func generateToolCallID(name string) string {
 // base64-encoded inlineData suitable for the Gemini API. This handles the case
 // where an OpenAI SDK user sends a regular https:// image URL instead of a
 // data: URI. The download is limited to 20 MB.
-func fetchImageAsInlineData(ctx context.Context, url string) (*inlineData, error) {
+func (p *Provider) fetchImageAsInlineData(ctx context.Context, url string) (*inlineData, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch image: %w", err)
 	}

@@ -112,22 +112,29 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		reg.UserPrefLookup,
 		reg.ChatMessageCreator,
 		reg.ChatSessionLookup,
+		reg.RecordUsage,
+		reg.CheckBudget,
+		reg.RecordAudit,
+		reg.GoalAncestry,
+		reg.VersionLookup,
 	)
 
 	// 4. Run the child workflow.
-	// We run it synchronously.
-	// Note: We use the active version's graph if available, otherwise the draft graph.
-	// Ideally WorkflowLookup would handle versioning, but it returns the Workflow struct.
-	// We should probably check ActiveVersion here, similar to how Scheduler/API does it.
-	// But `reg` doesn't expose WorkflowVersionStorer.
-	// For now, we will run the draft graph `targetWF.Graph`.
-	// TODO: Support running specific versions or the active version if we inject VersionLookup.
-	// Since we don't have VersionLookup in Registry yet, we'll stick to draft graph for simplicity
-	// or assume the user wants the current state of the workflow ID they picked.
+	// Use the active version's graph if available, otherwise fall back to the draft graph.
+	graphToRun := targetWF.Graph
+	if targetWF.ActiveVersion != nil && reg.VersionLookup != nil {
+		activeGraph, err := reg.VersionLookup(ctx, n.workflowID)
+		if err != nil {
+			// Log but fall back to draft graph on error.
+			_ = err
+		} else if activeGraph != nil {
+			graphToRun = *activeGraph
+		}
+	}
 
 	// Determine entry nodes (inputs).
 	var entryNodeIDs []string
-	for _, node := range targetWF.Graph.Nodes {
+	for _, node := range graphToRun.Nodes {
 		if node.Type == "input" {
 			entryNodeIDs = append(entryNodeIDs, node.ID)
 		}
@@ -149,7 +156,7 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 	// Maybe add a configurable timeout in the node config?
 	// For now, inherit context.
 
-	result, err := childEngine.Run(ctx, targetWF.Graph, runInputs, entryNodeIDs, outputCh)
+	result, err := childEngine.Run(ctx, graphToRun, runInputs, entryNodeIDs, outputCh)
 	if err != nil {
 		return nil, fmt.Errorf("workflow_call: execution failed: %w", err)
 	}

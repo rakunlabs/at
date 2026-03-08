@@ -16,6 +16,12 @@ import McpSets from '@/pages/McpSets.svelte';
 import Bots from '@/pages/Bots.svelte';
 import Docs from '@/pages/Docs.svelte';
 import Settings from '@/pages/Settings.svelte';
+import Organizations from '@/pages/Organizations.svelte';
+import OrganizationDetail from '@/pages/OrganizationDetail.svelte';
+import Tasks from '@/pages/Tasks.svelte';
+import TaskDetail from '@/pages/TaskDetail.svelte';
+import Audit from '@/pages/Audit.svelte';
+import CostEvents from '@/pages/CostEvents.svelte';
 import NotFound from '@/pages/NotFound.svelte';
 
 export default {
@@ -37,5 +43,11 @@ export default {
   '/bots': Bots,
   '/docs': Docs,
   '/settings': Settings,
+  '/organizations': Organizations,
+  '/organizations/:id': OrganizationDetail,
+  '/tasks': Tasks,
+  '/tasks/:id': TaskDetail,
+  '/audit': Audit,
+  '/cost-events': CostEvents,
   '*': NotFound
 };

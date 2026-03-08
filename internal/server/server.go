@@ -116,6 +116,57 @@ type Server struct {
 	// userPrefStore is the persistent store for per-user preferences (timezone, location, tokens, etc.).
 	userPrefStore service.UserPreferenceStorer
 
+	// organizationStore is the persistent store for organizations (multi-tenant isolation).
+	organizationStore service.OrganizationStorer
+
+	// goalStore is the persistent store for goals (mission alignment hierarchy).
+	goalStore service.GoalStorer
+
+	// taskStore is the persistent store for tasks (ticket system with atomic checkout).
+	taskStore service.TaskStorer
+
+	// agentBudgetStore is the persistent store for agent budgets and cost tracking.
+	agentBudgetStore service.AgentBudgetStorer
+
+	// auditStore is the persistent store for the immutable audit log.
+	auditStore service.AuditStorer
+
+	// agentHeartbeatStore is the persistent store for agent heartbeat tracking.
+	agentHeartbeatStore service.AgentHeartbeatStorer
+
+	// projectStore is the persistent store for projects.
+	projectStore service.ProjectStorer
+
+	// issueCommentStore is the persistent store for issue comments.
+	issueCommentStore service.IssueCommentStorer
+
+	// labelStore is the persistent store for labels and task-label associations.
+	labelStore service.LabelStorer
+
+	// heartbeatRunStore is the persistent store for heartbeat run tracking.
+	heartbeatRunStore service.HeartbeatRunStorer
+
+	// wakeupRequestStore is the persistent store for wakeup requests with coalescing.
+	wakeupRequestStore service.WakeupRequestStorer
+
+	// agentRuntimeStateStore is the persistent store for agent runtime state.
+	agentRuntimeStateStore service.AgentRuntimeStateStorer
+
+	// agentTaskSessionStore is the persistent store for per-task agent sessions.
+	agentTaskSessionStore service.AgentTaskSessionStorer
+
+	// approvalStore is the persistent store for governance approvals.
+	approvalStore service.ApprovalStorer
+
+	// agentConfigRevisionStore is the persistent store for agent config revisions.
+	agentConfigRevisionStore service.AgentConfigRevisionStorer
+
+	// costEventStore is the persistent store for per-call cost tracking.
+	costEventStore service.CostEventStorer
+
+	// orgAgentStore is the persistent store for organization-agent memberships (join table).
+	orgAgentStore service.OrganizationAgentStorer
+
 	// marketplaceClient is used for outbound HTTP requests to marketplace APIs.
 	marketplaceClient *http.Client
 
@@ -240,7 +291,7 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, mcpSetStore service.MCPSetStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, userPrefStore service.UserPreferenceStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, mcpSetStore service.MCPSetStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, userPrefStore service.UserPreferenceStorer, organizationStore service.OrganizationStorer, goalStore service.GoalStorer, taskStore service.TaskStorer, agentBudgetStore service.AgentBudgetStorer, auditStore service.AuditStorer, agentHeartbeatStore service.AgentHeartbeatStorer, projectStore service.ProjectStorer, issueCommentStore service.IssueCommentStorer, labelStore service.LabelStorer, heartbeatRunStore service.HeartbeatRunStorer, wakeupRequestStore service.WakeupRequestStorer, agentRuntimeStateStore service.AgentRuntimeStateStorer, agentTaskSessionStore service.AgentTaskSessionStorer, approvalStore service.ApprovalStorer, agentConfigRevisionStore service.AgentConfigRevisionStorer, costEventStore service.CostEventStorer, orgAgentStore service.OrganizationAgentStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -252,38 +303,55 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	)
 
 	s := &Server{
-		config:                 cfg,
-		ctx:                    ctx,
-		server:                 mux,
-		providers:              providers,
-		store:                  store,
-		tokenStore:             tokenStore,
-		tokenUsageStore:        tokenUsageStore,
-		workflowStore:          workflowStore,
-		workflowVersionStore:   workflowVersionStore,
-		triggerStore:           triggerStore,
-		skillStore:             skillStore,
-		variableStore:          variableStore,
-		nodeConfigStore:        nodeConfigStore,
-		agentStore:             agentStore,
-		chatSessionStore:       chatSessionStore,
-		ragCollectionStore:     ragCollectionStore,
-		ragStateStore:          ragStateStore,
-		ragMCPServerStore:      ragMCPServerStore,
-		mcpServerStore:         mcpServerStore,
-		mcpSetStore:            mcpSetStore,
-		botConfigStore:         botConfigStore,
-		marketplaceSourceStore: marketplaceSourceStore,
-		userPrefStore:          userPrefStore,
-		marketplaceClient:      &http.Client{Timeout: 10 * time.Second},
-		providerFactory:        factory,
-		storeType:              storeType,
-		authTokens:             gatewayCfg.AuthTokens,
-		cluster:                cl,
-		version:                version,
-		botsCfg:                botsCfg,
-		todos:                  newTodoStore(),
-		lspManager:             newLSPManager(),
+		config:                   cfg,
+		ctx:                      ctx,
+		server:                   mux,
+		providers:                providers,
+		store:                    store,
+		tokenStore:               tokenStore,
+		tokenUsageStore:          tokenUsageStore,
+		workflowStore:            workflowStore,
+		workflowVersionStore:     workflowVersionStore,
+		triggerStore:             triggerStore,
+		skillStore:               skillStore,
+		variableStore:            variableStore,
+		nodeConfigStore:          nodeConfigStore,
+		agentStore:               agentStore,
+		chatSessionStore:         chatSessionStore,
+		ragCollectionStore:       ragCollectionStore,
+		ragStateStore:            ragStateStore,
+		ragMCPServerStore:        ragMCPServerStore,
+		mcpServerStore:           mcpServerStore,
+		mcpSetStore:              mcpSetStore,
+		botConfigStore:           botConfigStore,
+		marketplaceSourceStore:   marketplaceSourceStore,
+		userPrefStore:            userPrefStore,
+		organizationStore:        organizationStore,
+		goalStore:                goalStore,
+		taskStore:                taskStore,
+		agentBudgetStore:         agentBudgetStore,
+		auditStore:               auditStore,
+		agentHeartbeatStore:      agentHeartbeatStore,
+		projectStore:             projectStore,
+		issueCommentStore:        issueCommentStore,
+		labelStore:               labelStore,
+		heartbeatRunStore:        heartbeatRunStore,
+		wakeupRequestStore:       wakeupRequestStore,
+		agentRuntimeStateStore:   agentRuntimeStateStore,
+		agentTaskSessionStore:    agentTaskSessionStore,
+		approvalStore:            approvalStore,
+		agentConfigRevisionStore: agentConfigRevisionStore,
+		costEventStore:           costEventStore,
+		orgAgentStore:            orgAgentStore,
+		marketplaceClient:        &http.Client{Timeout: 10 * time.Second},
+		providerFactory:          factory,
+		storeType:                storeType,
+		authTokens:               gatewayCfg.AuthTokens,
+		cluster:                  cl,
+		version:                  version,
+		botsCfg:                  botsCfg,
+		todos:                    newTodoStore(),
+		lspManager:               newLSPManager(),
 	}
 
 	// Load predefined skill templates from embedded JSON files.
@@ -394,7 +462,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), cl)
+		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
@@ -523,6 +591,126 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/agents/{id}", s.GetAgentAPI)
 	apiGroup.PUT("/v1/agents/{id}", s.UpdateAgentAPI)
 	apiGroup.DELETE("/v1/agents/{id}", s.DeleteAgentAPI)
+
+	apiGroup.GET("/v1/agents/{id}/tasks", s.ListTasksByAgentAPI)
+	apiGroup.GET("/v1/agents/{id}/budget", s.GetAgentBudgetAPI)
+	apiGroup.PUT("/v1/agents/{id}/budget", s.SetAgentBudgetAPI)
+	apiGroup.GET("/v1/agents/{id}/usage", s.GetAgentUsageAPI)
+	apiGroup.GET("/v1/agents/{id}/spend", s.GetAgentSpendAPI)
+	apiGroup.POST("/v1/agents/{id}/heartbeat", s.RecordHeartbeatAPI)
+	apiGroup.GET("/v1/agents/{id}/heartbeat-status", s.GetHeartbeatAPI)
+	apiGroup.GET("/v1/heartbeats", s.ListHeartbeatsAPI)
+
+	// Organization management
+	apiGroup.GET("/v1/organizations", s.ListOrganizationsAPI)
+	apiGroup.POST("/v1/organizations", s.CreateOrganizationAPI)
+	apiGroup.GET("/v1/organizations/{id}", s.GetOrganizationAPI)
+	apiGroup.PUT("/v1/organizations/{id}", s.UpdateOrganizationAPI)
+	apiGroup.DELETE("/v1/organizations/{id}", s.DeleteOrganizationAPI)
+
+	// Organization–Agent membership
+	apiGroup.GET("/v1/organizations/{id}/agents", s.ListOrganizationAgentsAPI)
+	apiGroup.POST("/v1/organizations/{id}/agents", s.AddAgentToOrganizationAPI)
+	apiGroup.PUT("/v1/organizations/{id}/agents/{agent_id}", s.UpdateOrganizationAgentAPI)
+	apiGroup.DELETE("/v1/organizations/{id}/agents/{agent_id}", s.RemoveAgentFromOrganizationAPI)
+
+	// Goal management
+	apiGroup.GET("/v1/goals", s.ListGoalsAPI)
+	apiGroup.POST("/v1/goals", s.CreateGoalAPI)
+	apiGroup.GET("/v1/goals/{id}", s.GetGoalAPI)
+	apiGroup.PUT("/v1/goals/{id}", s.UpdateGoalAPI)
+	apiGroup.DELETE("/v1/goals/{id}", s.DeleteGoalAPI)
+	apiGroup.GET("/v1/goals/{id}/children", s.ListGoalChildrenAPI)
+	apiGroup.GET("/v1/goals/{id}/ancestry", s.GetGoalAncestryAPI)
+
+	// Task management
+	apiGroup.GET("/v1/tasks", s.ListTasksAPI)
+	apiGroup.POST("/v1/tasks", s.CreateTaskAPI)
+	apiGroup.GET("/v1/tasks/{id}", s.GetTaskAPI)
+	apiGroup.PUT("/v1/tasks/{id}", s.UpdateTaskAPI)
+	apiGroup.DELETE("/v1/tasks/{id}", s.DeleteTaskAPI)
+	apiGroup.POST("/v1/tasks/{id}/checkout", s.CheckoutTaskAPI)
+	apiGroup.POST("/v1/tasks/{id}/release", s.ReleaseTaskAPI)
+
+	// Model pricing
+	apiGroup.GET("/v1/model-pricing", s.ListModelPricingAPI)
+	apiGroup.POST("/v1/model-pricing", s.SetModelPricingAPI)
+
+	// Audit log
+	apiGroup.GET("/v1/audit", s.ListAuditEntriesAPI)
+	apiGroup.GET("/v1/audit/{resource_type}/{resource_id}", s.GetAuditTrailAPI)
+
+	// Project management
+	apiGroup.GET("/v1/projects", s.ListProjectsAPI)
+	apiGroup.POST("/v1/projects", s.CreateProjectAPI)
+	apiGroup.GET("/v1/projects/{id}", s.GetProjectAPI)
+	apiGroup.PUT("/v1/projects/{id}", s.UpdateProjectAPI)
+	apiGroup.DELETE("/v1/projects/{id}", s.DeleteProjectAPI)
+	apiGroup.GET("/v1/goals/{id}/projects", s.ListProjectsByGoalAPI)
+	apiGroup.GET("/v1/organizations/{id}/projects", s.ListProjectsByOrganizationAPI)
+
+	// Issue comments
+	apiGroup.GET("/v1/tasks/{id}/comments", s.ListCommentsByTaskAPI)
+	apiGroup.POST("/v1/tasks/{id}/comments", s.CreateCommentAPI)
+	apiGroup.GET("/v1/comments/{id}", s.GetCommentAPI)
+	apiGroup.PUT("/v1/comments/{id}", s.UpdateCommentAPI)
+	apiGroup.DELETE("/v1/comments/{id}", s.DeleteCommentAPI)
+
+	// Label management
+	apiGroup.GET("/v1/labels", s.ListLabelsAPI)
+	apiGroup.POST("/v1/labels", s.CreateLabelAPI)
+	apiGroup.GET("/v1/labels/{id}", s.GetLabelAPI)
+	apiGroup.PUT("/v1/labels/{id}", s.UpdateLabelAPI)
+	apiGroup.DELETE("/v1/labels/{id}", s.DeleteLabelAPI)
+	apiGroup.GET("/v1/labels/{id}/tasks", s.ListTasksForLabelAPI)
+	apiGroup.POST("/v1/tasks/{id}/labels/{label_id}", s.AddLabelToTaskAPI)
+	apiGroup.DELETE("/v1/tasks/{id}/labels/{label_id}", s.RemoveLabelFromTaskAPI)
+	apiGroup.GET("/v1/tasks/{id}/labels", s.ListLabelsForTaskAPI)
+
+	// Heartbeat runs (execution tracking)
+	apiGroup.GET("/v1/agents/{id}/runs", s.ListHeartbeatRunsAPI)
+	apiGroup.POST("/v1/agents/{id}/runs", s.CreateHeartbeatRunAPI)
+	apiGroup.GET("/v1/agents/{id}/active-run", s.GetActiveRunAPI)
+	apiGroup.GET("/v1/heartbeat-runs/{id}", s.GetHeartbeatRunAPI)
+	apiGroup.PUT("/v1/heartbeat-runs/{id}", s.UpdateHeartbeatRunAPI)
+
+	// Wakeup requests
+	apiGroup.POST("/v1/agents/{id}/wakeup", s.CreateWakeupRequestAPI)
+	apiGroup.GET("/v1/agents/{id}/wakeup-requests", s.ListPendingWakeupRequestsAPI)
+	apiGroup.POST("/v1/agents/{id}/wakeup-requests/promote", s.PromoteDeferredWakeupAPI)
+	apiGroup.GET("/v1/wakeup-requests/{id}", s.GetWakeupRequestAPI)
+	apiGroup.POST("/v1/wakeup-requests/{id}/dispatch", s.MarkWakeupDispatchedAPI)
+
+	// Agent runtime state
+	apiGroup.GET("/v1/agents/{id}/runtime-state", s.GetAgentRuntimeStateAPI)
+	apiGroup.PUT("/v1/agents/{id}/runtime-state", s.UpsertAgentRuntimeStateAPI)
+	apiGroup.POST("/v1/agents/{id}/runtime-state/accumulate", s.AccumulateUsageAPI)
+
+	// Agent task sessions
+	apiGroup.GET("/v1/agents/{id}/task-sessions", s.ListAgentTaskSessionsAPI)
+	apiGroup.GET("/v1/agents/{id}/task-sessions/{task_key}", s.GetAgentTaskSessionAPI)
+	apiGroup.PUT("/v1/agents/{id}/task-sessions/{task_key}", s.UpsertAgentTaskSessionAPI)
+	apiGroup.DELETE("/v1/agents/{id}/task-sessions/{task_key}", s.DeleteAgentTaskSessionAPI)
+
+	// Approvals
+	apiGroup.GET("/v1/approvals", s.ListApprovalsAPI)
+	apiGroup.POST("/v1/approvals", s.CreateApprovalAPI)
+	apiGroup.GET("/v1/approvals/pending", s.ListPendingApprovalsAPI)
+	apiGroup.GET("/v1/approvals/{id}", s.GetApprovalAPI)
+	apiGroup.PUT("/v1/approvals/{id}", s.UpdateApprovalAPI)
+
+	// Agent config revisions
+	apiGroup.GET("/v1/agents/{id}/config-revisions", s.ListAgentConfigRevisionsAPI)
+	apiGroup.GET("/v1/agents/{id}/config-revisions/latest", s.GetLatestAgentConfigRevisionAPI)
+	apiGroup.GET("/v1/agent-config-revisions/{id}", s.GetAgentConfigRevisionAPI)
+
+	// Cost events
+	apiGroup.GET("/v1/cost-events", s.ListCostEventsAPI)
+	apiGroup.POST("/v1/cost-events", s.RecordCostEventAPI)
+	apiGroup.GET("/v1/cost-events/by-billing-code", s.GetCostByBillingCodeAPI)
+	apiGroup.GET("/v1/agents/{id}/cost", s.GetCostByAgentAPI)
+	apiGroup.GET("/v1/projects/{id}/cost", s.GetCostByProjectAPI)
+	apiGroup.GET("/v1/goals/{id}/cost", s.GetCostByGoalAPI)
 
 	// Chat session management
 	apiGroup.GET("/v1/chat/sessions", s.ListChatSessionsAPI)
@@ -909,5 +1097,111 @@ func (s *Server) ragStateSaveFunc() workflow.RAGStateSaveFunc {
 	}
 	return func(ctx context.Context, key, value string) error {
 		return s.ragStateStore.SetRAGState(ctx, key, value)
+	}
+}
+
+// recordUsageFunc returns a workflow.RecordUsageFunc that records agent token
+// usage with cost estimation. Returns nil when the budget store is not configured.
+func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
+	if s.agentBudgetStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, agentID, model string, usage service.Usage) error {
+		// Look up model pricing to estimate cost.
+		var estimatedCost float64
+		pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
+		if err == nil {
+			for _, p := range pricingList {
+				if p.Model == model {
+					estimatedCost = (float64(usage.PromptTokens) * p.PromptPricePer1M / 1_000_000) +
+						(float64(usage.CompletionTokens) * p.CompletionPricePer1M / 1_000_000)
+					break
+				}
+			}
+		}
+
+		return s.agentBudgetStore.RecordAgentUsage(ctx, service.AgentUsageRecord{
+			AgentID:          agentID,
+			Model:            model,
+			PromptTokens:     int64(usage.PromptTokens),
+			CompletionTokens: int64(usage.CompletionTokens),
+			TotalTokens:      int64(usage.TotalTokens),
+			EstimatedCost:    estimatedCost,
+		})
+	}
+}
+
+// checkBudgetFunc returns a workflow.CheckBudgetFunc that checks whether an
+// agent has exceeded its spending budget. Returns nil when the budget store
+// is not configured.
+func (s *Server) checkBudgetFunc() workflow.CheckBudgetFunc {
+	if s.agentBudgetStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, agentID string) error {
+		budget, err := s.agentBudgetStore.GetAgentBudget(ctx, agentID)
+		if err != nil {
+			return fmt.Errorf("check budget for agent %s: %w", agentID, err)
+		}
+		if budget == nil {
+			// No budget set — unlimited.
+			return nil
+		}
+		totalSpend, err := s.agentBudgetStore.GetAgentTotalSpend(ctx, agentID)
+		if err != nil {
+			return fmt.Errorf("get total spend for agent %s: %w", agentID, err)
+		}
+		if totalSpend >= budget.MonthlyLimit {
+			return fmt.Errorf("agent %s has exceeded monthly budget (%.2f / %.2f USD)", agentID, totalSpend, budget.MonthlyLimit)
+		}
+		return nil
+	}
+}
+
+// recordAuditFunc returns a workflow.RecordAuditFunc that appends an entry
+// to the immutable audit log. Returns nil when the audit store is not configured.
+func (s *Server) recordAuditFunc() workflow.RecordAuditFunc {
+	if s.auditStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, entry service.AuditEntry) error {
+		return s.auditStore.RecordAudit(ctx, entry)
+	}
+}
+
+// goalAncestryFunc returns a workflow.GoalAncestryFunc that retrieves the
+// full goal chain from a given goal up to the root mission. Returns nil
+// when the goal store is not configured.
+func (s *Server) goalAncestryFunc() workflow.GoalAncestryFunc {
+	if s.goalStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, goalID string) ([]service.Goal, error) {
+		return s.goalStore.GetGoalAncestry(ctx, goalID)
+	}
+}
+
+// versionLookupFunc returns a VersionLookupFunc that resolves a workflow's
+// active version graph. Returns nil if the required stores are not configured.
+func (s *Server) versionLookupFunc() workflow.VersionLookupFunc {
+	if s.workflowStore == nil || s.workflowVersionStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, workflowID string) (*service.WorkflowGraph, error) {
+		wf, err := s.workflowStore.GetWorkflow(ctx, workflowID)
+		if err != nil {
+			return nil, fmt.Errorf("get workflow %s: %w", workflowID, err)
+		}
+		if wf == nil || wf.ActiveVersion == nil {
+			return nil, nil
+		}
+		ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, workflowID, *wf.ActiveVersion)
+		if err != nil {
+			return nil, fmt.Errorf("get workflow version %s v%d: %w", workflowID, *wf.ActiveVersion, err)
+		}
+		if ver == nil {
+			return nil, nil
+		}
+		return &ver.Graph, nil
 	}
 }

@@ -19,55 +19,97 @@ import (
 // Memory is an in-memory implementation of the store interfaces.
 // Data does not survive process restarts.
 type Memory struct {
-	mu                 sync.RWMutex
-	providers          map[string]service.ProviderRecord         // key -> record
-	tokens             map[string]service.APIToken               // id -> token
-	tokensByHash       map[string]string                         // hash -> id
-	workflows          map[string]service.Workflow               // id -> workflow
-	workflowVersions   map[string][]service.WorkflowVersion      // workflow_id -> versions (sorted by version desc)
-	triggers           map[string]service.Trigger                // id -> trigger
-	skills             map[string]service.Skill                  // id -> skill
-	variables          map[string]service.Variable               // id -> variable
-	nodeConfigs        map[string]service.NodeConfig             // id -> node config
-	agents             map[string]service.Agent                  // id -> agent
-	chatSessions       map[string]service.ChatSession            // id -> chat session
-	chatMessages       map[string][]service.ChatMessage          // session_id -> messages (sorted by created_at)
-	ragCollections     map[string]service.RAGCollection          // id -> rag collection
-	ragStates          map[string]service.RAGState               // key -> rag state
-	ragMCPServers      map[string]service.RAGMCPServer           // id -> rag mcp server
-	mcpServers         map[string]service.MCPServer              // id -> general mcp server
-	mcpSets            map[string]service.MCPSet                 // id -> mcp set
-	botConfigs         map[string]service.BotConfig              // id -> bot config
-	marketplaceSources map[string]service.MarketplaceSource      // id -> marketplace source
-	tokenUsage         map[string]map[string]*service.TokenUsage // token_id -> model -> usage
-	userPreferences    map[string]service.UserPreference         // "user_id::key" -> preference
+	mu                   sync.RWMutex
+	providers            map[string]service.ProviderRecord         // key -> record
+	tokens               map[string]service.APIToken               // id -> token
+	tokensByHash         map[string]string                         // hash -> id
+	workflows            map[string]service.Workflow               // id -> workflow
+	workflowVersions     map[string][]service.WorkflowVersion      // workflow_id -> versions (sorted by version desc)
+	triggers             map[string]service.Trigger                // id -> trigger
+	skills               map[string]service.Skill                  // id -> skill
+	variables            map[string]service.Variable               // id -> variable
+	nodeConfigs          map[string]service.NodeConfig             // id -> node config
+	agents               map[string]service.Agent                  // id -> agent
+	chatSessions         map[string]service.ChatSession            // id -> chat session
+	chatMessages         map[string][]service.ChatMessage          // session_id -> messages (sorted by created_at)
+	ragCollections       map[string]service.RAGCollection          // id -> rag collection
+	ragStates            map[string]service.RAGState               // key -> rag state
+	ragMCPServers        map[string]service.RAGMCPServer           // id -> rag mcp server
+	mcpServers           map[string]service.MCPServer              // id -> general mcp server
+	mcpSets              map[string]service.MCPSet                 // id -> mcp set
+	botConfigs           map[string]service.BotConfig              // id -> bot config
+	marketplaceSources   map[string]service.MarketplaceSource      // id -> marketplace source
+	tokenUsage           map[string]map[string]*service.TokenUsage // token_id -> model -> usage
+	userPreferences      map[string]service.UserPreference         // "user_id::key" -> preference
+	organizations        map[string]service.Organization           // id -> organization
+	goals                map[string]service.Goal                   // id -> goal
+	tasks                map[string]service.Task                   // id -> task
+	agentBudgets         map[string]service.AgentBudget            // agent_id -> budget
+	agentUsage           []service.AgentUsageRecord                // append-only usage records
+	modelPricing         map[string]service.ModelPricing           // "provider_key::model" -> pricing
+	auditLog             []service.AuditEntry                      // append-only audit entries
+	agentHeartbeats      map[string]service.AgentHeartbeat         // agent_id -> heartbeat
+	projects             map[string]service.Project                // id -> project
+	issueComments        map[string]service.IssueComment           // id -> issue comment
+	labels               map[string]service.Label                  // id -> label
+	taskLabels           map[string]map[string]bool                // taskID -> labelID -> true
+	heartbeatRuns        map[string]service.HeartbeatRun           // id -> heartbeat run
+	wakeupRequests       map[string]service.WakeupRequest          // id -> wakeup request
+	agentRuntimeState    map[string]service.AgentRuntimeState      // agent_id -> runtime state
+	agentTaskSessions    map[string]service.AgentTaskSession       // "agentID::taskKey" -> session
+	approvals            map[string]service.Approval               // id -> approval
+	agentConfigRevisions []service.AgentConfigRevision             // append-only
+	costEvents           []service.CostEvent                       // append-only
+	organizationAgents   map[string]service.OrganizationAgent      // id -> org-agent membership
+	orgAgentIndex        map[string]string                         // "orgID::agentID" -> id
 }
 
 func New() *Memory {
 	slog.Info("using in-memory store (data will not persist across restarts)")
 
 	return &Memory{
-		providers:          make(map[string]service.ProviderRecord),
-		tokens:             make(map[string]service.APIToken),
-		tokensByHash:       make(map[string]string),
-		workflows:          make(map[string]service.Workflow),
-		workflowVersions:   make(map[string][]service.WorkflowVersion),
-		triggers:           make(map[string]service.Trigger),
-		skills:             make(map[string]service.Skill),
-		variables:          make(map[string]service.Variable),
-		nodeConfigs:        make(map[string]service.NodeConfig),
-		agents:             make(map[string]service.Agent),
-		chatSessions:       make(map[string]service.ChatSession),
-		chatMessages:       make(map[string][]service.ChatMessage),
-		ragCollections:     make(map[string]service.RAGCollection),
-		ragStates:          make(map[string]service.RAGState),
-		ragMCPServers:      make(map[string]service.RAGMCPServer),
-		mcpServers:         make(map[string]service.MCPServer),
-		mcpSets:            make(map[string]service.MCPSet),
-		botConfigs:         make(map[string]service.BotConfig),
-		marketplaceSources: make(map[string]service.MarketplaceSource),
-		tokenUsage:         make(map[string]map[string]*service.TokenUsage),
-		userPreferences:    make(map[string]service.UserPreference),
+		providers:            make(map[string]service.ProviderRecord),
+		tokens:               make(map[string]service.APIToken),
+		tokensByHash:         make(map[string]string),
+		workflows:            make(map[string]service.Workflow),
+		workflowVersions:     make(map[string][]service.WorkflowVersion),
+		triggers:             make(map[string]service.Trigger),
+		skills:               make(map[string]service.Skill),
+		variables:            make(map[string]service.Variable),
+		nodeConfigs:          make(map[string]service.NodeConfig),
+		agents:               make(map[string]service.Agent),
+		chatSessions:         make(map[string]service.ChatSession),
+		chatMessages:         make(map[string][]service.ChatMessage),
+		ragCollections:       make(map[string]service.RAGCollection),
+		ragStates:            make(map[string]service.RAGState),
+		ragMCPServers:        make(map[string]service.RAGMCPServer),
+		mcpServers:           make(map[string]service.MCPServer),
+		mcpSets:              make(map[string]service.MCPSet),
+		botConfigs:           make(map[string]service.BotConfig),
+		marketplaceSources:   make(map[string]service.MarketplaceSource),
+		tokenUsage:           make(map[string]map[string]*service.TokenUsage),
+		userPreferences:      make(map[string]service.UserPreference),
+		organizations:        make(map[string]service.Organization),
+		goals:                make(map[string]service.Goal),
+		tasks:                make(map[string]service.Task),
+		agentBudgets:         make(map[string]service.AgentBudget),
+		agentUsage:           nil,
+		modelPricing:         make(map[string]service.ModelPricing),
+		auditLog:             nil,
+		agentHeartbeats:      make(map[string]service.AgentHeartbeat),
+		projects:             make(map[string]service.Project),
+		issueComments:        make(map[string]service.IssueComment),
+		labels:               make(map[string]service.Label),
+		taskLabels:           make(map[string]map[string]bool),
+		heartbeatRuns:        make(map[string]service.HeartbeatRun),
+		wakeupRequests:       make(map[string]service.WakeupRequest),
+		agentRuntimeState:    make(map[string]service.AgentRuntimeState),
+		agentTaskSessions:    make(map[string]service.AgentTaskSession),
+		approvals:            make(map[string]service.Approval),
+		agentConfigRevisions: nil,
+		costEvents:           nil,
+		organizationAgents:   make(map[string]service.OrganizationAgent),
+		orgAgentIndex:        make(map[string]string),
 	}
 }
 

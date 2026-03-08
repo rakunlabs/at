@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/query"
@@ -447,6 +448,13 @@ type NodeConfigStorer interface {
 
 // ─── Agent Registry ───
 
+// Agent status constants for lifecycle management.
+const (
+	AgentStatusActive     = "active"
+	AgentStatusPaused     = "paused"
+	AgentStatusTerminated = "terminated"
+)
+
 // AgentConfig holds the configuration fields for an agent, stored as JSON in the database.
 type AgentConfig struct {
 	Description               string   `json:"description,omitempty"`
@@ -460,6 +468,12 @@ type AgentConfig struct {
 	MaxIterations             int      `json:"max_iterations"`                        // Max iterations for the loop
 	ToolTimeout               int      `json:"tool_timeout"`                          // Timeout in seconds
 	ConfirmationRequiredTools []string `json:"confirmation_required_tools,omitempty"` // Tools that require human confirmation before execution
+
+	// NOTE: Organizational fields (role, title, parent_agent_id, organization_id,
+	// status, delegation_rules) have been moved to the OrganizationAgent join table
+	// so that agents can belong to multiple organizations with per-org metadata.
+	// Only heartbeat_schedule remains here because it is agent-global.
+	HeartbeatSchedule string `json:"heartbeat_schedule,omitempty"` // Cron expression for periodic wake-ups
 }
 
 // Agent represents a reusable agent configuration that can be referenced
@@ -481,6 +495,623 @@ type AgentStorer interface {
 	CreateAgent(ctx context.Context, agent Agent) (*Agent, error)
 	UpdateAgent(ctx context.Context, id string, agent Agent) (*Agent, error)
 	DeleteAgent(ctx context.Context, id string) error
+}
+
+// ─── Organizations (Multi-Tenant Isolation) ───
+
+// Organization represents a tenant scope for grouping agents, goals, and tasks.
+// All organizational entities (goals, tasks, agents) can be scoped to an organization.
+// When OrganizationID is empty on an entity, it belongs to the global/legacy scope.
+type Organization struct {
+	ID                   string          `json:"id"`
+	Name                 string          `json:"name"`
+	Description          string          `json:"description"`
+	IssuePrefix          string          `json:"issue_prefix,omitempty"`                // e.g. "PAP" — used for human-readable issue identifiers like "PAP-42"
+	IssueCounter         int64           `json:"issue_counter,omitempty"`               // atomic sequential counter for issue identifiers
+	BudgetMonthlyCents   int64           `json:"budget_monthly_cents,omitempty"`        // company-level monthly budget in cents
+	SpentMonthlyCents    int64           `json:"spent_monthly_cents,omitempty"`         // company-level monthly spend accumulator in cents
+	BudgetResetAt        string          `json:"budget_reset_at,omitempty"`             // when the monthly budget was last reset (RFC3339)
+	RequireBoardApproval bool            `json:"require_board_approval_for_new_agents"` // if true, new agent creation requires approval
+	CanvasLayout         json.RawMessage `json:"canvas_layout,omitempty"`               // JSON blob storing canvas groups, sticky notes, and node positions
+	CreatedAt            string          `json:"created_at"`
+	UpdatedAt            string          `json:"updated_at"`
+	CreatedBy            string          `json:"created_by"`
+	UpdatedBy            string          `json:"updated_by"`
+}
+
+// OrganizationStorer defines CRUD operations for organizations.
+type OrganizationStorer interface {
+	ListOrganizations(ctx context.Context, q *query.Query) (*ListResult[Organization], error)
+	GetOrganization(ctx context.Context, id string) (*Organization, error)
+	CreateOrganization(ctx context.Context, org Organization) (*Organization, error)
+	UpdateOrganization(ctx context.Context, id string, org Organization) (*Organization, error)
+	DeleteOrganization(ctx context.Context, id string) error
+	// IncrementIssueCounter atomically increments the issue counter for an organization
+	// and returns the new value. Used when creating tasks/issues to generate identifiers.
+	IncrementIssueCounter(ctx context.Context, orgID string) (int64, error)
+}
+
+// ─── Organization–Agent Membership (Join Table) ───
+
+// OrganizationAgent represents the many-to-many relationship between an
+// organization and an agent.  Per-org metadata (role, title, hierarchy) lives
+// here instead of inside the agent's config blob, so the same agent can
+// participate in multiple organizations with different roles.
+type OrganizationAgent struct {
+	ID             string `json:"id"`
+	OrganizationID string `json:"organization_id"`
+	AgentID        string `json:"agent_id"`
+	Role           string `json:"role,omitempty"`            // e.g. "CTO", "Engineer"
+	Title          string `json:"title,omitempty"`           // e.g. "Senior Backend Engineer"
+	ParentAgentID  string `json:"parent_agent_id,omitempty"` // reporting line within this org
+	Status         string `json:"status,omitempty"`          // "active" (default), "paused", "terminated"
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+// OrganizationAgentStorer defines CRUD operations for the organization–agent
+// join table.
+type OrganizationAgentStorer interface {
+	// ListOrganizationAgents returns all agent memberships for an organization.
+	ListOrganizationAgents(ctx context.Context, orgID string) ([]OrganizationAgent, error)
+	// ListAgentOrganizations returns all org memberships for a single agent.
+	ListAgentOrganizations(ctx context.Context, agentID string) ([]OrganizationAgent, error)
+	// GetOrganizationAgent returns a single membership by ID.
+	GetOrganizationAgent(ctx context.Context, id string) (*OrganizationAgent, error)
+	// GetOrganizationAgentByPair returns the membership for a specific (org, agent) pair.
+	GetOrganizationAgentByPair(ctx context.Context, orgID, agentID string) (*OrganizationAgent, error)
+	// CreateOrganizationAgent adds an agent to an organization.
+	CreateOrganizationAgent(ctx context.Context, oa OrganizationAgent) (*OrganizationAgent, error)
+	// UpdateOrganizationAgent updates role/title/parent/status of a membership.
+	UpdateOrganizationAgent(ctx context.Context, id string, oa OrganizationAgent) (*OrganizationAgent, error)
+	// DeleteOrganizationAgent removes an agent from an organization.
+	DeleteOrganizationAgent(ctx context.Context, id string) error
+	// DeleteOrganizationAgentByPair removes a membership by (org, agent) pair.
+	DeleteOrganizationAgentByPair(ctx context.Context, orgID, agentID string) error
+}
+
+// ─── Goals (Mission Alignment) ───
+
+// Goal level constants (Paperclip-style).
+const (
+	GoalLevelCompany = "company"
+	GoalLevelTeam    = "team"
+	GoalLevelAgent   = "agent"
+	GoalLevelTask    = "task"
+)
+
+// Goal represents a hierarchical objective in an organization.
+// Goals form a tree: company mission → project goals → task-level goals.
+// Every task links to a goal, giving agents full "why" context.
+type Goal struct {
+	ID             string `json:"id"`
+	OrganizationID string `json:"organization_id,omitempty"` // tenant scope
+	ParentGoalID   string `json:"parent_goal_id,omitempty"`  // parent in the goal hierarchy
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Level          string `json:"level,omitempty"` // "company", "team", "agent", "task" — scoping level
+	Status         string `json:"status"`          // "active", "completed", "archived"
+	Priority       int    `json:"priority"`        // higher = more important
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+	CreatedBy      string `json:"created_by"`
+	UpdatedBy      string `json:"updated_by"`
+}
+
+// GoalStorer defines CRUD operations for goals.
+type GoalStorer interface {
+	ListGoals(ctx context.Context, q *query.Query) (*ListResult[Goal], error)
+	GetGoal(ctx context.Context, id string) (*Goal, error)
+	CreateGoal(ctx context.Context, goal Goal) (*Goal, error)
+	UpdateGoal(ctx context.Context, id string, goal Goal) (*Goal, error)
+	DeleteGoal(ctx context.Context, id string) error
+	// ListGoalsByParent returns all direct child goals of a parent.
+	ListGoalsByParent(ctx context.Context, parentID string) ([]Goal, error)
+	// GetGoalAncestry returns the full chain from the given goal up to the root mission.
+	// The result is ordered from the given goal (index 0) to the root (last element).
+	GetGoalAncestry(ctx context.Context, id string) ([]Goal, error)
+}
+
+// ─── Tasks (Ticket System) ───
+
+// Task status constants (Paperclip-compatible).
+const (
+	TaskStatusBacklog    = "backlog"
+	TaskStatusOpen       = "open"
+	TaskStatusTodo       = "todo"
+	TaskStatusInProgress = "in_progress"
+	TaskStatusInReview   = "in_review"
+	TaskStatusBlocked    = "blocked"
+	TaskStatusReview     = "review"
+	TaskStatusCompleted  = "completed"
+	TaskStatusDone       = "done"
+	TaskStatusCancelled  = "cancelled"
+)
+
+// Task priority constants (Paperclip-compatible).
+const (
+	TaskPriorityCritical = "critical"
+	TaskPriorityHigh     = "high"
+	TaskPriorityMedium   = "medium"
+	TaskPriorityLow      = "low"
+)
+
+// Task represents a unit of work (issue) assigned to an agent, linked to a goal.
+// Tasks support atomic checkout to prevent double-work across agents.
+// Enhanced with Paperclip-style fields: identifier, parent hierarchy, project link, billing.
+type Task struct {
+	ID              string `json:"id"`
+	OrganizationID  string `json:"organization_id,omitempty"` // tenant scope
+	ProjectID       string `json:"project_id,omitempty"`      // link to project
+	GoalID          string `json:"goal_id,omitempty"`         // links to goal hierarchy for "why" context
+	ParentID        string `json:"parent_id,omitempty"`       // parent task/issue ID for sub-issues
+	AssignedAgentID string `json:"assigned_agent_id,omitempty"`
+	Identifier      string `json:"identifier,omitempty"` // human-readable like "PAP-42" (auto-generated from org prefix + counter)
+	Title           string `json:"title"`
+	Description     string `json:"description"`
+	Status          string `json:"status"`                   // "backlog", "todo", "in_progress", "in_review", "blocked", "done", "cancelled"
+	PriorityLevel   string `json:"priority_level,omitempty"` // "critical", "high", "medium", "low"
+	Priority        int    `json:"priority"`                 // numeric priority (higher = more important), kept for backward compat
+	Result          string `json:"result,omitempty"`         // output/result of the completed task
+	BillingCode     string `json:"billing_code,omitempty"`   // cost attribution code
+	RequestDepth    int    `json:"request_depth,omitempty"`  // cross-team delegation depth
+	CheckedOutBy    string `json:"checked_out_by,omitempty"` // agent ID holding exclusive lock
+	CheckedOutAt    string `json:"checked_out_at,omitempty"` // when the checkout happened
+	StartedAt       string `json:"started_at,omitempty"`     // when work actually started
+	CompletedAt     string `json:"completed_at,omitempty"`   // when task was completed
+	CancelledAt     string `json:"cancelled_at,omitempty"`   // when task was cancelled
+	HiddenAt        string `json:"hidden_at,omitempty"`      // soft-hide timestamp
+	CreatedAt       string `json:"created_at"`
+	UpdatedAt       string `json:"updated_at"`
+	CreatedBy       string `json:"created_by"`
+	UpdatedBy       string `json:"updated_by"`
+}
+
+// TaskStorer defines CRUD operations for tasks.
+type TaskStorer interface {
+	ListTasks(ctx context.Context, q *query.Query) (*ListResult[Task], error)
+	GetTask(ctx context.Context, id string) (*Task, error)
+	CreateTask(ctx context.Context, task Task) (*Task, error)
+	UpdateTask(ctx context.Context, id string, task Task) (*Task, error)
+	DeleteTask(ctx context.Context, id string) error
+	// ListTasksByAgent returns all tasks assigned to an agent.
+	ListTasksByAgent(ctx context.Context, agentID string) ([]Task, error)
+	// ListTasksByGoal returns all tasks linked to a goal.
+	ListTasksByGoal(ctx context.Context, goalID string) ([]Task, error)
+	// CheckoutTask atomically sets checked_out_by to agentID if the task is not already checked out.
+	// Returns an error if the task is already checked out by another agent.
+	CheckoutTask(ctx context.Context, taskID, agentID string) error
+	// ReleaseTask clears the checked_out_by field, making the task available again.
+	ReleaseTask(ctx context.Context, taskID string) error
+}
+
+// ─── Agent Budgets & Cost Tracking ───
+
+// AgentBudget represents a spending limit for an agent within a time period.
+type AgentBudget struct {
+	ID           string  `json:"id"`
+	AgentID      string  `json:"agent_id"`
+	MonthlyLimit float64 `json:"monthly_limit"` // USD
+	CurrentSpend float64 `json:"current_spend"` // accumulated this period
+	PeriodStart  string  `json:"period_start"`
+	PeriodEnd    string  `json:"period_end"`
+	CreatedAt    string  `json:"created_at"`
+	UpdatedAt    string  `json:"updated_at"`
+}
+
+// AgentUsageRecord represents a single cost event from an agent's LLM call.
+type AgentUsageRecord struct {
+	ID               string  `json:"id"`
+	AgentID          string  `json:"agent_id"`
+	TaskID           string  `json:"task_id,omitempty"`         // optional: which task incurred this
+	WorkflowRunID    string  `json:"workflow_run_id,omitempty"` // optional: which workflow run
+	SessionID        string  `json:"session_id,omitempty"`      // optional: which chat session
+	Model            string  `json:"model"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	TotalTokens      int64   `json:"total_tokens"`
+	EstimatedCost    float64 `json:"estimated_cost"` // USD, calculated from model pricing
+	CreatedAt        string  `json:"created_at"`
+}
+
+// ModelPricing defines the cost per token for a specific provider/model combination.
+type ModelPricing struct {
+	ID                   string  `json:"id"`
+	ProviderKey          string  `json:"provider_key"`
+	Model                string  `json:"model"`
+	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`     // USD per 1M prompt tokens
+	CompletionPricePer1M float64 `json:"completion_price_per_1m"` // USD per 1M completion tokens
+	CreatedAt            string  `json:"created_at"`
+	UpdatedAt            string  `json:"updated_at"`
+}
+
+// AgentBudgetStorer defines operations for agent budgets and cost tracking.
+type AgentBudgetStorer interface {
+	// Budget CRUD
+	GetAgentBudget(ctx context.Context, agentID string) (*AgentBudget, error)
+	SetAgentBudget(ctx context.Context, budget AgentBudget) error // upsert by agent_id
+
+	// Usage recording
+	RecordAgentUsage(ctx context.Context, usage AgentUsageRecord) error
+	GetAgentUsage(ctx context.Context, agentID string, q *query.Query) (*ListResult[AgentUsageRecord], error)
+	GetAgentTotalSpend(ctx context.Context, agentID string) (float64, error)
+
+	// Model pricing
+	ListModelPricing(ctx context.Context) ([]ModelPricing, error)
+	SetModelPricing(ctx context.Context, pricing ModelPricing) error // upsert by provider_key + model
+}
+
+// ─── Audit Trail ───
+
+// AuditEntry represents an immutable log entry for agent/system actions.
+// Audit entries are append-only — they cannot be updated or deleted.
+type AuditEntry struct {
+	ID             string         `json:"id"`
+	OrganizationID string         `json:"organization_id,omitempty"`
+	ActorType      string         `json:"actor_type"`    // "agent", "user", "system"
+	ActorID        string         `json:"actor_id"`      // agent ID, user email, or "system"
+	Action         string         `json:"action"`        // "tool_call", "task_checkout", "status_change", "config_update", etc.
+	ResourceType   string         `json:"resource_type"` // "agent", "task", "goal", "workflow", etc.
+	ResourceID     string         `json:"resource_id"`
+	Details        map[string]any `json:"details,omitempty"` // action-specific payload
+	CreatedAt      string         `json:"created_at"`
+}
+
+// AuditStorer defines operations for the immutable audit log.
+type AuditStorer interface {
+	// RecordAudit appends a new audit entry. Entries are immutable.
+	RecordAudit(ctx context.Context, entry AuditEntry) error
+	// ListAuditEntries returns audit entries matching the given filters.
+	ListAuditEntries(ctx context.Context, q *query.Query) (*ListResult[AuditEntry], error)
+	// GetAuditTrail returns all audit entries for a specific resource.
+	GetAuditTrail(ctx context.Context, resourceType, resourceID string) ([]AuditEntry, error)
+}
+
+// ─── Agent Heartbeats ───
+
+// AgentHeartbeat tracks the last heartbeat for an agent.
+type AgentHeartbeat struct {
+	AgentID         string         `json:"agent_id"`
+	Status          string         `json:"status"` // "healthy", "stale", "unresponsive"
+	LastHeartbeatAt string         `json:"last_heartbeat_at"`
+	Metadata        map[string]any `json:"metadata,omitempty"` // free-form agent state
+	UpdatedAt       string         `json:"updated_at"`
+}
+
+// AgentHeartbeatStorer defines operations for agent heartbeat tracking.
+type AgentHeartbeatStorer interface {
+	// RecordHeartbeat upserts a heartbeat record for an agent.
+	RecordHeartbeat(ctx context.Context, agentID string, metadata map[string]any) error
+	// GetHeartbeat returns the heartbeat record for an agent, or nil if none exists.
+	GetHeartbeat(ctx context.Context, agentID string) (*AgentHeartbeat, error)
+	// ListHeartbeats returns all heartbeat records.
+	ListHeartbeats(ctx context.Context) ([]AgentHeartbeat, error)
+	// MarkStale marks agents whose last heartbeat is older than the given threshold as stale.
+	MarkStale(ctx context.Context, threshold time.Duration) (int, error)
+}
+
+// ─── Projects ───
+
+// Project links goals to actual work, tracking progress and ownership.
+type Project struct {
+	ID             string `json:"id"`
+	OrganizationID string `json:"organization_id,omitempty"`
+	GoalID         string `json:"goal_id,omitempty"`       // which goal this project serves
+	LeadAgentID    string `json:"lead_agent_id,omitempty"` // agent leading this project
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Status         string `json:"status"`                // "active", "completed", "archived", "on_hold"
+	Color          string `json:"color,omitempty"`       // hex color for UI display
+	TargetDate     string `json:"target_date,omitempty"` // RFC3339 target completion date
+	ArchivedAt     string `json:"archived_at,omitempty"` // when archived
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+	CreatedBy      string `json:"created_by"`
+	UpdatedBy      string `json:"updated_by"`
+}
+
+// ProjectStorer defines CRUD operations for projects.
+type ProjectStorer interface {
+	ListProjects(ctx context.Context, q *query.Query) (*ListResult[Project], error)
+	GetProject(ctx context.Context, id string) (*Project, error)
+	CreateProject(ctx context.Context, project Project) (*Project, error)
+	UpdateProject(ctx context.Context, id string, project Project) (*Project, error)
+	DeleteProject(ctx context.Context, id string) error
+	ListProjectsByGoal(ctx context.Context, goalID string) ([]Project, error)
+	ListProjectsByOrganization(ctx context.Context, orgID string) ([]Project, error)
+}
+
+// ─── Issue Comments ───
+
+// IssueComment represents a threaded comment on a task/issue.
+type IssueComment struct {
+	ID         string `json:"id"`
+	TaskID     string `json:"task_id"`             // the task/issue this comment belongs to
+	AuthorType string `json:"author_type"`         // "agent", "user", "system"
+	AuthorID   string `json:"author_id"`           // agent ID, user email, or "system"
+	Body       string `json:"body"`                // comment text (markdown)
+	ParentID   string `json:"parent_id,omitempty"` // for threaded replies
+	CreatedAt  string `json:"created_at"`
+	UpdatedAt  string `json:"updated_at"`
+}
+
+// IssueCommentStorer defines operations for issue comments.
+type IssueCommentStorer interface {
+	ListCommentsByTask(ctx context.Context, taskID string) ([]IssueComment, error)
+	GetComment(ctx context.Context, id string) (*IssueComment, error)
+	CreateComment(ctx context.Context, comment IssueComment) (*IssueComment, error)
+	UpdateComment(ctx context.Context, id string, comment IssueComment) (*IssueComment, error)
+	DeleteComment(ctx context.Context, id string) error
+}
+
+// ─── Labels ───
+
+// Label represents a per-organization label with a color, used to tag tasks.
+type Label struct {
+	ID             string `json:"id"`
+	OrganizationID string `json:"organization_id,omitempty"` // tenant scope
+	Name           string `json:"name"`
+	Color          string `json:"color"` // hex color e.g. "#ff5500"
+	CreatedAt      string `json:"created_at"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+// LabelStorer defines CRUD operations for labels and task-label associations.
+type LabelStorer interface {
+	ListLabels(ctx context.Context, orgID string) ([]Label, error)
+	GetLabel(ctx context.Context, id string) (*Label, error)
+	CreateLabel(ctx context.Context, label Label) (*Label, error)
+	UpdateLabel(ctx context.Context, id string, label Label) (*Label, error)
+	DeleteLabel(ctx context.Context, id string) error
+	// Task-label associations
+	AddLabelToTask(ctx context.Context, taskID, labelID string) error
+	RemoveLabelFromTask(ctx context.Context, taskID, labelID string) error
+	ListLabelsForTask(ctx context.Context, taskID string) ([]Label, error)
+	ListTasksForLabel(ctx context.Context, labelID string) ([]string, error) // returns task IDs
+}
+
+// ─── Heartbeat Runs (Execution Tracking) ───
+
+// HeartbeatRun invocation source constants.
+const (
+	InvocationTimer      = "timer"
+	InvocationAssignment = "assignment"
+	InvocationOnDemand   = "on_demand"
+	InvocationAutomation = "automation"
+)
+
+// HeartbeatRun status constants.
+const (
+	RunStatusQueued    = "queued"
+	RunStatusRunning   = "running"
+	RunStatusSucceeded = "succeeded"
+	RunStatusFailed    = "failed"
+	RunStatusCancelled = "cancelled"
+	RunStatusTimedOut  = "timed_out"
+)
+
+// HeartbeatRun represents a single execution run for an agent's heartbeat.
+// This is the core execution tracking unit — each run tracks invocation source,
+// status, context snapshot, usage, logs, and session state.
+type HeartbeatRun struct {
+	ID               string         `json:"id"`
+	AgentID          string         `json:"agent_id"`
+	InvocationSource string         `json:"invocation_source"`          // "timer", "assignment", "on_demand", "automation"
+	TriggerDetail    string         `json:"trigger_detail,omitempty"`   // human-readable trigger info
+	Status           string         `json:"status"`                     // "queued", "running", "succeeded", "failed", "cancelled", "timed_out"
+	ContextSnapshot  map[string]any `json:"context_snapshot,omitempty"` // carries issueId, taskKey, commentId, wakeReason
+	UsageJSON        map[string]any `json:"usage_json,omitempty"`       // token usage from adapter
+	ResultJSON       map[string]any `json:"result_json,omitempty"`      // adapter result
+	LogRef           string         `json:"log_ref,omitempty"`          // reference to log storage
+	LogBytes         int64          `json:"log_bytes,omitempty"`        // size of stored log
+	LogSHA256        string         `json:"log_sha256,omitempty"`       // integrity hash
+	StdoutExcerpt    string         `json:"stdout_excerpt,omitempty"`   // tail of stdout
+	StderrExcerpt    string         `json:"stderr_excerpt,omitempty"`   // tail of stderr
+	SessionIDBefore  string         `json:"session_id_before,omitempty"`
+	SessionIDAfter   string         `json:"session_id_after,omitempty"`
+	StartedAt        string         `json:"started_at,omitempty"`
+	FinishedAt       string         `json:"finished_at,omitempty"`
+	CreatedAt        string         `json:"created_at"`
+}
+
+// HeartbeatRunStorer defines operations for heartbeat run tracking.
+type HeartbeatRunStorer interface {
+	CreateHeartbeatRun(ctx context.Context, run HeartbeatRun) (*HeartbeatRun, error)
+	GetHeartbeatRun(ctx context.Context, id string) (*HeartbeatRun, error)
+	UpdateHeartbeatRun(ctx context.Context, id string, run HeartbeatRun) (*HeartbeatRun, error)
+	ListHeartbeatRuns(ctx context.Context, agentID string, q *query.Query) (*ListResult[HeartbeatRun], error)
+	// GetActiveRun returns the currently-running heartbeat run for an agent, or nil if none.
+	GetActiveRun(ctx context.Context, agentID string) (*HeartbeatRun, error)
+}
+
+// ─── Wakeup Requests ───
+
+// WakeupRequest status constants.
+const (
+	WakeupStatusPending                = "pending"
+	WakeupStatusDispatched             = "dispatched"
+	WakeupStatusDeferredIssueExecution = "deferred_issue_execution"
+	WakeupStatusCancelled              = "cancelled"
+)
+
+// WakeupRequest represents a request to wake up an agent.
+// Supports coalescing: multiple wakeups for the same agent merge context
+// and increment coalesced_count, using idempotency keys for dedup.
+type WakeupRequest struct {
+	ID             string         `json:"id"`
+	AgentID        string         `json:"agent_id"`
+	Status         string         `json:"status"`                    // "pending", "dispatched", "deferred_issue_execution", "cancelled"
+	IdempotencyKey string         `json:"idempotency_key,omitempty"` // for deduplication
+	Context        map[string]any `json:"context,omitempty"`         // merged context from coalesced requests
+	CoalescedCount int            `json:"coalesced_count"`           // how many requests were merged
+	RunID          string         `json:"run_id,omitempty"`          // heartbeat run that handled this wakeup
+	CreatedAt      string         `json:"created_at"`
+	UpdatedAt      string         `json:"updated_at"`
+}
+
+// WakeupRequestStorer defines operations for wakeup requests with coalescing.
+type WakeupRequestStorer interface {
+	// CreateOrCoalesce creates a new wakeup request, or coalesces with an existing
+	// pending request for the same agent (merging context, incrementing count).
+	// If idempotencyKey is non-empty and matches an existing request, returns the existing one.
+	CreateOrCoalesce(ctx context.Context, req WakeupRequest) (*WakeupRequest, error)
+	GetWakeupRequest(ctx context.Context, id string) (*WakeupRequest, error)
+	// ListPendingForAgent returns all pending wakeup requests for an agent, ordered FIFO.
+	ListPendingForAgent(ctx context.Context, agentID string) ([]WakeupRequest, error)
+	// MarkDispatched marks a wakeup request as dispatched, linking it to a run.
+	MarkDispatched(ctx context.Context, id, runID string) error
+	// PromoteDeferred promotes the next deferred wakeup request to pending for an agent.
+	PromoteDeferred(ctx context.Context, agentID string) error
+}
+
+// ─── Agent Runtime State ───
+
+// AgentRuntimeState represents persistent per-agent runtime state (1:1 with agent).
+// Tracks session, accumulated costs, and last run info.
+type AgentRuntimeState struct {
+	AgentID           string         `json:"agent_id"`
+	SessionID         string         `json:"session_id,omitempty"`
+	StateJSON         map[string]any `json:"state_json,omitempty"` // persistent agent state
+	TotalInputTokens  int64          `json:"total_input_tokens"`
+	TotalOutputTokens int64          `json:"total_output_tokens"`
+	TotalCostCents    int64          `json:"total_cost_cents"`
+	LastRunID         string         `json:"last_run_id,omitempty"`
+	LastRunStatus     string         `json:"last_run_status,omitempty"`
+	LastError         string         `json:"last_error,omitempty"`
+	UpdatedAt         string         `json:"updated_at"`
+}
+
+// AgentRuntimeStateStorer defines operations for persistent agent runtime state.
+type AgentRuntimeStateStorer interface {
+	GetAgentRuntimeState(ctx context.Context, agentID string) (*AgentRuntimeState, error)
+	// UpsertAgentRuntimeState creates or updates the runtime state for an agent.
+	UpsertAgentRuntimeState(ctx context.Context, state AgentRuntimeState) error
+	// AccumulateUsage atomically increments token and cost counters.
+	AccumulateUsage(ctx context.Context, agentID string, inputTokens, outputTokens, costCents int64) error
+}
+
+// ─── Agent Task Sessions ───
+
+// AgentTaskSession represents a per-agent, per-task session.
+// Keyed by (agent_id, task_key). Sessions are RESET on new assignment
+// but PRESERVED across heartbeats for the same task.
+type AgentTaskSession struct {
+	ID                string         `json:"id"`
+	AgentID           string         `json:"agent_id"`
+	TaskKey           string         `json:"task_key"`                      // task identifier or ID
+	AdapterType       string         `json:"adapter_type,omitempty"`        // adapter-specific type
+	SessionParamsJSON map[string]any `json:"session_params_json,omitempty"` // adapter-specific session state
+	SessionDisplayID  string         `json:"session_display_id,omitempty"`  // human-readable session ID
+	CreatedAt         string         `json:"created_at"`
+	UpdatedAt         string         `json:"updated_at"`
+}
+
+// AgentTaskSessionStorer defines operations for per-task agent sessions.
+type AgentTaskSessionStorer interface {
+	GetAgentTaskSession(ctx context.Context, agentID, taskKey string) (*AgentTaskSession, error)
+	UpsertAgentTaskSession(ctx context.Context, session AgentTaskSession) error
+	DeleteAgentTaskSession(ctx context.Context, agentID, taskKey string) error
+	ListAgentTaskSessions(ctx context.Context, agentID string) ([]AgentTaskSession, error)
+}
+
+// ─── Approvals ───
+
+// Approval type constants.
+const (
+	ApprovalTypeHireAgent    = "hire_agent"
+	ApprovalTypeBudgetChange = "budget_change"
+	ApprovalTypeTaskEscalate = "task_escalate"
+)
+
+// Approval status constants.
+const (
+	ApprovalStatusPending           = "pending"
+	ApprovalStatusRevisionRequested = "revision_requested"
+	ApprovalStatusApproved          = "approved"
+	ApprovalStatusRejected          = "rejected"
+	ApprovalStatusApprovalCancelled = "cancelled"
+)
+
+// Approval represents a governance approval request.
+type Approval struct {
+	ID              string         `json:"id"`
+	OrganizationID  string         `json:"organization_id,omitempty"`
+	Type            string         `json:"type"`              // "hire_agent", "budget_change", "task_escalate"
+	Status          string         `json:"status"`            // "pending", "revision_requested", "approved", "rejected", "cancelled"
+	RequestedByType string         `json:"requested_by_type"` // "agent" or "user"
+	RequestedByID   string         `json:"requested_by_id"`
+	RequestDetails  map[string]any `json:"request_details,omitempty"` // type-specific request payload
+	DecisionNote    string         `json:"decision_note,omitempty"`
+	DecidedByUserID string         `json:"decided_by_user_id,omitempty"`
+	DecidedAt       string         `json:"decided_at,omitempty"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at"`
+}
+
+// ApprovalStorer defines operations for the approval workflow.
+type ApprovalStorer interface {
+	ListApprovals(ctx context.Context, q *query.Query) (*ListResult[Approval], error)
+	GetApproval(ctx context.Context, id string) (*Approval, error)
+	CreateApproval(ctx context.Context, approval Approval) (*Approval, error)
+	UpdateApproval(ctx context.Context, id string, approval Approval) (*Approval, error)
+	ListPendingApprovals(ctx context.Context, orgID string) ([]Approval, error)
+}
+
+// ─── Agent Config Revisions ───
+
+// AgentConfigRevision captures a full before/after snapshot of an agent config change.
+type AgentConfigRevision struct {
+	ID           string      `json:"id"`
+	AgentID      string      `json:"agent_id"`
+	Version      int         `json:"version"`               // sequential version number
+	ConfigBefore AgentConfig `json:"config_before"`         // snapshot before the change
+	ConfigAfter  AgentConfig `json:"config_after"`          // snapshot after the change
+	ChangedBy    string      `json:"changed_by"`            // user email or "system"
+	ChangeNote   string      `json:"change_note,omitempty"` // human-readable description
+	CreatedAt    string      `json:"created_at"`
+}
+
+// AgentConfigRevisionStorer defines operations for agent config revision tracking.
+type AgentConfigRevisionStorer interface {
+	// CreateRevision records a new config revision for an agent.
+	CreateRevision(ctx context.Context, rev AgentConfigRevision) (*AgentConfigRevision, error)
+	// ListRevisions returns all revisions for an agent, newest first.
+	ListRevisions(ctx context.Context, agentID string) ([]AgentConfigRevision, error)
+	// GetRevision returns a specific revision by ID.
+	GetRevision(ctx context.Context, id string) (*AgentConfigRevision, error)
+	// GetLatestRevision returns the most recent revision for an agent.
+	GetLatestRevision(ctx context.Context, agentID string) (*AgentConfigRevision, error)
+}
+
+// ─── Cost Events ───
+
+// CostEvent records a single LLM call cost, linked to agent, issue, project, goal, and billing code.
+type CostEvent struct {
+	ID             string  `json:"id"`
+	OrganizationID string  `json:"organization_id,omitempty"`
+	AgentID        string  `json:"agent_id"`
+	TaskID         string  `json:"task_id,omitempty"`      // issue that incurred this cost
+	ProjectID      string  `json:"project_id,omitempty"`   // project attribution
+	GoalID         string  `json:"goal_id,omitempty"`      // goal attribution
+	BillingCode    string  `json:"billing_code,omitempty"` // cost center code
+	RunID          string  `json:"run_id,omitempty"`       // heartbeat run that generated this
+	Provider       string  `json:"provider"`
+	Model          string  `json:"model"`
+	InputTokens    int64   `json:"input_tokens"`
+	OutputTokens   int64   `json:"output_tokens"`
+	CostCents      float64 `json:"cost_cents"` // cost in cents
+	CreatedAt      string  `json:"created_at"`
+}
+
+// CostEventStorer defines operations for per-call cost tracking.
+type CostEventStorer interface {
+	RecordCostEvent(ctx context.Context, event CostEvent) error
+	ListCostEvents(ctx context.Context, q *query.Query) (*ListResult[CostEvent], error)
+	// GetCostSummary returns total cost in cents for a given filter (agent, project, goal, billing code).
+	GetCostByAgent(ctx context.Context, agentID string) (float64, error)
+	GetCostByProject(ctx context.Context, projectID string) (float64, error)
+	GetCostByGoal(ctx context.Context, goalID string) (float64, error)
+	GetCostByBillingCode(ctx context.Context, billingCode string) (float64, error)
 }
 
 // ─── Chat Sessions ───

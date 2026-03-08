@@ -23,6 +23,7 @@
     "stylelint-scss": "6.13.0",
     "svelte": "^5.46.1",
     "svelte-check": "^4.3.5",
+    "svelte-dnd-action": "^0.9.69",
     "svelte-spa-router": "^4.0.1",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",

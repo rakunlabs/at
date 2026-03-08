@@ -47,6 +47,9 @@
   let formToolTimeout = $state(60);
   let formConfirmationTools = $state<string[]>([]);
 
+  // Agent-level scheduling
+  let formHeartbeatSchedule = $state('');
+
   // Copy / Paste via system clipboard
   
   async function copyAgent(agent: Agent) {
@@ -159,6 +162,7 @@
     formMaxIterations = 10;
     formToolTimeout = 60;
     formConfirmationTools = [];
+    formHeartbeatSchedule = '';
     editingId = null;
     showForm = false;
   }
@@ -183,6 +187,7 @@
     formMaxIterations = agent.config.max_iterations || 10;
     formToolTimeout = agent.config.tool_timeout || 60;
     formConfirmationTools = [...(agent.config.confirmation_required_tools || [])];
+    formHeartbeatSchedule = agent.config.heartbeat_schedule || '';
     showForm = true;
   }
 
@@ -213,6 +218,7 @@
           max_iterations: formMaxIterations,
           tool_timeout: formToolTimeout,
           confirmation_required_tools: formConfirmationTools,
+          heartbeat_schedule: formHeartbeatSchedule.trim() || undefined,
         },
       };
 
@@ -535,6 +541,25 @@
               />
             </div>
 
+            <!-- Organization Section -->
+            <div class="pt-3 border-t border-gray-100 dark:border-dark-border">
+              <span class="text-xs font-medium text-gray-400 dark:text-dark-text-muted tracking-wider uppercase mb-3 block">Scheduling</span>
+
+              <div class="space-y-4">
+                <!-- Heartbeat -->
+                <div class="grid grid-cols-4 gap-3 items-center">
+                  <label for="form-heartbeat" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Heartbeat</label>
+                  <input
+                    id="form-heartbeat"
+                    type="text"
+                    bind:value={formHeartbeatSchedule}
+                    placeholder="Cron (e.g., */5 * * * *)"
+                    class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  />
+                </div>
+              </div>
+            </div>
+
             <!-- Actions -->
             <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
               <button
@@ -578,17 +603,19 @@
         >
           {#snippet header()}
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Description</th>
             <SortableHeader field="provider" label="Provider / Model" {sorts} onsort={handleSort} />
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Skills</th>
             <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
           {/snippet}
 
           {#snippet row(agent)}
             <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-              <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={agent.config.description}>
-                {agent.config.description || '-'}
+              <td class="px-4 py-2.5">
+                <div class="flex flex-col gap-0.5">
+                  <span class="font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</span>
+                  {#if agent.config.description}
+                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted truncate max-w-48">{agent.config.description}</span>
+                  {/if}
+                </div>
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
                 <div class="flex flex-col gap-0.5">
@@ -597,18 +624,6 @@
                     <span class="font-mono text-gray-400 dark:text-dark-text-muted text-[10px]">{agent.config.model}</span>
                   {/if}
                 </div>
-              </td>
-              <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                {#if agent.config.skills && agent.config.skills.length > 0}
-                  <span class="px-2 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">
-                    {agent.config.skills.length} skill{agent.config.skills.length !== 1 ? 's' : ''}
-                  </span>
-                  <span class="ml-1.5 text-gray-400 dark:text-dark-text-muted">
-                    {agent.config.skills.join(', ')}
-                  </span>
-                {:else}
-                  <span class="text-gray-400 dark:text-dark-text-muted">none</span>
-                {/if}
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">

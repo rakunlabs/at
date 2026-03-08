@@ -633,11 +633,33 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			return nil
 		}
 
+		// Check agent budget before making an LLM call.
+		if s.agentBudgetStore != nil {
+			checkBudget := s.checkBudgetFunc()
+			if checkBudget != nil {
+				if budgetErr := checkBudget(ctx, session.AgentID); budgetErr != nil {
+					onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("Budget exceeded: %v", budgetErr)})
+					return nil
+				}
+			}
+		}
+
 		resp, err := info.provider.Chat(ctx, model, llmMessages, llmTools)
 		if err != nil {
 			slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
 			onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("LLM error: %v", err)})
 			return nil
+		}
+
+		// Record token usage for cost tracking.
+		if resp.Usage.TotalTokens > 0 {
+			recordUsage := s.recordUsageFunc()
+			if recordUsage != nil {
+				if usageErr := recordUsage(ctx, session.AgentID, model, resp.Usage); usageErr != nil {
+					slog.Warn("agentic loop: failed to record usage",
+						"agent_id", session.AgentID, "error", usageErr)
+				}
+			}
 		}
 
 		// Emit text content.
@@ -766,6 +788,28 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 
 			onEvent(AgenticEvent{Type: "tool_result", ToolName: tc.Name, ToolID: tc.ID, Result: result})
+
+			// Record audit entry for each tool call.
+			recordAudit := s.recordAuditFunc()
+			if recordAudit != nil {
+				auditDetails := map[string]any{
+					"tool_name":  tc.Name,
+					"session_id": sessionID,
+					"iteration":  iteration,
+					"has_error":  callErr != nil,
+				}
+				if auditErr := recordAudit(ctx, service.AuditEntry{
+					ActorType:    "agent",
+					ActorID:      session.AgentID,
+					Action:       "tool_call",
+					ResourceType: "tool",
+					ResourceID:   tc.ID,
+					Details:      auditDetails,
+				}); auditErr != nil {
+					slog.Warn("agentic loop: failed to record audit",
+						"agent_id", session.AgentID, "error", auditErr)
+				}
+			}
 
 			toolResults = append(toolResults, service.ContentBlock{
 				Type:      "tool_result",

@@ -48,12 +48,13 @@ import (
 //
 // Returns NodeResultSelection.
 type execNode struct {
-	command     string
-	workingDir  string
-	timeout     time.Duration
-	sandboxRoot string
-	env         map[string]string
-	inputCount  int
+	command            string
+	workingDir         string
+	timeout            time.Duration
+	sandboxRoot        string
+	env                map[string]string
+	inputCount         int
+	allowInputOverride bool
 }
 
 // defaultSandboxRoot is the default root directory for exec sandboxing.
@@ -102,13 +103,16 @@ func newExecNode(node service.WorkflowNode) (workflow.Noder, error) {
 		}
 	}
 
+	allowInputOverride, _ := node.Data["allow_input_override"].(bool)
+
 	return &execNode{
-		command:     command,
-		workingDir:  workingDir,
-		timeout:     timeout,
-		sandboxRoot: sandboxRoot,
-		env:         env,
-		inputCount:  inputCount,
+		command:            command,
+		workingDir:         workingDir,
+		timeout:            timeout,
+		sandboxRoot:        sandboxRoot,
+		env:                env,
+		inputCount:         inputCount,
+		allowInputOverride: allowInputOverride,
 	}, nil
 }
 
@@ -165,8 +169,12 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 	command := resolveTemplate(n.command, inputs, varFuncMap(reg))
 
 	// Also allow command to come from inputs (edge data), which overrides the static config.
-	if inputCmd, ok := inputs["command"].(string); ok && inputCmd != "" {
-		command = inputCmd
+	// This is gated by AllowInputOverride to prevent upstream data from
+	// injecting arbitrary shell commands.
+	if n.allowInputOverride {
+		if inputCmd, ok := inputs["command"].(string); ok && inputCmd != "" {
+			command = inputCmd
+		}
 	}
 
 	if command == "" {

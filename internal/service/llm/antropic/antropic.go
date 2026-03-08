@@ -20,9 +20,14 @@ import (
 
 const DefaultBaseURL = "https://api.anthropic.com"
 
+// DefaultMaxTokens is the default max_tokens value sent to the Anthropic API.
+// Anthropic requires max_tokens on every request, unlike other providers.
+const DefaultMaxTokens = 4096
+
 type Provider struct {
-	APIKey string
-	Model  string
+	APIKey    string
+	Model     string
+	MaxTokens int
 
 	client      *klient.Client
 	tokenSource TokenSource
@@ -37,6 +42,14 @@ type Option func(*Provider)
 func WithTokenSource(ts TokenSource) Option {
 	return func(p *Provider) {
 		p.tokenSource = ts
+	}
+}
+
+// WithMaxTokens sets the default max_tokens value for requests.
+// If not set, DefaultMaxTokens (4096) is used.
+func WithMaxTokens(n int) Option {
+	return func(p *Provider) {
+		p.MaxTokens = n
 	}
 }
 
@@ -113,13 +126,19 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	}
 
 	p := &Provider{
-		APIKey: apiKey,
-		Model:  model,
-		client: client,
+		APIKey:    apiKey,
+		Model:     model,
+		MaxTokens: DefaultMaxTokens,
+		client:    client,
 	}
 
 	for _, o := range opts {
 		o(p)
+	}
+
+	// Ensure max_tokens has a sane minimum.
+	if p.MaxTokens <= 0 {
+		p.MaxTokens = DefaultMaxTokens
 	}
 
 	return p, nil
@@ -546,7 +565,7 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 
 	reqBody := map[string]any{
 		"model":      model,
-		"max_tokens": 4096,
+		"max_tokens": p.MaxTokens,
 		"messages":   filteredMessages,
 	}
 	if systemPrompt != "" {

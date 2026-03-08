@@ -1,0 +1,261 @@
+package postgres
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/doug-martin/goqu/v9"
+	"github.com/oklog/ulid/v2"
+	"github.com/rakunlabs/at/internal/service"
+)
+
+type orgAgentRow struct {
+	ID             string         `db:"id"`
+	OrganizationID string         `db:"organization_id"`
+	AgentID        string         `db:"agent_id"`
+	Role           sql.NullString `db:"role"`
+	Title          sql.NullString `db:"title"`
+	ParentAgentID  sql.NullString `db:"parent_agent_id"`
+	Status         string         `db:"status"`
+	CreatedAt      string         `db:"created_at"`
+	UpdatedAt      string         `db:"updated_at"`
+}
+
+func orgAgentRowToRecord(row orgAgentRow) service.OrganizationAgent {
+	return service.OrganizationAgent{
+		ID:             row.ID,
+		OrganizationID: row.OrganizationID,
+		AgentID:        row.AgentID,
+		Role:           row.Role.String,
+		Title:          row.Title.String,
+		ParentAgentID:  row.ParentAgentID.String,
+		Status:         row.Status,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
+	}
+}
+
+func (p *Postgres) scanOrgAgentRow(scanner interface{ Scan(...any) error }) (orgAgentRow, error) {
+	var row orgAgentRow
+	err := scanner.Scan(
+		&row.ID, &row.OrganizationID, &row.AgentID,
+		&row.Role, &row.Title, &row.ParentAgentID,
+		&row.Status, &row.CreatedAt, &row.UpdatedAt,
+	)
+
+	return row, err
+}
+
+var orgAgentCols = []any{"id", "organization_id", "agent_id", "role", "title", "parent_agent_id", "status", "created_at", "updated_at"}
+
+func (p *Postgres) ListOrganizationAgents(ctx context.Context, orgID string) ([]service.OrganizationAgent, error) {
+	q, _, err := p.goqu.From(p.tableOrganizationAgents).
+		Select(orgAgentCols...).
+		Where(goqu.I("organization_id").Eq(orgID)).
+		Order(goqu.I("created_at").Asc()).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list organization agents query: %w", err)
+	}
+
+	rows, err := p.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list organization agents: %w", err)
+	}
+	defer rows.Close()
+
+	var items []service.OrganizationAgent
+	for rows.Next() {
+		row, err := p.scanOrgAgentRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan organization agent row: %w", err)
+		}
+
+		items = append(items, orgAgentRowToRecord(row))
+	}
+
+	return items, rows.Err()
+}
+
+func (p *Postgres) ListAgentOrganizations(ctx context.Context, agentID string) ([]service.OrganizationAgent, error) {
+	q, _, err := p.goqu.From(p.tableOrganizationAgents).
+		Select(orgAgentCols...).
+		Where(goqu.I("agent_id").Eq(agentID)).
+		Order(goqu.I("created_at").Asc()).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list agent organizations query: %w", err)
+	}
+
+	rows, err := p.db.QueryContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("list agent organizations: %w", err)
+	}
+	defer rows.Close()
+
+	var items []service.OrganizationAgent
+	for rows.Next() {
+		row, err := p.scanOrgAgentRow(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan organization agent row: %w", err)
+		}
+
+		items = append(items, orgAgentRowToRecord(row))
+	}
+
+	return items, rows.Err()
+}
+
+func (p *Postgres) GetOrganizationAgent(ctx context.Context, id string) (*service.OrganizationAgent, error) {
+	q, _, err := p.goqu.From(p.tableOrganizationAgents).
+		Select(orgAgentCols...).
+		Where(goqu.I("id").Eq(id)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build get organization agent query: %w", err)
+	}
+
+	row, err := p.scanOrgAgentRow(p.db.QueryRowContext(ctx, q))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get organization agent %q: %w", id, err)
+	}
+
+	rec := orgAgentRowToRecord(row)
+
+	return &rec, nil
+}
+
+func (p *Postgres) GetOrganizationAgentByPair(ctx context.Context, orgID, agentID string) (*service.OrganizationAgent, error) {
+	q, _, err := p.goqu.From(p.tableOrganizationAgents).
+		Select(orgAgentCols...).
+		Where(goqu.I("organization_id").Eq(orgID), goqu.I("agent_id").Eq(agentID)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build get organization agent by pair query: %w", err)
+	}
+
+	row, err := p.scanOrgAgentRow(p.db.QueryRowContext(ctx, q))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get organization agent pair (%q, %q): %w", orgID, agentID, err)
+	}
+
+	rec := orgAgentRowToRecord(row)
+
+	return &rec, nil
+}
+
+func (p *Postgres) CreateOrganizationAgent(ctx context.Context, oa service.OrganizationAgent) (*service.OrganizationAgent, error) {
+	id := ulid.Make().String()
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	status := oa.Status
+	if status == "" {
+		status = "active"
+	}
+
+	q, _, err := p.goqu.Insert(p.tableOrganizationAgents).Rows(
+		goqu.Record{
+			"id":              id,
+			"organization_id": oa.OrganizationID,
+			"agent_id":        oa.AgentID,
+			"role":            nullString(oa.Role),
+			"title":           nullString(oa.Title),
+			"parent_agent_id": nullString(oa.ParentAgentID),
+			"status":          status,
+			"created_at":      now,
+			"updated_at":      now,
+		},
+	).ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build insert organization agent query: %w", err)
+	}
+
+	if _, err := p.db.ExecContext(ctx, q); err != nil {
+		return nil, fmt.Errorf("create organization agent (%q, %q): %w", oa.OrganizationID, oa.AgentID, err)
+	}
+
+	return &service.OrganizationAgent{
+		ID:             id,
+		OrganizationID: oa.OrganizationID,
+		AgentID:        oa.AgentID,
+		Role:           oa.Role,
+		Title:          oa.Title,
+		ParentAgentID:  oa.ParentAgentID,
+		Status:         status,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}, nil
+}
+
+func (p *Postgres) UpdateOrganizationAgent(ctx context.Context, id string, oa service.OrganizationAgent) (*service.OrganizationAgent, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	q, _, err := p.goqu.Update(p.tableOrganizationAgents).Set(
+		goqu.Record{
+			"role":            nullString(oa.Role),
+			"title":           nullString(oa.Title),
+			"parent_agent_id": nullString(oa.ParentAgentID),
+			"status":          oa.Status,
+			"updated_at":      now,
+		},
+	).Where(goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build update organization agent query: %w", err)
+	}
+
+	res, err := p.db.ExecContext(ctx, q)
+	if err != nil {
+		return nil, fmt.Errorf("update organization agent %q: %w", id, err)
+	}
+
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("rows affected: %w", err)
+	}
+	if affected == 0 {
+		return nil, nil
+	}
+
+	return p.GetOrganizationAgent(ctx, id)
+}
+
+func (p *Postgres) DeleteOrganizationAgent(ctx context.Context, id string) error {
+	q, _, err := p.goqu.Delete(p.tableOrganizationAgents).
+		Where(goqu.I("id").Eq(id)).
+		ToSQL()
+	if err != nil {
+		return fmt.Errorf("build delete organization agent query: %w", err)
+	}
+
+	_, err = p.db.ExecContext(ctx, q)
+	if err != nil {
+		return fmt.Errorf("delete organization agent %q: %w", id, err)
+	}
+
+	return nil
+}
+
+func (p *Postgres) DeleteOrganizationAgentByPair(ctx context.Context, orgID, agentID string) error {
+	q, _, err := p.goqu.Delete(p.tableOrganizationAgents).
+		Where(goqu.I("organization_id").Eq(orgID), goqu.I("agent_id").Eq(agentID)).
+		ToSQL()
+	if err != nil {
+		return fmt.Errorf("build delete organization agent by pair query: %w", err)
+	}
+
+	_, err = p.db.ExecContext(ctx, q)
+	if err != nil {
+		return fmt.Errorf("delete organization agent pair (%q, %q): %w", orgID, agentID, err)
+	}
+
+	return nil
+}

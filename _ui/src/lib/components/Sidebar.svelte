@@ -20,7 +20,12 @@
     Server,
     Layers,
     House,
+    Building2,
+    ClipboardList,
+    ScrollText,
+    Receipt,
   } from "lucide-svelte";
+
 
 
   function navigate(e: MouseEvent, path: string) {
@@ -271,6 +276,66 @@
           <span>Node Configs</span>
         </a>
 
+      </div>
+    </div>
+    <div>
+      <span
+        class="block p-2 text-[10px] font-medium text-gray-400 dark:text-dark-text-muted tracking-wider bg-gray-50 dark:bg-dark-base w-full border-b border-gray-200 dark:border-dark-border transition-colors"
+        >Organization</span
+      >
+      <div class="border-l-4 border-gray-800 dark:border-accent">
+        <a
+          href="#/organizations"
+          onclick={(e) => navigate(e, "/organizations")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/organizations" || $location.startsWith("/organizations/")
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <Building2 size={14} />
+          <span>Organizations</span>
+        </a>
+        <a
+          href="#/tasks"
+          onclick={(e) => navigate(e, "/tasks")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/tasks" || $location.startsWith("/tasks/")
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <ClipboardList size={14} />
+          <span>Tasks</span>
+        </a>
+        <a
+          href="#/audit"
+          onclick={(e) => navigate(e, "/audit")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/audit"
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <ScrollText size={14} />
+          <span>Audit</span>
+        </a>
+        <a
+          href="#/cost-events"
+          onclick={(e) => navigate(e, "/cost-events")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/cost-events"
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <Receipt size={14} />
+          <span>Cost Events</span>
+        </a>
       </div>
     </div>
   </div>

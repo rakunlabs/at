@@ -54,10 +54,15 @@ type Engine struct {
 	userPrefLookup        UserPrefLookup
 	chatMessageCreator    ChatMessageCreatorFunc
 	chatSessionLookup     ChatSessionLookupFunc
+	recordUsage           RecordUsageFunc
+	checkBudget           CheckBudgetFunc
+	recordAudit           RecordAuditFunc
+	goalAncestry          GoalAncestryFunc
+	versionLookup         VersionLookupFunc
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc) *Engine {
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc) *Engine {
 	return &Engine{
 		providerLookup:        lookup,
 		skillLookup:           skillLookup,
@@ -78,6 +83,11 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 		userPrefLookup:        userPrefLookup,
 		chatMessageCreator:    chatMessageCreator,
 		chatSessionLookup:     chatSessionLookup,
+		recordUsage:           recordUsage,
+		checkBudget:           checkBudget,
+		recordAudit:           recordAudit,
+		goalAncestry:          goalAncestry,
+		versionLookup:         versionLookup,
 	}
 }
 
@@ -243,7 +253,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, inputs)
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordAudit, e.goalAncestry, e.versionLookup, inputs)
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
@@ -404,12 +414,9 @@ func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeO
 			// Map source port data to target port.
 			if val, exists := upstreamData[conn.port]; exists {
 				result[tgtPort] = val
-			} else {
-				// If the specific port doesn't exist in data, merge all data.
-				for k, v := range upstreamData {
-					result[k] = v
-				}
 			}
+			// If the specific port doesn't exist in data, skip it.
+			// Strict port matching: we only use data from the exact port key.
 		}
 	}
 

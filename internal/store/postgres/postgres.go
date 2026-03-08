@@ -35,26 +35,46 @@ type Postgres struct {
 	db   *sql.DB
 	goqu *goqu.Database
 
-	tableProviders          exp.IdentifierExpression
-	tableAPITokens          exp.IdentifierExpression
-	tableWorkflows          exp.IdentifierExpression
-	tableWorkflowVersions   exp.IdentifierExpression
-	tableTriggers           exp.IdentifierExpression
-	tableSkills             exp.IdentifierExpression
-	tableVariables          exp.IdentifierExpression
-	tableNodeConfigs        exp.IdentifierExpression
-	tableAgents             exp.IdentifierExpression
-	tableChatSessions       exp.IdentifierExpression
-	tableChatMessages       exp.IdentifierExpression
-	tableRAGCollections     exp.IdentifierExpression
-	tableRAGStates          exp.IdentifierExpression
-	tableRAGMCPServers      exp.IdentifierExpression
-	tableMCPServers         exp.IdentifierExpression
-	tableMCPSets            exp.IdentifierExpression
-	tableBotConfigs         exp.IdentifierExpression
-	tableMarketplaceSources exp.IdentifierExpression
-	tableTokenUsage         exp.IdentifierExpression
-	tableUserPreferences    exp.IdentifierExpression
+	tableProviders            exp.IdentifierExpression
+	tableAPITokens            exp.IdentifierExpression
+	tableWorkflows            exp.IdentifierExpression
+	tableWorkflowVersions     exp.IdentifierExpression
+	tableTriggers             exp.IdentifierExpression
+	tableSkills               exp.IdentifierExpression
+	tableVariables            exp.IdentifierExpression
+	tableNodeConfigs          exp.IdentifierExpression
+	tableAgents               exp.IdentifierExpression
+	tableChatSessions         exp.IdentifierExpression
+	tableChatMessages         exp.IdentifierExpression
+	tableRAGCollections       exp.IdentifierExpression
+	tableRAGStates            exp.IdentifierExpression
+	tableRAGMCPServers        exp.IdentifierExpression
+	tableMCPServers           exp.IdentifierExpression
+	tableMCPSets              exp.IdentifierExpression
+	tableBotConfigs           exp.IdentifierExpression
+	tableMarketplaceSources   exp.IdentifierExpression
+	tableTokenUsage           exp.IdentifierExpression
+	tableUserPreferences      exp.IdentifierExpression
+	tableOrganizations        exp.IdentifierExpression
+	tableGoals                exp.IdentifierExpression
+	tableTasks                exp.IdentifierExpression
+	tableAgentBudgets         exp.IdentifierExpression
+	tableAgentUsage           exp.IdentifierExpression
+	tableModelPricing         exp.IdentifierExpression
+	tableAuditLog             exp.IdentifierExpression
+	tableAgentHeartbeats      exp.IdentifierExpression
+	tableProjects             exp.IdentifierExpression
+	tableIssueComments        exp.IdentifierExpression
+	tableLabels               exp.IdentifierExpression
+	tableTaskLabels           exp.IdentifierExpression
+	tableHeartbeatRuns        exp.IdentifierExpression
+	tableWakeupRequests       exp.IdentifierExpression
+	tableAgentRuntimeState    exp.IdentifierExpression
+	tableAgentTaskSessions    exp.IdentifierExpression
+	tableApprovals            exp.IdentifierExpression
+	tableAgentConfigRevisions exp.IdentifierExpression
+	tableCostEvents           exp.IdentifierExpression
+	tableOrganizationAgents   exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -141,29 +161,49 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 	dbGoqu := goqu.New("postgres", db)
 
 	return &Postgres{
-		db:                      db,
-		goqu:                    dbGoqu,
-		tableProviders:          goqu.T(tablePrefix + "providers"),
-		tableAPITokens:          goqu.T(tablePrefix + "tokens"),
-		tableWorkflows:          goqu.T(tablePrefix + "workflows"),
-		tableWorkflowVersions:   goqu.T(tablePrefix + "workflow_versions"),
-		tableTriggers:           goqu.T(tablePrefix + "triggers"),
-		tableSkills:             goqu.T(tablePrefix + "skills"),
-		tableVariables:          goqu.T(tablePrefix + "variables"),
-		tableNodeConfigs:        goqu.T(tablePrefix + "node_configs"),
-		tableAgents:             goqu.T(tablePrefix + "agents"),
-		tableChatSessions:       goqu.T(tablePrefix + "chat_sessions"),
-		tableChatMessages:       goqu.T(tablePrefix + "chat_messages"),
-		tableRAGCollections:     goqu.T(tablePrefix + "rag_collections"),
-		tableRAGStates:          goqu.T(tablePrefix + "rag_states"),
-		tableRAGMCPServers:      goqu.T(tablePrefix + "rag_mcp_servers"),
-		tableMCPServers:         goqu.T(tablePrefix + "mcp_servers"),
-		tableMCPSets:            goqu.T(tablePrefix + "mcp_sets"),
-		tableBotConfigs:         goqu.T(tablePrefix + "bot_configs"),
-		tableMarketplaceSources: goqu.T(tablePrefix + "marketplace_sources"),
-		tableTokenUsage:         goqu.T(tablePrefix + "token_usage"),
-		tableUserPreferences:    goqu.T(tablePrefix + "user_preferences"),
-		encKey:                  encKey,
+		db:                        db,
+		goqu:                      dbGoqu,
+		tableProviders:            goqu.T(tablePrefix + "providers"),
+		tableAPITokens:            goqu.T(tablePrefix + "tokens"),
+		tableWorkflows:            goqu.T(tablePrefix + "workflows"),
+		tableWorkflowVersions:     goqu.T(tablePrefix + "workflow_versions"),
+		tableTriggers:             goqu.T(tablePrefix + "triggers"),
+		tableSkills:               goqu.T(tablePrefix + "skills"),
+		tableVariables:            goqu.T(tablePrefix + "variables"),
+		tableNodeConfigs:          goqu.T(tablePrefix + "node_configs"),
+		tableAgents:               goqu.T(tablePrefix + "agents"),
+		tableChatSessions:         goqu.T(tablePrefix + "chat_sessions"),
+		tableChatMessages:         goqu.T(tablePrefix + "chat_messages"),
+		tableRAGCollections:       goqu.T(tablePrefix + "rag_collections"),
+		tableRAGStates:            goqu.T(tablePrefix + "rag_states"),
+		tableRAGMCPServers:        goqu.T(tablePrefix + "rag_mcp_servers"),
+		tableMCPServers:           goqu.T(tablePrefix + "mcp_servers"),
+		tableMCPSets:              goqu.T(tablePrefix + "mcp_sets"),
+		tableBotConfigs:           goqu.T(tablePrefix + "bot_configs"),
+		tableMarketplaceSources:   goqu.T(tablePrefix + "marketplace_sources"),
+		tableTokenUsage:           goqu.T(tablePrefix + "token_usage"),
+		tableUserPreferences:      goqu.T(tablePrefix + "user_preferences"),
+		tableOrganizations:        goqu.T(tablePrefix + "organizations"),
+		tableGoals:                goqu.T(tablePrefix + "goals"),
+		tableTasks:                goqu.T(tablePrefix + "tasks"),
+		tableAgentBudgets:         goqu.T(tablePrefix + "agent_budgets"),
+		tableAgentUsage:           goqu.T(tablePrefix + "agent_usage"),
+		tableModelPricing:         goqu.T(tablePrefix + "model_pricing"),
+		tableAuditLog:             goqu.T(tablePrefix + "audit_log"),
+		tableAgentHeartbeats:      goqu.T(tablePrefix + "agent_heartbeats"),
+		tableProjects:             goqu.T(tablePrefix + "projects"),
+		tableIssueComments:        goqu.T(tablePrefix + "issue_comments"),
+		tableLabels:               goqu.T(tablePrefix + "labels"),
+		tableTaskLabels:           goqu.T(tablePrefix + "task_labels"),
+		tableHeartbeatRuns:        goqu.T(tablePrefix + "heartbeat_runs"),
+		tableWakeupRequests:       goqu.T(tablePrefix + "wakeup_requests"),
+		tableAgentRuntimeState:    goqu.T(tablePrefix + "agent_runtime_state"),
+		tableAgentTaskSessions:    goqu.T(tablePrefix + "agent_task_sessions"),
+		tableApprovals:            goqu.T(tablePrefix + "approvals"),
+		tableAgentConfigRevisions: goqu.T(tablePrefix + "agent_config_revisions"),
+		tableCostEvents:           goqu.T(tablePrefix + "cost_events"),
+		tableOrganizationAgents:   goqu.T(tablePrefix + "organization_agents"),
+		encKey:                    encKey,
 	}, nil
 }
 

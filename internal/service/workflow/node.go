@@ -229,6 +229,27 @@ type Registry struct {
 	// Used by agent_call nodes to include enabled builtin tools in the LLM tool list.
 	BuiltinToolDefs []BuiltinToolDef
 
+	// RecordUsage records token usage for an agent after each LLM call.
+	// Used by agent_call nodes for cost tracking. nil when budget tracking is not configured.
+	RecordUsage RecordUsageFunc
+
+	// CheckBudget checks if an agent has exceeded its budget before making an LLM call.
+	// Returns an error if the agent is over budget. nil when budget tracking is not configured.
+	CheckBudget CheckBudgetFunc
+
+	// RecordAudit appends an entry to the immutable audit log.
+	// Used by agent_call nodes to log tool calls and decisions. nil when audit is not configured.
+	RecordAudit RecordAuditFunc
+
+	// GoalAncestry returns the full goal chain for a given goal ID (for system prompt injection).
+	// nil when goal store is not configured.
+	GoalAncestry GoalAncestryFunc
+
+	// VersionLookup resolves a workflow's active version graph.
+	// Used by workflow_call nodes to run the published (active) version
+	// instead of the draft graph. nil when version store is not configured.
+	VersionLookup VersionLookupFunc
+
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
 
@@ -321,6 +342,25 @@ type ChatSessionLookupFunc func(ctx context.Context, id string) (*service.ChatSe
 // Returns the tool's text result or an error.
 type BuiltinToolDispatcher func(ctx context.Context, name string, args map[string]any) (string, error)
 
+// RecordUsageFunc records token usage for an agent after each LLM call.
+// agentID is the agent performing the call, model is the model used.
+type RecordUsageFunc func(ctx context.Context, agentID, model string, usage service.Usage) error
+
+// CheckBudgetFunc checks if an agent has exceeded its spending budget.
+// Returns a non-nil error if the agent is over budget.
+type CheckBudgetFunc func(ctx context.Context, agentID string) error
+
+// RecordAuditFunc appends an entry to the immutable audit log.
+type RecordAuditFunc func(ctx context.Context, entry service.AuditEntry) error
+
+// GoalAncestryFunc returns the full goal chain from the given goal up to the root mission.
+type GoalAncestryFunc func(ctx context.Context, goalID string) ([]service.Goal, error)
+
+// VersionLookupFunc resolves a workflow's active version graph.
+// Given a workflow ID, it returns the active version's graph (if one is set),
+// or nil if no active version exists. Used by workflow_call nodes.
+type VersionLookupFunc func(ctx context.Context, workflowID string) (*service.WorkflowGraph, error)
+
 // BuiltinToolDef describes a built-in tool available to agents.
 type BuiltinToolDef struct {
 	Name        string         `json:"name"`
@@ -329,7 +369,7 @@ type BuiltinToolDef struct {
 }
 
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
@@ -353,6 +393,11 @@ func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLo
 		ChatSessionLookup:     chatSessionLookup,
 		BuiltinToolDispatcher: builtinDispatcher,
 		BuiltinToolDefs:       builtinDefs,
+		RecordUsage:           recordUsage,
+		CheckBudget:           checkBudget,
+		RecordAudit:           recordAudit,
+		GoalAncestry:          goalAncestry,
+		VersionLookup:         versionLookup,
 		RunInputs:             inputs,
 		outputs:               make(map[string]any),
 	}

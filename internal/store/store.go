@@ -32,6 +32,23 @@ type StorerClose interface {
 	service.BotConfigStorer
 	service.MarketplaceSourceStorer
 	service.UserPreferenceStorer
+	service.OrganizationStorer
+	service.GoalStorer
+	service.TaskStorer
+	service.AgentBudgetStorer
+	service.AuditStorer
+	service.AgentHeartbeatStorer
+	service.ProjectStorer
+	service.IssueCommentStorer
+	service.LabelStorer
+	service.HeartbeatRunStorer
+	service.WakeupRequestStorer
+	service.AgentRuntimeStateStorer
+	service.AgentTaskSessionStorer
+	service.ApprovalStorer
+	service.AgentConfigRevisionStorer
+	service.CostEventStorer
+	service.OrganizationAgentStorer
 	Close()
 }
 
