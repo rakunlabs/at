@@ -46,8 +46,8 @@ Plans:
 **Plans:** 2/2 plans complete
 
 Plans:
-- [ ] 02-01-PLAN.md — Core org delegation engine: runOrgDelegation with agentic loop, delegate tool generation from direct reports, system prompt enrichment, child task creation, recursive delegation, budget checking
-- [ ] 02-02-PLAN.md — Wire task intake → async delegation goroutine + unit tests for getDirectReports, createDelegationTask, tool name sanitization
+- [x] 02-01-PLAN.md — Core org delegation engine: runOrgDelegation with agentic loop, delegate tool generation from direct reports, system prompt enrichment, child task creation, recursive delegation, budget checking
+- [x] 02-02-PLAN.md — Wire task intake → async delegation goroutine + unit tests for getDirectReports, createDelegationTask, tool name sanitization
 
 ### Phase 3: Depth & Concurrency
 **Goal**: Delegation chains extend to unlimited depth with parallel fan-out, and task status propagates automatically through the hierarchy
@@ -59,10 +59,10 @@ Plans:
   3. When all child tasks of a parent complete, the parent task is automatically marked complete
   4. Task failure at any level is recorded and the parent agent receives the failure information
   5. GET /api/v1/tasks/{id} returns the task with its full sub-task tree showing status at every level
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
-- [ ] 03-01-PLAN.md — Store infrastructure (ListChildTasks + UpdateTaskStatus across 3 backends), status propagation (parent auto-complete/fail), sub-task tree API (GET ?include=subtasks)
+- [x] 03-01-PLAN.md — Store infrastructure (ListChildTasks + UpdateTaskStatus across 3 backends), status propagation (parent auto-complete/fail), sub-task tree API (GET ?include=subtasks)
 - [ ] 03-02-PLAN.md — Concurrent fan-out (WaitGroup + Mutex replacing sequential tool call loop), deep delegation chain verification + tests
 
 ### Phase 4: UI Integration
@@ -86,5 +86,5 @@ Plans:
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-08 |
 | 2. Core Delegation | 2/2 | Complete   | 2026-03-08 |
-| 3. Depth & Concurrency | 0/2 | In Progress | - |
+| 3. Depth & Concurrency | 1/2 | In Progress|  |
 | 4. UI Integration | 0/? | Not started | - |

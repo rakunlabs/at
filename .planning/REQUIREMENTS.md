@@ -40,10 +40,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Status
 
-- [ ] **STAT-01**: When a leaf task completes, parent task status is updated to reflect progress
-- [ ] **STAT-02**: When all child tasks of a parent complete, parent task is marked complete
-- [ ] **STAT-03**: Task failure at any level is recorded and propagated to the parent agent
-- [ ] **STAT-04**: GET /api/v1/tasks/{id} returns the task with its full sub-task tree
+- [x] **STAT-01**: When a leaf task completes, parent task status is updated to reflect progress
+- [x] **STAT-02**: When all child tasks of a parent complete, parent task is marked complete
+- [x] **STAT-03**: Task failure at any level is recorded and propagated to the parent agent
+- [x] **STAT-04**: GET /api/v1/tasks/{id} returns the task with its full sub-task tree
 
 ### UI
 
@@ -110,10 +110,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | CONC-02 | Phase 3 | Pending |
 | CONC-03 | Phase 2 | Complete |
 | CONC-04 | Phase 3 | Pending |
-| STAT-01 | Phase 3 | Pending |
-| STAT-02 | Phase 3 | Pending |
-| STAT-03 | Phase 3 | Pending |
-| STAT-04 | Phase 3 | Pending |
+| STAT-01 | Phase 3 | Complete |
+| STAT-02 | Phase 3 | Complete |
+| STAT-03 | Phase 3 | Complete |
+| STAT-04 | Phase 3 | Complete |
 | UI-01 | Phase 4 | Pending |
 | UI-02 | Phase 4 | Pending |
 | UI-03 | Phase 4 | Pending |
