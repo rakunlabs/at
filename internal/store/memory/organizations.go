@@ -49,15 +49,28 @@ func (m *Memory) CreateOrganization(_ context.Context, org service.Organization)
 	id := ulid.Make().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	maxDepth := org.MaxDelegationDepth
+	if maxDepth == 0 {
+		maxDepth = 10
+	}
+
 	rec := service.Organization{
-		ID:           id,
-		Name:         org.Name,
-		Description:  org.Description,
-		CanvasLayout: org.CanvasLayout,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		CreatedBy:    org.CreatedBy,
-		UpdatedBy:    org.UpdatedBy,
+		ID:                   id,
+		Name:                 org.Name,
+		Description:          org.Description,
+		IssuePrefix:          org.IssuePrefix,
+		IssueCounter:         org.IssueCounter,
+		BudgetMonthlyCents:   org.BudgetMonthlyCents,
+		SpentMonthlyCents:    org.SpentMonthlyCents,
+		BudgetResetAt:        org.BudgetResetAt,
+		RequireBoardApproval: org.RequireBoardApproval,
+		HeadAgentID:          org.HeadAgentID,
+		MaxDelegationDepth:   maxDepth,
+		CanvasLayout:         org.CanvasLayout,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+		CreatedBy:            org.CreatedBy,
+		UpdatedBy:            org.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -83,6 +96,17 @@ func (m *Memory) UpdateOrganization(_ context.Context, id string, org service.Or
 	if len(org.CanvasLayout) > 0 {
 		existing.CanvasLayout = org.CanvasLayout
 	}
+	if org.IssuePrefix != "" {
+		existing.IssuePrefix = org.IssuePrefix
+	}
+	existing.HeadAgentID = org.HeadAgentID // always write — empty means clear
+	if org.MaxDelegationDepth > 0 {
+		existing.MaxDelegationDepth = org.MaxDelegationDepth
+	}
+	existing.BudgetMonthlyCents = org.BudgetMonthlyCents
+	existing.SpentMonthlyCents = org.SpentMonthlyCents
+	existing.BudgetResetAt = org.BudgetResetAt
+	existing.RequireBoardApproval = org.RequireBoardApproval
 	existing.UpdatedAt = now
 	existing.UpdatedBy = org.UpdatedBy
 	m.organizations[id] = existing

@@ -512,6 +512,8 @@ type Organization struct {
 	SpentMonthlyCents    int64           `json:"spent_monthly_cents,omitempty"`         // company-level monthly spend accumulator in cents
 	BudgetResetAt        string          `json:"budget_reset_at,omitempty"`             // when the monthly budget was last reset (RFC3339)
 	RequireBoardApproval bool            `json:"require_board_approval_for_new_agents"` // if true, new agent creation requires approval
+	HeadAgentID          string          `json:"head_agent_id,omitempty"`               // the designated head agent for this organization's hierarchy
+	MaxDelegationDepth   int             `json:"max_delegation_depth,omitempty"`        // configurable maximum delegation chain depth (default: 10)
 	CanvasLayout         json.RawMessage `json:"canvas_layout,omitempty"`               // JSON blob storing canvas groups, sticky notes, and node positions
 	CreatedAt            string          `json:"created_at"`
 	UpdatedAt            string          `json:"updated_at"`
