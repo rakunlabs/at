@@ -10,7 +10,7 @@ Requirements for initial release. Each maps to roadmap phases.
 ### Hierarchy
 
 - [x] **HIER-01**: Organization has a designated head agent field (nullable, one agent per org)
-- [ ] **HIER-02**: User can select head agent from org's existing agents via UI dropdown
+- [x] **HIER-02**: User can select head agent from org's existing agents via UI dropdown
 - [x] **HIER-03**: Agents can only delegate to their direct reports (children in parent_agent_id tree)
 - [x] **HIER-04**: Hierarchy validation rejects cycles and orphan branches on save
 - [x] **HIER-05**: Delegating agent's system prompt is enriched with direct reports' roles, titles, and descriptions
@@ -47,10 +47,10 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### UI
 
-- [ ] **UI-01**: Organization edit/create form has head agent dropdown selector
-- [ ] **UI-02**: Organization detail page has a "Submit Task" form that calls the intake API
-- [ ] **UI-03**: Canvas drag-to-reparent updates parent_agent_id via existing API
-- [ ] **UI-04**: Task detail shows delegation chain (parent -> child tree visualization)
+- [x] **UI-01**: Organization edit/create form has head agent dropdown selector
+- [x] **UI-02**: Organization detail page has a "Submit Task" form that calls the intake API
+- [x] **UI-03**: Canvas drag-to-reparent updates parent_agent_id via existing API
+- [x] **UI-04**: Task detail shows delegation chain (parent -> child tree visualization)
 
 ## v2 Requirements
 
@@ -92,7 +92,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | HIER-01 | Phase 1 | Complete |
-| HIER-02 | Phase 4 | Pending |
+| HIER-02 | Phase 4 | Complete |
 | HIER-03 | Phase 2 | Complete |
 | HIER-04 | Phase 1 | Complete |
 | HIER-05 | Phase 2 | Complete |
@@ -114,10 +114,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | STAT-02 | Phase 3 | Complete |
 | STAT-03 | Phase 3 | Complete |
 | STAT-04 | Phase 3 | Complete |
-| UI-01 | Phase 4 | Pending |
-| UI-02 | Phase 4 | Pending |
-| UI-03 | Phase 4 | Pending |
-| UI-04 | Phase 4 | Pending |
+| UI-01 | Phase 4 | Complete |
+| UI-02 | Phase 4 | Complete |
+| UI-03 | Phase 4 | Complete |
+| UI-04 | Phase 4 | Complete |
 
 **Coverage:**
 - v1 requirements: 27 total

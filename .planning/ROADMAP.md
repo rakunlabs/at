@@ -13,7 +13,7 @@ This roadmap delivers hierarchical agent task routing for the AT LLM gateway —
 - [x] **Phase 1: Foundation** - Data model, hierarchy validation, and async task intake API
 - [x] **Phase 2: Core Delegation** - LLM-driven routing from head agent to direct reports with task tracking (completed 2026-03-08)
 - [x] **Phase 3: Depth & Concurrency** - Multi-level delegation chains, parallel fan-out, and status propagation (completed 2026-03-08)
-- [ ] **Phase 4: UI Integration** - Head agent selector, task submission form, canvas reparenting, and delegation tree view
+- [x] **Phase 4: UI Integration** - Head agent selector, task submission form, canvas reparenting, and delegation tree view (completed 2026-03-08)
 
 ## Phase Details
 
@@ -87,4 +87,4 @@ Plans:
 | 1. Foundation | 2/2 | Complete | 2026-03-08 |
 | 2. Core Delegation | 2/2 | Complete   | 2026-03-08 |
 | 3. Depth & Concurrency | 2/2 | Complete | 2026-03-08 |
-| 4. UI Integration | 0/2 | Planning | - |
+| 4. UI Integration | 2/2 | Complete   | 2026-03-08 |
