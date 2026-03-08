@@ -17,18 +17,33 @@ import (
 // ─── Organization CRUD ───
 
 type orgRow struct {
-	ID           string    `db:"id"`
-	Name         string    `db:"name"`
-	Description  string    `db:"description"`
-	CanvasLayout string    `db:"canvas_layout"`
-	CreatedAt    time.Time `db:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at"`
-	CreatedBy    string    `db:"created_by"`
-	UpdatedBy    string    `db:"updated_by"`
+	ID                   string       `db:"id"`
+	Name                 string       `db:"name"`
+	Description          string       `db:"description"`
+	IssuePrefix          string       `db:"issue_prefix"`
+	IssueCounter         int64        `db:"issue_counter"`
+	BudgetMonthlyCents   int64        `db:"budget_monthly_cents"`
+	SpentMonthlyCents    int64        `db:"spent_monthly_cents"`
+	BudgetResetAt        sql.NullTime `db:"budget_reset_at"`
+	RequireBoardApproval bool         `db:"require_board_approval_for_new_agents"`
+	HeadAgentID          string       `db:"head_agent_id"`
+	MaxDelegationDepth   int          `db:"max_delegation_depth"`
+	CanvasLayout         string       `db:"canvas_layout"`
+	CreatedAt            time.Time    `db:"created_at"`
+	UpdatedAt            time.Time    `db:"updated_at"`
+	CreatedBy            string       `db:"created_by"`
+	UpdatedBy            string       `db:"updated_by"`
 }
 
 func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*service.ListResult[service.Organization], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableOrganizations, q, "id", "name", "description", "canvas_layout", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableOrganizations, q,
+		"id", "name", "description",
+		"issue_prefix", "issue_counter",
+		"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
+		"require_board_approval_for_new_agents",
+		"head_agent_id", "max_delegation_depth",
+		"canvas_layout", "created_at", "updated_at", "created_by", "updated_by",
+	)
 	if err != nil {
 		return nil, fmt.Errorf("build list organizations query: %w", err)
 	}
@@ -42,7 +57,14 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 	var items []service.Organization
 	for rows.Next() {
 		var row orgRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(
+			&row.ID, &row.Name, &row.Description,
+			&row.IssuePrefix, &row.IssueCounter,
+			&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
+			&row.RequireBoardApproval,
+			&row.HeadAgentID, &row.MaxDelegationDepth,
+			&row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		); err != nil {
 			return nil, fmt.Errorf("scan organization row: %w", err)
 		}
 
@@ -63,7 +85,14 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 
 func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Organization, error) {
 	query, _, err := p.goqu.From(p.tableOrganizations).
-		Select("id", "name", "description", "canvas_layout", "created_at", "updated_at", "created_by", "updated_by").
+		Select(
+			"id", "name", "description",
+			"issue_prefix", "issue_counter",
+			"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
+			"require_board_approval_for_new_agents",
+			"head_agent_id", "max_delegation_depth",
+			"canvas_layout", "created_at", "updated_at", "created_by", "updated_by",
+		).
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -71,7 +100,14 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 	}
 
 	var row orgRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(
+		&row.ID, &row.Name, &row.Description,
+		&row.IssuePrefix, &row.IssueCounter,
+		&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
+		&row.RequireBoardApproval,
+		&row.HeadAgentID, &row.MaxDelegationDepth,
+		&row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -91,18 +127,36 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 		canvasLayout = "{}"
 	}
 
-	query, _, err := p.goqu.Insert(p.tableOrganizations).Rows(
-		goqu.Record{
-			"id":            id,
-			"name":          org.Name,
-			"description":   org.Description,
-			"canvas_layout": canvasLayout,
-			"created_at":    now,
-			"updated_at":    now,
-			"created_by":    org.CreatedBy,
-			"updated_by":    org.UpdatedBy,
-		},
-	).ToSQL()
+	maxDepth := org.MaxDelegationDepth
+	if maxDepth == 0 {
+		maxDepth = 10
+	}
+
+	rec := goqu.Record{
+		"id":                                    id,
+		"name":                                  org.Name,
+		"description":                           org.Description,
+		"issue_prefix":                          org.IssuePrefix,
+		"issue_counter":                         org.IssueCounter,
+		"budget_monthly_cents":                  org.BudgetMonthlyCents,
+		"spent_monthly_cents":                   org.SpentMonthlyCents,
+		"require_board_approval_for_new_agents": org.RequireBoardApproval,
+		"head_agent_id":                         org.HeadAgentID,
+		"max_delegation_depth":                  maxDepth,
+		"canvas_layout":                         canvasLayout,
+		"created_at":                            now,
+		"updated_at":                            now,
+		"created_by":                            org.CreatedBy,
+		"updated_by":                            org.UpdatedBy,
+	}
+	if org.BudgetResetAt != "" {
+		t, err := time.Parse(time.RFC3339, org.BudgetResetAt)
+		if err == nil {
+			rec["budget_reset_at"] = t
+		}
+	}
+
+	query, _, err := p.goqu.Insert(p.tableOrganizations).Rows(rec).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert organization query: %w", err)
 	}
@@ -112,14 +166,22 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 	}
 
 	return &service.Organization{
-		ID:           id,
-		Name:         org.Name,
-		Description:  org.Description,
-		CanvasLayout: org.CanvasLayout,
-		CreatedAt:    now.Format(time.RFC3339),
-		UpdatedAt:    now.Format(time.RFC3339),
-		CreatedBy:    org.CreatedBy,
-		UpdatedBy:    org.UpdatedBy,
+		ID:                   id,
+		Name:                 org.Name,
+		Description:          org.Description,
+		IssuePrefix:          org.IssuePrefix,
+		IssueCounter:         org.IssueCounter,
+		BudgetMonthlyCents:   org.BudgetMonthlyCents,
+		SpentMonthlyCents:    org.SpentMonthlyCents,
+		BudgetResetAt:        org.BudgetResetAt,
+		RequireBoardApproval: org.RequireBoardApproval,
+		HeadAgentID:          org.HeadAgentID,
+		MaxDelegationDepth:   maxDepth,
+		CanvasLayout:         org.CanvasLayout,
+		CreatedAt:            now.Format(time.RFC3339),
+		UpdatedAt:            now.Format(time.RFC3339),
+		CreatedBy:            org.CreatedBy,
+		UpdatedBy:            org.UpdatedBy,
 	}, nil
 }
 
@@ -127,13 +189,29 @@ func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org servic
 	now := time.Now().UTC()
 
 	rec := goqu.Record{
-		"name":        org.Name,
-		"description": org.Description,
-		"updated_at":  now,
-		"updated_by":  org.UpdatedBy,
+		"name":                                  org.Name,
+		"description":                           org.Description,
+		"require_board_approval_for_new_agents": org.RequireBoardApproval,
+		"head_agent_id":                         org.HeadAgentID,
+		"budget_monthly_cents":                  org.BudgetMonthlyCents,
+		"spent_monthly_cents":                   org.SpentMonthlyCents,
+		"updated_at":                            now,
+		"updated_by":                            org.UpdatedBy,
 	}
 	if len(org.CanvasLayout) > 0 {
 		rec["canvas_layout"] = string(org.CanvasLayout)
+	}
+	if org.IssuePrefix != "" {
+		rec["issue_prefix"] = org.IssuePrefix
+	}
+	if org.MaxDelegationDepth > 0 {
+		rec["max_delegation_depth"] = org.MaxDelegationDepth
+	}
+	if org.BudgetResetAt != "" {
+		t, err := time.Parse(time.RFC3339, org.BudgetResetAt)
+		if err == nil {
+			rec["budget_reset_at"] = t
+		}
 	}
 
 	query, _, err := p.goqu.Update(p.tableOrganizations).Set(rec).Where(goqu.I("id").Eq(id)).ToSQL()
@@ -194,14 +272,27 @@ func orgRowToRecord(row orgRow) *service.Organization {
 		canvasLayout = json.RawMessage(row.CanvasLayout)
 	}
 
+	var budgetResetAt string
+	if row.BudgetResetAt.Valid {
+		budgetResetAt = row.BudgetResetAt.Time.Format(time.RFC3339)
+	}
+
 	return &service.Organization{
-		ID:           row.ID,
-		Name:         row.Name,
-		Description:  row.Description,
-		CanvasLayout: canvasLayout,
-		CreatedAt:    row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:    row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy:    row.CreatedBy,
-		UpdatedBy:    row.UpdatedBy,
+		ID:                   row.ID,
+		Name:                 row.Name,
+		Description:          row.Description,
+		IssuePrefix:          row.IssuePrefix,
+		IssueCounter:         row.IssueCounter,
+		BudgetMonthlyCents:   row.BudgetMonthlyCents,
+		SpentMonthlyCents:    row.SpentMonthlyCents,
+		BudgetResetAt:        budgetResetAt,
+		RequireBoardApproval: row.RequireBoardApproval,
+		HeadAgentID:          row.HeadAgentID,
+		MaxDelegationDepth:   row.MaxDelegationDepth,
+		CanvasLayout:         canvasLayout,
+		CreatedAt:            row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:            row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:            row.CreatedBy,
+		UpdatedBy:            row.UpdatedBy,
 	}
 }
