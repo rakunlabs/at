@@ -7,6 +7,14 @@ export interface Organization {
   id: string;
   name: string;
   description: string;
+  issue_prefix?: string;
+  issue_counter?: number;
+  budget_monthly_cents?: number;
+  spent_monthly_cents?: number;
+  budget_reset_at?: string;
+  require_board_approval_for_new_agents?: boolean;
+  head_agent_id?: string;
+  max_delegation_depth?: number;
   canvas_layout?: CanvasLayout;
   created_at: string;
   updated_at: string;
@@ -60,6 +68,26 @@ export async function updateOrganization(id: string, data: Partial<Organization>
 
 export async function deleteOrganization(id: string): Promise<void> {
   await api.delete(`/organizations/${id}`);
+}
+
+// ─── Task Intake ───
+
+export interface IntakeTaskRequest {
+  title: string;
+  description?: string;
+  goal_id?: string;
+  priority_level?: string;
+}
+
+export interface IntakeTaskResponse {
+  id: string;
+  identifier: string;
+  status: string;
+}
+
+export async function submitOrgTask(orgId: string, data: IntakeTaskRequest): Promise<IntakeTaskResponse> {
+  const res = await api.post<IntakeTaskResponse>(`/organizations/${orgId}/tasks`, data);
+  return res.data;
 }
 
 // ─── Organization–Agent Membership ───
