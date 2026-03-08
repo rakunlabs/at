@@ -43,11 +43,11 @@ Plans:
   3. Delegated agent runs its own agentic loop (reusing agent_call pattern) and produces a result
   4. Delegation tools presented to any agent are restricted to only that agent's direct reports — no cross-branch delegation possible
   5. Budget is checked before each agent's LLM call in the delegation chain
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 02-01: TBD
-- [ ] 02-02: TBD
+- [ ] 02-01-PLAN.md — Core org delegation engine: runOrgDelegation with agentic loop, delegate tool generation from direct reports, system prompt enrichment, child task creation, recursive delegation, budget checking
+- [ ] 02-02-PLAN.md — Wire task intake → async delegation goroutine + unit tests for getDirectReports, createDelegationTask, tool name sanitization
 
 ### Phase 3: Depth & Concurrency
 **Goal**: Delegation chains extend to unlimited depth with parallel fan-out, and task status propagates automatically through the hierarchy
