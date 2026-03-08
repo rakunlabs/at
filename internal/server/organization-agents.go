@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -74,6 +75,14 @@ func (s *Server) AddAgentToOrganizationAPI(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	// Validate hierarchy if parent is specified.
+	if req.ParentAgentID != "" {
+		if err := s.validateHierarchy(r.Context(), orgID, req.AgentID, req.ParentAgentID); err != nil {
+			httpResponse(w, fmt.Sprintf("hierarchy validation failed: %v", err), http.StatusBadRequest)
+			return
+		}
+	}
+
 	record, err := s.orgAgentStore.CreateOrganizationAgent(r.Context(), req)
 	if err != nil {
 		slog.Error("add agent to organization failed", "org_id", orgID, "agent_id", req.AgentID, "error", err)
@@ -116,6 +125,14 @@ func (s *Server) UpdateOrganizationAgentAPI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Validate hierarchy if parent is being changed.
+	if req.ParentAgentID != "" && req.ParentAgentID != existing.ParentAgentID {
+		if err := s.validateHierarchy(r.Context(), orgID, agentID, req.ParentAgentID); err != nil {
+			httpResponse(w, fmt.Sprintf("hierarchy validation failed: %v", err), http.StatusBadRequest)
+			return
+		}
+	}
+
 	// Preserve status if not provided.
 	if req.Status == "" {
 		req.Status = existing.Status
@@ -134,6 +151,52 @@ func (s *Server) UpdateOrganizationAgentAPI(w http.ResponseWriter, r *http.Reque
 	}
 
 	httpResponseJSON(w, record, http.StatusOK)
+}
+
+// validateHierarchy checks that setting parentAgentID for agentID in orgID
+// would not create a cycle. Returns an error if validation fails.
+func (s *Server) validateHierarchy(ctx context.Context, orgID, agentID, parentAgentID string) error {
+	if parentAgentID == "" {
+		return nil // root node, always valid
+	}
+
+	// Load all org agents.
+	agents, err := s.orgAgentStore.ListOrganizationAgents(ctx, orgID)
+	if err != nil {
+		return fmt.Errorf("load org agents: %w", err)
+	}
+
+	// Check parent exists in org.
+	parentFound := false
+	for _, a := range agents {
+		if a.AgentID == parentAgentID {
+			parentFound = true
+			break
+		}
+	}
+	if !parentFound {
+		return fmt.Errorf("parent agent %q is not a member of this organization", parentAgentID)
+	}
+
+	// Build parent map: agentID -> parentAgentID (apply proposed change).
+	parentMap := make(map[string]string)
+	for _, a := range agents {
+		parentMap[a.AgentID] = a.ParentAgentID
+	}
+	parentMap[agentID] = parentAgentID
+
+	// Cycle detection: walk from agentID up through parents.
+	visited := map[string]bool{agentID: true}
+	current := parentAgentID
+	for current != "" {
+		if visited[current] {
+			return fmt.Errorf("hierarchy cycle detected: setting parent to %q creates a loop", parentAgentID)
+		}
+		visited[current] = true
+		current = parentMap[current]
+	}
+
+	return nil
 }
 
 // RemoveAgentFromOrganizationAPI handles DELETE /api/v1/organizations/{id}/agents/{agent_id}.

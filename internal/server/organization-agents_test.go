@@ -163,7 +163,7 @@ func TestValidateHierarchy_DirectCycle(t *testing.T) {
 }
 
 func TestValidateHierarchy_DeeperCycle(t *testing.T) {
-	// A→B→C, now try to set C's parent to A → cycle A→B→C→A
+	// A is root, B→A, C→B. Now try to set A's parent to C → A→C→B→A cycle
 	s := &Server{
 		orgAgentStore: &mockOrgAgentStore{
 			agents: []service.OrganizationAgent{
@@ -174,9 +174,9 @@ func TestValidateHierarchy_DeeperCycle(t *testing.T) {
 		},
 	}
 
-	err := s.validateHierarchy(context.Background(), "org1", "C", "A")
+	err := s.validateHierarchy(context.Background(), "org1", "A", "C")
 	if err == nil {
-		t.Fatal("A→B→C→A cycle should fail")
+		t.Fatal("A→C→B→A cycle should fail")
 	}
 	if !strings.Contains(err.Error(), "cycle") {
 		t.Fatalf("expected 'cycle' error, got: %v", err)
