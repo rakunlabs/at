@@ -10,13 +10,15 @@
     addAgentToOrg,
     removeAgentFromOrg,
     updateOrgAgent,
+    submitOrgTask,
     type Organization,
     type OrganizationAgent,
     type CanvasLayout,
+    type IntakeTaskResponse,
   } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { Canvas, Controls, Minimap, GroupNode, StickyNoteNode, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
-  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, ChevronRight, StickyNote, Group } from 'lucide-svelte';
+  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, ChevronRight, StickyNote, Group, Crown, Send } from 'lucide-svelte';
   import AgentNode from '@/lib/components/AgentNode.svelte';
   import MarkdownStickyNote from '@/lib/components/workflow/MarkdownStickyNote.svelte';
 
@@ -47,6 +49,13 @@
 
   // Add-agent panel
   let showAddPanel = $state(false);
+
+  // Submit-task panel
+  let showTaskPanel = $state(false);
+  let taskTitle = $state('');
+  let taskDescription = $state('');
+  let submittingTask = $state(false);
+  let lastTaskResult = $state<IntakeTaskResponse | null>(null);
 
   // Selected node
   let selectedAgentId = $state<string | null>(null);
@@ -287,6 +296,36 @@
   }
 
   // ─── Save Canvas (hierarchy + layout) ───
+
+  async function handleHeadAgentChange(e: Event) {
+    if (!organization) return;
+    const value = (e.target as HTMLSelectElement).value;
+    try {
+      organization = await updateOrganization(organization.id, { head_agent_id: value });
+      addToast(value ? 'Head agent updated' : 'Head agent cleared');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to update head agent', 'alert');
+    }
+  }
+
+  async function handleSubmitTask() {
+    if (!organization || !taskTitle.trim()) return;
+    submittingTask = true;
+    try {
+      const result = await submitOrgTask(organization.id, {
+        title: taskTitle.trim(),
+        description: taskDescription.trim() || undefined,
+      });
+      lastTaskResult = result;
+      taskTitle = '';
+      taskDescription = '';
+      addToast(`Task ${result.identifier} submitted`);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to submit task', 'alert');
+    } finally {
+      submittingTask = false;
+    }
+  }
 
   async function handleSave() {
     if (!organization || !canvasRef) return;
@@ -593,6 +632,25 @@
       </div>
       <div class="flex items-center gap-2">
         <span class="text-[10px] text-gray-400 dark:text-dark-text-faint">{memberships.length} agent{memberships.length !== 1 ? 's' : ''}</span>
+        {#if !editingOrg && memberships.length > 0}
+          <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
+          <div class="flex items-center gap-1.5">
+            <Crown size={12} class="text-amber-500" />
+            <span class="text-[10px] text-gray-500 dark:text-dark-text-muted">Head:</span>
+            <select
+              value={organization.head_agent_id || ''}
+              onchange={handleHeadAgentChange}
+              class="text-xs border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20"
+            >
+              <option value="">None</option>
+              {#each memberships as m (m.agent_id)}
+                {@const agent = allAgents.find(a => a.id === m.agent_id)}
+                <option value={m.agent_id}>{agent?.name || m.agent_id}</option>
+              {/each}
+            </select>
+          </div>
+        {/if}
+        <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
         <button
           onclick={() => { load(); }}
           class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
@@ -601,11 +659,20 @@
           Refresh
         </button>
         <button
-          onclick={() => { showAddPanel = !showAddPanel; }}
+          onclick={() => { showAddPanel = !showAddPanel; showTaskPanel = false; }}
           class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
         >
           <UserPlus size={12} />
           Add Agent
+        </button>
+        <button
+          onclick={() => { showTaskPanel = !showTaskPanel; showAddPanel = false; }}
+          disabled={!organization.head_agent_id}
+          title={organization.head_agent_id ? 'Submit a task to this organization' : 'Set a head agent first'}
+          class="flex items-center gap-1 px-2 py-1 text-xs {showTaskPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Send size={12} />
+          Submit Task
         </button>
         <button
           onclick={handleSave}
@@ -680,6 +747,44 @@
           </div>
         {/if}
       </div>
+
+      <!-- Submit Task Panel -->
+      {#if showTaskPanel}
+        <div class="w-64 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col">
+          <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
+            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Submit Task</span>
+            <button onclick={() => { showTaskPanel = false; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
+              <X size={14} />
+            </button>
+          </div>
+          <div class="p-3 space-y-3 overflow-y-auto flex-1">
+            <div>
+              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Title *</label>
+              <input type="text" bind:value={taskTitle} placeholder="What needs to be done?"
+                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text" />
+            </div>
+            <div>
+              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Description</label>
+              <textarea bind:value={taskDescription} rows="3" placeholder="Additional context..."
+                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"></textarea>
+            </div>
+            <button
+              onclick={handleSubmitTask}
+              disabled={submittingTask || !taskTitle.trim()}
+              class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+            >
+              <Send size={12} />
+              {submittingTask ? 'Submitting...' : 'Submit'}
+            </button>
+            {#if lastTaskResult}
+              <div class="p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded text-xs">
+                <span class="font-medium text-green-700 dark:text-green-400">{lastTaskResult.identifier}</span>
+                <span class="text-green-600 dark:text-green-500"> created — delegation in progress</span>
+              </div>
+            {/if}
+          </div>
+        </div>
+      {/if}
 
       <!-- Add Agent Panel -->
       {#if showAddPanel}
