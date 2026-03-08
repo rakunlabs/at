@@ -91,38 +91,38 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HIER-01 | — | Pending |
-| HIER-02 | — | Pending |
-| HIER-03 | — | Pending |
-| HIER-04 | — | Pending |
-| HIER-05 | — | Pending |
-| INTK-01 | — | Pending |
-| INTK-02 | — | Pending |
-| INTK-03 | — | Pending |
-| INTK-04 | — | Pending |
-| DELG-01 | — | Pending |
-| DELG-02 | — | Pending |
-| DELG-03 | — | Pending |
-| DELG-04 | — | Pending |
-| DELG-05 | — | Pending |
-| DELG-06 | — | Pending |
-| CONC-01 | — | Pending |
-| CONC-02 | — | Pending |
-| CONC-03 | — | Pending |
-| CONC-04 | — | Pending |
-| STAT-01 | — | Pending |
-| STAT-02 | — | Pending |
-| STAT-03 | — | Pending |
-| STAT-04 | — | Pending |
-| UI-01 | — | Pending |
-| UI-02 | — | Pending |
-| UI-03 | — | Pending |
-| UI-04 | — | Pending |
+| HIER-01 | Phase 1 | Pending |
+| HIER-02 | Phase 4 | Pending |
+| HIER-03 | Phase 2 | Pending |
+| HIER-04 | Phase 1 | Pending |
+| HIER-05 | Phase 2 | Pending |
+| INTK-01 | Phase 1 | Pending |
+| INTK-02 | Phase 1 | Pending |
+| INTK-03 | Phase 1 | Pending |
+| INTK-04 | Phase 1 | Pending |
+| DELG-01 | Phase 2 | Pending |
+| DELG-02 | Phase 2 | Pending |
+| DELG-03 | Phase 2 | Pending |
+| DELG-04 | Phase 3 | Pending |
+| DELG-05 | Phase 2 | Pending |
+| DELG-06 | Phase 1 | Pending |
+| CONC-01 | Phase 3 | Pending |
+| CONC-02 | Phase 3 | Pending |
+| CONC-03 | Phase 2 | Pending |
+| CONC-04 | Phase 3 | Pending |
+| STAT-01 | Phase 3 | Pending |
+| STAT-02 | Phase 3 | Pending |
+| STAT-03 | Phase 3 | Pending |
+| STAT-04 | Phase 3 | Pending |
+| UI-01 | Phase 4 | Pending |
+| UI-02 | Phase 4 | Pending |
+| UI-03 | Phase 4 | Pending |
+| UI-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 27 total
-- Mapped to phases: 0
-- Unmapped: 27
+- Mapped to phases: 27
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-08*
