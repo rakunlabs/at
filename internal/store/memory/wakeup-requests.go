@@ -24,9 +24,9 @@ func (m *Memory) CreateOrCoalesce(_ context.Context, req service.WakeupRequest) 
 		}
 	}
 
-	// Check for an existing pending request for the same agent — coalesce.
+	// Check for an existing pending request for the same agent+org — coalesce.
 	for id, existing := range m.wakeupRequests {
-		if existing.AgentID == req.AgentID && existing.Status == service.WakeupStatusPending {
+		if existing.AgentID == req.AgentID && existing.OrganizationID == req.OrganizationID && existing.Status == service.WakeupStatusPending {
 			// Merge context.
 			if existing.Context == nil {
 				existing.Context = make(map[string]any)
@@ -48,6 +48,7 @@ func (m *Memory) CreateOrCoalesce(_ context.Context, req service.WakeupRequest) 
 	rec := service.WakeupRequest{
 		ID:             id,
 		AgentID:        req.AgentID,
+		OrganizationID: req.OrganizationID,
 		Status:         service.WakeupStatusPending,
 		IdempotencyKey: req.IdempotencyKey,
 		Context:        req.Context,

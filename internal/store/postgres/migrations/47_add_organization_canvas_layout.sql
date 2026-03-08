@@ -1,1 +1,0 @@
-ALTER TABLE ${TABLE_PREFIX}organizations ADD COLUMN canvas_layout JSONB NOT NULL DEFAULT '{}';

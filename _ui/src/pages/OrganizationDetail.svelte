@@ -17,6 +17,8 @@
     type IntakeTaskResponse,
   } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { listGoals, type Goal } from '@/lib/api/goals';
+  import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@/lib/api/tasks';
   import { Canvas, Controls, Minimap, GroupNode, StickyNoteNode, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
   import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, ChevronRight, StickyNote, Group, Crown, Send } from 'lucide-svelte';
   import AgentNode from '@/lib/components/AgentNode.svelte';
@@ -54,8 +56,11 @@
   let showTaskPanel = $state(false);
   let taskTitle = $state('');
   let taskDescription = $state('');
+  let taskPriority = $state('');
+  let taskGoalId = $state('');
   let submittingTask = $state(false);
   let lastTaskResult = $state<IntakeTaskResponse | null>(null);
+  let orgGoals = $state<Goal[]>([]);
 
   // Selected node
   let selectedAgentId = $state<string | null>(null);
@@ -243,9 +248,19 @@
     }
   }
 
+  async function loadOrgGoals() {
+    try {
+      const res = await listGoals({ organization_id: params.id, _limit: 200 });
+      orgGoals = res.data || [];
+    } catch {
+      // Goals may not be configured; silently ignore
+      orgGoals = [];
+    }
+  }
+
   async function load() {
     loading = true;
-    await Promise.all([loadOrganization(), loadMemberships(), loadAllAgents()]);
+    await Promise.all([loadOrganization(), loadMemberships(), loadAllAgents(), loadOrgGoals()]);
     loading = false;
     dirty = false;
     pendingParentUpdates = new Map();
@@ -315,10 +330,14 @@
       const result = await submitOrgTask(organization.id, {
         title: taskTitle.trim(),
         description: taskDescription.trim() || undefined,
+        priority_level: taskPriority || undefined,
+        goal_id: taskGoalId || undefined,
       });
       lastTaskResult = result;
       taskTitle = '';
       taskDescription = '';
+      taskPriority = '';
+      taskGoalId = '';
       addToast(`Task ${result.identifier} submitted`);
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to submit task', 'alert');
@@ -426,6 +445,16 @@
       refreshCanvas();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to update hierarchy', 'alert');
+    }
+  }
+
+  async function handleUpdateHeartbeatSchedule(agentId: string, schedule: string) {
+    try {
+      await updateOrgAgent(params.id, agentId, { heartbeat_schedule: schedule.trim() });
+      addToast('Heartbeat schedule updated');
+      await loadMemberships();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to update heartbeat schedule', 'alert');
     }
   }
 
@@ -757,7 +786,7 @@
               <X size={14} />
             </button>
           </div>
-          <div class="p-3 space-y-3 overflow-y-auto flex-1">
+           <div class="p-3 space-y-3 overflow-y-auto flex-1">
             <div>
               <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Title *</label>
               <input type="text" bind:value={taskTitle} placeholder="What needs to be done?"
@@ -768,6 +797,28 @@
               <textarea bind:value={taskDescription} rows="3" placeholder="Additional context..."
                 class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"></textarea>
             </div>
+            <div>
+              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Priority</label>
+              <select bind:value={taskPriority}
+                class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text">
+                <option value="">None</option>
+                {#each TASK_PRIORITIES as prio}
+                  <option value={prio}>{TASK_PRIORITY_LABELS[prio]}</option>
+                {/each}
+              </select>
+            </div>
+            {#if orgGoals.length > 0}
+              <div>
+                <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Goal</label>
+                <select bind:value={taskGoalId}
+                  class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text">
+                  <option value="">None</option>
+                  {#each orgGoals as goal}
+                    <option value={goal.id}>{goal.name}</option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
             <button
               onclick={handleSubmitTask}
               disabled={submittingTask || !taskTitle.trim()}
@@ -879,6 +930,18 @@
                     <option value={candidate.agent_id}>{candidateAgent?.name || candidate.agent_id}</option>
                   {/each}
                 </select>
+              </div>
+
+              <!-- Heartbeat schedule -->
+              <div>
+                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Heartbeat Schedule</span>
+                <input
+                  type="text"
+                  value={membership.heartbeat_schedule || ''}
+                  onchange={(e) => handleUpdateHeartbeatSchedule(membership.agent_id, (e.target as HTMLInputElement).value)}
+                  placeholder="Cron (e.g., */5 * * * *)"
+                  class="mt-0.5 w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                />
               </div>
             {:else if membership}
               <div class="text-xs text-gray-400 dark:text-dark-text-faint">

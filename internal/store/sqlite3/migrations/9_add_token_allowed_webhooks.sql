@@ -1,1 +1,0 @@
-ALTER TABLE ${TABLE_PREFIX}tokens ADD COLUMN allowed_webhooks TEXT DEFAULT NULL;

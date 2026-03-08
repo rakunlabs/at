@@ -99,15 +99,16 @@ func (m *Memory) CreateOrganizationAgent(_ context.Context, oa service.Organizat
 	}
 
 	rec := service.OrganizationAgent{
-		ID:             id,
-		OrganizationID: oa.OrganizationID,
-		AgentID:        oa.AgentID,
-		Role:           oa.Role,
-		Title:          oa.Title,
-		ParentAgentID:  oa.ParentAgentID,
-		Status:         status,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                id,
+		OrganizationID:    oa.OrganizationID,
+		AgentID:           oa.AgentID,
+		Role:              oa.Role,
+		Title:             oa.Title,
+		ParentAgentID:     oa.ParentAgentID,
+		Status:            status,
+		HeartbeatSchedule: oa.HeartbeatSchedule,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}
 
 	m.mu.Lock()
@@ -133,6 +134,7 @@ func (m *Memory) UpdateOrganizationAgent(_ context.Context, id string, oa servic
 	existing.Title = oa.Title
 	existing.ParentAgentID = oa.ParentAgentID
 	existing.Status = oa.Status
+	existing.HeartbeatSchedule = oa.HeartbeatSchedule
 	existing.UpdatedAt = now
 	m.organizationAgents[id] = existing
 

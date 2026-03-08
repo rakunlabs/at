@@ -89,6 +89,45 @@ type ProviderRecord struct {
 	UpdatedBy string           `json:"updated_by"`
 }
 
+type Storer interface {
+	ProviderStorer
+	APITokenStorer
+	TokenUsageStorer
+	WorkflowStorer
+	WorkflowVersionStorer
+	TriggerStorer
+	SkillStorer
+	VariableStorer
+	NodeConfigStorer
+	AgentStorer
+	ChatSessionStorer
+	RAGCollectionStorer
+	RAGStateStorer
+	RAGMCPServerStorer
+	MCPServerStorer
+	MCPSetStorer
+	BotConfigStorer
+	MarketplaceSourceStorer
+	UserPreferenceStorer
+	OrganizationStorer
+	GoalStorer
+	TaskStorer
+	AgentBudgetStorer
+	AuditStorer
+	AgentHeartbeatStorer
+	ProjectStorer
+	IssueCommentStorer
+	LabelStorer
+	HeartbeatRunStorer
+	WakeupRequestStorer
+	AgentRuntimeStateStorer
+	AgentTaskSessionStorer
+	ApprovalStorer
+	AgentConfigRevisionStorer
+	CostEventStorer
+	OrganizationAgentStorer
+}
+
 // ProviderStorer defines CRUD operations for provider configurations
 // stored in a persistent backend (e.g., PostgreSQL).
 type ProviderStorer interface {
@@ -470,10 +509,8 @@ type AgentConfig struct {
 	ConfirmationRequiredTools []string `json:"confirmation_required_tools,omitempty"` // Tools that require human confirmation before execution
 
 	// NOTE: Organizational fields (role, title, parent_agent_id, organization_id,
-	// status, delegation_rules) have been moved to the OrganizationAgent join table
-	// so that agents can belong to multiple organizations with per-org metadata.
-	// Only heartbeat_schedule remains here because it is agent-global.
-	HeartbeatSchedule string `json:"heartbeat_schedule,omitempty"` // Cron expression for periodic wake-ups
+	// status, delegation_rules, heartbeat_schedule) live on the OrganizationAgent
+	// join table so that agents can belong to multiple organizations with per-org metadata.
 }
 
 // Agent represents a reusable agent configuration that can be referenced
@@ -540,15 +577,16 @@ type OrganizationStorer interface {
 // here instead of inside the agent's config blob, so the same agent can
 // participate in multiple organizations with different roles.
 type OrganizationAgent struct {
-	ID             string `json:"id"`
-	OrganizationID string `json:"organization_id"`
-	AgentID        string `json:"agent_id"`
-	Role           string `json:"role,omitempty"`            // e.g. "CTO", "Engineer"
-	Title          string `json:"title,omitempty"`           // e.g. "Senior Backend Engineer"
-	ParentAgentID  string `json:"parent_agent_id,omitempty"` // reporting line within this org
-	Status         string `json:"status,omitempty"`          // "active" (default), "paused", "terminated"
-	CreatedAt      string `json:"created_at"`
-	UpdatedAt      string `json:"updated_at"`
+	ID                string `json:"id"`
+	OrganizationID    string `json:"organization_id"`
+	AgentID           string `json:"agent_id"`
+	Role              string `json:"role,omitempty"`               // e.g. "CTO", "Engineer"
+	Title             string `json:"title,omitempty"`              // e.g. "Senior Backend Engineer"
+	ParentAgentID     string `json:"parent_agent_id,omitempty"`    // reporting line within this org
+	Status            string `json:"status,omitempty"`             // "active" (default), "paused", "terminated"
+	HeartbeatSchedule string `json:"heartbeat_schedule,omitempty"` // Cron expression for periodic wake-ups within this org
+	CreatedAt         string `json:"created_at"`
+	UpdatedAt         string `json:"updated_at"`
 }
 
 // OrganizationAgentStorer defines CRUD operations for the organization–agent
@@ -903,6 +941,7 @@ const (
 type HeartbeatRun struct {
 	ID               string         `json:"id"`
 	AgentID          string         `json:"agent_id"`
+	OrganizationID   string         `json:"organization_id,omitempty"`  // org scope for this run
 	InvocationSource string         `json:"invocation_source"`          // "timer", "assignment", "on_demand", "automation"
 	TriggerDetail    string         `json:"trigger_detail,omitempty"`   // human-readable trigger info
 	Status           string         `json:"status"`                     // "queued", "running", "succeeded", "failed", "cancelled", "timed_out"
@@ -947,6 +986,7 @@ const (
 type WakeupRequest struct {
 	ID             string         `json:"id"`
 	AgentID        string         `json:"agent_id"`
+	OrganizationID string         `json:"organization_id,omitempty"` // org scope for this wakeup
 	Status         string         `json:"status"`                    // "pending", "dispatched", "deferred_issue_execution", "cancelled"
 	IdempotencyKey string         `json:"idempotency_key,omitempty"` // for deduplication
 	Context        map[string]any `json:"context,omitempty"`         // merged context from coalesced requests

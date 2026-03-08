@@ -1,3 +1,0 @@
-ALTER TABLE ${TABLE_PREFIX}tokens ADD COLUMN allowed_providers_mode TEXT NOT NULL DEFAULT '';
-ALTER TABLE ${TABLE_PREFIX}tokens ADD COLUMN allowed_models_mode TEXT NOT NULL DEFAULT '';
-ALTER TABLE ${TABLE_PREFIX}tokens ADD COLUMN allowed_webhooks_mode TEXT NOT NULL DEFAULT '';

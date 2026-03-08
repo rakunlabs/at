@@ -16,6 +16,7 @@ import (
 type wakeupRequestRow struct {
 	ID             string         `db:"id"`
 	AgentID        string         `db:"agent_id"`
+	OrganizationID string         `db:"organization_id"`
 	Status         string         `db:"status"`
 	IdempotencyKey sql.NullString `db:"idempotency_key"`
 	Context        sql.NullString `db:"context"`
@@ -25,11 +26,11 @@ type wakeupRequestRow struct {
 	UpdatedAt      string         `db:"updated_at"`
 }
 
-var wakeupRequestColumns = []interface{}{"id", "agent_id", "status", "idempotency_key", "context", "coalesced_count", "run_id", "created_at", "updated_at"}
+var wakeupRequestColumns = []interface{}{"id", "agent_id", "organization_id", "status", "idempotency_key", "context", "coalesced_count", "run_id", "created_at", "updated_at"}
 
 func scanWakeupRequestRow(scanner interface{ Scan(dest ...any) error }) (wakeupRequestRow, error) {
 	var row wakeupRequestRow
-	err := scanner.Scan(&row.ID, &row.AgentID, &row.Status, &row.IdempotencyKey, &row.Context, &row.CoalescedCount, &row.RunID, &row.CreatedAt, &row.UpdatedAt)
+	err := scanner.Scan(&row.ID, &row.AgentID, &row.OrganizationID, &row.Status, &row.IdempotencyKey, &row.Context, &row.CoalescedCount, &row.RunID, &row.CreatedAt, &row.UpdatedAt)
 
 	return row, err
 }
@@ -48,8 +49,8 @@ func (s *SQLite) CreateOrCoalesce(ctx context.Context, req service.WakeupRequest
 		}
 	}
 
-	// 2. Check for existing pending request for this agent — coalesce if found.
-	pending, err := s.getFirstPendingWakeup(ctx, req.AgentID)
+	// 2. Check for existing pending request for this agent+org — coalesce if found.
+	pending, err := s.getFirstPendingWakeup(ctx, req.AgentID, req.OrganizationID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,6 +93,7 @@ func (s *SQLite) CreateOrCoalesce(ctx context.Context, req service.WakeupRequest
 		goqu.Record{
 			"id":              id,
 			"agent_id":        req.AgentID,
+			"organization_id": req.OrganizationID,
 			"status":          service.WakeupStatusPending,
 			"idempotency_key": req.IdempotencyKey,
 			"context":         ctxStr,
@@ -112,6 +114,7 @@ func (s *SQLite) CreateOrCoalesce(ctx context.Context, req service.WakeupRequest
 	return &service.WakeupRequest{
 		ID:             id,
 		AgentID:        req.AgentID,
+		OrganizationID: req.OrganizationID,
 		Status:         service.WakeupStatusPending,
 		IdempotencyKey: req.IdempotencyKey,
 		Context:        req.Context,
@@ -265,11 +268,12 @@ func (s *SQLite) getWakeupByIdempotencyKey(ctx context.Context, key string) (*se
 	return wakeupRequestRowToRecord(row)
 }
 
-func (s *SQLite) getFirstPendingWakeup(ctx context.Context, agentID string) (*service.WakeupRequest, error) {
+func (s *SQLite) getFirstPendingWakeup(ctx context.Context, agentID, organizationID string) (*service.WakeupRequest, error) {
 	query, _, err := s.goqu.From(s.tableWakeupRequests).
 		Select(wakeupRequestColumns...).
 		Where(
 			goqu.I("agent_id").Eq(agentID),
+			goqu.I("organization_id").Eq(organizationID),
 			goqu.I("status").Eq(service.WakeupStatusPending),
 		).
 		Order(goqu.I("created_at").Asc()).
@@ -301,6 +305,7 @@ func wakeupRequestRowToRecord(row wakeupRequestRow) (*service.WakeupRequest, err
 	return &service.WakeupRequest{
 		ID:             row.ID,
 		AgentID:        row.AgentID,
+		OrganizationID: row.OrganizationID,
 		Status:         row.Status,
 		IdempotencyKey: row.IdempotencyKey.String,
 		Context:        wakeupCtx,

@@ -27,8 +27,10 @@
     ArrowLeft, Save, Trash2, Pencil, X, Check,
     Tag, MessageSquare, ListTree, Calendar, User,
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
-    Layers, ChevronRight, ChevronDown,
+    Layers, ChevronRight, ChevronDown, Building2,
   } from 'lucide-svelte';
+  import { listOrganizations, type Organization } from '@/lib/api/organizations';
+  import { listAgents, type Agent } from '@/lib/api/agents';
 
   interface Props {
     params: { id: string };
@@ -64,6 +66,35 @@
 
   // Active tab
   let activeTab = $state<'comments' | 'subtasks' | 'labels'>('comments');
+
+  // Reference data
+  let organizations = $state<Organization[]>([]);
+  let agents = $state<Agent[]>([]);
+
+  function orgName(id: string): string {
+    if (!id) return '';
+    const org = organizations.find(o => o.id === id);
+    return org?.name || id.substring(0, 12);
+  }
+
+  function agentDisplayName(id: string): string {
+    if (!id) return '-';
+    const agent = agents.find(a => a.id === id);
+    return agent?.name || id;
+  }
+
+  async function loadReferenceData() {
+    try {
+      const [orgRes, agentRes] = await Promise.all([
+        listOrganizations({ _limit: 200 }),
+        listAgents({ _limit: 200 }),
+      ]);
+      organizations = orgRes.data || [];
+      agents = agentRes.data || [];
+    } catch {
+      // Non-fatal
+    }
+  }
 
   // ─── Load ───
 
@@ -115,6 +146,7 @@
   loadTask();
   loadLabels();
   loadSubTasks();
+  loadReferenceData();
 
   // Reload when params change
   $effect(() => {
@@ -593,14 +625,36 @@
               <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Properties</span>
             </div>
             <div class="divide-y divide-gray-100 dark:divide-dark-border text-sm">
+              <!-- Organization -->
+              <div class="px-3 py-2 flex items-center gap-2">
+                <Building2 size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
+                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Organization</span>
+                <select
+                  value={task.organization_id || ''}
+                  onchange={(e) => updateField('organization_id', (e.target as HTMLSelectElement).value)}
+                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                >
+                  <option value="">None</option>
+                  {#each organizations as org}
+                    <option value={org.id}>{org.name}</option>
+                  {/each}
+                </select>
+              </div>
+
               <!-- Assigned Agent -->
               <div class="px-3 py-2 flex items-center gap-2">
                 <User size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
                 <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Agent</span>
-                <span class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary truncate"
-                  title={task.assigned_agent_id || ''}>
-                  {task.assigned_agent_id || '-'}
-                </span>
+                <select
+                  value={task.assigned_agent_id || ''}
+                  onchange={(e) => updateField('assigned_agent_id', (e.target as HTMLSelectElement).value)}
+                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                >
+                  <option value="">Unassigned</option>
+                  {#each agents as agent}
+                    <option value={agent.id}>{agent.name}</option>
+                  {/each}
+                </select>
               </div>
 
               <!-- Project -->
@@ -661,8 +715,9 @@
                 <div class="px-3 py-2 flex items-center gap-2">
                   <AlertTriangle size={12} class="text-yellow-500 shrink-0" />
                   <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Checked out</span>
-                  <span class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary truncate">
-                    {task.checked_out_by}
+                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate"
+                    title={task.checked_out_by}>
+                    {agentDisplayName(task.checked_out_by)}
                   </span>
                 </div>
               {/if}

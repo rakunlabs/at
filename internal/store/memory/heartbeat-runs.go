@@ -17,6 +17,7 @@ func (m *Memory) CreateHeartbeatRun(_ context.Context, run service.HeartbeatRun)
 	rec := service.HeartbeatRun{
 		ID:               id,
 		AgentID:          run.AgentID,
+		OrganizationID:   run.OrganizationID,
 		InvocationSource: run.InvocationSource,
 		TriggerDetail:    run.TriggerDetail,
 		Status:           run.Status,
@@ -63,6 +64,7 @@ func (m *Memory) UpdateHeartbeatRun(_ context.Context, id string, run service.He
 		return nil, nil
 	}
 
+	existing.OrganizationID = run.OrganizationID
 	existing.Status = run.Status
 	existing.ContextSnapshot = run.ContextSnapshot
 	existing.UsageJSON = run.UsageJSON

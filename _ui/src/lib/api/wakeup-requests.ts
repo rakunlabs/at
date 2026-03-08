@@ -5,6 +5,7 @@ const api = axios.create({ baseURL: 'api/v1' });
 export interface WakeupRequest {
   id: string;
   agent_id: string;
+  organization_id?: string;
   status: string;
   idempotency_key: string;
   context: Record<string, any>;

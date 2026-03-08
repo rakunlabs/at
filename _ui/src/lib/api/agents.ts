@@ -15,7 +15,6 @@ export interface AgentConfig {
   max_iterations: number;
   tool_timeout: number;
   confirmation_required_tools?: string[];
-  heartbeat_schedule?: string;
 }
 
 export interface Agent {

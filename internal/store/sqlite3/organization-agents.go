@@ -13,28 +13,30 @@ import (
 )
 
 type orgAgentRow struct {
-	ID             string         `db:"id"`
-	OrganizationID string         `db:"organization_id"`
-	AgentID        string         `db:"agent_id"`
-	Role           sql.NullString `db:"role"`
-	Title          sql.NullString `db:"title"`
-	ParentAgentID  sql.NullString `db:"parent_agent_id"`
-	Status         string         `db:"status"`
-	CreatedAt      string         `db:"created_at"`
-	UpdatedAt      string         `db:"updated_at"`
+	ID                string         `db:"id"`
+	OrganizationID    string         `db:"organization_id"`
+	AgentID           string         `db:"agent_id"`
+	Role              sql.NullString `db:"role"`
+	Title             sql.NullString `db:"title"`
+	ParentAgentID     sql.NullString `db:"parent_agent_id"`
+	Status            string         `db:"status"`
+	HeartbeatSchedule string         `db:"heartbeat_schedule"`
+	CreatedAt         string         `db:"created_at"`
+	UpdatedAt         string         `db:"updated_at"`
 }
 
 func orgAgentRowToRecord(row orgAgentRow) service.OrganizationAgent {
 	return service.OrganizationAgent{
-		ID:             row.ID,
-		OrganizationID: row.OrganizationID,
-		AgentID:        row.AgentID,
-		Role:           row.Role.String,
-		Title:          row.Title.String,
-		ParentAgentID:  row.ParentAgentID.String,
-		Status:         row.Status,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
+		ID:                row.ID,
+		OrganizationID:    row.OrganizationID,
+		AgentID:           row.AgentID,
+		Role:              row.Role.String,
+		Title:             row.Title.String,
+		ParentAgentID:     row.ParentAgentID.String,
+		Status:            row.Status,
+		HeartbeatSchedule: row.HeartbeatSchedule,
+		CreatedAt:         row.CreatedAt,
+		UpdatedAt:         row.UpdatedAt,
 	}
 }
 
@@ -43,13 +45,13 @@ func (s *SQLite) scanOrgAgentRow(scanner interface{ Scan(...any) error }) (orgAg
 	err := scanner.Scan(
 		&row.ID, &row.OrganizationID, &row.AgentID,
 		&row.Role, &row.Title, &row.ParentAgentID,
-		&row.Status, &row.CreatedAt, &row.UpdatedAt,
+		&row.Status, &row.HeartbeatSchedule, &row.CreatedAt, &row.UpdatedAt,
 	)
 
 	return row, err
 }
 
-var orgAgentCols = []any{"id", "organization_id", "agent_id", "role", "title", "parent_agent_id", "status", "created_at", "updated_at"}
+var orgAgentCols = []any{"id", "organization_id", "agent_id", "role", "title", "parent_agent_id", "status", "heartbeat_schedule", "created_at", "updated_at"}
 
 func (s *SQLite) ListOrganizationAgents(ctx context.Context, orgID string) ([]service.OrganizationAgent, error) {
 	q, _, err := s.goqu.From(s.tableOrganizationAgents).
@@ -164,15 +166,16 @@ func (s *SQLite) CreateOrganizationAgent(ctx context.Context, oa service.Organiz
 
 	q, _, err := s.goqu.Insert(s.tableOrganizationAgents).Rows(
 		goqu.Record{
-			"id":              id,
-			"organization_id": oa.OrganizationID,
-			"agent_id":        oa.AgentID,
-			"role":            oa.Role,
-			"title":           oa.Title,
-			"parent_agent_id": oa.ParentAgentID,
-			"status":          status,
-			"created_at":      now,
-			"updated_at":      now,
+			"id":                 id,
+			"organization_id":    oa.OrganizationID,
+			"agent_id":           oa.AgentID,
+			"role":               oa.Role,
+			"title":              oa.Title,
+			"parent_agent_id":    oa.ParentAgentID,
+			"status":             status,
+			"heartbeat_schedule": oa.HeartbeatSchedule,
+			"created_at":         now,
+			"updated_at":         now,
 		},
 	).ToSQL()
 	if err != nil {
@@ -184,15 +187,16 @@ func (s *SQLite) CreateOrganizationAgent(ctx context.Context, oa service.Organiz
 	}
 
 	return &service.OrganizationAgent{
-		ID:             id,
-		OrganizationID: oa.OrganizationID,
-		AgentID:        oa.AgentID,
-		Role:           oa.Role,
-		Title:          oa.Title,
-		ParentAgentID:  oa.ParentAgentID,
-		Status:         status,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+		ID:                id,
+		OrganizationID:    oa.OrganizationID,
+		AgentID:           oa.AgentID,
+		Role:              oa.Role,
+		Title:             oa.Title,
+		ParentAgentID:     oa.ParentAgentID,
+		Status:            status,
+		HeartbeatSchedule: oa.HeartbeatSchedule,
+		CreatedAt:         now,
+		UpdatedAt:         now,
 	}, nil
 }
 
@@ -201,11 +205,12 @@ func (s *SQLite) UpdateOrganizationAgent(ctx context.Context, id string, oa serv
 
 	q, _, err := s.goqu.Update(s.tableOrganizationAgents).Set(
 		goqu.Record{
-			"role":            oa.Role,
-			"title":           oa.Title,
-			"parent_agent_id": oa.ParentAgentID,
-			"status":          oa.Status,
-			"updated_at":      now,
+			"role":               oa.Role,
+			"title":              oa.Title,
+			"parent_agent_id":    oa.ParentAgentID,
+			"status":             oa.Status,
+			"heartbeat_schedule": oa.HeartbeatSchedule,
+			"updated_at":         now,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {

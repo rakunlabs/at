@@ -18,6 +18,7 @@ import (
 type wakeupRequestRow struct {
 	ID             string          `db:"id"`
 	AgentID        string          `db:"agent_id"`
+	OrganizationID string          `db:"organization_id"`
 	Status         string          `db:"status"`
 	IdempotencyKey sql.NullString  `db:"idempotency_key"`
 	Context        json.RawMessage `db:"context"`
@@ -28,7 +29,7 @@ type wakeupRequestRow struct {
 }
 
 var wakeupRequestColumns = []interface{}{
-	"id", "agent_id", "status", "idempotency_key", "context",
+	"id", "agent_id", "organization_id", "status", "idempotency_key", "context",
 	"coalesced_count", "run_id", "created_at", "updated_at",
 }
 
@@ -36,7 +37,7 @@ func scanWakeupRequestRow(scanner interface {
 	Scan(dest ...interface{}) error
 }, row *wakeupRequestRow) error {
 	return scanner.Scan(
-		&row.ID, &row.AgentID, &row.Status, &row.IdempotencyKey, &row.Context,
+		&row.ID, &row.AgentID, &row.OrganizationID, &row.Status, &row.IdempotencyKey, &row.Context,
 		&row.CoalescedCount, &row.RunID, &row.CreatedAt, &row.UpdatedAt,
 	)
 }
@@ -65,11 +66,12 @@ func (p *Postgres) CreateOrCoalesce(ctx context.Context, req service.WakeupReque
 		}
 	}
 
-	// 2. Look for pending request for same agent and coalesce.
+	// 2. Look for pending request for same agent+org and coalesce.
 	pendingQuery, _, err := p.goqu.From(p.tableWakeupRequests).
 		Select(wakeupRequestColumns...).
 		Where(
 			goqu.I("agent_id").Eq(req.AgentID),
+			goqu.I("organization_id").Eq(req.OrganizationID),
 			goqu.I("status").Eq("pending"),
 		).
 		Order(goqu.I("created_at").Asc()).
@@ -136,6 +138,7 @@ func (p *Postgres) CreateOrCoalesce(ctx context.Context, req service.WakeupReque
 		goqu.Record{
 			"id":              id,
 			"agent_id":        req.AgentID,
+			"organization_id": req.OrganizationID,
 			"status":          "pending",
 			"idempotency_key": nullString(req.IdempotencyKey),
 			"context":         contextJSON,
@@ -156,6 +159,7 @@ func (p *Postgres) CreateOrCoalesce(ctx context.Context, req service.WakeupReque
 	return &service.WakeupRequest{
 		ID:             id,
 		AgentID:        req.AgentID,
+		OrganizationID: req.OrganizationID,
 		Status:         "pending",
 		IdempotencyKey: req.IdempotencyKey,
 		Context:        req.Context,
@@ -299,6 +303,7 @@ func wakeupRequestRowToRecord(row wakeupRequestRow) (*service.WakeupRequest, err
 	return &service.WakeupRequest{
 		ID:             row.ID,
 		AgentID:        row.AgentID,
+		OrganizationID: row.OrganizationID,
 		Status:         row.Status,
 		IdempotencyKey: row.IdempotencyKey.String,
 		Context:        reqContext,

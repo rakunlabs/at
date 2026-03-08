@@ -6,6 +6,7 @@ const api = axios.create({ baseURL: 'api/v1' });
 export interface HeartbeatRun {
   id: string;
   agent_id: string;
+  organization_id?: string;
   invocation_source: string;
   trigger_detail: string;
   status: string;

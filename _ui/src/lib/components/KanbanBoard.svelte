@@ -3,6 +3,7 @@
   import { flip } from 'svelte/animate';
   import { push } from 'svelte-spa-router';
   import type { Task } from '@/lib/api/tasks';
+  import type { Organization } from '@/lib/api/organizations';
   import { TASK_STATUS_LABELS } from '@/lib/api/tasks';
   import { updateTask } from '@/lib/api/tasks';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -18,14 +19,22 @@
     Eye,
     Ban,
     Loader,
+    Building2,
   } from 'lucide-svelte';
 
   interface Props {
     tasks: Task[];
+    organizations?: Organization[];
     onStatusChange?: (taskId: string, newStatus: string) => void;
   }
 
-  let { tasks, onStatusChange }: Props = $props();
+  let { tasks, organizations = [], onStatusChange }: Props = $props();
+
+  function orgName(id: string): string {
+    if (!id || !organizations.length) return '';
+    const org = organizations.find(o => o.id === id);
+    return org?.name || id.substring(0, 12);
+  }
 
   // Kanban column definitions
   const columns = [
@@ -166,11 +175,21 @@
               {item.task.title}
             </div>
 
-            <!-- Bottom: assignee -->
-            {#if item.task.assigned_agent_id}
-              <div class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted">
-                <Circle size={8} />
-                <span class="truncate">{item.task.assigned_agent_id}</span>
+            <!-- Bottom: assignee + org -->
+            {#if item.task.assigned_agent_id || item.task.organization_id}
+              <div class="flex items-center gap-2 flex-wrap">
+                {#if item.task.assigned_agent_id}
+                  <div class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted">
+                    <Circle size={8} />
+                    <span class="truncate">{item.task.assigned_agent_id}</span>
+                  </div>
+                {/if}
+                {#if item.task.organization_id}
+                  <div class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted">
+                    <Building2 size={8} />
+                    <span class="truncate">{orgName(item.task.organization_id)}</span>
+                  </div>
+                {/if}
               </div>
             {/if}
           </div>

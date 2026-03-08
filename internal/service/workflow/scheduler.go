@@ -69,18 +69,25 @@ type Scheduler struct {
 	ctx    context.Context // parent context from Start()
 }
 
+type ScheduleStorer interface {
+	service.TriggerStorer
+	service.WorkflowStorer
+	service.WorkflowVersionStorer
+	service.AgentStorer
+}
+
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(ts service.TriggerStorer, ws service.WorkflowStorer, wvs service.WorkflowVersionStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, agentStore service.AgentStorer, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, cl *cluster.Cluster) *Scheduler {
+func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
-		triggerStore:          ts,
-		workflowStore:         ws,
-		workflowVersionStore:  wvs,
+		triggerStore:          st,
+		workflowStore:         st,
+		workflowVersionStore:  st,
 		providerLookup:        lookup,
 		skillLookup:           skillLookup,
 		varLookup:             varLookup,
 		varLister:             varLister,
 		nodeConfigLookup:      nodeConfigLookup,
-		agentStore:            agentStore,
+		agentStore:            st,
 		ragSearch:             ragSearch,
 		ragIngest:             ragIngest,
 		ragIngestFile:         ragIngestFile,

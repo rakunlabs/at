@@ -291,7 +291,7 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.ProviderStorer, tokenStore service.APITokenStorer, tokenUsageStore service.TokenUsageStorer, workflowStore service.WorkflowStorer, workflowVersionStore service.WorkflowVersionStorer, triggerStore service.TriggerStorer, skillStore service.SkillStorer, variableStore service.VariableStorer, nodeConfigStore service.NodeConfigStorer, agentStore service.AgentStorer, chatSessionStore service.ChatSessionStorer, ragCollectionStore service.RAGCollectionStorer, ragStateStore service.RAGStateStorer, ragMCPServerStore service.RAGMCPServerStorer, mcpServerStore service.MCPServerStorer, mcpSetStore service.MCPSetStorer, botConfigStore service.BotConfigStorer, marketplaceSourceStore service.MarketplaceSourceStorer, userPrefStore service.UserPreferenceStorer, organizationStore service.OrganizationStorer, goalStore service.GoalStorer, taskStore service.TaskStorer, agentBudgetStore service.AgentBudgetStorer, auditStore service.AuditStorer, agentHeartbeatStore service.AgentHeartbeatStorer, projectStore service.ProjectStorer, issueCommentStore service.IssueCommentStorer, labelStore service.LabelStorer, heartbeatRunStore service.HeartbeatRunStorer, wakeupRequestStore service.WakeupRequestStorer, agentRuntimeStateStore service.AgentRuntimeStateStorer, agentTaskSessionStore service.AgentTaskSessionStorer, approvalStore service.ApprovalStorer, agentConfigRevisionStore service.AgentConfigRevisionStorer, costEventStore service.CostEventStorer, orgAgentStore service.OrganizationAgentStorer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -308,41 +308,41 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		server:                   mux,
 		providers:                providers,
 		store:                    store,
-		tokenStore:               tokenStore,
-		tokenUsageStore:          tokenUsageStore,
-		workflowStore:            workflowStore,
-		workflowVersionStore:     workflowVersionStore,
-		triggerStore:             triggerStore,
-		skillStore:               skillStore,
-		variableStore:            variableStore,
-		nodeConfigStore:          nodeConfigStore,
-		agentStore:               agentStore,
-		chatSessionStore:         chatSessionStore,
-		ragCollectionStore:       ragCollectionStore,
-		ragStateStore:            ragStateStore,
-		ragMCPServerStore:        ragMCPServerStore,
-		mcpServerStore:           mcpServerStore,
-		mcpSetStore:              mcpSetStore,
-		botConfigStore:           botConfigStore,
-		marketplaceSourceStore:   marketplaceSourceStore,
-		userPrefStore:            userPrefStore,
-		organizationStore:        organizationStore,
-		goalStore:                goalStore,
-		taskStore:                taskStore,
-		agentBudgetStore:         agentBudgetStore,
-		auditStore:               auditStore,
-		agentHeartbeatStore:      agentHeartbeatStore,
-		projectStore:             projectStore,
-		issueCommentStore:        issueCommentStore,
-		labelStore:               labelStore,
-		heartbeatRunStore:        heartbeatRunStore,
-		wakeupRequestStore:       wakeupRequestStore,
-		agentRuntimeStateStore:   agentRuntimeStateStore,
-		agentTaskSessionStore:    agentTaskSessionStore,
-		approvalStore:            approvalStore,
-		agentConfigRevisionStore: agentConfigRevisionStore,
-		costEventStore:           costEventStore,
-		orgAgentStore:            orgAgentStore,
+		tokenStore:               store,
+		tokenUsageStore:          store,
+		workflowStore:            store,
+		workflowVersionStore:     store,
+		triggerStore:             store,
+		skillStore:               store,
+		variableStore:            store,
+		nodeConfigStore:          store,
+		agentStore:               store,
+		chatSessionStore:         store,
+		ragCollectionStore:       store,
+		ragStateStore:            store,
+		ragMCPServerStore:        store,
+		mcpServerStore:           store,
+		mcpSetStore:              store,
+		botConfigStore:           store,
+		marketplaceSourceStore:   store,
+		userPrefStore:            store,
+		organizationStore:        store,
+		goalStore:                store,
+		taskStore:                store,
+		agentBudgetStore:         store,
+		auditStore:               store,
+		agentHeartbeatStore:      store,
+		projectStore:             store,
+		issueCommentStore:        store,
+		labelStore:               store,
+		heartbeatRunStore:        store,
+		wakeupRequestStore:       store,
+		agentRuntimeStateStore:   store,
+		agentTaskSessionStore:    store,
+		approvalStore:            store,
+		agentConfigRevisionStore: store,
+		costEventStore:           store,
+		orgAgentStore:            store,
 		marketplaceClient:        &http.Client{Timeout: 10 * time.Second},
 		providerFactory:          factory,
 		storeType:                storeType,
@@ -383,7 +383,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	}()
 
 	// Initialize RAG service if collection store is available.
-	if ragCollectionStore != nil {
+	{
 		providerLookupForRAG := func(ctx context.Context, key string) (*config.LLMConfig, error) {
 			if store == nil {
 				return nil, fmt.Errorf("provider store not configured")
@@ -397,11 +397,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 			}
 			return &rec.Config, nil
 		}
-		s.ragService = rag.NewService(ragCollectionStore, providerLookupForRAG)
+		s.ragService = rag.NewService(store, providerLookupForRAG)
 	}
 
 	// Initialize cron trigger scheduler if trigger store is available.
-	if triggerStore != nil {
+	{
 		providerLookup := func(key string) (service.LLMProvider, string, error) {
 			s.providerMu.RLock()
 			info, ok := s.providers[key]
@@ -414,25 +414,25 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 		// Build a skill lookup for the scheduler (uses background context).
 		var schedulerSkillLookup workflow.SkillLookup
-		if skillStore != nil {
+		if store != nil {
 			schedulerSkillLookup = func(nameOrID string) (*service.Skill, error) {
-				sk, err := skillStore.GetSkill(ctx, nameOrID)
+				sk, err := store.GetSkill(ctx, nameOrID)
 				if err != nil {
 					return nil, err
 				}
 				if sk != nil {
 					return sk, nil
 				}
-				return skillStore.GetSkillByName(ctx, nameOrID)
+				return store.GetSkillByName(ctx, nameOrID)
 			}
 		}
 
 		// Build a variable lookup for the scheduler.
 		var schedulerVarLookup workflow.VarLookup
 		var schedulerVarLister workflow.VarLister
-		if variableStore != nil {
+		if store != nil {
 			schedulerVarLookup = func(key string) (string, error) {
-				v, err := variableStore.GetVariableByKey(ctx, key)
+				v, err := store.GetVariableByKey(ctx, key)
 				if err != nil {
 					return "", err
 				}
@@ -442,7 +442,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 				return v.Value, nil
 			}
 			schedulerVarLister = func() (map[string]string, error) {
-				vars, err := variableStore.ListVariables(ctx, nil)
+				vars, err := store.ListVariables(ctx, nil)
 				if err != nil {
 					return nil, err
 				}
@@ -456,13 +456,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 		// Build a node config lookup for the scheduler.
 		var schedulerNodeConfigLookup workflow.NodeConfigLookup
-		if s.nodeConfigStore != nil {
+		if store != nil {
 			schedulerNodeConfigLookup = func(id string) (*service.NodeConfig, error) {
-				return s.nodeConfigStore.GetNodeConfig(ctx, id)
+				return store.GetNodeConfig(ctx, id)
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(triggerStore, workflowStore, workflowVersionStore, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, agentStore, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), cl)
+		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)

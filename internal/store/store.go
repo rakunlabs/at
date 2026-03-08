@@ -13,42 +13,7 @@ import (
 
 // StorerClose combines all store interfaces with a Close method.
 type StorerClose interface {
-	service.ProviderStorer
-	service.APITokenStorer
-	service.TokenUsageStorer
-	service.WorkflowStorer
-	service.WorkflowVersionStorer
-	service.TriggerStorer
-	service.SkillStorer
-	service.VariableStorer
-	service.NodeConfigStorer
-	service.AgentStorer
-	service.ChatSessionStorer
-	service.RAGCollectionStorer
-	service.RAGStateStorer
-	service.RAGMCPServerStorer
-	service.MCPServerStorer
-	service.MCPSetStorer
-	service.BotConfigStorer
-	service.MarketplaceSourceStorer
-	service.UserPreferenceStorer
-	service.OrganizationStorer
-	service.GoalStorer
-	service.TaskStorer
-	service.AgentBudgetStorer
-	service.AuditStorer
-	service.AgentHeartbeatStorer
-	service.ProjectStorer
-	service.IssueCommentStorer
-	service.LabelStorer
-	service.HeartbeatRunStorer
-	service.WakeupRequestStorer
-	service.AgentRuntimeStateStorer
-	service.AgentTaskSessionStorer
-	service.ApprovalStorer
-	service.AgentConfigRevisionStorer
-	service.CostEventStorer
-	service.OrganizationAgentStorer
+	service.Storer
 	Close()
 }
 

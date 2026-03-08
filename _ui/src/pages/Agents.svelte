@@ -47,9 +47,6 @@
   let formToolTimeout = $state(60);
   let formConfirmationTools = $state<string[]>([]);
 
-  // Agent-level scheduling
-  let formHeartbeatSchedule = $state('');
-
   // Copy / Paste via system clipboard
   
   async function copyAgent(agent: Agent) {
@@ -162,7 +159,6 @@
     formMaxIterations = 10;
     formToolTimeout = 60;
     formConfirmationTools = [];
-    formHeartbeatSchedule = '';
     editingId = null;
     showForm = false;
   }
@@ -187,7 +183,6 @@
     formMaxIterations = agent.config.max_iterations || 10;
     formToolTimeout = agent.config.tool_timeout || 60;
     formConfirmationTools = [...(agent.config.confirmation_required_tools || [])];
-    formHeartbeatSchedule = agent.config.heartbeat_schedule || '';
     showForm = true;
   }
 
@@ -218,7 +213,6 @@
           max_iterations: formMaxIterations,
           tool_timeout: formToolTimeout,
           confirmation_required_tools: formConfirmationTools,
-          heartbeat_schedule: formHeartbeatSchedule.trim() || undefined,
         },
       };
 
@@ -539,25 +533,6 @@
                 min="1"
                 class="col-span-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
               />
-            </div>
-
-            <!-- Organization Section -->
-            <div class="pt-3 border-t border-gray-100 dark:border-dark-border">
-              <span class="text-xs font-medium text-gray-400 dark:text-dark-text-muted tracking-wider uppercase mb-3 block">Scheduling</span>
-
-              <div class="space-y-4">
-                <!-- Heartbeat -->
-                <div class="grid grid-cols-4 gap-3 items-center">
-                  <label for="form-heartbeat" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Heartbeat</label>
-                  <input
-                    id="form-heartbeat"
-                    type="text"
-                    bind:value={formHeartbeatSchedule}
-                    placeholder="Cron (e.g., */5 * * * *)"
-                    class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                  />
-                </div>
-              </div>
             </div>
 
             <!-- Actions -->

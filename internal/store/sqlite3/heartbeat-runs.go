@@ -17,6 +17,7 @@ import (
 type heartbeatRunRow struct {
 	ID               string         `db:"id"`
 	AgentID          string         `db:"agent_id"`
+	OrganizationID   string         `db:"organization_id"`
 	InvocationSource string         `db:"invocation_source"`
 	TriggerDetail    sql.NullString `db:"trigger_detail"`
 	Status           string         `db:"status"`
@@ -36,7 +37,7 @@ type heartbeatRunRow struct {
 }
 
 var heartbeatRunColumns = []interface{}{
-	"id", "agent_id", "invocation_source", "trigger_detail", "status",
+	"id", "agent_id", "organization_id", "invocation_source", "trigger_detail", "status",
 	"context_snapshot", "usage_json", "result_json",
 	"log_ref", "log_bytes", "log_sha256", "stdout_excerpt", "stderr_excerpt",
 	"session_id_before", "session_id_after", "started_at", "finished_at", "created_at",
@@ -45,7 +46,7 @@ var heartbeatRunColumns = []interface{}{
 func scanHeartbeatRunRow(scanner interface{ Scan(dest ...any) error }) (heartbeatRunRow, error) {
 	var row heartbeatRunRow
 	err := scanner.Scan(
-		&row.ID, &row.AgentID, &row.InvocationSource, &row.TriggerDetail, &row.Status,
+		&row.ID, &row.AgentID, &row.OrganizationID, &row.InvocationSource, &row.TriggerDetail, &row.Status,
 		&row.ContextSnapshot, &row.UsageJSON, &row.ResultJSON,
 		&row.LogRef, &row.LogBytes, &row.LogSHA256, &row.StdoutExcerpt, &row.StderrExcerpt,
 		&row.SessionIDBefore, &row.SessionIDAfter, &row.StartedAt, &row.FinishedAt, &row.CreatedAt,
@@ -66,6 +67,7 @@ func (s *SQLite) CreateHeartbeatRun(ctx context.Context, run service.HeartbeatRu
 		goqu.Record{
 			"id":                id,
 			"agent_id":          run.AgentID,
+			"organization_id":   run.OrganizationID,
 			"invocation_source": run.InvocationSource,
 			"trigger_detail":    run.TriggerDetail,
 			"status":            run.Status,
@@ -274,6 +276,7 @@ func heartbeatRunRowToRecord(row heartbeatRunRow) (*service.HeartbeatRun, error)
 	return &service.HeartbeatRun{
 		ID:               row.ID,
 		AgentID:          row.AgentID,
+		OrganizationID:   row.OrganizationID,
 		InvocationSource: row.InvocationSource,
 		TriggerDetail:    row.TriggerDetail.String,
 		Status:           row.Status,

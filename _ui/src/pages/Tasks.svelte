@@ -15,6 +15,8 @@
     TASK_PRIORITY_LABELS,
     type Task,
   } from '@/lib/api/tasks';
+  import { listOrganizations, type Organization } from '@/lib/api/organizations';
+  import { listAgents, type Agent } from '@/lib/api/agents';
   import { formatDate } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -22,10 +24,40 @@
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import {
     ClipboardList, Plus, Pencil, Trash2, X, Save, RefreshCw,
-    UserCheck, UserX, List, LayoutGrid, ExternalLink,
+    UserCheck, UserX, List, LayoutGrid, ExternalLink, Building2,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Tasks';
+
+  // ─── Reference Data ───
+
+  let organizations = $state<Organization[]>([]);
+  let agents = $state<Agent[]>([]);
+
+  async function loadReferenceData() {
+    try {
+      const [orgRes, agentRes] = await Promise.all([
+        listOrganizations({ _limit: 200 }),
+        listAgents({ _limit: 200 }),
+      ]);
+      organizations = orgRes.data || [];
+      agents = agentRes.data || [];
+    } catch {
+      // Non-fatal: dropdowns will be empty
+    }
+  }
+
+  function orgName(id: string): string {
+    if (!id) return '';
+    const org = organizations.find(o => o.id === id);
+    return org?.name || id.substring(0, 12);
+  }
+
+  function agentName(id: string): string {
+    if (!id) return '';
+    const agent = agents.find(a => a.id === id);
+    return agent?.name || id.substring(0, 12);
+  }
 
   // ─── State ───
 
@@ -43,6 +75,7 @@
   let sorts = $state<SortEntry[]>([]);
   let filterStatus = $state('');
   let filterPriority = $state('');
+  let filterOrgId = $state('');
 
   // View mode: persisted in localStorage
   let viewMode = $state<'list' | 'board'>(
@@ -53,11 +86,16 @@
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
 
+  // Checkout inline state
+  let checkoutTaskId = $state<string | null>(null);
+  let checkoutAgentId = $state('');
+
   // Form fields
   let formTitle = $state('');
   let formDescription = $state('');
   let formGoalId = $state('');
   let formAssignedAgentId = $state('');
+  let formOrganizationId = $state('');
   let formStatus = $state('todo');
   let formPriorityLevel = $state('');
   let formPriority = $state(0);
@@ -104,13 +142,18 @@
 
   // ─── Load ───
 
+  function applyFilters(params: any) {
+    if (searchQuery) params['title[like]'] = `%${searchQuery}%`;
+    if (filterStatus) params['status'] = filterStatus;
+    if (filterPriority) params['priority_level'] = filterPriority;
+    if (filterOrgId) params['organization_id'] = filterOrgId;
+  }
+
   async function load() {
     loading = true;
     try {
       const params: any = { _offset: offset, _limit: limit };
-      if (searchQuery) params['title[like]'] = `%${searchQuery}%`;
-      if (filterStatus) params['status'] = filterStatus;
-      if (filterPriority) params['priority_level'] = filterPriority;
+      applyFilters(params);
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       const res = await listTasks(params);
@@ -128,9 +171,7 @@
     loading = true;
     try {
       const params: any = { _limit: 500 };
-      if (searchQuery) params['title[like]'] = `%${searchQuery}%`;
-      if (filterStatus) params['status'] = filterStatus;
-      if (filterPriority) params['priority_level'] = filterPriority;
+      applyFilters(params);
       const res = await listTasks(params);
       allTasks = res.data || [];
       total = res.meta?.total || 0;
@@ -161,6 +202,7 @@
   }
 
   // Initial load
+  loadReferenceData();
   if (viewMode === 'board') loadAll();
   else load();
 
@@ -176,6 +218,7 @@
     formDescription = '';
     formGoalId = '';
     formAssignedAgentId = '';
+    formOrganizationId = '';
     formStatus = 'todo';
     formPriorityLevel = '';
     formPriority = 0;
@@ -197,6 +240,7 @@
     formDescription = task.description || '';
     formGoalId = task.goal_id || '';
     formAssignedAgentId = task.assigned_agent_id || '';
+    formOrganizationId = task.organization_id || '';
     formStatus = task.status || 'todo';
     formPriorityLevel = task.priority_level || '';
     formPriority = task.priority || 0;
@@ -217,7 +261,8 @@
         title: formTitle.trim(),
         description: formDescription.trim(),
         goal_id: formGoalId.trim(),
-        assigned_agent_id: formAssignedAgentId.trim(),
+        assigned_agent_id: formAssignedAgentId,
+        organization_id: formOrganizationId,
         status: formStatus,
         priority_level: formPriorityLevel,
         priority: formPriority,
@@ -252,17 +297,30 @@
     }
   }
 
-  async function handleCheckout(task: Task) {
-    const agentId = prompt('Enter agent ID for checkout:');
-    if (!agentId) return;
+  function openCheckout(task: Task) {
+    checkoutTaskId = task.id;
+    checkoutAgentId = '';
+  }
 
+  async function confirmCheckout() {
+    if (!checkoutTaskId || !checkoutAgentId) {
+      addToast('Select an agent for checkout', 'warn');
+      return;
+    }
     try {
-      await checkoutTask(task.id, agentId.trim());
-      addToast(`Task "${task.title}" checked out`);
+      await checkoutTask(checkoutTaskId, checkoutAgentId);
+      addToast('Task checked out');
+      checkoutTaskId = null;
+      checkoutAgentId = '';
       await refresh();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to checkout task', 'alert');
     }
+  }
+
+  function cancelCheckout() {
+    checkoutTaskId = null;
+    checkoutAgentId = '';
   }
 
   async function handleRelease(task: Task) {
@@ -334,6 +392,17 @@
         {/each}
       </select>
 
+      <select
+        bind:value={filterOrgId}
+        onchange={handleFilterChange}
+        class="border border-gray-200 dark:border-dark-border px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text"
+      >
+        <option value="">All organizations</option>
+        {#each organizations as org}
+          <option value={org.id}>{org.name}</option>
+        {/each}
+      </select>
+
       <button
         onclick={refresh}
         class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
@@ -386,7 +455,7 @@
             class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors resize-y"></textarea>
         </div>
 
-        <div class="grid grid-cols-4 gap-3">
+        <div class="grid grid-cols-5 gap-3">
           <!-- Status -->
           <div>
             <label for="form-status" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Status</label>
@@ -411,11 +480,27 @@
               {/each}
             </select>
           </div>
+          <!-- Organization -->
+          <div>
+            <label for="form-organization" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Organization</label>
+            <select id="form-organization" bind:value={formOrganizationId}
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors">
+              <option value="">None</option>
+              {#each organizations as org}
+                <option value={org.id}>{org.name}</option>
+              {/each}
+            </select>
+          </div>
           <!-- Assigned Agent -->
           <div>
             <label for="form-assigned-agent" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Assigned Agent</label>
-            <input id="form-assigned-agent" type="text" bind:value={formAssignedAgentId} placeholder="Agent ID"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+            <select id="form-assigned-agent" bind:value={formAssignedAgentId}
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors">
+              <option value="">Unassigned</option>
+              {#each agents as agent}
+                <option value={agent.id}>{agent.name}</option>
+              {/each}
+            </select>
           </div>
           <!-- Project ID -->
           <div>
@@ -449,7 +534,7 @@
           <div class="text-sm text-gray-400 dark:text-dark-text-muted">Loading tasks...</div>
         </div>
       {:else}
-        <KanbanBoard tasks={allTasks} onStatusChange={handleBoardStatusChange} />
+        <KanbanBoard tasks={allTasks} {organizations} onStatusChange={handleBoardStatusChange} />
       {/if}
     </div>
   {:else}
@@ -472,6 +557,7 @@
           <SortableHeader field="title" label="Title" {sorts} onsort={handleSort} />
           <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
           <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Priority</th>
+          <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Organization</th>
           <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Assigned Agent</th>
           <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Checked Out</th>
           <SortableHeader field="updated_at" label="Updated" {sorts} onsort={handleSort} />
@@ -502,66 +588,102 @@
                 {task.priority || '-'}
               {/if}
             </td>
-            <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">
-              {task.assigned_agent_id ? task.assigned_agent_id.substring(0, 12) : '-'}
+            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+              {#if task.organization_id}
+                <span class="inline-flex items-center gap-1 px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
+                  <Building2 size={10} />
+                  {orgName(task.organization_id)}
+                </span>
+              {:else}
+                -
+              {/if}
             </td>
-            <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">
-              {task.checked_out_by ? task.checked_out_by.substring(0, 12) : '-'}
+            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+              {task.assigned_agent_id ? agentName(task.assigned_agent_id) : '-'}
+            </td>
+            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
+              {task.checked_out_by ? agentName(task.checked_out_by) : '-'}
             </td>
             <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(task.updated_at)}</td>
             <td class="px-4 py-2.5 text-right">
               <div class="flex justify-end gap-1">
-                <button
-                  onclick={() => push(`/tasks/${task.id}`)}
-                  class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-                  title="View details"
-                >
-                  <ExternalLink size={14} />
-                </button>
-                <button
-                  onclick={() => handleCheckout(task)}
-                  class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-                  title="Checkout"
-                >
-                  <UserCheck size={14} />
-                </button>
-                {#if task.checked_out_by}
-                  <button
-                    onclick={() => handleRelease(task)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-                    title="Release"
+                {#if checkoutTaskId === task.id}
+                  <!-- Inline checkout: agent selector + confirm/cancel -->
+                  <select
+                    bind:value={checkoutAgentId}
+                    class="border border-gray-200 dark:border-dark-border px-1.5 py-0.5 text-xs dark:bg-dark-elevated dark:text-dark-text max-w-[120px]"
                   >
-                    <UserX size={14} />
-                  </button>
-                {/if}
-                <button
-                  onclick={() => openEdit(task)}
-                  class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
-                  title="Edit"
-                >
-                  <Pencil size={14} />
-                </button>
-                {#if deleteConfirm === task.id}
+                    <option value="">Agent...</option>
+                    {#each agents as agent}
+                      <option value={agent.id}>{agent.name}</option>
+                    {/each}
+                  </select>
                   <button
-                    onclick={() => handleDelete(task.id)}
-                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    onclick={confirmCheckout}
+                    disabled={!checkoutAgentId}
+                    class="px-2 py-0.5 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
                   >
-                    Confirm
+                    OK
                   </button>
                   <button
-                    onclick={() => (deleteConfirm = null)}
-                    class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                    onclick={cancelCheckout}
+                    class="px-2 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
                   >
                     Cancel
                   </button>
                 {:else}
                   <button
-                    onclick={() => (deleteConfirm = task.id)}
-                    class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
-                    title="Delete"
+                    onclick={() => push(`/tasks/${task.id}`)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                    title="View details"
                   >
-                    <Trash2 size={14} />
+                    <ExternalLink size={14} />
                   </button>
+                  <button
+                    onclick={() => openCheckout(task)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                    title="Checkout"
+                  >
+                    <UserCheck size={14} />
+                  </button>
+                  {#if task.checked_out_by}
+                    <button
+                      onclick={() => handleRelease(task)}
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                      title="Release"
+                    >
+                      <UserX size={14} />
+                    </button>
+                  {/if}
+                  <button
+                    onclick={() => openEdit(task)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                    title="Edit"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  {#if deleteConfirm === task.id}
+                    <button
+                      onclick={() => handleDelete(task.id)}
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onclick={() => (deleteConfirm = null)}
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  {:else}
+                    <button
+                      onclick={() => (deleteConfirm = task.id)}
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  {/if}
                 {/if}
               </div>
             </td>

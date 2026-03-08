@@ -100,6 +100,7 @@ export interface OrganizationAgent {
   title?: string;
   parent_agent_id?: string;
   status?: string;
+  heartbeat_schedule?: string;
   created_at: string;
   updated_at: string;
 }
@@ -111,7 +112,7 @@ export async function listOrgAgents(orgId: string): Promise<OrganizationAgent[]>
 
 export async function addAgentToOrg(
   orgId: string,
-  data: { agent_id: string; role?: string; title?: string; parent_agent_id?: string; status?: string },
+  data: { agent_id: string; role?: string; title?: string; parent_agent_id?: string; status?: string; heartbeat_schedule?: string },
 ): Promise<OrganizationAgent> {
   const res = await api.post<OrganizationAgent>(`/organizations/${orgId}/agents`, data);
   return res.data;
@@ -120,7 +121,7 @@ export async function addAgentToOrg(
 export async function updateOrgAgent(
   orgId: string,
   agentId: string,
-  data: { role?: string; title?: string; parent_agent_id?: string; status?: string },
+  data: { role?: string; title?: string; parent_agent_id?: string; status?: string; heartbeat_schedule?: string },
 ): Promise<OrganizationAgent> {
   const res = await api.put<OrganizationAgent>(`/organizations/${orgId}/agents/${agentId}`, data);
   return res.data;
