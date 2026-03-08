@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -253,36 +254,45 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			break
 		}
 
-		// i) Execute tool calls sequentially (concurrent fan-out is Phase 3).
-		var toolResults []service.ContentBlock
-		for _, tc := range resp.ToolCalls {
+		// i) Execute tool calls concurrently (fan-out: one goroutine per delegation).
+		toolResults := make([]service.ContentBlock, len(resp.ToolCalls))
+		var wg sync.WaitGroup
+		var resultMu sync.Mutex
+
+		for i, tc := range resp.ToolCalls {
 			slog.Debug("org-delegation: tool call",
 				"tool", tc.Name, "task_id", task.ID, "iteration", iteration)
 
-			var result string
-			var callErr error
-
 			if reportAgentID, ok := delegateToolMap[tc.Name]; ok {
-				// Extract the task text from the tool call arguments.
-				taskText, _ := tc.Arguments["task"].(string)
-				if taskText == "" {
-					taskText = task.Title // Fallback to parent title.
-				}
+				wg.Add(1)
+				go func(idx int, toolCall service.ToolCall, targetAgentID string) {
+					defer wg.Done()
 
-				// Create child task.
-				childTask, err := s.createDelegationTask(ctx, org, task, reportAgentID, taskText, depth)
-				if err != nil {
-					callErr = fmt.Errorf("failed to create delegation task: %w", err)
-				} else {
-					// Recursively delegate.
+					taskText, _ := toolCall.Arguments["task"].(string)
+					if taskText == "" {
+						taskText = task.Title
+					}
+
+					childTask, err := s.createDelegationTask(ctx, org, task, targetAgentID, taskText, depth)
+					if err != nil {
+						resultMu.Lock()
+						toolResults[idx] = service.ContentBlock{
+							Type:      "tool_result",
+							ToolUseID: toolCall.ID,
+							Content:   fmt.Sprintf("Error: failed to create delegation task: %v", err),
+						}
+						resultMu.Unlock()
+						return
+					}
+
 					slog.Info("org-delegation: delegating to report",
 						"parent_task", task.ID, "child_task", childTask.ID,
-						"from_agent", agentID, "to_agent", reportAgentID, "depth", depth+1)
+						"from_agent", agentID, "to_agent", targetAgentID, "depth", depth+1)
 
-					if delegErr := s.runOrgDelegation(ctx, org, childTask, reportAgentID, depth+1); delegErr != nil {
-						callErr = fmt.Errorf("delegation failed: %w", delegErr)
+					var result string
+					if delegErr := s.runOrgDelegation(ctx, org, childTask, targetAgentID, depth+1); delegErr != nil {
+						result = fmt.Sprintf("Error: delegation failed: %v", delegErr)
 					} else {
-						// Re-fetch the child task to get its result.
 						updated, getErr := s.taskStore.GetTask(ctx, childTask.ID)
 						if getErr != nil {
 							result = fmt.Sprintf("Delegation completed but failed to fetch result: %v", getErr)
@@ -292,47 +302,72 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 							result = "Delegation completed (no result returned)."
 						}
 					}
-				}
+
+					resultMu.Lock()
+					toolResults[idx] = service.ContentBlock{
+						Type:      "tool_result",
+						ToolUseID: toolCall.ID,
+						Content:   result,
+					}
+					resultMu.Unlock()
+
+					// Record audit entry for delegation tool call.
+					recordAudit := s.recordAuditFunc()
+					if recordAudit != nil {
+						auditDetails := map[string]any{
+							"tool_name": toolCall.Name,
+							"task_id":   task.ID,
+							"iteration": iteration,
+							"has_error": false,
+						}
+						if auditErr := recordAudit(ctx, service.AuditEntry{
+							ActorType:      "agent",
+							ActorID:        agentID,
+							Action:         "tool_call",
+							ResourceType:   "tool",
+							ResourceID:     toolCall.ID,
+							OrganizationID: org.ID,
+							Details:        auditDetails,
+						}); auditErr != nil {
+							slog.Warn("org-delegation: failed to record audit",
+								"agent_id", agentID, "error", auditErr)
+						}
+					}
+				}(i, tc, reportAgentID)
 			} else {
-				// Unknown tool.
-				callErr = fmt.Errorf("unknown tool %q", tc.Name)
-			}
-
-			if callErr != nil {
-				slog.Error("org-delegation: tool call failed",
-					"tool", tc.Name, "task_id", task.ID, "error", callErr)
-				result = fmt.Sprintf("Error: %v", callErr)
-			}
-
-			// Record audit entry for each tool call.
-			recordAudit := s.recordAuditFunc()
-			if recordAudit != nil {
-				auditDetails := map[string]any{
-					"tool_name": tc.Name,
-					"task_id":   task.ID,
-					"iteration": iteration,
-					"has_error": callErr != nil,
+				// Unknown tool — handle synchronously (no goroutine needed).
+				toolResults[i] = service.ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: tc.ID,
+					Content:   fmt.Sprintf("Error: unknown tool %q", tc.Name),
 				}
-				if auditErr := recordAudit(ctx, service.AuditEntry{
-					ActorType:      "agent",
-					ActorID:        agentID,
-					Action:         "tool_call",
-					ResourceType:   "tool",
-					ResourceID:     tc.ID,
-					OrganizationID: org.ID,
-					Details:        auditDetails,
-				}); auditErr != nil {
-					slog.Warn("org-delegation: failed to record audit",
-						"agent_id", agentID, "error", auditErr)
+
+				// Record audit for unknown tool call.
+				recordAudit := s.recordAuditFunc()
+				if recordAudit != nil {
+					auditDetails := map[string]any{
+						"tool_name": tc.Name,
+						"task_id":   task.ID,
+						"iteration": iteration,
+						"has_error": true,
+					}
+					if auditErr := recordAudit(ctx, service.AuditEntry{
+						ActorType:      "agent",
+						ActorID:        agentID,
+						Action:         "tool_call",
+						ResourceType:   "tool",
+						ResourceID:     tc.ID,
+						OrganizationID: org.ID,
+						Details:        auditDetails,
+					}); auditErr != nil {
+						slog.Warn("org-delegation: failed to record audit",
+							"agent_id", agentID, "error", auditErr)
+					}
 				}
 			}
-
-			toolResults = append(toolResults, service.ContentBlock{
-				Type:      "tool_result",
-				ToolUseID: tc.ID,
-				Content:   result,
-			})
 		}
+
+		wg.Wait()
 
 		// Append tool results and continue loop.
 		messages = append(messages, service.Message{
