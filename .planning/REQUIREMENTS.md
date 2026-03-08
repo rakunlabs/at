@@ -12,15 +12,15 @@ Requirements for initial release. Each maps to roadmap phases.
 - [x] **HIER-01**: Organization has a designated head agent field (nullable, one agent per org)
 - [ ] **HIER-02**: User can select head agent from org's existing agents via UI dropdown
 - [ ] **HIER-03**: Agents can only delegate to their direct reports (children in parent_agent_id tree)
-- [ ] **HIER-04**: Hierarchy validation rejects cycles and orphan branches on save
+- [x] **HIER-04**: Hierarchy validation rejects cycles and orphan branches on save
 - [ ] **HIER-05**: Delegating agent's system prompt is enriched with direct reports' roles, titles, and descriptions
 
 ### Task Intake
 
-- [ ] **INTK-01**: POST /api/v1/organizations/{id}/tasks creates a Task assigned to the head agent
-- [ ] **INTK-02**: Task intake returns 202 Accepted immediately with task ID (async processing)
-- [ ] **INTK-03**: Intake validates org exists, has a head agent, and head agent is active
-- [ ] **INTK-04**: Created task gets org-scoped identifier (e.g., PAP-42) via existing issue counter
+- [x] **INTK-01**: POST /api/v1/organizations/{id}/tasks creates a Task assigned to the head agent
+- [x] **INTK-02**: Task intake returns 202 Accepted immediately with task ID (async processing)
+- [x] **INTK-03**: Intake validates org exists, has a head agent, and head agent is active
+- [x] **INTK-04**: Created task gets org-scoped identifier (e.g., PAP-42) via existing issue counter
 
 ### Delegation
 
@@ -94,12 +94,12 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HIER-01 | Phase 1 | Complete |
 | HIER-02 | Phase 4 | Pending |
 | HIER-03 | Phase 2 | Pending |
-| HIER-04 | Phase 1 | Pending |
+| HIER-04 | Phase 1 | Complete |
 | HIER-05 | Phase 2 | Pending |
-| INTK-01 | Phase 1 | Pending |
-| INTK-02 | Phase 1 | Pending |
-| INTK-03 | Phase 1 | Pending |
-| INTK-04 | Phase 1 | Pending |
+| INTK-01 | Phase 1 | Complete |
+| INTK-02 | Phase 1 | Complete |
+| INTK-03 | Phase 1 | Complete |
+| INTK-04 | Phase 1 | Complete |
 | DELG-01 | Phase 2 | Pending |
 | DELG-02 | Phase 2 | Pending |
 | DELG-03 | Phase 2 | Pending |

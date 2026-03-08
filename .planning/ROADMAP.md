@@ -10,7 +10,7 @@ This roadmap delivers hierarchical agent task routing for the AT LLM gateway —
 - Integer phases (1, 2, 3, 4): Planned milestone work
 - Decimal phases (e.g., 2.1): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Foundation** - Data model, hierarchy validation, and async task intake API
+- [x] **Phase 1: Foundation** - Data model, hierarchy validation, and async task intake API
 - [ ] **Phase 2: Core Delegation** - LLM-driven routing from head agent to direct reports with task tracking
 - [ ] **Phase 3: Depth & Concurrency** - Multi-level delegation chains, parallel fan-out, and status propagation
 - [ ] **Phase 4: UI Integration** - Head agent selector, task submission form, canvas reparenting, and delegation tree view
@@ -30,8 +30,8 @@ This roadmap delivers hierarchical agent task routing for the AT LLM gateway —
 **Plans:** 2 plans
 
 Plans:
-- [ ] 01-01-PLAN.md — Data model extension: HeadAgentID + MaxDelegationDepth on Organization, migration 48, fix store CRUD gap across all 3 backends
-- [ ] 01-02-PLAN.md — Hierarchy validation (cycle/orphan detection) + async task intake endpoint (POST /api/v1/organizations/{id}/tasks → 202 Accepted)
+- [x] 01-01-PLAN.md — Data model extension: HeadAgentID + MaxDelegationDepth on Organization, migration 48, fix store CRUD gap across all 3 backends
+- [x] 01-02-PLAN.md — Hierarchy validation (cycle/orphan detection) + async task intake endpoint (POST /api/v1/organizations/{id}/tasks → 202 Accepted)
 
 ### Phase 2: Core Delegation
 **Goal**: Head agent receives a submitted task, uses LLM judgment to delegate to a direct report, and the delegation creates a tracked child task — proving the two-level delegation pattern end-to-end
@@ -84,7 +84,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/2 | Planning complete | - |
+| 1. Foundation | 2/2 | Complete | 2026-03-08 |
 | 2. Core Delegation | 0/? | Not started | - |
 | 3. Depth & Concurrency | 0/? | Not started | - |
 | 4. UI Integration | 0/? | Not started | - |
