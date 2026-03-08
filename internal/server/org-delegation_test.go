@@ -109,6 +109,29 @@ func (m *mockTaskStoreForDelegation) ListTasksByGoal(_ context.Context, _ string
 	return nil, nil
 }
 
+func (m *mockTaskStoreForDelegation) ListChildTasks(_ context.Context, parentID string) ([]service.Task, error) {
+	var result []service.Task
+	for _, t := range m.tasks {
+		if t.ParentID == parentID {
+			result = append(result, t)
+		}
+	}
+	return result, nil
+}
+
+func (m *mockTaskStoreForDelegation) UpdateTaskStatus(_ context.Context, id string, status string, result string) error {
+	for i, t := range m.tasks {
+		if t.ID == id {
+			m.tasks[i].Status = status
+			if result != "" {
+				m.tasks[i].Result = result
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
 // mockOrgStoreForDelegation implements service.OrganizationStorer.
 type mockOrgStoreForDelegation struct {
 	orgs       map[string]*service.Organization
@@ -359,5 +382,165 @@ func TestDelegateToolNameSanitization(t *testing.T) {
 				t.Errorf("expected tool name %q, got %q", tt.wantTool, toolName)
 			}
 		})
+	}
+}
+
+// --- Test: propagateStatusToParent ---
+
+func TestStatusPropagation(t *testing.T) {
+	taskStore := &mockTaskStoreForDelegation{
+		tasks: []service.Task{
+			{ID: "P1", Status: service.TaskStatusInProgress},
+			{ID: "C1", ParentID: "P1", Status: service.TaskStatusCompleted},
+			{ID: "C2", ParentID: "P1", Status: service.TaskStatusCompleted},
+		},
+	}
+
+	s := testServerWithStores(nil, taskStore, nil, nil)
+
+	childTask := &service.Task{ID: "C2", ParentID: "P1"}
+	s.propagateStatusToParent(context.Background(), childTask)
+
+	// Parent should be completed since all children are completed.
+	for _, t2 := range taskStore.tasks {
+		if t2.ID == "P1" {
+			if t2.Status != service.TaskStatusCompleted {
+				t.Errorf("expected parent status %q, got %q", service.TaskStatusCompleted, t2.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("parent task P1 not found")
+}
+
+func TestAutoCompletion(t *testing.T) {
+	taskStore := &mockTaskStoreForDelegation{
+		tasks: []service.Task{
+			{ID: "P1", Status: service.TaskStatusInProgress},
+			{ID: "C1", ParentID: "P1", Status: service.TaskStatusCompleted},
+			{ID: "C2", ParentID: "P1", Status: service.TaskStatusInProgress},
+		},
+	}
+
+	s := testServerWithStores(nil, taskStore, nil, nil)
+
+	// C1 is completed but C2 is still in_progress — parent should NOT be completed.
+	childTask := &service.Task{ID: "C1", ParentID: "P1"}
+	s.propagateStatusToParent(context.Background(), childTask)
+
+	for _, t2 := range taskStore.tasks {
+		if t2.ID == "P1" {
+			if t2.Status != service.TaskStatusInProgress {
+				t.Errorf("expected parent status %q (not all children done), got %q",
+					service.TaskStatusInProgress, t2.Status)
+			}
+			break
+		}
+	}
+
+	// Now update C2 to completed and propagate again.
+	for i, t2 := range taskStore.tasks {
+		if t2.ID == "C2" {
+			taskStore.tasks[i].Status = service.TaskStatusCompleted
+			break
+		}
+	}
+
+	childTask2 := &service.Task{ID: "C2", ParentID: "P1"}
+	s.propagateStatusToParent(context.Background(), childTask2)
+
+	for _, t2 := range taskStore.tasks {
+		if t2.ID == "P1" {
+			if t2.Status != service.TaskStatusCompleted {
+				t.Errorf("expected parent status %q after all children done, got %q",
+					service.TaskStatusCompleted, t2.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("parent task P1 not found")
+}
+
+func TestFailurePropagation(t *testing.T) {
+	taskStore := &mockTaskStoreForDelegation{
+		tasks: []service.Task{
+			{ID: "P1", Status: service.TaskStatusInProgress},
+			{ID: "C1", ParentID: "P1", Status: service.TaskStatusCompleted},
+			{ID: "C2", ParentID: "P1", Status: service.TaskStatusCancelled},
+		},
+	}
+
+	s := testServerWithStores(nil, taskStore, nil, nil)
+
+	childTask := &service.Task{ID: "C2", ParentID: "P1"}
+	s.propagateStatusToParent(context.Background(), childTask)
+
+	// Parent should be cancelled since one child is cancelled and all are done.
+	for _, t2 := range taskStore.tasks {
+		if t2.ID == "P1" {
+			if t2.Status != service.TaskStatusCancelled {
+				t.Errorf("expected parent status %q (child failed), got %q",
+					service.TaskStatusCancelled, t2.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("parent task P1 not found")
+}
+
+func TestGetTaskWithSubtasks(t *testing.T) {
+	taskStore := &mockTaskStoreForDelegation{
+		tasks: []service.Task{
+			{ID: "root", Status: service.TaskStatusCompleted, Title: "Root Task"},
+			{ID: "child1", ParentID: "root", Status: service.TaskStatusCompleted, Title: "Child 1"},
+			{ID: "child2", ParentID: "root", Status: service.TaskStatusCompleted, Title: "Child 2"},
+			{ID: "grandchild1", ParentID: "child1", Status: service.TaskStatusCompleted, Title: "Grandchild 1"},
+		},
+	}
+
+	s := testServerWithStores(nil, taskStore, nil, nil)
+
+	tree, err := s.buildTaskTree(context.Background(), "root", 20)
+	if err != nil {
+		t.Fatalf("buildTaskTree returned error: %v", err)
+	}
+	if tree == nil {
+		t.Fatal("buildTaskTree returned nil")
+	}
+
+	// Root should have 2 sub-tasks.
+	if len(tree.SubTasks) != 2 {
+		t.Fatalf("expected root to have 2 subtasks, got %d", len(tree.SubTasks))
+	}
+
+	// Find child1 and child2 in sub-tasks.
+	var child1, child2 *TaskWithSubtasks
+	for i, st := range tree.SubTasks {
+		switch st.ID {
+		case "child1":
+			child1 = &tree.SubTasks[i]
+		case "child2":
+			child2 = &tree.SubTasks[i]
+		}
+	}
+
+	if child1 == nil {
+		t.Fatal("child1 not found in subtasks")
+	}
+	if child2 == nil {
+		t.Fatal("child2 not found in subtasks")
+	}
+
+	// Child1 should have 1 sub-task (grandchild1).
+	if len(child1.SubTasks) != 1 {
+		t.Fatalf("expected child1 to have 1 subtask, got %d", len(child1.SubTasks))
+	}
+	if child1.SubTasks[0].ID != "grandchild1" {
+		t.Errorf("expected grandchild1, got %q", child1.SubTasks[0].ID)
+	}
+
+	// Child2 should have 0 sub-tasks.
+	if len(child2.SubTasks) != 0 {
+		t.Fatalf("expected child2 to have 0 subtasks, got %d", len(child2.SubTasks))
 	}
 }

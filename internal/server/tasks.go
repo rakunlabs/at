@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -37,6 +38,44 @@ func (s *Server) ListTasksAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, records, http.StatusOK)
 }
 
+// TaskWithSubtasks wraps a Task with its child sub-tasks for tree retrieval.
+type TaskWithSubtasks struct {
+	service.Task
+	SubTasks []TaskWithSubtasks `json:"sub_tasks,omitempty"`
+}
+
+// buildTaskTree recursively builds a task tree from a root task ID.
+// Uses maxDepth to prevent runaway recursion on malformed data.
+func (s *Server) buildTaskTree(ctx context.Context, taskID string, maxDepth int) (*TaskWithSubtasks, error) {
+	if maxDepth <= 0 {
+		return nil, nil
+	}
+
+	task, err := s.taskStore.GetTask(ctx, taskID)
+	if err != nil || task == nil {
+		return nil, err
+	}
+
+	result := &TaskWithSubtasks{Task: *task}
+
+	children, err := s.taskStore.ListChildTasks(ctx, taskID)
+	if err != nil {
+		return result, nil // return task without children on error
+	}
+
+	for _, child := range children {
+		childTree, err := s.buildTaskTree(ctx, child.ID, maxDepth-1)
+		if err != nil {
+			continue
+		}
+		if childTree != nil {
+			result.SubTasks = append(result.SubTasks, *childTree)
+		}
+	}
+
+	return result, nil
+}
+
 // GetTaskAPI handles GET /api/v1/tasks/{id}.
 func (s *Server) GetTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if s.taskStore == nil {
@@ -47,6 +86,22 @@ func (s *Server) GetTaskAPI(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "task id is required", http.StatusBadRequest)
+		return
+	}
+
+	include := r.URL.Query().Get("include")
+	if include == "subtasks" {
+		tree, err := s.buildTaskTree(r.Context(), id, 20)
+		if err != nil {
+			slog.Error("get task tree failed", "id", id, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to get task tree: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if tree == nil {
+			httpResponse(w, fmt.Sprintf("task %q not found", id), http.StatusNotFound)
+			return
+		}
+		httpResponseJSON(w, tree, http.StatusOK)
 		return
 	}
 

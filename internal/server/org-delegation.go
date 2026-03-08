@@ -27,11 +27,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if depth >= maxDepth {
 		slog.Warn("org-delegation: max delegation depth reached",
 			"org_id", org.ID, "task_id", task.ID, "agent_id", agentID, "depth", depth, "max_depth", maxDepth)
-		_, err := s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-			Status: service.TaskStatusCompleted,
-			Result: "max delegation depth reached",
-		})
-		if err != nil {
+		if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, "max delegation depth reached"); err != nil {
 			return fmt.Errorf("org-delegation: update task at max depth: %w", err)
 		}
 		return nil
@@ -44,11 +40,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 	if agent == nil {
 		slog.Warn("org-delegation: agent not found", "agent_id", agentID, "task_id", task.ID)
-		_, updateErr := s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-			Status: service.TaskStatusCompleted,
-			Result: fmt.Sprintf("agent %s not found", agentID),
-		})
-		if updateErr != nil {
+		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, fmt.Sprintf("agent %s not found", agentID)); updateErr != nil {
 			return fmt.Errorf("org-delegation: update task for missing agent: %w", updateErr)
 		}
 		return nil
@@ -59,11 +51,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if !ok {
 		slog.Warn("org-delegation: provider not found",
 			"provider", agent.Config.Provider, "agent_id", agentID, "task_id", task.ID)
-		_, updateErr := s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-			Status: service.TaskStatusCompleted,
-			Result: fmt.Sprintf("provider %s not found", agent.Config.Provider),
-		})
-		if updateErr != nil {
+		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, fmt.Sprintf("provider %s not found", agent.Config.Provider)); updateErr != nil {
 			return fmt.Errorf("org-delegation: update task for missing provider: %w", updateErr)
 		}
 		return nil
@@ -149,10 +137,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 
 	// g) Update task status to in_progress.
-	_, err = s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-		Status: service.TaskStatusInProgress,
-	})
-	if err != nil {
+	if err := s.taskStore.UpdateTaskStatus(ctx, task.ID, service.TaskStatusInProgress, ""); err != nil {
 		return fmt.Errorf("org-delegation: update task to in_progress: %w", err)
 	}
 
@@ -197,6 +182,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		if err := ctx.Err(); err != nil {
 			slog.Warn("org-delegation: context cancelled",
 				"task_id", task.ID, "agent_id", agentID, "iteration", iteration)
+			_ = s.completeTaskWithStatus(ctx, task, service.TaskStatusCancelled, fmt.Sprintf("context cancelled: %v", err))
 			return fmt.Errorf("org-delegation: cancelled: %w", err)
 		}
 
@@ -207,11 +193,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				if budgetErr := checkBudget(ctx, agentID); budgetErr != nil {
 					slog.Warn("org-delegation: budget exceeded",
 						"agent_id", agentID, "task_id", task.ID, "error", budgetErr)
-					_, updateErr := s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-						Status: service.TaskStatusCompleted,
-						Result: fmt.Sprintf("budget exceeded: %v", budgetErr),
-					})
-					if updateErr != nil {
+					if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, fmt.Sprintf("budget exceeded: %v", budgetErr)); updateErr != nil {
 						return fmt.Errorf("org-delegation: update task for budget exceeded: %w", updateErr)
 					}
 					return nil
@@ -224,6 +206,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		if err != nil {
 			slog.Error("org-delegation: chat failed",
 				"agent_id", agentID, "task_id", task.ID, "iteration", iteration, "error", err)
+			_ = s.completeTaskWithStatus(ctx, task, service.TaskStatusCancelled, fmt.Sprintf("chat failed: %v", err))
 			return fmt.Errorf("org-delegation: chat failed (iteration %d): %w", iteration, err)
 		}
 
@@ -378,16 +361,68 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 	}
 
-	_, err = s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-		Status: service.TaskStatusCompleted,
-		Result: finalContent,
-	})
-	if err != nil {
+	if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, finalContent); err != nil {
 		return fmt.Errorf("org-delegation: update task to completed: %w", err)
 	}
 
 	slog.Info("org-delegation: task completed",
 		"task_id", task.ID, "agent_id", agentID, "depth", depth)
+
+	return nil
+}
+
+// propagateStatusToParent checks if all child tasks of the parent are complete.
+// If all are done, marks the parent task as complete. If any failed (cancelled),
+// marks the parent as cancelled.
+func (s *Server) propagateStatusToParent(ctx context.Context, task *service.Task) {
+	if task.ParentID == "" {
+		return // root task, nothing to propagate
+	}
+
+	children, err := s.taskStore.ListChildTasks(ctx, task.ParentID)
+	if err != nil {
+		slog.Warn("org-delegation: failed to list child tasks for propagation",
+			"parent_id", task.ParentID, "error", err)
+		return
+	}
+
+	allDone := true
+	anyFailed := false
+
+	for _, child := range children {
+		switch child.Status {
+		case service.TaskStatusCompleted, service.TaskStatusDone:
+			// ok
+		case service.TaskStatusCancelled:
+			anyFailed = true
+		default:
+			allDone = false
+		}
+	}
+
+	if !allDone {
+		return
+	}
+
+	status := service.TaskStatusCompleted
+	if anyFailed {
+		status = service.TaskStatusCancelled
+	}
+
+	if err := s.taskStore.UpdateTaskStatus(ctx, task.ParentID, status, ""); err != nil {
+		slog.Warn("org-delegation: failed to propagate status to parent",
+			"parent_id", task.ParentID, "status", status, "error", err)
+	}
+}
+
+// completeTaskWithStatus updates a task's status and result, then propagates
+// the status change to its parent task (if any).
+func (s *Server) completeTaskWithStatus(ctx context.Context, task *service.Task, status, result string) error {
+	if err := s.taskStore.UpdateTaskStatus(ctx, task.ID, status, result); err != nil {
+		return err
+	}
+
+	s.propagateStatusToParent(ctx, task)
 
 	return nil
 }

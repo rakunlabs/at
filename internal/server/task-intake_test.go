@@ -72,6 +72,12 @@ func (m *mockTaskStore) ListTasksByAgent(_ context.Context, _ string) ([]service
 func (m *mockTaskStore) ListTasksByGoal(_ context.Context, _ string) ([]service.Task, error) {
 	return nil, nil
 }
+func (m *mockTaskStore) ListChildTasks(_ context.Context, _ string) ([]service.Task, error) {
+	return nil, nil
+}
+func (m *mockTaskStore) UpdateTaskStatus(_ context.Context, _ string, _ string, _ string) error {
+	return nil
+}
 
 // --- Intake endpoint tests ---
 
