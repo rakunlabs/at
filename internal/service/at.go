@@ -685,6 +685,11 @@ type TaskStorer interface {
 	CheckoutTask(ctx context.Context, taskID, agentID string) error
 	// ReleaseTask clears the checked_out_by field, making the task available again.
 	ReleaseTask(ctx context.Context, taskID string) error
+	// ListChildTasks returns all tasks with the given parent_id.
+	ListChildTasks(ctx context.Context, parentID string) ([]Task, error)
+	// UpdateTaskStatus updates only the status and result fields of a task.
+	// Safe for concurrent use — no field clobbering.
+	UpdateTaskStatus(ctx context.Context, id string, status string, result string) error
 }
 
 // ─── Agent Budgets & Cost Tracking ───

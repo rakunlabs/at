@@ -207,3 +207,48 @@ func (m *Memory) ReleaseTask(_ context.Context, taskID string) error {
 
 	return nil
 }
+
+func (m *Memory) ListChildTasks(_ context.Context, parentID string) ([]service.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var result []service.Task
+	for _, t := range m.tasks {
+		if t.ParentID == parentID {
+			result = append(result, t)
+		}
+	}
+
+	slices.SortFunc(result, func(a, b service.Task) int {
+		if a.Title < b.Title {
+			return -1
+		}
+		if a.Title > b.Title {
+			return 1
+		}
+		return 0
+	})
+
+	return result, nil
+}
+
+func (m *Memory) UpdateTaskStatus(_ context.Context, id string, status string, result string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.tasks[id]
+	if !ok {
+		return nil
+	}
+
+	existing.Status = status
+	if result != "" {
+		existing.Result = result
+	}
+	existing.UpdatedAt = now
+	m.tasks[id] = existing
+
+	return nil
+}

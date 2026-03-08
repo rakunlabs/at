@@ -378,6 +378,59 @@ func (p *Postgres) ReleaseTask(ctx context.Context, taskID string) error {
 	return nil
 }
 
+func (p *Postgres) ListChildTasks(ctx context.Context, parentID string) ([]service.Task, error) {
+	query, _, err := p.goqu.From(p.tableTasks).
+		Select(taskColumns...).
+		Where(goqu.I("parent_id").Eq(parentID)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list child tasks query: %w", err)
+	}
+
+	rows, err := p.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list child tasks for parent %q: %w", parentID, err)
+	}
+	defer rows.Close()
+
+	var items []service.Task
+	for rows.Next() {
+		var row taskRow
+		if err := scanTaskRow(rows, &row); err != nil {
+			return nil, fmt.Errorf("scan task row: %w", err)
+		}
+
+		items = append(items, *taskRowToRecord(row))
+	}
+
+	return items, rows.Err()
+}
+
+func (p *Postgres) UpdateTaskStatus(ctx context.Context, id string, status string, result string) error {
+	now := time.Now().UTC()
+
+	record := goqu.Record{
+		"status":     status,
+		"updated_at": now,
+	}
+	if result != "" {
+		record["result"] = result
+	}
+
+	query, _, err := p.goqu.Update(p.tableTasks).Set(record).
+		Where(goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build update task status query: %w", err)
+	}
+
+	_, err = p.db.ExecContext(ctx, query)
+	if err != nil {
+		return fmt.Errorf("update task status %q: %w", id, err)
+	}
+
+	return nil
+}
+
 func taskRowToRecord(row taskRow) *service.Task {
 	var checkedOutAt string
 	if row.CheckedOutAt.Valid {
