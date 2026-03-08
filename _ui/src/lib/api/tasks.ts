@@ -57,6 +57,10 @@ export interface Task {
   updated_by: string;
 }
 
+export interface TaskWithSubtasks extends Task {
+  sub_tasks?: TaskWithSubtasks[];
+}
+
 export async function listTasks(params?: ListParams): Promise<ListResult<Task>> {
   const res = await api.get<ListResult<Task>>('/tasks', { params });
   return res.data;
@@ -64,6 +68,13 @@ export async function listTasks(params?: ListParams): Promise<ListResult<Task>> 
 
 export async function getTask(id: string): Promise<Task> {
   const res = await api.get<Task>(`/tasks/${id}`);
+  return res.data;
+}
+
+export async function getTaskWithSubtasks(id: string): Promise<TaskWithSubtasks> {
+  const res = await api.get<TaskWithSubtasks>(`/tasks/${id}`, {
+    params: { include: 'subtasks' },
+  });
   return res.data;
 }
 
