@@ -135,6 +135,32 @@ func (s *Server) UpdateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 	if len(req.CanvasLayout) == 0 {
 		req.CanvasLayout = existing.CanvasLayout
 	}
+	if req.HeadAgentID == "" {
+		req.HeadAgentID = existing.HeadAgentID
+	}
+	if req.MaxDelegationDepth == 0 {
+		req.MaxDelegationDepth = existing.MaxDelegationDepth
+	}
+
+	// Validate head_agent_id if being changed.
+	if req.HeadAgentID != "" && req.HeadAgentID != existing.HeadAgentID {
+		if s.orgAgentStore != nil {
+			member, err := s.orgAgentStore.GetOrganizationAgentByPair(r.Context(), id, req.HeadAgentID)
+			if err != nil {
+				slog.Error("validate head agent failed", "org_id", id, "agent_id", req.HeadAgentID, "error", err)
+				httpResponse(w, fmt.Sprintf("failed to validate head agent: %v", err), http.StatusInternalServerError)
+				return
+			}
+			if member == nil {
+				httpResponse(w, "head agent is not a member of this organization", http.StatusBadRequest)
+				return
+			}
+			if member.Status != "active" {
+				httpResponse(w, "head agent is not active", http.StatusBadRequest)
+				return
+			}
+		}
+	}
 
 	req.UpdatedBy = s.getUserEmail(r)
 

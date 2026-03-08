@@ -614,6 +614,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.PUT("/v1/organizations/{id}/agents/{agent_id}", s.UpdateOrganizationAgentAPI)
 	apiGroup.DELETE("/v1/organizations/{id}/agents/{agent_id}", s.RemoveAgentFromOrganizationAPI)
 
+	// Organization task intake (async)
+	apiGroup.POST("/v1/organizations/{id}/tasks", s.IntakeTaskAPI)
+
 	// Goal management
 	apiGroup.GET("/v1/goals", s.ListGoalsAPI)
 	apiGroup.POST("/v1/goals", s.CreateGoalAPI)
