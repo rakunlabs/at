@@ -43,7 +43,7 @@ Plans:
   3. Delegated agent runs its own agentic loop (reusing agent_call pattern) and produces a result
   4. Delegation tools presented to any agent are restricted to only that agent's direct reports — no cross-branch delegation possible
   5. Budget is checked before each agent's LLM call in the delegation chain
-**Plans:** 2 plans
+**Plans:** 1/2 plans executed
 
 Plans:
 - [ ] 02-01-PLAN.md — Core org delegation engine: runOrgDelegation with agentic loop, delegate tool generation from direct reports, system prompt enrichment, child task creation, recursive delegation, budget checking
@@ -85,6 +85,6 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Foundation | 2/2 | Complete | 2026-03-08 |
-| 2. Core Delegation | 0/? | Not started | - |
+| 2. Core Delegation | 1/2 | In Progress|  |
 | 3. Depth & Concurrency | 0/? | Not started | - |
 | 4. UI Integration | 0/? | Not started | - |

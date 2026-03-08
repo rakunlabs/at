@@ -11,9 +11,9 @@ Requirements for initial release. Each maps to roadmap phases.
 
 - [x] **HIER-01**: Organization has a designated head agent field (nullable, one agent per org)
 - [ ] **HIER-02**: User can select head agent from org's existing agents via UI dropdown
-- [ ] **HIER-03**: Agents can only delegate to their direct reports (children in parent_agent_id tree)
+- [x] **HIER-03**: Agents can only delegate to their direct reports (children in parent_agent_id tree)
 - [x] **HIER-04**: Hierarchy validation rejects cycles and orphan branches on save
-- [ ] **HIER-05**: Delegating agent's system prompt is enriched with direct reports' roles, titles, and descriptions
+- [x] **HIER-05**: Delegating agent's system prompt is enriched with direct reports' roles, titles, and descriptions
 
 ### Task Intake
 
@@ -24,18 +24,18 @@ Requirements for initial release. Each maps to roadmap phases.
 
 ### Delegation
 
-- [ ] **DELG-01**: Head agent receives task and uses LLM to decide which direct report handles it
-- [ ] **DELG-02**: Each delegation creates a child Task record linked via parent_task_id
-- [ ] **DELG-03**: Delegated agent runs its own agentic loop (agent_call pattern) to handle the sub-task
+- [x] **DELG-01**: Head agent receives task and uses LLM to decide which direct report handles it
+- [x] **DELG-02**: Each delegation creates a child Task record linked via parent_task_id
+- [x] **DELG-03**: Delegated agent runs its own agentic loop (agent_call pattern) to handle the sub-task
 - [ ] **DELG-04**: Delegation chain supports unlimited depth (head -> VP -> director -> manager -> worker)
-- [ ] **DELG-05**: Each level's delegation tools are restricted to that agent's direct reports only
+- [x] **DELG-05**: Each level's delegation tools are restricted to that agent's direct reports only
 - [x] **DELG-06**: Delegation enforces max depth limit (configurable, default 10) to prevent runaway recursion
 
 ### Concurrency
 
 - [ ] **CONC-01**: Manager can delegate to multiple sub-agents simultaneously (async fan-out)
 - [ ] **CONC-02**: Results from parallel sub-agents are collected and returned to the delegating agent
-- [ ] **CONC-03**: Budget is checked before each agent's LLM call in the delegation chain
+- [x] **CONC-03**: Budget is checked before each agent's LLM call in the delegation chain
 - [ ] **CONC-04**: Delegation runs in background goroutines, not blocking the HTTP request
 
 ### Status
@@ -93,22 +93,22 @@ Which phases cover which requirements. Updated during roadmap creation.
 |-------------|-------|--------|
 | HIER-01 | Phase 1 | Complete |
 | HIER-02 | Phase 4 | Pending |
-| HIER-03 | Phase 2 | Pending |
+| HIER-03 | Phase 2 | Complete |
 | HIER-04 | Phase 1 | Complete |
-| HIER-05 | Phase 2 | Pending |
+| HIER-05 | Phase 2 | Complete |
 | INTK-01 | Phase 1 | Complete |
 | INTK-02 | Phase 1 | Complete |
 | INTK-03 | Phase 1 | Complete |
 | INTK-04 | Phase 1 | Complete |
-| DELG-01 | Phase 2 | Pending |
-| DELG-02 | Phase 2 | Pending |
-| DELG-03 | Phase 2 | Pending |
+| DELG-01 | Phase 2 | Complete |
+| DELG-02 | Phase 2 | Complete |
+| DELG-03 | Phase 2 | Complete |
 | DELG-04 | Phase 3 | Pending |
-| DELG-05 | Phase 2 | Pending |
+| DELG-05 | Phase 2 | Complete |
 | DELG-06 | Phase 1 | Complete |
 | CONC-01 | Phase 3 | Pending |
 | CONC-02 | Phase 3 | Pending |
-| CONC-03 | Phase 2 | Pending |
+| CONC-03 | Phase 2 | Complete |
 | CONC-04 | Phase 3 | Pending |
 | STAT-01 | Phase 3 | Pending |
 | STAT-02 | Phase 3 | Pending |
