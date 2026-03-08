@@ -27,11 +27,11 @@ This roadmap delivers hierarchical agent task routing for the AT LLM gateway —
   3. Task intake rejects requests when org has no head agent or head agent is inactive, returning appropriate errors
   4. Created task receives an org-scoped identifier (e.g., PAP-42) using the existing issue counter
   5. Hierarchy validation rejects cycles and orphan branches when organization agents are mutated
-**Plans**: TBD
+**Plans:** 2 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Data model extension: HeadAgentID + MaxDelegationDepth on Organization, migration 48, fix store CRUD gap across all 3 backends
+- [ ] 01-02-PLAN.md — Hierarchy validation (cycle/orphan detection) + async task intake endpoint (POST /api/v1/organizations/{id}/tasks → 202 Accepted)
 
 ### Phase 2: Core Delegation
 **Goal**: Head agent receives a submitted task, uses LLM judgment to delegate to a direct report, and the delegation creates a tracked child task — proving the two-level delegation pattern end-to-end
@@ -84,7 +84,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Foundation | 0/? | Not started | - |
+| 1. Foundation | 0/2 | Planning complete | - |
 | 2. Core Delegation | 0/? | Not started | - |
 | 3. Depth & Concurrency | 0/? | Not started | - |
 | 4. UI Integration | 0/? | Not started | - |
