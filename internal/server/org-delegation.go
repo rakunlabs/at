@@ -14,6 +14,11 @@ import (
 // where the agent can delegate work to its direct reports. Each delegation
 // creates a child Task and recursively invokes the same function.
 func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization, task *service.Task, agentID string, depth int) error {
+	// Guard: required stores must be set.
+	if s.agentStore == nil || s.taskStore == nil || s.orgAgentStore == nil {
+		return fmt.Errorf("org-delegation: required stores not configured")
+	}
+
 	// a) Enforce depth limit.
 	maxDepth := org.MaxDelegationDepth
 	if maxDepth == 0 {
