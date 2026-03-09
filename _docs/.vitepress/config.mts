@@ -11,6 +11,7 @@ export default defineConfig({
         items: [
           { text: "Getting Started", link: "/getting-started" },
           { text: "Bots", link: "/bots" },
+          { text: "Task Delegation", link: "/task-delegation" },
         ],
       },
     ],

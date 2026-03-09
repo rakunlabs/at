@@ -15,6 +15,7 @@
     type ChatMessage,
   } from '@/lib/api/chat-sessions';
   import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX } from 'lucide-svelte';
+  import { agentAvatar } from '@/lib/helper/avatar';
   import { md, renderMarkdown } from '@/lib/helper/markdown';
 
   storeNavbar.title = 'Sessions';
@@ -571,7 +572,7 @@
                 selectedSession?.agent_id === agent.id ? 'bg-gray-50 dark:bg-dark-elevated' : '',
               ]}
             >
-              <Bot size={12} class={selectedSession?.agent_id === agent.id ? 'text-green-500' : 'text-gray-400'} />
+              <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
               <div>
                 <span class="font-medium text-gray-700 dark:text-dark-text-primary">{agent.name}</span>
                 {#if agent.config.description}

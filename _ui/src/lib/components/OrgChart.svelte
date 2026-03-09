@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Crown, Cpu, Briefcase } from 'lucide-svelte';
+  import { agentAvatar } from '@/lib/helper/avatar';
 
   // ─── Types ───
   interface OrgAgent {
@@ -12,6 +13,7 @@
     status?: string;
     parent_agent_id?: string;
     is_head?: boolean;
+    avatar_seed?: string;
   }
 
   interface LayoutNode {
@@ -336,11 +338,12 @@
           <div class="px-3 py-2">
             <!-- Name row -->
             <div class="flex items-center gap-2 mb-1">
-              {#if isHead}
-                <Crown size={11} class="text-accent shrink-0" />
-              {:else}
-                <Cpu size={11} class="text-gray-400 dark:text-dark-text-faint shrink-0" />
-              {/if}
+              <div class="relative shrink-0">
+                <img src={agentAvatar(node.agent.avatar_seed, node.agent.name, 22)} alt="" class="w-[22px] h-[22px] rounded-full bg-gray-100 dark:bg-dark-elevated" />
+                {#if isHead}
+                  <Crown size={8} class="absolute -top-0.5 -right-0.5 text-amber-500 drop-shadow" />
+                {/if}
+              </div>
               <span class="text-xs font-medium text-gray-900 dark:text-dark-text truncate">
                 {node.agent.name}
               </span>
@@ -352,7 +355,7 @@
             </div>
 
             <!-- Details -->
-            <div class="space-y-0.5 ml-[19px]">
+            <div class="space-y-0.5 ml-[30px]">
               {#if node.agent.title}
                 <div class="text-[10px] text-gray-600 dark:text-dark-text-secondary truncate">
                   {node.agent.title}

@@ -507,6 +507,7 @@ type AgentConfig struct {
 	MaxIterations             int      `json:"max_iterations"`                        // Max iterations for the loop
 	ToolTimeout               int      `json:"tool_timeout"`                          // Timeout in seconds
 	ConfirmationRequiredTools []string `json:"confirmation_required_tools,omitempty"` // Tools that require human confirmation before execution
+	AvatarSeed                string   `json:"avatar_seed,omitempty"`                 // Seed for deterministic avatar generation (defaults to agent name when empty)
 
 	// NOTE: Organizational fields (role, title, parent_agent_id, organization_id,
 	// status, delegation_rules, heartbeat_schedule) live on the OrganizationAgent

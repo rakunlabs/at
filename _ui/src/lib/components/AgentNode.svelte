@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Handle, type NodeProps } from 'kaykay';
+  import { agentAvatar } from '@/lib/helper/avatar';
 
   interface AgentNodeData {
     label?: string;
@@ -10,6 +11,7 @@
     model?: string;
     status?: string;
     is_root?: boolean;
+    avatar_seed?: string;
   }
 
   let { id, data, selected }: NodeProps<AgentNodeData> = $props();
@@ -33,9 +35,10 @@
 
   <!-- Header -->
   <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 font-medium {data.is_root ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'bg-slate-50 dark:bg-gray-700/50'}">
-    <span class="relative flex h-2 w-2 shrink-0">
-      <span class="inline-block h-2 w-2 rounded-full {statusColors[data.status || ''] || statusColors.idle}"></span>
-    </span>
+    <div class="relative shrink-0">
+      <img src={agentAvatar(data.avatar_seed, data.name || data.label || id, 20)} alt="" class="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-600" />
+      <span class="absolute -bottom-0.5 -right-0.5 block h-2 w-2 rounded-full border border-white dark:border-gray-800 {statusColors[data.status || ''] || statusColors.idle}"></span>
+    </div>
     <span class="text-gray-900 dark:text-gray-100 truncate">{data.name || data.label || 'Agent'}</span>
   </div>
 

@@ -15,6 +15,7 @@ export interface AgentConfig {
   max_iterations: number;
   tool_timeout: number;
   confirmation_required_tools?: string[];
+  avatar_seed?: string;
 }
 
 export interface Agent {

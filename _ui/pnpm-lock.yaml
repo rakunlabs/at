@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@dicebear/bottts':
+        specifier: ^9.4.0
+        version: 9.4.0(@dicebear/core@9.4.0)
+      '@dicebear/core':
+        specifier: ^9.4.0
+        version: 9.4.0
       highlight.js:
         specifier: ^11.11.1
         version: 11.11.1
@@ -169,6 +175,16 @@ packages:
     engines: {node: '>=18'}
     peerDependencies:
       postcss-selector-parser: ^7.0.0
+
+  '@dicebear/bottts@9.4.0':
+    resolution: {integrity: sha512-vuFC5HRfzla7YH2s02CBrxBr+ninbZu9PtO3a72JoO8Da02/POI7RF3WjjlzfRG4+i5NHyn77gKsl2cy8rTTXA==}
+    engines: {node: '>=18.0.0'}
+    peerDependencies:
+      '@dicebear/core': ^9.0.0
+
+  '@dicebear/core@9.4.0':
+    resolution: {integrity: sha512-uoAG5mPBX+kQTtVerWUoH5e7rezG+DV/vJ5icd/kGooGyylH0nuJIlA6todkKGQv+/b0QNo+EzNF6Nc4UTE3wQ==}
+    engines: {node: '>=18.0.0'}
 
   '@dual-bundle/import-meta-resolve@4.2.1':
     resolution: {integrity: sha512-id+7YRUgoUX6CgV0DtuhirQWodeeA7Lf4i2x71JS/vtA5pRb/hIGWlw+G6MeXvsM+MXrz0VAydTGElX1rAfgPg==}
@@ -860,6 +876,9 @@ packages:
 
   '@types/js-yaml@4.0.9':
     resolution: {integrity: sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg==}
+
+  '@types/json-schema@7.0.15':
+    resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
@@ -2258,6 +2277,14 @@ snapshots:
     dependencies:
       postcss-selector-parser: 7.1.0
 
+  '@dicebear/bottts@9.4.0(@dicebear/core@9.4.0)':
+    dependencies:
+      '@dicebear/core': 9.4.0
+
+  '@dicebear/core@9.4.0':
+    dependencies:
+      '@types/json-schema': 7.0.15
+
   '@dual-bundle/import-meta-resolve@4.2.1': {}
 
   '@esbuild/aix-ppc64@0.25.12':
@@ -2774,6 +2801,8 @@ snapshots:
   '@types/geojson@7946.0.16': {}
 
   '@types/js-yaml@4.0.9': {}
+
+  '@types/json-schema@7.0.15': {}
 
   '@types/trusted-types@2.0.7':
     optional: true

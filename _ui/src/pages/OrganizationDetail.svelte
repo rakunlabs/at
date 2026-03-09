@@ -19,6 +19,7 @@
   import { listGoals, type Goal } from '@/lib/api/goals';
   import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@/lib/api/tasks';
   import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send } from 'lucide-svelte';
+  import { agentAvatar } from '@/lib/helper/avatar';
   import OrgChart from '@/lib/components/OrgChart.svelte';
 
   // ─── Props ───
@@ -79,6 +80,7 @@
         status: m.status,
         parent_agent_id: m.parent_agent_id,
         is_head: organization?.head_agent_id === m.agent_id,
+        avatar_seed: agent?.config.avatar_seed,
       };
     });
   }
@@ -467,11 +469,14 @@
                 <div
                   class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
                 >
-                  <div class="min-w-0">
-                    <div class="text-xs font-medium text-gray-800 dark:text-dark-text truncate">{agent.name}</div>
-                    {#if agent.config.model}
-                      <div class="text-[10px] text-gray-400 dark:text-dark-text-faint font-mono truncate">{agent.config.model}</div>
-                    {/if}
+                  <div class="flex items-center gap-2 min-w-0">
+                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 24)} alt="" class="w-6 h-6 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
+                    <div class="min-w-0">
+                      <div class="text-xs font-medium text-gray-800 dark:text-dark-text truncate">{agent.name}</div>
+                      {#if agent.config.model}
+                        <div class="text-[10px] text-gray-400 dark:text-dark-text-faint font-mono truncate">{agent.config.model}</div>
+                      {/if}
+                    </div>
                   </div>
                   <button
                     onclick={() => handleAddAgent(agent)}
@@ -500,9 +505,12 @@
           </div>
           <div class="p-3 space-y-3 overflow-y-auto min-h-0 flex-1">
             {#if membership && agent}
-              <div>
-                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Name</span>
-                <div class="text-xs font-medium text-gray-900 dark:text-dark-text mt-0.5">{agent.name}</div>
+              <div class="flex items-center gap-2.5">
+                <img src={agentAvatar(agent.config.avatar_seed, agent.name, 36)} alt="" class="w-9 h-9 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
+                <div>
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Name</span>
+                  <div class="text-xs font-medium text-gray-900 dark:text-dark-text mt-0.5">{agent.name}</div>
+                </div>
               </div>
               {#if membership.title}
                 <div>

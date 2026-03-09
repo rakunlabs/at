@@ -6,7 +6,8 @@
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
-  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, Save, Copy, ClipboardPaste, Layers, Wrench, ShieldCheck } from 'lucide-svelte';
+  import { Trash2, Plus, X, Search, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Layers, Wrench, ShieldCheck } from 'lucide-svelte';
+  import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -46,6 +47,8 @@
   let formMaxIterations = $state(10);
   let formToolTimeout = $state(60);
   let formConfirmationTools = $state<string[]>([]);
+  let formAvatarSeed = $state('');
+  let showAvatarSeed = $state(false);
 
   // Copy / Paste via system clipboard
   
@@ -64,6 +67,7 @@
         max_iterations: agent.config.max_iterations,
         tool_timeout: agent.config.tool_timeout,
         confirmation_required_tools: agent.config.confirmation_required_tools || [],
+        avatar_seed: agent.config.avatar_seed || '',
       },
     };
     try {
@@ -97,6 +101,7 @@
       formMaxIterations = cfg.max_iterations || 10;
       formToolTimeout = cfg.tool_timeout || 60;
       formConfirmationTools = cfg.confirmation_required_tools || [];
+      formAvatarSeed = cfg.avatar_seed || '';
       editingId = null;
       showForm = true;
     } catch {
@@ -159,6 +164,8 @@
     formMaxIterations = 10;
     formToolTimeout = 60;
     formConfirmationTools = [];
+    formAvatarSeed = '';
+    showAvatarSeed = false;
     editingId = null;
     showForm = false;
   }
@@ -183,6 +190,7 @@
     formMaxIterations = agent.config.max_iterations || 10;
     formToolTimeout = agent.config.tool_timeout || 60;
     formConfirmationTools = [...(agent.config.confirmation_required_tools || [])];
+    formAvatarSeed = agent.config.avatar_seed || '';
     showForm = true;
   }
 
@@ -213,6 +221,7 @@
           max_iterations: formMaxIterations,
           tool_timeout: formToolTimeout,
           confirmation_required_tools: formConfirmationTools,
+          avatar_seed: formAvatarSeed || undefined,
         },
       };
 
@@ -327,86 +336,134 @@
           </div>
 
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
-            <!-- Name -->
-            <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
-              <input
-                id="form-name"
-                type="text"
-                bind:value={formName}
-                placeholder="e.g., code_reviewer, data_analyst"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              />
-            </div>
-
-            <!-- Description -->
-            <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-description" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
-              <input
-                id="form-description"
-                type="text"
-                bind:value={formDescription}
-                placeholder="What this agent does"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              />
-            </div>
-
-            <!-- Provider -->
-            <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-provider" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Provider</label>
-              <select
-                id="form-provider"
-                bind:value={formProvider}
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
-              >
-                <option value="">Select a provider...</option>
-                {#each providers as p}
-                  <option value={p.key}>{p.key} ({p.config.type})</option>
-                {/each}
-              </select>
-            </div>
-
-            <!-- Model -->
-            <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-model" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Model</label>
-              {#if availableModels.length > 0}
-                <select
-                  id="form-model"
-                  bind:value={formModel}
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
-                >
-                  <option value="">Default ({selectedProviderConfig?.config.model})</option>
-                  {#each availableModels as m}
-                    <option value={m}>{m}</option>
-                  {/each}
-                </select>
-              {:else}
-                <input
-                  id="form-model"
-                  type="text"
-                  bind:value={formModel}
-                  placeholder="Override default model"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+            <!-- Profile Header: Avatar left, identity fields right -->
+            <div class="flex gap-6 items-start">
+              <!-- Avatar (large, left side) -->
+              <div class="group relative shrink-0 w-[200px] h-[200px]">
+                <img
+                  src={generateAvatar(formAvatarSeed || formName || 'agent', 200)}
+                  alt="Agent avatar"
+                  class="w-[200px] h-[200px] bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border"
                 />
-              {/if}
+                <!-- Overlay buttons — visible on hover -->
+                <div class="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onclick={() => { showAvatarSeed = !showAvatarSeed; }}
+                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white transition-colors"
+                    title="Custom seed"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button
+                    type="button"
+                    onclick={() => { formAvatarSeed = (formName || 'agent') + '_' + Math.random().toString(36).slice(2, 8); }}
+                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white transition-colors"
+                    title="Randomize avatar"
+                  >
+                    <RefreshCcw size={13} />
+                  </button>
+                </div>
+                <!-- Seed input — overlaid at bottom of avatar -->
+                {#if showAvatarSeed}
+                  <div class="absolute bottom-0 left-0 right-0 bg-black/40 px-2 py-1.5">
+                    <input
+                      type="text"
+                      bind:value={formAvatarSeed}
+                      placeholder="Custom seed..."
+                      class="w-full bg-black/30 border border-white/20 px-2 py-1 text-xs text-white placeholder:text-white/50 focus:outline-none focus:border-white/40"
+                    />
+                  </div>
+                {/if}
+              </div>
+
+              <!-- Identity fields (right side) -->
+              <div class="flex-1 space-y-3">
+                <!-- Name -->
+                <div>
+                  <label for="form-name" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Name</label>
+                  <input
+                    id="form-name"
+                    type="text"
+                    bind:value={formName}
+                    placeholder="e.g., code_reviewer, data_analyst"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  />
+                </div>
+
+                <!-- Description -->
+                <div>
+                  <label for="form-description" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Description</label>
+                  <input
+                    id="form-description"
+                    type="text"
+                    bind:value={formDescription}
+                    placeholder="What this agent does"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  />
+                </div>
+
+                <!-- Provider + Model (side by side) -->
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <label for="form-provider" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Provider</label>
+                    <select
+                      id="form-provider"
+                      bind:value={formProvider}
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                    >
+                      <option value="">Select a provider...</option>
+                      {#each providers as p}
+                        <option value={p.key}>{p.key} ({p.config.type})</option>
+                      {/each}
+                    </select>
+                  </div>
+                  <div>
+                    <label for="form-model" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Model</label>
+                    {#if availableModels.length > 0}
+                      <select
+                        id="form-model"
+                        bind:value={formModel}
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                      >
+                        <option value="">Default ({selectedProviderConfig?.config.model})</option>
+                        {#each availableModels as m}
+                          <option value={m}>{m}</option>
+                        {/each}
+                      </select>
+                    {:else}
+                      <input
+                        id="form-model"
+                        type="text"
+                        bind:value={formModel}
+                        placeholder="Override default model"
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                      />
+                    {/if}
+                  </div>
+                </div>
+              </div>
             </div>
+
+            <!-- Separator -->
+            <div class="border-t border-gray-200 dark:border-dark-border"></div>
 
             <!-- System Prompt -->
-            <div class="grid grid-cols-4 gap-3 items-start">
-              <label for="form-system-prompt" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">System Prompt</label>
+            <div>
+              <label for="form-system-prompt" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">System Prompt</label>
               <textarea
                 id="form-system-prompt"
                 bind:value={formSystemPrompt}
                 rows={3}
                 placeholder="You are a helpful assistant..."
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
               ></textarea>
             </div>
 
             <!-- Skills -->
-            <div class="grid grid-cols-4 gap-3 items-start">
-              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Skills</span>
-              <div class="col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+            <div>
+              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Skills</span>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
                 {#each skills as skill}
                   <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" bind:group={formSkills} value={skill.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
@@ -420,9 +477,9 @@
             </div>
 
             <!-- MCP -->
-            <div class="grid grid-cols-4 gap-3 items-start">
-              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">MCP</span>
-              <div class="col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+            <div>
+              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">MCP</span>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
                 {#each mcpSets as set}
                   <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox" bind:group={formMCPSets} value={set.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
@@ -436,14 +493,14 @@
             </div>
 
             <!-- Builtin Tools -->
-            <div class="grid grid-cols-4 gap-3 items-start">
-              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
-                <div class="flex items-center gap-1.5">
-                  <Wrench size={14} />
+            <div>
+              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+                <span class="inline-flex items-center gap-1.5">
+                  <Wrench size={12} />
                   Builtin Tools
-                </div>
+                </span>
               </span>
-              <div class="col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
                 {#each builtinToolDefs as tool}
                   <label class="flex items-center gap-2 cursor-pointer" title={tool.description}>
                     <input type="checkbox" bind:group={formBuiltinTools} value={tool.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
@@ -458,17 +515,15 @@
 
             <!-- Confirmation Required Tools -->
             {#if formBuiltinTools.length > 0}
-              <div class="grid grid-cols-4 gap-3 items-start">
-                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
-                  <div class="flex items-center gap-1.5">
-                    <ShieldCheck size={14} />
+              <div>
+                <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+                  <span class="inline-flex items-center gap-1.5">
+                    <ShieldCheck size={12} />
                     Confirm Before Run
-                  </div>
-                  <div class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal mt-0.5">
-                    Selected tools require human approval
-                  </div>
+                  </span>
+                  <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal ml-2">Tools requiring human approval</span>
                 </span>
-                <div class="col-span-3 grid grid-cols-2 sm:grid-cols-3 gap-2 bg-orange-50/50 dark:bg-orange-950/10 p-3 border border-orange-200 dark:border-orange-900/30">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-orange-50/50 dark:bg-orange-950/10 p-3 border border-orange-200 dark:border-orange-900/30">
                   {#each formBuiltinTools as toolName}
                     <label class="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" bind:group={formConfirmationTools} value={toolName} class="text-orange-600 dark:text-orange-400 focus:ring-orange-500/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
@@ -481,9 +536,9 @@
 
             <!-- MCP URLs (legacy) -->
             {#if formMCPs.some(u => u.trim() !== '')}
-              <div class="grid grid-cols-4 gap-3 items-start">
-                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">MCP URLs</span>
-                <div class="col-span-3 space-y-2">
+              <div>
+                <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">MCP URLs</span>
+                <div class="space-y-2">
                   {#each formMCPs as url, i}
                     <div class="flex gap-2 items-center">
                       <input
@@ -516,23 +571,27 @@
             {/if}
 
             <!-- Max Iterations / Tool Timeout -->
-            <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-max-iterations" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Max Iterations</label>
-              <input
-                id="form-max-iterations"
-                type="number"
-                bind:value={formMaxIterations}
-                min="1"
-                class="col-span-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
-              />
-              <label for="form-tool-timeout" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary text-right">Tool Timeout (s)</label>
-              <input
-                id="form-tool-timeout"
-                type="number"
-                bind:value={formToolTimeout}
-                min="1"
-                class="col-span-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
-              />
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="form-max-iterations" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Max Iterations</label>
+                <input
+                  id="form-max-iterations"
+                  type="number"
+                  bind:value={formMaxIterations}
+                  min="1"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                />
+              </div>
+              <div>
+                <label for="form-tool-timeout" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Tool Timeout (s)</label>
+                <input
+                  id="form-tool-timeout"
+                  type="number"
+                  bind:value={formToolTimeout}
+                  min="1"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                />
+              </div>
             </div>
 
             <!-- Actions -->
@@ -585,11 +644,14 @@
           {#snippet row(agent)}
             <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
               <td class="px-4 py-2.5">
-                <div class="flex flex-col gap-0.5">
-                  <span class="font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</span>
-                  {#if agent.config.description}
-                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted truncate max-w-48">{agent.config.description}</span>
-                  {/if}
+                <div class="flex items-center gap-2.5">
+                  <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
+                  <div class="flex flex-col gap-0.5 min-w-0">
+                    <span class="font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</span>
+                    {#if agent.config.description}
+                      <span class="text-[10px] text-gray-400 dark:text-dark-text-muted truncate max-w-48">{agent.config.description}</span>
+                    {/if}
+                  </div>
                 </div>
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
