@@ -259,7 +259,7 @@
             {organization.description || '-'}
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{formatDate(organization.created_at)}</td>
-          <td class="px-4 py-2.5 text-right">
+          <td class="px-4 py-2.5 text-right" onclick={(e) => e.stopPropagation()}>
             <div class="flex justify-end gap-1">
               <button
                 onclick={() => openEdit(organization)}

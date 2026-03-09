@@ -12,27 +12,28 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Chat Session CRUD ───
 
 type chatSessionRow struct {
-	ID        string          `db:"id"`
-	AgentID   string          `db:"agent_id"`
-	Name      string          `db:"name"`
-	Config    json.RawMessage `db:"config"`
-	CreatedAt time.Time       `db:"created_at"`
-	UpdatedAt time.Time       `db:"updated_at"`
-	CreatedBy sql.NullString  `db:"created_by"`
-	UpdatedBy sql.NullString  `db:"updated_by"`
+	ID        string         `db:"id"`
+	AgentID   string         `db:"agent_id"`
+	Name      string         `db:"name"`
+	Config    types.RawJSON  `db:"config"`
+	CreatedAt time.Time      `db:"created_at"`
+	UpdatedAt time.Time      `db:"updated_at"`
+	CreatedBy sql.NullString `db:"created_by"`
+	UpdatedBy sql.NullString `db:"updated_by"`
 }
 
 type chatMessageRow struct {
-	ID        string          `db:"id"`
-	SessionID string          `db:"session_id"`
-	Role      string          `db:"role"`
-	Data      json.RawMessage `db:"data"`
-	CreatedAt time.Time       `db:"created_at"`
+	ID        string        `db:"id"`
+	SessionID string        `db:"session_id"`
+	Role      string        `db:"role"`
+	Data      types.RawJSON `db:"data"`
+	CreatedAt time.Time     `db:"created_at"`
 }
 
 func (p *Postgres) ListChatSessions(ctx context.Context, q *query.Query) (*service.ListResult[service.ChatSession], error) {
@@ -134,7 +135,7 @@ func (p *Postgres) CreateChatSession(ctx context.Context, session service.ChatSe
 			"id":         id,
 			"agent_id":   session.AgentID,
 			"name":       session.Name,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"created_at": now,
 			"updated_at": now,
 			"created_by": session.CreatedBy,
@@ -171,7 +172,7 @@ func (p *Postgres) UpdateChatSession(ctx context.Context, id string, session ser
 
 	record := goqu.Record{
 		"name":       session.Name,
-		"config":     configJSON,
+		"config":     types.RawJSON(configJSON),
 		"updated_at": now,
 		"updated_by": session.UpdatedBy,
 	}
@@ -263,7 +264,7 @@ func (p *Postgres) CreateChatMessage(ctx context.Context, msg service.ChatMessag
 			"id":         id,
 			"session_id": msg.SessionID,
 			"role":       msg.Role,
-			"data":       dataJSON,
+			"data":       types.RawJSON(dataJSON),
 			"created_at": now,
 		},
 	).ToSQL()
@@ -306,7 +307,7 @@ func (p *Postgres) CreateChatMessages(ctx context.Context, msgs []service.ChatMe
 				"id":         id,
 				"session_id": msg.SessionID,
 				"role":       msg.Role,
-				"data":       dataJSON,
+				"data":       types.RawJSON(dataJSON),
 				"created_at": now,
 			},
 		).ToSQL()

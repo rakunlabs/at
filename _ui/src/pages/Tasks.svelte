@@ -9,6 +9,7 @@
     deleteTask,
     checkoutTask,
     releaseTask,
+    processTask,
     TASK_STATUSES,
     TASK_STATUS_LABELS,
     TASK_PRIORITIES,
@@ -24,7 +25,8 @@
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import {
     ClipboardList, Plus, Pencil, Trash2, X, Save, RefreshCw,
-    UserCheck, UserX, List, LayoutGrid, ExternalLink, Building2,
+    UserCheck, UserX, List, LayoutGrid, ExternalLink, Building2, Play,
+    GitBranch,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Tasks';
@@ -82,9 +84,43 @@
     (typeof localStorage !== 'undefined' && localStorage.getItem('tasks-view') as 'list' | 'board') || 'list'
   );
 
+  // Sub-task toggle: persisted in localStorage, default OFF (hide sub-tasks)
+  let showSubTasks = $state(
+    typeof localStorage !== 'undefined' && localStorage.getItem('tasks-show-subtasks') === 'true'
+  );
+
+  function toggleSubTasks() {
+    showSubTasks = !showSubTasks;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('tasks-show-subtasks', String(showSubTasks));
+    }
+  }
+
+  // Derived filtered tasks (client-side sub-task filtering)
+  let filteredTasks = $derived(
+    showSubTasks ? tasks : tasks.filter(t => !t.parent_id)
+  );
+  let filteredAllTasks = $derived(
+    showSubTasks ? allTasks : allTasks.filter(t => !t.parent_id)
+  );
+
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
+
+  // Context menu state
+  let contextMenu = $state<{ x: number; y: number; task: Task } | null>(null);
+
+  function openContextMenu(e: MouseEvent, task: Task) {
+    // Only show context menu for tasks that have an organization (can be processed)
+    if (!task.organization_id) return;
+    e.preventDefault();
+    contextMenu = { x: e.clientX, y: e.clientY, task };
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+  }
 
   // Checkout inline state
   let checkoutTaskId = $state<string | null>(null);
@@ -111,6 +147,8 @@
     }
     if (mode === 'board') {
       loadAll();
+    } else {
+      load();
     }
   }
 
@@ -333,6 +371,16 @@
     }
   }
 
+  async function handleProcess(task: Task) {
+    try {
+      await processTask(task.id);
+      addToast(`Task "${task.title}" sent for processing`);
+      await refresh();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to process task', 'alert');
+    }
+  }
+
   function handleBoardStatusChange(taskId: string, newStatus: string) {
     refresh();
   }
@@ -342,7 +390,7 @@
   <title>AT | Tasks</title>
 </svelte:head>
 
-<div class="p-6 max-w-7xl mx-auto flex flex-col" style="height: calc(100vh - 3rem);">
+<div class="p-6 max-w-6xl mx-auto flex flex-col" style="height: calc(100vh - 3rem);">
   <!-- Header -->
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div class="flex items-center gap-2">
@@ -368,6 +416,16 @@
           <LayoutGrid size={14} />
         </button>
       </div>
+
+      <!-- Sub-task toggle -->
+      <button
+        onclick={toggleSubTasks}
+        class="flex items-center gap-1 px-2 py-1.5 text-xs border transition-colors {showSubTasks ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white' : 'border-gray-200 dark:border-dark-border text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+        title={showSubTasks ? 'Showing sub-tasks — click to hide' : 'Sub-tasks hidden — click to show'}
+      >
+        <GitBranch size={12} />
+        Sub-tasks
+      </button>
 
       <!-- Filters -->
       <select
@@ -534,14 +592,14 @@
           <div class="text-sm text-gray-400 dark:text-dark-text-muted">Loading tasks...</div>
         </div>
       {:else}
-        <KanbanBoard tasks={allTasks} {organizations} onStatusChange={handleBoardStatusChange} />
+        <KanbanBoard tasks={filteredAllTasks} {organizations} {agents} onStatusChange={handleBoardStatusChange} onProcess={handleProcess} />
       {/if}
     </div>
   {:else}
     <!-- List view -->
     <div class="flex-1 min-h-0 overflow-auto">
       <DataTable
-        items={tasks}
+        items={filteredTasks}
         {loading}
         {total}
         {limit}
@@ -565,7 +623,8 @@
         {/snippet}
 
         {#snippet row(task)}
-          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+          <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors" oncontextmenu={(e) => openContextMenu(e, task)}>
             <td class="px-4 py-2.5">
               <div class="flex items-center gap-2">
                 {#if task.identifier}
@@ -693,3 +752,28 @@
     </div>
   {/if}
 </div>
+
+<!-- Context menu -->
+{#if contextMenu}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    class="fixed inset-0 z-40"
+    onclick={closeContextMenu}
+    oncontextmenu={(e) => { e.preventDefault(); closeContextMenu(); }}
+  ></div>
+  <div
+    class="fixed z-50 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-lg shadow-lg py-1 min-w-[180px]"
+    style="left: {contextMenu.x}px; top: {contextMenu.y}px;"
+  >
+    <button
+      onclick={() => { handleProcess(contextMenu!.task); closeContextMenu(); }}
+      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+    >
+      <Play size={14} class="text-green-500" />
+      Start Processing
+    </button>
+  </div>
+{/if}
+
+<svelte:window onkeydown={(e) => { if (e.key === 'Escape') closeContextMenu(); }} />

@@ -10,16 +10,17 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/worldline-go/types"
 )
 
 // ─── Agent Heartbeats ───
 
 type heartbeatRow struct {
-	AgentID         string          `db:"agent_id"`
-	Status          string          `db:"status"`
-	LastHeartbeatAt time.Time       `db:"last_heartbeat_at"`
-	Metadata        json.RawMessage `db:"metadata"`
-	UpdatedAt       time.Time       `db:"updated_at"`
+	AgentID         string        `db:"agent_id"`
+	Status          string        `db:"status"`
+	LastHeartbeatAt time.Time     `db:"last_heartbeat_at"`
+	Metadata        types.RawJSON `db:"metadata"`
+	UpdatedAt       time.Time     `db:"updated_at"`
 }
 
 func (p *Postgres) RecordHeartbeat(ctx context.Context, agentID string, metadata map[string]any) error {
@@ -35,13 +36,13 @@ func (p *Postgres) RecordHeartbeat(ctx context.Context, agentID string, metadata
 			"agent_id":          agentID,
 			"status":            "healthy",
 			"last_heartbeat_at": now,
-			"metadata":          metadataJSON,
+			"metadata":          types.RawJSON(metadataJSON),
 			"updated_at":        now,
 		},
 	).OnConflict(goqu.DoUpdate("agent_id", goqu.Record{
 		"status":            "healthy",
 		"last_heartbeat_at": now,
-		"metadata":          metadataJSON,
+		"metadata":          types.RawJSON(metadataJSON),
 		"updated_at":        now,
 	})).ToSQL()
 	if err != nil {

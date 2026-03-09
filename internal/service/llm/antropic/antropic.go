@@ -98,11 +98,34 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 		baseURL = DefaultBaseURL
 	}
 
+	// Apply options early so we know whether a tokenSource is configured
+	// before building the klient default headers.
+	p := &Provider{
+		APIKey:    apiKey,
+		Model:     model,
+		MaxTokens: DefaultMaxTokens,
+	}
+
+	for _, o := range opts {
+		o(p)
+	}
+
+	// Ensure max_tokens has a sane minimum.
+	if p.MaxTokens <= 0 {
+		p.MaxTokens = DefaultMaxTokens
+	}
+
 	headers := http.Header{
 		"Anthropic-Version": []string{"2023-06-01"},
 		"Content-Type":      []string{"application/json"},
 	}
-	if apiKey != "" {
+	// Only set X-Api-Key as a default header when using static key auth.
+	// When a tokenSource is configured (e.g. OAuth), per-request Bearer
+	// tokens are used instead. Setting X-Api-Key as a klient default
+	// header would cause the transport layer to re-inject it on every
+	// request — even after the caller explicitly removes it — because
+	// klient treats absent headers as "needs default".
+	if apiKey != "" && p.tokenSource == nil {
 		headers["X-Api-Key"] = []string{apiKey}
 	}
 
@@ -125,21 +148,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 		return nil, err
 	}
 
-	p := &Provider{
-		APIKey:    apiKey,
-		Model:     model,
-		MaxTokens: DefaultMaxTokens,
-		client:    client,
-	}
-
-	for _, o := range opts {
-		o(p)
-	}
-
-	// Ensure max_tokens has a sane minimum.
-	if p.MaxTokens <= 0 {
-		p.MaxTokens = DefaultMaxTokens
-	}
+	p.client = client
 
 	return p, nil
 }
@@ -166,7 +175,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-		req.Header.Del("X-Api-Key")
+		// Use Set (not Del) to prevent klient's transport layer from
+		// re-injecting a stale default X-Api-Key on the cloned request.
+		req.Header.Set("X-Api-Key", "")
 	}
 
 	var result AnthropicResponse
@@ -295,7 +306,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-		req.Header.Del("X-Api-Key")
+		// Use Set (not Del) to prevent klient's transport layer from
+		// re-injecting a stale default X-Api-Key on the cloned request.
+		req.Header.Set("X-Api-Key", "")
 	}
 
 	// Use the klient's HTTP client directly for streaming.
@@ -501,7 +514,9 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 				} else {
 					req.Header.Set("Authorization", "Bearer "+token)
 					req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-					req.Header.Del("x-api-key")
+					// Use Set (not Del) to prevent klient's transport layer from
+					// re-injecting a stale default X-Api-Key on the cloned request.
+					req.Header.Set("x-api-key", "")
 				}
 				req.Header.Set("anthropic-version", "2023-06-01")
 			} else if p.APIKey != "" {

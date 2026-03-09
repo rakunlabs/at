@@ -12,18 +12,19 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Agent CRUD ───
 
 type agentRow struct {
-	ID        string          `db:"id"`
-	Name      string          `db:"name"`
-	Config    json.RawMessage `db:"config"`
-	CreatedAt time.Time       `db:"created_at"`
-	UpdatedAt time.Time       `db:"updated_at"`
-	CreatedBy sql.NullString  `db:"created_by"`
-	UpdatedBy sql.NullString  `db:"updated_by"`
+	ID        string         `db:"id"`
+	Name      string         `db:"name"`
+	Config    types.RawJSON  `db:"config"`
+	CreatedAt time.Time      `db:"created_at"`
+	UpdatedAt time.Time      `db:"updated_at"`
+	CreatedBy sql.NullString `db:"created_by"`
+	UpdatedBy sql.NullString `db:"updated_by"`
 }
 
 func (p *Postgres) ListAgents(ctx context.Context, q *query.Query) (*service.ListResult[service.Agent], error) {
@@ -98,7 +99,7 @@ func (p *Postgres) CreateAgent(ctx context.Context, agent service.Agent) (*servi
 		goqu.Record{
 			"id":         id,
 			"name":       agent.Name,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"created_at": now,
 			"updated_at": now,
 			"created_by": agent.CreatedBy,
@@ -135,7 +136,7 @@ func (p *Postgres) UpdateAgent(ctx context.Context, id string, agent service.Age
 	query, _, err := p.goqu.Update(p.tableAgents).Set(
 		goqu.Record{
 			"name":       agent.Name,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"updated_at": now,
 			"updated_by": agent.UpdatedBy,
 		},

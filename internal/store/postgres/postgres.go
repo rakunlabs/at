@@ -15,6 +15,7 @@ import (
 	atcrypto "github.com/rakunlabs/at/internal/crypto"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 
@@ -218,13 +219,13 @@ func (p *Postgres) Close() {
 // ─── Provider CRUD ───
 
 type providerRow struct {
-	ID        string          `db:"id" goqu:"skipupdate"`
-	Key       string          `db:"key"`
-	Config    json.RawMessage `db:"config"`
-	CreatedAt time.Time       `db:"created_at" goqu:"skipupdate"`
-	UpdatedAt time.Time       `db:"updated_at"`
-	CreatedBy string          `db:"created_by" goqu:"skipupdate"`
-	UpdatedBy string          `db:"updated_by"`
+	ID        string        `db:"id" goqu:"skipupdate"`
+	Key       string        `db:"key"`
+	Config    types.RawJSON `db:"config"`
+	CreatedAt time.Time     `db:"created_at" goqu:"skipupdate"`
+	UpdatedAt time.Time     `db:"updated_at"`
+	CreatedBy string        `db:"created_by" goqu:"skipupdate"`
+	UpdatedBy string        `db:"updated_by"`
 }
 
 func (p *Postgres) ListProviders(ctx context.Context, q *query.Query) (*service.ListResult[service.ProviderRecord], error) {
@@ -317,7 +318,7 @@ func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRe
 		goqu.Record{
 			"id":         id,
 			"key":        key,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"created_at": now,
 			"updated_at": now,
 			"created_by": record.CreatedBy,
@@ -362,7 +363,7 @@ func (p *Postgres) UpdateProvider(ctx context.Context, key string, record servic
 
 	query, _, err := p.goqu.Update(p.tableProviders).Set(
 		goqu.Record{
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"updated_at": now,
 			"updated_by": record.UpdatedBy,
 		},
@@ -461,7 +462,7 @@ func (p *Postgres) RotateEncryptionKey(ctx context.Context, newKey []byte) error
 	type rowData struct {
 		id     string
 		key    string
-		config json.RawMessage
+		config types.RawJSON
 	}
 
 	var allRows []rowData
@@ -504,7 +505,7 @@ func (p *Postgres) RotateEncryptionKey(ctx context.Context, newKey []byte) error
 		}
 
 		updateQuery, _, err := p.goqu.Update(p.tableProviders).Set(
-			goqu.Record{"config": configJSON},
+			goqu.Record{"config": types.RawJSON(configJSON)},
 		).Where(goqu.I("id").Eq(r.id)).ToSQL()
 		if err != nil {
 			return fmt.Errorf("build update query for %q: %w", r.key, err)

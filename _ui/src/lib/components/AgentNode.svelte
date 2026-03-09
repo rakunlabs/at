@@ -28,10 +28,8 @@
     selected && 'border-blue-500 ring-2 ring-blue-500/25',
   ]}
 >
-  <!-- Input handle (from parent agent) — hidden for root nodes -->
-  {#if !data.is_root}
-    <Handle id="parent" type="input" port="data" position="top" label="" />
-  {/if}
+  <!-- Input handle (from parent agent) — always present so edges can be drawn to any node -->
+  <Handle id="parent" type="input" port="data" position="top" label="" />
 
   <!-- Header -->
   <div class="flex items-center gap-2 px-3 py-2 border-b border-gray-200 dark:border-gray-700 font-medium {data.is_root ? 'bg-indigo-50 dark:bg-indigo-900/30' : 'bg-slate-50 dark:bg-gray-700/50'}">

@@ -634,6 +634,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.DELETE("/v1/tasks/{id}", s.DeleteTaskAPI)
 	apiGroup.POST("/v1/tasks/{id}/checkout", s.CheckoutTaskAPI)
 	apiGroup.POST("/v1/tasks/{id}/release", s.ReleaseTaskAPI)
+	apiGroup.POST("/v1/tasks/{id}/process", s.ProcessTaskAPI)
 
 	// Model pricing
 	apiGroup.GET("/v1/model-pricing", s.ListModelPricingAPI)

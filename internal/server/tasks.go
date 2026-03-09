@@ -157,6 +157,8 @@ func (s *Server) CreateTaskAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateTaskAPI handles PUT /api/v1/tasks/{id}.
+// It performs a true partial update: only fields present in the JSON body are
+// changed; omitted fields keep their existing values.
 func (s *Server) UpdateTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if s.taskStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -169,7 +171,7 @@ func (s *Server) UpdateTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch existing task so partial updates preserve existing fields.
+	// Fetch existing task so omitted fields are preserved.
 	existing, err := s.taskStore.GetTask(r.Context(), id)
 	if err != nil {
 		slog.Error("get task for update failed", "id", id, "error", err)
@@ -181,20 +183,19 @@ func (s *Server) UpdateTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req service.Task
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	// Decode into a map to know exactly which fields the caller sent.
+	var fields map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	// Allow partial updates: fall back to existing title when not provided.
-	if req.Title == "" {
-		req.Title = existing.Title
-	}
+	// Merge: start from existing, overlay only the fields present in the request.
+	merged := *existing
+	applyTaskFields(&merged, fields)
+	merged.UpdatedBy = s.getUserEmail(r)
 
-	req.UpdatedBy = s.getUserEmail(r)
-
-	record, err := s.taskStore.UpdateTask(r.Context(), id, req)
+	record, err := s.taskStore.UpdateTask(r.Context(), id, merged)
 	if err != nil {
 		slog.Error("update task failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update task: %v", err), http.StatusInternalServerError)
@@ -207,6 +208,80 @@ func (s *Server) UpdateTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, record, http.StatusOK)
+}
+
+// applyTaskFields overlays only the JSON keys present in fields onto the task.
+func applyTaskFields(t *service.Task, fields map[string]any) {
+	if v, ok := fields["organization_id"]; ok {
+		t.OrganizationID, _ = v.(string)
+	}
+	if v, ok := fields["project_id"]; ok {
+		t.ProjectID, _ = v.(string)
+	}
+	if v, ok := fields["goal_id"]; ok {
+		t.GoalID, _ = v.(string)
+	}
+	if v, ok := fields["parent_id"]; ok {
+		t.ParentID, _ = v.(string)
+	}
+	if v, ok := fields["assigned_agent_id"]; ok {
+		t.AssignedAgentID, _ = v.(string)
+	}
+	if v, ok := fields["identifier"]; ok {
+		t.Identifier, _ = v.(string)
+	}
+	if v, ok := fields["title"]; ok {
+		t.Title, _ = v.(string)
+	}
+	if v, ok := fields["description"]; ok {
+		t.Description, _ = v.(string)
+	}
+	if v, ok := fields["status"]; ok {
+		t.Status, _ = v.(string)
+	}
+	if v, ok := fields["priority_level"]; ok {
+		t.PriorityLevel, _ = v.(string)
+	}
+	if v, ok := fields["priority"]; ok {
+		switch n := v.(type) {
+		case float64:
+			t.Priority = int(n)
+		case int:
+			t.Priority = n
+		}
+	}
+	if v, ok := fields["result"]; ok {
+		t.Result, _ = v.(string)
+	}
+	if v, ok := fields["billing_code"]; ok {
+		t.BillingCode, _ = v.(string)
+	}
+	if v, ok := fields["request_depth"]; ok {
+		switch n := v.(type) {
+		case float64:
+			t.RequestDepth = int(n)
+		case int:
+			t.RequestDepth = n
+		}
+	}
+	if v, ok := fields["checked_out_by"]; ok {
+		t.CheckedOutBy, _ = v.(string)
+	}
+	if v, ok := fields["checked_out_at"]; ok {
+		t.CheckedOutAt, _ = v.(string)
+	}
+	if v, ok := fields["started_at"]; ok {
+		t.StartedAt, _ = v.(string)
+	}
+	if v, ok := fields["completed_at"]; ok {
+		t.CompletedAt, _ = v.(string)
+	}
+	if v, ok := fields["cancelled_at"]; ok {
+		t.CancelledAt, _ = v.(string)
+	}
+	if v, ok := fields["hidden_at"]; ok {
+		t.HiddenAt, _ = v.(string)
+	}
 }
 
 // DeleteTaskAPI handles DELETE /api/v1/tasks/{id}.
@@ -229,6 +304,128 @@ func (s *Server) DeleteTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponse(w, "deleted", http.StatusOK)
+}
+
+// ProcessTaskAPI handles POST /api/v1/tasks/{id}/process.
+// Triggers org delegation on an existing task that has an organization_id.
+// The task must belong to an organization with a head agent configured.
+// Returns 202 Accepted and runs delegation in a background goroutine.
+func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
+	if s.taskStore == nil || s.organizationStore == nil || s.orgAgentStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	taskID := r.PathValue("id")
+	if taskID == "" {
+		httpResponse(w, "task id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Fetch the task.
+	task, err := s.taskStore.GetTask(ctx, taskID)
+	if err != nil {
+		slog.Error("process task: get task failed", "id", taskID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get task: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if task == nil {
+		httpResponse(w, fmt.Sprintf("task %q not found", taskID), http.StatusNotFound)
+		return
+	}
+
+	// Task must belong to an organization.
+	if task.OrganizationID == "" {
+		httpResponse(w, "task has no organization_id", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Fetch the organization.
+	org, err := s.organizationStore.GetOrganization(ctx, task.OrganizationID)
+	if err != nil {
+		slog.Error("process task: get organization failed", "org_id", task.OrganizationID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get organization: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if org == nil {
+		httpResponse(w, fmt.Sprintf("organization %q not found", task.OrganizationID), http.StatusNotFound)
+		return
+	}
+
+	// Organization must have a head agent.
+	if org.HeadAgentID == "" {
+		httpResponse(w, "organization has no head agent", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Validate head agent is an active member.
+	member, err := s.orgAgentStore.GetOrganizationAgentByPair(ctx, org.ID, org.HeadAgentID)
+	if err != nil {
+		slog.Error("process task: get head agent membership failed", "org_id", org.ID, "agent_id", org.HeadAgentID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to validate head agent: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if member == nil {
+		httpResponse(w, "head agent is not a member of this organization", http.StatusUnprocessableEntity)
+		return
+	}
+	if member.Status != "active" {
+		httpResponse(w, "head agent is not active", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Assign the task to the head agent if not already assigned.
+	if task.AssignedAgentID != org.HeadAgentID {
+		task.AssignedAgentID = org.HeadAgentID
+		task.Status = service.TaskStatusOpen
+		task, err = s.taskStore.UpdateTask(ctx, taskID, *task)
+		if err != nil {
+			slog.Error("process task: update task failed", "id", taskID, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to update task: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	// Fire async delegation in background goroutine.
+	go func() {
+		delegCtx := context.Background()
+
+		// Audit: task processing triggered.
+		if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+			_ = recordAudit(delegCtx, service.AuditEntry{
+				ActorType:      "system",
+				ActorID:        "process_task_api",
+				Action:         "task_process_triggered",
+				ResourceType:   "task",
+				ResourceID:     task.ID,
+				OrganizationID: org.ID,
+				Details: map[string]any{
+					"task_title":    task.Title,
+					"head_agent_id": org.HeadAgentID,
+					"org_name":      org.Name,
+				},
+			})
+		}
+
+		if err := s.runOrgDelegation(delegCtx, org, task, org.HeadAgentID, 0); err != nil {
+			slog.Error("process task: org-delegation failed",
+				"org_id", org.ID,
+				"task_id", task.ID,
+				"error", err,
+			)
+			// Update task status to reflect failure.
+			if s.taskStore != nil {
+				_ = s.taskStore.UpdateTaskStatus(delegCtx, task.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
+			}
+		}
+	}()
+
+	httpResponseJSON(w, map[string]string{
+		"id":     task.ID,
+		"status": "processing",
+	}, http.StatusAccepted)
 }
 
 // ListTasksByAgentAPI handles GET /api/v1/agents/{id}/tasks.

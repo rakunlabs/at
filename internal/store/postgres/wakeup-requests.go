@@ -11,21 +11,22 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/worldline-go/types"
 )
 
 // ─── Wakeup Requests ───
 
 type wakeupRequestRow struct {
-	ID             string          `db:"id"`
-	AgentID        string          `db:"agent_id"`
-	OrganizationID string          `db:"organization_id"`
-	Status         string          `db:"status"`
-	IdempotencyKey sql.NullString  `db:"idempotency_key"`
-	Context        json.RawMessage `db:"context"`
-	CoalescedCount int             `db:"coalesced_count"`
-	RunID          sql.NullString  `db:"run_id"`
-	CreatedAt      time.Time       `db:"created_at"`
-	UpdatedAt      time.Time       `db:"updated_at"`
+	ID             string         `db:"id"`
+	AgentID        string         `db:"agent_id"`
+	OrganizationID string         `db:"organization_id"`
+	Status         string         `db:"status"`
+	IdempotencyKey sql.NullString `db:"idempotency_key"`
+	Context        types.RawJSON  `db:"context"`
+	CoalescedCount int            `db:"coalesced_count"`
+	RunID          sql.NullString `db:"run_id"`
+	CreatedAt      time.Time      `db:"created_at"`
+	UpdatedAt      time.Time      `db:"updated_at"`
 }
 
 var wakeupRequestColumns = []interface{}{
@@ -107,7 +108,7 @@ func (p *Postgres) CreateOrCoalesce(ctx context.Context, req service.WakeupReque
 
 		updateQuery, _, err := p.goqu.Update(p.tableWakeupRequests).Set(
 			goqu.Record{
-				"context":         mergedJSON,
+				"context":         types.RawJSON(mergedJSON),
 				"coalesced_count": pendingRow.CoalescedCount + 1,
 				"updated_at":      now,
 			},
@@ -141,7 +142,7 @@ func (p *Postgres) CreateOrCoalesce(ctx context.Context, req service.WakeupReque
 			"organization_id": req.OrganizationID,
 			"status":          "pending",
 			"idempotency_key": nullString(req.IdempotencyKey),
-			"context":         contextJSON,
+			"context":         types.RawJSON(contextJSON),
 			"coalesced_count": 0,
 			"run_id":          nil,
 			"created_at":      now,

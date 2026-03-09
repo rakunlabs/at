@@ -12,23 +12,24 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Approvals ───
 
 type approvalRow struct {
-	ID              string          `db:"id"`
-	OrganizationID  sql.NullString  `db:"organization_id"`
-	Type            string          `db:"type"`
-	Status          string          `db:"status"`
-	RequestedByType string          `db:"requested_by_type"`
-	RequestedByID   string          `db:"requested_by_id"`
-	RequestDetails  json.RawMessage `db:"request_details"`
-	DecisionNote    sql.NullString  `db:"decision_note"`
-	DecidedByUserID sql.NullString  `db:"decided_by_user_id"`
-	DecidedAt       sql.NullTime    `db:"decided_at"`
-	CreatedAt       time.Time       `db:"created_at"`
-	UpdatedAt       time.Time       `db:"updated_at"`
+	ID              string         `db:"id"`
+	OrganizationID  sql.NullString `db:"organization_id"`
+	Type            string         `db:"type"`
+	Status          string         `db:"status"`
+	RequestedByType string         `db:"requested_by_type"`
+	RequestedByID   string         `db:"requested_by_id"`
+	RequestDetails  types.RawJSON  `db:"request_details"`
+	DecisionNote    sql.NullString `db:"decision_note"`
+	DecidedByUserID sql.NullString `db:"decided_by_user_id"`
+	DecidedAt       sql.NullTime   `db:"decided_at"`
+	CreatedAt       time.Time      `db:"created_at"`
+	UpdatedAt       time.Time      `db:"updated_at"`
 }
 
 var approvalColumns = []interface{}{
@@ -112,13 +113,14 @@ func (p *Postgres) CreateApproval(ctx context.Context, approval service.Approval
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	var detailsJSON json.RawMessage
+	var detailsJSON types.RawJSON
 	if approval.RequestDetails != nil {
 		var err error
-		detailsJSON, err = json.Marshal(approval.RequestDetails)
+		d, err := json.Marshal(approval.RequestDetails)
 		if err != nil {
 			return nil, fmt.Errorf("marshal request details: %w", err)
 		}
+		detailsJSON = types.RawJSON(d)
 	}
 
 	query, _, err := p.goqu.Insert(p.tableApprovals).Rows(
@@ -163,13 +165,14 @@ func (p *Postgres) CreateApproval(ctx context.Context, approval service.Approval
 func (p *Postgres) UpdateApproval(ctx context.Context, id string, approval service.Approval) (*service.Approval, error) {
 	now := time.Now().UTC()
 
-	var detailsJSON json.RawMessage
+	var detailsJSON types.RawJSON
 	if approval.RequestDetails != nil {
 		var err error
-		detailsJSON, err = json.Marshal(approval.RequestDetails)
+		d, err := json.Marshal(approval.RequestDetails)
 		if err != nil {
 			return nil, fmt.Errorf("marshal request details: %w", err)
 		}
+		detailsJSON = types.RawJSON(d)
 	}
 
 	record := goqu.Record{

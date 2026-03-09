@@ -12,26 +12,27 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Bot Config CRUD ───
 
 type botConfigRow struct {
-	ID             string          `db:"id"`
-	Platform       string          `db:"platform"`
-	Name           string          `db:"name"`
-	Token          string          `db:"token"`
-	DefaultAgentID string          `db:"default_agent_id"`
-	ChannelAgents  json.RawMessage `db:"channel_agents"`
-	AccessMode      string          `db:"access_mode"`
-	PendingApproval bool            `db:"pending_approval"`
-	AllowedUsers    json.RawMessage `db:"allowed_users"`
-	PendingUsers    json.RawMessage `db:"pending_users"`
-	Enabled        bool            `db:"enabled"`
-	CreatedAt      time.Time       `db:"created_at"`
-	UpdatedAt      time.Time       `db:"updated_at"`
-	CreatedBy      sql.NullString  `db:"created_by"`
-	UpdatedBy      sql.NullString  `db:"updated_by"`
+	ID              string         `db:"id"`
+	Platform        string         `db:"platform"`
+	Name            string         `db:"name"`
+	Token           string         `db:"token"`
+	DefaultAgentID  string         `db:"default_agent_id"`
+	ChannelAgents   types.RawJSON  `db:"channel_agents"`
+	AccessMode      string         `db:"access_mode"`
+	PendingApproval bool           `db:"pending_approval"`
+	AllowedUsers    types.RawJSON  `db:"allowed_users"`
+	PendingUsers    types.RawJSON  `db:"pending_users"`
+	Enabled         bool           `db:"enabled"`
+	CreatedAt       time.Time      `db:"created_at"`
+	UpdatedAt       time.Time      `db:"updated_at"`
+	CreatedBy       sql.NullString `db:"created_by"`
+	UpdatedBy       sql.NullString `db:"updated_by"`
 }
 
 func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service.ListResult[service.BotConfig], error) {
@@ -121,16 +122,16 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 			"name":             bot.Name,
 			"token":            bot.Token,
 			"default_agent_id": bot.DefaultAgentID,
-			"channel_agents":   channelAgentsJSON,
-			"access_mode":       bot.AccessMode,
-			"pending_approval":  bot.PendingApproval,
-			"allowed_users":     allowedUsersJSON,
-			"pending_users":     pendingUsersJSON,
-			"enabled":           bot.Enabled,
-			"created_at":        now,
-			"updated_at":        now,
-			"created_by":        bot.CreatedBy,
-			"updated_by":        bot.UpdatedBy,
+			"channel_agents":   types.RawJSON(channelAgentsJSON),
+			"access_mode":      bot.AccessMode,
+			"pending_approval": bot.PendingApproval,
+			"allowed_users":    types.RawJSON(allowedUsersJSON),
+			"pending_users":    types.RawJSON(pendingUsersJSON),
+			"enabled":          bot.Enabled,
+			"created_at":       now,
+			"updated_at":       now,
+			"created_by":       bot.CreatedBy,
+			"updated_by":       bot.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -146,12 +147,12 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 	}
 
 	return &service.BotConfig{
-		ID:             id,
-		Platform:       bot.Platform,
-		Name:           bot.Name,
-		Token:          bot.Token,
-		DefaultAgentID: bot.DefaultAgentID,
-		ChannelAgents:  bot.ChannelAgents,
+		ID:              id,
+		Platform:        bot.Platform,
+		Name:            bot.Name,
+		Token:           bot.Token,
+		DefaultAgentID:  bot.DefaultAgentID,
+		ChannelAgents:   bot.ChannelAgents,
 		AccessMode:      bot.AccessMode,
 		PendingApproval: bot.PendingApproval,
 		AllowedUsers:    bot.AllowedUsers,
@@ -189,14 +190,14 @@ func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.B
 		"name":             bot.Name,
 		"token":            bot.Token,
 		"default_agent_id": bot.DefaultAgentID,
-		"channel_agents":   channelAgentsJSON,
-		"access_mode":       bot.AccessMode,
-		"pending_approval":  bot.PendingApproval,
-		"allowed_users":     allowedUsersJSON,
-		"pending_users":     pendingUsersJSON,
-		"enabled":           bot.Enabled,
-		"updated_at":        now,
-		"updated_by":        bot.UpdatedBy,
+		"channel_agents":   types.RawJSON(channelAgentsJSON),
+		"access_mode":      bot.AccessMode,
+		"pending_approval": bot.PendingApproval,
+		"allowed_users":    types.RawJSON(allowedUsersJSON),
+		"pending_users":    types.RawJSON(pendingUsersJSON),
+		"enabled":          bot.Enabled,
+		"updated_at":       now,
+		"updated_by":       bot.UpdatedBy,
 	}
 
 	query, _, err := p.goqu.Update(p.tableBotConfigs).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()
@@ -264,20 +265,20 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 	}
 
 	return &service.BotConfig{
-		ID:             row.ID,
-		Platform:       row.Platform,
-		Name:           row.Name,
-		Token:          row.Token,
-		DefaultAgentID: row.DefaultAgentID,
-		ChannelAgents:  channelAgents,
+		ID:              row.ID,
+		Platform:        row.Platform,
+		Name:            row.Name,
+		Token:           row.Token,
+		DefaultAgentID:  row.DefaultAgentID,
+		ChannelAgents:   channelAgents,
 		AccessMode:      accessMode,
 		PendingApproval: row.PendingApproval,
 		AllowedUsers:    allowedUsers,
 		PendingUsers:    pendingUsers,
 		Enabled:         row.Enabled,
-		CreatedAt:      row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:      row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy:      row.CreatedBy.String,
-		UpdatedBy:      row.UpdatedBy.String,
+		CreatedAt:       row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:       row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:       row.CreatedBy.String,
+		UpdatedBy:       row.UpdatedBy.String,
 	}, nil
 }

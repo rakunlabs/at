@@ -11,20 +11,21 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Audit Log ───
 
 type auditRow struct {
-	ID             string          `db:"id"`
-	OrganizationID sql.NullString  `db:"organization_id"`
-	ActorType      string          `db:"actor_type"`
-	ActorID        string          `db:"actor_id"`
-	Action         string          `db:"action"`
-	ResourceType   string          `db:"resource_type"`
-	ResourceID     string          `db:"resource_id"`
-	Details        json.RawMessage `db:"details"`
-	CreatedAt      time.Time       `db:"created_at"`
+	ID             string         `db:"id"`
+	OrganizationID sql.NullString `db:"organization_id"`
+	ActorType      string         `db:"actor_type"`
+	ActorID        string         `db:"actor_id"`
+	Action         string         `db:"action"`
+	ResourceType   string         `db:"resource_type"`
+	ResourceID     string         `db:"resource_id"`
+	Details        types.RawJSON  `db:"details"`
+	CreatedAt      time.Time      `db:"created_at"`
 }
 
 var auditColumns = []interface{}{
@@ -45,13 +46,13 @@ func (p *Postgres) RecordAudit(ctx context.Context, entry service.AuditEntry) er
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	var detailsJSON json.RawMessage
+	var detailsVal interface{}
 	if entry.Details != nil {
-		var err error
-		detailsJSON, err = json.Marshal(entry.Details)
+		detailsJSON, err := json.Marshal(entry.Details)
 		if err != nil {
 			return fmt.Errorf("marshal audit details: %w", err)
 		}
+		detailsVal = types.RawJSON(detailsJSON)
 	}
 
 	query, _, err := p.goqu.Insert(p.tableAuditLog).Rows(
@@ -63,7 +64,7 @@ func (p *Postgres) RecordAudit(ctx context.Context, entry service.AuditEntry) er
 			"action":          entry.Action,
 			"resource_type":   entry.ResourceType,
 			"resource_id":     entry.ResourceID,
-			"details":         detailsJSON,
+			"details":         detailsVal,
 			"created_at":      now,
 		},
 	).ToSQL()

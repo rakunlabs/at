@@ -12,20 +12,21 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Skill CRUD ───
 
 type skillRow struct {
-	ID           string          `db:"id"`
-	Name         string          `db:"name"`
-	Description  string          `db:"description"`
-	SystemPrompt string          `db:"system_prompt"`
-	Tools        json.RawMessage `db:"tools"`
-	CreatedAt    time.Time       `db:"created_at"`
-	UpdatedAt    time.Time       `db:"updated_at"`
-	CreatedBy    string          `db:"created_by"`
-	UpdatedBy    string          `db:"updated_by"`
+	ID           string        `db:"id"`
+	Name         string        `db:"name"`
+	Description  string        `db:"description"`
+	SystemPrompt string        `db:"system_prompt"`
+	Tools        types.RawJSON `db:"tools"`
+	CreatedAt    time.Time     `db:"created_at"`
+	UpdatedAt    time.Time     `db:"updated_at"`
+	CreatedBy    string        `db:"created_by"`
+	UpdatedBy    string        `db:"updated_by"`
 }
 
 func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.ListResult[service.Skill], error) {
@@ -123,7 +124,7 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 			"name":          sk.Name,
 			"description":   sk.Description,
 			"system_prompt": sk.SystemPrompt,
-			"tools":         toolsJSON,
+			"tools":         types.RawJSON(toolsJSON),
 			"created_at":    now,
 			"updated_at":    now,
 			"created_by":    sk.CreatedBy,
@@ -164,7 +165,7 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 			"name":          sk.Name,
 			"description":   sk.Description,
 			"system_prompt": sk.SystemPrompt,
-			"tools":         toolsJSON,
+			"tools":         types.RawJSON(toolsJSON),
 			"updated_at":    now,
 			"updated_by":    sk.UpdatedBy,
 		},

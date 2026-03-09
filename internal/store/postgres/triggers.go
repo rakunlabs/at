@@ -11,22 +11,23 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/worldline-go/types"
 )
 
 // ─── Trigger CRUD ───
 
 type triggerRow struct {
-	ID         string          `db:"id"`
-	WorkflowID string          `db:"workflow_id"`
-	Type       string          `db:"type"`
-	Config     json.RawMessage `db:"config"`
-	Alias      sql.NullString  `db:"alias"`
-	Public     bool            `db:"public"`
-	Enabled    bool            `db:"enabled"`
-	CreatedAt  time.Time       `db:"created_at"`
-	UpdatedAt  time.Time       `db:"updated_at"`
-	CreatedBy  string          `db:"created_by"`
-	UpdatedBy  string          `db:"updated_by"`
+	ID         string         `db:"id"`
+	WorkflowID string         `db:"workflow_id"`
+	Type       string         `db:"type"`
+	Config     types.RawJSON  `db:"config"`
+	Alias      sql.NullString `db:"alias"`
+	Public     bool           `db:"public"`
+	Enabled    bool           `db:"enabled"`
+	CreatedAt  time.Time      `db:"created_at"`
+	UpdatedAt  time.Time      `db:"updated_at"`
+	CreatedBy  string         `db:"created_by"`
+	UpdatedBy  string         `db:"updated_by"`
 }
 
 func (p *Postgres) ListAllTriggers(ctx context.Context) ([]service.Trigger, error) {
@@ -155,7 +156,7 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 			"id":          id,
 			"workflow_id": t.WorkflowID,
 			"type":        t.Type,
-			"config":      configJSON,
+			"config":      types.RawJSON(configJSON),
 			"alias":       alias,
 			"public":      t.Public,
 			"enabled":     t.Enabled,
@@ -204,7 +205,7 @@ func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigg
 	query, _, err := p.goqu.Update(p.tableTriggers).Set(
 		goqu.Record{
 			"type":       t.Type,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"alias":      alias,
 			"public":     t.Public,
 			"enabled":    t.Enabled,

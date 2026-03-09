@@ -12,16 +12,17 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 type ragCollectionRow struct {
-	ID        string          `db:"id"`
-	Name      string          `db:"name"`
-	Config    json.RawMessage `db:"config"`
-	CreatedAt time.Time       `db:"created_at"`
-	UpdatedAt time.Time       `db:"updated_at"`
-	CreatedBy sql.NullString  `db:"created_by"`
-	UpdatedBy sql.NullString  `db:"updated_by"`
+	ID        string         `db:"id"`
+	Name      string         `db:"name"`
+	Config    types.RawJSON  `db:"config"`
+	CreatedAt time.Time      `db:"created_at"`
+	UpdatedAt time.Time      `db:"updated_at"`
+	CreatedBy sql.NullString `db:"created_by"`
+	UpdatedBy sql.NullString `db:"updated_by"`
 }
 
 func (p *Postgres) ListRAGCollections(ctx context.Context, q *query.Query) (*service.ListResult[service.RAGCollection], error) {
@@ -125,7 +126,7 @@ func (p *Postgres) CreateRAGCollection(ctx context.Context, c service.RAGCollect
 		goqu.Record{
 			"id":         id,
 			"name":       c.Name,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"created_at": now,
 			"updated_at": now,
 			"created_by": c.CreatedBy,
@@ -162,7 +163,7 @@ func (p *Postgres) UpdateRAGCollection(ctx context.Context, id string, c service
 	query, _, err := p.goqu.Update(p.tableRAGCollections).Set(
 		goqu.Record{
 			"name":       c.Name,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"updated_at": now,
 			"updated_by": c.UpdatedBy,
 		},

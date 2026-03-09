@@ -12,30 +12,31 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Heartbeat Runs ───
 
 type heartbeatRunRow struct {
-	ID               string          `db:"id"`
-	AgentID          string          `db:"agent_id"`
-	OrganizationID   string          `db:"organization_id"`
-	InvocationSource string          `db:"invocation_source"`
-	TriggerDetail    sql.NullString  `db:"trigger_detail"`
-	Status           string          `db:"status"`
-	ContextSnapshot  json.RawMessage `db:"context_snapshot"`
-	UsageJSON        json.RawMessage `db:"usage_json"`
-	ResultJSON       json.RawMessage `db:"result_json"`
-	LogRef           sql.NullString  `db:"log_ref"`
-	LogBytes         int64           `db:"log_bytes"`
-	LogSHA256        sql.NullString  `db:"log_sha256"`
-	StdoutExcerpt    sql.NullString  `db:"stdout_excerpt"`
-	StderrExcerpt    sql.NullString  `db:"stderr_excerpt"`
-	SessionIDBefore  sql.NullString  `db:"session_id_before"`
-	SessionIDAfter   sql.NullString  `db:"session_id_after"`
-	StartedAt        sql.NullTime    `db:"started_at"`
-	FinishedAt       sql.NullTime    `db:"finished_at"`
-	CreatedAt        time.Time       `db:"created_at"`
+	ID               string         `db:"id"`
+	AgentID          string         `db:"agent_id"`
+	OrganizationID   string         `db:"organization_id"`
+	InvocationSource string         `db:"invocation_source"`
+	TriggerDetail    sql.NullString `db:"trigger_detail"`
+	Status           string         `db:"status"`
+	ContextSnapshot  types.RawJSON  `db:"context_snapshot"`
+	UsageJSON        types.RawJSON  `db:"usage_json"`
+	ResultJSON       types.RawJSON  `db:"result_json"`
+	LogRef           sql.NullString `db:"log_ref"`
+	LogBytes         int64          `db:"log_bytes"`
+	LogSHA256        sql.NullString `db:"log_sha256"`
+	StdoutExcerpt    sql.NullString `db:"stdout_excerpt"`
+	StderrExcerpt    sql.NullString `db:"stderr_excerpt"`
+	SessionIDBefore  sql.NullString `db:"session_id_before"`
+	SessionIDAfter   sql.NullString `db:"session_id_after"`
+	StartedAt        sql.NullTime   `db:"started_at"`
+	FinishedAt       sql.NullTime   `db:"finished_at"`
+	CreatedAt        time.Time      `db:"created_at"`
 }
 
 var heartbeatRunColumns = []interface{}{
@@ -83,9 +84,9 @@ func (p *Postgres) CreateHeartbeatRun(ctx context.Context, run service.Heartbeat
 			"invocation_source": run.InvocationSource,
 			"trigger_detail":    nullString(run.TriggerDetail),
 			"status":            run.Status,
-			"context_snapshot":  contextJSON,
-			"usage_json":        usageJSON,
-			"result_json":       resultJSON,
+			"context_snapshot":  types.RawJSON(contextJSON),
+			"usage_json":        types.RawJSON(usageJSON),
+			"result_json":       types.RawJSON(resultJSON),
 			"log_ref":           nullString(run.LogRef),
 			"log_bytes":         run.LogBytes,
 			"log_sha256":        nullString(run.LogSHA256),
@@ -152,9 +153,9 @@ func (p *Postgres) UpdateHeartbeatRun(ctx context.Context, id string, run servic
 	query, _, err := p.goqu.Update(p.tableHeartbeatRuns).Set(
 		goqu.Record{
 			"status":            run.Status,
-			"context_snapshot":  contextJSON,
-			"usage_json":        usageJSON,
-			"result_json":       resultJSON,
+			"context_snapshot":  types.RawJSON(contextJSON),
+			"usage_json":        types.RawJSON(usageJSON),
+			"result_json":       types.RawJSON(resultJSON),
 			"log_ref":           nullString(run.LogRef),
 			"log_bytes":         run.LogBytes,
 			"log_sha256":        nullString(run.LogSHA256),

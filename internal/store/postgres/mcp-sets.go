@@ -12,19 +12,20 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 type mcpSetRow struct {
-	ID          string          `db:"id"`
-	Name        string          `db:"name"`
-	Description string          `db:"description"`
-	Config      json.RawMessage `db:"config"`
-	Servers     json.RawMessage `db:"servers"`
-	URLs        json.RawMessage `db:"urls"`
-	CreatedAt   time.Time       `db:"created_at"`
-	UpdatedAt   time.Time       `db:"updated_at"`
-	CreatedBy   sql.NullString  `db:"created_by"`
-	UpdatedBy   sql.NullString  `db:"updated_by"`
+	ID          string         `db:"id"`
+	Name        string         `db:"name"`
+	Description string         `db:"description"`
+	Config      types.RawJSON  `db:"config"`
+	Servers     types.RawJSON  `db:"servers"`
+	URLs        types.RawJSON  `db:"urls"`
+	CreatedAt   time.Time      `db:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at"`
+	CreatedBy   sql.NullString `db:"created_by"`
+	UpdatedBy   sql.NullString `db:"updated_by"`
 }
 
 func (p *Postgres) ListMCPSets(ctx context.Context, q *query.Query) (*service.ListResult[service.MCPSet], error) {
@@ -129,9 +130,9 @@ func (p *Postgres) CreateMCPSet(ctx context.Context, s service.MCPSet) (*service
 			"id":          id,
 			"name":        s.Name,
 			"description": s.Description,
-			"config":      configJSON,
-			"servers":     serversJSON,
-			"urls":        urlsJSON,
+			"config":      types.RawJSON(configJSON),
+			"servers":     types.RawJSON(serversJSON),
+			"urls":        types.RawJSON(urlsJSON),
 			"created_at":  now,
 			"updated_at":  now,
 			"created_by":  s.CreatedBy,
@@ -180,9 +181,9 @@ func (p *Postgres) UpdateMCPSet(ctx context.Context, id string, s service.MCPSet
 		goqu.Record{
 			"name":        s.Name,
 			"description": s.Description,
-			"config":      configJSON,
-			"servers":     serversJSON,
-			"urls":        urlsJSON,
+			"config":      types.RawJSON(configJSON),
+			"servers":     types.RawJSON(serversJSON),
+			"urls":        types.RawJSON(urlsJSON),
 			"updated_at":  now,
 			"updated_by":  s.UpdatedBy,
 		},

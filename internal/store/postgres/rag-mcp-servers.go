@@ -12,16 +12,17 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 type ragMCPServerRow struct {
-	ID        string          `db:"id"`
-	Name      string          `db:"name"`
-	Config    json.RawMessage `db:"config"`
-	CreatedAt time.Time       `db:"created_at"`
-	UpdatedAt time.Time       `db:"updated_at"`
-	CreatedBy sql.NullString  `db:"created_by"`
-	UpdatedBy sql.NullString  `db:"updated_by"`
+	ID        string         `db:"id"`
+	Name      string         `db:"name"`
+	Config    types.RawJSON  `db:"config"`
+	CreatedAt time.Time      `db:"created_at"`
+	UpdatedAt time.Time      `db:"updated_at"`
+	CreatedBy sql.NullString `db:"created_by"`
+	UpdatedBy sql.NullString `db:"updated_by"`
 }
 
 func (p *Postgres) ListRAGMCPServers(ctx context.Context, q *query.Query) (*service.ListResult[service.RAGMCPServer], error) {
@@ -117,7 +118,7 @@ func (p *Postgres) CreateRAGMCPServer(ctx context.Context, s service.RAGMCPServe
 		goqu.Record{
 			"id":         id,
 			"name":       s.Name,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"created_at": now,
 			"updated_at": now,
 			"created_by": s.CreatedBy,
@@ -154,7 +155,7 @@ func (p *Postgres) UpdateRAGMCPServer(ctx context.Context, id string, s service.
 	query, _, err := p.goqu.Update(p.tableRAGMCPServers).Set(
 		goqu.Record{
 			"name":       s.Name,
-			"config":     configJSON,
+			"config":     types.RawJSON(configJSON),
 			"updated_at": now,
 			"updated_by": s.UpdatedBy,
 		},

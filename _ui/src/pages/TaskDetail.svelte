@@ -7,6 +7,7 @@
     updateTask,
     deleteTask,
     getTaskWithSubtasks,
+    processTask,
     TASK_STATUSES,
     TASK_STATUS_LABELS,
     TASK_PRIORITIES,
@@ -17,17 +18,19 @@
   import {
     listLabelsForTask,
     listLabels,
+    createLabel,
     addLabelToTask,
     removeLabelFromTask,
     type Label,
   } from '@/lib/api/labels';
   import { formatDate, formatDateTime } from '@/lib/helper/format';
+  import { md, renderMarkdown } from '@/lib/helper/markdown';
   import CommentThread from '@/lib/components/CommentThread.svelte';
   import {
     ArrowLeft, Save, Trash2, Pencil, X, Check,
     Tag, MessageSquare, ListTree, Calendar, User,
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
-    Layers, ChevronRight, ChevronDown, Building2,
+    Layers, ChevronRight, ChevronDown, Building2, Play,
   } from 'lucide-svelte';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
@@ -58,6 +61,14 @@
   let allLabels = $state<Label[]>([]);
   let showLabelPicker = $state(false);
   let labelsLoading = $state(false);
+  let newLabelName = $state('');
+  let newLabelColor = $state('#3b82f6');
+  let creatingLabel = $state(false);
+
+  const LABEL_COLOR_PRESETS = [
+    '#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6',
+    '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#6b7280',
+  ];
 
   // Sub-tasks (delegation tree)
   let taskTree = $state<TaskWithSubtasks | null>(null);
@@ -275,6 +286,33 @@
     }
   }
 
+  async function handleCreateLabel() {
+    const name = newLabelName.trim();
+    if (!name) {
+      addToast('Label name is required', 'warn');
+      return;
+    }
+    creatingLabel = true;
+    try {
+      const label = await createLabel({
+        name,
+        color: newLabelColor,
+        organization_id: task?.organization_id || '',
+      });
+      // Auto-attach the new label to this task
+      await addLabelToTask(params.id, label.id);
+      taskLabels = [...taskLabels, label];
+      allLabels = [...allLabels, label];
+      newLabelName = '';
+      newLabelColor = '#3b82f6';
+      addToast(`Label "${name}" created and added`);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to create label', 'alert');
+    } finally {
+      creatingLabel = false;
+    }
+  }
+
   // ─── Delete ───
 
   async function handleDelete() {
@@ -285,6 +323,24 @@
       push('/tasks');
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete task', 'alert');
+    }
+  }
+
+  // ─── Process (delegation) ───
+
+  let processing = $state(false);
+
+  async function handleProcess() {
+    if (!task) return;
+    processing = true;
+    try {
+      await processTask(task.id);
+      addToast(`Task "${task.title}" sent for processing`);
+      await loadTask();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to process task', 'alert');
+    } finally {
+      processing = false;
     }
   }
   // ─── Tree toggle ───
@@ -305,8 +361,8 @@
 </svelte:head>
 
 {#snippet delegationNode(node: TaskWithSubtasks, depth: number)}
-  <div class="group" style="padding-left: {depth * 20}px">
-    <div class="flex items-center gap-2 px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors rounded">
+  <div class="subtask-row" style="padding-left: {depth * 20}px">
+    <div class="subtask-inner flex items-center gap-2 px-3 py-2 transition-colors">
       <!-- Expand/collapse toggle -->
       {#if node.sub_tasks?.length}
         <button
@@ -343,9 +399,9 @@
 
       <!-- Assigned agent -->
       {#if node.assigned_agent_id}
-        <span class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted shrink-0" title="Assigned to {node.assigned_agent_id}">
+        <span class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted shrink-0" title="Assigned to {agentDisplayName(node.assigned_agent_id)}">
           <User size={10} />
-          <span class="max-w-[80px] truncate">{node.assigned_agent_id}</span>
+          <span class="max-w-[100px] truncate">{agentDisplayName(node.assigned_agent_id)}</span>
         </span>
       {/if}
 
@@ -452,15 +508,31 @@
                 </div>
               </div>
             {:else}
-              <div class="text-sm text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap leading-relaxed min-h-[2rem]">
-                {#if task.description}
-                  {task.description}
-                {:else}
+              {#if task.description}
+                <div class="markdown-body text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed min-h-[2rem]" use:renderMarkdown>
+                  {@html md(task.description)}
+                </div>
+              {:else}
+                <div class="text-sm min-h-[2rem]">
                   <span class="text-gray-400 dark:text-dark-text-muted italic">No description</span>
-                {/if}
-              </div>
+                </div>
+              {/if}
             {/if}
           </div>
+
+          <!-- Result -->
+          {#if task.result}
+            <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+              <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
+                <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Result</span>
+              </div>
+              <div class="px-3 py-3">
+                <div class="markdown-body text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed break-words" use:renderMarkdown>
+                  {@html md(task.result)}
+                </div>
+              </div>
+            </div>
+          {/if}
 
           <!-- Tabs -->
           <div class="border-b border-gray-200 dark:border-dark-border">
@@ -509,7 +581,7 @@
                   <span class="text-[10px]">Sub-tasks created by delegation will appear here as a tree</span>
                 </div>
               {:else}
-                <div class="space-y-0.5">
+                <div class="subtask-list">
                   {#each taskTree.sub_tasks as node}
                     {@render delegationNode(node, 0)}
                   {/each}
@@ -550,27 +622,59 @@
                 </button>
 
                 {#if showLabelPicker}
-                  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface max-h-48 overflow-y-auto">
-                    {#each allLabels as label}
+                  <!-- Inline create label -->
+                  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-3 mb-2">
+                    <div class="flex items-center gap-2 mb-2">
+                      <input
+                        type="text"
+                        bind:value={newLabelName}
+                        placeholder="New label name..."
+                        class="flex-1 border border-gray-200 dark:border-dark-border px-2 py-1.5 text-xs bg-transparent dark:text-dark-text focus:outline-none focus:border-gray-400"
+                        onkeydown={(e) => { if (e.key === 'Enter') handleCreateLabel(); }}
+                      />
                       <button
-                        onclick={() => toggleLabel(label)}
-                        class="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors {isLabelAttached(label.id) ? 'bg-gray-50 dark:bg-dark-elevated/30' : ''}"
+                        onclick={handleCreateLabel}
+                        disabled={creatingLabel || !newLabelName.trim()}
+                        class="px-2.5 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
                       >
-                        {#if label.color}
-                          <span class="w-3 h-3 rounded-full shrink-0" style="background-color: {label.color}"></span>
-                        {/if}
-                        <span class="flex-1 text-gray-700 dark:text-dark-text-secondary">{label.name}</span>
-                        {#if isLabelAttached(label.id)}
-                          <Check size={12} class="text-green-600 dark:text-green-400" />
-                        {/if}
+                        {creatingLabel ? '...' : 'Create'}
                       </button>
-                    {/each}
-                    {#if allLabels.length === 0}
-                      <div class="px-3 py-4 text-xs text-gray-400 dark:text-dark-text-muted text-center">
-                        No labels available. Create labels in the Labels page.
-                      </div>
-                    {/if}
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <span class="text-[10px] text-gray-400 dark:text-dark-text-muted mr-1">Color:</span>
+                      {#each LABEL_COLOR_PRESETS as color}
+                        <button
+                          onclick={() => (newLabelColor = color)}
+                          class={[
+                            'w-5 h-5 rounded-full border-2 transition-all',
+                            newLabelColor === color ? 'border-gray-900 dark:border-white scale-110' : 'border-transparent hover:border-gray-300 dark:hover:border-dark-border-subtle',
+                          ]}
+                          style="background-color: {color}"
+                          title={color}
+                        ></button>
+                      {/each}
+                    </div>
                   </div>
+
+                  <!-- Existing labels list -->
+                  {#if allLabels.length > 0}
+                    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface max-h-48 overflow-y-auto">
+                      {#each allLabels as label}
+                        <button
+                          onclick={() => toggleLabel(label)}
+                          class="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors {isLabelAttached(label.id) ? 'bg-gray-50 dark:bg-dark-elevated/30' : ''}"
+                        >
+                          {#if label.color}
+                            <span class="w-3 h-3 rounded-full shrink-0" style="background-color: {label.color}"></span>
+                          {/if}
+                          <span class="flex-1 text-gray-700 dark:text-dark-text-secondary">{label.name}</span>
+                          {#if isLabelAttached(label.id)}
+                            <Check size={12} class="text-green-600 dark:text-green-400" />
+                          {/if}
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
                 {/if}
               {/if}
             {/if}
@@ -771,16 +875,21 @@
             </div>
           </div>
 
-          <!-- Result -->
-          {#if task.result}
+          <!-- Actions -->
+          {#if task.organization_id}
             <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
               <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
-                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Result</span>
+                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Actions</span>
               </div>
               <div class="px-3 py-2">
-                <div class="text-xs text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-words">
-                  {task.result}
-                </div>
+                <button
+                  onclick={handleProcess}
+                  disabled={processing}
+                  class="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 transition-colors disabled:opacity-50"
+                >
+                  <Play size={12} />
+                  {processing ? 'Processing...' : 'Process (Start Delegation)'}
+                </button>
               </div>
             </div>
           {/if}
@@ -823,3 +932,79 @@
     </div>
   </div>
 {/if}
+
+<style>
+  @reference "../style/global.css";
+
+  .markdown-body :global(p) {
+    @apply mb-2 last:mb-0;
+  }
+  .markdown-body :global(a) {
+    @apply underline underline-offset-2 hover:opacity-80;
+  }
+  .markdown-body :global(strong) {
+    @apply font-semibold;
+  }
+  .markdown-body :global(code) {
+    @apply font-mono text-[0.85em] bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 rounded;
+  }
+  .markdown-body :global(pre) {
+    @apply bg-gray-100 dark:bg-dark-elevated px-3 py-2 my-2 overflow-x-auto text-[0.85em] rounded;
+  }
+  .markdown-body :global(pre code) {
+    @apply bg-transparent px-0 py-0;
+  }
+  .markdown-body :global(ul) {
+    @apply list-disc pl-5 mb-2;
+  }
+  .markdown-body :global(ol) {
+    @apply list-decimal pl-5 mb-2;
+  }
+  .markdown-body :global(li) {
+    @apply mb-0.5;
+  }
+  .markdown-body :global(blockquote) {
+    @apply border-l-2 border-gray-300 dark:border-dark-border pl-3 my-2 text-gray-600 dark:text-dark-text-secondary;
+  }
+  .markdown-body :global(h1) {
+    @apply text-lg font-semibold mb-2;
+  }
+  .markdown-body :global(h2) {
+    @apply text-base font-semibold mb-1.5;
+  }
+  .markdown-body :global(h3) {
+    @apply text-sm font-semibold mb-1;
+  }
+  .markdown-body :global(h4),
+  .markdown-body :global(h5),
+  .markdown-body :global(h6) {
+    @apply text-sm font-medium mb-1;
+  }
+  .markdown-body :global(hr) {
+    @apply border-t border-gray-200 dark:border-dark-border my-3;
+  }
+  .markdown-body :global(img) {
+    @apply max-w-full my-2;
+  }
+  .markdown-body :global(table) {
+    @apply w-full border-collapse my-2 text-sm;
+  }
+  .markdown-body :global(th),
+  .markdown-body :global(td) {
+    @apply border border-gray-200 dark:border-dark-border px-2 py-1 text-left;
+  }
+  .markdown-body :global(th) {
+    @apply bg-gray-50 dark:bg-dark-elevated font-medium;
+  }
+
+  /* Sub-task tree: striped rows with hover highlight */
+  :global(.subtask-row:nth-child(odd) > .subtask-inner) {
+    @apply bg-gray-50/70 dark:bg-dark-elevated/30;
+  }
+  :global(.subtask-row:nth-child(even) > .subtask-inner) {
+    @apply bg-white dark:bg-dark-surface;
+  }
+  :global(.subtask-row > .subtask-inner:hover) {
+    @apply bg-gray-100 dark:bg-dark-elevated/70;
+  }
+</style>

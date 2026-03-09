@@ -12,20 +12,21 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/worldline-go/types"
 )
 
 // ─── Workflow CRUD ───
 
 type workflowRow struct {
-	ID            string          `db:"id"`
-	Name          string          `db:"name"`
-	Description   string          `db:"description"`
-	Graph         json.RawMessage `db:"graph"`
-	ActiveVersion *int            `db:"active_version"`
-	CreatedAt     time.Time       `db:"created_at"`
-	UpdatedAt     time.Time       `db:"updated_at"`
-	CreatedBy     string          `db:"created_by"`
-	UpdatedBy     string          `db:"updated_by"`
+	ID            string        `db:"id"`
+	Name          string        `db:"name"`
+	Description   string        `db:"description"`
+	Graph         types.RawJSON `db:"graph"`
+	ActiveVersion *int          `db:"active_version"`
+	CreatedAt     time.Time     `db:"created_at"`
+	UpdatedAt     time.Time     `db:"updated_at"`
+	CreatedBy     string        `db:"created_by"`
+	UpdatedBy     string        `db:"updated_by"`
 }
 
 func (p *Postgres) ListWorkflows(ctx context.Context, q *query.Query) (*service.ListResult[service.Workflow], error) {
@@ -101,7 +102,7 @@ func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*ser
 			"id":          id,
 			"name":        w.Name,
 			"description": w.Description,
-			"graph":       graphJSON,
+			"graph":       types.RawJSON(graphJSON),
 			"created_at":  now,
 			"updated_at":  now,
 			"created_by":  w.CreatedBy,
@@ -140,7 +141,7 @@ func (p *Postgres) UpdateWorkflow(ctx context.Context, id string, w service.Work
 		goqu.Record{
 			"name":        w.Name,
 			"description": w.Description,
-			"graph":       graphJSON,
+			"graph":       types.RawJSON(graphJSON),
 			"updated_at":  now,
 			"updated_by":  w.UpdatedBy,
 		},

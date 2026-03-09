@@ -11,19 +11,20 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/worldline-go/types"
 )
 
 // ─── Workflow Version CRUD ───
 
 type workflowVersionRow struct {
-	ID          string          `db:"id"`
-	WorkflowID  string          `db:"workflow_id"`
-	Version     int             `db:"version"`
-	Name        string          `db:"name"`
-	Description string          `db:"description"`
-	Graph       json.RawMessage `db:"graph"`
-	CreatedAt   time.Time       `db:"created_at"`
-	CreatedBy   string          `db:"created_by"`
+	ID          string        `db:"id"`
+	WorkflowID  string        `db:"workflow_id"`
+	Version     int           `db:"version"`
+	Name        string        `db:"name"`
+	Description string        `db:"description"`
+	Graph       types.RawJSON `db:"graph"`
+	CreatedAt   time.Time     `db:"created_at"`
+	CreatedBy   string        `db:"created_by"`
 }
 
 func (p *Postgres) ListWorkflowVersions(ctx context.Context, workflowID string) ([]service.WorkflowVersion, error) {
@@ -114,7 +115,7 @@ func (p *Postgres) CreateWorkflowVersion(ctx context.Context, v service.Workflow
 			"version":     nextVersion,
 			"name":        v.Name,
 			"description": v.Description,
-			"graph":       graphJSON,
+			"graph":       types.RawJSON(graphJSON),
 			"created_at":  now,
 			"created_by":  v.CreatedBy,
 		},

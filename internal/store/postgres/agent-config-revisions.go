@@ -11,19 +11,20 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/worldline-go/types"
 )
 
 // ─── Agent Config Revisions ───
 
 type agentConfigRevisionRow struct {
-	ID           string          `db:"id"`
-	AgentID      string          `db:"agent_id"`
-	Version      int             `db:"version"`
-	ConfigBefore json.RawMessage `db:"config_before"`
-	ConfigAfter  json.RawMessage `db:"config_after"`
-	ChangedBy    string          `db:"changed_by"`
-	ChangeNote   sql.NullString  `db:"change_note"`
-	CreatedAt    time.Time       `db:"created_at"`
+	ID           string         `db:"id"`
+	AgentID      string         `db:"agent_id"`
+	Version      int            `db:"version"`
+	ConfigBefore types.RawJSON  `db:"config_before"`
+	ConfigAfter  types.RawJSON  `db:"config_after"`
+	ChangedBy    string         `db:"changed_by"`
+	ChangeNote   sql.NullString `db:"change_note"`
+	CreatedAt    time.Time      `db:"created_at"`
 }
 
 var agentConfigRevisionColumns = []interface{}{
@@ -59,8 +60,8 @@ func (p *Postgres) CreateRevision(ctx context.Context, rev service.AgentConfigRe
 			"id":            id,
 			"agent_id":      rev.AgentID,
 			"version":       rev.Version,
-			"config_before": configBeforeJSON,
-			"config_after":  configAfterJSON,
+			"config_before": types.RawJSON(configBeforeJSON),
+			"config_after":  types.RawJSON(configAfterJSON),
 			"changed_by":    rev.ChangedBy,
 			"change_note":   nullString(rev.ChangeNote),
 			"created_at":    now,

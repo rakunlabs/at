@@ -11,19 +11,20 @@ import (
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/worldline-go/types"
 )
 
 // ─── Agent Task Sessions ───
 
 type agentTaskSessionRow struct {
-	ID                string          `db:"id"`
-	AgentID           string          `db:"agent_id"`
-	TaskKey           string          `db:"task_key"`
-	AdapterType       sql.NullString  `db:"adapter_type"`
-	SessionParamsJSON json.RawMessage `db:"session_params_json"`
-	SessionDisplayID  sql.NullString  `db:"session_display_id"`
-	CreatedAt         time.Time       `db:"created_at"`
-	UpdatedAt         time.Time       `db:"updated_at"`
+	ID                string         `db:"id"`
+	AgentID           string         `db:"agent_id"`
+	TaskKey           string         `db:"task_key"`
+	AdapterType       sql.NullString `db:"adapter_type"`
+	SessionParamsJSON types.RawJSON  `db:"session_params_json"`
+	SessionDisplayID  sql.NullString `db:"session_display_id"`
+	CreatedAt         time.Time      `db:"created_at"`
+	UpdatedAt         time.Time      `db:"updated_at"`
 }
 
 var agentTaskSessionColumns = []interface{}{
@@ -79,14 +80,14 @@ func (p *Postgres) UpsertAgentTaskSession(ctx context.Context, session service.A
 			"agent_id":            session.AgentID,
 			"task_key":            session.TaskKey,
 			"adapter_type":        nullString(session.AdapterType),
-			"session_params_json": paramsJSON,
+			"session_params_json": types.RawJSON(paramsJSON),
 			"session_display_id":  nullString(session.SessionDisplayID),
 			"created_at":          now,
 			"updated_at":          now,
 		},
 	).OnConflict(goqu.DoUpdate("agent_id, task_key", goqu.Record{
 		"adapter_type":        nullString(session.AdapterType),
-		"session_params_json": paramsJSON,
+		"session_params_json": types.RawJSON(paramsJSON),
 		"session_display_id":  nullString(session.SessionDisplayID),
 		"updated_at":          now,
 	})).ToSQL()

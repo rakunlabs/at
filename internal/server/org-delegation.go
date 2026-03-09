@@ -142,6 +142,25 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		return fmt.Errorf("org-delegation: update task to in_progress: %w", err)
 	}
 
+	// Audit: task started processing.
+	if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+		_ = recordAudit(ctx, service.AuditEntry{
+			ActorType:      "agent",
+			ActorID:        agentID,
+			Action:         "task_started",
+			ResourceType:   "task",
+			ResourceID:     task.ID,
+			OrganizationID: org.ID,
+			Details: map[string]any{
+				"task_title": task.Title,
+				"agent_name": agent.Name,
+				"depth":      depth,
+				"model":      model,
+				"provider":   agent.Config.Provider,
+			},
+		})
+	}
+
 	// h) Run agentic loop.
 	maxIterations := agent.Config.MaxIterations
 	if maxIterations == 0 {
@@ -220,6 +239,29 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						"agent_id", agentID, "error", usageErr)
 				}
 			}
+		}
+
+		// Audit: LLM call completed.
+		if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+			llmDetails := map[string]any{
+				"task_id":      task.ID,
+				"iteration":    iteration,
+				"model":        model,
+				"provider":     agent.Config.Provider,
+				"finished":     resp.Finished,
+				"tool_calls":   len(resp.ToolCalls),
+				"has_content":  resp.Content != "",
+				"total_tokens": resp.Usage.TotalTokens,
+			}
+			_ = recordAudit(ctx, service.AuditEntry{
+				ActorType:      "agent",
+				ActorID:        agentID,
+				Action:         "llm_call",
+				ResourceType:   "task",
+				ResourceID:     task.ID,
+				OrganizationID: org.ID,
+				Details:        llmDetails,
+			})
 		}
 
 		// Build assistant message with content blocks.
@@ -457,6 +499,40 @@ func (s *Server) completeTaskWithStatus(ctx context.Context, task *service.Task,
 		return err
 	}
 
+	// Audit: task status changed to terminal state.
+	if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+		action := "task_completed"
+		if status == service.TaskStatusCancelled {
+			action = "task_cancelled"
+		}
+
+		details := map[string]any{
+			"task_title": task.Title,
+			"status":     status,
+		}
+		if task.AssignedAgentID != "" {
+			details["agent_id"] = task.AssignedAgentID
+		}
+		// Include a truncated result preview (first 200 chars).
+		if result != "" {
+			preview := result
+			if len(preview) > 200 {
+				preview = preview[:200] + "..."
+			}
+			details["result_preview"] = preview
+		}
+
+		_ = recordAudit(ctx, service.AuditEntry{
+			ActorType:      "agent",
+			ActorID:        task.AssignedAgentID,
+			Action:         action,
+			ResourceType:   "task",
+			ResourceID:     task.ID,
+			OrganizationID: task.OrganizationID,
+			Details:        details,
+		})
+	}
+
 	s.propagateStatusToParent(ctx, task)
 
 	return nil
@@ -518,6 +594,26 @@ func (s *Server) createDelegationTask(ctx context.Context, org *service.Organiza
 	slog.Info("org-delegation: created child task",
 		"child_task_id", childTask.ID, "identifier", identifier,
 		"parent_task_id", parentTask.ID, "assignee", assigneeAgentID)
+
+	// Audit: task delegated to child agent.
+	if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+		_ = recordAudit(ctx, service.AuditEntry{
+			ActorType:      "agent",
+			ActorID:        parentTask.AssignedAgentID,
+			Action:         "task_delegated",
+			ResourceType:   "task",
+			ResourceID:     childTask.ID,
+			OrganizationID: org.ID,
+			Details: map[string]any{
+				"parent_task_id": parentTask.ID,
+				"child_task_id":  childTask.ID,
+				"identifier":     identifier,
+				"assignee":       assigneeAgentID,
+				"depth":          depth + 1,
+				"description":    description,
+			},
+		})
+	}
 
 	return childTask, nil
 }

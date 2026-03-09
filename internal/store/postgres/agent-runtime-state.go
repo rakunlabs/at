@@ -10,21 +10,22 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/worldline-go/types"
 )
 
 // ─── Agent Runtime State ───
 
 type agentRuntimeStateRow struct {
-	AgentID           string          `db:"agent_id"`
-	SessionID         sql.NullString  `db:"session_id"`
-	StateJSON         json.RawMessage `db:"state_json"`
-	TotalInputTokens  int64           `db:"total_input_tokens"`
-	TotalOutputTokens int64           `db:"total_output_tokens"`
-	TotalCostCents    int64           `db:"total_cost_cents"`
-	LastRunID         sql.NullString  `db:"last_run_id"`
-	LastRunStatus     sql.NullString  `db:"last_run_status"`
-	LastError         sql.NullString  `db:"last_error"`
-	UpdatedAt         time.Time       `db:"updated_at"`
+	AgentID           string         `db:"agent_id"`
+	SessionID         sql.NullString `db:"session_id"`
+	StateJSON         types.RawJSON  `db:"state_json"`
+	TotalInputTokens  int64          `db:"total_input_tokens"`
+	TotalOutputTokens int64          `db:"total_output_tokens"`
+	TotalCostCents    int64          `db:"total_cost_cents"`
+	LastRunID         sql.NullString `db:"last_run_id"`
+	LastRunStatus     sql.NullString `db:"last_run_status"`
+	LastError         sql.NullString `db:"last_error"`
+	UpdatedAt         time.Time      `db:"updated_at"`
 }
 
 var agentRuntimeStateColumns = []interface{}{
@@ -76,7 +77,7 @@ func (p *Postgres) UpsertAgentRuntimeState(ctx context.Context, state service.Ag
 		goqu.Record{
 			"agent_id":            state.AgentID,
 			"session_id":          nullString(state.SessionID),
-			"state_json":          stateJSON,
+			"state_json":          types.RawJSON(stateJSON),
 			"total_input_tokens":  state.TotalInputTokens,
 			"total_output_tokens": state.TotalOutputTokens,
 			"total_cost_cents":    state.TotalCostCents,
@@ -87,7 +88,7 @@ func (p *Postgres) UpsertAgentRuntimeState(ctx context.Context, state service.Ag
 		},
 	).OnConflict(goqu.DoUpdate("agent_id", goqu.Record{
 		"session_id":          nullString(state.SessionID),
-		"state_json":          stateJSON,
+		"state_json":          types.RawJSON(stateJSON),
 		"total_input_tokens":  state.TotalInputTokens,
 		"total_output_tokens": state.TotalOutputTokens,
 		"total_cost_cents":    state.TotalCostCents,
