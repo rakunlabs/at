@@ -93,13 +93,16 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 		messages = translateOpenAIMessages(req.Messages, s.lookupThoughtSignature)
 	}
 
+	// Build per-request generation options from the client request.
+	opts := buildChatOptions(&req)
+
 	if req.Stream {
-		s.handleStreamingChat(w, r, nil, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions)
+		s.handleStreamingChat(w, r, nil, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
 		return
 	}
 
 	// Non-streaming
-	resp, err := provider.Chat(r.Context(), actualModel, messages, tools)
+	resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
 	if err != nil {
 		slog.Error("admin chat provider failed", "provider", providerKey, "error", err)
 		httpResponseJSON(w, map[string]any{

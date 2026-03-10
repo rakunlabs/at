@@ -15,12 +15,12 @@ import (
 // ─── Mock Provider ───
 
 type mockProvider struct {
-	chatFunc func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error)
+	chatFunc func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error)
 }
 
-func (m *mockProvider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+func (m *mockProvider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	if m.chatFunc != nil {
-		return m.chatFunc(ctx, model, messages, tools)
+		return m.chatFunc(ctx, model, messages, tools, opts)
 	}
 	return &service.LLMResponse{Content: "mock response", Finished: true}, nil
 }
@@ -498,7 +498,7 @@ func TestScript_InputCountCapped(t *testing.T) {
 
 func TestLLMCall_HappyPath(t *testing.T) {
 	mp := &mockProvider{
-		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 			// Verify the messages structure.
 			if len(messages) != 2 {
 				t.Errorf("expected 2 messages (system + user), got %d", len(messages))
@@ -542,7 +542,7 @@ func TestLLMCall_HappyPath(t *testing.T) {
 func TestLLMCall_DefaultModel(t *testing.T) {
 	var capturedModel string
 	mp := &mockProvider{
-		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 			capturedModel = model
 			return &service.LLMResponse{Content: "ok", Finished: true}, nil
 		},
@@ -580,7 +580,7 @@ func TestLLMCall_NoPrompt_Error(t *testing.T) {
 func TestLLMCall_FallbackPromptFromText(t *testing.T) {
 	var capturedPrompt string
 	mp := &mockProvider{
-		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 			for _, msg := range messages {
 				if msg.Role == "user" {
 					capturedPrompt, _ = msg.Content.(string)
@@ -611,7 +611,7 @@ func TestLLMCall_FallbackPromptFromText(t *testing.T) {
 func TestLLMCall_ContextAppended(t *testing.T) {
 	var capturedPrompt string
 	mp := &mockProvider{
-		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 			for _, msg := range messages {
 				if msg.Role == "user" {
 					capturedPrompt, _ = msg.Content.(string)
@@ -663,7 +663,7 @@ func TestLLMCall_NilProviderLookup_ValidateError(t *testing.T) {
 
 func TestLLMCall_ProviderError(t *testing.T) {
 	mp := &mockProvider{
-		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 			return nil, errors.New("provider error")
 		},
 	}
@@ -685,7 +685,7 @@ func TestLLMCall_ProviderError(t *testing.T) {
 
 func TestAgentCall_SimplePrompt_NoTools(t *testing.T) {
 	mp := &mockProvider{
-		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 			return &service.LLMResponse{
 				Content:  "Agent response",
 				Finished: true,
@@ -728,7 +728,7 @@ func TestAgentCall_MissingProviderAndAgent_ValidateError(t *testing.T) {
 func TestAgentCall_ToolCallLoop(t *testing.T) {
 	callCount := 0
 	mp := &mockProvider{
-		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+		chatFunc: func(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 			callCount++
 			if callCount == 1 {
 				// First call: return a tool call.

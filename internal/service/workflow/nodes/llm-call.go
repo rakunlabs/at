@@ -110,7 +110,7 @@ func (n *llmCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs ma
 		Content: prompt,
 	})
 
-	resp, err := provider.Chat(ctx, model, messages, nil)
+	resp, err := provider.Chat(ctx, model, messages, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("llm_call: chat failed: %w", err)
 	}

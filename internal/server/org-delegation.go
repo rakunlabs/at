@@ -222,7 +222,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 
 		// Call LLM.
-		resp, err := info.provider.Chat(ctx, model, messages, llmTools)
+		resp, err := info.provider.Chat(ctx, model, messages, llmTools, nil)
 		if err != nil {
 			slog.Error("org-delegation: chat failed",
 				"agent_id", agentID, "task_id", task.ID, "iteration", iteration, "error", err)

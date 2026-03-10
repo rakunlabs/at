@@ -644,7 +644,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 		}
 
-		resp, err := info.provider.Chat(ctx, model, llmMessages, llmTools)
+		resp, err := info.provider.Chat(ctx, model, llmMessages, llmTools, nil)
 		if err != nil {
 			slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
 			onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("LLM error: %v", err)})

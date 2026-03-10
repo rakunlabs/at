@@ -138,7 +138,15 @@ type functionDeclaration struct {
 }
 
 type generationConfig struct {
-	MaxOutputTokens int `json:"maxOutputTokens,omitempty"`
+	MaxOutputTokens int             `json:"maxOutputTokens,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	TopP            *float64        `json:"topP,omitempty"`
+	StopSequences   []string        `json:"stopSequences,omitempty"`
+	ThinkingConfig  *thinkingConfig `json:"thinkingConfig,omitempty"`
+}
+
+type thinkingConfig struct {
+	ThinkingBudget int `json:"thinkingBudget,omitempty"`
 }
 
 // generateContentResponse is the native Google Generative Language API response.
@@ -168,12 +176,12 @@ type googleError struct {
 
 // ─── Chat (non-streaming) ───
 
-func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	if model == "" {
 		model = p.Model
 	}
 
-	reqBody := p.buildRequest(ctx, messages, tools)
+	reqBody := p.buildRequest(ctx, messages, tools, opts)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -228,12 +236,12 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 // ChatStream implements service.LLMStreamProvider using Google's
 // streamGenerateContent endpoint with alt=sse for server-sent events.
-func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, http.Header, error) {
+func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
 	if model == "" {
 		model = p.Model
 	}
 
-	reqBody := p.buildRequest(ctx, messages, tools)
+	reqBody := p.buildRequest(ctx, messages, tools, opts)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -406,8 +414,62 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 // ─── Request building ───
 
 // buildRequest translates internal service types to Google's native API format.
-func (p *Provider) buildRequest(ctx context.Context, messages []service.Message, tools []service.Tool) *generateContentRequest {
+func (p *Provider) buildRequest(ctx context.Context, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) *generateContentRequest {
 	req := &generateContentRequest{}
+
+	// Apply per-request generation options.
+	if opts != nil {
+		genCfg := &generationConfig{}
+		hasGenCfg := false
+
+		if opts.MaxCompletionTokens != nil {
+			genCfg.MaxOutputTokens = *opts.MaxCompletionTokens
+			hasGenCfg = true
+		} else if opts.MaxTokens != nil {
+			genCfg.MaxOutputTokens = *opts.MaxTokens
+			hasGenCfg = true
+		}
+		if opts.Temperature != nil {
+			genCfg.Temperature = opts.Temperature
+			hasGenCfg = true
+		}
+		if opts.TopP != nil {
+			genCfg.TopP = opts.TopP
+			hasGenCfg = true
+		}
+		if len(opts.Stop) > 0 {
+			genCfg.StopSequences = opts.Stop
+			hasGenCfg = true
+		}
+
+		// Thinking / extended thinking support.
+		// Direct thinking config takes precedence over reasoning_effort.
+		if opts.Thinking != nil && opts.Thinking.Type == "enabled" {
+			budget := opts.Thinking.BudgetTokens
+			if budget > 0 {
+				genCfg.ThinkingConfig = &thinkingConfig{ThinkingBudget: budget}
+				hasGenCfg = true
+			}
+		} else if opts.ReasoningEffort != "" {
+			var budget int
+			switch opts.ReasoningEffort {
+			case "low":
+				budget = 2048
+			case "medium":
+				budget = 8192
+			case "high":
+				budget = 24576
+			}
+			if budget > 0 {
+				genCfg.ThinkingConfig = &thinkingConfig{ThinkingBudget: budget}
+				hasGenCfg = true
+			}
+		}
+
+		if hasGenCfg {
+			req.GenerationConfig = genCfg
+		}
+	}
 
 	// Convert tools to Google's functionDeclarations format.
 	if len(tools) > 0 {

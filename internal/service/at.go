@@ -29,7 +29,8 @@ type LLMProvider interface {
 	// Chat sends messages to the LLM and returns a response.
 	// The model parameter allows per-request model override;
 	// if empty, the provider's default model is used.
-	Chat(ctx context.Context, model string, messages []Message, tools []Tool) (*LLMResponse, error)
+	// opts may be nil, in which case provider defaults are used.
+	Chat(ctx context.Context, model string, messages []Message, tools []Tool, opts *ChatOptions) (*LLMResponse, error)
 }
 
 // LLMStreamProvider is optionally implemented by providers that support
@@ -37,11 +38,61 @@ type LLMProvider interface {
 // interface via type assertion; if a provider doesn't implement it,
 // the gateway falls back to calling Chat() and fake-streaming the result.
 type LLMStreamProvider interface {
-	ChatStream(ctx context.Context, model string, messages []Message, tools []Tool) (<-chan StreamChunk, http.Header, error)
+	ChatStream(ctx context.Context, model string, messages []Message, tools []Tool, opts *ChatOptions) (<-chan StreamChunk, http.Header, error)
 
 	// Proxy forwards a raw HTTP request to the provider's API.
 	// The path is relative to the provider's base URL.
 	Proxy(w http.ResponseWriter, r *http.Request, path string) error
+}
+
+// ChatOptions contains optional per-request parameters that control
+// generation behaviour. All pointer fields use nil to mean "use provider
+// default". Providers ignore fields they don't support.
+type ChatOptions struct {
+	// MaxTokens limits the maximum number of output tokens.
+	// Used by non-reasoning models (maps to max_tokens for OpenAI/Anthropic,
+	// maxOutputTokens for Gemini).
+	MaxTokens *int
+
+	// MaxCompletionTokens is used by OpenAI reasoning models (o-series).
+	// When set, it is sent as max_completion_tokens instead of max_tokens.
+	MaxCompletionTokens *int
+
+	// Temperature controls randomness (0.0–2.0).
+	Temperature *float64
+
+	// TopP controls nucleus sampling.
+	TopP *float64
+
+	// Stop sequences that cause the model to stop generating.
+	Stop []string
+
+	// Seed for deterministic generation (provider-dependent support).
+	Seed *int
+
+	// ResponseFormat requests a specific output format (e.g. {"type":"json_object"}).
+	ResponseFormat map[string]any
+
+	// ReasoningEffort controls thinking depth for reasoning models.
+	// Values: "low", "medium", "high".
+	// For OpenAI o-series: forwarded directly as reasoning_effort.
+	// For Anthropic: mapped to thinking budget (low=2048, medium=8192, high=24576).
+	// For Gemini: mapped to thinkingBudget.
+	ReasoningEffort string
+
+	// Thinking enables extended thinking / chain-of-thought mode.
+	// When non-nil, providers activate their native thinking mechanism.
+	// This takes precedence over ReasoningEffort for Anthropic and Gemini.
+	Thinking *ThinkingConfig
+}
+
+// ThinkingConfig enables extended thinking / chain-of-thought.
+type ThinkingConfig struct {
+	// Type is typically "enabled" (following Anthropic's convention).
+	Type string
+	// BudgetTokens is the token budget for the thinking phase.
+	// 0 means the provider should use its own default.
+	BudgetTokens int
 }
 
 // InlineImage represents a base64-encoded image returned by a provider (e.g. Gemini).

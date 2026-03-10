@@ -19,7 +19,25 @@ type ChatCompletionRequest struct {
 	Tools         []OpenAITool    `json:"tools,omitempty"`
 	Stream        bool            `json:"stream,omitempty"`
 	StreamOptions *StreamOptions  `json:"stream_options,omitempty"`
-	MaxTokens     *int            `json:"max_tokens,omitempty"`
+
+	// Generation parameters
+	MaxTokens           *int            `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"`
+	Temperature         *float64        `json:"temperature,omitempty"`
+	TopP                *float64        `json:"top_p,omitempty"`
+	Stop                json.RawMessage `json:"stop,omitempty"` // string or []string
+	Seed                *int            `json:"seed,omitempty"`
+	ResponseFormat      map[string]any  `json:"response_format,omitempty"`
+
+	// Reasoning / thinking parameters
+	ReasoningEffort string       `json:"reasoning_effort,omitempty"` // "low", "medium", "high"
+	Thinking        *ThinkingReq `json:"thinking,omitempty"`
+}
+
+// ThinkingReq is the client-facing thinking configuration.
+type ThinkingReq struct {
+	Type         string `json:"type"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
 }
 
 // StreamOptions controls optional streaming behaviour.
@@ -323,6 +341,72 @@ func translateOpenAITools(tools []OpenAITool) []service.Tool {
 		})
 	}
 	return result
+}
+
+// ─── Translation: ChatCompletionRequest → service.ChatOptions ───
+
+// buildChatOptions converts the parsed OpenAI-compatible request into the
+// internal ChatOptions struct that providers consume. Returns nil if no
+// generation parameters were set (i.e. all defaults).
+func buildChatOptions(req *ChatCompletionRequest) *service.ChatOptions {
+	opts := &service.ChatOptions{}
+	any := false
+
+	if req.MaxTokens != nil {
+		opts.MaxTokens = req.MaxTokens
+		any = true
+	}
+	if req.MaxCompletionTokens != nil {
+		opts.MaxCompletionTokens = req.MaxCompletionTokens
+		any = true
+	}
+	if req.Temperature != nil {
+		opts.Temperature = req.Temperature
+		any = true
+	}
+	if req.TopP != nil {
+		opts.TopP = req.TopP
+		any = true
+	}
+	if req.Seed != nil {
+		opts.Seed = req.Seed
+		any = true
+	}
+	if len(req.ResponseFormat) > 0 {
+		opts.ResponseFormat = req.ResponseFormat
+		any = true
+	}
+	if req.ReasoningEffort != "" {
+		opts.ReasoningEffort = req.ReasoningEffort
+		any = true
+	}
+	if req.Thinking != nil {
+		opts.Thinking = &service.ThinkingConfig{
+			Type:         req.Thinking.Type,
+			BudgetTokens: req.Thinking.BudgetTokens,
+		}
+		any = true
+	}
+
+	// Parse "stop" — can be a single string or an array of strings.
+	if len(req.Stop) > 0 {
+		var stopStr string
+		if json.Unmarshal(req.Stop, &stopStr) == nil {
+			opts.Stop = []string{stopStr}
+			any = true
+		} else {
+			var stopArr []string
+			if json.Unmarshal(req.Stop, &stopArr) == nil && len(stopArr) > 0 {
+				opts.Stop = stopArr
+				any = true
+			}
+		}
+	}
+
+	if !any {
+		return nil
+	}
+	return opts
 }
 
 // ─── Translation: service.LLMResponse → OpenAI response ───

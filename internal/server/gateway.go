@@ -206,13 +206,16 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		messages = translateOpenAIMessages(req.Messages, s.lookupThoughtSignature)
 	}
 
+	// Build per-request generation options from the client request.
+	opts := buildChatOptions(&req)
+
 	if req.Stream {
-		s.handleStreamingChat(w, r, auth, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions)
+		s.handleStreamingChat(w, r, auth, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
 		return
 	}
 
 	// Call the provider (non-streaming)
-	resp, err := provider.Chat(r.Context(), actualModel, messages, tools)
+	resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
 	if err != nil {
 		slog.Error("provider chat failed", "provider", providerKey, "error", err)
 		httpResponseJSON(w, map[string]any{
@@ -543,6 +546,7 @@ func (s *Server) handleStreamingChat(
 	messages []service.Message,
 	tools []service.Tool,
 	streamOpts *StreamOptions,
+	opts *service.ChatOptions,
 ) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -570,7 +574,7 @@ func (s *Server) handleStreamingChat(
 	if sp, ok := provider.(service.LLMStreamProvider); ok {
 		slog.Debug("streaming via provider", "provider", providerKey, "model", actualModel)
 
-		chunks, headers, err := sp.ChatStream(r.Context(), actualModel, messages, tools)
+		chunks, headers, err := sp.ChatStream(r.Context(), actualModel, messages, tools, opts)
 		if err != nil {
 			// Can't send JSON error after SSE headers are set in some cases,
 			// but we haven't written anything yet, so we can still respond.
@@ -710,7 +714,7 @@ func (s *Server) handleStreamingChat(
 		// Fallback: fake streaming via non-streaming Chat call.
 		slog.Debug("fake streaming (provider doesn't support streaming)", "provider", providerKey, "model", actualModel)
 
-		resp, err := provider.Chat(r.Context(), actualModel, messages, tools)
+		resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
 		if err != nil {
 			slog.Error("provider chat failed", "provider", providerKey, "error", err)
 			writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("provider error: %v", err))

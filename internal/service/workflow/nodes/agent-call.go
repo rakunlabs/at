@@ -573,7 +573,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			}
 		}
 
-		resp, err := provider.Chat(ctx, model, messages, llmTools)
+		resp, err := provider.Chat(ctx, model, messages, llmTools, nil)
 		if err != nil {
 			return nil, fmt.Errorf("agent_call: chat failed (iteration %d): %w", iteration, err)
 		}

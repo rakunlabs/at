@@ -153,12 +153,12 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	return p, nil
 }
 
-func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	if model == "" {
 		model = p.Model
 	}
 
-	reqBody := p.buildRequestBody(model, messages, tools)
+	reqBody := p.buildRequestBody(model, messages, tools, opts)
 
 	jsonData, _ := json.Marshal(reqBody)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewBuffer(jsonData))
@@ -280,12 +280,12 @@ type messageStartMessage struct {
 }
 
 // ChatStream implements service.LLMStreamProvider for Anthropic's SSE format.
-func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, http.Header, error) {
+func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
 	if model == "" {
 		model = p.Model
 	}
 
-	reqBody := p.buildRequestBody(model, messages, tools)
+	reqBody := p.buildRequestBody(model, messages, tools, opts)
 	reqBody["stream"] = true
 
 	jsonData, err := json.Marshal(reqBody)
@@ -544,7 +544,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 }
 
 // buildRequestBody creates the common request body for Chat and ChatStream.
-func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool) map[string]any {
+func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) map[string]any {
 	anthropicTools := make([]map[string]any, len(tools))
 	for i, tool := range tools {
 		anthropicTools[i] = map[string]any{
@@ -578,9 +578,19 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		filteredMessages[i].Content = convertContent(filteredMessages[i].Content)
 	}
 
+	// Determine max_tokens: client override > provider default.
+	maxTokens := p.MaxTokens
+	if opts != nil {
+		if opts.MaxCompletionTokens != nil {
+			maxTokens = *opts.MaxCompletionTokens
+		} else if opts.MaxTokens != nil {
+			maxTokens = *opts.MaxTokens
+		}
+	}
+
 	reqBody := map[string]any{
 		"model":      model,
-		"max_tokens": p.MaxTokens,
+		"max_tokens": maxTokens,
 		"messages":   filteredMessages,
 	}
 	if systemPrompt != "" {
@@ -588,6 +598,58 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 	}
 	if len(tools) > 0 {
 		reqBody["tools"] = anthropicTools
+	}
+
+	// Apply per-request generation options.
+	if opts != nil {
+		if opts.Temperature != nil {
+			reqBody["temperature"] = *opts.Temperature
+		}
+		if opts.TopP != nil {
+			reqBody["top_p"] = *opts.TopP
+		}
+		if len(opts.Stop) > 0 {
+			reqBody["stop_sequences"] = opts.Stop
+		}
+
+		// Thinking / extended thinking support.
+		// Direct thinking config takes precedence over reasoning_effort mapping.
+		if opts.Thinking != nil && opts.Thinking.Type == "enabled" {
+			budget := opts.Thinking.BudgetTokens
+			if budget <= 0 {
+				budget = 10000 // sensible default
+			}
+			reqBody["thinking"] = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": budget,
+			}
+			// Anthropic requires max_tokens >= budget_tokens for thinking models.
+			// Ensure we have enough headroom for the actual response.
+			if maxTokens < budget+1024 {
+				reqBody["max_tokens"] = budget + 1024
+			}
+		} else if opts.ReasoningEffort != "" {
+			// Map OpenAI-style reasoning_effort to Anthropic thinking budget.
+			var budget int
+			switch opts.ReasoningEffort {
+			case "low":
+				budget = 2048
+			case "medium":
+				budget = 8192
+			case "high":
+				budget = 24576
+			}
+			if budget > 0 {
+				reqBody["thinking"] = map[string]any{
+					"type":          "enabled",
+					"budget_tokens": budget,
+				}
+				// Ensure max_tokens accommodates the thinking budget.
+				if maxTokens < budget+1024 {
+					reqBody["max_tokens"] = budget + 1024
+				}
+			}
+		}
 	}
 
 	return reqBody

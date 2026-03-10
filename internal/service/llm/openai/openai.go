@@ -133,12 +133,12 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
-func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (*service.LLMResponse, error) {
+func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	if model == "" {
 		model = p.Model
 	}
 
-	reqBody := p.buildRequestBody(model, messages, tools)
+	reqBody := p.buildRequestBody(model, messages, tools, opts)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
@@ -244,12 +244,12 @@ type streamResponse struct {
 }
 
 // ChatStream implements service.LLMStreamProvider for true SSE streaming.
-func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool) (<-chan service.StreamChunk, http.Header, error) {
+func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
 	if model == "" {
 		model = p.Model
 	}
 
-	reqBody := p.buildRequestBody(model, messages, tools)
+	reqBody := p.buildRequestBody(model, messages, tools, opts)
 	reqBody["stream"] = true
 	reqBody["stream_options"] = map[string]any{"include_usage": true}
 
@@ -437,7 +437,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 }
 
 // buildRequestBody creates the common request body for Chat and ChatStream.
-func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool) map[string]any {
+func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) map[string]any {
 	openaiTools := make([]map[string]any, len(tools))
 	for i, tool := range tools {
 		openaiTools[i] = map[string]any{
@@ -477,6 +477,37 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 	}
 	if len(tools) > 0 {
 		reqBody["tools"] = openaiTools
+	}
+
+	// Apply per-request generation options.
+	if opts != nil {
+		if opts.MaxCompletionTokens != nil {
+			reqBody["max_completion_tokens"] = *opts.MaxCompletionTokens
+		} else if opts.MaxTokens != nil {
+			reqBody["max_tokens"] = *opts.MaxTokens
+		}
+		if opts.Temperature != nil {
+			reqBody["temperature"] = *opts.Temperature
+		}
+		if opts.TopP != nil {
+			reqBody["top_p"] = *opts.TopP
+		}
+		if len(opts.Stop) > 0 {
+			if len(opts.Stop) == 1 {
+				reqBody["stop"] = opts.Stop[0]
+			} else {
+				reqBody["stop"] = opts.Stop
+			}
+		}
+		if opts.Seed != nil {
+			reqBody["seed"] = *opts.Seed
+		}
+		if len(opts.ResponseFormat) > 0 {
+			reqBody["response_format"] = opts.ResponseFormat
+		}
+		if opts.ReasoningEffort != "" {
+			reqBody["reasoning_effort"] = opts.ReasoningEffort
+		}
 	}
 
 	return reqBody
