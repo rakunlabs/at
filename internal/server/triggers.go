@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/logi"
 
@@ -42,10 +43,30 @@ func (s *Server) ListAllTriggersAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if filterType := r.URL.Query().Get("type"); filterType != "" {
+	// Apply query filters.
+	q := r.URL.Query()
+	if filterType := q.Get("type"); filterType != "" {
 		filtered := make([]service.Trigger, 0, len(records))
 		for _, t := range records {
 			if t.Type == filterType {
+				filtered = append(filtered, t)
+			}
+		}
+		records = filtered
+	}
+	if filterTargetType := q.Get("target_type"); filterTargetType != "" {
+		filtered := make([]service.Trigger, 0, len(records))
+		for _, t := range records {
+			if t.TargetType == filterTargetType {
+				filtered = append(filtered, t)
+			}
+		}
+		records = filtered
+	}
+	if filterTargetID := q.Get("target_id"); filterTargetID != "" {
+		filtered := make([]service.Trigger, 0, len(records))
+		for _, t := range records {
+			if t.TargetID == filterTargetID {
 				filtered = append(filtered, t)
 			}
 		}
@@ -141,6 +162,83 @@ func (s *Server) CreateTriggerAPI(w http.ResponseWriter, r *http.Request) {
 	record, err := s.triggerStore.CreateTrigger(r.Context(), req)
 	if err != nil {
 		slog.Error("create trigger failed", "workflow_id", wfID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create trigger: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// If it's a cron trigger, reload the scheduler.
+	if req.Type == "cron" && req.Enabled && s.scheduler != nil {
+		if err := s.scheduler.Reload(); err != nil {
+			slog.Error("scheduler reload failed after trigger create", "error", err)
+		}
+	}
+
+	httpResponseJSON(w, record, http.StatusCreated)
+}
+
+// CreateTriggerGenericAPI handles POST /api/v1/triggers.
+// Creates a trigger for any target type (workflow, rag_sync, etc.).
+func (s *Server) CreateTriggerGenericAPI(w http.ResponseWriter, r *http.Request) {
+	if s.triggerStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req service.Trigger
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Type != "http" && req.Type != "cron" {
+		httpResponse(w, "type must be 'http' or 'cron'", http.StatusBadRequest)
+		return
+	}
+
+	if req.TargetType == "" {
+		httpResponse(w, "target_type is required", http.StatusBadRequest)
+		return
+	}
+	if req.TargetID == "" {
+		httpResponse(w, "target_id is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Type == "cron" {
+		schedule, _ := req.Config["schedule"].(string)
+		if schedule == "" {
+			httpResponse(w, "cron trigger requires 'schedule' in config", http.StatusBadRequest)
+			return
+		}
+	}
+
+	userEmail := s.getUserEmail(r)
+
+	// Validate alias uniqueness.
+	if req.Alias != "" {
+		existing, err := s.triggerStore.GetTriggerByAlias(r.Context(), req.Alias)
+		if err != nil {
+			slog.Error("check alias uniqueness failed", "alias", req.Alias, "error", err)
+			httpResponse(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing != nil {
+			httpResponse(w, fmt.Sprintf("alias %q is already in use", req.Alias), http.StatusConflict)
+			return
+		}
+	}
+
+	// Backward compat: populate WorkflowID for workflow targets.
+	if req.TargetType == service.TriggerTargetWorkflow {
+		req.WorkflowID = req.TargetID
+	}
+
+	req.CreatedBy = userEmail
+	req.UpdatedBy = userEmail
+
+	record, err := s.triggerStore.CreateTrigger(r.Context(), req)
+	if err != nil {
+		slog.Error("create trigger failed", "target_type", req.TargetType, "target_id", req.TargetID, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create trigger: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -361,6 +459,13 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Branch on target type: rag_sync triggers dispatch to the sync engine
+	// instead of running a workflow.
+	if trigger.TargetType == service.TriggerTargetRAGSync {
+		s.handleRAGSyncWebhook(w, r, trigger)
+		return
+	}
+
 	// Load the workflow.
 	wf, err := s.workflowStore.GetWorkflow(r.Context(), trigger.WorkflowID)
 	if err != nil {
@@ -527,16 +632,23 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
+	engine.SetRAGPageUpsert(s.ragPageUpsertFunc())
 
-	// Find the specific http_trigger node that matches this trigger's ID.
+	// Determine entry node(s) for this trigger.
 	var entryNodeIDs []string
 	hasOutputNode := false
-	for _, n := range graphToRun.Nodes {
-		if n.Type == "http_trigger" {
-			if tid, _ := n.Data["trigger_id"].(string); tid == trigger.ID {
+	if trigger.EntryNodeID != "" {
+		// Trigger specifies a particular input node to start from.
+		entryNodeIDs = []string{trigger.EntryNodeID}
+	} else {
+		// Fallback: use all input nodes (same as manual run).
+		for _, n := range graphToRun.Nodes {
+			if n.Type == "input" {
 				entryNodeIDs = append(entryNodeIDs, n.ID)
 			}
 		}
+	}
+	for _, n := range graphToRun.Nodes {
 		if n.Type == "output" {
 			hasOutputNode = true
 		}
@@ -622,4 +734,76 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 			Status:     "running",
 		}, http.StatusAccepted)
 	}
+}
+
+// handleRAGSyncWebhook dispatches a RAG sync for a webhook trigger whose
+// target_type is "rag_sync". It loads the collection, builds SyncDeps,
+// and runs the sync. Pass ?sync=true to block until completion.
+func (s *Server) handleRAGSyncWebhook(w http.ResponseWriter, r *http.Request, trigger *service.Trigger) {
+	collectionID := trigger.TargetID
+	if collectionID == "" {
+		httpResponse(w, "trigger has no target_id (collection ID)", http.StatusBadRequest)
+		return
+	}
+
+	collection, err := s.ragCollectionStore.GetRAGCollection(r.Context(), collectionID)
+	if err != nil {
+		slog.Error("webhook rag_sync: get collection failed",
+			"trigger_id", trigger.ID, "collection_id", collectionID, "error", err)
+		httpResponse(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if collection == nil {
+		httpResponse(w, "associated RAG collection not found", http.StatusNotFound)
+		return
+	}
+
+	if collection.Config.GitSource == nil {
+		httpResponse(w, "collection has no git source configured", http.StatusBadRequest)
+		return
+	}
+
+	deps := rag.SyncDeps{
+		RAGService: s.ragService,
+		PageStore:  s.ragPageStore,
+		StateStore: s.ragStateStore,
+		VarStore:   s.variableStore,
+	}
+
+	syncMode := r.URL.Query().Get("sync") == "true"
+
+	if syncMode {
+		result, err := rag.SyncCollection(r.Context(), deps, collection)
+		if err != nil {
+			slog.Error("webhook rag_sync: sync failed",
+				"trigger_id", trigger.ID, "collection_id", collectionID, "error", err)
+			httpResponse(w, fmt.Sprintf("sync failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+		httpResponseJSON(w, result, http.StatusOK)
+		return
+	}
+
+	// Async mode.
+	go func() {
+		ctx := context.Background()
+		result, err := rag.SyncCollection(ctx, deps, collection)
+		if err != nil {
+			slog.Error("webhook rag_sync: sync failed (async)",
+				"trigger_id", trigger.ID, "collection_id", collectionID, "error", err)
+			return
+		}
+		slog.Info("webhook rag_sync: completed",
+			"trigger_id", trigger.ID,
+			"collection_id", collectionID,
+			"files_processed", result.FilesProcessed,
+			"chunks_added", result.ChunksAdded,
+		)
+	}()
+
+	httpResponseJSON(w, map[string]string{
+		"status":        "syncing",
+		"collection_id": collectionID,
+		"trigger_id":    trigger.ID,
+	}, http.StatusAccepted)
 }

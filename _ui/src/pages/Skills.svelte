@@ -10,6 +10,7 @@
     installSkillTemplate,
     exportSkill,
     importSkillFromURL,
+    importSkillMD,
     getOAuthStartURL,
     type Skill,
     type SkillTool,
@@ -33,7 +34,7 @@
     type MarketplaceSource,
     type MarketplaceSkill,
   } from '@/lib/api/marketplace';
-  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, RefreshCw, Wand2, Bot, Copy, ClipboardPaste, Download, Upload, Store, Check, ExternalLink, Globe, Settings, Search, Eye, FileText } from 'lucide-svelte';
   import SkillBuilderPanel from '@/lib/components/SkillBuilderPanel.svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -394,6 +395,31 @@
     }
   }
 
+  // ─── Import Raw SKILL.md ───
+
+  let showImportRaw = $state(false);
+  let importRawContent = $state('');
+  let importingRaw = $state(false);
+
+  async function handleImportRaw() {
+    if (!importRawContent.trim()) {
+      addToast('SKILL.md content is required', 'warn');
+      return;
+    }
+    importingRaw = true;
+    try {
+      await importSkillMD(importRawContent.trim());
+      addToast('Skill imported from SKILL.md');
+      importRawContent = '';
+      showImportRaw = false;
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to import SKILL.md', 'alert');
+    } finally {
+      importingRaw = false;
+    }
+  }
+
   // ─── Community Marketplace ───
 
   let communitySources = $state<MarketplaceSource[]>([]);
@@ -588,12 +614,20 @@
             AI Builder
           </button>
           <button
-            onclick={() => { showImportURL = !showImportURL; }}
+            onclick={() => { showImportURL = !showImportURL; if (showImportURL) showImportRaw = false; }}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
             title="Import skill from URL"
           >
             <ExternalLink size={12} />
             Import URL
+          </button>
+          <button
+            onclick={() => { showImportRaw = !showImportRaw; if (showImportRaw) showImportURL = false; }}
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            title="Paste raw SKILL.md content"
+          >
+            <FileText size={12} />
+            Paste SKILL.md
           </button>
           <button
             onclick={load}
@@ -634,6 +668,37 @@
           >
             <X size={14} />
           </button>
+        </div>
+      {/if}
+
+      <!-- Import Raw SKILL.md -->
+      {#if showImportRaw}
+        <div class="mb-4 p-3 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 space-y-2">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Paste raw SKILL.md content</span>
+            <button
+              onclick={() => { showImportRaw = false; }}
+              class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <textarea
+            bind:value={importRawContent}
+            rows={10}
+            placeholder={"---\nname: my_skill\ndescription: What this skill does\n---\n\n# Instructions\n\nYour system prompt content here..."}
+            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+          ></textarea>
+          <div class="flex justify-end">
+            <button
+              onclick={handleImportRaw}
+              disabled={importingRaw}
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+            >
+              <Upload size={12} />
+              {importingRaw ? 'Importing...' : 'Import SKILL.md'}
+            </button>
+          </div>
         </div>
       {/if}
 

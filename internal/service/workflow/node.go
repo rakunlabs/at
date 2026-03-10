@@ -211,6 +211,11 @@ type Registry struct {
 	// RAGStateSave saves RAG sync state.
 	RAGStateSave RAGStateSaveFunc
 
+	// RAGPageUpsert stores original file content in the rag_pages table.
+	// Used by rag_ingest nodes to persist original content alongside vector chunks.
+	// nil when page store is not configured.
+	RAGPageUpsert RAGPageUpsertFunc
+
 	// ChatMessageCreator creates a message in a chat session.
 	// Used by chat_reply nodes to push messages into a conversation.
 	// nil when chat session store is not configured.
@@ -329,6 +334,14 @@ type RAGStateLookupFunc func(ctx context.Context, key string) (*service.RAGState
 
 // RAGStateSaveFunc saves RAG sync state.
 type RAGStateSaveFunc func(ctx context.Context, key, value string) error
+
+// RAGSyncFunc triggers a git sync for a RAG collection.
+// Used by the scheduler for cron triggers with target_type "rag_sync".
+type RAGSyncFunc func(ctx context.Context, collectionID string) error
+
+// RAGPageUpsertFunc stores original file content in the rag_pages table.
+// Used by rag_ingest nodes to persist original content alongside vector chunks.
+type RAGPageUpsertFunc func(ctx context.Context, collectionID, source, path, content, contentType string, metadata map[string]any) error
 
 // ChatMessageCreatorFunc creates a message in a chat session.
 // Used by chat_reply nodes to push messages into a conversation.

@@ -3,7 +3,9 @@ package server
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -100,6 +102,9 @@ type Server struct {
 
 	// ragMCPServerStore is the persistent store for named RAG MCP server configurations.
 	ragMCPServerStore service.RAGMCPServerStorer
+
+	// ragPageStore is the persistent store for original file content (RAG pages).
+	ragPageStore service.RAGPageStorer
 
 	// mcpServerStore is the persistent store for general MCP server configurations.
 	mcpServerStore service.MCPServerStorer
@@ -321,6 +326,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		ragCollectionStore:       store,
 		ragStateStore:            store,
 		ragMCPServerStore:        store,
+		ragPageStore:             store,
 		mcpServerStore:           store,
 		mcpSetStore:              store,
 		botConfigStore:           store,
@@ -464,6 +470,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
+		s.scheduler.SetRAGSync(s.ragSyncFunc())
+		s.scheduler.SetRAGPageUpsert(s.ragPageUpsertFunc())
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
 			// Non-fatal: server can run without cron triggers.
@@ -545,10 +553,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/workflows/{id}/versions/{version}", s.GetWorkflowVersionAPI)
 	apiGroup.PUT("/v1/workflows/{id}/active-version", s.SetActiveVersionAPI)
 
-	// Trigger management (nested under workflows for list/create)
-	apiGroup.GET("/v1/workflows/{id}/triggers", s.ListTriggersAPI)
-	apiGroup.POST("/v1/workflows/{id}/triggers", s.CreateTriggerAPI)
+	// Trigger management
+	apiGroup.GET("/v1/workflows/{id}/triggers", s.ListTriggersAPI)   // backward compat
+	apiGroup.POST("/v1/workflows/{id}/triggers", s.CreateTriggerAPI) // backward compat
 	apiGroup.GET("/v1/triggers", s.ListAllTriggersAPI)
+	apiGroup.POST("/v1/triggers", s.CreateTriggerGenericAPI) // generic create for any target
 	apiGroup.GET("/v1/triggers/{id}", s.GetTriggerAPI)
 	apiGroup.PUT("/v1/triggers/{id}", s.UpdateTriggerAPI)
 	apiGroup.DELETE("/v1/triggers/{id}", s.DeleteTriggerAPI)
@@ -737,6 +746,18 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// RAG document ingestion
 	apiGroup.POST("/v1/rag/collections/{id}/documents", s.UploadRAGDocumentAPI)
 	apiGroup.POST("/v1/rag/collections/{id}/import/url", s.ImportRAGFromURLAPI)
+
+	// RAG git sync
+	apiGroup.POST("/v1/rag/collections/{id}/sync", s.SyncRAGCollectionAPI)
+
+	// RAG pages (original file content)
+	apiGroup.GET("/v1/rag/collections/{id}/pages", s.ListRAGPagesAPI)
+	apiGroup.GET("/v1/rag/pages/{id}", s.GetRAGPageAPI)
+	apiGroup.DELETE("/v1/rag/pages/{id}", s.DeleteRAGPageAPI)
+
+	// RAG collection triggers (rag_sync triggers)
+	apiGroup.GET("/v1/rag/collections/{id}/triggers", s.ListRAGTriggersAPI)
+	apiGroup.POST("/v1/rag/collections/{id}/triggers", s.CreateRAGTriggerAPI)
 
 	// RAG search
 	apiGroup.POST("/v1/rag/search", s.SearchRAGAPI)
@@ -1182,6 +1203,62 @@ func (s *Server) goalAncestryFunc() workflow.GoalAncestryFunc {
 	}
 	return func(ctx context.Context, goalID string) ([]service.Goal, error) {
 		return s.goalStore.GetGoalAncestry(ctx, goalID)
+	}
+}
+
+// ragPageUpsertFunc returns a workflow.RAGPageUpsertFunc that stores original
+// file content in the rag_pages table. Returns nil when page store is not configured.
+func (s *Server) ragPageUpsertFunc() workflow.RAGPageUpsertFunc {
+	if s.ragPageStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, collectionID, source, path, content, contentType string, metadata map[string]any) error {
+		if contentType == "" {
+			contentType = rag.DetectContentType(path)
+		}
+		h := sha256.Sum256([]byte(content))
+		hash := hex.EncodeToString(h[:])
+		_, err := s.ragPageStore.UpsertRAGPage(ctx, service.RAGPage{
+			CollectionID: collectionID,
+			Source:       source,
+			Path:         path,
+			Content:      content,
+			ContentType:  contentType,
+			Metadata:     metadata,
+			ContentHash:  hash,
+		})
+		return err
+	}
+}
+
+// ragSyncFunc returns a workflow.RAGSyncFunc that triggers a git sync for a
+// RAG collection. Used by the cron scheduler for rag_sync triggers.
+// Returns nil when RAG is not configured.
+func (s *Server) ragSyncFunc() workflow.RAGSyncFunc {
+	if s.ragService == nil || s.ragCollectionStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, collectionID string) error {
+		collection, err := s.ragCollectionStore.GetRAGCollection(ctx, collectionID)
+		if err != nil {
+			return fmt.Errorf("get collection %s: %w", collectionID, err)
+		}
+		if collection == nil {
+			return fmt.Errorf("collection %s not found", collectionID)
+		}
+		if collection.Config.GitSource == nil {
+			return fmt.Errorf("collection %s has no git source configured", collectionID)
+		}
+
+		deps := rag.SyncDeps{
+			RAGService: s.ragService,
+			PageStore:  s.ragPageStore,
+			StateStore: s.ragStateStore,
+			VarStore:   s.variableStore,
+		}
+
+		_, err = rag.SyncCollection(ctx, deps, collection)
+		return err
 	}
 }
 

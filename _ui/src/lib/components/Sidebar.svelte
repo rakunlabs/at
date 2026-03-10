@@ -21,6 +21,8 @@
     Layers,
     House,
     Building2,
+    Globe,
+    Clock,
     ClipboardList,
     ScrollText,
     Receipt,
@@ -275,7 +277,32 @@
           <SlidersHorizontal size={14} />
           <span>Node Configs</span>
         </a>
-
+        <a
+          href="#/webhooks"
+          onclick={(e) => navigate(e, "/webhooks")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/webhooks"
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <Globe size={14} />
+          <span>Webhooks</span>
+        </a>
+        <a
+          href="#/crons"
+          onclick={(e) => navigate(e, "/crons")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/crons"
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <Clock size={14} />
+          <span>Crons</span>
+        </a>
       </div>
     </div>
     <div>

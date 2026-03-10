@@ -174,6 +174,13 @@ func (n *ragIngestNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		chunksAdded += count
 		filesProcessed++
 
+		// Store original content in rag_pages.
+		if reg.RAGPageUpsert != nil {
+			if pageErr := reg.RAGPageUpsert(ctx, n.collectionID, source, path, contentStr, "", extraMetadata); pageErr != nil {
+				logi.Ctx(ctx).Warn("rag_ingest: failed to store page", "path", path, "error", pageErr)
+			}
+		}
+
 		// Log progress for large batches?
 		if filesProcessed%10 == 0 {
 			logi.Ctx(ctx).Info("rag_ingest: progress", "processed", filesProcessed, "total", len(files))

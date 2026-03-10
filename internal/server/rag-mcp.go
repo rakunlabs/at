@@ -498,11 +498,12 @@ func (s *Server) execRAGSearchAndFetch(r *http.Request, args map[string]any, aut
 
 	// Collect unique sources in order of best score, along with their git metadata.
 	type sourceInfo struct {
-		source    string
-		repoURL   string
-		commitSHA string
-		branch    string
-		path      string
+		source       string
+		collectionID string
+		repoURL      string
+		commitSHA    string
+		branch       string
+		path         string
 	}
 	seen := make(map[string]bool)
 	var uniqueSources []sourceInfo
@@ -540,11 +541,12 @@ func (s *Server) execRAGSearchAndFetch(r *http.Request, args map[string]any, aut
 		if source != "" && !seen[source] {
 			seen[source] = true
 			uniqueSources = append(uniqueSources, sourceInfo{
-				source:    source,
-				repoURL:   repoURL,
-				commitSHA: commitSHA,
-				branch:    branch,
-				path:      path,
+				source:       source,
+				collectionID: res.CollectionID,
+				repoURL:      repoURL,
+				commitSHA:    commitSHA,
+				branch:       branch,
+				path:         path,
 			})
 		}
 	}
@@ -564,6 +566,19 @@ func (s *Server) execRAGSearchAndFetch(r *http.Request, args map[string]any, aut
 				label = si.path
 			} else if _, filePath := splitSourceToRepoAndPath(si.source); filePath != "" {
 				label = filePath
+			}
+
+			// Try rag_pages DB first — original content stored during sync/ingest.
+			if s.ragPageStore != nil && si.collectionID != "" {
+				page, err := s.ragPageStore.GetRAGPageBySource(r.Context(), si.collectionID, si.source)
+				if err == nil && page != nil {
+					content := page.Content
+					if len(content) > maxSourceSize {
+						content = content[:maxSourceSize] + fmt.Sprintf("\n\n[Content truncated at %d bytes]", maxSourceSize)
+					}
+					fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
+					continue
+				}
 			}
 
 			// SSH sources are resolved from the local git cache.
@@ -689,15 +704,16 @@ func (s *Server) execRAGFetchSourcesOrg(r *http.Request, args map[string]any, au
 	}
 
 	// ── Collect unique sources (no chunk output) ──
-	type sourceInfo struct {
-		source    string
-		repoURL   string
-		commitSHA string
-		branch    string
-		path      string
+	type sourceInfoOrg struct {
+		source       string
+		collectionID string
+		repoURL      string
+		commitSHA    string
+		branch       string
+		path         string
 	}
 	seen := make(map[string]bool)
-	var uniqueSources []sourceInfo
+	var uniqueSources []sourceInfoOrg
 
 	for _, res := range results {
 		source, _ := res.Metadata["source"].(string)
@@ -711,12 +727,13 @@ func (s *Server) execRAGFetchSourcesOrg(r *http.Request, args map[string]any, au
 		commitSHA, _ := res.Metadata["commit_sha"].(string)
 		branch, _ := res.Metadata["branch"].(string)
 
-		uniqueSources = append(uniqueSources, sourceInfo{
-			source:    source,
-			repoURL:   repoURL,
-			commitSHA: commitSHA,
-			branch:    branch,
-			path:      path,
+		uniqueSources = append(uniqueSources, sourceInfoOrg{
+			source:       source,
+			collectionID: res.CollectionID,
+			repoURL:      repoURL,
+			commitSHA:    commitSHA,
+			branch:       branch,
+			path:         path,
 		})
 	}
 
@@ -733,6 +750,19 @@ func (s *Server) execRAGFetchSourcesOrg(r *http.Request, args map[string]any, au
 			label = si.path
 		} else if _, filePath := splitSourceToRepoAndPath(si.source); filePath != "" {
 			label = filePath
+		}
+
+		// Try rag_pages DB first — original content stored during sync/ingest.
+		if s.ragPageStore != nil && si.collectionID != "" {
+			page, err := s.ragPageStore.GetRAGPageBySource(r.Context(), si.collectionID, si.source)
+			if err == nil && page != nil {
+				content := page.Content
+				if len(content) > maxSourceSize {
+					content = content[:maxSourceSize] + fmt.Sprintf("\n\n[Content truncated at %d bytes]", maxSourceSize)
+				}
+				fmt.Fprintf(&text, "=== %s ===\n%s\n\n", label, content)
+				continue
+			}
 		}
 
 		// SSH sources are resolved from the local git cache.

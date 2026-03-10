@@ -103,6 +103,7 @@ type Storer interface {
 	ChatSessionStorer
 	RAGCollectionStorer
 	RAGStateStorer
+	RAGPageStorer
 	RAGMCPServerStorer
 	MCPServerStorer
 	MCPSetStorer
@@ -376,21 +377,31 @@ type WorkflowVersionStorer interface {
 
 // ─── Trigger Management ───
 
-// Trigger represents a workflow trigger (HTTP webhook or cron schedule).
-// Multiple triggers can reference the same workflow.
+// Trigger represents a workflow or RAG sync trigger (HTTP webhook or cron schedule).
+// Multiple triggers can reference the same target.
 type Trigger struct {
-	ID         string         `json:"id"`
-	WorkflowID string         `json:"workflow_id"`
-	Type       string         `json:"type"`            // "http" or "cron"
-	Config     map[string]any `json:"config"`          // type-specific configuration
-	Alias      string         `json:"alias,omitempty"` // optional human-friendly alias (unique)
-	Public     bool           `json:"public"`          // if true, no auth required; if false, Bearer token required
-	Enabled    bool           `json:"enabled"`
-	CreatedAt  string         `json:"created_at"`
-	UpdatedAt  string         `json:"updated_at"`
-	CreatedBy  string         `json:"created_by"`
-	UpdatedBy  string         `json:"updated_by"`
+	ID          string         `json:"id"`
+	WorkflowID  string         `json:"workflow_id,omitempty"`   // kept for backward compat (= TargetID when TargetType is "workflow")
+	TargetType  string         `json:"target_type"`             // "workflow" or "rag_sync"
+	TargetID    string         `json:"target_id"`               // workflow ID or RAG collection ID
+	EntryNodeID string         `json:"entry_node_id,omitempty"` // optional: specific input node to start from (workflow targets only)
+	Type        string         `json:"type"`                    // "http" or "cron"
+	Config      map[string]any `json:"config"`                  // type-specific configuration
+	Alias       string         `json:"alias,omitempty"`         // optional human-friendly alias (unique)
+	Public      bool           `json:"public"`                  // if true, no auth required; if false, Bearer token required
+	Enabled     bool           `json:"enabled"`
+	CreatedAt   string         `json:"created_at"`
+	UpdatedAt   string         `json:"updated_at"`
+	CreatedBy   string         `json:"created_by"`
+	UpdatedBy   string         `json:"updated_by"`
 }
+
+const (
+	// TriggerTargetWorkflow indicates the trigger executes a workflow.
+	TriggerTargetWorkflow = "workflow"
+	// TriggerTargetRAGSync indicates the trigger syncs a RAG collection.
+	TriggerTargetRAGSync = "rag_sync"
+)
 
 // TriggerStorer defines CRUD operations for workflow triggers.
 type TriggerStorer interface {
@@ -1292,6 +1303,17 @@ type MarketplaceSourceStorer interface {
 
 // ─── RAG Collections ───
 
+// RAGGitSourceConfig holds the git repository configuration for automatic RAG ingestion.
+type RAGGitSourceConfig struct {
+	RepoURL        string `json:"repo_url"`
+	Branch         string `json:"branch,omitempty"`           // default: auto-detect via ls-remote
+	FilePatterns   string `json:"file_patterns,omitempty"`    // comma-separated globs: "*.md,*.go,docs/**"
+	TokenVariable  string `json:"token_variable,omitempty"`   // variable key for HTTPS auth token
+	TokenUser      string `json:"token_user,omitempty"`       // username for token auth (default: "x-token-auth")
+	SSHKeyVariable string `json:"ssh_key_variable,omitempty"` // variable key for SSH private key
+	MaxFileSize    int    `json:"max_file_size,omitempty"`    // max file size in bytes (default: 1MB)
+}
+
 // RAGCollectionConfig holds the configuration fields for a RAG collection, stored as JSON in the database.
 type RAGCollectionConfig struct {
 	Description         string               `json:"description,omitempty"`
@@ -1303,11 +1325,13 @@ type RAGCollectionConfig struct {
 	EmbeddingBearerAuth bool                 `json:"embedding_bearer_auth,omitempty"` // if true, use Bearer auth header
 	ChunkSize           int                  `json:"chunk_size"`
 	ChunkOverlap        int                  `json:"chunk_overlap"`
+	GitSource           *RAGGitSourceConfig  `json:"git_source,omitempty"` // optional git repo source for auto-sync
 }
 
 // RAGCollection represents a named namespace for RAG documents.
 // Each collection has its own vector store backend and embedding configuration.
-// Documents are stored directly in the vector store (no separate document metadata table).
+// Chunked embeddings are stored in the vector store. Original file content is
+// stored in the rag_pages table for reliable retrieval.
 type RAGCollection struct {
 	ID        string              `json:"id"`
 	Name      string              `json:"name"`
@@ -1347,6 +1371,35 @@ type RAGState struct {
 type RAGStateStorer interface {
 	GetRAGState(ctx context.Context, key string) (*RAGState, error)
 	SetRAGState(ctx context.Context, key string, value string) error
+}
+
+// ─── RAG Pages ───
+
+// RAGPage represents the original (pre-chunked) content of a file stored
+// in a RAG collection. Pages enable reliable retrieval of full source content
+// without depending on ephemeral git caches or live HTTP fetches.
+type RAGPage struct {
+	ID           string         `json:"id"`
+	CollectionID string         `json:"collection_id"`
+	Source       string         `json:"source"`                 // unique source identifier (e.g. "https://github.com/org/repo/path/to/file.go")
+	Path         string         `json:"path,omitempty"`         // relative file path within repo
+	Content      string         `json:"content"`                // full original file content
+	ContentType  string         `json:"content_type,omitempty"` // MIME type
+	Metadata     map[string]any `json:"metadata,omitempty"`     // repo_url, branch, commit_sha, etc.
+	ContentHash  string         `json:"content_hash,omitempty"` // SHA-256 of content for change detection
+	CreatedAt    string         `json:"created_at"`
+	UpdatedAt    string         `json:"updated_at"`
+}
+
+// RAGPageStorer defines CRUD operations for RAG page content.
+type RAGPageStorer interface {
+	ListRAGPages(ctx context.Context, collectionID string, q *query.Query) (*ListResult[RAGPage], error)
+	GetRAGPage(ctx context.Context, id string) (*RAGPage, error)
+	GetRAGPageBySource(ctx context.Context, collectionID, source string) (*RAGPage, error)
+	UpsertRAGPage(ctx context.Context, page RAGPage) (*RAGPage, error)
+	DeleteRAGPage(ctx context.Context, id string) error
+	DeleteRAGPagesByCollectionID(ctx context.Context, collectionID string) error
+	DeleteRAGPageBySource(ctx context.Context, collectionID, source string) error
 }
 
 // ─── RAG MCP Servers ───

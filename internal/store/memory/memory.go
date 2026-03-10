@@ -35,6 +35,7 @@ type Memory struct {
 	ragCollections       map[string]service.RAGCollection          // id -> rag collection
 	ragStates            map[string]service.RAGState               // key -> rag state
 	ragMCPServers        map[string]service.RAGMCPServer           // id -> rag mcp server
+	ragPages             map[string]service.RAGPage                // id -> rag page
 	mcpServers           map[string]service.MCPServer              // id -> general mcp server
 	mcpSets              map[string]service.MCPSet                 // id -> mcp set
 	botConfigs           map[string]service.BotConfig              // id -> bot config
@@ -83,6 +84,7 @@ func New() *Memory {
 		ragCollections:       make(map[string]service.RAGCollection),
 		ragStates:            make(map[string]service.RAGState),
 		ragMCPServers:        make(map[string]service.RAGMCPServer),
+		ragPages:             make(map[string]service.RAGPage),
 		mcpServers:           make(map[string]service.MCPServer),
 		mcpSets:              make(map[string]service.MCPSet),
 		botConfigs:           make(map[string]service.BotConfig),
@@ -619,18 +621,30 @@ func (m *Memory) CreateTrigger(_ context.Context, t service.Trigger) (*service.T
 	id := ulid.Make().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
+	targetType := t.TargetType
+	if targetType == "" {
+		targetType = service.TriggerTargetWorkflow
+	}
+	targetID := t.TargetID
+	if targetID == "" {
+		targetID = t.WorkflowID
+	}
+
 	rec := service.Trigger{
-		ID:         id,
-		WorkflowID: t.WorkflowID,
-		Type:       t.Type,
-		Config:     normalized,
-		Alias:      t.Alias,
-		Public:     t.Public,
-		Enabled:    t.Enabled,
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		CreatedBy:  t.CreatedBy,
-		UpdatedBy:  t.UpdatedBy,
+		ID:          id,
+		WorkflowID:  t.WorkflowID,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		EntryNodeID: t.EntryNodeID,
+		Type:        t.Type,
+		Config:      normalized,
+		Alias:       t.Alias,
+		Public:      t.Public,
+		Enabled:     t.Enabled,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		CreatedBy:   t.CreatedBy,
+		UpdatedBy:   t.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -660,6 +674,9 @@ func (m *Memory) UpdateTrigger(_ context.Context, id string, t service.Trigger) 
 		return nil, nil
 	}
 
+	existing.TargetType = t.TargetType
+	existing.TargetID = t.TargetID
+	existing.EntryNodeID = t.EntryNodeID
 	existing.Type = t.Type
 	existing.Config = normalized
 	existing.Alias = t.Alias

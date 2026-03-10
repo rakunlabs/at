@@ -59,6 +59,8 @@ type Scheduler struct {
 	checkBudget           CheckBudgetFunc
 	recordAudit           RecordAuditFunc
 	goalAncestry          GoalAncestryFunc
+	ragSync               RAGSyncFunc
+	ragPageUpsert         RAGPageUpsertFunc
 	runRegistrar          RunRegistrar
 
 	cluster *cluster.Cluster
@@ -111,6 +113,18 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 // Must be called before Start.
 func (s *Scheduler) SetRunRegistrar(r RunRegistrar) {
 	s.runRegistrar = r
+}
+
+// SetRAGSync sets the callback used to sync RAG collections.
+// Must be called before Start.
+func (s *Scheduler) SetRAGSync(f RAGSyncFunc) {
+	s.ragSync = f
+}
+
+// SetRAGPageUpsert sets the callback used to store original file content
+// in rag_pages. Optional — if not set, pages are not stored.
+func (s *Scheduler) SetRAGPageUpsert(f RAGPageUpsertFunc) {
+	s.ragPageUpsert = f
 }
 
 // Start loads all enabled cron triggers from the store and starts the
@@ -295,7 +309,15 @@ func (s *Scheduler) reload() error {
 // for a given trigger. It loads the workflow, builds inputs with trigger
 // metadata, and runs the engine. If a RunRegistrar is set, the run is
 // registered for tracking and cancellation.
+//
+// For rag_sync triggers, it dispatches to the RAGSyncFunc callback instead
+// of running a workflow engine.
 func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Context) error {
+	// RAG sync triggers: dispatch to sync callback.
+	if trigger.TargetType == service.TriggerTargetRAGSync {
+		return s.makeCronRAGSyncFunc(trigger)
+	}
+
 	return func(ctx context.Context) error {
 		logi.Ctx(ctx).Info("scheduler: cron triggered",
 			"trigger_id", trigger.ID,
@@ -400,12 +422,17 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 		}
 
 		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordAudit, s.goalAncestry, versionLookup)
+		engine.SetRAGPageUpsert(s.ragPageUpsert)
 
-		// Find the specific cron_trigger node that matches this trigger's ID.
+		// Determine entry node(s) for this trigger.
 		var entryNodeIDs []string
-		for _, n := range graphToRun.Nodes {
-			if n.Type == "cron_trigger" {
-				if tid, _ := n.Data["trigger_id"].(string); tid == trigger.ID {
+		if trigger.EntryNodeID != "" {
+			// Trigger specifies a particular input node to start from.
+			entryNodeIDs = []string{trigger.EntryNodeID}
+		} else {
+			// Fallback: use all input nodes (same as manual run).
+			for _, n := range graphToRun.Nodes {
+				if n.Type == "input" {
 					entryNodeIDs = append(entryNodeIDs, n.ID)
 				}
 			}
@@ -430,6 +457,37 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			"workflow_id", trigger.WorkflowID,
 			"run_id", runID,
 			"output_keys", mapKeys(result.Outputs))
+
+		return nil
+	}
+}
+
+// makeCronRAGSyncFunc returns the function that hardloop will call for a
+// rag_sync cron trigger. It dispatches to the injected RAGSyncFunc.
+func (s *Scheduler) makeCronRAGSyncFunc(trigger service.Trigger) func(ctx context.Context) error {
+	return func(ctx context.Context) error {
+		collectionID := trigger.TargetID
+		logi.Ctx(ctx).Info("scheduler: cron rag_sync triggered",
+			"trigger_id", trigger.ID,
+			"collection_id", collectionID)
+
+		if s.ragSync == nil {
+			logi.Ctx(ctx).Warn("scheduler: rag_sync callback not configured, skipping",
+				"trigger_id", trigger.ID)
+			return nil
+		}
+
+		if err := s.ragSync(ctx, collectionID); err != nil {
+			logi.Ctx(ctx).Error("scheduler: rag_sync failed",
+				"trigger_id", trigger.ID,
+				"collection_id", collectionID,
+				"error", err)
+			return nil // don't stop the cron loop
+		}
+
+		logi.Ctx(ctx).Info("scheduler: rag_sync completed",
+			"trigger_id", trigger.ID,
+			"collection_id", collectionID)
 
 		return nil
 	}

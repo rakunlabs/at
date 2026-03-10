@@ -12,6 +12,16 @@ export interface VectorStoreConfig {
   config: Record<string, any>;
 }
 
+export interface RAGGitSourceConfig {
+  repo_url: string;
+  branch?: string;
+  file_patterns?: string;
+  token_variable?: string;
+  token_user?: string;
+  ssh_key_variable?: string;
+  max_file_size?: number;
+}
+
 export interface RAGCollectionConfig {
   description: string;
   vector_store: VectorStoreConfig;
@@ -22,6 +32,7 @@ export interface RAGCollectionConfig {
   embedding_bearer_auth: boolean;
   chunk_size: number;
   chunk_overlap: number;
+  git_source?: RAGGitSourceConfig;
 }
 
 export interface RAGCollection {
@@ -184,4 +195,48 @@ export async function updateRAGMCPServer(id: string, data: Partial<RAGMCPServer>
 
 export async function deleteRAGMCPServer(id: string): Promise<void> {
   await api.delete(`/rag/mcp-servers/${id}`);
+}
+
+// ─── Git Sync ───
+
+export interface SyncResult {
+  files_processed: number;
+  files_deleted: number;
+  chunks_added: number;
+  commit_sha: string;
+  is_full_sync: boolean;
+}
+
+export async function syncCollection(id: string, sync = false): Promise<SyncResult | { status: string }> {
+  const res = await api.post(`/rag/collections/${id}/sync${sync ? '?sync=true' : ''}`);
+  return res.data;
+}
+
+// ─── RAG Pages ───
+
+export interface RAGPage {
+  id: string;
+  collection_id: string;
+  source: string;
+  path: string;
+  content: string;
+  content_type: string;
+  metadata: Record<string, any>;
+  content_hash: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listPages(collectionId: string, params?: ListParams): Promise<ListResult<RAGPage>> {
+  const res = await api.get<ListResult<RAGPage>>(`/rag/collections/${collectionId}/pages`, { params });
+  return res.data;
+}
+
+export async function getPage(id: string): Promise<RAGPage> {
+  const res = await api.get<RAGPage>(`/rag/pages/${id}`);
+  return res.data;
+}
+
+export async function deletePage(id: string): Promise<void> {
+  await api.delete(`/rag/pages/${id}`);
 }

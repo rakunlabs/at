@@ -508,7 +508,7 @@ func (s *Server) gwMCPFetchSource(w http.ResponseWriter, r *http.Request, id int
 		envVars = auth.envVars
 	}
 
-	content, err := fetchSourceContent(r.Context(), source, srv, maxSize, commitSHA, branch, envVars)
+	content, err := fetchSourceContent(r.Context(), source, srv, maxSize, commitSHA, branch, envVars, s.ragPageStore)
 	if err != nil {
 		slog.Error("gateway mcp rag_fetch_source failed", "source", source, "mcp_server", srv.Name, "error", err)
 		mcpError(w, id, -32000, err.Error())
@@ -697,8 +697,8 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 				label = filePath
 			}
 
-			// Fetch via fetchSourceContent (branch cache with go-git, clone, or HTTP).
-			content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars)
+			// Fetch via fetchSourceContent (pages DB, branch cache with go-git, clone, or HTTP).
+			content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars, s.ragPageStore)
 			if err != nil {
 				fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
 				continue
@@ -866,8 +866,8 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 			label = filePath
 		}
 
-		// Fetch via fetchSourceContent (branch cache with go-git, clone, or HTTP).
-		content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars)
+		// Fetch via fetchSourceContent (pages DB, branch cache with go-git, clone, or HTTP).
+		content, err := fetchSourceContent(r.Context(), si.source, srv, maxSourceSize, si.commitSHA, si.branch, envVars, s.ragPageStore)
 		if err != nil {
 			fmt.Fprintf(&text, "=== %s (fetch failed: %s) ===\n\n", label, err.Error())
 			continue
@@ -886,14 +886,34 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 // ─── Helpers ───
 
 // fetchSourceContent fetches the full content of a source file, respecting the server's fetch mode.
-// It tries the local git cache first (for "auto"/"local" modes), then falls back to HTTP (for "auto"/"remote" modes).
+// It tries rag_pages DB first (if pageStore is non-nil), then the local git cache (for "auto"/"local"
+// modes), then falls back to HTTP (for "auto"/"remote" modes).
 // SSH sources (git@host:... or ssh://...) are always resolved from the local git cache — no HTTP fallback.
 //
 // When commitSHA is provided, go-git reads the file at that exact commit from the
 // object store (no checkout, no working tree modification). When commitSHA is empty,
 // falls back to reading from the working tree.
 // envVars are passed to git commands for auth (e.g. GIT_SSH_COMMAND for SSH keys).
-func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPServer, maxSize int, commitSHA, branch string, envVars []string) (string, error) {
+func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPServer, maxSize int, commitSHA, branch string, envVars []string, pageStore ...service.RAGPageStorer) (string, error) {
+	// Try rag_pages first — if original content was stored during sync/ingest,
+	// this avoids hitting git cache or HTTP entirely.
+	if len(pageStore) > 0 && pageStore[0] != nil {
+		for _, colID := range srv.Config.CollectionIDs {
+			page, err := pageStore[0].GetRAGPageBySource(ctx, colID, source)
+			if err != nil {
+				slog.Debug("fetchSourceContent: page store lookup failed", "source", source, "collection_id", colID, "error", err)
+				continue
+			}
+			if page != nil {
+				content := page.Content
+				if len(content) > maxSize {
+					content = content[:maxSize] + fmt.Sprintf("\n\n[Content truncated at %d bytes]", maxSize)
+				}
+				return content, nil
+			}
+		}
+	}
+
 	fetchMode := srv.Config.FetchMode
 	if fetchMode == "" {
 		fetchMode = "auto"

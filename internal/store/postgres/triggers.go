@@ -17,22 +17,35 @@ import (
 // ─── Trigger CRUD ───
 
 type triggerRow struct {
-	ID         string         `db:"id"`
-	WorkflowID string         `db:"workflow_id"`
-	Type       string         `db:"type"`
-	Config     types.RawJSON  `db:"config"`
-	Alias      sql.NullString `db:"alias"`
-	Public     bool           `db:"public"`
-	Enabled    bool           `db:"enabled"`
-	CreatedAt  time.Time      `db:"created_at"`
-	UpdatedAt  time.Time      `db:"updated_at"`
-	CreatedBy  string         `db:"created_by"`
-	UpdatedBy  string         `db:"updated_by"`
+	ID          string         `db:"id"`
+	WorkflowID  sql.NullString `db:"workflow_id"`
+	TargetType  string         `db:"target_type"`
+	TargetID    string         `db:"target_id"`
+	EntryNodeID string         `db:"entry_node_id"`
+	Type        string         `db:"type"`
+	Config      types.RawJSON  `db:"config"`
+	Alias       sql.NullString `db:"alias"`
+	Public      bool           `db:"public"`
+	Enabled     bool           `db:"enabled"`
+	CreatedAt   time.Time      `db:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at"`
+	CreatedBy   string         `db:"created_by"`
+	UpdatedBy   string         `db:"updated_by"`
+}
+
+var triggerSelectColumns = []string{"id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by"}
+
+func scanTriggerRow(scanner interface{ Scan(...any) error }) (*triggerRow, error) {
+	var row triggerRow
+	if err := scanner.Scan(&row.ID, &row.WorkflowID, &row.TargetType, &row.TargetID, &row.EntryNodeID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		return nil, err
+	}
+	return &row, nil
 }
 
 func (p *Postgres) ListAllTriggers(ctx context.Context) ([]service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
 	if err != nil {
@@ -47,12 +60,12 @@ func (p *Postgres) ListAllTriggers(ctx context.Context) ([]service.Trigger, erro
 
 	var result []service.Trigger
 	for rows.Next() {
-		var row triggerRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		row, err := scanTriggerRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 
-		t, err := triggerRowToRecord(row)
+		t, err := triggerRowToRecord(*row)
 		if err != nil {
 			return nil, err
 		}
@@ -64,7 +77,7 @@ func (p *Postgres) ListAllTriggers(ctx context.Context) ([]service.Trigger, erro
 
 func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("workflow_id").Eq(workflowID)).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
@@ -80,12 +93,12 @@ func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]servi
 
 	var result []service.Trigger
 	for rows.Next() {
-		var row triggerRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		row, err := scanTriggerRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 
-		t, err := triggerRowToRecord(row)
+		t, err := triggerRowToRecord(*row)
 		if err != nil {
 			return nil, err
 		}
@@ -97,15 +110,14 @@ func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]servi
 
 func (p *Postgres) GetTrigger(ctx context.Context, id string) (*service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get trigger query: %w", err)
 	}
 
-	var row triggerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	row, err := scanTriggerRow(p.db.QueryRowContext(ctx, query))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -113,20 +125,19 @@ func (p *Postgres) GetTrigger(ctx context.Context, id string) (*service.Trigger,
 		return nil, fmt.Errorf("get trigger %q: %w", id, err)
 	}
 
-	return triggerRowToRecord(row)
+	return triggerRowToRecord(*row)
 }
 
 func (p *Postgres) GetTriggerByAlias(ctx context.Context, alias string) (*service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("alias").Eq(alias)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get trigger by alias query: %w", err)
 	}
 
-	var row triggerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	row, err := scanTriggerRow(p.db.QueryRowContext(ctx, query))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -134,7 +145,7 @@ func (p *Postgres) GetTriggerByAlias(ctx context.Context, alias string) (*servic
 		return nil, fmt.Errorf("get trigger by alias %q: %w", alias, err)
 	}
 
-	return triggerRowToRecord(row)
+	return triggerRowToRecord(*row)
 }
 
 func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*service.Trigger, error) {
@@ -151,19 +162,37 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 		alias = t.Alias
 	}
 
+	// Ensure backward compat: if TargetType is empty, default to workflow.
+	targetType := t.TargetType
+	if targetType == "" {
+		targetType = service.TriggerTargetWorkflow
+	}
+	targetID := t.TargetID
+	if targetID == "" {
+		targetID = t.WorkflowID
+	}
+
+	var workflowID interface{}
+	if t.WorkflowID != "" {
+		workflowID = t.WorkflowID
+	}
+
 	query, _, err := p.goqu.Insert(p.tableTriggers).Rows(
 		goqu.Record{
-			"id":          id,
-			"workflow_id": t.WorkflowID,
-			"type":        t.Type,
-			"config":      types.RawJSON(configJSON),
-			"alias":       alias,
-			"public":      t.Public,
-			"enabled":     t.Enabled,
-			"created_at":  now,
-			"updated_at":  now,
-			"created_by":  t.CreatedBy,
-			"updated_by":  t.UpdatedBy,
+			"id":            id,
+			"workflow_id":   workflowID,
+			"target_type":   targetType,
+			"target_id":     targetID,
+			"entry_node_id": t.EntryNodeID,
+			"type":          t.Type,
+			"config":        types.RawJSON(configJSON),
+			"alias":         alias,
+			"public":        t.Public,
+			"enabled":       t.Enabled,
+			"created_at":    now,
+			"updated_at":    now,
+			"created_by":    t.CreatedBy,
+			"updated_by":    t.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -175,17 +204,20 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 	}
 
 	return &service.Trigger{
-		ID:         id,
-		WorkflowID: t.WorkflowID,
-		Type:       t.Type,
-		Config:     t.Config,
-		Alias:      t.Alias,
-		Public:     t.Public,
-		Enabled:    t.Enabled,
-		CreatedAt:  now.Format(time.RFC3339),
-		UpdatedAt:  now.Format(time.RFC3339),
-		CreatedBy:  t.CreatedBy,
-		UpdatedBy:  t.UpdatedBy,
+		ID:          id,
+		WorkflowID:  t.WorkflowID,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		EntryNodeID: t.EntryNodeID,
+		Type:        t.Type,
+		Config:      t.Config,
+		Alias:       t.Alias,
+		Public:      t.Public,
+		Enabled:     t.Enabled,
+		CreatedAt:   now.Format(time.RFC3339),
+		UpdatedAt:   now.Format(time.RFC3339),
+		CreatedBy:   t.CreatedBy,
+		UpdatedBy:   t.UpdatedBy,
 	}, nil
 }
 
@@ -204,13 +236,16 @@ func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigg
 
 	query, _, err := p.goqu.Update(p.tableTriggers).Set(
 		goqu.Record{
-			"type":       t.Type,
-			"config":     types.RawJSON(configJSON),
-			"alias":      alias,
-			"public":     t.Public,
-			"enabled":    t.Enabled,
-			"updated_at": now,
-			"updated_by": t.UpdatedBy,
+			"target_type":   t.TargetType,
+			"target_id":     t.TargetID,
+			"entry_node_id": t.EntryNodeID,
+			"type":          t.Type,
+			"config":        types.RawJSON(configJSON),
+			"alias":         alias,
+			"public":        t.Public,
+			"enabled":       t.Enabled,
+			"updated_at":    now,
+			"updated_by":    t.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -251,7 +286,7 @@ func (p *Postgres) DeleteTrigger(ctx context.Context, id string) error {
 
 func (p *Postgres) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigger, error) {
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
 		Where(
 			goqu.I("type").Eq("cron"),
 			goqu.I("enabled").Eq(true),
@@ -269,12 +304,12 @@ func (p *Postgres) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigg
 
 	var result []service.Trigger
 	for rows.Next() {
-		var row triggerRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		row, err := scanTriggerRow(rows)
+		if err != nil {
 			return nil, fmt.Errorf("scan trigger row: %w", err)
 		}
 
-		t, err := triggerRowToRecord(row)
+		t, err := triggerRowToRecord(*row)
 		if err != nil {
 			return nil, err
 		}
@@ -296,17 +331,35 @@ func triggerRowToRecord(row triggerRow) (*service.Trigger, error) {
 		alias = row.Alias.String
 	}
 
+	workflowID := ""
+	if row.WorkflowID.Valid {
+		workflowID = row.WorkflowID.String
+	}
+
+	targetType := row.TargetType
+	if targetType == "" {
+		targetType = service.TriggerTargetWorkflow
+	}
+
+	targetID := row.TargetID
+	if targetID == "" {
+		targetID = workflowID
+	}
+
 	return &service.Trigger{
-		ID:         row.ID,
-		WorkflowID: row.WorkflowID,
-		Type:       row.Type,
-		Config:     cfg,
-		Alias:      alias,
-		Public:     row.Public,
-		Enabled:    row.Enabled,
-		CreatedAt:  row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:  row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy:  row.CreatedBy,
-		UpdatedBy:  row.UpdatedBy,
+		ID:          row.ID,
+		WorkflowID:  workflowID,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		EntryNodeID: row.EntryNodeID,
+		Type:        row.Type,
+		Config:      cfg,
+		Alias:       alias,
+		Public:      row.Public,
+		Enabled:     row.Enabled,
+		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:   row.CreatedBy,
+		UpdatedBy:   row.UpdatedBy,
 	}, nil
 }

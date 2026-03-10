@@ -50,6 +50,7 @@ type Postgres struct {
 	tableRAGCollections       exp.IdentifierExpression
 	tableRAGStates            exp.IdentifierExpression
 	tableRAGMCPServers        exp.IdentifierExpression
+	tableRAGPages             exp.IdentifierExpression
 	tableMCPServers           exp.IdentifierExpression
 	tableMCPSets              exp.IdentifierExpression
 	tableBotConfigs           exp.IdentifierExpression
@@ -178,6 +179,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableRAGCollections:       goqu.T(tablePrefix + "rag_collections"),
 		tableRAGStates:            goqu.T(tablePrefix + "rag_states"),
 		tableRAGMCPServers:        goqu.T(tablePrefix + "rag_mcp_servers"),
+		tableRAGPages:             goqu.T(tablePrefix + "rag_pages"),
 		tableMCPServers:           goqu.T(tablePrefix + "mcp_servers"),
 		tableMCPSets:              goqu.T(tablePrefix + "mcp_sets"),
 		tableBotConfigs:           goqu.T(tablePrefix + "bot_configs"),

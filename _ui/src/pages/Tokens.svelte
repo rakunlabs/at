@@ -130,7 +130,7 @@
     try {
       const [wfsResult, allTriggers] = await Promise.all([
         listWorkflows(),
-        listAllTriggers('http'),
+        listAllTriggers({ type: 'http' }),
       ]);
       workflows = wfsResult.data || [];
       const wfMap = new Map(workflows.map((wf) => [wf.id, wf.name]));

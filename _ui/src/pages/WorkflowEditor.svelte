@@ -127,11 +127,9 @@
 
   const paletteGroups = [
     {
-      label: 'Triggers',
+      label: 'Entry',
       nodes: [
         { type: 'input', label: 'Input', description: 'Manual input data' },
-        { type: 'http_trigger', label: 'HTTP Trigger', description: 'Webhook-triggered entry' },
-        { type: 'cron_trigger', label: 'Cron Trigger', description: 'Schedule-triggered entry' },
       ],
     },
     {
@@ -319,12 +317,6 @@
     }
     if (type === 'workflow_call') {
       return { label: 'Workflow Call', workflow_id: '', workflow_name: '', inputs: {} };
-    }
-    if (type === 'http_trigger') {
-      return { label: 'HTTP Trigger', trigger_id: '', alias: '', public: false };
-    }
-    if (type === 'cron_trigger') {
-      return { label: 'Cron Trigger', schedule: '', timezone: '', payload: {} };
     }
     if (type === 'http_request') {
       return {
@@ -529,9 +521,6 @@
         description: workflow.description,
         graph,
       });
-      // Push trigger IDs assigned by the backend back into canvas node data,
-      // so trigger nodes immediately show their webhook URLs / status.
-      pushTriggerIdsToCanvas(workflow);
       viewingVersion = null;
       addToast('Workflow saved', 'info');
       // Reload version list in background
@@ -560,7 +549,6 @@
           description: workflow.description,
           graph,
         });
-        pushTriggerIdsToCanvas(workflow);
       }
       const inputs = runInputMode === 'json'
         ? JSON.parse(runInputsJson || '{}')
@@ -614,16 +602,6 @@
       defaultData.label = 'Template';
       defaultData.template = '';
       defaultData.variables = [];
-    } else if (type === 'http_trigger') {
-      defaultData.label = 'HTTP Trigger';
-      defaultData.trigger_id = '';
-      defaultData.alias = '';
-      defaultData.public = false;
-    } else if (type === 'cron_trigger') {
-      defaultData.label = 'Cron Trigger';
-      defaultData.schedule = '';
-      defaultData.timezone = '';
-      defaultData.payload = {};
     } else if (type === 'http_request') {
       defaultData.label = 'HTTP Request';
       defaultData.url = '';
@@ -829,29 +807,6 @@
     flow.updateNodeData(selectedNodeId, selectedNodeData);
     selectedNodeOriginalData = { ...selectedNodeData };
     addToast('Node updated', 'info');
-  }
-
-  // ─── Trigger Sync ───
-
-  // After saving, the backend populates trigger_id in trigger node data.
-  // Push those IDs back into the canvas so nodes re-render with webhook URLs.
-  function pushTriggerIdsToCanvas(wf: Workflow) {
-    if (!canvasRef) return;
-    const flow = canvasRef.getFlow();
-    for (const node of wf.graph.nodes) {
-      if ((node.type === 'http_trigger' || node.type === 'cron_trigger') && node.data?.trigger_id) {
-        flow.updateNodeData(node.id, { ...node.data });
-      }
-    }
-    // Also refresh the property editor if a trigger node is currently selected.
-    if (selectedNodeId) {
-      const selectedNode = wf.graph.nodes.find((n) => n.id === selectedNodeId);
-      if (selectedNode && (selectedNode.type === 'http_trigger' || selectedNode.type === 'cron_trigger')) {
-        const defaults = defaultNodeData(selectedNode.type);
-        selectedNodeData = { ...defaults, ...selectedNode.data };
-        selectedNodeOriginalData = { ...defaults, ...selectedNode.data };
-      }
-    }
   }
 
   // ─── Init ───

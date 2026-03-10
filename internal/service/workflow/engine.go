@@ -49,6 +49,7 @@ type Engine struct {
 	varSave               VarSaveFunc
 	ragStateLookup        RAGStateLookupFunc
 	ragStateSave          RAGStateSaveFunc
+	ragPageUpsert         RAGPageUpsertFunc
 	builtinToolDispatcher BuiltinToolDispatcher
 	builtinToolDefs       []BuiltinToolDef
 	userPrefLookup        UserPrefLookup
@@ -89,6 +90,12 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 		goalAncestry:          goalAncestry,
 		versionLookup:         versionLookup,
 	}
+}
+
+// SetRAGPageUpsert sets the callback used to store original file content
+// in rag_pages. Optional — if not set, pages are not stored.
+func (e *Engine) SetRAGPageUpsert(f RAGPageUpsertFunc) {
+	e.ragPageUpsert = f
 }
 
 // ─── Execution State ───
@@ -254,6 +261,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	}
 
 	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordAudit, e.goalAncestry, e.versionLookup, inputs)
+	reg.RAGPageUpsert = e.ragPageUpsert
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
@@ -539,11 +547,9 @@ func reachableNodes(entryNodeIDs []string, nodes []service.WorkflowNode, edges [
 			queue = append(queue, id)
 		}
 	} else {
-		// Fallback: seed from all known start/trigger types.
+		// Fallback: seed from all input entry points.
 		startTypes := map[string]bool{
-			"input":        true,
-			"http_trigger": true,
-			"cron_trigger": true,
+			"input": true,
 		}
 		for _, n := range nodes {
 			if startTypes[n.Type] {

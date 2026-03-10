@@ -20,6 +20,8 @@ import Organizations from '@/pages/Organizations.svelte';
 import OrganizationDetail from '@/pages/OrganizationDetail.svelte';
 import Tasks from '@/pages/Tasks.svelte';
 import TaskDetail from '@/pages/TaskDetail.svelte';
+import Webhooks from '@/pages/Webhooks.svelte';
+import Crons from '@/pages/Crons.svelte';
 import Audit from '@/pages/Audit.svelte';
 import CostEvents from '@/pages/CostEvents.svelte';
 import NotFound from '@/pages/NotFound.svelte';
@@ -37,6 +39,8 @@ export default {
   '/workflows': Workflows,
   '/workflows/:id': WorkflowEditor,
   '/runs': Runs,
+  '/webhooks': Webhooks,
+  '/crons': Crons,
   '/rag': Rag,
   '/mcp-servers': McpServers,
   '/mcps': McpSets,

@@ -106,6 +106,11 @@ export async function importSkillFromURL(url: string): Promise<Skill> {
   return res.data;
 }
 
+export async function importSkillMD(content: string): Promise<Skill> {
+  const res = await api.post<Skill>('/skills/import-skillmd', { content });
+  return res.data;
+}
+
 export async function previewImportURL(url: string): Promise<Partial<Skill>> {
   const res = await api.post<Partial<Skill>>('/skills/import-url/preview', { url });
   return res.data;

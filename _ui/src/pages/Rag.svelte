@@ -11,7 +11,11 @@
     searchRAG,
     discoverEmbeddingModels,
     testEmbedding,
+    syncCollection,
+    listPages,
+    deletePage,
     type RAGCollection,
+    type RAGPage,
     type SearchResult,
   } from '@/lib/api/rag';
   import { listProviders } from '@/lib/api/providers';
@@ -31,6 +35,9 @@
     ChevronDown,
     ChevronRight,
     Zap,
+    GitBranch,
+    Play,
+    FileCode,
   } from 'lucide-svelte';
   import { formatDate } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -71,6 +78,27 @@
   let formEmbeddingBearerAuth = $state(false);
   let formChunkSize = $state(512);
   let formChunkOverlap = $state(100);
+
+  // Git source form fields
+  let formGitEnabled = $state(false);
+  let formGitRepoURL = $state('');
+  let formGitBranch = $state('');
+  let formGitFilePatterns = $state('');
+  let formGitTokenVariable = $state('');
+  let formGitTokenUser = $state('');
+  let formGitSSHKeyVariable = $state('');
+  let formGitMaxFileSize = $state(0);
+
+  // Sync state
+  let syncingIds = $state<Set<string>>(new Set());
+
+  // Pages state
+  let pagesCollectionId = $state<string | null>(null);
+  let pages = $state<RAGPage[]>([]);
+  let pagesLoading = $state(false);
+  let pagesTotal = $state(0);
+  let pagesOffset = $state(0);
+  let deletePageConfirm = $state<string | null>(null);
 
   // Upload state
   let uploadCollectionId = $state<string | null>(null);
@@ -173,6 +201,14 @@
     formEmbeddingBearerAuth = false;
     formChunkSize = 512;
     formChunkOverlap = 100;
+    formGitEnabled = false;
+    formGitRepoURL = '';
+    formGitBranch = '';
+    formGitFilePatterns = '';
+    formGitTokenVariable = '';
+    formGitTokenUser = '';
+    formGitSSHKeyVariable = '';
+    formGitMaxFileSize = 0;
     editingId = null;
     showForm = false;
     discoveredModels = [];
@@ -199,6 +235,16 @@
     formEmbeddingBearerAuth = c.config.embedding_bearer_auth || false;
     formChunkSize = c.config.chunk_size || 512;
     formChunkOverlap = c.config.chunk_overlap || 100;
+    if (c.config.git_source) {
+      formGitEnabled = true;
+      formGitRepoURL = c.config.git_source.repo_url || '';
+      formGitBranch = c.config.git_source.branch || '';
+      formGitFilePatterns = c.config.git_source.file_patterns || '';
+      formGitTokenVariable = c.config.git_source.token_variable || '';
+      formGitTokenUser = c.config.git_source.token_user || '';
+      formGitSSHKeyVariable = c.config.git_source.ssh_key_variable || '';
+      formGitMaxFileSize = c.config.git_source.max_file_size || 0;
+    }
     showForm = true;
   }
 
@@ -229,7 +275,7 @@
       const chunkSize = Number(formChunkSize) || 512;
       const chunkOverlap = Number(formChunkOverlap) || 100;
 
-      const payload = {
+      const payload: any = {
         name: formName.trim(),
         config: {
           description: formDescription.trim(),
@@ -246,6 +292,18 @@
           chunk_overlap: chunkOverlap,
         },
       };
+
+      if (formGitEnabled && formGitRepoURL.trim()) {
+        payload.config.git_source = {
+          repo_url: formGitRepoURL.trim(),
+          branch: formGitBranch.trim() || undefined,
+          file_patterns: formGitFilePatterns.trim() || undefined,
+          token_variable: formGitTokenVariable.trim() || undefined,
+          token_user: formGitTokenUser.trim() || undefined,
+          ssh_key_variable: formGitSSHKeyVariable.trim() || undefined,
+          max_file_size: formGitMaxFileSize || undefined,
+        };
+      }
 
       if (editingId) {
         await updateCollection(editingId, payload);
@@ -318,6 +376,52 @@
       addToast(e?.response?.data?.message || 'Failed to import URL', 'alert');
     } finally {
       importing = false;
+    }
+  }
+
+  // ─── Git Sync ───
+
+  async function handleSync(id: string) {
+    syncingIds = new Set([...syncingIds, id]);
+    try {
+      await syncCollection(id);
+      addToast('Sync started');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to start sync', 'alert');
+    } finally {
+      const next = new Set(syncingIds);
+      next.delete(id);
+      syncingIds = next;
+    }
+  }
+
+  // ─── Pages ───
+
+  async function loadPages(collectionId: string) {
+    pagesCollectionId = collectionId;
+    pagesLoading = true;
+    pagesOffset = 0;
+    try {
+      const res = await listPages(collectionId, { _offset: 0, _limit: 20 });
+      pages = res.data || [];
+      pagesTotal = res.meta?.total || 0;
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load pages', 'alert');
+    } finally {
+      pagesLoading = false;
+    }
+  }
+
+  async function handleDeletePage(pageId: string) {
+    try {
+      await deletePage(pageId);
+      addToast('Page deleted');
+      deletePageConfirm = null;
+      if (pagesCollectionId) {
+        await loadPages(pagesCollectionId);
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to delete page', 'alert');
     }
   }
 
@@ -755,6 +859,111 @@
           </div>
         </div>
 
+        <!-- Git Source -->
+        <div class="grid grid-cols-4 gap-3 items-center">
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Git Source</span>
+          <div class="col-span-3 flex items-center gap-3">
+            <label class="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                bind:checked={formGitEnabled}
+                class="sr-only peer"
+              />
+              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-900/10 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:after:border-dark-border-subtle peer-checked:bg-gray-900 dark:peer-checked:bg-accent"></div>
+            </label>
+            <span class="text-xs text-gray-400 dark:text-dark-text-muted">
+              Auto-sync documents from a git repository
+            </span>
+          </div>
+        </div>
+
+        {#if formGitEnabled}
+          <!-- Git Repo URL -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-git-url" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pl-2">Repo URL</label>
+            <input
+              id="form-git-url"
+              type="text"
+              bind:value={formGitRepoURL}
+              placeholder="https://github.com/org/repo.git"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+            />
+          </div>
+
+          <!-- Git Branch -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-git-branch" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pl-2">Branch</label>
+            <input
+              id="form-git-branch"
+              type="text"
+              bind:value={formGitBranch}
+              placeholder="main (default: repo default branch)"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+            />
+          </div>
+
+          <!-- Git File Patterns -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-git-patterns" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pl-2">File Patterns</label>
+            <input
+              id="form-git-patterns"
+              type="text"
+              bind:value={formGitFilePatterns}
+              placeholder="**/*.md,**/*.txt (comma-separated globs)"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+            />
+          </div>
+
+          <!-- Git Max File Size -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-git-maxsize" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pl-2">Max File Size</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <input
+                id="form-git-maxsize"
+                type="number"
+                bind:value={formGitMaxFileSize}
+                min={0}
+                placeholder="0"
+                class="w-32 border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors"
+              />
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">bytes (0 = no limit)</span>
+            </div>
+          </div>
+
+          <!-- Git Auth: Token -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-git-token-var" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pl-2">Token Variable</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <input
+                id="form-git-token-var"
+                type="text"
+                bind:value={formGitTokenVariable}
+                placeholder="Secret variable name for token auth"
+                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+              />
+              <input
+                id="form-git-token-user"
+                type="text"
+                bind:value={formGitTokenUser}
+                placeholder="User (optional)"
+                class="w-36 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+              />
+            </div>
+          </div>
+
+          <!-- Git Auth: SSH Key -->
+          <div class="grid grid-cols-4 gap-3 items-center">
+            <label for="form-git-ssh-var" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pl-2">SSH Key Variable</label>
+            <input
+              id="form-git-ssh-var"
+              type="text"
+              bind:value={formGitSSHKeyVariable}
+              placeholder="Secret variable name for SSH key auth"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+            />
+          </div>
+        {/if}
+
         <!-- Actions -->
         <div class="flex justify-between items-center pt-3 border-t border-gray-100 dark:border-dark-border">
           <div class="flex items-center gap-2">
@@ -846,7 +1055,15 @@
             {/if}
           </td>
           <td class="px-4 py-2.5">
-            <div class="font-medium text-gray-900 dark:text-dark-text">{c.name}</div>
+            <div class="flex items-center gap-1.5">
+              <span class="font-medium text-gray-900 dark:text-dark-text">{c.name}</span>
+              {#if c.config.git_source}
+                <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-medium bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400" title="Git source: {c.config.git_source.repo_url}">
+                  <GitBranch size={10} />
+                  git
+                </span>
+              {/if}
+            </div>
             {#if c.config.description}
               <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48">{c.config.description}</div>
             {/if}
@@ -966,6 +1183,32 @@
                   {/if}
                 </div>
 
+                <!-- Git Sync -->
+                {#if c.config.git_source}
+                  <button
+                    onclick={() => handleSync(c.id)}
+                    disabled={syncingIds.has(c.id)}
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs border border-blue-300 dark:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 text-blue-600 dark:text-blue-400 transition-colors disabled:opacity-50"
+                  >
+                    <Play size={12} class={syncingIds.has(c.id) ? 'animate-pulse' : ''} />
+                    {syncingIds.has(c.id) ? 'Syncing...' : 'Sync Git'}
+                  </button>
+                {/if}
+
+                <!-- Pages -->
+                <button
+                  onclick={() => { pagesCollectionId === c.id ? (pagesCollectionId = null) : loadPages(c.id); }}
+                  class={[
+                    "flex items-center gap-1.5 px-3 py-1.5 text-xs border transition-colors",
+                    pagesCollectionId === c.id
+                      ? "border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white"
+                      : "border-gray-300 dark:border-dark-border-subtle hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary",
+                  ]}
+                >
+                  <FileCode size={12} />
+                  Pages
+                </button>
+
                 <!-- Details -->
                 <div class="ml-auto flex items-center gap-4 text-xs text-gray-400 dark:text-dark-text-muted">
                   <span>Chunk: {c.config.chunk_size}/{c.config.chunk_overlap}</span>
@@ -974,6 +1217,104 @@
                   {/if}
                 </div>
               </div>
+
+              <!-- Pages Panel -->
+              {#if pagesCollectionId === c.id}
+                <div class="mt-3 border-t border-gray-200 dark:border-dark-border pt-3">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">
+                      Stored Pages
+                      {#if pagesTotal > 0}
+                        <span class="text-gray-400 dark:text-dark-text-muted font-normal">({pagesTotal})</span>
+                      {/if}
+                    </span>
+                    <button
+                      onclick={() => loadPages(c.id)}
+                      class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted transition-colors"
+                      title="Refresh pages"
+                    >
+                      <RefreshCw size={12} class={pagesLoading ? 'animate-spin' : ''} />
+                    </button>
+                  </div>
+
+                  {#if pagesLoading}
+                    <div class="text-xs text-gray-400 dark:text-dark-text-muted py-2">Loading pages...</div>
+                  {:else if pages.length === 0}
+                    <div class="text-xs text-gray-400 dark:text-dark-text-muted py-2">No pages stored yet. Upload a document, import a URL, or sync from git.</div>
+                  {:else}
+                    <div class="border border-gray-200 dark:border-dark-border overflow-hidden">
+                      <table class="w-full text-xs">
+                        <thead>
+                          <tr class="bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">
+                            <th class="text-left px-3 py-1.5 font-medium">Source</th>
+                            <th class="text-left px-3 py-1.5 font-medium">Path</th>
+                            <th class="text-left px-3 py-1.5 font-medium">Type</th>
+                            <th class="text-left px-3 py-1.5 font-medium">Updated</th>
+                            <th class="text-right px-3 py-1.5 font-medium w-16"></th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {#each pages as page}
+                            <tr class="border-t border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-surface/50">
+                              <td class="px-3 py-1.5 text-gray-600 dark:text-dark-text-secondary font-mono truncate max-w-32" title={page.source}>{page.source}</td>
+                              <td class="px-3 py-1.5 text-gray-600 dark:text-dark-text-secondary font-mono truncate max-w-48" title={page.path}>{page.path || '—'}</td>
+                              <td class="px-3 py-1.5 text-gray-400 dark:text-dark-text-muted">{page.content_type || '—'}</td>
+                              <td class="px-3 py-1.5 text-gray-400 dark:text-dark-text-muted">{formatDate(page.updated_at)}</td>
+                              <td class="px-3 py-1.5 text-right">
+                                {#if deletePageConfirm === page.id}
+                                  <div class="flex justify-end gap-1">
+                                    <button
+                                      onclick={() => handleDeletePage(page.id)}
+                                      class="px-2 py-0.5 text-[10px] bg-red-600 text-white hover:bg-red-700 transition-colors"
+                                    >
+                                      Delete
+                                    </button>
+                                    <button
+                                      onclick={() => (deletePageConfirm = null)}
+                                      class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                {:else}
+                                  <button
+                                    onclick={() => (deletePageConfirm = page.id)}
+                                    class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                                    title="Delete page"
+                                  >
+                                    <Trash2 size={12} />
+                                  </button>
+                                {/if}
+                              </td>
+                            </tr>
+                          {/each}
+                        </tbody>
+                      </table>
+                    </div>
+                    {#if pagesTotal > pages.length}
+                      <div class="mt-2 flex items-center justify-between">
+                        <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                          Showing {pages.length} of {pagesTotal}
+                        </span>
+                        <button
+                          onclick={async () => {
+                            pagesOffset += 20;
+                            try {
+                              const res = await listPages(c.id, { _offset: pagesOffset, _limit: 20 });
+                              pages = [...pages, ...(res.data || [])];
+                            } catch (e: any) {
+                              addToast(e?.response?.data?.message || 'Failed to load more pages', 'alert');
+                            }
+                          }}
+                          class="text-[10px] px-2 py-0.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                        >
+                          Load more
+                        </button>
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
+              {/if}
             </td>
           </tr>
         {/if}

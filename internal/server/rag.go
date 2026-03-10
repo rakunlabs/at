@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +18,12 @@ import (
 	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/query"
 )
+
+// sha256Hex returns the hex-encoded SHA-256 hash of s.
+func sha256Hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
 
 // ─── Collection CRUD ───
 
@@ -288,11 +297,33 @@ func (s *Server) UploadRAGDocumentAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	result, err := s.ragService.Ingest(r.Context(), collectionID, content, contentType, source, nil)
+	// Buffer content so we can both ingest and store as a page.
+	contentBytes, err := io.ReadAll(content)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to read content: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	result, err := s.ragService.Ingest(r.Context(), collectionID, bytes.NewReader(contentBytes), contentType, source, nil)
 	if err != nil {
 		slog.Error("rag ingest failed", "collection_id", collectionID, "source", source, "error", err)
 		httpResponse(w, fmt.Sprintf("ingest failed: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Store original content in rag_pages.
+	if s.ragPageStore != nil {
+		_, pageErr := s.ragPageStore.UpsertRAGPage(r.Context(), service.RAGPage{
+			CollectionID: collectionID,
+			Source:       result.Source,
+			Path:         source,
+			Content:      string(contentBytes),
+			ContentType:  contentType,
+			ContentHash:  sha256Hex(string(contentBytes)),
+		})
+		if pageErr != nil {
+			slog.Warn("store page after upload failed", "source", result.Source, "error", pageErr)
+		}
 	}
 
 	httpResponseJSON(w, uploadRAGDocumentResponse{
@@ -363,11 +394,33 @@ func (s *Server) ImportRAGFromURLAPI(w http.ResponseWriter, r *http.Request) {
 		contentType = rag.DetectContentType(req.URL)
 	}
 
-	result, err := s.ragService.Ingest(r.Context(), collectionID, resp.Body, contentType, req.URL, nil)
+	// Buffer content so we can both ingest and store as a page.
+	contentBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to read response body: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	result, err := s.ragService.Ingest(r.Context(), collectionID, bytes.NewReader(contentBytes), contentType, req.URL, nil)
 	if err != nil {
 		slog.Error("rag url import failed", "collection_id", collectionID, "url", req.URL, "error", err)
 		httpResponse(w, fmt.Sprintf("import failed: %v", err), http.StatusInternalServerError)
 		return
+	}
+
+	// Store original content in rag_pages.
+	if s.ragPageStore != nil {
+		_, pageErr := s.ragPageStore.UpsertRAGPage(r.Context(), service.RAGPage{
+			CollectionID: collectionID,
+			Source:       result.Source,
+			Path:         req.URL,
+			Content:      string(contentBytes),
+			ContentType:  contentType,
+			ContentHash:  sha256Hex(string(contentBytes)),
+		})
+		if pageErr != nil {
+			slog.Warn("store page after url import failed", "source", result.Source, "error", pageErr)
+		}
 	}
 
 	httpResponseJSON(w, uploadRAGDocumentResponse{
@@ -802,4 +855,307 @@ func (s *Server) DeleteRAGMCPServerAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, map[string]string{"status": "deleted"}, http.StatusOK)
+}
+
+// ─── RAG Sync ───
+
+// SyncRAGCollectionAPI handles POST /api/v1/rag/collections/{id}/sync.
+// Triggers a git-based sync for a RAG collection that has a git source configured.
+// The sync runs asynchronously and returns immediately with status "syncing".
+// Pass ?sync=true to block until the sync completes.
+func (s *Server) SyncRAGCollectionAPI(w http.ResponseWriter, r *http.Request) {
+	if s.ragService == nil {
+		httpResponse(w, "rag service not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	collectionID := r.PathValue("id")
+	if collectionID == "" {
+		httpResponse(w, "collection id is required", http.StatusBadRequest)
+		return
+	}
+
+	collection, err := s.ragCollectionStore.GetRAGCollection(r.Context(), collectionID)
+	if err != nil {
+		slog.Error("sync rag collection: get collection failed", "id", collectionID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get collection: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if collection == nil {
+		httpResponse(w, fmt.Sprintf("collection %q not found", collectionID), http.StatusNotFound)
+		return
+	}
+
+	if collection.Config.GitSource == nil {
+		httpResponse(w, "collection has no git source configured", http.StatusBadRequest)
+		return
+	}
+
+	deps := rag.SyncDeps{
+		RAGService: s.ragService,
+		PageStore:  s.ragPageStore,
+		StateStore: s.ragStateStore,
+		VarStore:   s.variableStore,
+	}
+
+	syncMode := r.URL.Query().Get("sync") == "true"
+
+	if syncMode {
+		result, err := rag.SyncCollection(r.Context(), deps, collection)
+		if err != nil {
+			slog.Error("sync rag collection failed", "collection_id", collectionID, "error", err)
+			httpResponse(w, fmt.Sprintf("sync failed: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		httpResponseJSON(w, result, http.StatusOK)
+		return
+	}
+
+	// Async mode: run in background.
+	go func() {
+		ctx := context.Background()
+		result, err := rag.SyncCollection(ctx, deps, collection)
+		if err != nil {
+			slog.Error("sync rag collection failed (async)", "collection_id", collectionID, "error", err)
+			return
+		}
+		slog.Info("sync rag collection completed (async)",
+			"collection_id", collectionID,
+			"files_processed", result.FilesProcessed,
+			"chunks_added", result.ChunksAdded,
+		)
+	}()
+
+	httpResponseJSON(w, map[string]string{
+		"status":        "syncing",
+		"collection_id": collectionID,
+	}, http.StatusAccepted)
+}
+
+// ─── RAG Pages CRUD ───
+
+// ListRAGPagesAPI handles GET /api/v1/rag/collections/{id}/pages.
+func (s *Server) ListRAGPagesAPI(w http.ResponseWriter, r *http.Request) {
+	if s.ragPageStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	collectionID := r.PathValue("id")
+	if collectionID == "" {
+		httpResponse(w, "collection id is required", http.StatusBadRequest)
+		return
+	}
+
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	records, err := s.ragPageStore.ListRAGPages(r.Context(), collectionID, q)
+	if err != nil {
+		slog.Error("list rag pages failed", "collection_id", collectionID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to list pages: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if records == nil {
+		records = &service.ListResult[service.RAGPage]{Data: []service.RAGPage{}}
+	}
+
+	httpResponseJSON(w, records, http.StatusOK)
+}
+
+// GetRAGPageAPI handles GET /api/v1/rag/pages/{id}.
+func (s *Server) GetRAGPageAPI(w http.ResponseWriter, r *http.Request) {
+	if s.ragPageStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "page id is required", http.StatusBadRequest)
+		return
+	}
+
+	record, err := s.ragPageStore.GetRAGPage(r.Context(), id)
+	if err != nil {
+		slog.Error("get rag page failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get page: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if record == nil {
+		httpResponse(w, fmt.Sprintf("page %q not found", id), http.StatusNotFound)
+		return
+	}
+
+	httpResponseJSON(w, record, http.StatusOK)
+}
+
+// DeleteRAGPageAPI handles DELETE /api/v1/rag/pages/{id}.
+// Also deletes the corresponding chunks from the vector store.
+func (s *Server) DeleteRAGPageAPI(w http.ResponseWriter, r *http.Request) {
+	if s.ragPageStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "page id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up the page to get source and collection ID for vector store cleanup.
+	page, err := s.ragPageStore.GetRAGPage(r.Context(), id)
+	if err != nil {
+		slog.Error("delete rag page: get page failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get page: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if page == nil {
+		httpResponse(w, fmt.Sprintf("page %q not found", id), http.StatusNotFound)
+		return
+	}
+
+	// Delete chunks from vector store.
+	if s.ragService != nil {
+		if err := s.ragService.DeleteDocumentsBySource(r.Context(), page.CollectionID, page.Source); err != nil {
+			slog.Warn("delete rag page: failed to delete chunks from vector store", "page_id", id, "source", page.Source, "error", err)
+		}
+	}
+
+	if err := s.ragPageStore.DeleteRAGPage(r.Context(), id); err != nil {
+		slog.Error("delete rag page failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to delete page: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	httpResponse(w, "deleted", http.StatusOK)
+}
+
+// ─── RAG Collection Triggers ───
+
+// ListRAGTriggersAPI handles GET /api/v1/rag/collections/{id}/triggers.
+// Returns all triggers whose target_type is "rag_sync" and target_id matches the collection.
+func (s *Server) ListRAGTriggersAPI(w http.ResponseWriter, r *http.Request) {
+	if s.triggerStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	collectionID := r.PathValue("id")
+	if collectionID == "" {
+		httpResponse(w, "collection id is required", http.StatusBadRequest)
+		return
+	}
+
+	allTriggers, err := s.triggerStore.ListAllTriggers(r.Context())
+	if err != nil {
+		slog.Error("list rag triggers failed", "collection_id", collectionID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to list triggers: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Filter to rag_sync triggers for this collection.
+	var filtered []service.Trigger
+	for _, t := range allTriggers {
+		if t.TargetType == service.TriggerTargetRAGSync && t.TargetID == collectionID {
+			filtered = append(filtered, t)
+		}
+	}
+	if filtered == nil {
+		filtered = []service.Trigger{}
+	}
+
+	httpResponseJSON(w, triggersResponse{Triggers: filtered}, http.StatusOK)
+}
+
+// CreateRAGTriggerAPI handles POST /api/v1/rag/collections/{id}/triggers.
+// Creates a trigger with target_type=rag_sync and target_id=collection ID.
+func (s *Server) CreateRAGTriggerAPI(w http.ResponseWriter, r *http.Request) {
+	if s.triggerStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	collectionID := r.PathValue("id")
+	if collectionID == "" {
+		httpResponse(w, "collection id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Verify the collection exists.
+	if s.ragCollectionStore != nil {
+		col, err := s.ragCollectionStore.GetRAGCollection(r.Context(), collectionID)
+		if err != nil {
+			slog.Error("create rag trigger: get collection failed", "collection_id", collectionID, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to get collection: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if col == nil {
+			httpResponse(w, fmt.Sprintf("collection %q not found", collectionID), http.StatusNotFound)
+			return
+		}
+	}
+
+	var req service.Trigger
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Type != "http" && req.Type != "cron" {
+		httpResponse(w, "type must be 'http' or 'cron'", http.StatusBadRequest)
+		return
+	}
+
+	if req.Type == "cron" {
+		schedule, _ := req.Config["schedule"].(string)
+		if schedule == "" {
+			httpResponse(w, "cron trigger requires 'schedule' in config", http.StatusBadRequest)
+			return
+		}
+	}
+
+	// Validate alias uniqueness.
+	if req.Alias != "" {
+		existing, err := s.triggerStore.GetTriggerByAlias(r.Context(), req.Alias)
+		if err != nil {
+			slog.Error("create rag trigger: check alias uniqueness failed", "alias", req.Alias, "error", err)
+			httpResponse(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if existing != nil {
+			httpResponse(w, fmt.Sprintf("alias %q is already in use", req.Alias), http.StatusConflict)
+			return
+		}
+	}
+
+	userEmail := s.getUserEmail(r)
+	req.TargetType = service.TriggerTargetRAGSync
+	req.TargetID = collectionID
+	req.WorkflowID = "" // Not a workflow trigger.
+	req.CreatedBy = userEmail
+	req.UpdatedBy = userEmail
+
+	record, err := s.triggerStore.CreateTrigger(r.Context(), req)
+	if err != nil {
+		slog.Error("create rag trigger failed", "collection_id", collectionID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create trigger: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Reload scheduler if it's a cron trigger.
+	if req.Type == "cron" && req.Enabled && s.scheduler != nil {
+		if err := s.scheduler.Reload(); err != nil {
+			slog.Error("scheduler reload failed after rag trigger create", "error", err)
+		}
+	}
+
+	httpResponseJSON(w, record, http.StatusCreated)
 }
