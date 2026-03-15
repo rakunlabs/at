@@ -61,6 +61,7 @@ type Scheduler struct {
 	goalAncestry          GoalAncestryFunc
 	ragSync               RAGSyncFunc
 	ragPageUpsert         RAGPageUpsertFunc
+	memoryRecall          MemoryRecallFunc
 	runRegistrar          RunRegistrar
 
 	cluster *cluster.Cluster
@@ -125,6 +126,12 @@ func (s *Scheduler) SetRAGSync(f RAGSyncFunc) {
 // in rag_pages. Optional — if not set, pages are not stored.
 func (s *Scheduler) SetRAGPageUpsert(f RAGPageUpsertFunc) {
 	s.ragPageUpsert = f
+}
+
+// SetMemoryRecall sets the callback used by memory_config nodes in "recall"
+// mode. Optional — if not set, recall mode falls back to static pass-through.
+func (s *Scheduler) SetMemoryRecall(f MemoryRecallFunc) {
+	s.memoryRecall = f
 }
 
 // Start loads all enabled cron triggers from the store and starts the
@@ -423,6 +430,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 
 		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordAudit, s.goalAncestry, versionLookup)
 		engine.SetRAGPageUpsert(s.ragPageUpsert)
+		engine.SetMemoryRecall(s.memoryRecall)
 
 		// Determine entry node(s) for this trigger.
 		var entryNodeIDs []string

@@ -24,6 +24,8 @@ import Webhooks from '@/pages/Webhooks.svelte';
 import Crons from '@/pages/Crons.svelte';
 import Audit from '@/pages/Audit.svelte';
 import CostEvents from '@/pages/CostEvents.svelte';
+import AgentMemories from '@/pages/AgentMemories.svelte';
+import AgentMemoryDetail from '@/pages/AgentMemoryDetail.svelte';
 import NotFound from '@/pages/NotFound.svelte';
 
 export default {
@@ -53,5 +55,7 @@ export default {
   '/tasks/:id': TaskDetail,
   '/audit': Audit,
   '/cost-events': CostEvents,
+  '/organizations/:id/memories': AgentMemories,
+  '/agent-memories/:id': AgentMemoryDetail,
   '*': NotFound
 };

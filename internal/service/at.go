@@ -178,6 +178,7 @@ type Storer interface {
 	AgentConfigRevisionStorer
 	CostEventStorer
 	OrganizationAgentStorer
+	AgentMemoryStorer
 }
 
 // ProviderStorer defines CRUD operations for provider configurations
@@ -648,6 +649,9 @@ type OrganizationAgent struct {
 	ParentAgentID     string `json:"parent_agent_id,omitempty"`    // reporting line within this org
 	Status            string `json:"status,omitempty"`             // "active" (default), "paused", "terminated"
 	HeartbeatSchedule string `json:"heartbeat_schedule,omitempty"` // Cron expression for periodic wake-ups within this org
+	MemoryModel       string `json:"memory_model,omitempty"`       // LLM model for memory summarization (defaults to agent's model)
+	MemoryProvider    string `json:"memory_provider,omitempty"`    // LLM provider key for summarization (defaults to agent's provider)
+	MemoryEnabled     *bool  `json:"memory_enabled,omitempty"`     // opt-in/out of memory extraction and recall (default: true)
 	CreatedAt         string `json:"created_at"`
 	UpdatedAt         string `json:"updated_at"`
 }
@@ -1222,6 +1226,50 @@ type CostEventStorer interface {
 	GetCostByProject(ctx context.Context, projectID string) (float64, error)
 	GetCostByGoal(ctx context.Context, goalID string) (float64, error)
 	GetCostByBillingCode(ctx context.Context, billingCode string) (float64, error)
+}
+
+// ─── Agent Memory ───
+
+// AgentMemory represents a persistent memory entry for an agent within an organization.
+// Stores tiered summaries: L0 (one-liner), L1 (decisions and approach), with L2
+// (full conversation) stored separately in AgentMemoryMessages.
+type AgentMemory struct {
+	ID             string   `json:"id"` // ULID
+	AgentID        string   `json:"agent_id"`
+	OrganizationID string   `json:"organization_id"`
+	TaskID         string   `json:"task_id"`
+	TaskIdentifier string   `json:"task_identifier,omitempty"` // human-readable e.g. "PAP-42"
+	SummaryL0      string   `json:"summary_l0"`                // one-sentence summary (~20 tokens)
+	SummaryL1      string   `json:"summary_l1"`                // structured decisions + approach (~500 tokens)
+	Tags           []string `json:"tags,omitempty"`            // topic keywords
+	CreatedAt      string   `json:"created_at"`
+}
+
+// AgentMemoryMessages stores the full L2 conversation for a memory entry.
+// Separated from AgentMemory to keep the recall query path lightweight.
+type AgentMemoryMessages struct {
+	MemoryID string    `json:"memory_id"` // FK to AgentMemory.ID
+	Messages []Message `json:"messages"`  // full conversation history
+}
+
+// AgentMemoryStorer defines operations for persistent agent memory.
+type AgentMemoryStorer interface {
+	// CreateAgentMemory creates a new memory entry.
+	CreateAgentMemory(ctx context.Context, mem AgentMemory) (*AgentMemory, error)
+	// GetAgentMemory returns a single memory by ID (L0+L1, no L2).
+	GetAgentMemory(ctx context.Context, id string) (*AgentMemory, error)
+	// ListAgentMemories returns all memories for an agent within an organization.
+	ListAgentMemories(ctx context.Context, agentID, orgID string) ([]AgentMemory, error)
+	// ListOrgMemories returns all memories in an organization (cross-agent).
+	ListOrgMemories(ctx context.Context, orgID string) ([]AgentMemory, error)
+	// SearchAgentMemories searches memories by keyword against L0, L1, and tags.
+	SearchAgentMemories(ctx context.Context, agentID, orgID, query string) ([]AgentMemory, error)
+	// DeleteAgentMemory deletes a memory and its associated messages.
+	DeleteAgentMemory(ctx context.Context, id string) error
+	// GetAgentMemoryMessages returns the L2 full conversation for a memory.
+	GetAgentMemoryMessages(ctx context.Context, memoryID string) (*AgentMemoryMessages, error)
+	// CreateAgentMemoryMessages persists the L2 conversation for a memory.
+	CreateAgentMemoryMessages(ctx context.Context, msgs AgentMemoryMessages) error
 }
 
 // ─── Chat Sessions ───

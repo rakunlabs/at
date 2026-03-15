@@ -63,6 +63,8 @@ type Memory struct {
 	costEvents           []service.CostEvent                       // append-only
 	organizationAgents   map[string]service.OrganizationAgent      // id -> org-agent membership
 	orgAgentIndex        map[string]string                         // "orgID::agentID" -> id
+	agentMemory          map[string]service.AgentMemory            // id -> agent memory
+	agentMemoryMessages  map[string]service.AgentMemoryMessages    // memory_id -> messages
 }
 
 func New() *Memory {
@@ -112,6 +114,8 @@ func New() *Memory {
 		costEvents:           nil,
 		organizationAgents:   make(map[string]service.OrganizationAgent),
 		orgAgentIndex:        make(map[string]string),
+		agentMemory:          make(map[string]service.AgentMemory),
+		agentMemoryMessages:  make(map[string]service.AgentMemoryMessages),
 	}
 }
 

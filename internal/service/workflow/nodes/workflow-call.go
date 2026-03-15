@@ -119,6 +119,7 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		reg.VersionLookup,
 	)
 	childEngine.SetRAGPageUpsert(reg.RAGPageUpsert)
+	childEngine.SetMemoryRecall(reg.MemoryRecall)
 
 	// 4. Run the child workflow.
 	// Use the active version's graph if available, otherwise fall back to the draft graph.

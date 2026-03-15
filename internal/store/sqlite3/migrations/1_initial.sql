@@ -674,6 +674,9 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}organization_agents (
     parent_agent_id TEXT DEFAULT '',
     status TEXT NOT NULL DEFAULT 'active',
     heartbeat_schedule TEXT DEFAULT '',
+    memory_model TEXT DEFAULT '',
+    memory_provider TEXT DEFAULT '',
+    memory_enabled TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(organization_id, agent_id)
@@ -700,3 +703,30 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}rag_pages (
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}rag_pages_collection_source ON ${TABLE_PREFIX}rag_pages(collection_id, source);
 CREATE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}rag_pages_collection_id ON ${TABLE_PREFIX}rag_pages(collection_id);
+
+-- ============================================================================
+-- Agent Memory (L0/L1 summaries)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}agent_memory (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    organization_id TEXT NOT NULL,
+    task_id TEXT NOT NULL,
+    task_identifier TEXT DEFAULT '',
+    summary_l0 TEXT NOT NULL DEFAULT '',
+    summary_l1 TEXT NOT NULL DEFAULT '',
+    tags TEXT DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}agent_memory_agent_org ON ${TABLE_PREFIX}agent_memory(agent_id, organization_id);
+CREATE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}agent_memory_org ON ${TABLE_PREFIX}agent_memory(organization_id);
+CREATE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}agent_memory_task ON ${TABLE_PREFIX}agent_memory(task_id);
+
+-- ============================================================================
+-- Agent Memory Messages (L2 full conversation)
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}agent_memory_messages (
+    memory_id TEXT PRIMARY KEY REFERENCES ${TABLE_PREFIX}agent_memory(id) ON DELETE CASCADE,
+    messages TEXT NOT NULL DEFAULT '[]'
+);

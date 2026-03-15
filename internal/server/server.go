@@ -172,6 +172,9 @@ type Server struct {
 	// orgAgentStore is the persistent store for organization-agent memberships (join table).
 	orgAgentStore service.OrganizationAgentStorer
 
+	// agentMemoryStore is the persistent store for agent memory (L0/L1 summaries and L2 messages).
+	agentMemoryStore service.AgentMemoryStorer
+
 	// marketplaceClient is used for outbound HTTP requests to marketplace APIs.
 	marketplaceClient *http.Client
 
@@ -349,6 +352,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		agentConfigRevisionStore: store,
 		costEventStore:           store,
 		orgAgentStore:            store,
+		agentMemoryStore:         store,
 		marketplaceClient:        &http.Client{Timeout: 10 * time.Second},
 		providerFactory:          factory,
 		storeType:                storeType,
@@ -472,6 +476,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		s.scheduler.SetRAGSync(s.ragSyncFunc())
 		s.scheduler.SetRAGPageUpsert(s.ragPageUpsertFunc())
+		s.scheduler.SetMemoryRecall(s.memoryRecallFunc())
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
 			// Non-fatal: server can run without cron triggers.
@@ -622,6 +627,15 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.POST("/v1/organizations/{id}/agents", s.AddAgentToOrganizationAPI)
 	apiGroup.PUT("/v1/organizations/{id}/agents/{agent_id}", s.UpdateOrganizationAgentAPI)
 	apiGroup.DELETE("/v1/organizations/{id}/agents/{agent_id}", s.RemoveAgentFromOrganizationAPI)
+
+	// Agent memories (org-scoped)
+	apiGroup.GET("/v1/organizations/{id}/memories", s.ListOrgMemoriesAPI)
+	apiGroup.POST("/v1/organizations/{id}/memories/search", s.SearchOrgMemoriesAPI)
+
+	// Agent memories (direct)
+	apiGroup.GET("/v1/agent-memories/{id}", s.GetAgentMemoryAPI)
+	apiGroup.GET("/v1/agent-memories/{id}/messages", s.GetAgentMemoryMessagesAPI)
+	apiGroup.DELETE("/v1/agent-memories/{id}", s.DeleteAgentMemoryAPI)
 
 	// Organization task intake (async)
 	apiGroup.POST("/v1/organizations/{id}/tasks", s.IntakeTaskAPI)
@@ -1284,5 +1298,49 @@ func (s *Server) versionLookupFunc() workflow.VersionLookupFunc {
 			return nil, nil
 		}
 		return &ver.Graph, nil
+	}
+}
+
+func (s *Server) memoryRecallFunc() workflow.MemoryRecallFunc {
+	if s.agentMemoryStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, agentID, orgID string, maxTokens int) (string, error) {
+		memories, err := s.agentMemoryStore.ListOrgMemories(ctx, orgID)
+		if err != nil {
+			return "", fmt.Errorf("list org memories for recall: %w", err)
+		}
+		if len(memories) == 0 {
+			return "", nil
+		}
+
+		// Use token budget as char limit (roughly 4 chars per token).
+		maxChars := maxTokens * 4
+		var buf strings.Builder
+		buf.WriteString("## Relevant Past Work\n\n")
+
+		for _, mem := range memories {
+			var entry strings.Builder
+			agentLabel := agentID
+			if mem.AgentID != agentID {
+				agentLabel = fmt.Sprintf("agent %s", mem.AgentID)
+			} else {
+				agentLabel = "you"
+			}
+			entry.WriteString(fmt.Sprintf("### %s (by %s)\n", mem.TaskIdentifier, agentLabel))
+			entry.WriteString(fmt.Sprintf("**Summary**: %s\n", mem.SummaryL0))
+			if mem.SummaryL1 != "" {
+				entry.WriteString(mem.SummaryL1 + "\n")
+			}
+			entry.WriteString("\n")
+
+			entryStr := entry.String()
+			if buf.Len()+len(entryStr) > maxChars {
+				break
+			}
+			buf.WriteString(entryStr)
+		}
+
+		return buf.String(), nil
 	}
 }

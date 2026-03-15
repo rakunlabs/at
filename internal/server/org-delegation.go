@@ -137,6 +137,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		systemPrompt += teamSection.String()
 	}
 
+	// f2) Recall relevant past memories and inject into system prompt.
+	if memorySection := s.recallAgentMemories(ctx, org, task, agent, agentID); memorySection != "" {
+		systemPrompt += memorySection
+	}
+
 	// g) Update task status to in_progress.
 	if err := s.taskStore.UpdateTaskStatus(ctx, task.ID, service.TaskStatusInProgress, ""); err != nil {
 		return fmt.Errorf("org-delegation: update task to in_progress: %w", err)
@@ -437,6 +442,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 		}
 	}
+
+	// Extract and persist memory from the conversation (non-fatal on error).
+	s.extractAndPersistMemory(ctx, org, task, agent, agentID, messages)
 
 	if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, finalContent); err != nil {
 		return fmt.Errorf("org-delegation: update task to completed: %w", err)

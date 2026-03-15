@@ -18,7 +18,8 @@
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listGoals, type Goal } from '@/lib/api/goals';
   import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@/lib/api/tasks';
-  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send } from 'lucide-svelte';
+  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Brain } from 'lucide-svelte';
+  import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { agentAvatar } from '@/lib/helper/avatar';
   import OrgChart from '@/lib/components/OrgChart.svelte';
 
@@ -51,6 +52,9 @@
   let submittingTask = $state(false);
   let lastTaskResult = $state<IntakeTaskResponse | null>(null);
   let orgGoals = $state<Goal[]>([]);
+
+  // Providers for memory config
+  let providers = $state<ProviderRecord[]>([]);
 
   // Selected node
   let selectedAgentId = $state<string | null>(null);
@@ -123,9 +127,18 @@
     }
   }
 
+  async function loadProvidersList() {
+    try {
+      const res = await listProviders({ _limit: 1000 });
+      providers = res.data || [];
+    } catch {
+      providers = [];
+    }
+  }
+
   async function load() {
     loading = true;
-    await Promise.all([loadOrganization(), loadMemberships(), loadAllAgents(), loadOrgGoals()]);
+    await Promise.all([loadOrganization(), loadMemberships(), loadAllAgents(), loadOrgGoals(), loadProvidersList()]);
     loading = false;
   }
 
@@ -242,6 +255,16 @@
       await loadMemberships();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to update heartbeat schedule', 'alert');
+    }
+  }
+
+  async function handleUpdateMemoryConfig(agentId: string, field: string, value: string | boolean) {
+    try {
+      await updateOrgAgent(params.id, agentId, { [field]: value });
+      addToast('Memory settings updated');
+      await loadMemberships();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to update memory settings', 'alert');
     }
   }
 
@@ -563,6 +586,57 @@
                   placeholder="Cron (e.g., */5 * * * *)"
                   class="mt-0.5 w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
                 />
+              </div>
+
+              <!-- Memory Settings -->
+              <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
+                <div class="flex items-center gap-1 mb-2">
+                  <Brain size={12} class="text-gray-500 dark:text-dark-text-muted" />
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Memory</span>
+                </div>
+
+                <label class="flex items-center gap-2 cursor-pointer mb-2">
+                  <input
+                    type="checkbox"
+                    checked={membership.memory_enabled === true}
+                    onchange={(e) => handleUpdateMemoryConfig(membership.agent_id, 'memory_enabled', (e.target as HTMLInputElement).checked)}
+                    class="w-3.5 h-3.5 rounded border-gray-300 dark:border-dark-border-subtle text-gray-900 dark:text-accent focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20"
+                  />
+                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary">Enabled</span>
+                </label>
+
+                <div class="mb-2">
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Provider</span>
+                  <select
+                    value={membership.memory_provider || ''}
+                    onchange={(e) => handleUpdateMemoryConfig(membership.agent_id, 'memory_provider', (e.target as HTMLSelectElement).value)}
+                    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
+                  >
+                    <option value="">Default (agent's provider)</option>
+                    {#each providers as provider (provider.id)}
+                      <option value={provider.key}>{provider.key}</option>
+                    {/each}
+                  </select>
+                </div>
+
+                <div class="mb-2">
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Model</span>
+                  <input
+                    type="text"
+                    value={membership.memory_model || ''}
+                    onchange={(e) => handleUpdateMemoryConfig(membership.agent_id, 'memory_model', (e.target as HTMLInputElement).value)}
+                    placeholder="Default (agent's model)"
+                    class="mt-0.5 w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  />
+                </div>
+
+                <button
+                  onclick={() => push(`/organizations/${params.id}/memories?agent_id=${membership.agent_id}`)}
+                  class="w-full flex items-center justify-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                >
+                  <Brain size={12} />
+                  View Memories
+                </button>
               </div>
             {:else if membership}
               <div class="text-xs text-gray-400 dark:text-dark-text-faint">

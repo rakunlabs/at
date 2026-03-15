@@ -70,6 +70,8 @@ type SQLite struct {
 	tableAgentConfigRevisions exp.IdentifierExpression
 	tableCostEvents           exp.IdentifierExpression
 	tableOrganizationAgents   exp.IdentifierExpression
+	tableAgentMemory          exp.IdentifierExpression
+	tableAgentMemoryMessages  exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -190,6 +192,8 @@ func New(ctx context.Context, cfg *config.StoreSQLite, encKey []byte) (*SQLite, 
 		tableAgentConfigRevisions: goqu.T(tablePrefix + "agent_config_revisions"),
 		tableCostEvents:           goqu.T(tablePrefix + "cost_events"),
 		tableOrganizationAgents:   goqu.T(tablePrefix + "organization_agents"),
+		tableAgentMemory:          goqu.T(tablePrefix + "agent_memory"),
+		tableAgentMemoryMessages:  goqu.T(tablePrefix + "agent_memory_messages"),
 		encKey:                    encKey,
 	}, nil
 }

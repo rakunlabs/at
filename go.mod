@@ -3,9 +3,11 @@ module github.com/rakunlabs/at
 go 1.26
 
 require (
+	github.com/bwmarrin/discordgo v0.29.0
 	github.com/dop251/goja v0.0.0-20260219130522-0ba9a5494a59
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/go-git/go-git/v5 v5.17.0
+	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/milvus-io/milvus-sdk-go/v2 v2.4.2
 	github.com/oklog/ulid/v2 v2.1.1
@@ -35,6 +37,7 @@ require (
 	github.com/worldline-go/types v0.5.6
 	github.com/xhit/go-str2duration/v2 v2.1.0
 	golang.org/x/oauth2 v0.35.0
+	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.46.1
 )
 
@@ -57,7 +60,6 @@ require (
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.9.2 // indirect
-	github.com/bwmarrin/discordgo v0.29.0 // indirect
 	github.com/cenkalti/backoff v2.2.1+incompatible // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -91,7 +93,6 @@ require (
 	github.com/go-openapi/swag v0.23.0 // indirect
 	github.com/go-openapi/validate v0.24.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
-	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
 	github.com/goccy/go-yaml v1.18.0 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
@@ -208,7 +209,6 @@ require (
 	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 	modernc.org/libc v1.67.6 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect

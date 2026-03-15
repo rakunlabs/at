@@ -107,6 +107,9 @@ func (m *Memory) CreateOrganizationAgent(_ context.Context, oa service.Organizat
 		ParentAgentID:     oa.ParentAgentID,
 		Status:            status,
 		HeartbeatSchedule: oa.HeartbeatSchedule,
+		MemoryModel:       oa.MemoryModel,
+		MemoryProvider:    oa.MemoryProvider,
+		MemoryEnabled:     oa.MemoryEnabled,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}
@@ -135,6 +138,9 @@ func (m *Memory) UpdateOrganizationAgent(_ context.Context, id string, oa servic
 	existing.ParentAgentID = oa.ParentAgentID
 	existing.Status = oa.Status
 	existing.HeartbeatSchedule = oa.HeartbeatSchedule
+	existing.MemoryModel = oa.MemoryModel
+	existing.MemoryProvider = oa.MemoryProvider
+	existing.MemoryEnabled = oa.MemoryEnabled
 	existing.UpdatedAt = now
 	m.organizationAgents[id] = existing
 

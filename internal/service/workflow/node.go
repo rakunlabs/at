@@ -216,6 +216,11 @@ type Registry struct {
 	// nil when page store is not configured.
 	RAGPageUpsert RAGPageUpsertFunc
 
+	// MemoryRecall retrieves and formats relevant agent memories for a given
+	// agent in an organization. Used by memory_config nodes in "recall" mode.
+	// nil when memory store is not configured.
+	MemoryRecall MemoryRecallFunc
+
 	// ChatMessageCreator creates a message in a chat session.
 	// Used by chat_reply nodes to push messages into a conversation.
 	// nil when chat session store is not configured.
@@ -373,6 +378,12 @@ type GoalAncestryFunc func(ctx context.Context, goalID string) ([]service.Goal, 
 // Given a workflow ID, it returns the active version's graph (if one is set),
 // or nil if no active version exists. Used by workflow_call nodes.
 type VersionLookupFunc func(ctx context.Context, workflowID string) (*service.WorkflowGraph, error)
+
+// MemoryRecallFunc retrieves and formats relevant agent memories.
+// Returns a formatted text block suitable for injecting into a prompt,
+// or empty string if no relevant memories exist. Used by memory_config
+// nodes in "recall" mode.
+type MemoryRecallFunc func(ctx context.Context, agentID, orgID string, maxTokens int) (string, error)
 
 // BuiltinToolDef describes a built-in tool available to agents.
 type BuiltinToolDef struct {
