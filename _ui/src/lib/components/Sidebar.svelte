@@ -18,7 +18,6 @@
     Radio,
     Database,
     Server,
-    Layers,
     House,
     Building2,
     Globe,
@@ -26,6 +25,7 @@
     ClipboardList,
     ScrollText,
     Receipt,
+    Plug,
   } from "lucide-svelte";
 
 
@@ -128,19 +128,7 @@
       <Server size={14} />
       <span>MCP Servers</span>
     </a>
-    <a
-      href="#/mcps"
-      onclick={(e) => navigate(e, "/mcps")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/mcps"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Layers size={14} />
-      <span>MCP</span>
-    </a>
+
     <a
       href="#/skills"
       onclick={(e) => navigate(e, "/skills")}
@@ -153,6 +141,19 @@
     >
       <WandSparkles size={14} />
       <span>Skills</span>
+    </a>
+    <a
+      href="#/connections"
+      onclick={(e) => navigate(e, "/connections")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/connections"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Plug size={14} />
+      <span>Connections</span>
     </a>
     <a
       href="#/variables"

@@ -221,14 +221,12 @@ func (s *Server) RAGToolCallAPI(w http.ResponseWriter, r *http.Request) {
 	// Resolve git auth from request fields when present.
 	var auth *gitAuthResult
 	if req.TokenVariable != "" || req.SSHKeyVariable != "" {
-		srv := &service.RAGMCPServer{
-			Config: service.RAGMCPServerConfig{
-				TokenVariable:  req.TokenVariable,
-				TokenUser:      req.TokenUser,
-				SSHKeyVariable: req.SSHKeyVariable,
-			},
+		cfg := &ragMCPConfig{
+			TokenVariable:  req.TokenVariable,
+			TokenUser:      req.TokenUser,
+			SSHKeyVariable: req.SSHKeyVariable,
 		}
-		resolved, err := resolveGitAuth(r.Context(), s.variableStore, srv)
+		resolved, err := resolveGitAuth(r.Context(), s.variableStore, cfg)
 		if err != nil {
 			slog.Warn("rag tool: failed to resolve git auth", "error", err)
 		} else {

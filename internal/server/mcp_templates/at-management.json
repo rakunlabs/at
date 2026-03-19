@@ -1,0 +1,43 @@
+{
+  "slug": "at-management",
+  "name": "AT Management",
+  "description": "Full AT management toolkit — manage tasks, agents, organizations, skills, workflows, and approvals from any MCP client.",
+  "category": "Management",
+  "tags": ["management", "tasks", "agents", "organizations", "workflows", "skills", "approvals"],
+  "mcp_server": {
+    "name": "at-management",
+    "description": "AT platform management tools for tasks, agents, organizations, skills, workflows, and approvals",
+    "config": {
+      "enabled_builtin_tools": [
+        "task_create",
+        "task_list",
+        "task_get",
+        "task_update",
+        "task_add_comment",
+        "task_process",
+        "org_create",
+        "org_list",
+        "org_get",
+        "org_add_agent",
+        "org_task_intake",
+        "agent_create",
+        "agent_list",
+        "agent_get",
+        "agent_update",
+        "provider_list",
+        "provider_get",
+        "skill_list",
+        "skill_install_template",
+        "approval_list_pending",
+        "approval_decide",
+        "workflow_list",
+        "workflow_get",
+        "workflow_create",
+        "workflow_update",
+        "workflow_delete",
+        "workflow_run",
+        "trigger_list"
+      ]
+    }
+  }
+}

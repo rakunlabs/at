@@ -6,7 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
+	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
 )
@@ -309,6 +312,7 @@ func (s *Server) DeleteTaskAPI(w http.ResponseWriter, r *http.Request) {
 // ProcessTaskAPI handles POST /api/v1/tasks/{id}/process.
 // Triggers org delegation on an existing task that has an organization_id.
 // The task must belong to an organization with a head agent configured.
+// Accepts an optional JSON body with a "message" field to add a comment before processing.
 // Returns 202 Accepted and runs delegation in a background goroutine.
 func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if s.taskStore == nil || s.organizationStore == nil || s.orgAgentStore == nil {
@@ -324,6 +328,14 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
+	// Parse optional request body for a message to add as a comment.
+	var reqBody struct {
+		Message string `json:"message"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+	}
+
 	// Fetch the task.
 	task, err := s.taskStore.GetTask(ctx, taskID)
 	if err != nil {
@@ -334,6 +346,22 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if task == nil {
 		httpResponse(w, fmt.Sprintf("task %q not found", taskID), http.StatusNotFound)
 		return
+	}
+
+	// If a message was provided, add it as a user comment on the task.
+	if reqBody.Message != "" && s.issueCommentStore != nil {
+		_, commentErr := s.issueCommentStore.CreateComment(ctx, service.IssueComment{
+			ID:         ulid.Make().String(),
+			TaskID:     task.ID,
+			AuthorType: "user",
+			AuthorID:   "process_task_api",
+			Body:       reqBody.Message,
+			CreatedAt:  time.Now().UTC().Format(time.RFC3339),
+			UpdatedAt:  time.Now().UTC().Format(time.RFC3339),
+		})
+		if commentErr != nil {
+			slog.Warn("process task: failed to add comment", "task_id", task.ID, "error", commentErr)
+		}
 	}
 
 	// Task must belong to an organization.
@@ -513,4 +541,160 @@ func (s *Server) ReleaseTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponse(w, "task released", http.StatusOK)
+}
+
+// CreateTaskChatAPI handles POST /api/v1/tasks/{id}/chat.
+// Creates (or returns existing) a chat session linked to a task, enabling
+// interactive communication with the agent assigned to the task.
+// If the task has saved conversation state from a previous delegation run,
+// the messages are imported into the chat session.
+func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
+	if s.taskStore == nil || s.chatSessionStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	taskID := r.PathValue("id")
+	if taskID == "" {
+		httpResponse(w, "task id is required", http.StatusBadRequest)
+		return
+	}
+
+	ctx := r.Context()
+
+	// Fetch the task.
+	task, err := s.taskStore.GetTask(ctx, taskID)
+	if err != nil {
+		slog.Error("task chat: get task failed", "id", taskID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get task: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if task == nil {
+		httpResponse(w, fmt.Sprintf("task %q not found", taskID), http.StatusNotFound)
+		return
+	}
+
+	// Check if a chat session already exists for this task.
+	existing, err := s.chatSessionStore.GetChatSessionByTaskID(ctx, taskID)
+	if err != nil {
+		slog.Error("task chat: lookup existing session failed", "task_id", taskID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to lookup session: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if existing != nil {
+		httpResponseJSON(w, existing, http.StatusOK)
+		return
+	}
+
+	// Determine the agent to use: task's assigned agent, or org's head agent.
+	agentID := task.AssignedAgentID
+	if agentID == "" && task.OrganizationID != "" && s.organizationStore != nil {
+		org, orgErr := s.organizationStore.GetOrganization(ctx, task.OrganizationID)
+		if orgErr == nil && org != nil {
+			agentID = org.HeadAgentID
+		}
+	}
+	if agentID == "" {
+		httpResponse(w, "task has no assigned agent and no organization head agent", http.StatusUnprocessableEntity)
+		return
+	}
+
+	// Verify agent exists.
+	if s.agentStore != nil {
+		agent, agentErr := s.agentStore.GetAgent(ctx, agentID)
+		if agentErr != nil || agent == nil {
+			httpResponse(w, fmt.Sprintf("agent %q not found", agentID), http.StatusUnprocessableEntity)
+			return
+		}
+	}
+
+	// Build session name from task.
+	sessionName := task.Title
+	if task.Identifier != "" {
+		sessionName = task.Identifier + ": " + task.Title
+	}
+
+	// Create the chat session.
+	session, err := s.chatSessionStore.CreateChatSession(ctx, service.ChatSession{
+		AgentID:        agentID,
+		TaskID:         taskID,
+		OrganizationID: task.OrganizationID,
+		Name:           sessionName,
+		CreatedBy:      s.getUserEmail(r),
+		UpdatedBy:      s.getUserEmail(r),
+	})
+	if err != nil {
+		slog.Error("task chat: create session failed", "task_id", taskID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create session: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Import conversation state from task if available.
+	var importedCount int
+	if s.issueCommentStore != nil {
+		comments, commentErr := s.issueCommentStore.ListCommentsByTask(ctx, taskID)
+		if commentErr == nil {
+			for _, c := range comments {
+				if !strings.HasPrefix(c.Body, conversationStatePrefix) {
+					continue
+				}
+				stateJSON := strings.TrimPrefix(c.Body, conversationStatePrefix)
+				var restored []service.Message
+				if err := json.Unmarshal([]byte(stateJSON), &restored); err != nil {
+					slog.Warn("task chat: failed to parse conversation state", "task_id", taskID, "error", err)
+					continue
+				}
+
+				// Convert service.Message to ChatMessage and persist.
+				var chatMsgs []service.ChatMessage
+				for _, msg := range restored {
+					var data service.ChatMessageData
+					switch v := msg.Content.(type) {
+					case string:
+						data.Content = v
+					default:
+						data.Content = v
+					}
+					chatMsgs = append(chatMsgs, service.ChatMessage{
+						SessionID: session.ID,
+						Role:      msg.Role,
+						Data:      data,
+					})
+				}
+
+				if len(chatMsgs) > 0 {
+					if err := s.chatSessionStore.CreateChatMessages(ctx, chatMsgs); err != nil {
+						slog.Warn("task chat: failed to import conversation messages", "task_id", taskID, "error", err)
+					} else {
+						importedCount = len(chatMsgs)
+						slog.Info("task chat: imported conversation state",
+							"task_id", taskID, "session_id", session.ID, "messages", importedCount)
+					}
+				}
+
+				// Delete the state comment after importing.
+				_ = s.issueCommentStore.DeleteComment(ctx, c.ID)
+				break
+			}
+		}
+	}
+
+	// If no conversation state but task has a result, add it as context.
+	if importedCount == 0 && task.Result != "" {
+		contextMsg := service.ChatMessage{
+			SessionID: session.ID,
+			Role:      "user",
+			Data: service.ChatMessageData{
+				Content: fmt.Sprintf("## Task Context\n\n**Task**: %s\n**Status**: %s\n\n**Previous Result**:\n%s\n\nPlease continue working on this task.", task.Title, task.Status, task.Result),
+			},
+		}
+		if _, err := s.chatSessionStore.CreateChatMessage(ctx, contextMsg); err != nil {
+			slog.Warn("task chat: failed to add context message", "task_id", taskID, "error", err)
+		}
+	}
+
+	slog.Info("task chat: session created",
+		"task_id", taskID, "session_id", session.ID, "agent_id", agentID, "imported_messages", importedCount)
+
+	httpResponseJSON(w, session, http.StatusCreated)
 }

@@ -46,6 +46,19 @@ func (m *Memory) GetChatSession(_ context.Context, id string) (*service.ChatSess
 	return &s, nil
 }
 
+func (m *Memory) GetChatSessionByTaskID(_ context.Context, taskID string) (*service.ChatSession, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, s := range m.chatSessions {
+		if s.TaskID == taskID && s.TaskID != "" {
+			return &s, nil
+		}
+	}
+
+	return nil, nil
+}
+
 func (m *Memory) GetChatSessionByPlatform(_ context.Context, platform, platformUserID, platformChannelID string) (*service.ChatSession, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -64,14 +77,16 @@ func (m *Memory) CreateChatSession(_ context.Context, session service.ChatSessio
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	rec := service.ChatSession{
-		ID:        id,
-		AgentID:   session.AgentID,
-		Name:      session.Name,
-		Config:    session.Config,
-		CreatedAt: now,
-		UpdatedAt: now,
-		CreatedBy: session.CreatedBy,
-		UpdatedBy: session.UpdatedBy,
+		ID:             id,
+		AgentID:        session.AgentID,
+		TaskID:         session.TaskID,
+		OrganizationID: session.OrganizationID,
+		Name:           session.Name,
+		Config:         session.Config,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		CreatedBy:      session.CreatedBy,
+		UpdatedBy:      session.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -98,6 +113,12 @@ func (m *Memory) UpdateChatSession(_ context.Context, id string, session service
 	existing.UpdatedBy = session.UpdatedBy
 	if session.AgentID != "" {
 		existing.AgentID = session.AgentID
+	}
+	if session.TaskID != "" {
+		existing.TaskID = session.TaskID
+	}
+	if session.OrganizationID != "" {
+		existing.OrganizationID = session.OrganizationID
 	}
 
 	m.chatSessions[id] = existing

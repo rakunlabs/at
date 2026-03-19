@@ -205,7 +205,10 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}rag_mcp_servers (
 CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}mcp_servers (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
     config JSONB NOT NULL DEFAULT '{}',
+    servers JSONB NOT NULL DEFAULT '[]',
+    urls JSONB NOT NULL DEFAULT '[]',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
     created_by TEXT,
@@ -234,6 +237,8 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}mcp_sets (
 CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}chat_sessions (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL,
+    task_id TEXT DEFAULT '',
+    organization_id TEXT DEFAULT '',
     name TEXT NOT NULL DEFAULT '',
     config JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,

@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"database/sql"
 	"embed"
 	"fmt"
 	"log/slog"
@@ -19,9 +18,9 @@ func MigrateDB(ctx context.Context, cfg *config.Migrate) error {
 		return fmt.Errorf("migrate datasource is required")
 	}
 
-	db, err := sql.Open("pgx", cfg.Datasource)
+	db, err := connectDB(ctx, cfg.Datasource, cfg.Schema)
 	if err != nil {
-		return fmt.Errorf("open postgres connection: %w", err)
+		return err
 	}
 
 	m := muz.Migrate{

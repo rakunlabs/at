@@ -73,13 +73,16 @@ func (m *Memory) CreateMCPServer(_ context.Context, srv service.MCPServer) (*ser
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	rec := service.MCPServer{
-		ID:        id,
-		Name:      srv.Name,
-		Config:    normalized,
-		CreatedAt: now,
-		UpdatedAt: now,
-		CreatedBy: srv.CreatedBy,
-		UpdatedBy: srv.UpdatedBy,
+		ID:          id,
+		Name:        srv.Name,
+		Description: srv.Description,
+		Config:      normalized,
+		Servers:     srv.Servers,
+		URLs:        srv.URLs,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+		CreatedBy:   srv.CreatedBy,
+		UpdatedBy:   srv.UpdatedBy,
 	}
 
 	m.mu.Lock()
@@ -110,7 +113,10 @@ func (m *Memory) UpdateMCPServer(_ context.Context, id string, srv service.MCPSe
 	}
 
 	existing.Name = srv.Name
+	existing.Description = srv.Description
 	existing.Config = normalized
+	existing.Servers = srv.Servers
+	existing.URLs = srv.URLs
 	existing.UpdatedAt = now
 	existing.UpdatedBy = srv.UpdatedBy
 	m.mcpServers[id] = existing

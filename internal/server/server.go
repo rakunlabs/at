@@ -100,17 +100,11 @@ type Server struct {
 	// ragStateStore is the persistent store for RAG sync states.
 	ragStateStore service.RAGStateStorer
 
-	// ragMCPServerStore is the persistent store for named RAG MCP server configurations.
-	ragMCPServerStore service.RAGMCPServerStorer
-
 	// ragPageStore is the persistent store for original file content (RAG pages).
 	ragPageStore service.RAGPageStorer
 
 	// mcpServerStore is the persistent store for general MCP server configurations.
 	mcpServerStore service.MCPServerStorer
-
-	// mcpSetStore is the persistent store for MCP set configurations.
-	mcpSetStore service.MCPSetStorer
 
 	// botConfigStore is the persistent store for bot configurations.
 	botConfigStore service.BotConfigStorer
@@ -328,10 +322,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		chatSessionStore:         store,
 		ragCollectionStore:       store,
 		ragStateStore:            store,
-		ragMCPServerStore:        store,
 		ragPageStore:             store,
 		mcpServerStore:           store,
-		mcpSetStore:              store,
 		botConfigStore:           store,
 		marketplaceSourceStore:   store,
 		userPrefStore:            store,
@@ -503,14 +495,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
 	webhookGroup.POST("/{id}", s.WebhookAPI)
 
-	// Gateway MCP endpoints for named RAG MCP servers (auth-gated)
-	gatewayGroup.POST("/v1/mcp/rag/{name}", s.GatewayRAGMCPHandler)
-
 	// General MCP gateway endpoint (auth-gated)
 	gatewayGroup.POST("/v1/mcp/{name}", s.GatewayMCPHandler)
-
-	// MCP Set gateway endpoint — serves tools from an MCP Set's own config
-	gatewayGroup.POST("/v1/mcp-set/{name}", s.GatewayMCPSetHandler)
+	gatewayGroup.POST("/v1/mcp/{name}/mcp", s.GatewayMCPHandler) // MCP clients append /mcp per spec
+	gatewayGroup.GET("/v1/mcp/{name}", s.GatewayMCPSSEHandler)
+	gatewayGroup.GET("/v1/mcp/{name}/mcp", s.GatewayMCPSSEHandler)
 
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
@@ -658,6 +647,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.POST("/v1/tasks/{id}/checkout", s.CheckoutTaskAPI)
 	apiGroup.POST("/v1/tasks/{id}/release", s.ReleaseTaskAPI)
 	apiGroup.POST("/v1/tasks/{id}/process", s.ProcessTaskAPI)
+	apiGroup.POST("/v1/tasks/{id}/chat", s.CreateTaskChatAPI)
 
 	// Model pricing
 	apiGroup.GET("/v1/model-pricing", s.ListModelPricingAPI)
@@ -776,13 +766,6 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// RAG search
 	apiGroup.POST("/v1/rag/search", s.SearchRAGAPI)
 
-	// RAG MCP server management
-	apiGroup.GET("/v1/rag/mcp-servers", s.ListRAGMCPServersAPI)
-	apiGroup.POST("/v1/rag/mcp-servers", s.CreateRAGMCPServerAPI)
-	apiGroup.GET("/v1/rag/mcp-servers/{id}", s.GetRAGMCPServerAPI)
-	apiGroup.PUT("/v1/rag/mcp-servers/{id}", s.UpdateRAGMCPServerAPI)
-	apiGroup.DELETE("/v1/rag/mcp-servers/{id}", s.DeleteRAGMCPServerAPI)
-
 	// RAG embedding tools
 	apiGroup.POST("/v1/rag/discover-embedding-models", s.DiscoverEmbeddingModelsAPI)
 	apiGroup.POST("/v1/rag/test-embedding", s.TestEmbeddingAPI)
@@ -813,6 +796,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// OAuth2 flow (generic, provider in query param)
 	apiGroup.GET("/v1/oauth/start", s.OAuthStartAPI)
 	apiGroup.GET("/v1/oauth/callback", s.OAuthCallbackAPI)
+	apiGroup.GET("/v1/oauth/manual-url", s.OAuthManualAuthURLAPI)
+	apiGroup.GET("/v1/oauth/code-display", s.OAuthCodeDisplayAPI)
+	apiGroup.POST("/v1/oauth/exchange", s.OAuthExchangeAPI)
+	apiGroup.GET("/v1/oauth/connections", s.OAuthConnectionsAPI)
+	apiGroup.DELETE("/v1/oauth/connections/{provider}", s.OAuthDisconnectAPI)
 
 	// General MCP server management
 	apiGroup.GET("/v1/mcp/servers", s.ListMCPServersAPI)
@@ -825,13 +813,6 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/mcp-templates", s.ListMCPTemplatesAPI)
 	apiGroup.GET("/v1/mcp-templates/{slug}", s.GetMCPTemplateAPI)
 	apiGroup.POST("/v1/mcp-templates/{slug}/install", s.InstallMCPTemplateAPI)
-
-	// MCP set management
-	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
-	apiGroup.POST("/v1/mcp/sets", s.CreateMCPSetAPI)
-	apiGroup.GET("/v1/mcp/sets/{id}", s.GetMCPSetAPI)
-	apiGroup.PUT("/v1/mcp/sets/{id}", s.UpdateMCPSetAPI)
-	apiGroup.DELETE("/v1/mcp/sets/{id}", s.DeleteMCPSetAPI)
 
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)

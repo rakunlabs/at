@@ -16,16 +16,16 @@ var mcpTemplateFS embed.FS
 
 // MCPTemplate is a predefined MCP configuration that ships with AT.
 type MCPTemplate struct {
-	Slug        string             `json:"slug"`
-	Name        string             `json:"name"`
-	Description string             `json:"description"`
-	Category    string             `json:"category"`
-	Tags        []string           `json:"tags"`
-	MCPSet      MCPTemplateSetData `json:"mcp_set"`
+	Slug        string                `json:"slug"`
+	Name        string                `json:"name"`
+	Description string                `json:"description"`
+	Category    string                `json:"category"`
+	Tags        []string              `json:"tags"`
+	MCPServer   MCPTemplateServerData `json:"mcp_server"`
 }
 
-// MCPTemplateSetData holds the MCP set payload to be installed.
-type MCPTemplateSetData struct {
+// MCPTemplateServerData holds the MCP server payload to be installed.
+type MCPTemplateServerData struct {
 	Name        string                  `json:"name"`
 	Description string                  `json:"description"`
 	Config      service.MCPServerConfig `json:"config"`
@@ -95,7 +95,7 @@ func (s *Server) GetMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
 
 // InstallMCPTemplateAPI handles POST /api/v1/mcp-templates/{slug}/install.
 func (s *Server) InstallMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
-	if s.mcpSetStore == nil {
+	if s.mcpServerStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -115,15 +115,15 @@ func (s *Server) InstallMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
 
 	userEmail := s.getUserEmail(r)
 
-	mcpSet := service.MCPSet{
-		Name:        tmpl.MCPSet.Name,
-		Description: tmpl.MCPSet.Description,
-		Config:      tmpl.MCPSet.Config,
+	srv := service.MCPServer{
+		Name:        tmpl.MCPServer.Name,
+		Description: tmpl.MCPServer.Description,
+		Config:      tmpl.MCPServer.Config,
 		CreatedBy:   userEmail,
 		UpdatedBy:   userEmail,
 	}
 
-	record, err := s.mcpSetStore.CreateMCPSet(r.Context(), mcpSet)
+	record, err := s.mcpServerStore.CreateMCPServer(r.Context(), srv)
 	if err != nil {
 		slog.Error("install mcp template failed", "slug", slug, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to install template: %v", err), http.StatusInternalServerError)

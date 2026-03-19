@@ -1,0 +1,123 @@
+{
+  "name": "YouTube Shorts Publish",
+  "description": "Uploads a video to YouTube Shorts via the YouTube Data API v3. Triggered by HTTP webhook with video_url, title, description, tags, and visibility.",
+  "graph": {
+    "nodes": [
+      {
+        "id": "trigger-1",
+        "type": "http_trigger",
+        "position": { "x": 100, "y": 300 },
+        "data": {
+          "label": "Publish Webhook",
+          "alias": "youtube-publish"
+        },
+        "node_number": 1
+      },
+      {
+        "id": "validate-1",
+        "type": "script",
+        "position": { "x": 400, "y": 300 },
+        "data": {
+          "label": "Validate Input",
+          "script": "var d = inputs.data;\nif (!d.video_url) throw new Error('video_url is required');\nif (!d.title) throw new Error('title is required');\nvar desc = d.description || '';\nif (desc.indexOf('#Shorts') === -1) desc += '\\n\\n#Shorts';\nreturn {\n  video_url: d.video_url,\n  title: d.title,\n  description: desc,\n  tags: d.tags || [],\n  visibility: d.visibility || 'public',\n  category_id: d.category_id || '22'\n};"
+        },
+        "node_number": 2
+      },
+      {
+        "id": "oauth-1",
+        "type": "script",
+        "position": { "x": 700, "y": 300 },
+        "data": {
+          "label": "Refresh OAuth Token",
+          "script": "var clientId = getVar('youtube_client_id');\nvar clientSecret = getVar('youtube_client_secret');\nvar refreshToken = getVar('youtube_refresh_token');\nif (!clientId || !clientSecret || !refreshToken) throw new Error('YouTube OAuth2 credentials not configured');\nvar body = 'client_id=' + encodeURIComponent(clientId) + '&client_secret=' + encodeURIComponent(clientSecret) + '&refresh_token=' + encodeURIComponent(refreshToken) + '&grant_type=refresh_token';\nvar resp = httpPost('https://oauth2.googleapis.com/token', body, {'Content-Type': 'application/x-www-form-urlencoded'});\nif (resp.status !== 200) throw new Error('Token refresh failed: ' + toString(resp.body));\nvar data = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\nreturn {access_token: data.access_token, video: inputs.data};"
+        },
+        "node_number": 3
+      },
+      {
+        "id": "upload-1",
+        "type": "http_request",
+        "position": { "x": 1000, "y": 300 },
+        "data": {
+          "label": "Upload to YouTube",
+          "method": "POST",
+          "url": "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=multipart&part=snippet,status",
+          "headers": {
+            "Authorization": "Bearer {{.data.access_token}}"
+          },
+          "body": "{\"snippet\":{\"title\":\"{{.data.video.title}}\",\"description\":\"{{.data.video.description}}\",\"categoryId\":\"{{.data.video.category_id}}\"},\"status\":{\"privacyStatus\":\"{{.data.video.visibility}}\",\"selfDeclaredMadeForKids\":false}}",
+          "content_type": "application/json"
+        },
+        "node_number": 4
+      },
+      {
+        "id": "success-1",
+        "type": "output",
+        "position": { "x": 1300, "y": 200 },
+        "data": {
+          "label": "Published"
+        },
+        "node_number": 5
+      },
+      {
+        "id": "error-1",
+        "type": "output",
+        "position": { "x": 1300, "y": 450 },
+        "data": {
+          "label": "Failed"
+        },
+        "node_number": 6
+      }
+    ],
+    "edges": [
+      {
+        "id": "e-trigger-validate",
+        "source": "trigger-1",
+        "target": "validate-1",
+        "source_handle": "output",
+        "target_handle": "input"
+      },
+      {
+        "id": "e-validate-oauth-ok",
+        "source": "validate-1",
+        "target": "oauth-1",
+        "source_handle": "true",
+        "target_handle": "input"
+      },
+      {
+        "id": "e-validate-error",
+        "source": "validate-1",
+        "target": "error-1",
+        "source_handle": "false",
+        "target_handle": "input"
+      },
+      {
+        "id": "e-oauth-upload-ok",
+        "source": "oauth-1",
+        "target": "upload-1",
+        "source_handle": "true",
+        "target_handle": "input"
+      },
+      {
+        "id": "e-oauth-error",
+        "source": "oauth-1",
+        "target": "error-1",
+        "source_handle": "false",
+        "target_handle": "input"
+      },
+      {
+        "id": "e-upload-success",
+        "source": "upload-1",
+        "target": "success-1",
+        "source_handle": "success",
+        "target_handle": "input"
+      },
+      {
+        "id": "e-upload-error",
+        "source": "upload-1",
+        "target": "error-1",
+        "source_handle": "error",
+        "target_handle": "input"
+      }
+    ]
+  }
+}

@@ -49,10 +49,8 @@ type Postgres struct {
 	tableChatMessages         exp.IdentifierExpression
 	tableRAGCollections       exp.IdentifierExpression
 	tableRAGStates            exp.IdentifierExpression
-	tableRAGMCPServers        exp.IdentifierExpression
 	tableRAGPages             exp.IdentifierExpression
 	tableMCPServers           exp.IdentifierExpression
-	tableMCPSets              exp.IdentifierExpression
 	tableBotConfigs           exp.IdentifierExpression
 	tableMarketplaceSources   exp.IdentifierExpression
 	tableTokenUsage           exp.IdentifierExpression
@@ -84,6 +82,30 @@ type Postgres struct {
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
 	encKey   []byte
 	encKeyMu sync.RWMutex
+}
+
+func connectDB(ctx context.Context, datasource, schema string) (*sql.DB, error) {
+	db, err := sql.Open("pgx", datasource)
+	if err != nil {
+		return nil, fmt.Errorf("open postgres connection: %w", err)
+	}
+
+	if err := db.PingContext(ctx); err != nil {
+		db.Close()
+
+		return nil, fmt.Errorf("ping postgres: %w", err)
+	}
+
+	// Set schema search path if configured.
+	if schema != "" {
+		if _, err := db.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", schema)); err != nil {
+			db.Close()
+
+			return nil, fmt.Errorf("set search_path: %w", err)
+		}
+	}
+
+	return db, nil
 }
 
 func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgres, error) {
@@ -126,24 +148,9 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 	}
 	// /////////////////////////////////////////////
 
-	db, err := sql.Open("pgx", cfg.Datasource)
+	db, err := connectDB(ctx, cfg.Datasource, cfg.Schema)
 	if err != nil {
-		return nil, fmt.Errorf("open postgres connection: %w", err)
-	}
-
-	if err := db.PingContext(ctx); err != nil {
-		db.Close()
-
-		return nil, fmt.Errorf("ping postgres: %w", err)
-	}
-
-	// Set schema search path if configured.
-	if cfg.Schema != "" {
-		if _, err := db.ExecContext(ctx, fmt.Sprintf("SET search_path TO %s", cfg.Schema)); err != nil {
-			db.Close()
-
-			return nil, fmt.Errorf("set search_path: %w", err)
-		}
+		return nil, err
 	}
 
 	if cfg.ConnMaxLifetime != nil {
@@ -180,10 +187,8 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableChatMessages:         goqu.T(tablePrefix + "chat_messages"),
 		tableRAGCollections:       goqu.T(tablePrefix + "rag_collections"),
 		tableRAGStates:            goqu.T(tablePrefix + "rag_states"),
-		tableRAGMCPServers:        goqu.T(tablePrefix + "rag_mcp_servers"),
 		tableRAGPages:             goqu.T(tablePrefix + "rag_pages"),
 		tableMCPServers:           goqu.T(tablePrefix + "mcp_servers"),
-		tableMCPSets:              goqu.T(tablePrefix + "mcp_sets"),
 		tableBotConfigs:           goqu.T(tablePrefix + "bot_configs"),
 		tableMarketplaceSources:   goqu.T(tablePrefix + "marketplace_sources"),
 		tableTokenUsage:           goqu.T(tablePrefix + "token_usage"),

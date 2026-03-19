@@ -237,11 +237,11 @@ func (a *gitAuthResult) authURL(repoURL string) string {
 	return repoURL
 }
 
-// resolveGitAuth resolves git authentication from a RAGMCPServer's config
+// resolveGitAuth resolves git authentication from a ragMCPConfig
 // by looking up TokenVariable and SSHKeyVariable in the variable store.
 // Returns a gitAuthResult that the caller must clean up via result.cleanup().
 // If the server config has no auth variables, returns a zero-value result (no auth).
-func resolveGitAuth(ctx context.Context, variableStore service.VariableStorer, srv *service.RAGMCPServer) (*gitAuthResult, error) {
+func resolveGitAuth(ctx context.Context, variableStore service.VariableStorer, srv *ragMCPConfig) (*gitAuthResult, error) {
 	result := &gitAuthResult{}
 
 	if srv == nil || variableStore == nil {
@@ -249,26 +249,26 @@ func resolveGitAuth(ctx context.Context, variableStore service.VariableStorer, s
 	}
 
 	// Carry token user from config (empty = default).
-	result.tokenUser = srv.Config.TokenUser
+	result.tokenUser = srv.TokenUser
 
 	// Resolve HTTPS token.
-	if srv.Config.TokenVariable != "" {
-		v, err := variableStore.GetVariableByKey(ctx, srv.Config.TokenVariable)
+	if srv.TokenVariable != "" {
+		v, err := variableStore.GetVariableByKey(ctx, srv.TokenVariable)
 		if err != nil {
-			return result, fmt.Errorf("resolve token variable %q: %w", srv.Config.TokenVariable, err)
+			return result, fmt.Errorf("resolve token variable %q: %w", srv.TokenVariable, err)
 		}
 		if v != nil {
 			result.token = v.Value
 		} else {
-			slog.Warn("git auth: token variable not found", "key", srv.Config.TokenVariable)
+			slog.Warn("git auth: token variable not found", "key", srv.TokenVariable)
 		}
 	}
 
 	// Resolve SSH key.
-	if srv.Config.SSHKeyVariable != "" {
-		v, err := variableStore.GetVariableByKey(ctx, srv.Config.SSHKeyVariable)
+	if srv.SSHKeyVariable != "" {
+		v, err := variableStore.GetVariableByKey(ctx, srv.SSHKeyVariable)
 		if err != nil {
-			return result, fmt.Errorf("resolve ssh key variable %q: %w", srv.Config.SSHKeyVariable, err)
+			return result, fmt.Errorf("resolve ssh key variable %q: %w", srv.SSHKeyVariable, err)
 		}
 		if v != nil && v.Value != "" {
 			tmpFile, err := os.CreateTemp("", "at-mcp-ssh-*")
@@ -290,7 +290,7 @@ func resolveGitAuth(ctx context.Context, variableStore service.VariableStorer, s
 			)
 			result.cleanup = func() { os.Remove(tmpFile.Name()) }
 		} else {
-			slog.Warn("git auth: ssh key variable not found or empty", "key", srv.Config.SSHKeyVariable)
+			slog.Warn("git auth: ssh key variable not found or empty", "key", srv.SSHKeyVariable)
 		}
 	}
 

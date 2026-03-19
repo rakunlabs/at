@@ -100,11 +100,25 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	env := os.Environ()
 
 	// Overlay tool arguments as ARG_<NAME>.
+	// Strings are passed as-is; all other types (arrays, objects, numbers,
+	// booleans) are JSON-encoded so that bash scripts can parse them with
+	// standard JSON tools (e.g., python3 -c "import json; ...").
 	for k, v := range args {
 		envKey := "ARG_" + strings.ToUpper(
 			strings.NewReplacer(".", "_", "-", "_").Replace(k),
 		)
-		env = append(env, envKey+"="+fmt.Sprintf("%v", v))
+		var envVal string
+		switch tv := v.(type) {
+		case string:
+			envVal = tv
+		default:
+			if b, err := json.Marshal(tv); err == nil {
+				envVal = string(b)
+			} else {
+				envVal = fmt.Sprintf("%v", tv)
+			}
+		}
+		env = append(env, envKey+"="+envVal)
 	}
 
 	// Overlay all variables as VAR_<KEY> env vars.

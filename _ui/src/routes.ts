@@ -12,7 +12,6 @@ import WorkflowEditor from '@/pages/WorkflowEditor.svelte';
 import Runs from '@/pages/Runs.svelte';
 import Rag from '@/pages/Rag.svelte';
 import McpServers from '@/pages/McpServers.svelte';
-import McpSets from '@/pages/McpSets.svelte';
 import Bots from '@/pages/Bots.svelte';
 import Docs from '@/pages/Docs.svelte';
 import Settings from '@/pages/Settings.svelte';
@@ -26,6 +25,7 @@ import Audit from '@/pages/Audit.svelte';
 import CostEvents from '@/pages/CostEvents.svelte';
 import AgentMemories from '@/pages/AgentMemories.svelte';
 import AgentMemoryDetail from '@/pages/AgentMemoryDetail.svelte';
+import Connections from '@/pages/Connections.svelte';
 import NotFound from '@/pages/NotFound.svelte';
 
 export default {
@@ -44,8 +44,8 @@ export default {
   '/webhooks': Webhooks,
   '/crons': Crons,
   '/rag': Rag,
+  '/connections': Connections,
   '/mcp-servers': McpServers,
-  '/mcps': McpSets,
   '/bots': Bots,
   '/docs': Docs,
   '/settings': Settings,

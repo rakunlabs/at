@@ -24,267 +24,38 @@ import (
 
 const defaultRAGGitCacheDir = "/tmp/at-git-cache"
 
-// GatewayRAGMCPHandler handles MCP protocol requests at /gateway/v1/mcp/rag/{name}.
-// Each named endpoint is configured with specific collections, tools, and fetch options.
-// Auth uses the same Bearer token mechanism as the gateway chat completions endpoint.
-func (s *Server) GatewayRAGMCPHandler(w http.ResponseWriter, r *http.Request) {
-	if s.ragService == nil {
-		httpResponse(w, "rag service not configured", http.StatusServiceUnavailable)
-		return
-	}
+// ragMCPConfig is a local compatibility struct used by the RAG tool implementations.
+// It replaces the removed service.RAGMCPServer type.
+type ragMCPConfig struct {
+	Name              string
+	CollectionIDs     []string
+	EnabledTools      []string
+	FetchMode         string
+	GitCacheDir       string
+	DefaultNumResults int
+	TokenVariable     string
+	TokenUser         string
+	SSHKeyVariable    string
+}
 
-	if s.ragMCPServerStore == nil {
-		httpResponse(w, "rag mcp server store not configured", http.StatusServiceUnavailable)
-		return
-	}
-
-	if r.Method != http.MethodPost {
-		httpResponse(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Authenticate.
-	auth, errMsg := s.authenticateRequest(r)
-	if auth == nil {
-		httpResponse(w, errMsg, http.StatusUnauthorized)
-		return
-	}
-
-	// Look up the named MCP server config.
-	name := r.PathValue("name")
-	if name == "" {
-		httpResponse(w, "mcp server name is required", http.StatusBadRequest)
-		return
-	}
-
-	// Check token scoping for RAG MCP servers.
-	if auth.token != nil {
-		ragMode := service.ResolveAccessMode(auth.token.AllowedRAGMCPsMode, auth.token.AllowedRAGMCPs)
-		if ragMode == service.AccessModeNone {
-			httpResponse(w, "token does not have access to any RAG MCP servers", http.StatusForbidden)
-			return
-		}
-		if ragMode == service.AccessModeList {
-			if !slices.Contains(auth.token.AllowedRAGMCPs, name) {
-				httpResponse(w, fmt.Sprintf("token does not have access to RAG MCP server %q", name), http.StatusForbidden)
-				return
-			}
-		}
-	}
-
-	mcpServer, err := s.ragMCPServerStore.GetRAGMCPServerByName(r.Context(), name)
-	if err != nil {
-		slog.Error("get rag mcp server failed", "name", name, "error", err)
-		httpResponse(w, "internal error looking up MCP server", http.StatusInternalServerError)
-		return
-	}
-	if mcpServer == nil {
-		httpResponse(w, fmt.Sprintf("RAG MCP server %q not found", name), http.StatusNotFound)
-		return
-	}
-
-	// Parse the JSON-RPC request.
-	var req service.MCPRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	// Route by method.
-	switch req.Method {
-	case "initialize":
-		s.gwMCPInitialize(w, req, mcpServer)
-	case "notifications/initialized":
-		w.WriteHeader(http.StatusOK)
-	case "tools/list":
-		s.gwMCPListTools(w, req, mcpServer)
-	case "tools/call":
-		s.gwMCPCallTool(w, r, req, mcpServer)
-	default:
-		mcpError(w, req.ID, -32601, fmt.Sprintf("method not found: %s", req.Method))
+// ragMCPConfigFromServer builds a ragMCPConfig from an MCPServer's config.
+func ragMCPConfigFromServer(srv *service.MCPServer) *ragMCPConfig {
+	return &ragMCPConfig{
+		Name:              srv.Name,
+		CollectionIDs:     srv.Config.CollectionIDs,
+		EnabledTools:      srv.Config.EnabledRAGTools,
+		FetchMode:         srv.Config.FetchMode,
+		GitCacheDir:       srv.Config.GitCacheDir,
+		DefaultNumResults: srv.Config.DefaultNumResults,
+		TokenVariable:     srv.Config.TokenVariable,
+		TokenUser:         srv.Config.TokenUser,
+		SSHKeyVariable:    srv.Config.SSHKeyVariable,
 	}
 }
 
-// ─── Gateway MCP Handlers ───
+// ─── Tool Implementations ───
 
-func (s *Server) gwMCPInitialize(w http.ResponseWriter, req service.MCPRequest, srv *service.RAGMCPServer) {
-	description := srv.Config.Description
-	if description == "" {
-		description = fmt.Sprintf("RAG MCP server: %s", srv.Name)
-	}
-
-	result := map[string]any{
-		"protocolVersion": "2024-11-05",
-		"capabilities": map[string]any{
-			"tools": map[string]any{},
-		},
-		"serverInfo": map[string]string{
-			"name":    fmt.Sprintf("at-rag-%s", srv.Name),
-			"version": "1.0.0",
-		},
-	}
-
-	mcpResult(w, req.ID, result)
-}
-
-func (s *Server) gwMCPListTools(w http.ResponseWriter, req service.MCPRequest, srv *service.RAGMCPServer) {
-	enabledTools := srv.Config.EnabledTools
-	if len(enabledTools) == 0 {
-		// Default: enable all tools.
-		enabledTools = []string{"rag_search", "rag_list_collections", "rag_fetch_source", "rag_search_and_fetch", "rag_search_and_fetch_org"}
-	}
-
-	var tools []service.Tool
-
-	for _, toolName := range enabledTools {
-		switch toolName {
-		case "rag_search":
-			tools = append(tools, service.Tool{
-				Name:        "rag_search",
-				Description: "Search documents in the RAG knowledge base by semantic similarity. Returns relevant document chunks with full metadata (source, path, repo_url, commit_sha, content_type, score).",
-				InputSchema: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "The natural language search query",
-						},
-						"collection_ids": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Optional list of collection IDs to search. If empty, searches all collections configured for this MCP server.",
-						},
-						"num_results": map[string]any{
-							"type":        "integer",
-							"description": fmt.Sprintf("Maximum number of results to return (default: %d)", gwDefaultNumResults(srv.Config.DefaultNumResults)),
-						},
-						"score_threshold": map[string]any{
-							"type":        "number",
-							"description": "Minimum similarity score threshold (0-1). Results below this are filtered out.",
-						},
-					},
-					"required": []string{"query"},
-				},
-			})
-		case "rag_list_collections":
-			tools = append(tools, service.Tool{
-				Name:        "rag_list_collections",
-				Description: "List available RAG document collections that this MCP server can search.",
-				InputSchema: map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
-				},
-			})
-		case "rag_fetch_source":
-			tools = append(tools, service.Tool{
-				Name:        "rag_fetch_source",
-				Description: "Fetch the original full content of a document by its source URL or path. Supports HTTP/HTTPS URLs and local git cache. Use this after rag_search to retrieve the complete original file when chunks are insufficient. Pass commit_sha and repo_url from search result metadata for exact version fetching.",
-				InputSchema: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"source": map[string]any{
-							"type":        "string",
-							"description": "The source URL or path from the rag_search result metadata",
-						},
-						"max_size": map[string]any{
-							"type":        "integer",
-							"description": "Maximum content size in bytes to return (default: 102400, max: 1048576). Content is truncated if larger.",
-						},
-						"commit_sha": map[string]any{
-							"type":        "string",
-							"description": "The commit SHA from search result metadata. When provided with repo_url, fetches the file at this exact commit.",
-						},
-						"branch": map[string]any{
-							"type":        "string",
-							"description": "The branch name from search result metadata. Used for cache lookup when commit_sha is not available.",
-						},
-						"repo_url": map[string]any{
-							"type":        "string",
-							"description": "The repository URL from search result metadata. Required for git-based fetching when commit_sha is provided.",
-						},
-					},
-					"required": []string{"source"},
-				},
-			})
-		case "rag_search_and_fetch":
-			tools = append(tools, service.Tool{
-				Name:        "rag_search_and_fetch",
-				Description: "Search the RAG knowledge base and automatically fetch the full source files for the top results. Combines rag_search + rag_fetch_source into a single call — returns both search result chunks with metadata and the complete original file contents, deduplicated by source.",
-				InputSchema: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "The natural language search query",
-						},
-						"collection_ids": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Optional list of collection IDs to search. If empty, searches all collections configured for this MCP server.",
-						},
-						"num_results": map[string]any{
-							"type":        "integer",
-							"description": fmt.Sprintf("Maximum number of search results to return (default: %d)", gwDefaultNumResults(srv.Config.DefaultNumResults)),
-						},
-						"score_threshold": map[string]any{
-							"type":        "number",
-							"description": "Minimum similarity score threshold (0-1). Results below this are filtered out.",
-						},
-						"max_sources": map[string]any{
-							"type":        "integer",
-							"description": "Maximum number of unique source files to fetch (default: 3, max: 5). Sources are deduplicated and fetched in order of best search score.",
-						},
-						"max_source_size": map[string]any{
-							"type":        "integer",
-							"description": "Maximum size in bytes per fetched source file (default: 102400). Content is truncated if larger.",
-						},
-					},
-					"required": []string{"query"},
-				},
-			})
-		case "rag_search_and_fetch_org":
-			tools = append(tools, service.Tool{
-				Name:        "rag_search_and_fetch_org",
-				Description: "Search the RAG knowledge base and return only the full original source files without chunks. Uses semantic search internally to identify relevant files, then fetches and returns the complete original content of each unique source file, deduplicated by source.",
-				InputSchema: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"query": map[string]any{
-							"type":        "string",
-							"description": "The natural language search query",
-						},
-						"collection_ids": map[string]any{
-							"type":        "array",
-							"items":       map[string]any{"type": "string"},
-							"description": "Optional list of collection IDs to search. If empty, searches all collections configured for this MCP server.",
-						},
-						"num_results": map[string]any{
-							"type":        "integer",
-							"description": fmt.Sprintf("Maximum number of search results to examine for unique sources (default: %d)", gwDefaultNumResults(srv.Config.DefaultNumResults)),
-						},
-						"score_threshold": map[string]any{
-							"type":        "number",
-							"description": "Minimum similarity score threshold (0-1). Results below this are filtered out.",
-						},
-						"max_sources": map[string]any{
-							"type":        "integer",
-							"description": "Maximum number of unique source files to fetch (default: 3, max: 5). Sources are deduplicated and fetched in order of best search score.",
-						},
-						"max_source_size": map[string]any{
-							"type":        "integer",
-							"description": "Maximum size in bytes per fetched source file (default: 102400). Content is truncated if larger.",
-						},
-					},
-					"required": []string{"query"},
-				},
-			})
-		}
-	}
-
-	mcpResult(w, req.ID, service.ListToolsResult{Tools: tools})
-}
-
-func (s *Server) gwMCPCallTool(w http.ResponseWriter, r *http.Request, req service.MCPRequest, srv *service.RAGMCPServer) {
+func (s *Server) gwMCPCallTool(w http.ResponseWriter, r *http.Request, req service.MCPRequest, srv *ragMCPConfig) {
 	paramsJSON, err := json.Marshal(req.Params)
 	if err != nil {
 		mcpError(w, req.ID, -32602, fmt.Sprintf("invalid params: %v", err))
@@ -298,7 +69,7 @@ func (s *Server) gwMCPCallTool(w http.ResponseWriter, r *http.Request, req servi
 	}
 
 	// Check if the tool is enabled for this MCP server.
-	enabledTools := srv.Config.EnabledTools
+	enabledTools := srv.EnabledTools
 	if len(enabledTools) == 0 {
 		enabledTools = []string{"rag_search", "rag_list_collections", "rag_fetch_source", "rag_search_and_fetch", "rag_search_and_fetch_org"}
 	}
@@ -325,7 +96,7 @@ func (s *Server) gwMCPCallTool(w http.ResponseWriter, r *http.Request, req servi
 
 // ─── Tool Implementations ───
 
-func (s *Server) gwMCPSearch(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *service.RAGMCPServer) {
+func (s *Server) gwMCPSearch(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *ragMCPConfig) {
 	var searchReq rag.SearchRequest
 
 	if q, ok := args["query"].(string); ok {
@@ -346,15 +117,15 @@ func (s *Server) gwMCPSearch(w http.ResponseWriter, r *http.Request, id int, arg
 	}
 
 	// If no collection_ids provided by the caller, default to the MCP server's configured collections.
-	if len(searchReq.CollectionIDs) == 0 && len(srv.Config.CollectionIDs) > 0 {
-		searchReq.CollectionIDs = srv.Config.CollectionIDs
+	if len(searchReq.CollectionIDs) == 0 && len(srv.CollectionIDs) > 0 {
+		searchReq.CollectionIDs = srv.CollectionIDs
 	}
 
 	// If caller provided collection_ids, scope them to the server's allowed set (if configured).
-	if len(searchReq.CollectionIDs) > 0 && len(srv.Config.CollectionIDs) > 0 {
+	if len(searchReq.CollectionIDs) > 0 && len(srv.CollectionIDs) > 0 {
 		var scoped []string
 		for _, id := range searchReq.CollectionIDs {
-			if slices.Contains(srv.Config.CollectionIDs, id) {
+			if slices.Contains(srv.CollectionIDs, id) {
 				scoped = append(scoped, id)
 			}
 		}
@@ -369,7 +140,7 @@ func (s *Server) gwMCPSearch(w http.ResponseWriter, r *http.Request, id int, arg
 		searchReq.NumResults = int(n)
 	}
 	if searchReq.NumResults <= 0 {
-		searchReq.NumResults = gwDefaultNumResults(srv.Config.DefaultNumResults)
+		searchReq.NumResults = gwDefaultNumResults(srv.DefaultNumResults)
 	}
 
 	if t, ok := args["score_threshold"].(float64); ok {
@@ -426,7 +197,7 @@ func (s *Server) gwMCPSearch(w http.ResponseWriter, r *http.Request, id int, arg
 	})
 }
 
-func (s *Server) gwMCPListCollections(w http.ResponseWriter, r *http.Request, id int, srv *service.RAGMCPServer) {
+func (s *Server) gwMCPListCollections(w http.ResponseWriter, r *http.Request, id int, srv *ragMCPConfig) {
 	collectionsResult, err := s.ragCollectionStore.ListRAGCollections(r.Context(), nil)
 	if err != nil {
 		slog.Error("gateway mcp rag_list_collections failed", "mcp_server", srv.Name, "error", err)
@@ -440,10 +211,10 @@ func (s *Server) gwMCPListCollections(w http.ResponseWriter, r *http.Request, id
 	}
 
 	// Scope to the MCP server's configured collections if any.
-	if len(srv.Config.CollectionIDs) > 0 {
+	if len(srv.CollectionIDs) > 0 {
 		var scoped []service.RAGCollection
 		for _, c := range collections {
-			if slices.Contains(srv.Config.CollectionIDs, c.ID) {
+			if slices.Contains(srv.CollectionIDs, c.ID) {
 				scoped = append(scoped, c)
 			}
 		}
@@ -475,7 +246,7 @@ func (s *Server) gwMCPListCollections(w http.ResponseWriter, r *http.Request, id
 	})
 }
 
-func (s *Server) gwMCPFetchSource(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *service.RAGMCPServer) {
+func (s *Server) gwMCPFetchSource(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *ragMCPConfig) {
 	source, _ := args["source"].(string)
 	if source == "" {
 		mcpError(w, id, -32602, "source argument is required")
@@ -522,7 +293,7 @@ func (s *Server) gwMCPFetchSource(w http.ResponseWriter, r *http.Request, id int
 	})
 }
 
-func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *service.RAGMCPServer) {
+func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *ragMCPConfig) {
 	// ── Parse arguments ──
 	var searchReq rag.SearchRequest
 
@@ -543,13 +314,13 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 	}
 
 	// Scope collections to server config.
-	if len(searchReq.CollectionIDs) == 0 && len(srv.Config.CollectionIDs) > 0 {
-		searchReq.CollectionIDs = srv.Config.CollectionIDs
+	if len(searchReq.CollectionIDs) == 0 && len(srv.CollectionIDs) > 0 {
+		searchReq.CollectionIDs = srv.CollectionIDs
 	}
-	if len(searchReq.CollectionIDs) > 0 && len(srv.Config.CollectionIDs) > 0 {
+	if len(searchReq.CollectionIDs) > 0 && len(srv.CollectionIDs) > 0 {
 		var scoped []string
 		for _, cid := range searchReq.CollectionIDs {
-			if slices.Contains(srv.Config.CollectionIDs, cid) {
+			if slices.Contains(srv.CollectionIDs, cid) {
 				scoped = append(scoped, cid)
 			}
 		}
@@ -564,7 +335,7 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 		searchReq.NumResults = int(n)
 	}
 	if searchReq.NumResults <= 0 {
-		searchReq.NumResults = gwDefaultNumResults(srv.Config.DefaultNumResults)
+		searchReq.NumResults = gwDefaultNumResults(srv.DefaultNumResults)
 	}
 
 	if t, ok := args["score_threshold"].(float64); ok {
@@ -678,7 +449,7 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 	if len(uniqueSources) > 0 {
 		text.WriteString("## Fetched Sources\n\n")
 
-		gitCacheDir := srv.Config.GitCacheDir
+		gitCacheDir := srv.GitCacheDir
 		if gitCacheDir == "" {
 			gitCacheDir = defaultRAGGitCacheDir
 		}
@@ -719,7 +490,7 @@ func (s *Server) gwMCPSearchAndFetch(w http.ResponseWriter, r *http.Request, id 
 // original source files — no chunk content. It uses the search internally to
 // identify relevant files, deduplicates by source, then fetches the complete
 // original content of each file.
-func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *service.RAGMCPServer) {
+func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id int, args map[string]any, srv *ragMCPConfig) {
 	// ── Parse arguments ──
 	var searchReq rag.SearchRequest
 
@@ -740,13 +511,13 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 	}
 
 	// Scope collections to server config.
-	if len(searchReq.CollectionIDs) == 0 && len(srv.Config.CollectionIDs) > 0 {
-		searchReq.CollectionIDs = srv.Config.CollectionIDs
+	if len(searchReq.CollectionIDs) == 0 && len(srv.CollectionIDs) > 0 {
+		searchReq.CollectionIDs = srv.CollectionIDs
 	}
-	if len(searchReq.CollectionIDs) > 0 && len(srv.Config.CollectionIDs) > 0 {
+	if len(searchReq.CollectionIDs) > 0 && len(srv.CollectionIDs) > 0 {
 		var scoped []string
 		for _, cid := range searchReq.CollectionIDs {
-			if slices.Contains(srv.Config.CollectionIDs, cid) {
+			if slices.Contains(srv.CollectionIDs, cid) {
 				scoped = append(scoped, cid)
 			}
 		}
@@ -761,7 +532,7 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 		searchReq.NumResults = int(n)
 	}
 	if searchReq.NumResults <= 0 {
-		searchReq.NumResults = gwDefaultNumResults(srv.Config.DefaultNumResults)
+		searchReq.NumResults = gwDefaultNumResults(srv.DefaultNumResults)
 	}
 
 	if t, ok := args["score_threshold"].(float64); ok {
@@ -847,7 +618,7 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 
 	var text strings.Builder
 
-	gitCacheDir := srv.Config.GitCacheDir
+	gitCacheDir := srv.GitCacheDir
 	if gitCacheDir == "" {
 		gitCacheDir = defaultRAGGitCacheDir
 	}
@@ -894,11 +665,11 @@ func (s *Server) gwMCPFetchSourcesOrg(w http.ResponseWriter, r *http.Request, id
 // object store (no checkout, no working tree modification). When commitSHA is empty,
 // falls back to reading from the working tree.
 // envVars are passed to git commands for auth (e.g. GIT_SSH_COMMAND for SSH keys).
-func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPServer, maxSize int, commitSHA, branch string, envVars []string, pageStore ...service.RAGPageStorer) (string, error) {
+func fetchSourceContent(ctx context.Context, source string, srv *ragMCPConfig, maxSize int, commitSHA, branch string, envVars []string, pageStore ...service.RAGPageStorer) (string, error) {
 	// Try rag_pages first — if original content was stored during sync/ingest,
 	// this avoids hitting git cache or HTTP entirely.
 	if len(pageStore) > 0 && pageStore[0] != nil {
-		for _, colID := range srv.Config.CollectionIDs {
+		for _, colID := range srv.CollectionIDs {
 			page, err := pageStore[0].GetRAGPageBySource(ctx, colID, source)
 			if err != nil {
 				slog.Debug("fetchSourceContent: page store lookup failed", "source", source, "collection_id", colID, "error", err)
@@ -914,12 +685,12 @@ func fetchSourceContent(ctx context.Context, source string, srv *service.RAGMCPS
 		}
 	}
 
-	fetchMode := srv.Config.FetchMode
+	fetchMode := srv.FetchMode
 	if fetchMode == "" {
 		fetchMode = "auto"
 	}
 
-	gitCacheDir := srv.Config.GitCacheDir
+	gitCacheDir := srv.GitCacheDir
 	if gitCacheDir == "" {
 		gitCacheDir = defaultRAGGitCacheDir
 	}

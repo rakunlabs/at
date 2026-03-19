@@ -4,7 +4,7 @@
   "description": "Browser automation via Playwright. Navigate pages, fill forms, click elements, and extract content.",
   "category": "Browser",
   "tags": ["browser", "automation", "testing", "web", "playwright"],
-  "mcp_set": {
+  "mcp_server": {
     "name": "playwright",
     "description": "Browser automation via Playwright MCP",
     "config": {

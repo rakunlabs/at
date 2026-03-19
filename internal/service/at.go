@@ -155,9 +155,7 @@ type Storer interface {
 	RAGCollectionStorer
 	RAGStateStorer
 	RAGPageStorer
-	RAGMCPServerStorer
 	MCPServerStorer
-	MCPSetStorer
 	BotConfigStorer
 	MarketplaceSourceStorer
 	UserPreferenceStorer
@@ -565,7 +563,7 @@ type AgentConfig struct {
 	SystemPrompt              string   `json:"system_prompt,omitempty"`               // System prompt
 	Skills                    []string `json:"skills,omitempty"`                      // List of skill IDs/names
 	MCPs                      []string `json:"mcp_urls,omitempty"`                    // List of MCP server URLs (legacy)
-	MCPSets                   []string `json:"mcp_sets,omitempty"`                    // List of MCP Set names
+	MCPServers                []string `json:"mcp_servers,omitempty"`                 // List of MCP Server names
 	BuiltinTools              []string `json:"builtin_tools,omitempty"`               // Enabled builtin tool names
 	MaxIterations             int      `json:"max_iterations"`                        // Max iterations for the loop
 	ToolTimeout               int      `json:"tool_timeout"`                          // Timeout in seconds
@@ -1283,14 +1281,16 @@ type ChatSessionConfig struct {
 
 // ChatSession represents a persistent chat session tied to an agent.
 type ChatSession struct {
-	ID        string            `json:"id"`
-	AgentID   string            `json:"agent_id"`
-	Name      string            `json:"name"`
-	Config    ChatSessionConfig `json:"config"`
-	CreatedAt string            `json:"created_at"`
-	UpdatedAt string            `json:"updated_at"`
-	CreatedBy string            `json:"created_by"`
-	UpdatedBy string            `json:"updated_by"`
+	ID             string            `json:"id"`
+	AgentID        string            `json:"agent_id"`
+	TaskID         string            `json:"task_id,omitempty"`         // link to a task for task-contextual chat
+	OrganizationID string            `json:"organization_id,omitempty"` // org context for delegation tools
+	Name           string            `json:"name"`
+	Config         ChatSessionConfig `json:"config"`
+	CreatedAt      string            `json:"created_at"`
+	UpdatedAt      string            `json:"updated_at"`
+	CreatedBy      string            `json:"created_by"`
+	UpdatedBy      string            `json:"updated_by"`
 }
 
 // ChatMessageData holds the extensible payload of a chat message.
@@ -1314,6 +1314,7 @@ type ChatSessionStorer interface {
 	ListChatSessions(ctx context.Context, q *query.Query) (*ListResult[ChatSession], error)
 	GetChatSession(ctx context.Context, id string) (*ChatSession, error)
 	GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID string) (*ChatSession, error)
+	GetChatSessionByTaskID(ctx context.Context, taskID string) (*ChatSession, error)
 	CreateChatSession(ctx context.Context, session ChatSession) (*ChatSession, error)
 	UpdateChatSession(ctx context.Context, id string, session ChatSession) (*ChatSession, error)
 	DeleteChatSession(ctx context.Context, id string) error
@@ -1501,44 +1502,6 @@ type RAGPageStorer interface {
 	DeleteRAGPageBySource(ctx context.Context, collectionID, source string) error
 }
 
-// ─── RAG MCP Servers ───
-
-// RAGMCPServerConfig holds the configuration for a named RAG MCP endpoint.
-type RAGMCPServerConfig struct {
-	Description       string   `json:"description,omitempty"`
-	CollectionIDs     []string `json:"collection_ids"`                // which RAG collections this MCP searches
-	EnabledTools      []string `json:"enabled_tools"`                 // subset of: rag_search, rag_list_collections, rag_fetch_source
-	FetchMode         string   `json:"fetch_mode"`                    // "auto" | "local" | "remote"
-	GitCacheDir       string   `json:"git_cache_dir,omitempty"`       // default: /tmp/at-git-cache
-	DefaultNumResults int      `json:"default_num_results,omitempty"` // default: 10
-	TokenVariable     string   `json:"token_variable,omitempty"`      // variable key for HTTPS auth token (resolved via VariableStorer)
-	TokenUser         string   `json:"token_user,omitempty"`          // username for HTTPS token auth (default: "x-token-auth"); e.g. "oauth2" for GitLab
-	SSHKeyVariable    string   `json:"ssh_key_variable,omitempty"`    // variable key for SSH private key (resolved via VariableStorer)
-}
-
-// RAGMCPServer represents a named, gateway-facing MCP endpoint that exposes
-// RAG tools scoped to specific collections. External agents connect to
-// /gateway/v1/mcp/rag/{name} to use these tools.
-type RAGMCPServer struct {
-	ID        string             `json:"id"`
-	Name      string             `json:"name"` // URL-safe slug used in the endpoint path
-	Config    RAGMCPServerConfig `json:"config"`
-	CreatedAt string             `json:"created_at"`
-	UpdatedAt string             `json:"updated_at"`
-	CreatedBy string             `json:"created_by"`
-	UpdatedBy string             `json:"updated_by"`
-}
-
-// RAGMCPServerStorer defines CRUD operations for RAG MCP server configurations.
-type RAGMCPServerStorer interface {
-	ListRAGMCPServers(ctx context.Context, q *query.Query) (*ListResult[RAGMCPServer], error)
-	GetRAGMCPServer(ctx context.Context, id string) (*RAGMCPServer, error)
-	GetRAGMCPServerByName(ctx context.Context, name string) (*RAGMCPServer, error)
-	CreateRAGMCPServer(ctx context.Context, s RAGMCPServer) (*RAGMCPServer, error)
-	UpdateRAGMCPServer(ctx context.Context, id string, s RAGMCPServer) (*RAGMCPServer, error)
-	DeleteRAGMCPServer(ctx context.Context, id string) error
-}
-
 // ─── General MCP Servers ───
 
 // MCPHTTPTool defines a custom HTTP-based tool exposed via an MCP server.
@@ -1577,9 +1540,6 @@ type MCPServerConfig struct {
 
 	// Builtin tools — names of server-side builtin tools to expose.
 	EnabledBuiltinTools []string `json:"enabled_builtin_tools,omitempty"`
-
-	// MCPs — names of MCPs whose tools should be included.
-	MCPs []string `json:"mcps,omitempty"`
 }
 
 // MCPUpstream represents an upstream MCP server — either HTTP or stdio (local command).
@@ -1595,13 +1555,16 @@ type MCPUpstream struct {
 // RAG tools, custom HTTP tools, or both. External agents connect to
 // /gateway/v1/mcp/{name} to use these tools.
 type MCPServer struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"` // URL-safe slug used in the endpoint path
-	Config    MCPServerConfig `json:"config"`
-	CreatedAt string          `json:"created_at"`
-	UpdatedAt string          `json:"updated_at"`
-	CreatedBy string          `json:"created_by"`
-	UpdatedBy string          `json:"updated_by"`
+	ID          string          `json:"id"`
+	Name        string          `json:"name"` // URL-safe slug used in the endpoint path
+	Description string          `json:"description"`
+	Config      MCPServerConfig `json:"config"`
+	Servers     []string        `json:"servers,omitempty"` // Other MCP Server names to aggregate
+	URLs        []string        `json:"urls,omitempty"`    // Custom MCP endpoint URLs
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	CreatedBy   string          `json:"created_by"`
+	UpdatedBy   string          `json:"updated_by"`
 }
 
 // MCPServerStorer defines CRUD operations for general MCP server configurations.
@@ -1612,32 +1575,4 @@ type MCPServerStorer interface {
 	CreateMCPServer(ctx context.Context, s MCPServer) (*MCPServer, error)
 	UpdateMCPServer(ctx context.Context, id string, s MCPServer) (*MCPServer, error)
 	DeleteMCPServer(ctx context.Context, id string) error
-}
-
-// ─── MCP Sets ───
-
-// MCPSet represents a named bundle of MCP server references, custom URLs,
-// and its own tool configuration (RAG/HTTP/External/Skills).
-// Agents reference MCP Sets by name instead of manually entering gateway URLs.
-type MCPSet struct {
-	ID          string          `json:"id"`
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	Config      MCPServerConfig `json:"config"`  // RAG/HTTP/External/Skills config (own tools)
-	Servers     []string        `json:"servers"` // MCP Server names (resolved to gateway URLs at runtime)
-	URLs        []string        `json:"urls"`    // Custom MCP endpoint URLs
-	CreatedAt   string          `json:"created_at"`
-	UpdatedAt   string          `json:"updated_at"`
-	CreatedBy   string          `json:"created_by"`
-	UpdatedBy   string          `json:"updated_by"`
-}
-
-// MCPSetStorer defines CRUD operations for MCP set configurations.
-type MCPSetStorer interface {
-	ListMCPSets(ctx context.Context, q *query.Query) (*ListResult[MCPSet], error)
-	GetMCPSet(ctx context.Context, id string) (*MCPSet, error)
-	GetMCPSetByName(ctx context.Context, name string) (*MCPSet, error)
-	CreateMCPSet(ctx context.Context, s MCPSet) (*MCPSet, error)
-	UpdateMCPSet(ctx context.Context, id string, s MCPSet) (*MCPSet, error)
-	DeleteMCPSet(ctx context.Context, id string) error
 }

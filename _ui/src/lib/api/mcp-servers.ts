@@ -18,26 +18,24 @@ export interface MCPHTTPTool {
 }
 
 export interface MCPServerConfig {
-  description: string;
+  description?: string;
   // RAG integration
-  enabled_rag_tools: string[];
-  collection_ids: string[];
-  fetch_mode: string;
-  git_cache_dir: string;
-  default_num_results: number;
-  token_variable: string;
-  token_user: string;
-  ssh_key_variable: string;
+  enabled_rag_tools?: string[];
+  collection_ids?: string[];
+  fetch_mode?: string;
+  git_cache_dir?: string;
+  default_num_results?: number;
+  token_variable?: string;
+  token_user?: string;
+  ssh_key_variable?: string;
   // HTTP tools
-  http_tools: MCPHTTPTool[];
+  http_tools?: MCPHTTPTool[];
   // Upstream MCP servers
   mcp_upstreams?: MCPUpstream[];
   // Skill tools
   enabled_skills?: string[];
   // Builtin tools
   enabled_builtin_tools?: string[];
-  // MCP references
-  mcps?: string[];
 }
 
 export interface MCPUpstream {
@@ -51,6 +49,9 @@ export interface MCPUpstream {
 export interface MCPServer {
   id: string;
   name: string;
+  description?: string;
+  servers?: string[];
+  urls?: string[];
   config: MCPServerConfig;
   created_at: string;
   updated_at: string;

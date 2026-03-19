@@ -12,6 +12,8 @@ export interface ChatSessionConfig {
 export interface ChatSession {
   id: string;
   agent_id: string;
+  task_id?: string;
+  organization_id?: string;
   name: string;
   config: ChatSessionConfig;
   created_at: string;

@@ -1,0 +1,79 @@
+{
+  "slug": "image-generation",
+  "name": "AI Image Generation",
+  "description": "Generate AI images using OpenAI DALL-E 3 for scene frames, thumbnails, and visual content",
+  "category": "Content Creation",
+  "tags": ["image", "dalle", "openai", "content", "video"],
+  "required_variables": [
+    {
+      "key": "openai_api_key",
+      "description": "OpenAI API key with DALL-E 3 access",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "image_generation",
+    "description": "Generate AI images using OpenAI DALL-E 3",
+    "system_prompt": "You have access to AI image generation tools using OpenAI DALL-E 3.\n\nWhen generating images for video scene frames:\n- Use detailed, cinematic descriptions with specific lighting, camera angles, and mood\n- Maintain consistent visual style across all scenes (mention the same art style, color palette, and aesthetic in every prompt)\n- Specify the scene composition clearly: foreground, midground, background\n- Use 1024x1792 (vertical) for YouTube Shorts frames\n- Avoid text in images as it renders poorly in AI generation\n- For Runway video input, describe scenes with clear subjects and implied motion direction\n\nUse generate_image for single images and generate_scenes for batch scene generation.",
+    "tools": [
+      {
+        "name": "generate_image",
+        "description": "Generate a single AI image from a text prompt using DALL-E 3",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Detailed text description of the image to generate"
+            },
+            "size": {
+              "type": "string",
+              "description": "Image dimensions: 1024x1024, 1024x1792 (vertical), or 1792x1024 (horizontal). Default: 1024x1792 for Shorts"
+            },
+            "style": {
+              "type": "string",
+              "description": "Generation style: 'vivid' (hyper-real/dramatic) or 'natural' (more realistic). Default: vivid"
+            }
+          },
+          "required": ["prompt"]
+        },
+        "handler": "var apiKey = getVar('openai_api_key');\nif (!apiKey) return JSON.stringify({error: \"OpenAI API key not configured. Set the 'openai_api_key' variable.\"});\n\nvar size = args.size || '1024x1792';\nvar style = args.style || 'vivid';\n\nvar payload = JSON.stringify({\n  model: 'dall-e-3',\n  prompt: args.prompt,\n  n: 1,\n  size: size,\n  style: style,\n  response_format: 'url'\n});\n\nvar resp = httpPost('https://api.openai.com/v1/images/generations', payload, {\n  'Authorization': 'Bearer ' + apiKey,\n  'Content-Type': 'application/json'\n});\n\nif (resp.status !== 200) {\n  var errBody = typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);\n  return JSON.stringify({error: 'DALL-E API error (HTTP ' + resp.status + '): ' + errBody});\n}\n\nvar data = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\nvar result = data.data[0];\n\nreturn JSON.stringify({\n  image_url: result.url,\n  revised_prompt: result.revised_prompt\n}, null, 2);",
+        "handler_type": "js"
+      },
+      {
+        "name": "generate_scenes",
+        "description": "Generate multiple images for a sequence of video scenes in a single call",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "scenes": {
+              "type": "array",
+              "description": "Array of scene objects, each with 'prompt' (required) and optional 'style'",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "prompt": {
+                    "type": "string",
+                    "description": "Text description for this scene"
+                  },
+                  "style": {
+                    "type": "string",
+                    "description": "Style override for this scene (vivid or natural)"
+                  }
+                },
+                "required": ["prompt"]
+              }
+            },
+            "size": {
+              "type": "string",
+              "description": "Image dimensions for all scenes. Default: 1024x1792"
+            }
+          },
+          "required": ["scenes"]
+        },
+        "handler": "var apiKey = getVar('openai_api_key');\nif (!apiKey) return JSON.stringify({error: \"OpenAI API key not configured. Set the 'openai_api_key' variable.\"});\n\nvar size = args.size || '1024x1792';\nvar results = [];\n\nfor (var i = 0; i < args.scenes.length; i++) {\n  var scene = args.scenes[i];\n  var style = scene.style || 'vivid';\n\n  var payload = JSON.stringify({\n    model: 'dall-e-3',\n    prompt: scene.prompt,\n    n: 1,\n    size: size,\n    style: style,\n    response_format: 'url'\n  });\n\n  try {\n    var resp = httpPost('https://api.openai.com/v1/images/generations', payload, {\n      'Authorization': 'Bearer ' + apiKey,\n      'Content-Type': 'application/json'\n    });\n\n    if (resp.status !== 200) {\n      var errBody = typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);\n      results.push({\n        scene_index: i,\n        success: false,\n        error: 'DALL-E API error (HTTP ' + resp.status + '): ' + errBody\n      });\n    } else {\n      var data = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\n      var imgResult = data.data[0];\n      results.push({\n        scene_index: i,\n        success: true,\n        image_url: imgResult.url,\n        revised_prompt: imgResult.revised_prompt\n      });\n    }\n  } catch (e) {\n    results.push({\n      scene_index: i,\n      success: false,\n      error: 'Exception: ' + e.toString()\n    });\n  }\n}\n\nreturn JSON.stringify(results, null, 2);",
+        "handler_type": "js"
+      }
+    ]
+  }
+}

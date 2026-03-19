@@ -4,7 +4,7 @@
   "description": "Lightweight RAG search tool. Provides only semantic search across your document collections without full document fetching.",
   "category": "Built-in",
   "tags": ["rag", "search", "lightweight"],
-  "mcp_set": {
+  "mcp_server": {
     "name": "rag_search",
     "description": "Semantic search across RAG collections",
     "config": {

@@ -76,7 +76,7 @@
       type: 'function',
       function: {
         name: 'get_flow',
-        description: 'Get the current workflow flow state (all nodes and edges)',
+        description: 'Get the current workflow flow state (all nodes and edges). ALWAYS call this first before making changes.',
         parameters: { type: 'object', properties: {}, required: [] },
       },
     },
@@ -90,7 +90,7 @@
           properties: {
             type: {
               type: 'string',
-              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'workflow_call', 'http_trigger', 'cron_trigger', 'http_request', 'email', 'conditional', 'loop', 'script', 'exec', 'log', 'skill_config', 'agent_config', 'mcp_config', 'memory_config', 'group', 'sticky_note'],
+              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'workflow_call', 'http_trigger', 'cron_trigger', 'http_request', 'email', 'conditional', 'loop', 'script', 'exec', 'log', 'skill_config', 'agent_config', 'mcp_config', 'memory_config', 'group', 'sticky_note', 'rag_search', 'rag_ingest', 'git_fetch', 'git_diff', 'chat_reply'],
               description: 'The node type',
             },
             id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
@@ -235,7 +235,26 @@
   loadVariables();
   loadNodeConfigs();
 
+  // Get a live snapshot of the current workflow for the system prompt
+  function getCurrentFlowSummary(): string {
+    try {
+      const json = flow.toJSON();
+      const nodes = json.nodes || [];
+      const edges = json.edges || [];
+      if (nodes.length === 0) return 'The workflow is currently empty.';
+      const nodeList = nodes.map((n: any) => `- ${n.id} (${n.type}): "${n.data?.label || n.data?.text || ''}"`)
+      return `Current workflow has ${nodes.length} nodes and ${edges.length} edges:\n${nodeList.join('\n')}`;
+    } catch {
+      return 'Unable to read current workflow state.';
+    }
+  }
+
   const systemPrompt = $derived(`You are a workflow editor AI assistant. You help users build and modify visual node-based workflows.
+
+IMPORTANT: Always call get_flow FIRST before making any changes, to see the current state of the workflow.
+
+## Current Workflow Summary
+${getCurrentFlowSummary()}
 
 ## Available Node Types
 
@@ -306,8 +325,6 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 - Input handles: id="values" (port: data, index 0), id="data" (port: data, index 1)
 - Output handles: id="success" (port: data), id="error" (port: data), id="always" (port: data)
 - Data fields: label, config_id (ID of an email NodeConfig with SMTP settings), to (comma-separated, Go template), cc, bcc, subject (Go template), body (Go template), content_type ("text/plain" or "text/html"), from (override, Go template), reply_to (Go template)
-- Requires an email NodeConfig to be created first (under Node Configs) with SMTP host, port, credentials
-- All string fields support Go templates with data from "values" and "data" inputs
 
 ### conditional
 - Input handles: id="input" (port: data)
@@ -323,7 +340,6 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 - Input handles: When input_count=1: id="data" (port: data). When input_count>1: id="data1", id="data2", ... id="dataN" (port: data)
 - Output handles: id="true" (port: data), id="false" (port: data), id="always" (port: data)
 - Data fields: label, code (JavaScript code using return), input_count (1-10)
-- Code is wrapped in IIFE: use "return { ... }" to set result. Truthy result -> true port, falsy -> false port.
 
 ### exec
 - Input handles: When input_count=1: id="data" (port: data). When input_count>1: id="data1", id="data2", ... id="dataN" (port: data)
@@ -333,26 +349,52 @@ Each node has specific input/output handles (ports) for connecting edges. The ha
 ### log
 - Input handles: id="input" (port: data)
 - Output handles: id="output" (port: data)
-- Data fields: label, level ("debug", "info", "warn", or "error"), message (Go template string, e.g. "Processing ${"{{.data}}"}")
-- Pass-through node: outputs the same data it receives. Logs the rendered message at the specified level.
+- Data fields: label, level ("debug", "info", "warn", or "error"), message (Go template string)
 
 ### workflow_call
 - Input handles: id="input" (port: data)
 - Output handles: id="output" (port: data)
-- Data fields: label, workflow_id (ID of child workflow), workflow_name (display name), inputs (object mapping child workflow input field names to Go template values)
-- Executes another workflow as a sub-workflow. Input data is available in Go templates. Child workflow outputs are passed to the output port.
+- Data fields: label, workflow_id (ID of child workflow), workflow_name (display name), inputs (object)
+
+### chat_reply
+- Input handles: id="message" (port: data)
+- Output handles: id="success" (port: data), id="error" (port: data), id="always" (port: data)
+- Data fields: label, session_id (chat session ID, supports Go template)
+- Sends a message to a chat session
+
+### rag_search
+- Input handles: id="query" (port: text), id="data" (port: data)
+- Output handles: id="results" (port: data)
+- Data fields: label, collection_id, top_k (number), min_score (number)
+- Searches a RAG collection for similar documents
+
+### rag_ingest
+- Input handles: id="data" (port: data)
+- Output handles: id="success" (port: data), id="error" (port: data), id="always" (port: data)
+- Data fields: label, collection_id
+- Ingests documents into a RAG collection
+
+### git_fetch
+- Input handles: id="data" (port: data)
+- Output handles: id="output" (port: data)
+- Data fields: label, repo_url, branch, path
+- Fetches content from a git repository
+
+### git_diff
+- Input handles: id="data" (port: data)
+- Output handles: id="output" (port: data)
+- Data fields: label, repo_url, branch, base_ref, head_ref
+- Gets diff between two git refs
 
 ### group
 - No input or output handles (visual only)
 - Data fields: label, color (CSS hex color, default "#22c55e")
-- Visual grouping container. Drag to resize. Nodes placed inside are visually grouped but not functionally connected.
-- When adding via add_node, also set style: ${'{ width: 400, height: 300 }'}
+- Visual grouping container. When adding via add_node, also set style: ${'{ width: 400, height: 300 }'}
 
 ### sticky_note
 - No input or output handles (visual only)
 - Data fields: text (markdown content), color (CSS hex color, default "#fef08a")
 - NOTE: sticky_note uses "text" instead of "label". Do NOT include a "label" field.
-- Visual annotation. Double-click to edit text. Does not participate in workflow execution.
 - When adding via add_node, also set style: ${'{ width: 200, height: 150 }'}
 
 ## Available Providers
@@ -364,42 +406,29 @@ When creating llm_call or agent_call nodes, use the provider key for the "provid
 ${skillsInfo.length > 0 ? skillsInfo.map(s => `- "${s.name}": ${s.description}`).join('\n') : '- No skills configured yet'}
 
 When creating skill_config nodes, use skill names from this list in the "skills" array.
-Skills provide tool capabilities to agent_call nodes connected via skill_config.
 
 ## Available Variables
 ${variablesInfo.length > 0 ? variablesInfo.map(v => `- "${v.key}"${v.description ? ': ' + v.description : ''}`).join('\n') : '- No variables configured yet'}
 
-Variables are accessed differently depending on context:
-- In JavaScript nodes (script, conditional, loop): use getVar("key") function
-- In Go template nodes (template, http_request, email, log, exec): use {{getVar "key"}} template function
-- In bash tool handlers (skills): available as $VAR_KEY environment variables (uppercase, dots/hyphens replaced with underscores)
-
 ## Available Node Configs
 ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${c.name}" type="${c.type}"`).join('\n') : '- No node configs configured yet'}
-
-When creating email nodes, set the "config_id" field to a node config ID of type "email" from this list.
-Node configs contain pre-configured connection settings (e.g. SMTP for email).
 
 ## Edge Connection Rules
 - Edges connect a source output handle to a target input handle
 - The source_handle and target_handle values must be the handle "id" (not the port or label)
-- source_handle must be an output handle id of the source node
-- target_handle must be an input handle id of the target node
 - Edge IDs should be formatted as "source_id-source_handle-target_id-target_handle"
 
 ## Positioning Guidelines
 - Place nodes with ~200px horizontal spacing and ~150px vertical spacing
 - Keep related nodes close together
 - Flow generally goes left-to-right or top-to-bottom
-- Resource config nodes (skill_config, mcp_config, memory_config) should be placed BELOW the agent_call node they connect to, since they connect via top output -> bottom input
+- Resource config nodes (skill_config, mcp_config, memory_config) should be placed BELOW the agent_call node they connect to
 
 ## Important
 - Always use get_flow first to understand the current state before making changes
-- Use meaningful node IDs that reflect the node's purpose (e.g., "fetch_users", "check_status")
-- Always include a "label" field in node data
-- Exception: sticky_note nodes use "text" instead of "label"
-- group and sticky_note nodes are visual-only; they have no handles and cannot be connected with edges
-- When connecting nodes, verify handle IDs match the node type's defined handles exactly`);
+- Use meaningful node IDs that reflect the node's purpose
+- Always include a "label" field in node data (except sticky_note which uses "text")
+- group and sticky_note nodes are visual-only; they have no handles and cannot be connected with edges`);
 
   // ─── Tool Execution ───
 
@@ -426,6 +455,11 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
       case 'exec': return { label: 'Exec', command: '', working_dir: '', timeout: 60, sandbox_root: '/tmp/at-sandbox', input_count: 1 };
       case 'email': return { label: 'Email', config_id: '', to: '', cc: '', bcc: '', subject: '', body: '', content_type: 'text/plain', from: '', reply_to: '' };
       case 'log': return { label: 'Log', level: 'info', message: '' };
+      case 'chat_reply': return { label: 'Chat Reply', session_id: '' };
+      case 'rag_search': return { label: 'RAG Search', collection_id: '', top_k: 5, min_score: 0.7 };
+      case 'rag_ingest': return { label: 'RAG Ingest', collection_id: '' };
+      case 'git_fetch': return { label: 'Git Fetch', repo_url: '', branch: '', path: '' };
+      case 'git_diff': return { label: 'Git Diff', repo_url: '', branch: '', base_ref: '', head_ref: '' };
       case 'group': return { label: 'Group', color: '#22c55e' };
       case 'sticky_note': return { text: 'Double-click to edit...', color: '#fef08a' };
       default: return {};
@@ -661,29 +695,29 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="w-80 h-full bg-white border-l border-gray-200 shrink-0 min-h-0 flex flex-col"
+  class="w-80 h-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col"
   onmousedown={(e) => e.stopPropagation()}
   onwheel={(e) => e.stopPropagation()}
   onkeydown={(e) => e.stopPropagation()}
 >
   <!-- Header -->
-  <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 shrink-0">
+  <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
     <div class="flex items-center gap-1.5">
-      <Bot size={14} class="text-gray-500" />
-      <span class="text-xs font-medium text-gray-700">AI Assistant</span>
+      <Bot size={14} class="text-gray-500 dark:text-dark-text-muted" />
+      <span class="text-xs font-medium text-gray-700 dark:text-dark-text">AI Assistant</span>
     </div>
-    <button onclick={onclose} class="text-gray-400 hover:text-gray-600">
+    <button onclick={onclose} class="text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text">
       <X size={14} />
     </button>
   </div>
 
   <!-- Model selector -->
-  <div class="px-3 py-2 border-b border-gray-200 shrink-0">
+  <div class="px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
     <div class="relative">
       <select
         bind:value={selectedModel}
         disabled={loadingModels || models.length === 0}
-        class="w-full appearance-none px-2 py-1 pr-6 text-[11px] border border-gray-300 rounded bg-white focus:outline-none focus:ring-1 focus:ring-gray-400 disabled:opacity-50 disabled:bg-gray-50"
+        class="w-full appearance-none px-2 py-1 pr-6 text-[11px] border border-gray-300 dark:border-dark-border-subtle rounded bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/50 disabled:opacity-50 disabled:bg-gray-50 dark:disabled:bg-dark-base"
       >
         {#if loadingModels}
           <option value="">Loading...</option>
@@ -695,15 +729,15 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
           {/each}
         {/if}
       </select>
-      <ChevronDown size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+      <ChevronDown size={12} class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted pointer-events-none" />
     </div>
   </div>
 
   <!-- Messages -->
   <div bind:this={chatContainer} class="flex-1 overflow-y-auto min-h-0 p-3 space-y-3">
     {#if messages.length === 0}
-      <div class="text-center text-[11px] text-gray-400 mt-8">
-        <Bot size={24} class="mx-auto mb-2 text-gray-300" />
+      <div class="text-center text-[11px] text-gray-400 dark:text-dark-text-muted mt-8">
+        <Bot size={24} class="mx-auto mb-2 text-gray-300 dark:text-dark-text-muted" />
         <p>Describe what you want to build or change in the workflow.</p>
         <p class="mt-1">The AI can add, remove, update, and connect nodes.</p>
       </div>
@@ -712,23 +746,23 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
     {#each messages as msg, i}
       {#if msg.role === 'user'}
         <div class="flex justify-end">
-          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-900 text-white text-[11px] whitespace-pre-wrap">
+          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-900 dark:bg-accent/80 text-white text-[11px] whitespace-pre-wrap">
             {getTextContent(msg.content)}
           </div>
         </div>
       {:else if msg.role === 'assistant'}
         <div class="flex justify-start">
-          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 border border-gray-200 text-[11px]">
+          <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle text-[11px]">
             {#if getTextContent(msg.content)}
-              <div class="markdown-body text-gray-700" use:renderMarkdown>{@html md(getTextContent(msg.content))}</div>
+              <div class="markdown-body text-gray-700 dark:text-dark-text" use:renderMarkdown>{@html md(getTextContent(msg.content))}</div>
             {:else if streaming && i === messages.length - 1}
-              <span class="text-gray-400 italic">Thinking...</span>
+              <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
             {/if}
             {#if msg.tool_calls && msg.tool_calls.length > 0}
-              <div class="mt-1.5 pt-1.5 border-t border-gray-200">
+              <div class="mt-1.5 pt-1.5 border-t border-gray-200 dark:border-dark-border-subtle">
                 {#each msg.tool_calls as tc}
-                  <div class="flex items-center gap-1 text-[10px] text-gray-500">
-                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400"></span>
+                  <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted">
+                    <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 dark:bg-accent"></span>
                     <span class="font-mono">{tc.function.name}</span>
                   </div>
                 {/each}
@@ -742,13 +776,13 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
   </div>
 
   <!-- Input area -->
-  <div class="px-3 py-2 border-t border-gray-200 shrink-0">
+  <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
     <div class="flex items-end gap-1.5">
       <textarea
         bind:value={userInput}
         onkeydown={handleKeydown}
         rows={1}
-        class="flex-1 px-2 py-1.5 text-[11px] border border-gray-300 rounded resize-none focus:outline-none focus:ring-1 focus:ring-gray-400"
+        class="flex-1 px-2 py-1.5 text-[11px] border border-gray-300 dark:border-dark-border-subtle rounded resize-none bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/50 placeholder:text-gray-400 dark:placeholder:text-dark-text-muted"
         placeholder="Describe changes..."
         disabled={!selectedModel || streaming}
       ></textarea>
@@ -763,7 +797,7 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
         <button
           onclick={sendMessage}
           disabled={!userInput.trim() || !selectedModel}
-          class="p-1.5 rounded bg-gray-900 text-white hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+          class="p-1.5 rounded bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
         >
           <Send size={12} />
         </button>
@@ -772,7 +806,7 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
     {#if messages.length > 0 && !streaming}
       <button
         onclick={clearChat}
-        class="mt-1.5 w-full text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+        class="mt-1.5 w-full text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text transition-colors"
       >
         Clear conversation
       </button>
@@ -793,10 +827,10 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
     @apply font-semibold;
   }
   .markdown-body :global(code) {
-    @apply font-mono text-[0.85em] bg-gray-100 px-1 py-0.5 rounded;
+    @apply font-mono text-[0.85em] bg-gray-100 dark:bg-dark-base px-1 py-0.5 rounded;
   }
   .markdown-body :global(pre) {
-    @apply bg-gray-100 px-2 py-1.5 my-1.5 overflow-x-auto text-[0.85em] rounded;
+    @apply bg-gray-100 dark:bg-dark-base px-2 py-1.5 my-1.5 overflow-x-auto text-[0.85em] rounded;
   }
   .markdown-body :global(pre code) {
     @apply bg-transparent px-0 py-0;
@@ -811,7 +845,7 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
     @apply mb-0.5;
   }
   .markdown-body :global(blockquote) {
-    @apply border-l-2 border-gray-300 pl-2 my-1.5 text-gray-500;
+    @apply border-l-2 border-gray-300 dark:border-dark-border pl-2 my-1.5 text-gray-500 dark:text-dark-text-muted;
   }
   .markdown-body :global(h1),
   .markdown-body :global(h2),
@@ -824,6 +858,6 @@ Node configs contain pre-configured connection settings (e.g. SMTP for email).
     @apply font-medium mb-1;
   }
   .markdown-body :global(hr) {
-    @apply border-t border-gray-200 my-2;
+    @apply border-t border-gray-200 dark:border-dark-border my-2;
   }
 </style>

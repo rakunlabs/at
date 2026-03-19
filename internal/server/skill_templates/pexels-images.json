@@ -1,0 +1,81 @@
+{
+  "slug": "pexels-images",
+  "name": "Pexels Image Search",
+  "description": "Search for high-quality stock photos using the Pexels API. Free for commercial use, no attribution required.",
+  "category": "Content Creation",
+  "tags": ["images", "pexels", "stock", "photos", "search", "content"],
+  "required_variables": [
+    {
+      "key": "pexels_api_key",
+      "description": "Pexels API key (get from https://www.pexels.com/api/new/)",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "pexels_images",
+    "description": "Search for high-quality stock photos using Pexels",
+    "system_prompt": "You have access to Pexels image search tools for finding stock photos.\n\nUsage tips:\n- Use descriptive search queries: 'golden wheat field sunset' works better than 'wheat'\n- For YouTube Shorts, always use orientation='portrait' to get 9:16 images\n- Use the 'portrait' size URL (800x1200) for Shorts or 'original' for highest quality\n- Results are sorted by relevance by default\n- Pexels images are free for commercial use with no attribution required\n- If no results are found for a specific query, try broader or simpler search terms\n- You can search for videos too using search_videos",
+    "tools": [
+      {
+        "name": "search_images",
+        "description": "Search Pexels for stock photos. Returns up to 10 results with URLs in multiple sizes. Use orientation='portrait' for vertical/Shorts content.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query describing the image you want (e.g., 'golden wheat field sunset', 'dramatic ocean waves')"
+            },
+            "orientation": {
+              "type": "string",
+              "description": "Image orientation: 'portrait' (vertical, best for Shorts), 'landscape' (horizontal), or 'square'. Default: 'portrait'"
+            },
+            "per_page": {
+              "type": "number",
+              "description": "Number of results (1-10). Default: 5"
+            },
+            "color": {
+              "type": "string",
+              "description": "Filter by color: red, orange, yellow, green, turquoise, blue, violet, pink, brown, black, gray, white. Optional."
+            },
+            "size": {
+              "type": "string",
+              "description": "Minimum size: 'large' (24MP+), 'medium' (12MP+), 'small' (4MP+). Default: 'large'"
+            }
+          },
+          "required": ["query"]
+        },
+        "handler": "var apiKey = getVar('pexels_api_key');\nif (!apiKey) return JSON.stringify({error: \"Pexels API key not configured. Set the 'pexels_api_key' variable.\"});\n\nvar orientation = args.orientation || 'portrait';\nvar perPage = args.per_page || 5;\nif (perPage < 1) perPage = 1;\nif (perPage > 10) perPage = 10;\nvar size = args.size || 'large';\n\nvar url = 'https://api.pexels.com/v1/search?query=' + encodeURIComponent(args.query) + '&orientation=' + orientation + '&per_page=' + perPage + '&size=' + size;\nif (args.color) {\n  url += '&color=' + encodeURIComponent(args.color);\n}\n\nvar resp = httpGet(url, {\n  'Authorization': apiKey\n});\n\nif (resp.status !== 200) {\n  var errBody = typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);\n  return JSON.stringify({error: 'Pexels API error (HTTP ' + resp.status + '): ' + errBody});\n}\n\nvar data = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\n\nif (!data.photos || data.photos.length === 0) {\n  return JSON.stringify({results: [], total: 0, query: args.query, note: 'No images found. Try broader search terms.'});\n}\n\nvar results = [];\nfor (var i = 0; i < data.photos.length; i++) {\n  var photo = data.photos[i];\n  results.push({\n    id: photo.id,\n    url_original: photo.src.original,\n    url_large2x: photo.src.large2x,\n    url_large: photo.src.large,\n    url_portrait: photo.src.portrait,\n    url_landscape: photo.src.landscape,\n    width: photo.width,\n    height: photo.height,\n    photographer: photo.photographer,\n    alt: photo.alt || ''\n  });\n}\n\nreturn JSON.stringify({\n  results: results,\n  total: data.total_results,\n  query: args.query\n}, null, 2);",
+        "handler_type": "js"
+      },
+      {
+        "name": "search_videos",
+        "description": "Search Pexels for stock video clips. Useful for finding B-roll footage. Returns video URLs in multiple qualities.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "Search query describing the video you want"
+            },
+            "orientation": {
+              "type": "string",
+              "description": "Video orientation: 'portrait', 'landscape', or 'square'. Default: 'portrait'"
+            },
+            "per_page": {
+              "type": "number",
+              "description": "Number of results (1-10). Default: 3"
+            },
+            "size": {
+              "type": "string",
+              "description": "Minimum size: 'large', 'medium', 'small'. Default: 'medium'"
+            }
+          },
+          "required": ["query"]
+        },
+        "handler": "var apiKey = getVar('pexels_api_key');\nif (!apiKey) return JSON.stringify({error: \"Pexels API key not configured. Set the 'pexels_api_key' variable.\"});\n\nvar orientation = args.orientation || 'portrait';\nvar perPage = args.per_page || 3;\nif (perPage < 1) perPage = 1;\nif (perPage > 10) perPage = 10;\nvar size = args.size || 'medium';\n\nvar url = 'https://api.pexels.com/videos/search?query=' + encodeURIComponent(args.query) + '&orientation=' + orientation + '&per_page=' + perPage + '&size=' + size;\n\nvar resp = httpGet(url, {\n  'Authorization': apiKey\n});\n\nif (resp.status !== 200) {\n  var errBody = typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);\n  return JSON.stringify({error: 'Pexels API error (HTTP ' + resp.status + '): ' + errBody});\n}\n\nvar data = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\n\nif (!data.videos || data.videos.length === 0) {\n  return JSON.stringify({results: [], total: 0, query: args.query, note: 'No videos found. Try broader search terms.'});\n}\n\nvar results = [];\nfor (var i = 0; i < data.videos.length; i++) {\n  var video = data.videos[i];\n  var files = [];\n  if (video.video_files) {\n    for (var j = 0; j < video.video_files.length; j++) {\n      var f = video.video_files[j];\n      files.push({\n        quality: f.quality,\n        width: f.width,\n        height: f.height,\n        url: f.link,\n        file_type: f.file_type\n      });\n    }\n  }\n  results.push({\n    id: video.id,\n    duration: video.duration,\n    width: video.width,\n    height: video.height,\n    files: files\n  });\n}\n\nreturn JSON.stringify({\n  results: results,\n  total: data.total_results,\n  query: args.query\n}, null, 2);",
+        "handler_type": "js"
+      }
+    ]
+  }
+}

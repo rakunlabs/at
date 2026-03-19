@@ -120,11 +120,11 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 		"Content-Type":      []string{"application/json"},
 	}
 	// Only set X-Api-Key as a default header when using static key auth.
-	// When a tokenSource is configured (e.g. OAuth), per-request Bearer
-	// tokens are used instead. Setting X-Api-Key as a klient default
-	// header would cause the transport layer to re-inject it on every
-	// request — even after the caller explicitly removes it — because
-	// klient treats absent headers as "needs default".
+	// When a tokenSource is configured (e.g. OAuth), Bearer auth is used
+	// per-request instead. We must NOT add X-Api-Key to the klient defaults
+	// here, because klient only injects defaults when the header key is
+	// absent from the request — so leaving it out ensures the OAuth paths
+	// (which never set X-Api-Key) won't accidentally send an empty one.
 	if apiKey != "" && p.tokenSource == nil {
 		headers["X-Api-Key"] = []string{apiKey}
 	}
@@ -166,31 +166,32 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		return nil, err
 	}
 
-	// If a token source is configured, get a fresh token and use Bearer auth
-	// instead of the static X-Api-Key header.
+	// If a token source is configured, get a fresh token and use Bearer auth.
 	if p.tokenSource != nil {
 		token, err := p.tokenSource.Token(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get auth token: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-		// Use Set (not Del) to prevent klient's transport layer from
-		// re-injecting a stale default X-Api-Key on the cloned request.
-		req.Header.Set("X-Api-Key", "")
+		req.Header.Set("anthropic-beta", oauthBetaHeader(reqBody))
 	}
 
 	var result AnthropicResponse
 	var headers http.Header
+	var statusCode int
+	var rawBody string
 	if err := p.client.Do(req, func(r *http.Response) error {
 		headers = r.Header
+		statusCode = r.StatusCode
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			return err
 		}
 
+		rawBody = string(bodyData)
+
 		if err := json.Unmarshal(bodyData, &result); err != nil {
-			return fmt.Errorf("failed to decode response: %w (body: %s)", err, string(bodyData))
+			return fmt.Errorf("failed to decode response (status %d): %w (body: %s)", r.StatusCode, err, rawBody)
 		}
 
 		return nil
@@ -204,9 +205,17 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	if result.Type == "error" {
-		llmResp.Content = fmt.Sprintf("Error from Anthropic: %s", result.Error.Message)
-
-		return llmResp, nil
+		errMsg := result.Error.Message
+		if errMsg == "" {
+			errMsg = "unknown error"
+		}
+		slog.Error("anthropic API error",
+			"error_type", result.Error.Type,
+			"status", statusCode,
+			"message", errMsg,
+			"raw_body", rawBody,
+		)
+		return nil, fmt.Errorf("anthropic API error [%s] (status %d): %s", result.Error.Type, statusCode, errMsg)
 	}
 
 	// Map upstream usage to the internal Usage struct.
@@ -293,23 +302,35 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
+	slog.Debug("anthropic stream request",
+		"model", model,
+		"messages_count", len(messages),
+		"tools_count", len(tools),
+		"body_size", len(jsonData),
+	)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Override auth header when a token source is configured (see Chat() comment).
+	// If a token source is configured, get a fresh token and use Bearer auth.
 	if p.tokenSource != nil {
 		token, err := p.tokenSource.Token(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to get auth token: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
-		req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-		// Use Set (not Del) to prevent klient's transport layer from
-		// re-injecting a stale default X-Api-Key on the cloned request.
-		req.Header.Set("X-Api-Key", "")
+		req.Header.Set("anthropic-beta", oauthBetaHeader(reqBody))
 	}
+
+	// Log outgoing headers for debugging auth issues.
+	slog.Debug("anthropic stream request headers",
+		"headers", fmt.Sprintf("%v", req.Header),
+		"has_auth", req.Header.Get("Authorization") != "",
+		"has_x_api_key", req.Header.Get("X-Api-Key") != "",
+		"has_beta", req.Header.Get("anthropic-beta") != "",
+	)
 
 	// Use the klient's HTTP client directly for streaming.
 	resp, err := p.client.HTTP.Do(req)
@@ -320,6 +341,17 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		bodyData, _ := io.ReadAll(resp.Body)
+		// Log the request body (truncated) for debugging invalid_request_error.
+		reqBodyLog := string(jsonData)
+		if len(reqBodyLog) > 2000 {
+			reqBodyLog = reqBodyLog[:2000] + "...(truncated)"
+		}
+		slog.Error("anthropic stream error",
+			"status", resp.StatusCode,
+			"response", string(bodyData),
+			"request_body", reqBodyLog,
+			"request_headers", fmt.Sprintf("%v", req.Header),
+		)
 		return nil, nil, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
@@ -472,7 +504,11 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 					Error Error `json:"error"`
 				}
 				if err := json.Unmarshal([]byte(data), &errMsg); err == nil {
-					ch <- service.StreamChunk{Error: fmt.Errorf("anthropic error: %s", errMsg.Error.Message)}
+					msg := errMsg.Error.Message
+					if msg == "" {
+						msg = "unknown error"
+					}
+					ch <- service.StreamChunk{Error: fmt.Errorf("anthropic API error [%s]: %s", errMsg.Error.Type, msg)}
 				} else {
 					ch <- service.StreamChunk{Error: fmt.Errorf("anthropic stream error: %s", data)}
 				}
@@ -513,10 +549,19 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 					slog.Error("failed to get auth token in proxy", "error", err)
 				} else {
 					req.Header.Set("Authorization", "Bearer "+token)
-					req.Header.Set("anthropic-beta", "oauth-2025-04-20")
-					// Use Set (not Del) to prevent klient's transport layer from
-					// re-injecting a stale default X-Api-Key on the cloned request.
-					req.Header.Set("x-api-key", "")
+					// Forward the upstream anthropic-beta if present,
+					// otherwise use the default oauth beta.
+					beta := req.Header.Get("anthropic-beta")
+					if beta != "" {
+						if !strings.Contains(beta, "oauth-2025-04-20") {
+							beta = beta + ",oauth-2025-04-20"
+						}
+					} else {
+						beta = "oauth-2025-04-20"
+					}
+					req.Header.Set("anthropic-beta", beta)
+					// Remove any X-Api-Key that the upstream client may have sent.
+					req.Header.Del("x-api-key")
 				}
 				req.Header.Set("anthropic-version", "2023-06-01")
 			} else if p.APIKey != "" {
@@ -652,7 +697,47 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 	}
 
+	// OAuth user:inference scope requires extended thinking for Claude 4.x
+	// Sonnet/Opus models. If thinking was not already configured above,
+	// auto-enable it with a sensible default budget.
+	if p.tokenSource != nil {
+		if _, hasThinking := reqBody["thinking"]; !hasThinking && modelRequiresThinking(model) {
+			budget := 10000
+			reqBody["thinking"] = map[string]any{
+				"type":          "enabled",
+				"budget_tokens": budget,
+			}
+			if maxTokens < budget+1024 {
+				reqBody["max_tokens"] = budget + 1024
+			}
+		}
+	}
+
 	return reqBody
+}
+
+// oauthBetaHeader returns the anthropic-beta header value for OAuth requests.
+// When thinking is enabled in the request body, the interleaved-thinking beta
+// must also be included alongside the oauth beta.
+func oauthBetaHeader(reqBody map[string]any) string {
+	beta := "oauth-2025-04-20"
+	if _, hasThinking := reqBody["thinking"]; hasThinking {
+		beta += ",interleaved-thinking-2025-05-14"
+	}
+	return beta
+}
+
+// modelRequiresThinking returns true for Claude 4.x Sonnet/Opus models
+// that require extended thinking when used via OAuth user:inference scope.
+func modelRequiresThinking(model string) bool {
+	m := strings.ToLower(model)
+	// Claude 4 Sonnet, Opus, and their variants (e.g. claude-sonnet-4-6,
+	// claude-opus-4-6, claude-sonnet-4-20250514, etc.)
+	// Haiku models and Claude 3.x do NOT require thinking.
+	if strings.Contains(m, "sonnet-4") || strings.Contains(m, "opus-4") {
+		return true
+	}
+	return false
 }
 
 // convertContent ensures tool_use content blocks always have the "input"

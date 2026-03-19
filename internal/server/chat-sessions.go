@@ -323,38 +323,28 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	var allTools []service.Tool
 
-	// Collect MCP URLs from legacy mcp_urls and from MCP Sets.
+	// Collect MCP URLs from legacy mcp_urls and from MCP Servers.
 	var mcpURLs []string
 	mcpURLs = append(mcpURLs, agent.Config.MCPs...)
 
-	// Resolve MCP Sets to URLs and direct clients.
-	var mcpSetUpstreams []service.MCPUpstream
-	if s.mcpSetStore != nil {
-		for _, setName := range agent.Config.MCPSets {
-			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
+	// Resolve MCP Servers to URLs and direct clients.
+	var mcpServerUpstreams []service.MCPUpstream
+	if s.mcpServerStore != nil {
+		for _, serverName := range agent.Config.MCPServers {
+			srv, err := s.mcpServerStore.GetMCPServerByName(ctx, serverName)
 			if err != nil {
-				slog.Warn("agentic loop: failed to get MCP set", "set", setName, "error", err)
+				slog.Warn("agentic loop: failed to get MCP server", "server", serverName, "error", err)
 				continue
 			}
-			if set == nil {
-				slog.Warn("agentic loop: MCP set not found", "set", setName)
+			if srv == nil {
+				slog.Warn("agentic loop: MCP server not found", "server", serverName)
 				continue
 			}
-			// Resolve server names to gateway URLs.
-			for _, serverName := range set.Servers {
-				gatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
-				mcpURLs = append(mcpURLs, gatewayURL)
-			}
-			mcpURLs = append(mcpURLs, set.URLs...)
-
-			// Collect upstreams to resolve directly (bypasses gateway).
-			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
-
-			// If the MCP set has non-upstream own tools, add gateway URL.
-			if len(set.Config.EnabledRAGTools) > 0 || len(set.Config.HTTPTools) > 0 || len(set.Config.EnabledSkills) > 0 {
-				setGatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp-set/%s", s.config.Port, s.config.BasePath, setName)
-				mcpURLs = append(mcpURLs, setGatewayURL)
-			}
+			// Add the server's own gateway URL for its tools.
+			gatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
+			mcpURLs = append(mcpURLs, gatewayURL)
+			// Collect direct upstreams from the server.
+			mcpServerUpstreams = append(mcpServerUpstreams, srv.Config.MCPUpstreams...)
 		}
 	}
 
@@ -378,8 +368,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}
 	}
 
-	// MCP tools — direct upstreams from MCP sets (HTTP or stdio).
-	for _, upstream := range mcpSetUpstreams {
+	// MCP tools — direct upstreams from MCP servers (HTTP or stdio).
+	for _, upstream := range mcpServerUpstreams {
 		client, err := s.newMCPClient(ctx, upstream)
 		if err != nil {
 			slog.Warn("agentic loop: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
@@ -449,6 +439,55 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}
 	}
 
+	// 6b. Task-linked session: inject task context and delegation tools.
+	var taskLinked *service.Task
+	if session.TaskID != "" && s.taskStore != nil {
+		taskLinked, _ = s.taskStore.GetTask(ctx, session.TaskID)
+	}
+
+	// If this session is linked to a task in an organization, load delegation tools.
+	if session.OrganizationID != "" && taskLinked != nil && s.organizationStore != nil && s.orgAgentStore != nil {
+		org, orgErr := s.organizationStore.GetOrganization(ctx, session.OrganizationID)
+		if orgErr == nil && org != nil {
+			reports, repErr := s.getDirectReports(ctx, org.ID, session.AgentID)
+			if repErr == nil {
+				for _, oa := range reports {
+					reportAgent, agentErr := s.agentStore.GetAgent(ctx, oa.AgentID)
+					if agentErr != nil || reportAgent == nil {
+						continue
+					}
+					safeName := strings.Map(func(r rune) rune {
+						if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+							return r
+						}
+						return '_'
+					}, reportAgent.Name)
+					toolName := "delegate_to_" + strings.ToLower(safeName)
+					toolDesc := fmt.Sprintf("Delegate a task to %s. %s", reportAgent.Name, reportAgent.Config.Description)
+					allTools = append(allTools, service.Tool{
+						Name:        toolName,
+						Description: toolDesc,
+						InputSchema: map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"task": map[string]any{
+									"type":        "string",
+									"description": "The task or instruction to delegate to the agent.",
+								},
+							},
+							"required": []string{"task"},
+						},
+					})
+					// Store the delegation target for dispatch later.
+					toolHandlers[toolName] = toolHandlerInfo{
+						handler:     oa.AgentID,
+						handlerType: "delegate",
+					}
+				}
+			}
+		}
+	}
+
 	// 7. Build system prompt.
 	systemPrompt := agent.Config.SystemPrompt
 	for _, fragment := range skillPromptFragments {
@@ -456,6 +495,29 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			systemPrompt += "\n\n"
 		}
 		systemPrompt += fragment
+	}
+
+	// Inject task context into system prompt if this session is task-linked.
+	if taskLinked != nil {
+		var taskContext strings.Builder
+		taskContext.WriteString("\n\n## Current Task\n")
+		if taskLinked.Identifier != "" {
+			taskContext.WriteString(fmt.Sprintf("**ID**: %s\n", taskLinked.Identifier))
+		}
+		taskContext.WriteString(fmt.Sprintf("**Title**: %s\n", taskLinked.Title))
+		taskContext.WriteString(fmt.Sprintf("**Status**: %s\n", taskLinked.Status))
+		if taskLinked.Description != "" {
+			taskContext.WriteString(fmt.Sprintf("\n**Description**:\n%s\n", taskLinked.Description))
+		}
+		if taskLinked.Result != "" {
+			resultPreview := taskLinked.Result
+			if len(resultPreview) > 2000 {
+				resultPreview = resultPreview[:2000] + "\n...(truncated)"
+			}
+			taskContext.WriteString(fmt.Sprintf("\n**Previous Result**:\n%s\n", resultPreview))
+		}
+		taskContext.WriteString("\nYou are continuing work on this task interactively. Complete the remaining work and report your results.")
+		systemPrompt += taskContext.String()
 	}
 
 	// NOTE: User preferences are injected into the system prompt after
@@ -563,8 +625,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		sessionUserID = session.CreatedBy
 	}
 
-	// Store session user ID in context for builtin tool executors.
+	// Store session user ID and agent ID in context for builtin tool executors.
 	ctx = contextWithSessionUserID(ctx, sessionUserID)
+	ctx = contextWithAgentID(ctx, agent.ID)
 
 	// Build variable lookup/lister for skill tools.
 	// The lookup checks per-user preferences first, then per-user variables, then global.
@@ -696,6 +759,23 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		// If done (no tool calls), persist and finish.
 		if resp.Finished || len(resp.ToolCalls) == 0 {
 			s.persistAssistantMessage(ctx, sessionID, resp.Content, nil)
+
+			// Auto-sync: if this session is linked to a task, update the task result.
+			if taskLinked != nil && resp.Content != "" && s.taskStore != nil {
+				newStatus := service.TaskStatusCompleted
+				if taskLinked.ParentID != "" {
+					// Sub-tasks complete as "done" to let the parent know.
+					newStatus = service.TaskStatusDone
+				}
+				if syncErr := s.taskStore.UpdateTaskStatus(ctx, taskLinked.ID, newStatus, resp.Content); syncErr != nil {
+					slog.Warn("agentic loop: failed to sync task result",
+						"task_id", taskLinked.ID, "error", syncErr)
+				} else {
+					slog.Info("agentic loop: task result synced from chat",
+						"task_id", taskLinked.ID, "status", newStatus)
+				}
+			}
+
 			onEvent(AgenticEvent{Type: "done"})
 			return nil
 		}
@@ -765,6 +845,41 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
 					result, callErr = s.dispatchBuiltinTool(ctx, tc.Name, tc.Arguments)
+				} else if hi.handlerType == "delegate" {
+					// Delegation tool for task-linked chat sessions.
+					// Creates a child task and runs org delegation synchronously.
+					targetAgentID := hi.handler
+					taskText, _ := tc.Arguments["task"].(string)
+					if taskText == "" {
+						taskText = "Delegated task"
+					}
+					if taskLinked != nil && session.OrganizationID != "" {
+						org, _ := s.organizationStore.GetOrganization(ctx, session.OrganizationID)
+						if org != nil {
+							childTask, createErr := s.createDelegationTask(ctx, org, taskLinked, targetAgentID, taskText, 1)
+							if createErr != nil {
+								result = fmt.Sprintf("Error creating delegation task: %v", createErr)
+							} else {
+								// Run delegation synchronously so the chat agent gets the result.
+								delegErr := s.runOrgDelegation(ctx, org, childTask, targetAgentID, 1)
+								if delegErr != nil {
+									result = fmt.Sprintf("Delegation failed: %v", delegErr)
+								} else {
+									// Re-fetch the completed child task to get its result.
+									completed, _ := s.taskStore.GetTask(ctx, childTask.ID)
+									if completed != nil && completed.Result != "" {
+										result = completed.Result
+									} else {
+										result = "Delegation completed but no result was returned."
+									}
+								}
+							}
+						} else {
+							result = "Error: organization not found for delegation"
+						}
+					} else {
+						result = "Error: delegation requires a task-linked session with an organization"
+					}
 				} else {
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
 						VarLookup:      varLookup,

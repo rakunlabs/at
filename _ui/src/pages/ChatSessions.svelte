@@ -338,7 +338,20 @@
 
   // Init
   $effect(() => {
-    loadSessions();
+    loadSessions().then(() => {
+      // Auto-select session from URL query param (e.g., ?session=abc from task chat).
+      const hash = window.location.hash;
+      const qIdx = hash.indexOf('?');
+      if (qIdx !== -1) {
+        const params = new URLSearchParams(hash.slice(qIdx + 1));
+        const sessionParam = params.get('session');
+        if (sessionParam) {
+          selectSession(sessionParam);
+          // Clean up the URL.
+          window.location.hash = hash.slice(0, qIdx);
+        }
+      }
+    });
     loadAgents();
   });
 </script>

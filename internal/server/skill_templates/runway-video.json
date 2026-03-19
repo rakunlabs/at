@@ -1,0 +1,120 @@
+{
+  "slug": "runway-video",
+  "name": "Runway Video Generation",
+  "description": "Generate cinematic AI videos using Runway (Gen4, Veo3) with clip stitching via FFmpeg",
+  "category": "Content Creation",
+  "tags": ["video", "runway", "ai", "content", "youtube", "shorts"],
+  "required_variables": [
+    {
+      "key": "runway_api_key",
+      "description": "Runway API key (get from https://app.runwayml.com/settings/api-keys)",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "runway_video",
+    "description": "Generate cinematic AI videos using Runway Gen4/Veo3",
+    "system_prompt": "You have access to Runway video generation tools.\n\nAvailable models:\n- Text-to-video: gen4.5, veo3.1, veo3.1_fast, veo3\n- Image-to-video: gen4.5, gen4_turbo, gen3a_turbo, veo3.1, veo3.1_fast, veo3\n\nWorkflow for creating YouTube Shorts:\n1. For each scene, call generate_video_from_text with a detailed prompt OR generate_video_from_image with a source image and motion prompt\n2. Motion prompts should describe camera movement and subject action\n3. Each clip is 2-10 seconds. For a 30-60 second Short, generate 4-6 clips\n4. After all clips are generated, call stitch_clips to combine them into one video\n\nResolution format (use exact strings):\n- Vertical (Shorts): '720:1280'\n- Horizontal: '1280:720'\n\nTips for best results:\n- Use ratio '720:1280' for vertical YouTube Shorts\n- Default model for text-to-video is 'gen4.5' (best quality)\n- Default model for image-to-video is 'gen4_turbo' (good balance of speed and quality)\n- Keep prompts under 1000 characters\n- Keep motion prompts simple and focused on one main movement per clip\n- Avoid complex multi-subject scenes — they tend to produce artifacts\n- The polling loop in generate_video tools waits up to 5 minutes for completion\n\nYou can also use check_video_status to manually poll a task that timed out.",
+    "tools": [
+      {
+        "name": "generate_video_from_text",
+        "description": "Generate a video from a text prompt using Runway. Polls until complete (up to 5 min). Models: gen4.5, veo3.1, veo3.1_fast, veo3. Ratio: '1280:720' (landscape) or '720:1280' (portrait/Shorts).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Text description of the video to generate (max 1000 chars). Be specific about motion, camera angle, and mood."
+            },
+            "duration": {
+              "type": "number",
+              "description": "Video duration in seconds: integer from 2 to 10. Default: 5"
+            },
+            "ratio": {
+              "type": "string",
+              "description": "Resolution ratio: '1280:720' (landscape) or '720:1280' (portrait/Shorts). Default: '720:1280'"
+            },
+            "model": {
+              "type": "string",
+              "description": "Model to use: 'gen4.5', 'veo3.1', 'veo3.1_fast', 'veo3'. Default: 'gen4.5'"
+            }
+          },
+          "required": ["prompt"]
+        },
+        "handler": "var apiKey = getVar('runway_api_key');\nif (!apiKey) return JSON.stringify({error: \"Runway API key not configured. Set the 'runway_api_key' variable.\"});\n\nvar duration = Math.round(args.duration || 5);\nif (duration < 2) duration = 2;\nif (duration > 10) duration = 10;\nvar ratio = args.ratio || '720:1280';\nvar model = args.model || 'gen4.5';\n\n// Validate model\nvar validModels = ['gen4.5', 'veo3.1', 'veo3.1_fast', 'veo3'];\nif (validModels.indexOf(model) === -1) {\n  return JSON.stringify({error: 'Invalid model for text_to_video. Valid models: ' + validModels.join(', ') + '. Got: ' + model});\n}\n\nvar payload = JSON.stringify({\n  promptText: args.prompt,\n  model: model,\n  duration: duration,\n  ratio: ratio\n});\n\nvar resp = httpPost('https://api.dev.runwayml.com/v1/text_to_video', payload, {\n  'Authorization': 'Bearer ' + apiKey,\n  'Content-Type': 'application/json',\n  'X-Runway-Version': '2024-11-06'\n});\n\nif (resp.status !== 200 && resp.status !== 201) {\n  var errBody = typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);\n  return JSON.stringify({error: 'Runway API error (HTTP ' + resp.status + '): ' + errBody});\n}\n\nvar taskData = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\nvar taskId = taskData.id;\n\n// Poll for completion (max 60 attempts * 5s = 5 minutes)\nfor (var i = 0; i < 60; i++) {\n  // Wait 5 seconds between polls\n  var waitResp = httpGet('https://httpstat.us/200?sleep=5000', {});\n\n  var statusResp = httpGet('https://api.dev.runwayml.com/v1/tasks/' + taskId, {\n    'Authorization': 'Bearer ' + apiKey,\n    'X-Runway-Version': '2024-11-06'\n  });\n\n  var statusData = typeof statusResp.body === 'string' ? jsonParse(statusResp.body) : statusResp.body;\n\n  if (statusData.status === 'SUCCEEDED') {\n    return JSON.stringify({\n      video_url: statusData.output[0],\n      task_id: taskId,\n      duration_seconds: duration\n    }, null, 2);\n  }\n\n  if (statusData.status === 'FAILED') {\n    return JSON.stringify({\n      error: 'Video generation failed: ' + (statusData.failure || statusData.failureReason || 'unknown error'),\n      task_id: taskId\n    });\n  }\n}\n\nreturn JSON.stringify({\n  error: 'Video generation timed out after 5 minutes. Use check_video_status to poll manually.',\n  task_id: taskId\n});",
+        "handler_type": "js"
+      },
+      {
+        "name": "generate_video_from_image",
+        "description": "Generate a video from a source image and motion prompt using Runway. Polls until complete (up to 5 min). Models: gen4.5, gen4_turbo, gen3a_turbo, veo3.1, veo3.1_fast, veo3. Ratio: '1280:720', '720:1280', etc.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "image_url": {
+              "type": "string",
+              "description": "HTTPS URL of the source image to animate"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Motion/direction prompt describing how the image should animate (e.g., 'slow zoom in, gentle camera pan right')"
+            },
+            "duration": {
+              "type": "number",
+              "description": "Video duration in seconds: integer from 2 to 10. Default: 5"
+            },
+            "ratio": {
+              "type": "string",
+              "description": "Resolution ratio: '1280:720' (landscape), '720:1280' (portrait/Shorts), '1104:832', '960:960', '832:1104', '1584:672'. Default: '720:1280'"
+            },
+            "model": {
+              "type": "string",
+              "description": "Model to use: 'gen4.5', 'gen4_turbo', 'gen3a_turbo', 'veo3.1', 'veo3.1_fast', 'veo3'. Default: 'gen4_turbo'"
+            }
+          },
+          "required": ["image_url", "prompt"]
+        },
+        "handler": "var apiKey = getVar('runway_api_key');\nif (!apiKey) return JSON.stringify({error: \"Runway API key not configured. Set the 'runway_api_key' variable.\"});\n\nvar duration = Math.round(args.duration || 5);\nif (duration < 2) duration = 2;\nif (duration > 10) duration = 10;\nvar ratio = args.ratio || '720:1280';\nvar model = args.model || 'gen4_turbo';\n\n// Validate model\nvar validModels = ['gen4.5', 'gen4_turbo', 'gen3a_turbo', 'veo3.1', 'veo3.1_fast', 'veo3'];\nif (validModels.indexOf(model) === -1) {\n  return JSON.stringify({error: 'Invalid model for image_to_video. Valid models: ' + validModels.join(', ') + '. Got: ' + model});\n}\n\nvar payload = JSON.stringify({\n  promptImage: args.image_url,\n  promptText: args.prompt,\n  model: model,\n  duration: duration,\n  ratio: ratio\n});\n\nvar resp = httpPost('https://api.dev.runwayml.com/v1/image_to_video', payload, {\n  'Authorization': 'Bearer ' + apiKey,\n  'Content-Type': 'application/json',\n  'X-Runway-Version': '2024-11-06'\n});\n\nif (resp.status !== 200 && resp.status !== 201) {\n  var errBody = typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);\n  return JSON.stringify({error: 'Runway API error (HTTP ' + resp.status + '): ' + errBody});\n}\n\nvar taskData = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\nvar taskId = taskData.id;\n\n// Poll for completion (max 60 attempts * 5s = 5 minutes)\nfor (var i = 0; i < 60; i++) {\n  var waitResp = httpGet('https://httpstat.us/200?sleep=5000', {});\n\n  var statusResp = httpGet('https://api.dev.runwayml.com/v1/tasks/' + taskId, {\n    'Authorization': 'Bearer ' + apiKey,\n    'X-Runway-Version': '2024-11-06'\n  });\n\n  var statusData = typeof statusResp.body === 'string' ? jsonParse(statusResp.body) : statusResp.body;\n\n  if (statusData.status === 'SUCCEEDED') {\n    return JSON.stringify({\n      video_url: statusData.output[0],\n      task_id: taskId,\n      duration_seconds: duration\n    }, null, 2);\n  }\n\n  if (statusData.status === 'FAILED') {\n    return JSON.stringify({\n      error: 'Video generation failed: ' + (statusData.failure || statusData.failureReason || 'unknown error'),\n      task_id: taskId\n    });\n  }\n}\n\nreturn JSON.stringify({\n  error: 'Video generation timed out after 5 minutes. Use check_video_status to poll manually.',\n  task_id: taskId\n});",
+        "handler_type": "js"
+      },
+      {
+        "name": "check_video_status",
+        "description": "Check the status of a Runway video generation task without blocking",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "task_id": {
+              "type": "string",
+              "description": "The Runway task ID to check"
+            }
+          },
+          "required": ["task_id"]
+        },
+        "handler": "var apiKey = getVar('runway_api_key');\nif (!apiKey) return JSON.stringify({error: \"Runway API key not configured. Set the 'runway_api_key' variable.\"});\n\nvar resp = httpGet('https://api.dev.runwayml.com/v1/tasks/' + args.task_id, {\n  'Authorization': 'Bearer ' + apiKey,\n  'X-Runway-Version': '2024-11-06'\n});\n\nif (resp.status !== 200) {\n  var errBody = typeof resp.body === 'string' ? resp.body : JSON.stringify(resp.body);\n  return JSON.stringify({error: 'Runway API error (HTTP ' + resp.status + '): ' + errBody});\n}\n\nvar data = typeof resp.body === 'string' ? jsonParse(resp.body) : resp.body;\n\nvar result = {\n  task_id: args.task_id,\n  status: data.status\n};\n\nif (data.status === 'SUCCEEDED') {\n  result.video_url = data.output[0];\n} else if (data.status === 'FAILED') {\n  result.error = data.failure || data.failureReason || 'unknown error';\n} else if (data.progress) {\n  result.progress = data.progress;\n}\n\nreturn JSON.stringify(result, null, 2);",
+        "handler_type": "js"
+      },
+      {
+        "name": "stitch_clips",
+        "description": "Concatenate multiple video clips into a single video file using FFmpeg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "clip_urls": {
+              "type": "array",
+              "description": "Array of video clip URLs to concatenate in order",
+              "items": {
+                "type": "string"
+              }
+            },
+            "output_format": {
+              "type": "string",
+              "description": "Output format: mp4 (default) or webm"
+            }
+          },
+          "required": ["clip_urls"]
+        },
+        "handler": "#!/bin/bash\nset -e\n\n# Check FFmpeg is available\nif ! command -v ffmpeg &> /dev/null; then\n  echo '{\"error\": \"FFmpeg is not installed. Please install FFmpeg to use clip stitching.\"}'\n  exit 0\nfi\n\n# Parse clip URLs from environment variable (JSON array)\nCLIP_URLS=\"$ARG_CLIP_URLS\"\nFORMAT=\"${ARG_OUTPUT_FORMAT:-mp4}\"\n\n# Create temp working directory\nWORKDIR=$(mktemp -d /tmp/at-stitch-XXXXXX)\nCONCAT_FILE=\"$WORKDIR/concat.txt\"\nOUTPUT_FILE=\"$WORKDIR/output.$FORMAT\"\n\n# Parse JSON array of URLs\nURLS=$(echo \"$CLIP_URLS\" | python3 -c \"import sys,json; urls=json.load(sys.stdin); [print(u) for u in urls]\" 2>/dev/null || echo \"$CLIP_URLS\" | tr -d '[]\"' | tr ',' '\\n')\n\n# Handle single clip case\nCOUNT=$(echo \"$URLS\" | wc -l)\nif [ \"$COUNT\" -le 1 ]; then\n  SINGLE_URL=$(echo \"$URLS\" | head -1 | tr -d ' ')\n  echo \"{\\\"output_url\\\": \\\"$SINGLE_URL\\\", \\\"clips_count\\\": 1, \\\"note\\\": \\\"Single clip returned as-is\\\"}\"\n  exit 0\nfi\n\n# Download each clip\nIDX=0\nwhile IFS= read -r url; do\n  url=$(echo \"$url\" | tr -d ' ')\n  [ -z \"$url\" ] && continue\n  CLIP_FILE=\"$WORKDIR/clip_${IDX}.$FORMAT\"\n  curl -sL -o \"$CLIP_FILE\" \"$url\"\n  echo \"file '$CLIP_FILE'\" >> \"$CONCAT_FILE\"\n  IDX=$((IDX + 1))\ndone <<< \"$URLS\"\n\n# Stitch clips\nffmpeg -y -f concat -safe 0 -i \"$CONCAT_FILE\" -c copy \"$OUTPUT_FILE\" 2>/dev/null\n\nif [ -f \"$OUTPUT_FILE\" ]; then\n  SIZE=$(stat -f%z \"$OUTPUT_FILE\" 2>/dev/null || stat -c%s \"$OUTPUT_FILE\" 2>/dev/null || echo \"unknown\")\n  echo \"{\\\"output_url\\\": \\\"file://$OUTPUT_FILE\\\", \\\"clips_count\\\": $IDX, \\\"file_size_bytes\\\": $SIZE, \\\"format\\\": \\\"$FORMAT\\\"}\"\nelse\n  echo '{\"error\": \"FFmpeg stitching failed - no output file produced\"}'\nfi",
+        "handler_type": "bash"
+      }
+    ]
+  }
+}

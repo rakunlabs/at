@@ -8,6 +8,7 @@
     deleteTask,
     getTaskWithSubtasks,
     processTask,
+    createTaskChat,
     TASK_STATUSES,
     TASK_STATUS_LABELS,
     TASK_PRIORITIES,
@@ -31,7 +32,9 @@
     Tag, MessageSquare, ListTree, Calendar, User,
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
     Layers, ChevronRight, ChevronDown, Building2, Play,
+    RotateCcw,
   } from 'lucide-svelte';
+  import { createComment } from '@/lib/api/issue-comments';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
 
@@ -329,6 +332,41 @@
   // ─── Process (delegation) ───
 
   let processing = $state(false);
+  let showRevisionForm = $state(false);
+  let revisionFeedback = $state('');
+  let requestingRevision = $state(false);
+
+  async function handleRequestRevision() {
+    if (!task || !revisionFeedback.trim()) {
+      addToast('Please enter feedback for the revision', 'warn');
+      return;
+    }
+    requestingRevision = true;
+    try {
+      // 1. Add the feedback as a comment
+      await createComment(task.id, {
+        body: revisionFeedback.trim(),
+        author_type: 'user',
+        author_id: 'reviewer',
+      });
+      // 2. Reset task status to open
+      await updateTask(task.id, { status: 'open' });
+      // 3. Trigger re-processing
+      await processTask(task.id);
+
+      task.status = 'open';
+      revisionFeedback = '';
+      showRevisionForm = false;
+      addToast('Revision requested — task sent for re-processing with your feedback');
+      // Reload to reflect changes
+      await loadTask();
+      await loadSubTasks();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to request revision', 'alert');
+    } finally {
+      requestingRevision = false;
+    }
+  }
 
   async function handleProcess() {
     if (!task) return;
@@ -341,6 +379,20 @@
       addToast(e?.response?.data?.message || 'Failed to process task', 'alert');
     } finally {
       processing = false;
+    }
+  }
+
+  let openingChat = $state(false);
+  async function handleOpenChat() {
+    if (!task) return;
+    openingChat = true;
+    try {
+      const session = await createTaskChat(task.id);
+      push(`/sessions?session=${session.id}`);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to open chat', 'alert');
+    } finally {
+      openingChat = false;
     }
   }
   // ─── Tree toggle ───
@@ -881,7 +933,7 @@
               <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border">
                 <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Actions</span>
               </div>
-              <div class="px-3 py-2">
+              <div class="px-3 py-2 space-y-2">
                 <button
                   onclick={handleProcess}
                   disabled={processing}
@@ -890,6 +942,52 @@
                   <Play size={12} />
                   {processing ? 'Processing...' : 'Process (Start Delegation)'}
                 </button>
+
+                <button
+                  onclick={handleOpenChat}
+                  disabled={openingChat}
+                  class="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors disabled:opacity-50"
+                >
+                  <MessageSquare size={12} />
+                  {openingChat ? 'Opening...' : 'Open Chat'}
+                </button>
+
+                {#if task.status === 'completed' || task.status === 'in_review' || task.status === 'done'}
+                  {#if showRevisionForm}
+                    <div class="space-y-2 pt-1">
+                      <textarea
+                        bind:value={revisionFeedback}
+                        rows="3"
+                        placeholder="Describe what needs to change..."
+                        class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-xs bg-transparent dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:border-gray-400 dark:focus:border-accent/50 resize-y transition-colors"
+                      ></textarea>
+                      <div class="flex gap-1.5">
+                        <button
+                          onclick={handleRequestRevision}
+                          disabled={requestingRevision || !revisionFeedback.trim()}
+                          class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-orange-600 text-white hover:bg-orange-700 transition-colors disabled:opacity-50"
+                        >
+                          <RotateCcw size={11} />
+                          {requestingRevision ? 'Sending...' : 'Send & Reprocess'}
+                        </button>
+                        <button
+                          onclick={() => { showRevisionForm = false; revisionFeedback = ''; }}
+                          class="px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  {:else}
+                    <button
+                      onclick={() => (showRevisionForm = true)}
+                      class="flex items-center gap-1.5 text-xs text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors"
+                    >
+                      <RotateCcw size={12} />
+                      Request Revision
+                    </button>
+                  {/if}
+                {/if}
               </div>
             </div>
           {/if}

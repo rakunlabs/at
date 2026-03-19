@@ -19,7 +19,7 @@ export interface MCPTemplate {
   description: string;
   category: string;
   tags: string[];
-  mcp_set: MCPTemplateSetData;
+  mcp_server: MCPTemplateSetData;
 }
 
 // ─── API ───

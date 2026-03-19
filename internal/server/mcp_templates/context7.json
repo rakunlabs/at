@@ -4,7 +4,7 @@
   "description": "Search through up-to-date library documentation directly from source. Provides accurate, version-specific docs for popular frameworks and libraries.",
   "category": "Development",
   "tags": ["docs", "documentation", "libraries", "frameworks"],
-  "mcp_set": {
+  "mcp_server": {
     "name": "context7",
     "description": "Library documentation search via Context7",
     "config": {

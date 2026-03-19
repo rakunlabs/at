@@ -18,14 +18,16 @@ import (
 // ─── Chat Session CRUD ───
 
 type chatSessionRow struct {
-	ID        string         `db:"id"`
-	AgentID   string         `db:"agent_id"`
-	Name      string         `db:"name"`
-	Config    types.RawJSON  `db:"config"`
-	CreatedAt time.Time      `db:"created_at"`
-	UpdatedAt time.Time      `db:"updated_at"`
-	CreatedBy sql.NullString `db:"created_by"`
-	UpdatedBy sql.NullString `db:"updated_by"`
+	ID             string         `db:"id"`
+	AgentID        string         `db:"agent_id"`
+	TaskID         string         `db:"task_id"`
+	OrganizationID string         `db:"organization_id"`
+	Name           string         `db:"name"`
+	Config         types.RawJSON  `db:"config"`
+	CreatedAt      time.Time      `db:"created_at"`
+	UpdatedAt      time.Time      `db:"updated_at"`
+	CreatedBy      sql.NullString `db:"created_by"`
+	UpdatedBy      sql.NullString `db:"updated_by"`
 }
 
 type chatMessageRow struct {
@@ -37,7 +39,7 @@ type chatMessageRow struct {
 }
 
 func (p *Postgres) ListChatSessions(ctx context.Context, q *query.Query) (*service.ListResult[service.ChatSession], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableChatSessions, q, "id", "agent_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableChatSessions, q, "id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list chat sessions query: %w", err)
 	}
@@ -51,7 +53,7 @@ func (p *Postgres) ListChatSessions(ctx context.Context, q *query.Query) (*servi
 	var items []service.ChatSession
 	for rows.Next() {
 		var row chatSessionRow
-		if err := rows.Scan(&row.ID, &row.AgentID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan chat session row: %w", err)
 		}
 
@@ -76,7 +78,7 @@ func (p *Postgres) ListChatSessions(ctx context.Context, q *query.Query) (*servi
 
 func (p *Postgres) GetChatSession(ctx context.Context, id string) (*service.ChatSession, error) {
 	query, _, err := p.goqu.From(p.tableChatSessions).
-		Select("id", "agent_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -84,7 +86,7 @@ func (p *Postgres) GetChatSession(ctx context.Context, id string) (*service.Chat
 	}
 
 	var row chatSessionRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -97,7 +99,7 @@ func (p *Postgres) GetChatSession(ctx context.Context, id string) (*service.Chat
 
 func (p *Postgres) GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID string) (*service.ChatSession, error) {
 	query, _, err := p.goqu.From(p.tableChatSessions).
-		Select("id", "agent_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(
 			goqu.L("config->>'platform'").Eq(platform),
 			goqu.L("config->>'platform_user_id'").Eq(platformUserID),
@@ -110,12 +112,37 @@ func (p *Postgres) GetChatSessionByPlatform(ctx context.Context, platform, platf
 	}
 
 	var row chatSessionRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get chat session by platform: %w", err)
+	}
+
+	return chatSessionRowToRecord(row)
+}
+
+func (p *Postgres) GetChatSessionByTaskID(ctx context.Context, taskID string) (*service.ChatSession, error) {
+	query, _, err := p.goqu.From(p.tableChatSessions).
+		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
+		Where(
+			goqu.I("task_id").Eq(taskID),
+			goqu.I("task_id").Neq(""),
+		).
+		Limit(1).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build get chat session by task id query: %w", err)
+	}
+
+	var row chatSessionRow
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get chat session by task id %q: %w", taskID, err)
 	}
 
 	return chatSessionRowToRecord(row)
@@ -132,14 +159,16 @@ func (p *Postgres) CreateChatSession(ctx context.Context, session service.ChatSe
 
 	query, _, err := p.goqu.Insert(p.tableChatSessions).Rows(
 		goqu.Record{
-			"id":         id,
-			"agent_id":   session.AgentID,
-			"name":       session.Name,
-			"config":     types.RawJSON(configJSON),
-			"created_at": now,
-			"updated_at": now,
-			"created_by": session.CreatedBy,
-			"updated_by": session.UpdatedBy,
+			"id":              id,
+			"agent_id":        session.AgentID,
+			"task_id":         session.TaskID,
+			"organization_id": session.OrganizationID,
+			"name":            session.Name,
+			"config":          types.RawJSON(configJSON),
+			"created_at":      now,
+			"updated_at":      now,
+			"created_by":      session.CreatedBy,
+			"updated_by":      session.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -151,14 +180,16 @@ func (p *Postgres) CreateChatSession(ctx context.Context, session service.ChatSe
 	}
 
 	return &service.ChatSession{
-		ID:        id,
-		AgentID:   session.AgentID,
-		Name:      session.Name,
-		Config:    session.Config,
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		CreatedBy: session.CreatedBy,
-		UpdatedBy: session.UpdatedBy,
+		ID:             id,
+		AgentID:        session.AgentID,
+		TaskID:         session.TaskID,
+		OrganizationID: session.OrganizationID,
+		Name:           session.Name,
+		Config:         session.Config,
+		CreatedAt:      now.Format(time.RFC3339),
+		UpdatedAt:      now.Format(time.RFC3339),
+		CreatedBy:      session.CreatedBy,
+		UpdatedBy:      session.UpdatedBy,
 	}, nil
 }
 
@@ -178,6 +209,12 @@ func (p *Postgres) UpdateChatSession(ctx context.Context, id string, session ser
 	}
 	if session.AgentID != "" {
 		record["agent_id"] = session.AgentID
+	}
+	if session.TaskID != "" {
+		record["task_id"] = session.TaskID
+	}
+	if session.OrganizationID != "" {
+		record["organization_id"] = session.OrganizationID
 	}
 
 	query, _, err := p.goqu.Update(p.tableChatSessions).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()
@@ -348,14 +385,16 @@ func chatSessionRowToRecord(row chatSessionRow) (*service.ChatSession, error) {
 	}
 
 	return &service.ChatSession{
-		ID:        row.ID,
-		AgentID:   row.AgentID,
-		Name:      row.Name,
-		Config:    cfg,
-		CreatedAt: row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy: row.CreatedBy.String,
-		UpdatedBy: row.UpdatedBy.String,
+		ID:             row.ID,
+		AgentID:        row.AgentID,
+		TaskID:         row.TaskID,
+		OrganizationID: row.OrganizationID,
+		Name:           row.Name,
+		Config:         cfg,
+		CreatedAt:      row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:      row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:      row.CreatedBy.String,
+		UpdatedBy:      row.UpdatedBy.String,
 	}, nil
 }
 

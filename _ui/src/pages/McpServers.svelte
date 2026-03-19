@@ -8,7 +8,6 @@
     deleteMCPServer,
     type MCPServer,
   } from '@/lib/api/mcp-servers';
-  import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import {
     Server,
@@ -19,7 +18,6 @@
     Save,
     RefreshCw,
     Copy,
-    Layers,
     Wrench,
   } from 'lucide-svelte';
 
@@ -38,11 +36,9 @@
   // Form fields
   let formName = $state('');
   let formDescription = $state('');
-  let formMCPs = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
 
   // Helpers
-  let availableMCPs = $state<MCPSet[]>([]);
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
 
   // ─── Load Data ───
@@ -61,13 +57,6 @@
 
   loadServers();
 
-  async function loadMCPs() {
-    try {
-      const res = await listMCPSets({ _limit: 500 });
-      availableMCPs = res.data || [];
-    } catch {}
-  }
-
   async function loadBuiltinToolDefs() {
     try {
       const res = await listBuiltinTools();
@@ -75,7 +64,6 @@
     } catch {}
   }
 
-  loadMCPs();
   loadBuiltinToolDefs();
 
   // ─── Form Logic ───
@@ -83,7 +71,6 @@
   function resetForm() {
     formName = '';
     formDescription = '';
-    formMCPs = [];
     formBuiltinTools = [];
     editingId = null;
     showForm = false;
@@ -99,7 +86,6 @@
     editingId = s.id;
     formName = s.name;
     formDescription = s.config.description || '';
-    formMCPs = s.config.mcps ?? [];
     formBuiltinTools = s.config.enabled_builtin_tools ?? [];
     showForm = true;
   }
@@ -116,7 +102,6 @@
         name: formName.trim(),
         config: {
           description: formDescription.trim(),
-          mcps: formMCPs,
           enabled_builtin_tools: formBuiltinTools,
         },
       };
@@ -155,10 +140,7 @@
     setTimeout(() => { copiedName = null; }, 2000);
   }
 
-  function getMCPNames(mcps: string[] | undefined): string {
-    if (!mcps || mcps.length === 0) return '';
-    return mcps.join(', ');
-  }
+
 </script>
 
 <div class="flex h-full">
@@ -169,8 +151,8 @@
     <div>
       <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">MCP Servers</h1>
       <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
-        Gateway endpoints that serve tools from your MCPs.
-        External agents connect via <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">POST /gateway/v1/mcp/&#123;name&#125;</code> with Bearer token auth.
+        Gateway endpoints that serve tools to external agents.
+        Connect via <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">POST /gateway/v1/mcp/&#123;name&#125;</code> with Bearer token auth.
       </p>
     </div>
     <div class="flex items-center gap-2">
@@ -226,47 +208,6 @@
             placeholder="What this MCP server provides (optional)"
             class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
           />
-        </div>
-
-        <!-- MCPs -->
-        <div class="grid grid-cols-4 gap-3 items-start">
-          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
-            <div class="flex items-center gap-1.5">
-              <Layers size={14} />
-              MCPs
-            </div>
-          </span>
-          <div class="col-span-3">
-            {#if availableMCPs.length > 0}
-              <div class="space-y-1.5 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
-                {#each availableMCPs as mcp}
-                  <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-elevated transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={formMCPs.includes(mcp.name)}
-                      onchange={() => {
-                        if (formMCPs.includes(mcp.name)) {
-                          formMCPs = formMCPs.filter(n => n !== mcp.name);
-                        } else {
-                          formMCPs = [...formMCPs, mcp.name];
-                        }
-                      }}
-                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
-                    />
-                    <div class="flex-1 min-w-0">
-                      <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{mcp.name}</span>
-                      {#if mcp.description}
-                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{mcp.description}</div>
-                      {/if}
-                    </div>
-                  </label>
-                {/each}
-              </div>
-              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Tools from selected MCPs will be served by this endpoint.</p>
-            {:else}
-              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No MCPs available. Create MCPs first.</span>
-            {/if}
-          </div>
         </div>
 
         <!-- Builtin Tools -->
@@ -351,7 +292,6 @@
         <thead>
           <tr class="bg-gray-50 dark:bg-dark-base border-b border-gray-200 dark:border-dark-border">
             <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
-            <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">MCPs</th>
             <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Endpoint</th>
             <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
           </tr>
@@ -364,16 +304,6 @@
                 {#if s.config.description}
                   <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48">{s.config.description}</div>
                 {/if}
-              </td>
-              <td class="px-4 py-2.5">
-                <div class="flex flex-wrap gap-1">
-                  {#each (s.config.mcps ?? []) as mcpName}
-                    <span class="text-xs font-mono px-1.5 py-0.5 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">{mcpName}</span>
-                  {/each}
-                  {#if (s.config.mcps ?? []).length === 0}
-                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No MCPs</span>
-                  {/if}
-                </div>
               </td>
               <td class="px-4 py-2.5">
                 <button

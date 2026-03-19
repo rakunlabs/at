@@ -105,6 +105,11 @@ export async function processTask(id: string): Promise<{ id: string; status: str
   return res.data;
 }
 
+export async function createTaskChat(id: string): Promise<{ id: string; agent_id: string; task_id: string; organization_id: string; name: string }> {
+  const res = await api.post(`/tasks/${id}/chat`);
+  return res.data;
+}
+
 export async function listTasksByAgent(agentId: string, params?: ListParams): Promise<ListResult<Task>> {
   const res = await api.get<ListResult<Task>>(`/agents/${agentId}/tasks`, { params });
   return res.data;

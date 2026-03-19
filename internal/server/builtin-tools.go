@@ -47,6 +47,23 @@ func sessionUserIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// ctxKeyAgentID is a context key for passing the executing agent's ID
+// to builtin tool executors so they can distinguish agent-initiated actions.
+type ctxKeyAgentID struct{}
+
+// contextWithAgentID returns a new context carrying the agent ID.
+func contextWithAgentID(ctx context.Context, agentID string) context.Context {
+	return context.WithValue(ctx, ctxKeyAgentID{}, agentID)
+}
+
+// agentIDFromContext extracts the agent ID from context.
+func agentIDFromContext(ctx context.Context) string {
+	if aid, ok := ctx.Value(ctxKeyAgentID{}).(string); ok {
+		return aid
+	}
+	return ""
+}
+
 // ─── Built-in Tool Definitions ───
 //
 // These tools are available directly in the Chat UI without requiring an
@@ -449,22 +466,22 @@ var builtinTools = []builtinToolDef{
 	{
 		Name: "workflow_create",
 		Description: `Create a new workflow with a DAG graph of nodes and edges. Available node types:
-- input: starting node, passes trigger inputs downstream (output port: "data")
-- output: terminal node, collects final results
-- llm_call: sends prompt to LLM (config: provider, model, system_prompt; input ports: prompt, context; output port: response)
-- agent_call: full agentic loop with tool support (config: provider, model, system_prompt, max_iterations)
-- template: renders Go text/template (config: template; input port: data; output port: text)
-- conditional: JS expression routing (config: expression; output ports: true, false)
-- loop: JS expression fan-out (config: expression; output port: data)
-- script: arbitrary JS (config: code; output ports: true, false, always)
-- http_request: HTTP client (config: url, method, headers, body; output ports: success, error, always)
-- http_trigger: HTTP webhook trigger (output port: data)
-- cron_trigger: cron schedule trigger (config: schedule, timezone, payload; output port: data)
-- exec: shell command (config: command, sandbox_root; output ports: true, false, always)
-- email: send email via SMTP (config: config_id, to, subject, body)
-- log: log and pass through (config: level, message)
-- chat_reply: send message to a chat session (config: session_id; input port: message; output ports: success, error, always)
-Edges connect source node output ports to target node input ports via source_handle and target_handle.`,
+- input: starting node (output handles: "output")
+- output: terminal node (input handles: "input")
+- llm_call: sends prompt to LLM (config: provider, model, system_prompt; input handles: "prompt", "context"; output handles: "response")
+- agent_call: full agentic loop (config: provider, model, system_prompt, max_iterations; input handles: "prompt", "context"; output handles: "response")
+- template: renders Go text/template (config: template; input handles: "input"; output handles: "output")
+- conditional: JS expression routing (config: expression; input handles: "input"; output handles: "true", "false")
+- loop: JS expression fan-out (config: expression; input handles: "input"; output handles: "item")
+- script: arbitrary JS (config: code; input handles: "data"; output handles: "true", "false", "always")
+- http_request: HTTP client (config: url, method, headers, body; input handles: "values", "data"; output handles: "success", "error", "always")
+- http_trigger: HTTP webhook trigger (config: alias; output handles: "output")
+- cron_trigger: cron schedule trigger (config: schedule, timezone, payload; output handles: "output")
+- exec: shell command (config: command, sandbox_root; input handles: "data"; output handles: "true", "false", "always")
+- email: send email via SMTP (config: config_id, to, subject, body; output handles: "success", "error", "always")
+- log: log and pass through (input handles: "input"; output handles: "output")
+- chat_reply: send message to a chat session (config: session_id; input handles: "message"; output handles: "success", "error", "always")
+Edges connect nodes via source_handle (output handle ID of source node) and target_handle (input handle ID of target node).`,
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -593,6 +610,500 @@ Edges connect source node output ports to target node input ports via source_han
 					"description": "Filter triggers by workflow ID (optional — lists all if omitted)",
 				},
 			},
+		},
+	},
+
+	// ─── Persistent Task (Issue Tracker) Tools ───
+	{
+		Name:        "task_create",
+		Description: "Create a persistent task/issue in the AT database. Tasks can be assigned to agents, linked to organizations, and tracked through a full lifecycle (backlog → in_progress → in_review → done).",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"title": map[string]any{
+					"type":        "string",
+					"description": "Task title",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "Task description (markdown supported)",
+				},
+				"organization_id": map[string]any{
+					"type":        "string",
+					"description": "Organization ID to scope this task to",
+				},
+				"assigned_agent_id": map[string]any{
+					"type":        "string",
+					"description": "Agent ID to assign this task to",
+				},
+				"priority_level": map[string]any{
+					"type":        "string",
+					"description": "Priority: critical, high, medium, low",
+					"enum":        []string{"critical", "high", "medium", "low"},
+				},
+				"parent_id": map[string]any{
+					"type":        "string",
+					"description": "Parent task ID for sub-tasks",
+				},
+				"status": map[string]any{
+					"type":        "string",
+					"description": "Initial status (default: todo). Options: backlog, todo, in_progress, in_review, done",
+				},
+			},
+			"required": []string{"title"},
+		},
+	},
+	{
+		Name:        "task_list",
+		Description: "List persistent tasks/issues with optional filtering by status, organization, or assigned agent.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"status": map[string]any{
+					"type":        "string",
+					"description": "Filter by status (e.g. in_review, done, in_progress)",
+				},
+				"organization_id": map[string]any{
+					"type":        "string",
+					"description": "Filter by organization ID",
+				},
+				"assigned_agent_id": map[string]any{
+					"type":        "string",
+					"description": "Filter by assigned agent ID",
+				},
+			},
+		},
+	},
+	{
+		Name:        "task_get",
+		Description: "Get full details of a task/issue including subtasks and comments.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The task ID",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "task_update",
+		Description: "Update a task's fields. Only provided fields are changed. Use this to change status (e.g. mark as done), reassign, update description, or set the result.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The task ID to update",
+				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "New title",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "New description",
+				},
+				"status": map[string]any{
+					"type":        "string",
+					"description": "New status: backlog, todo, in_progress, in_review, blocked, done, cancelled",
+				},
+				"priority_level": map[string]any{
+					"type":        "string",
+					"description": "New priority: critical, high, medium, low",
+				},
+				"assigned_agent_id": map[string]any{
+					"type":        "string",
+					"description": "New assigned agent ID",
+				},
+				"result": map[string]any{
+					"type":        "string",
+					"description": "Task result/output (typically set when completing a task)",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "task_add_comment",
+		Description: "Add a comment to a task/issue. Useful for providing feedback, requesting changes, or noting decisions.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task_id": map[string]any{
+					"type":        "string",
+					"description": "The task ID to comment on",
+				},
+				"body": map[string]any{
+					"type":        "string",
+					"description": "Comment text (markdown supported)",
+				},
+				"author_name": map[string]any{
+					"type":        "string",
+					"description": "Name of the commenter (default: mcp-user)",
+				},
+			},
+			"required": []string{"task_id", "body"},
+		},
+	},
+	{
+		Name:        "task_process",
+		Description: "Trigger async organization delegation on a task. The task's assigned agent (or the org's head agent) will process the task using the LLM-driven delegation loop. Returns immediately (202 Accepted).",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The task ID to process",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+
+	// ─── Organization Management Tools ───
+	{
+		Name:        "org_create",
+		Description: "Create a new organization. Organizations group agents into teams with hierarchical delegation, budgets, and issue tracking.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Organization name",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "Organization description",
+				},
+				"issue_prefix": map[string]any{
+					"type":        "string",
+					"description": "Prefix for issue identifiers (e.g. 'YTS' for YTS-1, YTS-2)",
+				},
+				"head_agent_id": map[string]any{
+					"type":        "string",
+					"description": "ID of the head agent who receives incoming tasks",
+				},
+				"budget_monthly_cents": map[string]any{
+					"type":        "number",
+					"description": "Monthly budget in cents (e.g. 5000 = $50)",
+				},
+				"max_delegation_depth": map[string]any{
+					"type":        "number",
+					"description": "Maximum depth of delegation chain (default: 3)",
+				},
+				"require_board_approval": map[string]any{
+					"type":        "boolean",
+					"description": "Require approval for new agent additions",
+				},
+			},
+			"required": []string{"name"},
+		},
+	},
+	{
+		Name:        "org_list",
+		Description: "List all organizations with their key details.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	},
+	{
+		Name:        "org_get",
+		Description: "Get an organization's full details including its agent roster (hierarchy).",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The organization ID",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "org_add_agent",
+		Description: "Add an agent to an organization's hierarchy. Set parent_agent_id to create reporting lines for delegation.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"organization_id": map[string]any{
+					"type":        "string",
+					"description": "The organization ID",
+				},
+				"agent_id": map[string]any{
+					"type":        "string",
+					"description": "The agent ID to add",
+				},
+				"role": map[string]any{
+					"type":        "string",
+					"description": "Role in the org (e.g. head, member)",
+				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "Title/position (e.g. Content Director, Script Writer)",
+				},
+				"parent_agent_id": map[string]any{
+					"type":        "string",
+					"description": "The agent ID of the parent agent in this org's hierarchy (e.g. the Content Director's agent ID). This creates a reporting line from this agent to the parent.",
+				},
+			},
+			"required": []string{"organization_id", "agent_id"},
+		},
+	},
+	{
+		Name:        "org_task_intake",
+		Description: "Submit a task to an organization for processing. The task is assigned to the org's head agent who delegates to specialist agents. Returns immediately with the task ID while delegation runs in the background. This is the primary way to trigger agent pipelines (e.g. 'create a YouTube Short about X').",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"organization_id": map[string]any{
+					"type":        "string",
+					"description": "The organization ID to submit the task to",
+				},
+				"title": map[string]any{
+					"type":        "string",
+					"description": "Task title (e.g. 'Create a short about quantum computing')",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "Additional context or requirements",
+				},
+				"priority_level": map[string]any{
+					"type":        "string",
+					"description": "Priority: critical, high, medium, low",
+					"enum":        []string{"critical", "high", "medium", "low"},
+				},
+			},
+			"required": []string{"organization_id", "title"},
+		},
+	},
+
+	// ─── Agent Management Tools ───
+	{
+		Name:        "agent_create",
+		Description: "Create a new AI agent with LLM provider, model, system prompt, and tool configuration.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"name": map[string]any{
+					"type":        "string",
+					"description": "Agent name (unique identifier)",
+				},
+				"provider": map[string]any{
+					"type":        "string",
+					"description": "LLM provider key (configured in AT providers)",
+				},
+				"model": map[string]any{
+					"type":        "string",
+					"description": "Model identifier (e.g. gpt-4o, claude-sonnet-4-20250514)",
+				},
+				"system_prompt": map[string]any{
+					"type":        "string",
+					"description": "System prompt that defines the agent's behavior and role",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "Agent description",
+				},
+				"skills": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Skill IDs or names to assign to the agent",
+				},
+				"mcp_servers": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "MCP Server names to assign to the agent",
+				},
+				"builtin_tools": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "Built-in tool names to enable for the agent",
+				},
+				"max_iterations": map[string]any{
+					"type":        "number",
+					"description": "Maximum agentic loop iterations (default: 10)",
+				},
+				"tool_timeout": map[string]any{
+					"type":        "number",
+					"description": "Per-tool timeout in seconds (default: 60)",
+				},
+			},
+			"required": []string{"name"},
+		},
+	},
+	{
+		Name:        "agent_list",
+		Description: "List all AI agents with their key configuration details.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	},
+	{
+		Name:        "agent_get",
+		Description: "Get an agent's full details including its complete configuration (provider, model, system prompt, skills, tools).",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The agent ID",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "agent_update",
+		Description: "Update an agent's configuration. Only provided fields are changed.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The agent ID to update",
+				},
+				"name": map[string]any{
+					"type":        "string",
+					"description": "New agent name",
+				},
+				"provider": map[string]any{
+					"type":        "string",
+					"description": "New LLM provider key",
+				},
+				"model": map[string]any{
+					"type":        "string",
+					"description": "New model identifier",
+				},
+				"system_prompt": map[string]any{
+					"type":        "string",
+					"description": "New system prompt",
+				},
+				"description": map[string]any{
+					"type":        "string",
+					"description": "New description",
+				},
+				"skills": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "New skill list (replaces existing)",
+				},
+				"mcp_servers": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "New MCP server list (replaces existing)",
+				},
+				"builtin_tools": map[string]any{
+					"type":        "array",
+					"items":       map[string]any{"type": "string"},
+					"description": "New built-in tools list (replaces existing)",
+				},
+				"max_iterations": map[string]any{
+					"type":        "number",
+					"description": "New max iterations",
+				},
+				"tool_timeout": map[string]any{
+					"type":        "number",
+					"description": "New tool timeout in seconds",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+
+	// ─── Skill Management Tools ───
+	{
+		Name:        "skill_list",
+		Description: "List installed skills and available skill templates. Shows both what's already installed and what templates can be installed.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"category": map[string]any{
+					"type":        "string",
+					"description": "Filter templates by category (e.g. 'Content Creation', 'Development', 'Utilities')",
+				},
+			},
+		},
+	},
+	{
+		Name:        "skill_install_template",
+		Description: "Install a skill from a built-in template. After installation, the skill can be assigned to agents. Check required variables in the response.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"slug": map[string]any{
+					"type":        "string",
+					"description": "Template slug identifier (use skill_list to see available templates)",
+				},
+			},
+			"required": []string{"slug"},
+		},
+	},
+
+	// ─── Provider Tools ───
+	{
+		Name:        "provider_list",
+		Description: "List all configured LLM providers with their available models. Use this to discover which providers and models are available when creating or updating agents. API keys are redacted.",
+		InputSchema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	},
+	{
+		Name:        "provider_get",
+		Description: "Get detailed configuration for a specific LLM provider by key. Shows available models, default model, base URL, and auth type. API keys are redacted.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"key": map[string]any{
+					"type":        "string",
+					"description": "The provider key (e.g. 'openai', 'anthropic', 'groq')",
+				},
+			},
+			"required": []string{"key"},
+		},
+	},
+
+	// ─── Approval Tools ───
+	{
+		Name:        "approval_list_pending",
+		Description: "List pending approval requests. Approvals are governance decisions like hiring agents, budget changes, or task escalations.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"organization_id": map[string]any{
+					"type":        "string",
+					"description": "Filter by organization ID (optional)",
+				},
+			},
+		},
+	},
+	{
+		Name:        "approval_decide",
+		Description: "Approve or reject a pending approval request.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "The approval ID",
+				},
+				"status": map[string]any{
+					"type":        "string",
+					"description": "Decision: approved, rejected, revision_requested, cancelled",
+					"enum":        []string{"approved", "rejected", "revision_requested", "cancelled"},
+				},
+				"decision_note": map[string]any{
+					"type":        "string",
+					"description": "Reason or note for the decision",
+				},
+			},
+			"required": []string{"id", "status"},
 		},
 	},
 
@@ -934,6 +1445,60 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execSetUserPreference(ctx, args)
 	case "get_user_preferences":
 		return s.execGetUserPreferences(ctx, args)
+
+	// Persistent task tools.
+	case "task_create":
+		return s.execTaskCreate(ctx, args)
+	case "task_list":
+		return s.execTaskList(ctx, args)
+	case "task_get":
+		return s.execTaskGet(ctx, args)
+	case "task_update":
+		return s.execTaskUpdate(ctx, args)
+	case "task_add_comment":
+		return s.execTaskAddComment(ctx, args)
+	case "task_process":
+		return s.execTaskProcess(ctx, args)
+
+	// Organization tools.
+	case "org_create":
+		return s.execOrgCreate(ctx, args)
+	case "org_list":
+		return s.execOrgList(ctx, args)
+	case "org_get":
+		return s.execOrgGet(ctx, args)
+	case "org_add_agent":
+		return s.execOrgAddAgent(ctx, args)
+	case "org_task_intake":
+		return s.execOrgTaskIntake(ctx, args)
+
+	// Agent tools.
+	case "agent_create":
+		return s.execAgentCreate(ctx, args)
+	case "agent_list":
+		return s.execAgentList(ctx, args)
+	case "agent_get":
+		return s.execAgentGet(ctx, args)
+	case "agent_update":
+		return s.execAgentUpdate(ctx, args)
+
+	// Skill tools.
+	case "skill_list":
+		return s.execSkillList(ctx, args)
+	case "skill_install_template":
+		return s.execSkillInstallTemplate(ctx, args)
+
+	// Provider tools.
+	case "provider_list":
+		return s.execProviderList(ctx, args)
+	case "provider_get":
+		return s.execProviderGet(ctx, args)
+
+	// Approval tools.
+	case "approval_list_pending":
+		return s.execApprovalListPending(ctx, args)
+	case "approval_decide":
+		return s.execApprovalDecide(ctx, args)
 
 	default:
 		return "", nil

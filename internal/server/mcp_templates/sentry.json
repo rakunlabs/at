@@ -4,7 +4,7 @@
   "description": "Query Sentry for projects, issues, and error data. Debug production errors and monitor application health directly from your agent.",
   "category": "DevOps",
   "tags": ["error-tracking", "monitoring", "debugging", "sentry"],
-  "mcp_set": {
+  "mcp_server": {
     "name": "sentry",
     "description": "Sentry error tracking and issue management",
     "config": {

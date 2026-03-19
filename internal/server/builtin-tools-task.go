@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ─── Task Management Tool Executors ───
@@ -264,4 +267,321 @@ func (s *Server) execBatchExecute(ctx context.Context, args map[string]any) (str
 		successCount, len(results), failedCount, string(data))
 
 	return summary, nil
+}
+
+// ─── Persistent Task (Issue Tracker) Tool Executors ───
+
+// execTaskCreate creates a persistent task in the database.
+func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (string, error) {
+	if s.taskStore == nil {
+		return "", fmt.Errorf("task store not configured")
+	}
+
+	title, _ := args["title"].(string)
+	if title == "" {
+		return "", fmt.Errorf("title is required")
+	}
+
+	task := service.Task{
+		Title:  title,
+		Status: service.TaskStatusTodo,
+	}
+
+	if v, ok := args["description"].(string); ok {
+		task.Description = v
+	}
+	if v, ok := args["organization_id"].(string); ok {
+		task.OrganizationID = v
+	}
+	if v, ok := args["assigned_agent_id"].(string); ok {
+		task.AssignedAgentID = v
+	}
+	if v, ok := args["priority_level"].(string); ok {
+		task.PriorityLevel = v
+	}
+	if v, ok := args["parent_id"].(string); ok {
+		task.ParentID = v
+	}
+	if v, ok := args["status"].(string); ok && v != "" {
+		task.Status = v
+	}
+
+	record, err := s.taskStore.CreateTask(ctx, task)
+	if err != nil {
+		return "", fmt.Errorf("failed to create task: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(record, "", "  ")
+	return string(data), nil
+}
+
+// execTaskList lists tasks with optional filtering.
+func (s *Server) execTaskList(ctx context.Context, args map[string]any) (string, error) {
+	if s.taskStore == nil {
+		return "", fmt.Errorf("task store not configured")
+	}
+
+	result, err := s.taskStore.ListTasks(ctx, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to list tasks: %w", err)
+	}
+
+	// Apply client-side filters (store may not support all filters via query).
+	statusFilter, _ := args["status"].(string)
+	orgFilter, _ := args["organization_id"].(string)
+	agentFilter, _ := args["assigned_agent_id"].(string)
+
+	type taskSummary struct {
+		ID              string `json:"id"`
+		Identifier      string `json:"identifier,omitempty"`
+		Title           string `json:"title"`
+		Status          string `json:"status"`
+		PriorityLevel   string `json:"priority_level,omitempty"`
+		OrganizationID  string `json:"organization_id,omitempty"`
+		AssignedAgentID string `json:"assigned_agent_id,omitempty"`
+		ParentID        string `json:"parent_id,omitempty"`
+		UpdatedAt       string `json:"updated_at"`
+	}
+
+	var summaries []taskSummary
+	for _, t := range result.Data {
+		if statusFilter != "" && t.Status != statusFilter {
+			continue
+		}
+		if orgFilter != "" && t.OrganizationID != orgFilter {
+			continue
+		}
+		if agentFilter != "" && t.AssignedAgentID != agentFilter {
+			continue
+		}
+		summaries = append(summaries, taskSummary{
+			ID:              t.ID,
+			Identifier:      t.Identifier,
+			Title:           t.Title,
+			Status:          t.Status,
+			PriorityLevel:   t.PriorityLevel,
+			OrganizationID:  t.OrganizationID,
+			AssignedAgentID: t.AssignedAgentID,
+			ParentID:        t.ParentID,
+			UpdatedAt:       t.UpdatedAt,
+		})
+	}
+
+	if summaries == nil {
+		summaries = []taskSummary{}
+	}
+
+	out := map[string]any{
+		"tasks": summaries,
+		"total": len(summaries),
+	}
+
+	data, _ := json.MarshalIndent(out, "", "  ")
+	return string(data), nil
+}
+
+// execTaskGet gets a single task with optional subtasks.
+func (s *Server) execTaskGet(ctx context.Context, args map[string]any) (string, error) {
+	if s.taskStore == nil {
+		return "", fmt.Errorf("task store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	task, err := s.taskStore.GetTask(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("failed to get task: %w", err)
+	}
+	if task == nil {
+		return "", fmt.Errorf("task %q not found", id)
+	}
+
+	result := map[string]any{
+		"task": task,
+	}
+
+	// Include subtasks.
+	children, err := s.taskStore.ListChildTasks(ctx, id)
+	if err != nil {
+		slog.Warn("failed to list child tasks", "task_id", id, "error", err)
+	} else if len(children) > 0 {
+		result["subtasks"] = children
+	}
+
+	// Include comments if available.
+	if s.issueCommentStore != nil {
+		comments, err := s.issueCommentStore.ListCommentsByTask(ctx, id)
+		if err != nil {
+			slog.Warn("failed to list task comments", "task_id", id, "error", err)
+		} else if len(comments) > 0 {
+			result["comments"] = comments
+		}
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return string(data), nil
+}
+
+// execTaskUpdate updates an existing task.
+func (s *Server) execTaskUpdate(ctx context.Context, args map[string]any) (string, error) {
+	if s.taskStore == nil {
+		return "", fmt.Errorf("task store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	// Fetch existing for merge.
+	existing, err := s.taskStore.GetTask(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("failed to get task: %w", err)
+	}
+	if existing == nil {
+		return "", fmt.Errorf("task %q not found", id)
+	}
+
+	// Merge provided fields.
+	if v, ok := args["title"].(string); ok && v != "" {
+		existing.Title = v
+	}
+	if v, ok := args["description"].(string); ok {
+		existing.Description = v
+	}
+	if v, ok := args["status"].(string); ok && v != "" {
+		existing.Status = v
+	}
+	if v, ok := args["priority_level"].(string); ok {
+		existing.PriorityLevel = v
+	}
+	if v, ok := args["assigned_agent_id"].(string); ok {
+		existing.AssignedAgentID = v
+	}
+	if v, ok := args["result"].(string); ok {
+		existing.Result = v
+	}
+
+	record, err := s.taskStore.UpdateTask(ctx, id, *existing)
+	if err != nil {
+		return "", fmt.Errorf("failed to update task: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(record, "", "  ")
+	return string(data), nil
+}
+
+// execTaskAddComment adds a comment to a task.
+func (s *Server) execTaskAddComment(ctx context.Context, args map[string]any) (string, error) {
+	if s.issueCommentStore == nil {
+		return "", fmt.Errorf("comment store not configured")
+	}
+
+	taskID, _ := args["task_id"].(string)
+	body, _ := args["body"].(string)
+	if taskID == "" {
+		return "", fmt.Errorf("task_id is required")
+	}
+	if body == "" {
+		return "", fmt.Errorf("body is required")
+	}
+
+	authorName, _ := args["author_name"].(string)
+	if authorName == "" {
+		authorName = "mcp-user"
+	}
+
+	// Determine author type: if called from an agent context, mark as "agent".
+	authorType := "user"
+	if agentID := agentIDFromContext(ctx); agentID != "" {
+		authorType = "agent"
+		if authorName == "mcp-user" {
+			authorName = agentID
+		}
+	}
+
+	comment := service.IssueComment{
+		TaskID:     taskID,
+		Body:       body,
+		AuthorType: authorType,
+		AuthorID:   authorName,
+	}
+
+	record, err := s.issueCommentStore.CreateComment(ctx, comment)
+	if err != nil {
+		return "", fmt.Errorf("failed to create comment: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(record, "", "  ")
+	return string(data), nil
+}
+
+// execTaskProcess triggers async org delegation on a task.
+func (s *Server) execTaskProcess(ctx context.Context, args map[string]any) (string, error) {
+	if s.taskStore == nil || s.organizationStore == nil {
+		return "", fmt.Errorf("store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	task, err := s.taskStore.GetTask(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("failed to get task: %w", err)
+	}
+	if task == nil {
+		return "", fmt.Errorf("task %q not found", id)
+	}
+
+	if task.OrganizationID == "" {
+		return "", fmt.Errorf("task has no organization — cannot process without an org context")
+	}
+
+	org, err := s.organizationStore.GetOrganization(ctx, task.OrganizationID)
+	if err != nil {
+		return "", fmt.Errorf("failed to get organization: %w", err)
+	}
+	if org == nil {
+		return "", fmt.Errorf("organization %q not found", task.OrganizationID)
+	}
+
+	agentID := task.AssignedAgentID
+	if agentID == "" {
+		agentID = org.HeadAgentID
+	}
+	if agentID == "" {
+		return "", fmt.Errorf("no agent assigned and organization has no head agent")
+	}
+
+	// Fire async delegation.
+	go func() {
+		delegCtx := context.Background()
+		if err := s.runOrgDelegation(delegCtx, org, task, agentID, task.RequestDepth); err != nil {
+			slog.Error("org-delegation: failed",
+				"org_id", org.ID,
+				"task_id", task.ID,
+				"error", err,
+			)
+			if s.taskStore != nil {
+				_, _ = s.taskStore.UpdateTask(delegCtx, task.ID, service.Task{
+					Status: service.TaskStatusCancelled,
+					Result: fmt.Sprintf("delegation failed: %v", err),
+				})
+			}
+		}
+	}()
+
+	result := map[string]any{
+		"status":  "accepted",
+		"task_id": task.ID,
+		"message": "Org delegation started in background",
+	}
+
+	data, _ := json.MarshalIndent(result, "", "  ")
+	return string(data), nil
 }

@@ -2,13 +2,19 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 )
+
+const conversationStatePrefix = "[CONVERSATION_STATE]"
 
 // runOrgDelegation is the core recursive delegation function. It takes a Task
 // assigned to an agent in an organization and runs an LLM-driven agentic loop
@@ -125,8 +131,109 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		delegateToolMap[toolName] = oa.AgentID
 	}
 
+	// e2) Load skill tools for this agent.
+	type skillToolHandler struct {
+		handler     string
+		handlerType string
+	}
+	skillToolMap := make(map[string]skillToolHandler)
+	var skillTools []service.Tool
+	var skillPromptFragments []string
+
+	if s.skillStore != nil {
+		for _, nameOrID := range agent.Config.Skills {
+			skill, err := s.skillStore.GetSkill(ctx, nameOrID)
+			if err != nil {
+				slog.Warn("org-delegation: skill lookup failed", "skill", nameOrID, "error", err)
+				continue
+			}
+			if skill == nil {
+				skill, err = s.skillStore.GetSkillByName(ctx, nameOrID)
+				if err != nil || skill == nil {
+					slog.Warn("org-delegation: skill not found", "skill", nameOrID)
+					continue
+				}
+			}
+
+			if skill.SystemPrompt != "" {
+				skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)
+			}
+			for _, t := range skill.Tools {
+				if t.Handler != "" {
+					skillToolMap[t.Name] = skillToolHandler{handler: t.Handler, handlerType: t.HandlerType}
+				}
+				skillTools = append(skillTools, t)
+			}
+		}
+	}
+
+	// e3) Load builtin tools for this agent.
+	type builtinToolHandler struct {
+		name string
+	}
+	builtinToolMap := make(map[string]builtinToolHandler)
+	var builtinToolDefs []service.Tool
+
+	for _, toolName := range agent.Config.BuiltinTools {
+		if !isKnownBuiltinTool(toolName) {
+			slog.Warn("org-delegation: unknown builtin tool in agent config", "tool", toolName, "agent", agentID)
+			continue
+		}
+		for _, bt := range builtinTools {
+			if bt.Name == toolName {
+				builtinToolDefs = append(builtinToolDefs, service.Tool{
+					Name:        bt.Name,
+					Description: bt.Description,
+					InputSchema: bt.InputSchema,
+				})
+				builtinToolMap[bt.Name] = builtinToolHandler{name: bt.Name}
+				break
+			}
+		}
+	}
+
+	// Build variable lookup/lister for skill tool execution.
+	var varLookup workflow.VarLookup
+	if s.variableStore != nil {
+		varLookup = func(key string) (string, error) {
+			v, err := s.variableStore.GetVariableByKey(ctx, key)
+			if err != nil {
+				return "", err
+			}
+			if v == nil {
+				return "", fmt.Errorf("variable %q not found", key)
+			}
+			return v.Value, nil
+		}
+	}
+	var varLister workflow.VarLister
+	if s.variableStore != nil {
+		varLister = func() (map[string]string, error) {
+			vars, err := s.variableStore.ListVariables(ctx, nil)
+			if err != nil {
+				return nil, err
+			}
+			m := make(map[string]string, len(vars.Data))
+			for _, v := range vars.Data {
+				m[v.Key] = v.Value
+			}
+			return m, nil
+		}
+	}
+
+	toolTimeout := time.Duration(agent.Config.ToolTimeout) * time.Second
+	if toolTimeout <= 0 {
+		toolTimeout = 60 * time.Second
+	}
+
 	// f) Build enriched system prompt.
 	systemPrompt := agent.Config.SystemPrompt
+
+	// Append skill system prompt fragments.
+	if len(skillPromptFragments) > 0 {
+		systemPrompt += "\n\n" + strings.Join(skillPromptFragments, "\n\n")
+	}
+
 	if len(reportInfos) > 0 {
 		var teamSection strings.Builder
 		teamSection.WriteString("\n\n## Your Team (Direct Reports)\nYou can delegate tasks to these team members using the delegate_to_* tools:\n\n")
@@ -185,20 +292,93 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if task.Description != "" {
 		userPrompt += "\n\n" + task.Description
 	}
-	messages = append(messages, service.Message{
-		Role:    "user",
-		Content: userPrompt,
-	})
+
+	// Inject previous result if the task is being re-processed (revision workflow).
+	if task.Result != "" {
+		userPrompt += "\n\n## Previous Result\nThis task was processed before. Here is the previous output:\n\n" + task.Result
+	}
+
+	// Inject review feedback (comments) if any exist on this task.
+	// Also look for saved conversation state from a previous exhausted run.
+	var savedConversation []service.Message
+	if s.issueCommentStore != nil {
+		comments, err := s.issueCommentStore.ListCommentsByTask(ctx, task.ID)
+		if err != nil {
+			slog.Warn("org-delegation: failed to load task comments",
+				"task_id", task.ID, "error", err)
+		} else if len(comments) > 0 {
+			var feedback strings.Builder
+			hasFeedback := false
+			for _, c := range comments {
+				// Check for conversation state (saved from exhausted iterations).
+				if strings.HasPrefix(c.Body, conversationStatePrefix) {
+					stateJSON := strings.TrimPrefix(c.Body, conversationStatePrefix)
+					var restored []service.Message
+					if err := json.Unmarshal([]byte(stateJSON), &restored); err == nil && len(restored) > 0 {
+						savedConversation = restored
+						slog.Info("org-delegation: restored conversation state from previous run",
+							"task_id", task.ID, "messages_count", len(restored))
+					}
+					// Delete the conversation state comment after loading it.
+					_ = s.issueCommentStore.DeleteComment(ctx, c.ID)
+					continue
+				}
+				// Regular feedback comment.
+				if !hasFeedback {
+					feedback.WriteString("\n\n## Review Feedback\nThe following comments were left by reviewers. Address their feedback:\n\n")
+					hasFeedback = true
+				}
+				author := c.AuthorID
+				if c.AuthorType != "" {
+					author = fmt.Sprintf("%s (%s)", c.AuthorID, c.AuthorType)
+				}
+				feedback.WriteString(fmt.Sprintf("**%s** [%s]:\n%s\n\n", author, c.CreatedAt, c.Body))
+			}
+			if hasFeedback {
+				userPrompt += feedback.String()
+			}
+		}
+	}
+
+	// If we have saved conversation state, resume from it instead of starting fresh.
+	if len(savedConversation) > 0 {
+		messages = savedConversation
+		// Add a continuation prompt so the agent knows to pick up where it left off.
+		continueMsg := "Continue processing this task from where you left off. Your previous run was interrupted because it reached the iteration limit. Review your progress so far and complete the remaining work."
+		if task.Result != "" {
+			continueMsg += "\n\nYour partial result was:\n" + task.Result
+		}
+		messages = append(messages, service.Message{
+			Role:    "user",
+			Content: continueMsg,
+		})
+		slog.Info("org-delegation: continuing from saved conversation",
+			"task_id", task.ID, "agent_id", agentID, "restored_messages", len(savedConversation))
+	} else {
+		messages = append(messages, service.Message{
+			Role:    "user",
+			Content: userPrompt,
+		})
+	}
 
 	// Strip Handler/HandlerType from tools before sending to LLM.
-	llmTools := make([]service.Tool, len(delegateTools))
-	for i, t := range delegateTools {
-		llmTools[i] = service.Tool{
+	// Include delegate tools, skill tools, and builtin tools.
+	llmTools := make([]service.Tool, 0, len(delegateTools)+len(skillTools)+len(builtinToolDefs))
+	for _, t := range delegateTools {
+		llmTools = append(llmTools, service.Tool{
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: t.InputSchema,
-		}
+		})
 	}
+	for _, t := range skillTools {
+		llmTools = append(llmTools, service.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		})
+	}
+	llmTools = append(llmTools, builtinToolDefs...)
 
 	var finalContent string
 
@@ -381,6 +561,104 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						}
 					}
 				}(i, tc, reportAgentID)
+			} else if hi, ok := skillToolMap[tc.Name]; ok {
+				// Skill tool — execute the handler synchronously.
+				var result string
+				var callErr error
+
+				if hi.handlerType == "bash" {
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
+				} else {
+					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, varLookup)
+				}
+
+				if callErr != nil {
+					slog.Error("org-delegation: skill tool call failed",
+						"tool", tc.Name, "task_id", task.ID, "error", callErr)
+					result = fmt.Sprintf("Error: %v", callErr)
+				} else {
+					logResult := result
+					if len(logResult) > 500 {
+						logResult = logResult[:500] + "..."
+					}
+					slog.Debug("org-delegation: skill tool call result",
+						"tool", tc.Name, "task_id", task.ID, "result_length", len(result), "result", logResult)
+				}
+
+				toolResults[i] = service.ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: tc.ID,
+					Content:   result,
+				}
+
+				// Record audit for skill tool call.
+				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+					auditDetails := map[string]any{
+						"tool_name": tc.Name,
+						"task_id":   task.ID,
+						"iteration": iteration,
+						"has_error": callErr != nil,
+					}
+					if auditErr := recordAudit(ctx, service.AuditEntry{
+						ActorType:      "agent",
+						ActorID:        agentID,
+						Action:         "tool_call",
+						ResourceType:   "tool",
+						ResourceID:     tc.ID,
+						OrganizationID: org.ID,
+						Details:        auditDetails,
+					}); auditErr != nil {
+						slog.Warn("org-delegation: failed to record audit",
+							"agent_id", agentID, "error", auditErr)
+					}
+				}
+			} else if _, ok := builtinToolMap[tc.Name]; ok {
+				// Builtin tool — execute via dispatchBuiltinTool.
+				var result string
+				var callErr error
+
+				result, callErr = s.dispatchBuiltinTool(ctx, tc.Name, tc.Arguments)
+
+				if callErr != nil {
+					slog.Error("org-delegation: builtin tool call failed",
+						"tool", tc.Name, "task_id", task.ID, "error", callErr)
+					result = fmt.Sprintf("Error: %v", callErr)
+				} else {
+					logResult := result
+					if len(logResult) > 500 {
+						logResult = logResult[:500] + "..."
+					}
+					slog.Debug("org-delegation: builtin tool call result",
+						"tool", tc.Name, "task_id", task.ID, "result_length", len(result), "result", logResult)
+				}
+
+				toolResults[i] = service.ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: tc.ID,
+					Content:   result,
+				}
+
+				// Record audit for builtin tool call.
+				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+					auditDetails := map[string]any{
+						"tool_name": tc.Name,
+						"task_id":   task.ID,
+						"iteration": iteration,
+						"has_error": callErr != nil,
+					}
+					if auditErr := recordAudit(ctx, service.AuditEntry{
+						ActorType:      "agent",
+						ActorID:        agentID,
+						Action:         "tool_call",
+						ResourceType:   "tool",
+						ResourceID:     tc.ID,
+						OrganizationID: org.ID,
+						Details:        auditDetails,
+					}); auditErr != nil {
+						slog.Warn("org-delegation: failed to record audit",
+							"agent_id", agentID, "error", auditErr)
+					}
+				}
 			} else {
 				// Unknown tool — handle synchronously (no goroutine needed).
 				toolResults[i] = service.ContentBlock{
@@ -390,8 +668,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				}
 
 				// Record audit for unknown tool call.
-				recordAudit := s.recordAuditFunc()
-				if recordAudit != nil {
+				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
 					auditDetails := map[string]any{
 						"tool_name": tc.Name,
 						"task_id":   task.ID,
@@ -423,9 +700,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		})
 	}
 
-	// j) On completion, update task status to completed with final LLM response.
-	if finalContent == "" {
-		// Extract last assistant text if loop exhausted max iterations.
+	// j) On completion, determine if we finished naturally or hit the iteration limit.
+	iterationsExhausted := finalContent == ""
+
+	if iterationsExhausted {
+		// Extract last assistant text from the exhausted conversation.
 		for i := len(messages) - 1; i >= 0; i-- {
 			if messages[i].Role == "assistant" {
 				if blocks, ok := messages[i].Content.([]service.ContentBlock); ok {
@@ -441,6 +720,52 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				}
 			}
 		}
+
+		slog.Warn("org-delegation: max iterations exhausted — saving conversation state for continuation",
+			"task_id", task.ID, "agent_id", agentID, "max_iterations", maxIterations,
+			"messages_count", len(messages))
+
+		// Save conversation state as a system comment so re-processing can continue.
+		if s.issueCommentStore != nil {
+			// Serialize the conversation (skip the system message to save space — it will be rebuilt).
+			var toSave []service.Message
+			for _, m := range messages {
+				if m.Role != "system" {
+					toSave = append(toSave, m)
+				}
+			}
+			if stateJSON, err := json.Marshal(toSave); err == nil {
+				_, commentErr := s.issueCommentStore.CreateComment(ctx, service.IssueComment{
+					ID:         ulid.Make().String(),
+					TaskID:     task.ID,
+					AuthorType: "system",
+					AuthorID:   "org-delegation",
+					Body:       conversationStatePrefix + string(stateJSON),
+				})
+				if commentErr != nil {
+					slog.Warn("org-delegation: failed to save conversation state",
+						"task_id", task.ID, "error", commentErr)
+				} else {
+					slog.Info("org-delegation: conversation state saved for continuation",
+						"task_id", task.ID, "saved_messages", len(toSave))
+				}
+			}
+		}
+
+		// Mark the task as blocked (not completed) so it's clear it needs continuation.
+		resultMsg := finalContent
+		if resultMsg == "" {
+			resultMsg = "(no output yet)"
+		}
+		blockedResult := fmt.Sprintf("[ITERATION_LIMIT] Task reached the maximum of %d iterations and was paused. Partial progress saved — re-process to continue.\n\n%s", maxIterations, resultMsg)
+
+		if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusBlocked, blockedResult); err != nil {
+			return fmt.Errorf("org-delegation: update task to blocked: %w", err)
+		}
+
+		slog.Info("org-delegation: task paused at iteration limit",
+			"task_id", task.ID, "agent_id", agentID, "depth", depth)
+		return nil
 	}
 
 	// Extract and persist memory from the conversation (non-fatal on error).

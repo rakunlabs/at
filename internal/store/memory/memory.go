@@ -34,10 +34,8 @@ type Memory struct {
 	chatMessages         map[string][]service.ChatMessage          // session_id -> messages (sorted by created_at)
 	ragCollections       map[string]service.RAGCollection          // id -> rag collection
 	ragStates            map[string]service.RAGState               // key -> rag state
-	ragMCPServers        map[string]service.RAGMCPServer           // id -> rag mcp server
 	ragPages             map[string]service.RAGPage                // id -> rag page
 	mcpServers           map[string]service.MCPServer              // id -> general mcp server
-	mcpSets              map[string]service.MCPSet                 // id -> mcp set
 	botConfigs           map[string]service.BotConfig              // id -> bot config
 	marketplaceSources   map[string]service.MarketplaceSource      // id -> marketplace source
 	tokenUsage           map[string]map[string]*service.TokenUsage // token_id -> model -> usage
@@ -85,10 +83,8 @@ func New() *Memory {
 		chatMessages:         make(map[string][]service.ChatMessage),
 		ragCollections:       make(map[string]service.RAGCollection),
 		ragStates:            make(map[string]service.RAGState),
-		ragMCPServers:        make(map[string]service.RAGMCPServer),
 		ragPages:             make(map[string]service.RAGPage),
 		mcpServers:           make(map[string]service.MCPServer),
-		mcpSets:              make(map[string]service.MCPSet),
 		botConfigs:           make(map[string]service.BotConfig),
 		marketplaceSources:   make(map[string]service.MarketplaceSource),
 		tokenUsage:           make(map[string]map[string]*service.TokenUsage),

@@ -35,6 +35,14 @@ var oauthProviders = map[string]oauthProviderConfig{
 		RefreshTokenVar: "google_refresh_token",
 		DefaultScopes:   "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar",
 	},
+	"youtube": {
+		AuthURL:         "https://accounts.google.com/o/oauth2/v2/auth",
+		TokenURL:        "https://oauth2.googleapis.com/token",
+		ClientIDVar:     "youtube_client_id",
+		ClientSecretVar: "youtube_client_secret",
+		RefreshTokenVar: "youtube_refresh_token",
+		DefaultScopes:   "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube",
+	},
 }
 
 // OAuthStartAPI returns the OAuth2 authorization URL for a provider.
@@ -101,6 +109,213 @@ func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, map[string]string{"url": authURL}, http.StatusOK)
+}
+
+// OAuthManualAuthURLAPI returns an auth URL using a special redirect URI that shows the code.
+// GET /api/v1/oauth/manual-url?provider=youtube
+// This is for cases where the standard redirect URI doesn't work (localhost issues, etc.)
+// The redirect goes to AT's own /api/v1/oauth/code-display page which shows the code to copy.
+func (s *Server) OAuthManualAuthURLAPI(w http.ResponseWriter, r *http.Request) {
+	if s.variableStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	providerName := r.URL.Query().Get("provider")
+	provider, ok := oauthProviders[providerName]
+	if !ok {
+		httpResponse(w, fmt.Sprintf("unknown oauth provider %q", providerName), http.StatusBadRequest)
+		return
+	}
+
+	clientID, err := s.oauthGetVar(r, provider.ClientIDVar)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("variable %q not set", provider.ClientIDVar), http.StatusBadRequest)
+		return
+	}
+
+	scopes := provider.DefaultScopes
+
+	// Use AT's own code-display page as the redirect URI.
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
+	}
+	redirectURI := scheme + "://" + r.Host + strings.TrimSuffix(s.config.BasePath, "/") + "/api/v1/oauth/code-display"
+
+	params := url.Values{
+		"client_id":     {clientID},
+		"redirect_uri":  {redirectURI},
+		"response_type": {"code"},
+		"scope":         {scopes},
+		"access_type":   {"offline"},
+		"prompt":        {"consent"},
+		"state":         {providerName},
+	}
+
+	authURL := provider.AuthURL + "?" + params.Encode()
+
+	httpResponseJSON(w, map[string]any{
+		"url":          authURL,
+		"redirect_uri": redirectURI,
+		"provider":     providerName,
+	}, http.StatusOK)
+}
+
+// OAuthCodeDisplayAPI is a redirect target that shows the authorization code to the user.
+// GET /api/v1/oauth/code-display?code=...&state=...
+// This page displays the code so the user can copy it back to the AT Connections page.
+func (s *Server) OAuthCodeDisplayAPI(w http.ResponseWriter, r *http.Request) {
+	code := r.URL.Query().Get("code")
+	errMsg := r.URL.Query().Get("error")
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+
+	if errMsg != "" {
+		fmt.Fprintf(w, `<!DOCTYPE html>
+<html><head><title>Authorization Failed</title>
+<style>body{font-family:system-ui;max-width:480px;margin:60px auto;padding:20px;text-align:center}
+.error{color:#dc2626;font-size:14px;margin-top:16px;padding:12px;background:#fef2f2;border-radius:8px}</style>
+</head><body>
+<h2>Authorization Failed</h2>
+<div class="error">%s</div>
+<p style="margin-top:24px;font-size:13px;color:#666">Close this tab and try again.</p>
+</body></html>`, errMsg)
+		return
+	}
+
+	if code == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `<!DOCTYPE html>
+<html><head><title>No Code</title></head><body>
+<h2>No authorization code received</h2>
+<p>Close this tab and try again.</p>
+</body></html>`)
+		return
+	}
+
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html><head><title>Authorization Successful</title>
+<style>
+body{font-family:system-ui;max-width:480px;margin:60px auto;padding:20px;text-align:center}
+.code-box{margin:20px 0;padding:16px;background:#f0fdf4;border:2px solid #22c55e;border-radius:8px;word-break:break-all;font-family:monospace;font-size:13px;user-select:all;cursor:text}
+.btn{display:inline-block;padding:10px 24px;background:#111;color:#fff;border:none;border-radius:6px;font-size:14px;cursor:pointer;margin-top:8px}
+.btn:hover{background:#333}
+.hint{font-size:13px;color:#666;margin-top:16px}
+</style>
+</head><body>
+<h2>Authorization Successful</h2>
+<p style="font-size:14px;color:#444">Copy this code and paste it in the AT Connections page:</p>
+<div class="code-box" id="code">%s</div>
+<button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('code').textContent).then(()=>{this.textContent='Copied!'})">Copy Code</button>
+<p class="hint">After copying, close this tab and paste the code in AT.</p>
+</body></html>`, code)
+}
+
+// OAuthExchangeAPI exchanges a manually-pasted authorization code for tokens.
+// POST /api/v1/oauth/exchange {provider, code, redirect_uri}
+func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
+	if s.variableStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Provider    string `json:"provider"`
+		Code        string `json:"code"`
+		RedirectURI string `json:"redirect_uri"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	provider, ok := oauthProviders[req.Provider]
+	if !ok {
+		httpResponse(w, fmt.Sprintf("unknown provider %q", req.Provider), http.StatusBadRequest)
+		return
+	}
+	if req.Code == "" {
+		httpResponse(w, "code is required", http.StatusBadRequest)
+		return
+	}
+	if req.RedirectURI == "" {
+		httpResponse(w, "redirect_uri is required", http.StatusBadRequest)
+		return
+	}
+
+	clientID, err := s.oauthGetVar(r, provider.ClientIDVar)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("variable %q not set", provider.ClientIDVar), http.StatusBadRequest)
+		return
+	}
+	clientSecret, err := s.oauthGetVar(r, provider.ClientSecretVar)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("variable %q not set", provider.ClientSecretVar), http.StatusBadRequest)
+		return
+	}
+
+	// Exchange code for tokens.
+	resp, err := http.PostForm(provider.TokenURL, url.Values{
+		"code":          {req.Code},
+		"client_id":     {clientID},
+		"client_secret": {clientSecret},
+		"redirect_uri":  {req.RedirectURI},
+		"grant_type":    {"authorization_code"},
+	})
+	if err != nil {
+		httpResponse(w, "token exchange failed: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Error        string `json:"error"`
+		ErrorDesc    string `json:"error_description"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		httpResponse(w, "invalid token response", http.StatusInternalServerError)
+		return
+	}
+	if tokenResp.Error != "" {
+		httpResponse(w, tokenResp.Error+": "+tokenResp.ErrorDesc, http.StatusBadRequest)
+		return
+	}
+	if tokenResp.RefreshToken == "" {
+		httpResponse(w, "no refresh token received — try revoking access at https://myaccount.google.com/permissions and re-authorizing", http.StatusBadRequest)
+		return
+	}
+
+	// Save refresh token as a variable.
+	userEmail := s.getUserEmail(r)
+	_, err = s.variableStore.CreateVariable(r.Context(), service.Variable{
+		Key:         provider.RefreshTokenVar,
+		Value:       tokenResp.RefreshToken,
+		Description: fmt.Sprintf("OAuth2 refresh token for %s (auto-saved)", req.Provider),
+		Secret:      true,
+		CreatedBy:   userEmail,
+		UpdatedBy:   userEmail,
+	})
+	if err != nil {
+		httpResponse(w, "failed to save refresh token: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("oauth manual exchange: saved refresh token",
+		"provider", req.Provider,
+		"token_var", provider.RefreshTokenVar,
+	)
+
+	httpResponseJSON(w, map[string]string{
+		"status":   "connected",
+		"provider": req.Provider,
+		"message":  fmt.Sprintf("%s connected successfully", req.Provider),
+	}, http.StatusOK)
 }
 
 // OAuthCallbackAPI handles the redirect from the OAuth2 provider.
@@ -360,4 +575,193 @@ if (window.opener) {
 }
 </script>
 </body></html>`, message, status)
+}
+
+// ─── Connections API ───
+
+// connectionVarInfo describes a required variable for a connection.
+type connectionVarInfo struct {
+	Key         string `json:"key"`
+	Description string `json:"description"`
+	Secret      bool   `json:"secret"`
+	Set         bool   `json:"set"` // whether this variable already has a value
+}
+
+// connectionInfo describes an external service connection.
+type connectionInfo struct {
+	Provider      string              `json:"provider"`
+	Name          string              `json:"name"`
+	Description   string              `json:"description"`
+	Connected     bool                `json:"connected"`
+	Type          string              `json:"type"` // "oauth" or "token"
+	SetupComplete bool                `json:"setup_complete"`
+	RequiredVars  []connectionVarInfo `json:"required_variables,omitempty"`
+	OAuthProvider string              `json:"oauth_provider,omitempty"`
+}
+
+// oauthProviderMeta holds display info for OAuth connection providers.
+type oauthProviderMeta struct {
+	Name        string
+	Description string
+}
+
+var oauthProvidersMeta = map[string]oauthProviderMeta{
+	"google": {
+		Name:        "Google",
+		Description: "Access Gmail and Google Calendar",
+	},
+	"youtube": {
+		Name:        "YouTube",
+		Description: "Upload and publish videos to YouTube",
+	},
+}
+
+// OAuthConnectionsAPI returns the status of all known external service connections.
+// GET /api/v1/oauth/connections
+func (s *Server) OAuthConnectionsAPI(w http.ResponseWriter, r *http.Request) {
+	connections := []connectionInfo{}
+
+	// 1. Add OAuth-based connections from oauthProviders registry.
+	for providerKey, cfg := range oauthProviders {
+		meta, ok := oauthProvidersMeta[providerKey]
+		if !ok {
+			meta = oauthProviderMeta{Name: providerKey, Description: ""}
+		}
+
+		// Build required variables with status.
+		clientIDSet := false
+		clientSecretSet := false
+		if s.variableStore != nil {
+			clientIDSet = s.lookupVar(r.Context(), cfg.ClientIDVar, r) != ""
+			clientSecretSet = s.lookupVar(r.Context(), cfg.ClientSecretVar, r) != ""
+		}
+
+		conn := connectionInfo{
+			Provider:      providerKey,
+			Name:          meta.Name,
+			Description:   meta.Description,
+			Type:          "oauth",
+			OAuthProvider: providerKey,
+			RequiredVars: []connectionVarInfo{
+				{Key: cfg.ClientIDVar, Description: "OAuth2 Client ID (from Google Cloud Console)", Secret: false, Set: clientIDSet},
+				{Key: cfg.ClientSecretVar, Description: "OAuth2 Client Secret", Secret: true, Set: clientSecretSet},
+			},
+		}
+
+		conn.SetupComplete = clientIDSet && clientSecretSet
+
+		// Check if refresh token exists (= connected).
+		if s.variableStore != nil {
+			refreshToken := s.lookupVar(r.Context(), cfg.RefreshTokenVar, r)
+			conn.Connected = refreshToken != ""
+		}
+
+		connections = append(connections, conn)
+	}
+
+	// 2. Add token-based connections from installed skill templates that
+	//    have required_variables but no oauth field.
+	for _, tmpl := range s.skillTemplates {
+		if tmpl.OAuth != "" {
+			continue // already covered by OAuth connections
+		}
+		if len(tmpl.RequiredVariables) == 0 {
+			continue
+		}
+
+		// Build required variables with status.
+		var requiredVars []connectionVarInfo
+		allSet := true
+		for _, v := range tmpl.RequiredVariables {
+			isSet := false
+			if s.variableStore != nil {
+				isSet = s.lookupVar(r.Context(), v.Key, r) != ""
+			}
+			if !isSet {
+				allSet = false
+			}
+			requiredVars = append(requiredVars, connectionVarInfo{
+				Key:         v.Key,
+				Description: v.Description,
+				Secret:      v.Secret,
+				Set:         isSet,
+			})
+		}
+
+		conn := connectionInfo{
+			Provider:     tmpl.Slug,
+			Name:         tmpl.Name,
+			Description:  tmpl.Description,
+			Type:         "token",
+			RequiredVars: requiredVars,
+		}
+
+		conn.Connected = allSet
+		conn.SetupComplete = allSet
+
+		connections = append(connections, conn)
+	}
+
+	httpResponseJSON(w, connections, http.StatusOK)
+}
+
+// OAuthDisconnectAPI removes the refresh token for an OAuth provider.
+// DELETE /api/v1/oauth/connections/{provider}
+func (s *Server) OAuthDisconnectAPI(w http.ResponseWriter, r *http.Request) {
+	if s.variableStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	provider := r.PathValue("provider")
+	cfg, ok := oauthProviders[provider]
+	if !ok {
+		httpResponse(w, fmt.Sprintf("unknown OAuth provider: %s", provider), http.StatusBadRequest)
+		return
+	}
+
+	// Find and delete the refresh token variable.
+	result, err := s.variableStore.ListVariables(r.Context(), nil)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to list variables: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	for _, v := range result.Data {
+		if v.Key == cfg.RefreshTokenVar {
+			if err := s.variableStore.DeleteVariable(r.Context(), v.ID); err != nil {
+				httpResponse(w, fmt.Sprintf("failed to delete token: %v", err), http.StatusInternalServerError)
+				return
+			}
+			httpResponseJSON(w, map[string]string{
+				"status":   "disconnected",
+				"provider": provider,
+			}, http.StatusOK)
+			return
+		}
+	}
+
+	httpResponseJSON(w, map[string]string{
+		"status":   "not_connected",
+		"provider": provider,
+	}, http.StatusOK)
+}
+
+// lookupVar is a helper to look up a variable value, returning "" if not found.
+func (s *Server) lookupVar(ctx context.Context, key string, r *http.Request) string {
+	if s.variableStore == nil {
+		return ""
+	}
+
+	result, err := s.variableStore.ListVariables(ctx, nil)
+	if err != nil {
+		return ""
+	}
+
+	for _, v := range result.Data {
+		if v.Key == key {
+			return v.Value
+		}
+	}
+	return ""
 }

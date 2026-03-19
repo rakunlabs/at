@@ -17,6 +17,53 @@ import (
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
+// GatewayMCPSSEHandler handles GET requests to MCP endpoints using the SSE transport.
+// It opens a Server-Sent Events stream, sends the POST endpoint URL, then keeps alive.
+// MCP clients that use SSE transport (e.g. OpenCode) connect via GET first.
+func (s *Server) GatewayMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
+	// Authenticate.
+	auth, errMsg := s.authenticateRequest(r)
+	if auth == nil {
+		httpResponse(w, errMsg, http.StatusUnauthorized)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpResponse(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Build the POST endpoint URL (same path the client should POST JSON-RPC to).
+	postURL := r.URL.Path
+
+	// Set SSE headers.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.WriteHeader(http.StatusOK)
+
+	// Send the endpoint event — tells the client where to POST requests.
+	fmt.Fprintf(w, "event: endpoint\ndata: %s\n\n", postURL)
+	flusher.Flush()
+
+	// Keep the SSE connection alive until the client disconnects.
+	// Send periodic pings to prevent timeouts.
+	ctx := r.Context()
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
 // GatewayMCPHandler handles MCP protocol requests at /gateway/v1/mcp/{name}.
 // Each named endpoint can expose RAG tools, custom HTTP tools, or both.
 // Auth uses the same Bearer token mechanism as the gateway chat completions endpoint.
@@ -96,7 +143,10 @@ func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 // ─── Initialize ───
 
 func (s *Server) gwGenMCPInitialize(w http.ResponseWriter, req service.MCPRequest, srv *service.MCPServer) {
-	description := srv.Config.Description
+	description := srv.Description
+	if description == "" {
+		description = srv.Config.Description
+	}
 	if description == "" {
 		description = fmt.Sprintf("MCP server: %s", srv.Name)
 	}
@@ -173,24 +223,34 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 		tools = append(tools, upstreamTools...)
 	}
 
-	// Add tools from referenced MCPs.
-	if s.mcpSetStore != nil {
-		for _, mcpName := range srv.Config.MCPs {
-			mcpURLs := s.resolveMCPSetURLs(mcpName)
-			for _, url := range mcpURLs {
-				client, err := service.NewHTTPMCPClient(context.Background(), url)
-				if err != nil {
-					slog.Warn("failed to connect to MCP", "mcp", mcpName, "url", url, "error", err)
-					continue
-				}
-				mcpTools, err := client.ListTools(context.Background())
-				if err != nil {
-					slog.Warn("failed to list tools from MCP", "mcp", mcpName, "url", url, "error", err)
-					continue
-				}
-				tools = append(tools, mcpTools...)
-			}
+	// Add tools from referenced MCP servers.
+	for _, serverName := range srv.Servers {
+		serverURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
+		client, err := service.NewHTTPMCPClient(context.Background(), serverURL)
+		if err != nil {
+			slog.Warn("failed to connect to referenced MCP server", "server", serverName, "error", err)
+			continue
 		}
+		refTools, err := client.ListTools(context.Background())
+		if err != nil {
+			slog.Warn("failed to list tools from referenced MCP server", "server", serverName, "error", err)
+			continue
+		}
+		tools = append(tools, refTools...)
+	}
+	// Add tools from custom URLs.
+	for _, url := range srv.URLs {
+		client, err := service.NewHTTPMCPClient(context.Background(), url)
+		if err != nil {
+			slog.Warn("failed to connect to MCP URL", "url", url, "error", err)
+			continue
+		}
+		urlTools, err := client.ListTools(context.Background())
+		if err != nil {
+			slog.Warn("failed to list tools from MCP URL", "url", url, "error", err)
+			continue
+		}
+		tools = append(tools, urlTools...)
 	}
 
 	// Add enabled builtin tools.
@@ -367,27 +427,40 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		return
 	}
 
-	// Try referenced MCPs.
-	if s.mcpSetStore != nil {
-		for _, mcpName := range srv.Config.MCPs {
-			mcpURLs := s.resolveMCPSetURLs(mcpName)
-			for _, url := range mcpURLs {
-				client, err := service.NewHTTPMCPClient(r.Context(), url)
-				if err != nil {
-					continue
-				}
-				result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
-				if err != nil {
-					continue
-				}
-				mcpResult(w, req.ID, map[string]any{
-					"content": []map[string]any{
-						{"type": "text", "text": result},
-					},
-				})
-				return
-			}
+	// Try referenced MCP servers.
+	for _, serverName := range srv.Servers {
+		serverURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
+		client, err := service.NewHTTPMCPClient(r.Context(), serverURL)
+		if err != nil {
+			continue
 		}
+		result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
+		if err != nil {
+			continue
+		}
+		mcpResult(w, req.ID, map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": result},
+			},
+		})
+		return
+	}
+	// Try custom URLs.
+	for _, url := range srv.URLs {
+		client, err := service.NewHTTPMCPClient(r.Context(), url)
+		if err != nil {
+			continue
+		}
+		result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
+		if err != nil {
+			continue
+		}
+		mcpResult(w, req.ID, map[string]any{
+			"content": []map[string]any{
+				{"type": "text", "text": result},
+			},
+		})
+		return
 	}
 
 	// Try enabled builtin tools.
@@ -406,30 +479,6 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 	}
 
 	mcpError(w, req.ID, -32602, fmt.Sprintf("unknown tool: %s", params.Name))
-}
-
-// resolveMCPSetURLs resolves an MCP name to a list of gateway URLs
-// (from referenced MCP servers, custom URLs, and own-tools gateway).
-func (s *Server) resolveMCPSetURLs(mcpName string) []string {
-	if s.mcpSetStore == nil {
-		return nil
-	}
-
-	set, err := s.mcpSetStore.GetMCPSetByName(context.Background(), mcpName)
-	if err != nil || set == nil {
-		slog.Warn("failed to resolve MCP", "mcp", mcpName, "error", err)
-		return nil
-	}
-
-	var urls []string
-	for _, serverName := range set.Servers {
-		urls = append(urls, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName))
-	}
-	urls = append(urls, set.URLs...)
-	if mcpSetHasOwnTools(set.Config) {
-		urls = append(urls, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp-set/%s", s.config.Port, s.config.BasePath, mcpName))
-	}
-	return urls
 }
 
 // newMCPClient creates an MCPClient for the given upstream, dispatching to
@@ -453,20 +502,7 @@ func (s *Server) gwGenMCPCallRAGTool(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 
-	// Build a temporary RAGMCPServer for the existing handler functions.
-	ragSrv := &service.RAGMCPServer{
-		Name: srv.Name,
-		Config: service.RAGMCPServerConfig{
-			CollectionIDs:     srv.Config.CollectionIDs,
-			EnabledTools:      srv.Config.EnabledRAGTools,
-			FetchMode:         srv.Config.FetchMode,
-			GitCacheDir:       srv.Config.GitCacheDir,
-			DefaultNumResults: srv.Config.DefaultNumResults,
-			TokenVariable:     srv.Config.TokenVariable,
-			TokenUser:         srv.Config.TokenUser,
-			SSHKeyVariable:    srv.Config.SSHKeyVariable,
-		},
-	}
+	ragSrv := ragMCPConfigFromServer(srv)
 
 	switch toolName {
 	case "rag_search":
