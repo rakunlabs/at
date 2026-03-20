@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface MemoryConfigData {
     label?: string;
@@ -7,6 +9,7 @@
   }
 
   let { id, data, selected }: NodeProps<MemoryConfigData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -24,7 +27,8 @@
   <div class="px-2.5 py-1.5">
     <div class="text-gray-400 text-[11px]">Passes data as memory context</div>
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="top" class="!gap-1">
-    <Handle id="memory" type="output" port="data" label="memory" />
+    <Handle id="memory" type="output" port="config" label="memory" />
   </HandleGroup>
 </div>

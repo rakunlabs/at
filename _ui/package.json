@@ -34,7 +34,7 @@
     "@dicebear/core": "^9.4.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.33",
-    "kaykay": "^0.1.7",
+    "kaykay": "^0.1.8",
     "marked": "^17.0.3",
     "mermaid": "^11.12.3"
   }

@@ -39,6 +39,26 @@ func newLoopNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *loopNode) Type() string { return "loop" }
 
+func (n *loopNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "loop",
+		Label:       "Loop",
+		Category:    "flow_control",
+		Description: "Iterate over an array and fan out each item as a parallel branch",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "item", Type: workflow.PortTypeData, Label: "Item", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "expression", Type: "string", Required: true, Description: "JavaScript expression returning an array; access input as 'data'"},
+		},
+		Color: "violet",
+	}
+}
+
 func (n *loopNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	if n.expression == "" {
 		return fmt.Errorf("loop: 'expression' is required")

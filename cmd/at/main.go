@@ -16,6 +16,7 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/llm/gemini"
+	"github.com/rakunlabs/at/internal/service/llm/minimax"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 	"github.com/rakunlabs/at/internal/service/llm/vertex"
 	"github.com/rakunlabs/at/internal/store"
@@ -119,8 +120,15 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
 		}
 		return gemini.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify)
+	case "minimax":
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("minimax provider requires an api_key (get one from https://platform.minimax.io)")
+		}
+		headers := make(map[string]string, len(cfg.ExtraHeaders))
+		maps.Copy(headers, cfg.ExtraHeaders)
+		return minimax.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers)
 	default:
-		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex, gemini)", cfg.Type)
+		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex, gemini, minimax)", cfg.Type)
 	}
 }
 

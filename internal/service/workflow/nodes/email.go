@@ -21,6 +21,37 @@ import (
 	"github.com/wneessen/go-mail"
 )
 
+func (*emailNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "email",
+		Label:       "Email",
+		Category:    "processing",
+		Description: "Send an email via SMTP with Go template support",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+			{Name: "values", Type: workflow.PortTypeData, Label: "Values", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "success", Type: workflow.PortTypeData, Label: "Success", Position: "right"},
+			{Name: "error", Type: workflow.PortTypeData, Label: "Error", Position: "right"},
+			{Name: "always", Type: workflow.PortTypeData, Label: "Always", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "config_id", Type: "string", Required: true, Description: "NodeConfig ID with SMTP settings"},
+			{Name: "to", Type: "string", Required: true, Description: "Recipient addresses (Go template, comma-separated)"},
+			{Name: "cc", Type: "string", Description: "CC addresses"},
+			{Name: "bcc", Type: "string", Description: "BCC addresses"},
+			{Name: "subject", Type: "string", Description: "Email subject (Go template)"},
+			{Name: "body", Type: "string", Description: "Email body (Go template)"},
+			{Name: "content_type", Type: "string", Default: "text/plain", Enum: []string{"text/plain", "text/html"}, Description: "Content type"},
+			{Name: "from", Type: "string", Description: "Sender override (Go template)"},
+			{Name: "reply_to", Type: "string", Description: "Reply-to address (Go template)"},
+		},
+		Color: "amber",
+	}
+}
+
 // emailNode sends an email via SMTP using a referenced NodeConfig for server
 // settings. All string config fields (to, cc, bcc, subject, body, from,
 // reply_to) support Go text/template syntax.

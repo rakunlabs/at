@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface WorkflowCallData {
     label?: string;
@@ -10,6 +12,7 @@
   }
 
   let { id, data, selected }: NodeProps<WorkflowCallData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -41,6 +44,7 @@
     <Handle id="inputs" type="input" port="data" label="inputs" />
   </HandleGroup>
 
+  <NodePreview state={runState} />
   <HandleGroup position="right">
     <Handle id="output" type="output" port="data" label="output" />
   </HandleGroup>

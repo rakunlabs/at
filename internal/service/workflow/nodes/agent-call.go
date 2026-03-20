@@ -136,6 +136,34 @@ func newAgentCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *agentCallNode) Type() string { return "agent_call" }
 
+func (n *agentCallNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "agent_call",
+		Label:       "Agent Call",
+		Category:    "processing",
+		Description: "Agentic loop with tool calling (MCP, skills, inline tools)",
+		Inputs: []workflow.PortMeta{
+			{Name: "prompt", Type: workflow.PortTypeText, Required: true, Accept: []workflow.PortType{workflow.PortTypeData}, Label: "Prompt", Position: "left"},
+			{Name: "context", Type: workflow.PortTypeData, Label: "Context", Position: "left"},
+			{Name: "skills", Type: workflow.PortTypeConfig, Label: "Skills", Position: "bottom"},
+			{Name: "mcp", Type: workflow.PortTypeConfig, Label: "MCP", Position: "bottom"},
+			{Name: "memory", Type: workflow.PortTypeConfig, Label: "Memory", Position: "bottom"},
+			{Name: "agents", Type: workflow.PortTypeConfig, Label: "Agents", Position: "bottom"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "response", Type: workflow.PortTypeText, Label: "Response", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "provider", Type: "string", Required: true, Description: "Provider key"},
+			{Name: "model", Type: "string", Description: "Model name"},
+			{Name: "system_prompt", Type: "string", Description: "System prompt"},
+			{Name: "max_iterations", Type: "number", Default: 10, Description: "Max tool call iterations, 0=unlimited"},
+		},
+		Color: "purple",
+	}
+}
+
 func (n *agentCallNode) Validate(_ context.Context, reg *workflow.Registry) error {
 	if n.agentID == "" && n.providerKey == "" {
 		return fmt.Errorf("agent_call: 'provider' is required when 'agent_id' is not set")

@@ -535,9 +535,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.POST("/v1/api-tokens/{id}/usage/reset", s.ResetTokenUsageAPI)
 
 	// Workflow management
+	apiGroup.GET("/v1/workflow-node-types", s.ListWorkflowNodeTypesAPI)
 	apiGroup.GET("/v1/workflows", s.ListWorkflowsAPI)
 	apiGroup.POST("/v1/workflows", s.CreateWorkflowAPI)
 	apiGroup.POST("/v1/workflows/run/{id}", s.RunWorkflowAPI)
+	apiGroup.POST("/v1/workflows/run-stream/{id}", s.RunWorkflowStreamAPI)
 	apiGroup.GET("/v1/workflows/{id}", s.GetWorkflowAPI)
 	apiGroup.PUT("/v1/workflows/{id}", s.UpdateWorkflowAPI)
 	apiGroup.DELETE("/v1/workflows/{id}", s.DeleteWorkflowAPI)

@@ -72,6 +72,35 @@ func newGitDiffNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *gitDiffNode) Type() string { return "git_diff" }
 
+func (n *gitDiffNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "git_diff",
+		Label:       "Git Diff",
+		Category:    "knowledge",
+		Description: "Detect changed files since last sync",
+		Inputs: []workflow.PortMeta{
+			{Name: "repo_dir", Type: workflow.PortTypeText, Required: true, Label: "Repo Dir", Position: "left"},
+			{Name: "commit_sha", Type: workflow.PortTypeText, Required: true, Label: "Commit SHA", Position: "left"},
+			{Name: "repo_url", Type: workflow.PortTypeText, Label: "Repo URL", Position: "left"},
+			{Name: "branch", Type: workflow.PortTypeText, Label: "Branch", Position: "left"},
+			{Name: "is_new_clone", Type: workflow.PortTypeBoolean, Label: "Is New Clone", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "files", Type: workflow.PortTypeData, Label: "Files", Position: "right"},
+			{Name: "deleted_files", Type: workflow.PortTypeData, Label: "Deleted Files", Position: "right"},
+			{Name: "commit_sha", Type: workflow.PortTypeText, Label: "Commit SHA", Position: "right"},
+			{Name: "repo_url", Type: workflow.PortTypeText, Label: "Repo URL", Position: "right"},
+			{Name: "branch", Type: workflow.PortTypeText, Label: "Branch", Position: "right"},
+			{Name: "variable_key", Type: workflow.PortTypeText, Label: "Variable Key", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "file_pattern", Type: "string", Description: "File pattern to filter"},
+		},
+		Color: "sky",
+	}
+}
+
 func (n *gitDiffNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }

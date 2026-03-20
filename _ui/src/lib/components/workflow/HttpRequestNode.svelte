@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface HttpRequestData {
     label?: string;
@@ -15,6 +17,7 @@
   }
 
   let { id, data, selected }: NodeProps<HttpRequestData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 
   let urlPreview = $derived(() => {
     if (!data.url) return '';
@@ -69,6 +72,7 @@
       </div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="success" type="output" port="data" label="success" />
     <Handle id="error" type="output" port="data" label="error" />

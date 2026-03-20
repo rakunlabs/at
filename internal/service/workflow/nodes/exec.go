@@ -47,6 +47,32 @@ import (
 //	"result"     string — same as stdout (for convenience)
 //
 // Returns NodeResultSelection.
+func (*execNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "exec",
+		Label:       "Execute",
+		Category:    "processing",
+		Description: "Execute shell commands in a sandboxed environment",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "true", Type: workflow.PortTypeData, Label: "Success", Position: "right"},
+			{Name: "false", Type: workflow.PortTypeData, Label: "Failure", Position: "right"},
+			{Name: "always", Type: workflow.PortTypeData, Label: "Always", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "command", Type: "string", Required: true, Description: "Shell command to execute"},
+			{Name: "working_dir", Type: "string", Description: "Working directory"},
+			{Name: "timeout", Type: "number", Default: 60, Description: "Timeout in seconds"},
+			{Name: "sandbox_root", Type: "string", Default: "/tmp/at-sandbox", Description: "Sandbox root directory"},
+			{Name: "input_count", Type: "number", Default: 1, Description: "Number of input handles (1-10)"},
+		},
+		Color: "stone",
+	}
+}
+
 type execNode struct {
 	command            string
 	workingDir         string

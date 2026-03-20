@@ -61,6 +61,29 @@ func newScriptNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *scriptNode) Type() string { return "script" }
 
+func (n *scriptNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "script",
+		Label:       "Script",
+		Category:    "processing",
+		Description: "Execute arbitrary JavaScript code with routing",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "true", Type: workflow.PortTypeData, Label: "True", Position: "right"},
+			{Name: "false", Type: workflow.PortTypeData, Label: "False", Position: "right"},
+			{Name: "always", Type: workflow.PortTypeData, Label: "Always", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "code", Type: "string", Required: true, Description: "JavaScript code using return statement"},
+			{Name: "input_count", Type: "number", Default: 1, Description: "Number of input handles (1-10)"},
+		},
+		Color: "slate",
+	}
+}
+
 func (n *scriptNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	if n.code == "" {
 		return fmt.Errorf("script: 'code' is required")

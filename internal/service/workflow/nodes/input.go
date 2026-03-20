@@ -21,6 +21,23 @@ func newInputNode(_ service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *inputNode) Type() string { return "input" }
 
+func (n *inputNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "input",
+		Label:       "Input",
+		Category:    "entry",
+		Description: "Passes workflow trigger inputs downstream",
+		Inputs:      []workflow.PortMeta{},
+		Outputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Label: "Data", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+		},
+		Color: "emerald",
+	}
+}
+
 func (n *inputNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }

@@ -159,6 +159,29 @@ func newRAGSearchNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *ragSearchNode) Type() string { return "rag_search" }
 
+func (n *ragSearchNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "rag_search",
+		Label:       "RAG Search",
+		Category:    "knowledge",
+		Description: "Search RAG collections for relevant documents",
+		Inputs: []workflow.PortMeta{
+			{Name: "query", Type: workflow.PortTypeText, Required: true, Accept: []workflow.PortType{workflow.PortTypeData}, Label: "Query", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "results", Type: workflow.PortTypeData, Label: "Results", Position: "right"},
+			{Name: "text", Type: workflow.PortTypeText, Label: "Text", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "collection_id", Type: "string", Required: true, Description: "RAG collection ID"},
+			{Name: "top_k", Type: "number", Default: 5, Description: "Number of results"},
+			{Name: "min_score", Type: "number", Default: 0.7, Description: "Minimum similarity score"},
+		},
+		Color: "orange",
+	}
+}
+
 func (n *ragSearchNode) Validate(_ context.Context, reg *workflow.Registry) error {
 	if reg.RAGSearch == nil {
 		return fmt.Errorf("rag_search: RAG is not configured")

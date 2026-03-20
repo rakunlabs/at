@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface CronTriggerData {
     label?: string;
@@ -10,6 +12,7 @@
   }
 
   let { id, data, selected }: NodeProps<CronTriggerData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -47,5 +50,6 @@
       </div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <Handle id="output" type="output" port="data" position="right" label="out" />
 </div>

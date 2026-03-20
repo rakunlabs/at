@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface AgentCallData {
     label?: string;
@@ -12,6 +14,7 @@
   }
 
   let { id, data, selected }: NodeProps<AgentCallData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -58,13 +61,14 @@
       <div class="text-gray-400 text-[11px]">Configure provider & model</div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="right" class="!gap-1">
-    <Handle id="response" type="output" port="data" label="response" />
+    <Handle id="response" type="output" port="text" label="response" />
   </HandleGroup>
   <HandleGroup position="bottom" class="!gap-1">
-    <Handle id="skills" type="input" port="data" accept={['data']} label="skills" />
-    <Handle id="mcp" type="input" port="data" accept={['data']} label="mcp" />
-    <Handle id="memory" type="input" port="data" accept={['data']} label="memory" />
-    <Handle id="agents" type="input" port="data" accept={['data']} label="agents" />
+    <Handle id="skills" type="input" port="config" accept={['config']} label="skills" />
+    <Handle id="mcp" type="input" port="config" accept={['config']} label="mcp" />
+    <Handle id="memory" type="input" port="config" accept={['config']} label="memory" />
+    <Handle id="agents" type="input" port="config" accept={['config']} label="agents" />
   </HandleGroup>
 </div>

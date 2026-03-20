@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface LLMCallData {
     label?: string;
@@ -10,6 +12,8 @@
   }
 
   let { id, data, selected }: NodeProps<LLMCallData> = $props();
+
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -50,7 +54,8 @@
       <div class="text-gray-400 text-[11px]">Configure provider & model</div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="right" class="!gap-1">
-    <Handle id="response" type="output" port="data" label="response" />
+    <Handle id="response" type="output" port="text" label="response" />
   </HandleGroup>
 </div>

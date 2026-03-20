@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/logi"
@@ -22,6 +23,17 @@ type RunResult struct {
 type EarlyOutput struct {
 	Outputs map[string]any
 	Err     error
+}
+
+// NodeEvent is emitted during workflow execution to provide real-time
+// per-node progress updates. Used by the SSE streaming endpoint.
+type NodeEvent struct {
+	NodeID     string         `json:"node_id"`
+	NodeType   string         `json:"node_type"`
+	EventType  string         `json:"event_type"`     // "started", "completed", "error", "skipped"
+	Data       map[string]any `json:"data,omitempty"` // output data (for completed)
+	DurationMs int64          `json:"duration_ms,omitempty"`
+	Error      string         `json:"error,omitempty"`
 }
 
 // Engine executes a workflow graph using a two-phase approach:
@@ -61,6 +73,11 @@ type Engine struct {
 	goalAncestry          GoalAncestryFunc
 	versionLookup         VersionLookupFunc
 	memoryRecall          MemoryRecallFunc
+
+	// eventCh receives real-time node execution events when set.
+	// The channel is optional; when nil, no events are emitted.
+	// The caller is responsible for draining it.
+	eventCh chan<- NodeEvent
 }
 
 // NewEngine creates a new workflow execution engine.
@@ -103,6 +120,27 @@ func (e *Engine) SetRAGPageUpsert(f RAGPageUpsertFunc) {
 // mode. Optional — if not set, recall mode falls back to static pass-through.
 func (e *Engine) SetMemoryRecall(f MemoryRecallFunc) {
 	e.memoryRecall = f
+}
+
+// SetEventChannel sets the channel for real-time node execution events.
+// When set, the engine emits NodeEvent for each node start/complete/error.
+// The caller must drain the channel; the engine does non-blocking sends
+// and drops events if the channel is full.
+func (e *Engine) SetEventChannel(ch chan<- NodeEvent) {
+	e.eventCh = ch
+}
+
+// emitEvent sends a NodeEvent to the event channel if configured.
+// Non-blocking: drops the event if the channel buffer is full.
+func (e *Engine) emitEvent(ev NodeEvent) {
+	if e.eventCh == nil {
+		return
+	}
+	select {
+	case e.eventCh <- ev:
+	default:
+		// Drop event if channel is full — non-blocking.
+	}
 }
 
 // ─── Execution State ───
@@ -220,6 +258,62 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 		})
 	}
 
+	// Validate port type compatibility on all edges.
+	// Build a port-meta lookup from nodes that implement NodeMetaProvider.
+	type portKey struct {
+		nodeID   string
+		portName string
+	}
+	portTypes := make(map[portKey]PortMeta)
+	for id, st := range states {
+		mp, ok := st.noder.(NodeMetaProvider)
+		if !ok {
+			continue
+		}
+		meta := mp.Meta()
+		for _, p := range meta.Inputs {
+			portTypes[portKey{id, p.Name}] = p
+		}
+		for _, p := range meta.Outputs {
+			portTypes[portKey{id, p.Name}] = p
+		}
+	}
+
+	// Check each edge for port type compatibility.
+	for _, edge := range graph.Edges {
+		srcState, ok := states[edge.Source]
+		if !ok {
+			continue
+		}
+		tgtState, ok := states[edge.Target]
+		if !ok {
+			continue
+		}
+
+		srcPort := edge.SourceHandle
+		if srcPort == "" {
+			srcPort = "output"
+		}
+		tgtPort := edge.TargetHandle
+		if tgtPort == "" {
+			tgtPort = "input"
+		}
+
+		srcMeta, srcHasMeta := portTypes[portKey{edge.Source, srcPort}]
+		tgtMeta, tgtHasMeta := portTypes[portKey{edge.Target, tgtPort}]
+
+		// Only validate when both ends have declared metadata.
+		if srcHasMeta && tgtHasMeta {
+			if !PortsCompatible(srcMeta.Type, tgtMeta.Type, tgtMeta.Accept) {
+				return nil, fmt.Errorf(
+					"incompatible connection: %s port %q (%s) → %s port %q (%s)",
+					nodeRef(srcState), srcPort, srcMeta.Type,
+					nodeRef(tgtState), tgtPort, tgtMeta.Type,
+				)
+			}
+		}
+	}
+
 	// Validate all nodes.
 	for _, st := range states {
 		if err := st.noder.Validate(ctx, reg); err != nil {
@@ -321,17 +415,51 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		nodeInputs := e.gatherInputs(nodeID, states, nodeOutputs)
 
 		// Run the node.
+		e.emitEvent(NodeEvent{
+			NodeID:    st.node.ID,
+			NodeType:  st.noder.Type(),
+			EventType: "started",
+		})
 		logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
+
+		startTime := time.Now()
 		result, err := st.noder.Run(ctx, reg, nodeInputs)
+		durationMs := time.Since(startTime).Milliseconds()
+
 		if err != nil {
 			if err == ErrStopBranch {
+				e.emitEvent(NodeEvent{
+					NodeID:     st.node.ID,
+					NodeType:   st.noder.Type(),
+					EventType:  "skipped",
+					DurationMs: durationMs,
+				})
 				continue
 			}
+			e.emitEvent(NodeEvent{
+				NodeID:     st.node.ID,
+				NodeType:   st.noder.Type(),
+				EventType:  "error",
+				Error:      err.Error(),
+				DurationMs: durationMs,
+			})
 			err = fmt.Errorf("%s: %w", nodeRef(st), err)
 			signalOutput(nil, err)
 			return nil, err
 		}
 		logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
+
+		// Emit completed event with truncated output data.
+		completedEvent := NodeEvent{
+			NodeID:     st.node.ID,
+			NodeType:   st.noder.Type(),
+			EventType:  "completed",
+			DurationMs: durationMs,
+		}
+		if result != nil {
+			completedEvent.Data = truncateOutputData(result.Data())
+		}
+		e.emitEvent(completedEvent)
 
 		if result == nil {
 			continue
@@ -599,6 +727,38 @@ func reachableNodes(entryNodeIDs []string, nodes []service.WorkflowNode, edges [
 	}
 
 	return reachable
+}
+
+// truncateOutputData creates a shallow copy of node output data suitable
+// for SSE streaming. Large string values are truncated and large slices
+// are capped to keep event payloads reasonable.
+func truncateOutputData(data map[string]any) map[string]any {
+	if data == nil {
+		return nil
+	}
+	const maxStringLen = 500
+	const maxSliceLen = 5
+
+	out := make(map[string]any, len(data))
+	for k, v := range data {
+		switch val := v.(type) {
+		case string:
+			if len(val) > maxStringLen {
+				out[k] = val[:maxStringLen] + "..."
+			} else {
+				out[k] = val
+			}
+		case []any:
+			if len(val) > maxSliceLen {
+				out[k] = val[:maxSliceLen]
+			} else {
+				out[k] = val
+			}
+		default:
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // topoSort performs a topological sort using Kahn's algorithm.

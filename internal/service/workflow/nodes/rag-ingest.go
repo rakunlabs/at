@@ -50,6 +50,33 @@ func newRagIngestNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *ragIngestNode) Type() string { return "rag_ingest" }
 
+func (n *ragIngestNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "rag_ingest",
+		Label:       "RAG Ingest",
+		Category:    "knowledge",
+		Description: "Ingest files into a RAG collection",
+		Inputs: []workflow.PortMeta{
+			{Name: "files", Type: workflow.PortTypeData, Required: true, Label: "Files", Position: "left"},
+			{Name: "deleted_files", Type: workflow.PortTypeData, Label: "Deleted Files", Position: "left"},
+			{Name: "commit_sha", Type: workflow.PortTypeText, Label: "Commit SHA", Position: "left"},
+			{Name: "repo_url", Type: workflow.PortTypeText, Label: "Repo URL", Position: "left"},
+			{Name: "branch", Type: workflow.PortTypeText, Label: "Branch", Position: "left"},
+			{Name: "variable_key", Type: workflow.PortTypeText, Label: "Variable Key", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "chunks_added", Type: workflow.PortTypeData, Label: "Chunks Added", Position: "right"},
+			{Name: "files_processed", Type: workflow.PortTypeData, Label: "Files Processed", Position: "right"},
+			{Name: "deleted_count", Type: workflow.PortTypeData, Label: "Deleted Count", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "collection_id", Type: "string", Required: true, Description: "RAG collection ID"},
+		},
+		Color: "orange",
+	}
+}
+
 func (n *ragIngestNode) Validate(_ context.Context, reg *workflow.Registry) error {
 	if n.collectionID == "" {
 		return fmt.Errorf("rag_ingest: 'collection_id' is required")

@@ -19,6 +19,22 @@ import (
 	mrequestid "github.com/rakunlabs/ada/middleware/requestid"
 )
 
+// ─── Workflow Node Types API ───
+
+// nodeTypesResponse wraps the node type metadata catalog.
+type nodeTypesResponse struct {
+	NodeTypes []workflow.NodeMeta `json:"node_types"`
+}
+
+// ListWorkflowNodeTypesAPI handles GET /api/v1/workflow-node-types.
+// Returns metadata for all registered node types including port schemas,
+// categories, and display hints. Used by the frontend to render handles,
+// validate connections, and populate the node palette.
+func (s *Server) ListWorkflowNodeTypesAPI(w http.ResponseWriter, r *http.Request) {
+	metas := workflow.GetAllNodeMetas()
+	httpResponseJSON(w, nodeTypesResponse{NodeTypes: metas}, http.StatusOK)
+}
+
 // ─── Workflow CRUD API ───
 
 // workflowsResponse wraps a list of workflow records for JSON output.
@@ -528,6 +544,245 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 			WorkflowID: id,
 			Status:     "running",
 		}, http.StatusAccepted)
+	}
+}
+
+// RunWorkflowStreamAPI handles POST /api/v1/workflows/run-stream/{id}.
+// It executes a workflow and streams per-node events via SSE.
+//
+// SSE event format:
+//
+//	data: {"node_id":"n1","node_type":"llm_call","event_type":"started"}
+//	data: {"node_id":"n1","node_type":"llm_call","event_type":"completed","data":{...},"duration_ms":1234}
+//	data: {"event_type":"done","data":{...}}
+//	data: {"event_type":"error","error":"..."}
+func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
+	if s.workflowStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "workflow id is required", http.StatusBadRequest)
+		return
+	}
+
+	wf, err := s.workflowStore.GetWorkflow(r.Context(), id)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to get workflow: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if wf == nil {
+		httpResponse(w, fmt.Sprintf("workflow %q not found", id), http.StatusNotFound)
+		return
+	}
+
+	// Determine which graph to run.
+	graphToRun := wf.Graph
+	if versionStr := r.URL.Query().Get("version"); versionStr != "" {
+		version, err := strconv.Atoi(versionStr)
+		if err != nil {
+			httpResponse(w, fmt.Sprintf("invalid version parameter: %v", err), http.StatusBadRequest)
+			return
+		}
+		if s.workflowVersionStore == nil {
+			httpResponse(w, "version store not configured", http.StatusServiceUnavailable)
+			return
+		}
+		ver, err := s.workflowVersionStore.GetWorkflowVersion(r.Context(), id, version)
+		if err != nil {
+			httpResponse(w, fmt.Sprintf("failed to get version: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if ver == nil {
+			httpResponse(w, fmt.Sprintf("version %d not found", version), http.StatusNotFound)
+			return
+		}
+		graphToRun = ver.Graph
+	}
+
+	var req runWorkflowRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	if req.Inputs == nil {
+		req.Inputs = make(map[string]any)
+	}
+
+	// Set SSE headers before any response body.
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		httpResponse(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	writeSSE := func(data any) {
+		jsonData, _ := json.Marshal(data)
+		fmt.Fprintf(w, "data: %s\n\n", jsonData)
+		flusher.Flush()
+	}
+
+	// Build the engine (same setup as RunWorkflowAPI).
+	parentCtx := r.Context() // SSE stays alive as long as client is connected.
+	requestID := r.Header.Get(mrequestid.HeaderXRequestID)
+	parentCtx = logi.WithContext(parentCtx, slog.With(
+		slog.String("workflow_id", id),
+		slog.String("workflow_name", wf.Name),
+		slog.String("request_id", requestID),
+	))
+
+	runID, ctx, cleanup := s.registerRun(parentCtx, id, "stream")
+	defer cleanup()
+
+	providerLookup := func(key string) (service.LLMProvider, string, error) {
+		s.providerMu.RLock()
+		info, ok := s.providers[key]
+		s.providerMu.RUnlock()
+		if !ok {
+			return nil, "", fmt.Errorf("provider %q not found", key)
+		}
+		return info.provider, info.defaultModel, nil
+	}
+
+	var skillLookup workflow.SkillLookup
+	if s.skillStore != nil {
+		skillLookup = func(nameOrID string) (*service.Skill, error) {
+			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
+			if err != nil {
+				return nil, err
+			}
+			if sk != nil {
+				return sk, nil
+			}
+			return s.skillStore.GetSkillByName(ctx, nameOrID)
+		}
+	}
+
+	var varLookup workflow.VarLookup
+	var varLister workflow.VarLister
+	if s.variableStore != nil {
+		varLookup = func(key string) (string, error) {
+			v, err := s.variableStore.GetVariableByKey(ctx, key)
+			if err != nil {
+				return "", err
+			}
+			if v == nil {
+				return "", fmt.Errorf("variable %q not found", key)
+			}
+			return v.Value, nil
+		}
+		varLister = func() (map[string]string, error) {
+			vars, err := s.variableStore.ListVariables(ctx, nil)
+			if err != nil {
+				return nil, err
+			}
+			m := make(map[string]string, len(vars.Data))
+			for _, v := range vars.Data {
+				m[v.Key] = v.Value
+			}
+			return m, nil
+		}
+	}
+
+	var nodeConfigLookup workflow.NodeConfigLookup
+	if s.nodeConfigStore != nil {
+		nodeConfigLookup = func(id string) (*service.NodeConfig, error) {
+			return s.nodeConfigStore.GetNodeConfig(ctx, id)
+		}
+	}
+
+	var workflowLookup workflow.WorkflowLookup
+	if s.workflowStore != nil {
+		workflowLookup = func(ctx context.Context, id string) (*service.Workflow, error) {
+			return s.workflowStore.GetWorkflow(ctx, id)
+		}
+	}
+
+	var agentLookup workflow.AgentLookup
+	if s.agentStore != nil {
+		agentLookup = func(ctx context.Context, id string) (*service.Agent, error) {
+			return s.agentStore.GetAgent(ctx, id)
+		}
+	}
+
+	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
+	engine.SetRAGPageUpsert(s.ragPageUpsertFunc())
+	engine.SetMemoryRecall(s.memoryRecallFunc())
+
+	// Create buffered event channel and attach to engine.
+	eventCh := make(chan workflow.NodeEvent, 64)
+	engine.SetEventChannel(eventCh)
+
+	// Collect entry node IDs.
+	var entryNodeIDs []string
+	allInputNodeIDs := make(map[string]bool)
+	for _, n := range graphToRun.Nodes {
+		if n.Type == "input" {
+			allInputNodeIDs[n.ID] = true
+			entryNodeIDs = append(entryNodeIDs, n.ID)
+		}
+	}
+	if len(req.EntryNodeIDs) > 0 {
+		for _, eid := range req.EntryNodeIDs {
+			if !allInputNodeIDs[eid] {
+				writeSSE(map[string]any{"event_type": "error", "error": fmt.Sprintf("entry_node_id %q is not an input node", eid)})
+				return
+			}
+		}
+		entryNodeIDs = req.EntryNodeIDs
+	}
+
+	// Send initial run_started event.
+	writeSSE(map[string]any{"event_type": "run_started", "run_id": runID, "workflow_id": id})
+
+	// Run engine in a goroutine; stream events from the channel.
+	doneCh := make(chan struct{})
+	var runResult *workflow.RunResult
+	var runErr error
+
+	go func() {
+		defer close(doneCh)
+		defer close(eventCh)
+
+		logi.Ctx(ctx).Info("workflow stream started", "id", id, "run_id", runID)
+		runResult, runErr = engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, nil)
+		if runErr != nil {
+			logi.Ctx(ctx).Error("workflow stream failed", "id", id, "run_id", runID, "error", runErr)
+		} else {
+			logi.Ctx(ctx).Info("workflow stream completed", "id", id, "run_id", runID)
+		}
+	}()
+
+	// Stream events until engine completes.
+	for {
+		select {
+		case ev, ok := <-eventCh:
+			if !ok {
+				// Channel closed — engine finished. Send final event.
+				if runErr != nil {
+					writeSSE(map[string]any{"event_type": "error", "error": runErr.Error()})
+				} else {
+					finalData := map[string]any{"event_type": "done", "status": "completed"}
+					if runResult != nil {
+						finalData["outputs"] = runResult.Outputs
+					}
+					writeSSE(finalData)
+				}
+				return
+			}
+			writeSSE(ev)
+
+		case <-ctx.Done():
+			writeSSE(map[string]any{"event_type": "error", "error": "client disconnected"})
+			return
+		}
 	}
 }
 

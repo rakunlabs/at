@@ -48,6 +48,29 @@ func newLLMCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *llmCallNode) Type() string { return "llm_call" }
 
+func (n *llmCallNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "llm_call",
+		Label:       "LLM Call",
+		Category:    "processing",
+		Description: "Send a prompt to an LLM provider and return the response",
+		Inputs: []workflow.PortMeta{
+			{Name: "prompt", Type: workflow.PortTypeText, Required: true, Accept: []workflow.PortType{workflow.PortTypeData}, Label: "Prompt", Position: "left"},
+			{Name: "context", Type: workflow.PortTypeData, Label: "Context", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "response", Type: workflow.PortTypeText, Label: "Response", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "provider", Type: "string", Required: true, Description: "Provider key"},
+			{Name: "model", Type: "string", Description: "Model name"},
+			{Name: "system_prompt", Type: "string", Description: "System prompt for the LLM"},
+		},
+		Color: "blue",
+	}
+}
+
 func (n *llmCallNode) Validate(_ context.Context, reg *workflow.Registry) error {
 	if n.providerKey == "" {
 		return fmt.Errorf("llm_call: 'provider' is required")

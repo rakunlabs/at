@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface ScriptData {
     label?: string;
@@ -9,6 +11,7 @@
   }
 
   let { id, data, selected }: NodeProps<ScriptData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 
   let inputCount = $derived(Math.max(1, Math.min(data.input_count || 1, 10)));
 
@@ -52,6 +55,7 @@
       <code class="font-mono bg-gray-50 px-0.5 rounded">return</code> → true, <code class="font-mono bg-gray-50 px-0.5 rounded">throw</code> → false
     </div>
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="true" type="output" port="data" label="true" />
     <Handle id="false" type="output" port="data" label="false" />

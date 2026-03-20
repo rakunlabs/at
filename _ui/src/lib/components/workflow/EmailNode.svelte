@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface EmailData {
     label?: string;
@@ -16,6 +18,7 @@
   }
 
   let { id, data, selected }: NodeProps<EmailData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 
   let subjectPreview = $derived(() => {
     if (!data.subject) return '';
@@ -58,6 +61,7 @@
       <span class="text-[9px] px-1 py-px rounded bg-gray-100 text-gray-500 border border-gray-200">HTML</span>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="success" type="output" port="data" label="success" />
     <Handle id="error" type="output" port="data" label="error" />

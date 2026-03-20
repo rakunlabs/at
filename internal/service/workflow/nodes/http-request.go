@@ -47,6 +47,36 @@ import (
 //	index 2 = "always"  — always activated
 //
 // Output data includes "response", "status_code", and "headers".
+func (*httpRequestNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "http_request",
+		Label:       "HTTP Request",
+		Category:    "processing",
+		Description: "Make an HTTP request with templated URL, headers, and body",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+			{Name: "values", Type: workflow.PortTypeData, Label: "Values", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "success", Type: workflow.PortTypeData, Label: "Success", Position: "right"},
+			{Name: "error", Type: workflow.PortTypeData, Label: "Error", Position: "right"},
+			{Name: "always", Type: workflow.PortTypeData, Label: "Always", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "url", Type: "string", Required: true, Description: "Request URL (supports Go templates)"},
+			{Name: "method", Type: "string", Default: "GET", Enum: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"}, Description: "HTTP method"},
+			{Name: "headers", Type: "object", Description: "Request headers"},
+			{Name: "body", Type: "string", Description: "Request body (supports Go templates)"},
+			{Name: "timeout", Type: "number", Default: 30, Description: "Timeout in seconds"},
+			{Name: "proxy", Type: "string", Description: "Proxy URL"},
+			{Name: "insecure_skip_verify", Type: "boolean", Description: "Skip TLS verification"},
+			{Name: "retry", Type: "boolean", Description: "Enable retry on failure"},
+		},
+		Color: "cyan",
+	}
+}
+
 type httpRequestNode struct {
 	urlTmpl            string
 	methodTmpl         string

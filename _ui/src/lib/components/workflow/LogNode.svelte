@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface LogData {
     label?: string;
@@ -9,6 +11,7 @@
   }
 
   let { id, data, selected }: NodeProps<LogData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 
   const levelColors: Record<string, string> = {
     info: 'bg-blue-100 text-blue-700 border-blue-300',
@@ -47,5 +50,6 @@
       <div class="text-gray-400 text-[11px]">Pass-through logger</div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <Handle id="output" type="output" port="data" position="right" label="data" />
 </div>

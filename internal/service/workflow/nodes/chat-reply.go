@@ -53,6 +53,29 @@ func newChatReplyNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *chatReplyNode) Type() string { return "chat_reply" }
 
+func (n *chatReplyNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "chat_reply",
+		Label:       "Chat Reply",
+		Category:    "processing",
+		Description: "Send a message to a chat session",
+		Inputs: []workflow.PortMeta{
+			{Name: "message", Type: workflow.PortTypeText, Required: true, Accept: []workflow.PortType{workflow.PortTypeData}, Label: "Message", Position: "left"},
+			{Name: "data", Type: workflow.PortTypeData, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "success", Type: workflow.PortTypeData, Label: "Success", Position: "right"},
+			{Name: "error", Type: workflow.PortTypeData, Label: "Error", Position: "right"},
+			{Name: "always", Type: workflow.PortTypeData, Label: "Always", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "session_id", Type: "string", Description: "Chat session ID (supports Go template)"},
+		},
+		Color: "pink",
+	}
+}
+
 func (n *chatReplyNode) Validate(_ context.Context, reg *workflow.Registry) error {
 	if n.sessionIDTmpl == "" {
 		return fmt.Errorf("chat_reply: 'session_id' is required")

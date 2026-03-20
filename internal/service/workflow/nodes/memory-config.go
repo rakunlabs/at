@@ -62,6 +62,25 @@ func newMemoryConfigNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *memoryConfigNode) Type() string { return "memory_config" }
 
+func (n *memoryConfigNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "memory_config",
+		Label:       "Memory Config",
+		Category:    "resources",
+		Description: "Provide memory context for an agent_call node",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "memory", Type: workflow.PortTypeConfig, Label: "Memory", Position: "top"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+		},
+		Color: "teal",
+	}
+}
+
 func (n *memoryConfigNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	if n.mode == "recall" {
 		if n.agentID == "" {

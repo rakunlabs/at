@@ -44,6 +44,27 @@ func newTemplateNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *templateNode) Type() string { return "template" }
 
+func (n *templateNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "template",
+		Label:       "Template",
+		Category:    "processing",
+		Description: "Render a Go text/template with upstream data",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "text", Type: workflow.PortTypeText, Label: "Text", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "template", Type: "string", Required: true, Description: "Go template string with {{.var}} syntax"},
+			{Name: "variables", Type: "array", Description: "Variable names"},
+		},
+		Color: "yellow",
+	}
+}
+
 func (n *templateNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	if strings.TrimSpace(n.tmplText) == "" {
 		return fmt.Errorf("template: template text is empty")

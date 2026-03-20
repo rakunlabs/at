@@ -48,6 +48,28 @@ func newWorkflowCallNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *workflowCallNode) Type() string { return "workflow_call" }
 
+func (n *workflowCallNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "workflow_call",
+		Label:       "Workflow Call",
+		Category:    "processing",
+		Description: "Call another workflow synchronously",
+		Inputs: []workflow.PortMeta{
+			{Name: "inputs", Type: workflow.PortTypeData, Label: "Inputs", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "output", Type: workflow.PortTypeData, Label: "Output", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "workflow_id", Type: "string", Required: true, Description: "Child workflow ID"},
+			{Name: "workflow_name", Type: "string", Description: "Display name of the child workflow"},
+			{Name: "inputs", Type: "object", Description: "Static inputs for child workflow"},
+		},
+		Color: "fuchsia",
+	}
+}
+
 func (n *workflowCallNode) Validate(_ context.Context, reg *workflow.Registry) error {
 	if n.workflowID == "" {
 		return fmt.Errorf("workflow_call: 'workflow_id' is required")

@@ -40,6 +40,24 @@ func newSkillConfigNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *skillConfigNode) Type() string { return "skill_config" }
 
+func (n *skillConfigNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "skill_config",
+		Label:       "Skill Config",
+		Category:    "resources",
+		Description: "Provide skill names for an agent_call node",
+		Inputs:      []workflow.PortMeta{},
+		Outputs: []workflow.PortMeta{
+			{Name: "skills", Type: workflow.PortTypeConfig, Label: "Skills", Position: "top"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "skills", Type: "array", Required: true, Description: "Skill names to provide to agent_call"},
+		},
+		Color: "green",
+	}
+}
+
 func (n *skillConfigNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }

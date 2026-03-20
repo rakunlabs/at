@@ -74,6 +74,119 @@ type Noder interface {
 	Run(ctx context.Context, reg *Registry, inputs map[string]any) (NodeResult, error)
 }
 
+// ─── Port & Node Metadata ───
+//
+// Nodes may optionally implement NodeMetaProvider to declare their input/output
+// port schemas. This metadata drives frontend handle rendering, connection
+// validation, and the GET /api/v1/workflow-node-types endpoint.
+
+// PortType identifies the data type carried by a port.
+type PortType string
+
+const (
+	PortTypeText      PortType = "text"      // plain string
+	PortTypeData      PortType = "data"      // structured JSON object / map[string]any
+	PortTypeMessages  PortType = "messages"  // chat message array ([]service.Message)
+	PortTypeImage     PortType = "image"     // image URL, base64, or binary reference
+	PortTypeAudio     PortType = "audio"     // audio URL, base64, or binary reference
+	PortTypeVideo     PortType = "video"     // video URL, base64, or binary reference
+	PortTypeEmbedding PortType = "embedding" // float vector ([]float64)
+	PortTypeBoolean   PortType = "boolean"   // true/false routing signal
+	PortTypeConfig    PortType = "config"    // resource configuration blob
+)
+
+// portCompatibility defines implicit coercions: a source of type K can
+// connect to any target whose type is in the V slice, even without an
+// explicit "accept" list on the target port.
+var portCompatibility = map[PortType][]PortType{
+	PortTypeText: {PortTypeData}, // text is always accepted where data is expected
+}
+
+// PortsCompatible checks whether a source port type can connect to a target
+// port. It returns true when:
+//  1. sourceType == targetType (exact match), or
+//  2. sourceType is in the target's Accept list, or
+//  3. sourceType has an implicit coercion to targetType.
+func PortsCompatible(sourceType PortType, targetType PortType, targetAccept []PortType) bool {
+	if sourceType == targetType {
+		return true
+	}
+	for _, a := range targetAccept {
+		if sourceType == a {
+			return true
+		}
+	}
+	for _, compat := range portCompatibility[sourceType] {
+		if compat == targetType {
+			return true
+		}
+	}
+	return false
+}
+
+// PortMeta describes a single input or output port on a node type.
+type PortMeta struct {
+	Name     string     `json:"name"`               // port identifier (matches handle ID / map key)
+	Type     PortType   `json:"type"`               // data type
+	Required bool       `json:"required,omitempty"` // true if the node cannot run without this input
+	Accept   []PortType `json:"accept,omitempty"`   // additional types accepted (input ports only)
+	Label    string     `json:"label,omitempty"`    // human-readable label
+	Position string     `json:"position,omitempty"` // "left", "right", "top", "bottom"
+}
+
+// FieldMeta describes a configuration field on a node type.
+// Used by the frontend to auto-generate property panels, system prompts,
+// and default node data.
+type FieldMeta struct {
+	Name        string   `json:"name"`                  // field key in node.Data
+	Type        string   `json:"type"`                  // "string", "number", "boolean", "array", "object"
+	Required    bool     `json:"required,omitempty"`    // true if the node needs this field
+	Default     any      `json:"default,omitempty"`     // default value
+	Description string   `json:"description,omitempty"` // brief description for LLM / UI hints
+	Enum        []string `json:"enum,omitempty"`        // valid values for selects / dropdowns
+}
+
+// NodeMeta describes a node type's identity, port schema, and configuration fields.
+type NodeMeta struct {
+	Type        string      `json:"type"`             // registered type name
+	Label       string      `json:"label"`            // display name
+	Category    string      `json:"category"`         // palette group: entry, processing, knowledge, flow_control, resources, output, annotation, media
+	Description string      `json:"description"`      // brief description
+	Inputs      []PortMeta  `json:"inputs"`           // input port definitions
+	Outputs     []PortMeta  `json:"outputs"`          // output port definitions
+	Fields      []FieldMeta `json:"fields,omitempty"` // configuration field schema
+	Color       string      `json:"color,omitempty"`  // theme color hint (tailwind color name)
+}
+
+// NodeMetaProvider is an optional interface that Noder implementations may
+// implement to declare their port schemas. The engine and API layer use this
+// for connection validation and to serve the node-type catalog.
+type NodeMetaProvider interface {
+	Meta() NodeMeta
+}
+
+// GetAllNodeMetas instantiates every registered node type with a dummy
+// WorkflowNode and collects their Meta(). Nodes that do not implement
+// NodeMetaProvider are skipped.
+func GetAllNodeMetas() []NodeMeta {
+	var metas []NodeMeta
+	for typeName, factory := range nodeFactories {
+		dummy := service.WorkflowNode{
+			ID:   "__meta__",
+			Type: typeName,
+			Data: map[string]any{},
+		}
+		noder, err := factory(dummy)
+		if err != nil {
+			continue
+		}
+		if mp, ok := noder.(NodeMetaProvider); ok {
+			metas = append(metas, mp.Meta())
+		}
+	}
+	return metas
+}
+
 // ─── Node Factory ───
 
 // NodeFactory creates a Noder from a workflow node definition.

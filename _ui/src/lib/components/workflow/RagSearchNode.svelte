@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface RagSearchData {
     label?: string;
@@ -8,6 +10,7 @@
   }
 
   let { id, data, selected }: NodeProps<RagSearchData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 
   let previewQuery = $derived(() => {
     if (!data.query) return '';
@@ -22,7 +25,7 @@
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
-  <Handle id="data" type="input" port="data" accept={['data', 'text']} position="left" label="data" />
+  <Handle id="query" type="input" port="text" accept={['text', 'data']} position="left" label="query" />
   
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-emerald-50">
     <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-emerald-600 text-white tracking-wide">RAG</span>
@@ -36,7 +39,9 @@
       <div class="text-gray-400 text-[11px]">Query RAG collection</div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="right" class="!gap-1">
-    <Handle id="output" type="output" port="data" label="output" />
+    <Handle id="results" type="output" port="data" label="results" />
+    <Handle id="text" type="output" port="text" label="text" />
   </HandleGroup>
 </div>

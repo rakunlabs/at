@@ -139,6 +139,41 @@ func TestReachableNodes_DisconnectedNotIncluded(t *testing.T) {
 	}
 }
 
+// ─── Port Compatibility Tests ───
+
+func TestPortsCompatible(t *testing.T) {
+	tests := []struct {
+		name         string
+		sourceType   PortType
+		targetType   PortType
+		targetAccept []PortType
+		want         bool
+	}{
+		{"exact match data-data", PortTypeData, PortTypeData, nil, true},
+		{"exact match text-text", PortTypeText, PortTypeText, nil, true},
+		{"text to data implicit coercion", PortTypeText, PortTypeData, nil, true},
+		{"data to text rejected", PortTypeData, PortTypeText, nil, false},
+		{"data to text via accept", PortTypeData, PortTypeText, []PortType{PortTypeData}, true},
+		{"config to config", PortTypeConfig, PortTypeConfig, nil, true},
+		{"config to data rejected", PortTypeConfig, PortTypeData, nil, false},
+		{"image to image", PortTypeImage, PortTypeImage, nil, true},
+		{"image to data rejected", PortTypeImage, PortTypeData, nil, false},
+		{"image to data via accept", PortTypeImage, PortTypeData, []PortType{PortTypeImage}, true},
+		{"text to text via accept", PortTypeText, PortTypeText, []PortType{PortTypeData}, true},
+		{"boolean to data rejected", PortTypeBoolean, PortTypeData, nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := PortsCompatible(tt.sourceType, tt.targetType, tt.targetAccept)
+			if got != tt.want {
+				t.Errorf("PortsCompatible(%s, %s, %v) = %v, want %v",
+					tt.sourceType, tt.targetType, tt.targetAccept, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestReachableNodes_WithEntryNodeIDs(t *testing.T) {
 	// Same resource config scenario but with explicit entry node IDs.
 	nodes := []service.WorkflowNode{

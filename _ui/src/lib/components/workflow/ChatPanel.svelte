@@ -13,6 +13,7 @@
   import { listSkills } from '@/lib/api/skills';
   import { listVariables } from '@/lib/api/secrets';
   import { listNodeConfigs } from '@/lib/api/node-configs';
+  import { getNodeTypes, type NodeTypeMeta, type PortMeta, type FieldMeta } from '@/lib/api/workflows';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
   import { md, renderMarkdown } from '@/lib/helper/markdown';
 
@@ -69,126 +70,137 @@
     }
   }
 
-  // ─── Tool Definitions ───
+  // ─── Tool Definitions (derived from node type metadata) ───
 
-  const flowTools: ToolDefinition[] = [
-    {
-      type: 'function',
-      function: {
-        name: 'get_flow',
-        description: 'Get the current workflow flow state (all nodes and edges). ALWAYS call this first before making changes.',
-        parameters: { type: 'object', properties: {}, required: [] },
+  // Frontend-only node types that don't have backend Meta() implementations.
+  const FRONTEND_ONLY_TYPES = ['http_trigger', 'cron_trigger', 'group', 'sticky_note'];
+
+  const flowTools: ToolDefinition[] = $derived.by(() => {
+    // Build the dynamic enum of valid node types.
+    const typeNames = nodeTypeMetas.map(m => m.type);
+    for (const ft of FRONTEND_ONLY_TYPES) {
+      if (!typeNames.includes(ft)) typeNames.push(ft);
+    }
+
+    return [
+      {
+        type: 'function',
+        function: {
+          name: 'get_flow',
+          description: 'Get the current workflow flow state (all nodes and edges). ALWAYS call this first before making changes.',
+          parameters: { type: 'object', properties: {}, required: [] },
+        },
       },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'add_node',
-        description: 'Add a new node to the workflow canvas',
-        parameters: {
-          type: 'object',
-          properties: {
-            type: {
-              type: 'string',
-              enum: ['input', 'output', 'llm_call', 'agent_call', 'template', 'workflow_call', 'http_trigger', 'cron_trigger', 'http_request', 'email', 'conditional', 'loop', 'script', 'exec', 'log', 'skill_config', 'agent_config', 'mcp_config', 'memory_config', 'group', 'sticky_note', 'rag_search', 'rag_ingest', 'git_fetch', 'git_diff', 'chat_reply'],
-              description: 'The node type',
+      {
+        type: 'function',
+        function: {
+          name: 'add_node',
+          description: 'Add a new node to the workflow canvas',
+          parameters: {
+            type: 'object',
+            properties: {
+              type: {
+                type: 'string',
+                enum: typeNames.length > 0 ? typeNames : undefined,
+                description: 'The node type',
+              },
+              id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
+              position: {
+                type: 'object',
+                properties: { x: { type: 'number' }, y: { type: 'number' } },
+                required: ['x', 'y'],
+                description: 'Canvas position {x, y}',
+              },
+              data: {
+                type: 'object',
+                description: 'Node-specific configuration. Must include "label" field (except sticky_note which uses "text" instead).',
+              },
             },
-            id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
-            position: {
-              type: 'object',
-              properties: { x: { type: 'number' }, y: { type: 'number' } },
-              required: ['x', 'y'],
-              description: 'Canvas position {x, y}',
+            required: ['type', 'position', 'data'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'remove_node',
+          description: 'Remove a node from the workflow (also removes connected edges)',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'The node ID to remove' },
             },
-            data: {
-              type: 'object',
-              description: 'Node-specific configuration. Must include "label" field (except sticky_note which uses "text" instead).',
+            required: ['id'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'update_node_data',
+          description: 'Update a node\'s configuration data (partial merge)',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'The node ID to update' },
+              data: { type: 'object', description: 'Partial data to merge into the node' },
             },
+            required: ['id', 'data'],
           },
-          required: ['type', 'position', 'data'],
         },
       },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'remove_node',
-        description: 'Remove a node from the workflow (also removes connected edges)',
-        parameters: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', description: 'The node ID to remove' },
-          },
-          required: ['id'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'update_node_data',
-        description: 'Update a node\'s configuration data (partial merge)',
-        parameters: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', description: 'The node ID to update' },
-            data: { type: 'object', description: 'Partial data to merge into the node' },
-          },
-          required: ['id', 'data'],
-        },
-      },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'update_node_position',
-        description: 'Move a node to a new position',
-        parameters: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', description: 'The node ID to move' },
-            position: {
-              type: 'object',
-              properties: { x: { type: 'number' }, y: { type: 'number' } },
-              required: ['x', 'y'],
+      {
+        type: 'function',
+        function: {
+          name: 'update_node_position',
+          description: 'Move a node to a new position',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'The node ID to move' },
+              position: {
+                type: 'object',
+                properties: { x: { type: 'number' }, y: { type: 'number' } },
+                required: ['x', 'y'],
+              },
             },
+            required: ['id', 'position'],
           },
-          required: ['id', 'position'],
         },
       },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'add_edge',
-        description: 'Connect two nodes by adding an edge between their handles',
-        parameters: {
-          type: 'object',
-          properties: {
-            source: { type: 'string', description: 'Source node ID' },
-            source_handle: { type: 'string', description: 'Source output handle ID' },
-            target: { type: 'string', description: 'Target node ID' },
-            target_handle: { type: 'string', description: 'Target input handle ID' },
+      {
+        type: 'function',
+        function: {
+          name: 'add_edge',
+          description: 'Connect two nodes by adding an edge between their handles',
+          parameters: {
+            type: 'object',
+            properties: {
+              source: { type: 'string', description: 'Source node ID' },
+              source_handle: { type: 'string', description: 'Source output handle ID' },
+              target: { type: 'string', description: 'Target node ID' },
+              target_handle: { type: 'string', description: 'Target input handle ID' },
+            },
+            required: ['source', 'source_handle', 'target', 'target_handle'],
           },
-          required: ['source', 'source_handle', 'target', 'target_handle'],
         },
       },
-    },
-    {
-      type: 'function',
-      function: {
-        name: 'remove_edge',
-        description: 'Remove an edge by its ID',
-        parameters: {
-          type: 'object',
-          properties: {
-            id: { type: 'string', description: 'The edge ID to remove' },
+      {
+        type: 'function',
+        function: {
+          name: 'remove_edge',
+          description: 'Remove an edge by its ID',
+          parameters: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'The edge ID to remove' },
+            },
+            required: ['id'],
           },
-          required: ['id'],
         },
       },
-    },
-  ];
+    ];
+  });
 
   // ─── System Prompt ───
 
@@ -205,6 +217,16 @@
   }
 
   loadProviders();
+
+  let nodeTypeMetas = $state<NodeTypeMeta[]>([]);
+
+  async function loadNodeTypes() {
+    try {
+      nodeTypeMetas = await getNodeTypes();
+    } catch {}
+  }
+
+  loadNodeTypes();
 
   let skillsInfo = $state<{ name: string; description: string }[]>([]);
   let variablesInfo = $state<{ key: string; description: string }[]>([]);
@@ -249,6 +271,119 @@
     }
   }
 
+  // ─── Dynamic System Prompt ───
+
+  /** Generate the "Available Node Types" section from backend metadata. */
+  function buildNodeTypesDoc(): string {
+    if (nodeTypeMetas.length === 0) return 'Loading node types...\n';
+
+    let doc = '';
+    for (const meta of nodeTypeMetas) {
+      doc += `### ${meta.type}\n`;
+      doc += `${meta.description}\n`;
+
+      if (meta.inputs && meta.inputs.length > 0) {
+        const handles = meta.inputs.map((p: PortMeta) => {
+          let s = `id="${p.name}" (port: ${p.type}`;
+          if (p.accept?.length) s += `, accepts: ${p.accept.join(', ')}`;
+          if (p.position && p.position !== 'left') s += `, position: ${p.position}`;
+          s += ')';
+          return s;
+        });
+        doc += `- Input handles: ${handles.join(', ')}\n`;
+      }
+
+      if (meta.outputs && meta.outputs.length > 0) {
+        const handles = meta.outputs.map((p: PortMeta) => {
+          let s = `id="${p.name}" (port: ${p.type}`;
+          if (p.position && p.position !== 'right') s += `, position: ${p.position}`;
+          s += ')';
+          return s;
+        });
+        doc += `- Output handles: ${handles.join(', ')}\n`;
+      }
+
+      if (meta.fields && meta.fields.length > 0) {
+        const fields = meta.fields.map((f: FieldMeta) => {
+          let s = f.name;
+          if (f.type !== 'string') s += ` (${f.type})`;
+          if (f.required) s += ' [required]';
+          if (f.default !== undefined && f.default !== null && f.default !== '') s += ` (default: ${JSON.stringify(f.default)})`;
+          if (f.enum?.length) s += ` (values: ${f.enum.join(', ')})`;
+          if (f.description && f.name !== 'label') s += ` — ${f.description}`;
+          return s;
+        });
+        doc += `- Data fields: ${fields.join(', ')}\n`;
+      }
+
+      doc += '\n';
+    }
+
+    // Frontend-only node types (no backend Noder).
+    doc += `### http_trigger
+Webhook trigger endpoint
+- Output handles: id="output" (port: data)
+- Data fields: label [required], trigger_id (auto-assigned on save), alias (optional URL path), public (boolean, skip auth)
+
+### cron_trigger
+Cron schedule trigger
+- Output handles: id="output" (port: data)
+- Data fields: label [required], schedule (cron expression e.g. "*/5 * * * *"), timezone (IANA e.g. "America/New_York"), payload (object)
+
+### group
+Visual grouping container (no handles)
+- Data fields: label [required], color (CSS hex, default "#22c55e")
+- When adding, also set style: { width: 400, height: 300 }
+
+### sticky_note
+Markdown annotation (no handles)
+- Data fields: text (markdown content), color (CSS hex, default "#fef08a")
+- NOTE: uses "text" instead of "label". Do NOT include a "label" field.
+- When adding, also set style: { width: 200, height: 150 }
+`;
+
+    return doc;
+  }
+
+  /** Build default node data from metadata Fields, falling back to zero values. */
+  function defaultNodeData(type: string): Record<string, any> {
+    // Frontend-only types with static defaults.
+    switch (type) {
+      case 'http_trigger': return { label: 'HTTP Trigger', trigger_id: '', alias: '', public: false };
+      case 'cron_trigger': return { label: 'Cron Trigger', schedule: '', timezone: '', payload: {} };
+      case 'group': return { label: 'Group', color: '#22c55e' };
+      case 'sticky_note': return { text: 'Double-click to edit...', color: '#fef08a' };
+    }
+
+    // Look up metadata and build defaults from Fields.
+    const meta = nodeTypeMetas.find(m => m.type === type);
+    if (!meta || !meta.fields?.length) return { label: type };
+
+    const data: Record<string, any> = {};
+    for (const field of meta.fields) {
+      if (field.default !== undefined && field.default !== null) {
+        data[field.name] = field.default;
+      } else {
+        // Zero-value by type.
+        switch (field.type) {
+          case 'string':  data[field.name] = ''; break;
+          case 'number':  data[field.name] = 0; break;
+          case 'boolean': data[field.name] = false; break;
+          case 'array':   data[field.name] = []; break;
+          case 'object':  data[field.name] = {}; break;
+          default:        data[field.name] = ''; break;
+        }
+      }
+    }
+
+    // If no label was set from fields, use the meta label.
+    if (!data.label && type !== 'sticky_note') {
+      data.label = meta.label;
+    }
+
+    return data;
+  }
+
   const systemPrompt = $derived(`You are a workflow editor AI assistant. You help users build and modify visual node-based workflows.
 
 IMPORTANT: Always call get_flow FIRST before making any changes, to see the current state of the workflow.
@@ -260,147 +395,11 @@ ${getCurrentFlowSummary()}
 
 Each node has specific input/output handles (ports) for connecting edges. The handle "id" is what you must use as source_handle or target_handle when adding edges.
 
-### input
-- Output handles: id="output" (port: data)
-- Data fields: label, fields (array of field names)
-
-### output
-- Input handles: id="input" (port: data, accepts: data, text)
-- Data fields: label, fields (array of field names)
-
-### http_trigger
-- Output handles: id="output" (port: data)
-- Data fields: label, trigger_id (auto-assigned on save), alias (optional URL alias path), public (boolean, skip auth when true)
-- Webhook receives: method, path, query, headers, body (as reader)
-
-### cron_trigger
-- Output handles: id="output" (port: data)
-- Data fields: label, schedule (cron expression, e.g. "*/5 * * * *"), timezone (IANA timezone e.g. "America/New_York", empty = local), payload (object)
-
-### llm_call
-- Input handles: id="prompt" (port: text), id="context" (port: data)
-- Output handles: id="response" (port: data)
-- Data fields: label, provider (provider key), model (model name), system_prompt
-
-### agent_call
-- Input handles: id="prompt" (port: text), id="context" (port: data), id="skills" (port: data, position: bottom), id="agents" (port: data, position: bottom), id="mcp" (port: data, position: bottom), id="memory" (port: data, position: bottom)
-- Output handles: id="response" (port: data)
-- Data fields: label, provider (provider key), model (model name), system_prompt, max_iterations (number, default 10, 0=unlimited)
-- Bottom input handles receive data from resource config nodes (skill_config, agent_config, mcp_config, memory_config) connected vertically
-- Runs an agentic loop: sends prompt to LLM, executes tool calls (MCP, skill, sub-agent), feeds results back until final answer or max iterations
-
-### skill_config
-- Output handles: id="skills" (port: data, position: top)
-- Data fields: label, skills (array of skill names)
-- Connect the "skills" output to an agent_call's "skills" bottom input to provide skills
-
-### agent_config
-- Output handles: id="agent" (port: data, position: top)
-- Data fields: label, agent_id (selected agent ID)
-- Connect the "agent" output to an agent_call's "agents" bottom input to provide sub-agent delegation capabilities
-
-### mcp_config
-- Output handles: id="mcp_urls" (port: data, position: top)
-- Data fields: label, mcp_urls (array of MCP server URLs)
-- Connect the "mcp_urls" output to an agent_call's "mcp" bottom input to provide MCP servers
-
-### memory_config
-- Input handles: id="data" (port: data, position: left)
-- Output handles: id="memory" (port: data, position: top)
-- Data fields: label
-- Passes upstream data as additional context; connect "memory" output to agent_call's "memory" bottom input
-
-### template
-- Input handles: id="input" (port: data)
-- Output handles: id="output" (port: text)
-- Data fields: label, template (Go template string with {{.var}}), variables (array of var names)
-
-### http_request
-- Input handles: id="values" (port: data, index 0), id="data" (port: data, index 1)
-- Output handles: id="success" (port: data, 2xx responses), id="error" (port: data, >=400), id="always" (port: data)
-- Data fields: label, url, method, headers (object), body, timeout (seconds), proxy, insecure_skip_verify (bool), retry (bool)
-- URL and headers support Go templates with data from "values" input
-
-### email
-- Input handles: id="values" (port: data, index 0), id="data" (port: data, index 1)
-- Output handles: id="success" (port: data), id="error" (port: data), id="always" (port: data)
-- Data fields: label, config_id (ID of an email NodeConfig with SMTP settings), to (comma-separated, Go template), cc, bcc, subject (Go template), body (Go template), content_type ("text/plain" or "text/html"), from (override, Go template), reply_to (Go template)
-
-### conditional
-- Input handles: id="input" (port: data)
-- Output handles: id="true" (port: data), id="false" (port: data)
-- Data fields: label, expression (JavaScript expression evaluating to true/false, access input as "data")
-
-### loop
-- Input handles: id="input" (port: data)
-- Output handles: id="item" (port: data)
-- Data fields: label, expression (JavaScript expression returning an array, access input as "data")
-
-### script
-- Input handles: When input_count=1: id="data" (port: data). When input_count>1: id="data1", id="data2", ... id="dataN" (port: data)
-- Output handles: id="true" (port: data), id="false" (port: data), id="always" (port: data)
-- Data fields: label, code (JavaScript code using return), input_count (1-10)
-
-### exec
-- Input handles: When input_count=1: id="data" (port: data). When input_count>1: id="data1", id="data2", ... id="dataN" (port: data)
-- Output handles: id="true" (port: data), id="false" (port: data), id="always" (port: data)
-- Data fields: label, command, working_dir, timeout, sandbox_root, input_count (1-10)
-
-### log
-- Input handles: id="input" (port: data)
-- Output handles: id="output" (port: data)
-- Data fields: label, level ("debug", "info", "warn", or "error"), message (Go template string)
-
-### workflow_call
-- Input handles: id="input" (port: data)
-- Output handles: id="output" (port: data)
-- Data fields: label, workflow_id (ID of child workflow), workflow_name (display name), inputs (object)
-
-### chat_reply
-- Input handles: id="message" (port: data)
-- Output handles: id="success" (port: data), id="error" (port: data), id="always" (port: data)
-- Data fields: label, session_id (chat session ID, supports Go template)
-- Sends a message to a chat session
-
-### rag_search
-- Input handles: id="query" (port: text), id="data" (port: data)
-- Output handles: id="results" (port: data)
-- Data fields: label, collection_id, top_k (number), min_score (number)
-- Searches a RAG collection for similar documents
-
-### rag_ingest
-- Input handles: id="data" (port: data)
-- Output handles: id="success" (port: data), id="error" (port: data), id="always" (port: data)
-- Data fields: label, collection_id
-- Ingests documents into a RAG collection
-
-### git_fetch
-- Input handles: id="data" (port: data)
-- Output handles: id="output" (port: data)
-- Data fields: label, repo_url, branch, path
-- Fetches content from a git repository
-
-### git_diff
-- Input handles: id="data" (port: data)
-- Output handles: id="output" (port: data)
-- Data fields: label, repo_url, branch, base_ref, head_ref
-- Gets diff between two git refs
-
-### group
-- No input or output handles (visual only)
-- Data fields: label, color (CSS hex color, default "#22c55e")
-- Visual grouping container. When adding via add_node, also set style: ${'{ width: 400, height: 300 }'}
-
-### sticky_note
-- No input or output handles (visual only)
-- Data fields: text (markdown content), color (CSS hex color, default "#fef08a")
-- NOTE: sticky_note uses "text" instead of "label". Do NOT include a "label" field.
-- When adding via add_node, also set style: ${'{ width: 200, height: 150 }'}
-
+${buildNodeTypesDoc()}
 ## Available Providers
 ${providersInfo.length > 0 ? providersInfo.map(p => `- "${p.key}": models [${p.models.map(m => `"${m}"`).join(', ')}]`).join('\n') : '- No providers configured yet'}
 
-When creating llm_call or agent_call nodes, use the provider key for the "provider" field and the model name for the "model" field from the list above.
+When creating llm_call, agent_call, or media nodes, use the provider key for the "provider" field and the model name for the "model" field from the list above.
 
 ## Available Skills
 ${skillsInfo.length > 0 ? skillsInfo.map(s => `- "${s.name}": ${s.description}`).join('\n') : '- No skills configured yet'}
@@ -433,38 +432,6 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
   // ─── Tool Execution ───
 
   let nodeIdCounter = 0;
-
-  function defaultNodeData(type: string): Record<string, any> {
-    switch (type) {
-      case 'input': return { label: 'Input' };
-      case 'output': return { label: 'Output' };
-      case 'llm_call': return { label: 'LLM Call', provider: '', model: '', system_prompt: '' };
-      case 'agent_call': return { label: 'Agent Call', provider: '', model: '', system_prompt: '', max_iterations: 10 };
-      case 'skill_config': return { label: 'Skill Config', skills: [] };
-      case 'agent_config': return { label: 'Agent Config', agent_id: '' };
-      case 'mcp_config': return { label: 'MCP Config', mcp_urls: [] };
-      case 'memory_config': return { label: 'Memory' };
-      case 'template': return { label: 'Template', template: '', variables: [] };
-      case 'workflow_call': return { label: 'Workflow Call', workflow_id: '', workflow_name: '', inputs: {} };
-      case 'http_trigger': return { label: 'HTTP Trigger', trigger_id: '', alias: '', public: false };
-      case 'cron_trigger': return { label: 'Cron Trigger', schedule: '', timezone: '', payload: {} };
-      case 'http_request': return { label: 'HTTP Request', url: '', method: 'GET', headers: {}, body: '', timeout: 30, proxy: '', insecure_skip_verify: false, retry: false };
-      case 'conditional': return { label: 'Conditional', expression: '' };
-      case 'loop': return { label: 'Loop', expression: '' };
-      case 'script': return { label: 'Script', code: '', input_count: 1 };
-      case 'exec': return { label: 'Exec', command: '', working_dir: '', timeout: 60, sandbox_root: '/tmp/at-sandbox', input_count: 1 };
-      case 'email': return { label: 'Email', config_id: '', to: '', cc: '', bcc: '', subject: '', body: '', content_type: 'text/plain', from: '', reply_to: '' };
-      case 'log': return { label: 'Log', level: 'info', message: '' };
-      case 'chat_reply': return { label: 'Chat Reply', session_id: '' };
-      case 'rag_search': return { label: 'RAG Search', collection_id: '', top_k: 5, min_score: 0.7 };
-      case 'rag_ingest': return { label: 'RAG Ingest', collection_id: '' };
-      case 'git_fetch': return { label: 'Git Fetch', repo_url: '', branch: '', path: '' };
-      case 'git_diff': return { label: 'Git Diff', repo_url: '', branch: '', base_ref: '', head_ref: '' };
-      case 'group': return { label: 'Group', color: '#22c55e' };
-      case 'sticky_note': return { text: 'Double-click to edit...', color: '#fef08a' };
-      default: return {};
-    }
-  }
 
   function executeToolCall(name: string, args: Record<string, any>): string {
     try {

@@ -108,6 +108,33 @@ func newGitFetchNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *gitFetchNode) Type() string { return "git_fetch" }
 
+func (n *gitFetchNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "git_fetch",
+		Label:       "Git Fetch",
+		Category:    "knowledge",
+		Description: "Clone or pull a git repository",
+		Inputs: []workflow.PortMeta{
+			{Name: "repo_url", Type: workflow.PortTypeText, Label: "Repo URL", Position: "left"},
+			{Name: "branch", Type: workflow.PortTypeText, Label: "Branch", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "repo_dir", Type: workflow.PortTypeText, Label: "Repo Dir", Position: "right"},
+			{Name: "commit_sha", Type: workflow.PortTypeText, Label: "Commit SHA", Position: "right"},
+			{Name: "repo_url", Type: workflow.PortTypeText, Label: "Repo URL", Position: "right"},
+			{Name: "branch", Type: workflow.PortTypeText, Label: "Branch", Position: "right"},
+			{Name: "is_new_clone", Type: workflow.PortTypeBoolean, Label: "Is New Clone", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "repo_url", Type: "string", Description: "Git repository URL"},
+			{Name: "branch", Type: "string", Description: "Branch name"},
+			{Name: "path", Type: "string", Description: "Subpath to fetch"},
+		},
+		Color: "sky",
+	}
+}
+
 func (n *gitFetchNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }

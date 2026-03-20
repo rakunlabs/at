@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface TemplateData {
     label?: string;
@@ -9,6 +11,7 @@
   }
 
   let { id, data, selected }: NodeProps<TemplateData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 
   let previewText = $derived(() => {
     if (!data.template) return '';
@@ -23,7 +26,7 @@
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
-  <Handle id="input" type="input" port="data" accept={['data']} position="left" label="data" />
+  <Handle id="input" type="input" port="data" accept={['data', 'text']} position="left" label="data" />
   <div class="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-gray-200 font-medium bg-yellow-50">
     <span class="inline-flex items-center leading-none text-[9px] font-bold px-1 py-1 rounded bg-yellow-500 text-white tracking-wide">TPL</span>
     <span class="text-gray-900">{data.label || 'Template'}</span>
@@ -43,5 +46,6 @@
       </div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <Handle id="output" type="output" port="text" position="right" label="text" />
 </div>

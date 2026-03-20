@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface AgentConfigData {
     label?: string;
@@ -8,6 +10,7 @@
   }
 
   let { id, data, selected }: NodeProps<AgentConfigData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -31,7 +34,8 @@
       <div class="text-gray-400 text-[11px] italic">No agent selected</div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="top" class="!gap-1">
-    <Handle id="agent" type="output" port="data" label="agent" />
+    <Handle id="agent" type="output" port="config" label="agent" />
   </HandleGroup>
 </div>

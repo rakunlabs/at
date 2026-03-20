@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface RagIngestData {
     label?: string;
@@ -8,6 +10,7 @@
   }
 
   let { id, data, selected }: NodeProps<RagIngestData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -30,6 +33,7 @@
       <div class="text-gray-400 text-[11px]">Select a collection</div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="output" type="output" port="data" label="output" />
   </HandleGroup>

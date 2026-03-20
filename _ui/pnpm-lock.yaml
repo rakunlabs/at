@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  kaykay: link:../../kaykay
+
 importers:
 
   .:
@@ -21,8 +24,8 @@ importers:
         specifier: ^0.16.33
         version: 0.16.33
       kaykay:
-        specifier: ^0.1.7
-        version: 0.1.7(svelte@5.46.1)
+        specifier: link:../../kaykay
+        version: link:../../kaykay
       marked:
         specifier: ^17.0.3
         version: 17.0.3
@@ -1497,11 +1500,6 @@ packages:
   katex@0.16.33:
     resolution: {integrity: sha512-q3N5u+1sY9Bu7T4nlXoiRBXWfwSefNGoKeOwekV+gw0cAXQlz2Ww6BLcmBxVDeXBMUDQv6fK5bcNaJLxob3ZQA==}
     hasBin: true
-
-  kaykay@0.1.7:
-    resolution: {integrity: sha512-BfcuRYycx/N6NEQawlXCYVKG5NcJowobSj8WwLhVE4j13lnv4Cp6A9AEtxhsVv8X63mfCJoOh17MN8uMC2go3Q==}
-    peerDependencies:
-      svelte: ^5.0.0
 
   keyv@5.5.5:
     resolution: {integrity: sha512-FA5LmZVF1VziNc0bIdCSA1IoSVnDCqE8HJIZZv2/W8YmoAM50+tnUgJR/gQZwEeIMleuIOnRnHA/UaZRNeV4iQ==}
@@ -3420,10 +3418,6 @@ snapshots:
   katex@0.16.33:
     dependencies:
       commander: 8.3.0
-
-  kaykay@0.1.7(svelte@5.46.1):
-    dependencies:
-      svelte: 5.46.1
 
   keyv@5.5.5:
     dependencies:

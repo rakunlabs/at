@@ -1,5 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
+  import NodePreview from './NodePreview.svelte';
+  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
 
   interface MCPConfigData {
     label?: string;
@@ -8,6 +10,7 @@
   }
 
   let { id, data, selected }: NodeProps<MCPConfigData> = $props();
+  let runState = $derived(nodeRunStates[id]);
 </script>
 
 <div
@@ -37,7 +40,8 @@
       <div class="text-gray-400 text-[11px]">No MCP servers</div>
     {/if}
   </div>
+  <NodePreview state={runState} />
   <HandleGroup position="top" class="!gap-1">
-    <Handle id="mcp_urls" type="output" port="data" label="mcp" />
+    <Handle id="mcp_urls" type="output" port="config" label="mcp" />
   </HandleGroup>
 </div>

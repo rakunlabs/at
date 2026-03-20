@@ -58,6 +58,27 @@ func newLogNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *logNode) Type() string { return "log" }
 
+func (n *logNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "log",
+		Label:       "Log",
+		Category:    "processing",
+		Description: "Log data at a configurable level and pass through unchanged",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Label: "Data", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "level", Type: "string", Default: "info", Enum: []string{"debug", "info", "warn", "error"}, Description: "Log level"},
+			{Name: "message", Type: "string", Description: "Log message (Go template)"},
+		},
+		Color: "slate",
+	}
+}
+
 func (n *logNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }

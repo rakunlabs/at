@@ -2,7 +2,8 @@
   import { push } from 'svelte-spa-router';
   import { storeNavbar, storeTheme } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listWorkflows, getWorkflow, updateWorkflow, runWorkflow, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
+  import { listWorkflows, getWorkflow, updateWorkflow, runWorkflow, runWorkflowStream, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
+  import { nodeRunStates, runStatus as storeRunStatus, runError as storeRunError, runOutputs as storeRunOutputs, clearRunState, handleStreamEvent, getNodeStatuses } from '@/lib/store/workflow-run.svelte';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listNodeConfigs, type NodeConfig } from '@/lib/api/node-configs';
@@ -34,6 +35,11 @@
   import GitDiffNode from '@/lib/components/workflow/GitDiffNode.svelte';
   import RagIngestNode from '@/lib/components/workflow/RagIngestNode.svelte';
   import MarkdownStickyNote from '@/lib/components/workflow/MarkdownStickyNote.svelte';
+  import ImageGenerateNode from '@/lib/components/workflow/ImageGenerateNode.svelte';
+  import VisionAnalyzeNode from '@/lib/components/workflow/VisionAnalyzeNode.svelte';
+  import AudioGenerateNode from '@/lib/components/workflow/AudioGenerateNode.svelte';
+  import AudioTranscribeNode from '@/lib/components/workflow/AudioTranscribeNode.svelte';
+  import EmbeddingNode from '@/lib/components/workflow/EmbeddingNode.svelte';
 
   // ─── Property Panel Components ───
   import InputProps from '@/lib/components/workflow/InputProps.svelte';
@@ -61,6 +67,11 @@
   import RagIngestProps from '@/lib/components/workflow/RagIngestProps.svelte';
   import GroupProps from '@/lib/components/workflow/GroupProps.svelte';
   import StickyNoteProps from '@/lib/components/workflow/StickyNoteProps.svelte';
+  import ImageGenerateProps from '@/lib/components/workflow/ImageGenerateProps.svelte';
+  import VisionAnalyzeProps from '@/lib/components/workflow/VisionAnalyzeProps.svelte';
+  import AudioGenerateProps from '@/lib/components/workflow/AudioGenerateProps.svelte';
+  import AudioTranscribeProps from '@/lib/components/workflow/AudioTranscribeProps.svelte';
+  import EmbeddingProps from '@/lib/components/workflow/EmbeddingProps.svelte';
 
   // ─── Props Component Map ───
   const propsComponents: Record<string, any> = {
@@ -89,6 +100,11 @@
     rag_ingest: RagIngestProps,
     group: GroupProps,
     sticky_note: StickyNoteProps,
+    image_generate: ImageGenerateProps,
+    vision_analyze: VisionAnalyzeProps,
+    audio_generate: AudioGenerateProps,
+    audio_transcribe: AudioTranscribeProps,
+    embedding: EmbeddingProps,
   };
 
   // ─── Props ───
@@ -123,6 +139,11 @@
     rag_ingest: RagIngestNode,
     group: GroupNode,
     sticky_note: MarkdownStickyNote,
+    image_generate: ImageGenerateNode,
+    vision_analyze: VisionAnalyzeNode,
+    audio_generate: AudioGenerateNode,
+    audio_transcribe: AudioTranscribeNode,
+    embedding: EmbeddingNode,
   };
 
   const paletteGroups = [
@@ -144,6 +165,16 @@
         { type: 'script', label: 'Script', description: 'Run JavaScript code' },
         { type: 'exec', label: 'Exec', description: 'Run a shell command' },
         { type: 'log', label: 'Log', description: 'Log data and pass through' },
+      ],
+    },
+    {
+      label: 'Media',
+      nodes: [
+        { type: 'image_generate', label: 'Image Generate', description: 'Generate images from text' },
+        { type: 'vision_analyze', label: 'Vision Analyze', description: 'Analyze images with LLM' },
+        { type: 'audio_generate', label: 'Text to Speech', description: 'Convert text to audio' },
+        { type: 'audio_transcribe', label: 'Speech to Text', description: 'Transcribe audio to text' },
+        { type: 'embedding', label: 'Embedding', description: 'Create vector embeddings' },
       ],
     },
     {
@@ -235,6 +266,9 @@
   // Canvas ref
   let canvasRef: { getFlow: () => FlowState } | undefined = $state();
 
+  // Stream run state
+  let streamAbort: AbortController | null = $state(null);
+  let nodeStatuses = $derived(getNodeStatuses());
 
   // ─── Helpers ───
 
@@ -539,6 +573,8 @@
     running = true;
     runResult = null;
     runError = null;
+    clearRunState();
+
     try {
       // Save first
       if (canvasRef) {
@@ -554,14 +590,36 @@
         ? JSON.parse(runInputsJson || '{}')
         : { text: runInputsJson };
       const entryNodeIds = runEntryNodeId ? [runEntryNodeId] : undefined;
-      runResult = await runWorkflow(workflow.id, inputs, runSync, runVersion, entryNodeIds);
+
+      // Use streaming run for real-time per-node updates.
+      if (streamAbort) {
+        streamAbort.abort();
+      }
+      streamAbort = runWorkflowStream(
+        workflow.id,
+        inputs,
+        (event) => {
+          handleStreamEvent(event);
+          // Also update the local runResult/runError for the panel display.
+          if (event.event_type === 'done') {
+            runResult = event.outputs ?? event.data ?? null;
+          } else if (event.event_type === 'error' && !event.node_id) {
+            runError = event.error || 'Execution failed';
+          }
+        },
+        () => {
+          running = false;
+          streamAbort = null;
+        },
+        runVersion,
+        entryNodeIds,
+      );
     } catch (e: any) {
       if (e instanceof SyntaxError) {
         runError = 'Invalid JSON in inputs';
       } else {
         runError = e?.response?.data?.message || e?.message || 'Execution failed';
       }
-    } finally {
       running = false;
     }
   }
@@ -640,6 +698,36 @@
       defaultData.content_type = 'text/plain';
       defaultData.from = '';
       defaultData.reply_to = '';
+    } else if (type === 'image_generate') {
+      defaultData.label = 'Image Generate';
+      defaultData.provider = '';
+      defaultData.model = '';
+      defaultData.size = '1024x1024';
+      defaultData.quality = 'standard';
+      defaultData.style = 'vivid';
+      defaultData.n = 1;
+    } else if (type === 'vision_analyze') {
+      defaultData.label = 'Vision Analyze';
+      defaultData.provider = '';
+      defaultData.model = '';
+      defaultData.system_prompt = '';
+    } else if (type === 'audio_generate') {
+      defaultData.label = 'Text to Speech';
+      defaultData.provider = '';
+      defaultData.model = 'tts-1';
+      defaultData.voice = 'alloy';
+      defaultData.response_format = 'mp3';
+      defaultData.speed = 1.0;
+    } else if (type === 'audio_transcribe') {
+      defaultData.label = 'Speech to Text';
+      defaultData.provider = '';
+      defaultData.model = 'whisper-1';
+      defaultData.language = '';
+      defaultData.response_format = 'json';
+    } else if (type === 'embedding') {
+      defaultData.label = 'Embedding';
+      defaultData.provider = '';
+      defaultData.model = '';
     } else if (type === 'group') {
       defaultData.label = 'Group';
       defaultData.color = '#22c55e';
@@ -971,6 +1059,7 @@
           nodes={toFlowNodes(workflow.graph.nodes)}
           edges={toFlowEdges(workflow.graph.edges)}
           {nodeTypes}
+          node_statuses={nodeStatuses}
           config={{ snap_to_grid: true, grid_size: 20, default_edge_type: 'bezier' }}
           callbacks={{ on_node_click: onNodeClick, on_selection_change: onSelectionChange }}
         >
@@ -1225,6 +1314,15 @@
                 <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Result</div>
                 <pre class="p-2 bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto whitespace-pre-wrap max-h-60 overflow-y-auto">{JSON.stringify(runResult, null, 2)}</pre>
               </div>
+            {/if}
+
+            {#if runResult || runError || Object.keys(nodeRunStates).length > 0}
+              <button
+                onclick={() => { clearRunState(); runResult = null; runError = null; }}
+                class="w-full px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+              >
+                Clear Results
+              </button>
             {/if}
           </div>
         </div>

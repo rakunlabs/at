@@ -37,6 +37,27 @@ func newConditionalNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *conditionalNode) Type() string { return "conditional" }
 
+func (n *conditionalNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "conditional",
+		Label:       "Conditional",
+		Category:    "flow_control",
+		Description: "Evaluate a JS expression and route to true/false branches",
+		Inputs: []workflow.PortMeta{
+			{Name: "data", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Data", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{
+			{Name: "true", Type: workflow.PortTypeData, Label: "True", Position: "right"},
+			{Name: "false", Type: workflow.PortTypeData, Label: "False", Position: "right"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "expression", Type: "string", Required: true, Description: "JavaScript expression evaluating to true/false; access input as 'data'"},
+		},
+		Color: "amber",
+	}
+}
+
 func (n *conditionalNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	if n.expression == "" {
 		return fmt.Errorf("conditional: 'expression' is required")

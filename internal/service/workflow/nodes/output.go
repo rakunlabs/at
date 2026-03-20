@@ -21,6 +21,24 @@ func newOutputNode(_ service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *outputNode) Type() string { return "output" }
 
+func (n *outputNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "output",
+		Label:       "Output",
+		Category:    "output",
+		Description: "Collects final results into workflow outputs",
+		Inputs: []workflow.PortMeta{
+			{Name: "input", Type: workflow.PortTypeData, Accept: []workflow.PortType{workflow.PortTypeText}, Label: "Input", Position: "left"},
+		},
+		Outputs: []workflow.PortMeta{},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "fields", Type: "array", Description: "Output field names"},
+		},
+		Color: "red",
+	}
+}
+
 func (n *outputNode) Validate(_ context.Context, _ *workflow.Registry) error {
 	return nil
 }

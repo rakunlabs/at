@@ -36,6 +36,24 @@ func newAgentConfigNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 func (n *agentConfigNode) Type() string { return "agent_config" }
 
+func (n *agentConfigNode) Meta() workflow.NodeMeta {
+	return workflow.NodeMeta{
+		Type:        "agent_config",
+		Label:       "Agent Config",
+		Category:    "resources",
+		Description: "Provide an agent ID for delegation in agent_call",
+		Inputs:      []workflow.PortMeta{},
+		Outputs: []workflow.PortMeta{
+			{Name: "agent", Type: workflow.PortTypeConfig, Label: "Agent", Position: "top"},
+		},
+		Fields: []workflow.FieldMeta{
+			{Name: "label", Type: "string", Required: true, Description: "Display name"},
+			{Name: "agent_id", Type: "string", Required: true, Description: "Agent ID to delegate to"},
+		},
+		Color: "indigo",
+	}
+}
+
 func (n *agentConfigNode) Validate(ctx context.Context, reg *workflow.Registry) error {
 	if n.agentID == "" {
 		return fmt.Errorf("agent_config: 'agent_id' is required")

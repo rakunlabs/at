@@ -22,7 +22,7 @@
 
   storeNavbar.title = 'Providers';
 
-  const PROVIDER_TYPES = ['openai', 'anthropic', 'vertex', 'gemini'] as const;
+  const PROVIDER_TYPES = ['openai', 'anthropic', 'vertex', 'gemini', 'minimax'] as const;
 
   // ─── Presets ───
 
@@ -325,6 +325,36 @@
         'No account or API key needed',
         'Default port is 11434 - change the Base URL if you use a different port',
         'If Ollama is running on a different machine, replace localhost with the IP/hostname',
+      ],
+    },
+    {
+      id: 'minimax',
+      name: 'MiniMax',
+      description: 'MiniMax M2.7 with image generation and text-to-speech',
+      key: 'minimax',
+      config: {
+        type: 'minimax',
+        model: 'MiniMax-M2.7',
+        models: ['MiniMax-M2.7', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.5', 'MiniMax-M2.5-highspeed'],
+      },
+      setupSteps: [
+        'Go to platform.minimax.io and sign in (or create an account)',
+        'Navigate to the API Keys page in the console',
+        'Create a new API key and copy it',
+        'Paste the key in the API Key field below',
+      ],
+      setupLinks: [
+        { label: 'Console', url: 'https://platform.minimax.io/user-center/basic-information/interface-key' },
+        { label: 'Docs', url: 'https://platform.minimaxi.com/document/introduction' },
+        { label: 'Pricing', url: 'https://platform.minimaxi.com/document/Price%20Description' },
+      ],
+      notes: [
+        'Uses the dedicated minimax provider type for full feature support',
+        'Chat is OpenAI-compatible (204k context window)',
+        'Supports image generation (image-01 model) in workflow nodes',
+        'Supports text-to-speech (speech-2.8-hd, 300+ voices) in workflow nodes',
+        'Base URL is auto-configured - leave the Base URL field empty',
+        'Note: Temperature must be in the range (0, 1] — sending 0 will error',
       ],
     },
     {
