@@ -11,10 +11,12 @@
     getDeviceAuthStatus,
     startClaudeAuth,
     submitClaudeAuthCode,
+    submitClaudeAuthToken,
+    syncClaudeAuthFromCLI,
     type ProviderRecord,
     type LLMConfig,
   } from '@/lib/api/providers';
-  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud } from 'lucide-svelte';
   import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -161,7 +163,7 @@
       config: {
         type: 'anthropic',
         model: 'claude-sonnet-4-20250514',
-        models: ['claude-sonnet-4-20250514', 'claude-haiku-4-5', 'claude-opus-4-20250514'],
+        models: ['claude-sonnet-4-20250514', 'claude-sonnet-4-5-20250514', 'claude-haiku-4-5-20250620', 'claude-opus-4-20250514'],
       },
       setupSteps: [
         'Go to console.anthropic.com and sign in (or create an account)',
@@ -188,24 +190,24 @@
         type: 'anthropic',
         auth_type: 'claude-code',
         model: 'claude-sonnet-4-20250514',
-        models: ['claude-sonnet-4-20250514', 'claude-haiku-4-5', 'claude-opus-4-20250514'],
+        models: ['claude-sonnet-4-20250514', 'claude-sonnet-4-5-20250514', 'claude-haiku-4-5-20250620', 'claude-opus-4-20250514'],
       },
       setupSteps: [
         'You need an active Claude Pro or Max subscription',
         'Click "Create" to save the provider configuration',
-        'Edit the provider and click "Authorize with Claude"',
-        'A link will appear - open it in your browser and sign in',
-        'After signing in, you\'ll see an authorization code - copy it',
-        'Paste the code back into the input field and click Submit',
+        'Edit the provider and click "Authorize with Claude" (or use "Paste Token" / "Sync from CLI" if you have Claude Code installed)',
+        'For browser auth: a link will appear - open it, sign in, copy the code, and paste it back',
+        'For CLI sync: click "Sync from CLI" to auto-extract tokens from your Claude Code installation',
       ],
       setupLinks: [
         { label: 'Claude Pricing', url: 'https://claude.com/pricing' },
       ],
       notes: [
         'Requires an active Claude Pro or Max subscription',
-        'Authorization is done via your browser - sign in with your Claude account',
+        'IMPORTANT: Use full model IDs (e.g. claude-sonnet-4-20250514), not short aliases',
         'Tokens are stored securely and refreshed automatically',
         'No separate Anthropic API account needed - uses your Claude subscription',
+        'If you have Claude Code CLI installed, "Sync from CLI" is the easiest auth method',
       ],
     },
     {
@@ -438,6 +440,15 @@
   let claudeAuthURL = $state('');
   let claudeAuthCode = $state('');
   let claudeAuthSubmitting = $state(false);
+
+  // Claude auth token paste state
+  let claudeTokenMode = $state(false);
+  let claudeTokenAccess = $state('');
+  let claudeTokenRefresh = $state('');
+  let claudeTokenSubmitting = $state(false);
+
+  // Claude auth sync state
+  let claudeSyncing = $state(false);
 
   // ─── Load ───
 
@@ -682,6 +693,11 @@
     claudeAuthURL = '';
     claudeAuthCode = '';
     claudeAuthSubmitting = false;
+    claudeTokenMode = false;
+    claudeTokenAccess = '';
+    claudeTokenRefresh = '';
+    claudeTokenSubmitting = false;
+    claudeSyncing = false;
   }
 
   async function handleClaudeAuth() {
@@ -717,6 +733,49 @@
     } catch (e: any) {
       claudeAuthSubmitting = false;
       addToast(e?.response?.data?.message || 'Failed to exchange authorization code', 'alert');
+    }
+  }
+
+  async function handleClaudeTokenSubmit() {
+    if (!editingKey || !claudeTokenAccess.trim() || !claudeTokenRefresh.trim()) {
+      addToast('Both access token and refresh token are required', 'warn');
+      return;
+    }
+
+    claudeTokenSubmitting = true;
+    try {
+      await submitClaudeAuthToken(editingKey, claudeTokenAccess.trim(), claudeTokenRefresh.trim());
+      resetClaudeAuth();
+      formHasStoredKey = true;
+      addToast('Claude authorized successfully via token paste');
+      await load();
+    } catch (e: any) {
+      claudeTokenSubmitting = false;
+      addToast(e?.response?.data?.message || 'Failed to save tokens', 'alert');
+    }
+  }
+
+  async function handleClaudeSync() {
+    if (!editingKey) {
+      addToast('Save the provider first', 'warn');
+      return;
+    }
+
+    claudeSyncing = true;
+    try {
+      const resp = await syncClaudeAuthFromCLI(editingKey);
+      resetClaudeAuth();
+      formHasStoredKey = true;
+      let msg = `Claude authorized via ${resp.source}`;
+      if (resp.expires_at) {
+        const exp = new Date(resp.expires_at);
+        msg += ` (token expires ${exp.toLocaleString()})`;
+      }
+      addToast(msg);
+      await load();
+    } catch (e: any) {
+      claudeSyncing = false;
+      addToast(e?.response?.data?.message || 'Failed to sync from Claude Code CLI', 'alert');
     }
   }
 
@@ -1085,9 +1144,59 @@
                     Cancel
                   </button>
                 </div>
+              {:else if claudeTokenMode}
+                <!-- Token paste mode -->
+                <div class="border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 p-4 space-y-3">
+                  <div class="text-sm font-medium text-gray-900 dark:text-dark-text">Paste Tokens from Claude Code CLI</div>
+                  <div class="text-xs text-gray-500 dark:text-dark-text-muted leading-relaxed">
+                    Extract tokens from Claude Code CLI. On macOS run:<br/>
+                    <code class="text-xs bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 mt-1 inline-block font-mono">security find-generic-password -s "Claude Code-credentials" -w | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); o=d.get('claudeAiOauth',d); print('Access:', o['accessToken']); print('Refresh:', o['refreshToken'])"</code>
+                    <br/>On Linux:<br/>
+                    <code class="text-xs bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 mt-1 inline-block font-mono">cat ~/.claude/.credentials.json | python3 -c "import json,sys; d=json.loads(sys.stdin.read()); o=d.get('claudeAiOauth',d); print('Access:', o['accessToken']); print('Refresh:', o['refreshToken'])"</code>
+                  </div>
+                  <div class="space-y-2">
+                    <input
+                      type="password"
+                      bind:value={claudeTokenAccess}
+                      placeholder="Access Token"
+                      autocomplete="off"
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                    />
+                    <input
+                      type="password"
+                      bind:value={claudeTokenRefresh}
+                      placeholder="Refresh Token"
+                      autocomplete="off"
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                    />
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onclick={handleClaudeTokenSubmit}
+                      disabled={claudeTokenSubmitting || !claudeTokenAccess.trim() || !claudeTokenRefresh.trim()}
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {#if claudeTokenSubmitting}
+                        <RefreshCw size={13} class="animate-spin" />
+                        Saving...
+                      {:else}
+                        <Check size={13} />
+                        Save Tokens
+                      {/if}
+                    </button>
+                    <button
+                      type="button"
+                      onclick={() => { claudeTokenMode = false; claudeTokenAccess = ''; claudeTokenRefresh = ''; }}
+                      class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               {:else if editingKey && formHasStoredKey}
                 <!-- Already authorized -->
-                <div class="flex items-center gap-3">
+                <div class="flex flex-wrap items-center gap-2">
                   <span class="inline-flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-3 py-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     Authorized via Claude
@@ -1100,10 +1209,32 @@
                     <LogIn size={13} />
                     Re-authorize
                   </button>
+                  <button
+                    type="button"
+                    onclick={() => { claudeTokenMode = true; }}
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                  >
+                    <KeyRound size={13} />
+                    Paste Token
+                  </button>
+                  <button
+                    type="button"
+                    onclick={handleClaudeSync}
+                    disabled={claudeSyncing}
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 transition-colors"
+                  >
+                    {#if claudeSyncing}
+                      <RefreshCw size={13} class="animate-spin" />
+                      Syncing...
+                    {:else}
+                      <DownloadCloud size={13} />
+                      Sync from CLI
+                    {/if}
+                  </button>
                 </div>
               {:else if editingKey}
                 <!-- Not yet authorized, editing existing provider -->
-                <div class="flex items-center gap-3">
+                <div class="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onclick={handleClaudeAuth}
@@ -1112,12 +1243,36 @@
                     <LogIn size={14} />
                     Authorize with Claude
                   </button>
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Opens claude.ai in your browser</span>
+                  <button
+                    type="button"
+                    onclick={() => { claudeTokenMode = true; }}
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                  >
+                    <KeyRound size={14} />
+                    Paste Token
+                  </button>
+                  <button
+                    type="button"
+                    onclick={handleClaudeSync}
+                    disabled={claudeSyncing}
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 transition-colors"
+                  >
+                    {#if claudeSyncing}
+                      <RefreshCw size={14} class="animate-spin" />
+                      Syncing...
+                    {:else}
+                      <DownloadCloud size={14} />
+                      Sync from CLI
+                    {/if}
+                  </button>
+                </div>
+                <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1.5">
+                  Browser login, paste tokens manually, or auto-sync from Claude Code CLI
                 </div>
               {:else}
                 <!-- New provider, not yet saved -->
                 <div class="text-sm text-gray-500 dark:text-dark-text-muted py-1.5">
-                  Save the provider first, then click Authorize to sign in via Claude.
+                  Save the provider first, then authorize via browser, paste tokens, or sync from Claude Code CLI.
                 </div>
               {/if}
             </div>

@@ -4,7 +4,7 @@
   import { listAgents, createAgent, updateAgent, deleteAgent, type Agent } from '@/lib/api/agents';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
+  import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck } from 'lucide-svelte';
   import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
@@ -19,7 +19,7 @@
   let agents = $state<Agent[]>([]);
   let providers = $state<ProviderRecord[]>([]);
   let skills = $state<Skill[]>([]);
-  let mcpServers = $state<MCPServer[]>([]);
+  let mcpSets = $state<MCPSet[]>([]);
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
@@ -41,7 +41,7 @@
   let formModel = $state('');
   let formSystemPrompt = $state('');
   let formSkills = $state<string[]>([]);
-  let formMCPServers = $state<string[]>([]);
+  let formMCPSets = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formMCPs = $state<string[]>(['']);
   let formMaxIterations = $state(10);
@@ -61,7 +61,7 @@
         model: agent.config.model,
         system_prompt: agent.config.system_prompt,
         skills: agent.config.skills || [],
-        mcp_servers: agent.config.mcp_servers || [],
+        mcp_sets: agent.config.mcp_sets || [],
         builtin_tools: agent.config.builtin_tools || [],
         mcp_urls: agent.config.mcp_urls || [],
         max_iterations: agent.config.max_iterations,
@@ -95,7 +95,7 @@
       formModel = cfg.model || '';
       formSystemPrompt = cfg.system_prompt || '';
       formSkills = cfg.skills || [];
-      formMCPServers = cfg.mcp_servers || [];
+      formMCPSets = cfg.mcp_sets || [];
       formBuiltinTools = cfg.builtin_tools || [];
       formMCPs = cfg.mcp_urls && cfg.mcp_urls.length > 0 ? [...cfg.mcp_urls] : [''];
       formMaxIterations = cfg.max_iterations || 10;
@@ -121,12 +121,12 @@
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       
-      const [aResult, pResult, sResult, mResult, btResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPServers({ _limit: 500 }), listBuiltinTools()]);
+      const [aResult, pResult, sResult, mResult, btResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPSets({ _limit: 500 }), listBuiltinTools()]);
       agents = aResult.data || [];
       total = aResult.meta?.total || 0;
       providers = pResult.data || [];
       skills = sResult.data || [];
-      mcpServers = mResult.data || [];
+      mcpSets = mResult.data || [];
       builtinToolDefs = btResult.tools || [];
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
@@ -158,7 +158,7 @@
     formModel = '';
     formSystemPrompt = '';
     formSkills = [];
-    formMCPServers = [];
+    formMCPSets = [];
     formBuiltinTools = [];
     formMCPs = [''];
     formMaxIterations = 10;
@@ -184,7 +184,7 @@
     formModel = agent.config.model;
     formSystemPrompt = agent.config.system_prompt;
     formSkills = [...(agent.config.skills || [])];
-    formMCPServers = [...(agent.config.mcp_servers || [])];
+    formMCPSets = [...(agent.config.mcp_sets || [])];
     formBuiltinTools = [...(agent.config.builtin_tools || [])];
     formMCPs = agent.config.mcp_urls && agent.config.mcp_urls.length > 0 ? [...agent.config.mcp_urls] : [''];
     formMaxIterations = agent.config.max_iterations || 10;
@@ -215,7 +215,7 @@
           model: formModel,
           system_prompt: formSystemPrompt,
           skills: formSkills,
-          mcp_servers: formMCPServers,
+          mcp_sets: formMCPSets,
           builtin_tools: formBuiltinTools,
           mcp_urls: cleanMCPs,
           max_iterations: formMaxIterations,
@@ -480,13 +480,13 @@
             <div>
               <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">MCP Servers</span>
               <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
-                {#each mcpServers as server}
+                {#each mcpSets as server}
                   <label class="flex items-center gap-2 cursor-pointer">
-                    <input type="checkbox" bind:group={formMCPServers} value={server.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                    <input type="checkbox" bind:group={formMCPSets} value={server.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
                     <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate" title={server.description || server.name}>{server.name}</span>
                   </label>
                 {/each}
-                {#if mcpServers.length === 0}
+                {#if mcpSets.length === 0}
                   <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No MCP servers available</div>
                 {/if}
               </div>

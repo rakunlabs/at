@@ -27,9 +27,9 @@ const (
 	ClaudeTokenURL  = "https://platform.claude.com/v1/oauth/token"
 	ClaudeManualURI = "https://platform.claude.com/oauth/code/callback"
 
-	// Scope for inference via Pro/Max subscription.
-	// Matches Claude Code CLI's inferenceOnly mode.
-	ClaudeOAuthScopes = "user:inference"
+	// Scopes for inference via Pro/Max subscription.
+	// Matches Claude Code CLI and opencode-anthropic-oauth plugin.
+	ClaudeOAuthScopes = "user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload"
 
 	// Refresh tokens 5 minutes before expiry to avoid edge-case failures.
 	oauthTokenExpiryBuffer = 5 * time.Minute
@@ -129,24 +129,23 @@ func (ts *OAuthTokenSource) Token(ctx context.Context) (string, error) {
 // refreshLocked exchanges the refresh token for new tokens.
 // Caller must hold ts.mu.
 func (ts *OAuthTokenSource) refreshLocked(ctx context.Context) (string, error) {
-	// Use JSON body matching the opencode-anthropic-auth plugin's refresh flow.
-	body := map[string]string{
-		"grant_type":    "refresh_token",
-		"refresh_token": ts.refreshToken,
-		"client_id":     ClaudeOAuthClientID,
+	// Use form-encoded body matching the OpenCode anthropic-oauth plugin.
+	// IMPORTANT: Anthropic's token endpoint returns different token capabilities
+	// depending on Content-Type. Form-encoded produces tokens that work with
+	// tools+thinking; JSON-encoded tokens may not.
+	formValues := url.Values{
+		"grant_type":    {"refresh_token"},
+		"refresh_token": {ts.refreshToken},
+		"client_id":     {ClaudeOAuthClientID},
 	}
+	formBody := formValues.Encode()
 
-	jsonData, err := json.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("marshal refresh request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ClaudeTokenURL, strings.NewReader(string(jsonData)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ClaudeTokenURL, strings.NewReader(formBody))
 	if err != nil {
 		return "", fmt.Errorf("build refresh request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "claude-cli/"+claudeCodeCLIVersion+" (external, cli)")
 
 	resp, err := ts.httpClient.Do(req)
 	if err != nil {
@@ -217,22 +216,21 @@ func ExchangeAuthCode(ctx context.Context, code, codeVerifier, redirectURI strin
 		code = code[:idx]
 	}
 
-	// Use JSON body matching the Claude Code CLI's exchangeCodeForTokens.
-	body := map[string]string{
-		"grant_type":    "authorization_code",
-		"code":          code,
-		"client_id":     ClaudeOAuthClientID,
-		"code_verifier": codeVerifier,
-		"redirect_uri":  redirectURI,
+	// Use form-encoded body matching the OpenCode anthropic-oauth plugin.
+	// IMPORTANT: Anthropic's token endpoint returns different token capabilities
+	// depending on Content-Type. Form-encoded produces tokens that work correctly
+	// with tools+thinking; JSON-encoded tokens may not.
+	formValues := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"client_id":     {ClaudeOAuthClientID},
+		"code_verifier": {codeVerifier},
+		"redirect_uri":  {redirectURI},
 	}
 	if state != "" {
-		body["state"] = state
+		formValues.Set("state", state)
 	}
-
-	jsonData, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("marshal token request: %w", err)
-	}
+	formBody := formValues.Encode()
 
 	slog.Info("claude oauth token exchange",
 		"token_url", ClaudeTokenURL,
@@ -242,12 +240,12 @@ func ExchangeAuthCode(ctx context.Context, code, codeVerifier, redirectURI strin
 		"redirect_uri", redirectURI,
 	)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ClaudeTokenURL, strings.NewReader(string(jsonData)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, ClaudeTokenURL, strings.NewReader(formBody))
 	if err != nil {
 		return nil, fmt.Errorf("build token request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "claude-cli/"+claudeCodeCLIVersion+" (external, cli)")
 
 	resp, err := httpClient.Do(req)
 	if err != nil {

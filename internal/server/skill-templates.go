@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"fmt"
@@ -21,9 +22,9 @@ type SkillTemplate struct {
 	Description       string             `json:"description"`
 	Category          string             `json:"category"`
 	Tags              []string           `json:"tags"`
-	RequiredVariables []RequiredVariable  `json:"required_variables"`
+	RequiredVariables []RequiredVariable `json:"required_variables"`
 	OAuth             string             `json:"oauth,omitempty"` // OAuth provider name (e.g. "google") — signals frontend to show connect flow
-	Skill             SkillTemplateData   `json:"skill"`
+	Skill             SkillTemplateData  `json:"skill"`
 }
 
 // SkillTemplateData holds the skill payload to be installed.
@@ -70,6 +71,64 @@ func (s *Server) loadSkillTemplates() {
 	}
 
 	slog.Info("loaded skill templates", "count", len(s.skillTemplates))
+}
+
+// syncInstalledSkillHandlers updates installed skills whose tool handlers
+// differ from the current embedded templates. This ensures that bug fixes
+// in skill handlers (e.g. mktemp → uuid, workspace dir support) are applied
+// to already-installed skills without requiring manual reinstallation.
+func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
+	if s.skillStore == nil || len(s.skillTemplates) == 0 {
+		return
+	}
+
+	for _, tmpl := range s.skillTemplates {
+		installed, err := s.skillStore.GetSkillByName(ctx, tmpl.Skill.Name)
+		if err != nil {
+			continue // lookup error — skip
+		}
+		if installed == nil {
+			continue // not installed — skip
+		}
+
+		// Check if any tool handler differs.
+		needsUpdate := false
+		if len(installed.Tools) != len(tmpl.Skill.Tools) {
+			needsUpdate = true
+		} else {
+			for i := range tmpl.Skill.Tools {
+				if i >= len(installed.Tools) {
+					needsUpdate = true
+					break
+				}
+				if installed.Tools[i].Handler != tmpl.Skill.Tools[i].Handler {
+					needsUpdate = true
+					break
+				}
+			}
+		}
+
+		if !needsUpdate {
+			continue
+		}
+
+		// Update the installed skill with the template's tools.
+		// Keep all existing fields (name, description, etc.) — only replace tools.
+		_, err = s.skillStore.UpdateSkill(ctx, installed.ID, service.Skill{
+			Name:         installed.Name,
+			Description:  installed.Description,
+			SystemPrompt: installed.SystemPrompt,
+			Tools:        tmpl.Skill.Tools,
+			UpdatedBy:    "system",
+		})
+		if err != nil {
+			slog.Warn("skill-templates: failed to sync skill handlers",
+				"skill", tmpl.Skill.Name, "id", installed.ID, "error", err)
+		} else {
+			slog.Info("skill-templates: synced skill handlers from template",
+				"skill", tmpl.Skill.Name, "id", installed.ID)
+		}
+	}
 }
 
 // ListSkillTemplatesAPI handles GET /api/v1/skill-templates.

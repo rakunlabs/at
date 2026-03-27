@@ -9,6 +9,7 @@
     type MCPServer,
   } from '@/lib/api/mcp-servers';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
+  import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import {
     Server,
     Plus,
@@ -19,6 +20,7 @@
     RefreshCw,
     Copy,
     Wrench,
+    Layers,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'MCP Servers';
@@ -36,10 +38,12 @@
   // Form fields
   let formName = $state('');
   let formDescription = $state('');
+  let formMCPSets = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
 
   // Helpers
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
+  let availableMCPSets = $state<MCPSet[]>([]);
 
   // ─── Load Data ───
 
@@ -66,11 +70,21 @@
 
   loadBuiltinToolDefs();
 
+  async function loadMCPSets() {
+    try {
+      const res = await listMCPSets({ _limit: 500 });
+      availableMCPSets = res.data || [];
+    } catch {}
+  }
+
+  loadMCPSets();
+
   // ─── Form Logic ───
 
   function resetForm() {
     formName = '';
     formDescription = '';
+    formMCPSets = [];
     formBuiltinTools = [];
     editingId = null;
     showForm = false;
@@ -86,6 +100,7 @@
     editingId = s.id;
     formName = s.name;
     formDescription = s.config.description || '';
+    formMCPSets = [...(s.servers || [])];
     formBuiltinTools = s.config.enabled_builtin_tools ?? [];
     showForm = true;
   }
@@ -100,6 +115,7 @@
     try {
       const payload = {
         name: formName.trim(),
+        servers: formMCPSets,
         config: {
           description: formDescription.trim(),
           enabled_builtin_tools: formBuiltinTools,
@@ -210,6 +226,47 @@
           />
         </div>
 
+        <!-- Internal MCPs -->
+        <div class="grid grid-cols-4 gap-3 items-start">
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
+            <div class="flex items-center gap-1.5">
+              <Layers size={14} />
+              Internal MCPs
+            </div>
+          </span>
+          <div class="col-span-3">
+            {#if availableMCPSets.length > 0}
+              <div class="space-y-1.5 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                {#each availableMCPSets as mcp}
+                  <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-elevated transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formMCPSets.includes(mcp.name)}
+                      onchange={() => {
+                        if (formMCPSets.includes(mcp.name)) {
+                          formMCPSets = formMCPSets.filter(n => n !== mcp.name);
+                        } else {
+                          formMCPSets = [...formMCPSets, mcp.name];
+                        }
+                      }}
+                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                    />
+                    <div class="flex-1 min-w-0">
+                      <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{mcp.name}</span>
+                      {#if mcp.description}
+                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{mcp.description}</div>
+                      {/if}
+                    </div>
+                  </label>
+                {/each}
+              </div>
+              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Select internal MCPs to aggregate and expose through this server's gateway endpoint.</p>
+            {:else}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No internal MCPs configured. Add them on the <a href="#/mcps" class="underline hover:text-gray-600 dark:hover:text-dark-text-secondary">MCP page</a>.</span>
+            {/if}
+          </div>
+        </div>
+
         <!-- Builtin Tools -->
         <div class="grid grid-cols-4 gap-3 items-start">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
@@ -302,7 +359,27 @@
               <td class="px-4 py-2.5">
                 <div class="font-medium text-gray-900 dark:text-dark-text text-sm">{s.name}</div>
                 {#if s.config.description}
-                  <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48">{s.config.description}</div>
+                  <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-64">{s.config.description}</div>
+                {/if}
+                {#if (s.servers || []).length > 0}
+                  <div class="flex items-center gap-1 mt-1 flex-wrap">
+                    {#each s.servers || [] as mcpName}
+                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800">
+                        <Layers size={9} />
+                        {mcpName}
+                      </span>
+                    {/each}
+                  </div>
+                {/if}
+                {#if (s.config.enabled_builtin_tools || []).length > 0}
+                  <div class="flex items-center gap-1 mt-1 flex-wrap">
+                    {#each s.config.enabled_builtin_tools || [] as tool}
+                      <span class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-mono bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border">
+                        <Wrench size={9} />
+                        {tool}
+                      </span>
+                    {/each}
+                  </div>
                 {/if}
               </td>
               <td class="px-4 py-2.5">

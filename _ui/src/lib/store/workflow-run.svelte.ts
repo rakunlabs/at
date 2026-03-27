@@ -23,32 +23,38 @@ export interface WorkflowStreamEvent {
 }
 
 /** Reactive store for workflow run state. */
-export let nodeRunStates = $state<Record<string, NodeRunState>>({});
-export let runStatus = $state<'idle' | 'running' | 'completed' | 'error'>('idle');
-export let runError = $state<string>('');
-export let runOutputs = $state<Record<string, any> | null>(null);
+export const workflowRun = $state<{
+  nodeRunStates: Record<string, NodeRunState>;
+  status: 'idle' | 'running' | 'completed' | 'error';
+  error: string;
+  outputs: Record<string, any> | null;
+}>({
+  nodeRunStates: {},
+  status: 'idle',
+  error: '',
+  outputs: null,
+});
 
 /** Reset all run state (call before starting a new run). */
 export function clearRunState() {
-  // Clear all keys
-  for (const key of Object.keys(nodeRunStates)) {
-    delete nodeRunStates[key];
+  for (const key of Object.keys(workflowRun.nodeRunStates)) {
+    delete workflowRun.nodeRunStates[key];
   }
-  runStatus = 'idle';
-  runError = '';
-  runOutputs = null;
+  workflowRun.status = 'idle';
+  workflowRun.error = '';
+  workflowRun.outputs = null;
 }
 
 /** Process an SSE event and update the store. */
 export function handleStreamEvent(event: WorkflowStreamEvent) {
   switch (event.event_type) {
     case 'run_started':
-      runStatus = 'running';
+      workflowRun.status = 'running';
       break;
 
     case 'started':
       if (event.node_id) {
-        nodeRunStates[event.node_id] = {
+        workflowRun.nodeRunStates[event.node_id] = {
           status: 'running',
         };
       }
@@ -56,7 +62,7 @@ export function handleStreamEvent(event: WorkflowStreamEvent) {
 
     case 'completed':
       if (event.node_id) {
-        nodeRunStates[event.node_id] = {
+        workflowRun.nodeRunStates[event.node_id] = {
           status: 'completed',
           data: event.data,
           duration_ms: event.duration_ms,
@@ -66,7 +72,7 @@ export function handleStreamEvent(event: WorkflowStreamEvent) {
 
     case 'error':
       if (event.node_id) {
-        nodeRunStates[event.node_id] = {
+        workflowRun.nodeRunStates[event.node_id] = {
           status: 'error',
           error: event.error,
           duration_ms: event.duration_ms,
@@ -74,14 +80,14 @@ export function handleStreamEvent(event: WorkflowStreamEvent) {
       }
       // If no node_id, this is a workflow-level error.
       if (!event.node_id) {
-        runStatus = 'error';
-        runError = event.error || 'Unknown error';
+        workflowRun.status = 'error';
+        workflowRun.error = event.error || 'Unknown error';
       }
       break;
 
     case 'skipped':
       if (event.node_id) {
-        nodeRunStates[event.node_id] = {
+        workflowRun.nodeRunStates[event.node_id] = {
           status: 'idle',
           duration_ms: event.duration_ms,
         };
@@ -89,8 +95,8 @@ export function handleStreamEvent(event: WorkflowStreamEvent) {
       break;
 
     case 'done':
-      runStatus = 'completed';
-      runOutputs = event.outputs ?? event.data ?? null;
+      workflowRun.status = 'completed';
+      workflowRun.outputs = event.outputs ?? event.data ?? null;
       break;
   }
 }
@@ -98,7 +104,7 @@ export function handleStreamEvent(event: WorkflowStreamEvent) {
 /** Derive a node_statuses map suitable for kaykay Canvas node_statuses prop. */
 export function getNodeStatuses(): Record<string, NodeStatus> {
   const statuses: Record<string, NodeStatus> = {};
-  for (const [id, state] of Object.entries(nodeRunStates)) {
+  for (const [id, state] of Object.entries(workflowRun.nodeRunStates)) {
     statuses[id] = state.status;
   }
   return statuses;

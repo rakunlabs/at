@@ -16,7 +16,8 @@ import (
 
 // mcpListToolsRequest is the request body for MCPListToolsAPI.
 type mcpListToolsRequest struct {
-	URLs []string `json:"urls"`
+	URLs    []string          `json:"urls"`
+	Headers map[string]string `json:"headers,omitempty"` // Optional headers sent with every MCP request
 }
 
 // mcpListToolsResponse is the response body for MCPListToolsAPI.
@@ -52,7 +53,11 @@ func (s *Server) MCPListToolsAPI(w http.ResponseWriter, r *http.Request) {
 	var errors []string
 
 	for _, mcpURL := range req.URLs {
-		client, err := service.NewHTTPMCPClient(r.Context(), mcpURL)
+		var opts []service.HTTPMCPClientOption
+		if len(req.Headers) > 0 {
+			opts = append(opts, service.WithHeaders(req.Headers))
+		}
+		client, err := service.NewHTTPMCPClient(r.Context(), mcpURL, opts...)
 		if err != nil {
 			slog.Warn("mcp proxy: failed to connect", "url", mcpURL, "error", err)
 			errors = append(errors, fmt.Sprintf("%s: %v", mcpURL, err))
@@ -97,9 +102,10 @@ func (s *Server) MCPListToolsAPI(w http.ResponseWriter, r *http.Request) {
 
 // mcpCallToolRequest is the request body for MCPCallToolAPI.
 type mcpCallToolRequest struct {
-	ServerURL string         `json:"server_url"`
-	Name      string         `json:"name"`
-	Arguments map[string]any `json:"arguments"`
+	ServerURL string            `json:"server_url"`
+	Name      string            `json:"name"`
+	Arguments map[string]any    `json:"arguments"`
+	Headers   map[string]string `json:"headers,omitempty"` // Optional headers sent with the MCP request
 }
 
 // mcpCallToolResponse is the response body for MCPCallToolAPI.
@@ -130,7 +136,11 @@ func (s *Server) MCPCallToolAPI(w http.ResponseWriter, r *http.Request) {
 		req.Arguments = make(map[string]any)
 	}
 
-	client, err := service.NewHTTPMCPClient(r.Context(), req.ServerURL)
+	var opts []service.HTTPMCPClientOption
+	if len(req.Headers) > 0 {
+		opts = append(opts, service.WithHeaders(req.Headers))
+	}
+	client, err := service.NewHTTPMCPClient(r.Context(), req.ServerURL, opts...)
 	if err != nil {
 		slog.Error("mcp proxy: failed to connect for call", "url", req.ServerURL, "error", err)
 		httpResponseJSON(w, mcpCallToolResponse{

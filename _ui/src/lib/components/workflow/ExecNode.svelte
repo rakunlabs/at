@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
   import NodePreview from './NodePreview.svelte';
-  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
+  import { workflowRun } from '@/lib/store/workflow-run.svelte';
 
   interface ExecData {
     label?: string;
@@ -14,7 +14,7 @@
   }
 
   let { id, data, selected }: NodeProps<ExecData> = $props();
-  let runState = $derived(nodeRunStates[id]);
+  let runState = $derived(workflowRun.nodeRunStates[id]);
 
   let inputCount = $derived(Math.max(1, Math.min(data.input_count || 1, 10)));
 

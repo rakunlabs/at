@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
-	"time"
 
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
@@ -48,16 +47,12 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		switch cfg.AuthType {
 		case "claude-code":
 			if cfg.APIKey != "" {
-				// Build an OAuth token source with auto-refresh.
-				// The onRefresh callback is wired later by the server's
-				// reloadProvider to persist refreshed tokens to the store.
-				ts := antropic.NewOAuthTokenSource(
-					cfg.APIKey,
-					cfg.RefreshToken,
-					time.Time{}, // unknown expiry — will refresh on first 401 or when buffer triggers
-					nil,         // httpClient — will use default
-					nil,         // onRefresh — wired by server after creation
-				)
+				// Use a static token source — no auto-refresh.
+				// Anthropic's token refresh endpoint behaves differently
+				// depending on Content-Type and may produce tokens that
+				// don't work with tools+thinking. The synced CLI token
+				// is valid for 8 hours. Users can re-sync when it expires.
+				ts := antropic.NewStaticTokenSource(cfg.APIKey)
 				opts = append(opts, antropic.WithTokenSource(ts))
 			}
 			// If no APIKey yet, create the provider without a token source.

@@ -63,8 +63,14 @@ export interface RAGCallToolResponse {
  * Discover tools from one or more MCP servers via the backend proxy.
  * Returns merged tool list from all reachable servers.
  */
-export async function listMCPTools(urls: string[]): Promise<MCPListToolsResponse> {
-  const res = await api.post<MCPListToolsResponse>('/mcp/list-tools', { urls });
+export async function listMCPTools(
+  urls: string[],
+  headers?: Record<string, string>,
+): Promise<MCPListToolsResponse> {
+  const res = await api.post<MCPListToolsResponse>('/mcp/list-tools', {
+    urls,
+    ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+  });
   return res.data;
 }
 
@@ -75,11 +81,13 @@ export async function callMCPTool(
   serverUrl: string,
   name: string,
   args: Record<string, any>,
+  headers?: Record<string, string>,
 ): Promise<MCPCallToolResponse> {
   const res = await api.post<MCPCallToolResponse>('/mcp/call-tool', {
     server_url: serverUrl,
     name,
     arguments: args,
+    ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
   });
   return res.data;
 }

@@ -10,6 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -653,6 +656,282 @@ func (s *Server) ClaudeAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, claudeAuthCallbackResponse{
 		Status: "authorized",
 	}, http.StatusOK)
+}
+
+// ─── Claude Auth Token Paste ───
+
+type claudeAuthTokenRequest struct {
+	Key          string `json:"key"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+}
+
+// ClaudeAuthTokenAPI handles POST /api/v1/providers/claude-auth/token.
+// Accepts pre-extracted OAuth tokens directly (no PKCE/code exchange needed).
+// Users can extract tokens from Claude Code CLI credentials and paste them here.
+func (s *Server) ClaudeAuthTokenAPI(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req claudeAuthTokenRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" || req.AccessToken == "" || req.RefreshToken == "" {
+		httpResponse(w, "key, access_token, and refresh_token are required", http.StatusBadRequest)
+		return
+	}
+
+	// Load the provider to verify it exists and has auth_type=claude-code.
+	record, err := s.store.GetProvider(r.Context(), req.Key)
+	if err != nil {
+		slog.Error("claude auth token: get provider failed", "key", req.Key, "error", err)
+		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
+		return
+	}
+	if record.Config.AuthType != "claude-code" {
+		httpResponse(w, "provider auth_type is not \"claude-code\"", http.StatusBadRequest)
+		return
+	}
+
+	// Save the tokens and hot-reload the provider.
+	if err := s.saveClaudeAuthTokens(req.Key, req.AccessToken, req.RefreshToken); err != nil {
+		slog.Error("claude auth token: failed to save tokens", "key", req.Key, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to save tokens: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("claude auth: authorized via token paste", "key", req.Key)
+
+	httpResponseJSON(w, claudeAuthCallbackResponse{
+		Status: "authorized",
+	}, http.StatusOK)
+}
+
+// ─── Claude Auth Sync from Claude Code CLI ───
+
+type claudeAuthSyncRequest struct {
+	Key string `json:"key"`
+}
+
+type claudeAuthSyncResponse struct {
+	Status    string `json:"status"`               // "authorized"
+	Source    string `json:"source"`               // where the credentials were found
+	ExpiresAt string `json:"expires_at,omitempty"` // RFC3339 token expiry time (if known)
+}
+
+// ClaudeAuthSyncAPI handles POST /api/v1/providers/claude-auth/sync.
+// Auto-extracts OAuth tokens from Claude Code CLI credentials on the server
+// (macOS Keychain or ~/.claude/.credentials.json).
+func (s *Server) ClaudeAuthSyncAPI(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req claudeAuthSyncRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Key == "" {
+		httpResponse(w, "key is required", http.StatusBadRequest)
+		return
+	}
+
+	// Load the provider to verify it exists and has auth_type=claude-code.
+	record, err := s.store.GetProvider(r.Context(), req.Key)
+	if err != nil {
+		slog.Error("claude auth sync: get provider failed", "key", req.Key, "error", err)
+		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
+		return
+	}
+	if record.Config.AuthType != "claude-code" {
+		httpResponse(w, "provider auth_type is not \"claude-code\"", http.StatusBadRequest)
+		return
+	}
+
+	// Try to extract tokens from Claude Code CLI credentials.
+	accessToken, refreshToken, source, expiresAt, err := extractClaudeCodeTokens()
+	if err != nil {
+		slog.Error("claude auth sync: failed to extract tokens", "key", req.Key, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to extract Claude Code credentials: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	// Save the tokens and hot-reload the provider.
+	if err := s.saveClaudeAuthTokens(req.Key, accessToken, refreshToken); err != nil {
+		slog.Error("claude auth sync: failed to save tokens", "key", req.Key, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to save tokens: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	slog.Info("claude auth: authorized via CLI sync", "key", req.Key, "source", source, "expires_at", expiresAt)
+
+	httpResponseJSON(w, claudeAuthSyncResponse{
+		Status:    "authorized",
+		Source:    source,
+		ExpiresAt: expiresAt,
+	}, http.StatusOK)
+}
+
+// extractClaudeCodeTokens tries to read Claude Code OAuth tokens from:
+// 1. macOS Keychain (if on Darwin)
+// 2. ~/.claude/.credentials.json
+// Returns accessToken, refreshToken, source description, expiresAt (RFC3339), and error.
+func extractClaudeCodeTokens() (string, string, string, string, error) {
+	var credJSON string
+	var source string
+
+	// Try macOS Keychain first (only on Darwin).
+	if isDarwin() {
+		for _, svcName := range []string{
+			"Claude Code-credentials",
+			"Claude Code credentials",
+			"Claude Code",
+			"claude-code-credentials",
+		} {
+			out, err := execCommand("security", "find-generic-password", "-s", svcName, "-w")
+			if err == nil && strings.TrimSpace(out) != "" {
+				credJSON = strings.TrimSpace(out)
+				source = "macOS Keychain (" + svcName + ")"
+				break
+			}
+		}
+	}
+
+	// Fall back to credentials file.
+	if credJSON == "" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", "", "", "", fmt.Errorf("cannot determine home directory: %w", err)
+		}
+
+		credFile := homeDir + "/.claude/.credentials.json"
+		data, err := os.ReadFile(credFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return "", "", "", "", fmt.Errorf("no Claude Code credentials found (checked macOS Keychain and %s)", credFile)
+			}
+			return "", "", "", "", fmt.Errorf("failed to read %s: %w", credFile, err)
+		}
+
+		credJSON = string(data)
+		source = credFile
+	}
+
+	// Parse the JSON to extract tokens.
+	accessToken, refreshToken, expiresAt, err := parseClaudeCredentials(credJSON)
+	if err != nil {
+		return "", "", "", "", fmt.Errorf("failed to parse credentials from %s: %w", source, err)
+	}
+
+	return accessToken, refreshToken, source, expiresAt, nil
+}
+
+// parseClaudeCredentials extracts accessToken, refreshToken, and expiresAt from
+// Claude Code's credential JSON. The JSON structure can vary:
+//
+//	{"claudeAiOauth": {"accessToken": "...", "refreshToken": "...", "expiresAt": 1234567890000}}
+//	{"oauth": {"accessToken": "...", "refreshToken": "..."}}
+//	{"accessToken": "...", "refreshToken": "..."}
+//
+// Returns accessToken, refreshToken, expiresAt (RFC3339, empty if unknown), error.
+func parseClaudeCredentials(jsonStr string) (string, string, string, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(jsonStr), &raw); err != nil {
+		return "", "", "", fmt.Errorf("invalid JSON: %w", err)
+	}
+
+	// Try nested keys first, then fall back to top-level.
+	var oauthData map[string]any
+	for _, key := range []string{"claudeAiOauth", "oauth"} {
+		if v, ok := raw[key]; ok {
+			if err := json.Unmarshal(v, &oauthData); err == nil {
+				break
+			}
+		}
+	}
+
+	// If no nested key found, parse the whole object.
+	if oauthData == nil {
+		if err := json.Unmarshal([]byte(jsonStr), &oauthData); err != nil {
+			return "", "", "", fmt.Errorf("cannot parse credentials: %w", err)
+		}
+	}
+
+	// Extract tokens — try multiple field names.
+	accessToken := firstString(oauthData, "accessToken", "access_token", "access")
+	refreshToken := firstString(oauthData, "refreshToken", "refresh_token", "refresh")
+
+	if accessToken == "" || refreshToken == "" {
+		return "", "", "", fmt.Errorf("could not find accessToken and refreshToken in credentials")
+	}
+
+	// Extract expiresAt — Claude Code stores it as Unix milliseconds.
+	var expiresAt string
+	for _, key := range []string{"expiresAt", "expires_at", "expires"} {
+		if v, ok := oauthData[key]; ok {
+			switch ev := v.(type) {
+			case float64:
+				// Unix milliseconds → RFC3339.
+				if ev > 1e12 {
+					// Milliseconds.
+					expiresAt = time.UnixMilli(int64(ev)).UTC().Format(time.RFC3339)
+				} else {
+					// Seconds.
+					expiresAt = time.Unix(int64(ev), 0).UTC().Format(time.RFC3339)
+				}
+			case string:
+				expiresAt = ev
+			}
+			if expiresAt != "" {
+				break
+			}
+		}
+	}
+
+	return accessToken, refreshToken, expiresAt, nil
+}
+
+// firstString returns the first non-empty string value from a map, trying keys in order.
+func firstString(m map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if v, ok := m[k]; ok {
+			if s, ok := v.(string); ok && s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// isDarwin returns true if the current OS is macOS.
+func isDarwin() bool {
+	return runtime.GOOS == "darwin"
+}
+
+// execCommand runs a command and returns its stdout as a string.
+func execCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
 }
 
 // saveClaudeAuthTokens updates the provider's tokens and hot-reloads.

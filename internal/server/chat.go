@@ -83,7 +83,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var messages []service.Message
 
 	switch providerType {
-	case "anthropic":
+	case "anthropic", "minimax":
 		var systemPrompt string
 		systemPrompt, messages = translateOpenAIToAnthropic(req.Messages)
 		if systemPrompt != "" {

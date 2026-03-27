@@ -1,15 +1,15 @@
 // Package minimax implements a provider for the MiniMax AI platform
 // (https://www.minimax.io/).
 //
-// MiniMax's chat API is OpenAI-compatible, so the Provider embeds an openai.Provider
-// for Chat/ChatStream/Proxy. Image generation and text-to-speech use MiniMax's
-// proprietary REST APIs.
+// MiniMax recommends using their Anthropic-compatible API for chat, so the
+// Provider embeds an antropic.Provider for Chat/ChatStream/Proxy. Image
+// generation and text-to-speech use MiniMax's proprietary REST APIs.
 //
 // Supported capabilities:
-//   - Chat (LLMProvider)         — via embedded openai.Provider
-//   - ChatStream (LLMStreamProvider) — via embedded openai.Provider
-//   - Image generation (ImageProvider) — POST /v1/image_generation
-//   - Text-to-speech (AudioProvider.GenerateAudio) — POST /v1/t2a_v2
+//   - Chat (LLMProvider)              — via embedded antropic.Provider (Anthropic Messages API)
+//   - ChatStream (LLMStreamProvider)  — via embedded antropic.Provider
+//   - Image generation (ImageProvider) — POST /v1/image_generation (native)
+//   - Text-to-speech (AudioProvider)   — POST /v1/t2a_v2 (native)
 //
 // Not supported:
 //   - Speech-to-text (no MiniMax API for this)
@@ -24,59 +24,105 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/worldline-go/klient"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/service/llm/openai"
+	antropic "github.com/rakunlabs/at/internal/service/llm/antropic"
 )
 
 const (
-	DefaultBaseURL = "https://api.minimax.io/v1/chat/completions"
-	DefaultAPIBase = "https://api.minimax.io/v1"
+	// DefaultAnthropicBaseURL is the MiniMax Anthropic-compatible endpoint.
+	// The antropic.Provider appends /v1/messages to this base.
+	DefaultAnthropicBaseURL = "https://api.minimax.io/anthropic"
+
+	// DefaultNativeAPIBase is the base for MiniMax's proprietary APIs (image, TTS).
+	DefaultNativeAPIBase = "https://api.minimax.io/v1"
 )
 
-// Provider wraps an OpenAI-compatible provider for chat and adds MiniMax-native
+// Provider wraps an Anthropic-compatible provider for chat and adds MiniMax-native
 // image generation and TTS support.
 type Provider struct {
-	// Embedded OpenAI provider handles Chat, ChatStream, and Proxy.
-	*openai.Provider
+	// Embedded Anthropic provider handles Chat, ChatStream, and Proxy.
+	*antropic.Provider
 
 	apiKey  string
-	apiBase string // e.g. "https://api.minimax.io/v1"
+	apiBase string // native API base, e.g. "https://api.minimax.io/v1"
 	client  *klient.Client
 }
 
 // New creates a MiniMax provider.
 //
-// The baseURL should be the chat completions endpoint (OpenAI-compatible).
-// If empty, defaults to "https://api.minimax.io/v1/chat/completions".
-// The API base for proprietary endpoints is derived by stripping "/chat/completions".
+// The baseURL controls the Anthropic-compatible chat endpoint. If empty,
+// defaults to "https://api.minimax.io/anthropic". For backward compatibility,
+// if the baseURL contains "/v1/chat/completions" (old OpenAI-style URL), it
+// is automatically converted to the Anthropic endpoint.
 func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHeaders map[string]string) (*Provider, error) {
-	if baseURL == "" {
-		baseURL = DefaultBaseURL
+	anthropicBaseURL := baseURL
+	nativeAPIBase := DefaultNativeAPIBase
+
+	if anthropicBaseURL == "" {
+		anthropicBaseURL = DefaultAnthropicBaseURL
 	}
 
-	// Create the embedded OpenAI provider for chat.
-	oaiProvider, err := openai.New(apiKey, model, baseURL, proxy, insecureSkipVerify, extraHeaders)
+	// Backward compat: convert old OpenAI-style URLs to Anthropic endpoint.
+	// e.g. "https://api.minimax.io/v1/chat/completions" -> "https://api.minimax.io/anthropic"
+	if idx := indexOf(anthropicBaseURL, "/v1/chat/completions"); idx != -1 {
+		nativeAPIBase = anthropicBaseURL[:idx] + "/v1"
+		anthropicBaseURL = anthropicBaseURL[:idx] + "/anthropic"
+	} else if idx := indexOf(anthropicBaseURL, "/v1"); idx != -1 && !contains(anthropicBaseURL, "/anthropic") {
+		// e.g. "https://api.minimax.io/v1" -> "https://api.minimax.io/anthropic"
+		nativeAPIBase = anthropicBaseURL[:idx] + "/v1"
+		anthropicBaseURL = anthropicBaseURL[:idx] + "/anthropic"
+	} else if contains(anthropicBaseURL, "/anthropic") {
+		// Already an Anthropic URL, derive native base.
+		// e.g. "https://api.minimax.io/anthropic" -> "https://api.minimax.io/v1"
+		if idx := indexOf(anthropicBaseURL, "/anthropic"); idx != -1 {
+			nativeAPIBase = anthropicBaseURL[:idx] + "/v1"
+		}
+	}
+
+	// Create the embedded Anthropic provider for chat.
+	// The Anthropic provider makes requests to absolute path "/v1/messages".
+	// Go's URL resolution replaces the base path entirely for absolute paths.
+	// So we set the base URL to the root (e.g. "https://api.minimax.io") and
+	// use a PathPrefixTransport to prepend "/anthropic" to every request path.
+	//
+	// This makes: base="https://api.minimax.io" + path="/v1/messages"
+	//           → transport rewrites to "/anthropic/v1/messages"
+	//           → final URL: "https://api.minimax.io/anthropic/v1/messages"
+	pathPrefix := ""
+	rootBaseURL := anthropicBaseURL
+	if idx := indexOf(anthropicBaseURL, "/anthropic"); idx != -1 {
+		rootBaseURL = anthropicBaseURL[:idx]
+		pathPrefix = anthropicBaseURL[idx:]
+	}
+
+	anthProvider, err := antropic.New(apiKey, model, rootBaseURL, proxy, insecureSkipVerify)
 	if err != nil {
-		return nil, fmt.Errorf("minimax: create openai provider: %w", err)
+		return nil, fmt.Errorf("minimax: create anthropic provider: %w", err)
 	}
 
-	// Derive the API base for proprietary endpoints.
-	apiBase := baseURL
-	apiBase = strings.TrimSuffix(apiBase, "/")
-	apiBase = strings.TrimSuffix(apiBase, "/chat/completions")
+	// Wrap the Anthropic provider's HTTP transport to prepend the path prefix.
+	if pathPrefix != "" {
+		origTransport := anthProvider.Client.HTTP.Transport
+		if origTransport == nil {
+			origTransport = http.DefaultTransport
+		}
+		anthProvider.Client.HTTP.Transport = &pathPrefixTransport{
+			base:   origTransport,
+			prefix: pathPrefix,
+		}
+	}
 
-	// Build HTTP client for proprietary API calls.
+	// Build HTTP client for proprietary API calls (image gen, TTS).
 	headers := http.Header{
 		"Content-Type":  []string{"application/json"},
 		"Authorization": []string{"Bearer " + apiKey},
 	}
 
 	klientOpts := []klient.OptionClientFn{
-		klient.WithBaseURL(apiBase),
+		klient.WithBaseURL(nativeAPIBase),
 		klient.WithHeaderSet(headers),
 		klient.WithDisableRetry(true),
 		klient.WithDisableEnvValues(true),
@@ -94,9 +140,9 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 	}
 
 	return &Provider{
-		Provider: oaiProvider,
+		Provider: anthProvider,
 		apiKey:   apiKey,
-		apiBase:  apiBase,
+		apiBase:  nativeAPIBase,
 		client:   client,
 	}, nil
 }
@@ -344,4 +390,19 @@ func (p *Provider) GenerateAudio(ctx context.Context, req service.AudioGenerateR
 // TranscribeAudio is not supported by MiniMax. Returns an error.
 func (p *Provider) TranscribeAudio(_ context.Context, _ service.AudioTranscribeRequest) (*service.AudioTranscribeResponse, error) {
 	return nil, fmt.Errorf("minimax does not support speech-to-text")
+}
+
+// ─── String helpers ───
+
+func indexOf(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+func contains(s, substr string) bool {
+	return indexOf(s, substr) != -1
 }

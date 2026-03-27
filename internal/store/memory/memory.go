@@ -36,6 +36,7 @@ type Memory struct {
 	ragStates            map[string]service.RAGState               // key -> rag state
 	ragPages             map[string]service.RAGPage                // id -> rag page
 	mcpServers           map[string]service.MCPServer              // id -> general mcp server
+	mcpSets              map[string]service.MCPSet                 // id -> mcp set
 	botConfigs           map[string]service.BotConfig              // id -> bot config
 	marketplaceSources   map[string]service.MarketplaceSource      // id -> marketplace source
 	tokenUsage           map[string]map[string]*service.TokenUsage // token_id -> model -> usage
@@ -85,6 +86,7 @@ func New() *Memory {
 		ragStates:            make(map[string]service.RAGState),
 		ragPages:             make(map[string]service.RAGPage),
 		mcpServers:           make(map[string]service.MCPServer),
+		mcpSets:              make(map[string]service.MCPSet),
 		botConfigs:           make(map[string]service.BotConfig),
 		marketplaceSources:   make(map[string]service.MarketplaceSource),
 		tokenUsage:           make(map[string]map[string]*service.TokenUsage),

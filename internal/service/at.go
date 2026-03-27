@@ -257,6 +257,7 @@ type Storer interface {
 	RAGStateStorer
 	RAGPageStorer
 	MCPServerStorer
+	MCPSetStorer
 	BotConfigStorer
 	MarketplaceSourceStorer
 	UserPreferenceStorer
@@ -664,7 +665,7 @@ type AgentConfig struct {
 	SystemPrompt              string   `json:"system_prompt,omitempty"`               // System prompt
 	Skills                    []string `json:"skills,omitempty"`                      // List of skill IDs/names
 	MCPs                      []string `json:"mcp_urls,omitempty"`                    // List of MCP server URLs (legacy)
-	MCPServers                []string `json:"mcp_servers,omitempty"`                 // List of MCP Server names
+	MCPSets                   []string `json:"mcp_sets,omitempty"`                    // List of MCP Set names (internal MCPs)
 	BuiltinTools              []string `json:"builtin_tools,omitempty"`               // Enabled builtin tool names
 	MaxIterations             int      `json:"max_iterations"`                        // Max iterations for the loop
 	ToolTimeout               int      `json:"tool_timeout"`                          // Timeout in seconds
@@ -1676,4 +1677,33 @@ type MCPServerStorer interface {
 	CreateMCPServer(ctx context.Context, s MCPServer) (*MCPServer, error)
 	UpdateMCPServer(ctx context.Context, id string, s MCPServer) (*MCPServer, error)
 	DeleteMCPServer(ctx context.Context, id string) error
+}
+
+// ─── MCP Sets (Internal MCPs) ───
+
+// MCPSet represents an internal MCP configuration that agents use.
+// It can aggregate MCP Servers, hold its own tool config (RAG, skills, HTTP, builtins),
+// and reference external MCP upstreams (stdio/HTTP). Unlike MCPServer, MCPSets are
+// not exposed as external gateway endpoints — they are resolved internally by agents.
+type MCPSet struct {
+	ID          string          `json:"id"`
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Config      MCPServerConfig `json:"config"`  // Own tools: RAG, HTTP, External upstreams, Skills, Builtins
+	Servers     []string        `json:"servers"` // MCP Server names to aggregate (resolved to gateway URLs)
+	URLs        []string        `json:"urls"`    // Custom MCP endpoint URLs
+	CreatedAt   string          `json:"created_at"`
+	UpdatedAt   string          `json:"updated_at"`
+	CreatedBy   string          `json:"created_by"`
+	UpdatedBy   string          `json:"updated_by"`
+}
+
+// MCPSetStorer defines CRUD operations for MCP set configurations.
+type MCPSetStorer interface {
+	ListMCPSets(ctx context.Context, q *query.Query) (*ListResult[MCPSet], error)
+	GetMCPSet(ctx context.Context, id string) (*MCPSet, error)
+	GetMCPSetByName(ctx context.Context, name string) (*MCPSet, error)
+	CreateMCPSet(ctx context.Context, s MCPSet) (*MCPSet, error)
+	UpdateMCPSet(ctx context.Context, id string, s MCPSet) (*MCPSet, error)
+	DeleteMCPSet(ctx context.Context, id string) error
 }

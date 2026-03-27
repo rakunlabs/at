@@ -12,6 +12,7 @@ import WorkflowEditor from '@/pages/WorkflowEditor.svelte';
 import Runs from '@/pages/Runs.svelte';
 import Rag from '@/pages/Rag.svelte';
 import McpServers from '@/pages/McpServers.svelte';
+import Mcps from '@/pages/Mcps.svelte';
 import Bots from '@/pages/Bots.svelte';
 import Docs from '@/pages/Docs.svelte';
 import Settings from '@/pages/Settings.svelte';
@@ -46,6 +47,7 @@ export default {
   '/rag': Rag,
   '/connections': Connections,
   '/mcp-servers': McpServers,
+  '/mcps': Mcps,
   '/bots': Bots,
   '/docs': Docs,
   '/settings': Settings,

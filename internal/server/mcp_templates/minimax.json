@@ -1,0 +1,25 @@
+{
+  "slug": "minimax",
+  "name": "MiniMax AI",
+  "description": "Text-to-speech, voice cloning, AI video generation (Hailuo-02), image generation, music generation, and voice design via MiniMax API.",
+  "category": "AI Media",
+  "tags": ["tts", "video", "image", "music", "voice", "minimax", "hailuo", "voice-clone"],
+  "mcp_server": {
+    "name": "minimax",
+    "description": "MiniMax AI MCP — TTS, voice cloning, video/image/music generation",
+    "config": {
+      "mcp_upstreams": [
+        {
+          "command": "uvx",
+          "args": ["minimax-mcp", "-y"],
+          "env": {
+            "MINIMAX_API_KEY": "{{var:minimax_api_key}}",
+            "MINIMAX_API_HOST": "https://api.minimax.io",
+            "MINIMAX_MCP_BASE_PATH": "/tmp/minimax-output",
+            "MINIMAX_API_RESOURCE_MODE": "local"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -68,8 +68,26 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 		models, err = discoverOpenAIModels(ctx, req.Config)
 	case "anthropic":
 		models, err = discoverAnthropicModels(ctx, req.Config)
+		if err != nil {
+			// Some Anthropic-compatible providers (e.g. MiniMax) don't support
+			// the /v1/models endpoint. Return empty list instead of failing.
+			slog.Warn("anthropic model discovery failed, returning empty list", "error", err)
+			models = nil
+			err = nil
+		}
 	case "gemini":
 		models, err = discoverGeminiModels(ctx, req.Config)
+	case "minimax":
+		// MiniMax does not have a /v1/models endpoint. Return known models.
+		models = []string{
+			"MiniMax-M2.7",
+			"MiniMax-M2.7-highspeed",
+			"MiniMax-M2.5",
+			"MiniMax-M2.5-highspeed",
+			"MiniMax-M2.1",
+			"MiniMax-M2.1-highspeed",
+			"MiniMax-M2",
+		}
 	default:
 		httpResponse(w, fmt.Sprintf("model discovery is not supported for provider type %q", req.Config.Type), http.StatusBadRequest)
 		return

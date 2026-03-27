@@ -106,3 +106,31 @@ export async function submitClaudeAuthCode(key: string, code: string): Promise<C
   const res = await api.post<ClaudeAuthCallbackResponse>('/providers/claude-auth/callback', { key, code });
   return res.data;
 }
+
+// ─── Claude Auth Token Paste ───
+
+export async function submitClaudeAuthToken(
+  key: string,
+  access_token: string,
+  refresh_token: string,
+): Promise<ClaudeAuthCallbackResponse> {
+  const res = await api.post<ClaudeAuthCallbackResponse>('/providers/claude-auth/token', {
+    key,
+    access_token,
+    refresh_token,
+  });
+  return res.data;
+}
+
+// ─── Claude Auth Sync from CLI ───
+
+export interface ClaudeAuthSyncResponse {
+  status: 'authorized';
+  source: string;
+  expires_at?: string; // RFC3339 token expiry time (if known from CLI credentials)
+}
+
+export async function syncClaudeAuthFromCLI(key: string): Promise<ClaudeAuthSyncResponse> {
+  const res = await api.post<ClaudeAuthSyncResponse>('/providers/claude-auth/sync', { key });
+  return res.data;
+}

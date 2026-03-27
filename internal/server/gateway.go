@@ -188,12 +188,13 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	var messages []service.Message
 
 	switch providerType {
-	case "anthropic":
+	case "anthropic", "minimax":
 		// Translate OpenAI format → Anthropic format.
 		// System prompt is extracted separately because Anthropic uses
 		// a top-level "system" parameter instead of a system message.
 		// We pass it as a role="system" service.Message; the Anthropic
 		// provider extracts it when building the request body.
+		// MiniMax uses the Anthropic Messages API, so it needs the same translation.
 		var systemPrompt string
 		systemPrompt, messages = translateOpenAIToAnthropic(req.Messages)
 		if systemPrompt != "" {

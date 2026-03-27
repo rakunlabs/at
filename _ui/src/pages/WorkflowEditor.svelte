@@ -3,7 +3,7 @@
   import { storeNavbar, storeTheme } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listWorkflows, getWorkflow, updateWorkflow, runWorkflow, runWorkflowStream, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
-  import { nodeRunStates, runStatus as storeRunStatus, runError as storeRunError, runOutputs as storeRunOutputs, clearRunState, handleStreamEvent, getNodeStatuses } from '@/lib/store/workflow-run.svelte';
+  import { workflowRun, clearRunState, handleStreamEvent, getNodeStatuses } from '@/lib/store/workflow-run.svelte';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listNodeConfigs, type NodeConfig } from '@/lib/api/node-configs';
@@ -1316,7 +1316,7 @@
               </div>
             {/if}
 
-            {#if runResult || runError || Object.keys(nodeRunStates).length > 0}
+            {#if runResult || runError || Object.keys(workflowRun.nodeRunStates).length > 0}
               <button
                 onclick={() => { clearRunState(); runResult = null; runError = null; }}
                 class="w-full px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"

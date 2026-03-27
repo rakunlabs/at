@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/query"
 )
 
@@ -403,8 +404,12 @@ func TestDelegateToolNameSanitization(t *testing.T) {
 }
 
 // --- Test: propagateStatusToParent ---
+// propagateStatusToParent no longer auto-completes the parent task.
+// The parent's own delegation loop (runOrgDelegation) is responsible for
+// deciding when the parent task is complete. These tests verify that
+// the parent status is NOT changed by child completion.
 
-func TestStatusPropagation(t *testing.T) {
+func TestStatusPropagation_NoAutoComplete(t *testing.T) {
 	taskStore := &mockTaskStoreForDelegation{
 		tasks: []service.Task{
 			{ID: "P1", Status: service.TaskStatusInProgress},
@@ -418,11 +423,12 @@ func TestStatusPropagation(t *testing.T) {
 	childTask := &service.Task{ID: "C2", ParentID: "P1"}
 	s.propagateStatusToParent(context.Background(), childTask)
 
-	// Parent should be completed since all children are completed.
+	// Parent should remain in_progress — the head agent decides when to complete it.
 	for _, t2 := range taskStore.tasks {
 		if t2.ID == "P1" {
-			if t2.Status != service.TaskStatusCompleted {
-				t.Errorf("expected parent status %q, got %q", service.TaskStatusCompleted, t2.Status)
+			if t2.Status != service.TaskStatusInProgress {
+				t.Errorf("expected parent status %q (head agent decides), got %q",
+					service.TaskStatusInProgress, t2.Status)
 			}
 			return
 		}
@@ -430,7 +436,7 @@ func TestStatusPropagation(t *testing.T) {
 	t.Fatal("parent task P1 not found")
 }
 
-func TestAutoCompletion(t *testing.T) {
+func TestAutoCompletion_NoAutoComplete(t *testing.T) {
 	taskStore := &mockTaskStoreForDelegation{
 		tasks: []service.Task{
 			{ID: "P1", Status: service.TaskStatusInProgress},
@@ -466,11 +472,13 @@ func TestAutoCompletion(t *testing.T) {
 	childTask2 := &service.Task{ID: "C2", ParentID: "P1"}
 	s.propagateStatusToParent(context.Background(), childTask2)
 
+	// Even with all children completed, parent should remain in_progress.
+	// The head agent's delegation loop will mark it completed when it finishes.
 	for _, t2 := range taskStore.tasks {
 		if t2.ID == "P1" {
-			if t2.Status != service.TaskStatusCompleted {
-				t.Errorf("expected parent status %q after all children done, got %q",
-					service.TaskStatusCompleted, t2.Status)
+			if t2.Status != service.TaskStatusInProgress {
+				t.Errorf("expected parent status %q (head agent decides), got %q",
+					service.TaskStatusInProgress, t2.Status)
 			}
 			return
 		}
@@ -478,7 +486,7 @@ func TestAutoCompletion(t *testing.T) {
 	t.Fatal("parent task P1 not found")
 }
 
-func TestFailurePropagation(t *testing.T) {
+func TestFailurePropagation_NoAutoComplete(t *testing.T) {
 	taskStore := &mockTaskStoreForDelegation{
 		tasks: []service.Task{
 			{ID: "P1", Status: service.TaskStatusInProgress},
@@ -492,17 +500,43 @@ func TestFailurePropagation(t *testing.T) {
 	childTask := &service.Task{ID: "C2", ParentID: "P1"}
 	s.propagateStatusToParent(context.Background(), childTask)
 
-	// Parent should be cancelled since one child is cancelled and all are done.
+	// Parent should remain in_progress even with a cancelled child.
+	// The head agent's delegation loop will decide the final status.
 	for _, t2 := range taskStore.tasks {
 		if t2.ID == "P1" {
-			if t2.Status != service.TaskStatusCancelled {
-				t.Errorf("expected parent status %q (child failed), got %q",
-					service.TaskStatusCancelled, t2.Status)
+			if t2.Status != service.TaskStatusInProgress {
+				t.Errorf("expected parent status %q (head agent decides), got %q",
+					service.TaskStatusInProgress, t2.Status)
 			}
 			return
 		}
 	}
 	t.Fatal("parent task P1 not found")
+}
+
+func TestRootTaskPropagation_Noop(t *testing.T) {
+	taskStore := &mockTaskStoreForDelegation{
+		tasks: []service.Task{
+			{ID: "R1", Status: service.TaskStatusInProgress},
+		},
+	}
+
+	s := testServerWithStores(nil, taskStore, nil, nil)
+
+	// Root task (no ParentID) — propagateStatusToParent should be a no-op.
+	rootTask := &service.Task{ID: "R1", ParentID: ""}
+	s.propagateStatusToParent(context.Background(), rootTask)
+
+	for _, t2 := range taskStore.tasks {
+		if t2.ID == "R1" {
+			if t2.Status != service.TaskStatusInProgress {
+				t.Errorf("expected root task status %q unchanged, got %q",
+					service.TaskStatusInProgress, t2.Status)
+			}
+			return
+		}
+	}
+	t.Fatal("root task R1 not found")
 }
 
 func TestGetTaskWithSubtasks(t *testing.T) {
@@ -787,5 +821,161 @@ func TestDeepDelegation(t *testing.T) {
 	}
 	if !strings.HasPrefix(child3.Identifier, "DEEP-") {
 		t.Errorf("Level 3: expected identifier prefix %q, got %q", "DEEP-", child3.Identifier)
+	}
+}
+
+// --- Test: detectUnfulfilledDelegation ---
+
+func TestDetectUnfulfilledDelegation(t *testing.T) {
+	delegateToolMap := map[string]string{
+		"delegate_to_video_producer":   "agent-vp",
+		"delegate_to_graphic_designer": "agent-gd",
+		"delegate_to_script_writer":    "agent-sw",
+	}
+
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{
+			name:    "explicit delegation mention with natural name",
+			content: "MANIFEST APPROVED. Now delegating to the Video Producer for TTS audio generation.",
+			want:    true,
+		},
+		{
+			name:    "delegating to graphic designer",
+			content: "All images verified. Now delegating to Graphic Designer for review.",
+			want:    true,
+		},
+		{
+			name:    "delegation with underscore name",
+			content: "Delegating task to script_writer for final edits.",
+			want:    true,
+		},
+		{
+			name:    "mentions delegate but no matching agent",
+			content: "I will delegate this to the marketing team for review.",
+			want:    false,
+		},
+		{
+			name:    "mentions agent name but no delegation verb",
+			content: "The Video Producer has completed the work successfully.",
+			want:    false,
+		},
+		{
+			name:    "no delegation mention at all",
+			content: "All tasks are complete. Here is the final summary.",
+			want:    false,
+		},
+		{
+			name:    "empty content",
+			content: "",
+			want:    false,
+		},
+		{
+			name:    "case insensitive delegation",
+			content: "DELEGATING to VIDEO PRODUCER now.",
+			want:    true,
+		},
+		{
+			name:    "delegation noun form",
+			content: "Proceeding with delegation to the script writer.",
+			want:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := detectUnfulfilledDelegation(tt.content, delegateToolMap)
+			if got != tt.want {
+				t.Errorf("detectUnfulfilledDelegation(%q) = %v, want %v", tt.content, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectUnfulfilledDelegation_EmptyToolMap(t *testing.T) {
+	// With no delegate tools, should always return false regardless of content.
+	got := detectUnfulfilledDelegation("Now delegating to Video Producer", map[string]string{})
+	if got {
+		t.Error("expected false with empty delegateToolMap")
+	}
+}
+
+// --- Test: resolveRootTaskID ---
+
+func TestResolveRootTaskID(t *testing.T) {
+	taskStore := &mockTaskStoreForDelegation{
+		tasks: []service.Task{
+			{ID: "root", Status: service.TaskStatusInProgress},
+			{ID: "child1", ParentID: "root", Status: service.TaskStatusInProgress},
+			{ID: "grandchild1", ParentID: "child1", Status: service.TaskStatusInProgress},
+		},
+	}
+
+	s := testServerWithStores(nil, taskStore, nil, nil)
+
+	tests := []struct {
+		name   string
+		task   *service.Task
+		wantID string
+	}{
+		{
+			name:   "root task returns itself",
+			task:   &service.Task{ID: "root", ParentID: ""},
+			wantID: "root",
+		},
+		{
+			name:   "child task resolves to root",
+			task:   &service.Task{ID: "child1", ParentID: "root"},
+			wantID: "root",
+		},
+		{
+			name:   "grandchild resolves to root",
+			task:   &service.Task{ID: "grandchild1", ParentID: "child1"},
+			wantID: "root",
+		},
+		{
+			name:   "orphan task (parent not in store) returns itself",
+			task:   &service.Task{ID: "orphan", ParentID: "nonexistent"},
+			wantID: "orphan",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.resolveRootTaskID(context.Background(), tt.task)
+			if got != tt.wantID {
+				t.Errorf("resolveRootTaskID() = %q, want %q", got, tt.wantID)
+			}
+		})
+	}
+}
+
+// --- Test: workspace context propagation ---
+
+func TestWorkspaceContextPropagation(t *testing.T) {
+	// Verify that ContextWithWorkDir/WorkDirFromContext round-trips correctly.
+	ctx := context.Background()
+
+	// No workspace set initially.
+	if dir := workflow.WorkDirFromContext(ctx); dir != "" {
+		t.Errorf("expected empty WorkDir from fresh context, got %q", dir)
+	}
+
+	// Set workspace.
+	ctx = workflow.ContextWithWorkDir(ctx, "/tmp/at-tasks/root-123")
+
+	// Should read back.
+	if dir := workflow.WorkDirFromContext(ctx); dir != "/tmp/at-tasks/root-123" {
+		t.Errorf("expected WorkDir %q, got %q", "/tmp/at-tasks/root-123", dir)
+	}
+
+	// Child contexts inherit the value.
+	childCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	if dir := workflow.WorkDirFromContext(childCtx); dir != "/tmp/at-tasks/root-123" {
+		t.Errorf("child context: expected WorkDir %q, got %q", "/tmp/at-tasks/root-123", dir)
 	}
 }

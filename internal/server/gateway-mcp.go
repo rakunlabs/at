@@ -223,17 +223,11 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 		tools = append(tools, upstreamTools...)
 	}
 
-	// Add tools from referenced MCP servers.
-	for _, serverName := range srv.Servers {
-		serverURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
-		client, err := service.NewHTTPMCPClient(context.Background(), serverURL)
+	// Add tools from referenced internal MCPs (mcp_sets) — resolved directly, no HTTP.
+	for _, setName := range srv.Servers {
+		refTools, err := s.listMCPSetTools(setName)
 		if err != nil {
-			slog.Warn("failed to connect to referenced MCP server", "server", serverName, "error", err)
-			continue
-		}
-		refTools, err := client.ListTools(context.Background())
-		if err != nil {
-			slog.Warn("failed to list tools from referenced MCP server", "server", serverName, "error", err)
+			slog.Warn("failed to list tools from referenced internal MCP", "set", setName, "error", err)
 			continue
 		}
 		tools = append(tools, refTools...)
@@ -427,14 +421,9 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		return
 	}
 
-	// Try referenced MCP servers.
-	for _, serverName := range srv.Servers {
-		serverURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
-		client, err := service.NewHTTPMCPClient(r.Context(), serverURL)
-		if err != nil {
-			continue
-		}
-		result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
+	// Try referenced internal MCPs (mcp_sets) — resolved directly, no HTTP.
+	for _, setName := range srv.Servers {
+		result, err := s.callMCPSetTool(r.Context(), setName, params.Name, params.Arguments)
 		if err != nil {
 			continue
 		}
@@ -484,6 +473,11 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 // newMCPClient creates an MCPClient for the given upstream, dispatching to
 // either the stdio process manager or the HTTP client based on config.
 func (s *Server) newMCPClient(ctx context.Context, upstream service.MCPUpstream) (service.MCPClient, error) {
+	// Resolve {{var:key}} references in env values and args.
+	if s.variableStore != nil {
+		upstream = s.resolveUpstreamVars(upstream)
+	}
+
 	if upstream.Command != "" {
 		return s.stdioManager.GetOrCreate(upstream)
 	}
@@ -662,6 +656,58 @@ func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args 
 		}
 	}
 	return workflow.ExecuteJSHandler(tool.Handler, args, varLookup)
+}
+
+// resolveUpstreamVars resolves {{var:key}} references in an MCPUpstream's
+// env values and args. This allows MCP server configs to reference secrets
+// stored in the variable store (e.g. MINIMAX_API_KEY={{var:minimax_api_key}}).
+func (s *Server) resolveUpstreamVars(upstream service.MCPUpstream) service.MCPUpstream {
+	resolve := func(val string) string {
+		if !strings.Contains(val, "{{var:") {
+			return val
+		}
+		resolved := val
+		for {
+			idx := strings.Index(resolved, "{{var:")
+			if idx == -1 {
+				break
+			}
+			end := strings.Index(resolved[idx:], "}}")
+			if end == -1 {
+				break
+			}
+			key := resolved[idx+len("{{var:") : idx+end]
+			v, err := s.variableStore.GetVariableByKey(context.Background(), key)
+			if err != nil || v == nil {
+				slog.Warn("failed to resolve variable in MCP upstream env", "key", key, "error", err)
+				break
+			}
+			resolved = resolved[:idx] + v.Value + resolved[idx+end+2:]
+		}
+		return resolved
+	}
+
+	if len(upstream.Env) > 0 {
+		resolved := make(map[string]string, len(upstream.Env))
+		for k, v := range upstream.Env {
+			resolved[k] = resolve(v)
+		}
+		upstream.Env = resolved
+	}
+
+	if len(upstream.Args) > 0 {
+		resolved := make([]string, len(upstream.Args))
+		for i, v := range upstream.Args {
+			resolved[i] = resolve(v)
+		}
+		upstream.Args = resolved
+	}
+
+	if upstream.URL != "" {
+		upstream.URL = resolve(upstream.URL)
+	}
+
+	return upstream
 }
 
 // resolveTemplate resolves a Go text/template string with args as data.

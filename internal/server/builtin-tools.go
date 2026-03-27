@@ -914,10 +914,10 @@ Edges connect nodes via source_handle (output handle ID of source node) and targ
 					"items":       map[string]any{"type": "string"},
 					"description": "Skill IDs or names to assign to the agent",
 				},
-				"mcp_servers": map[string]any{
+				"mcp_sets": map[string]any{
 					"type":        "array",
 					"items":       map[string]any{"type": "string"},
-					"description": "MCP Server names to assign to the agent",
+					"description": "MCP Set names (internal MCPs) to assign to the agent",
 				},
 				"builtin_tools": map[string]any{
 					"type":        "array",
@@ -993,10 +993,10 @@ Edges connect nodes via source_handle (output handle ID of source node) and targ
 					"items":       map[string]any{"type": "string"},
 					"description": "New skill list (replaces existing)",
 				},
-				"mcp_servers": map[string]any{
+				"mcp_sets": map[string]any{
 					"type":        "array",
 					"items":       map[string]any{"type": "string"},
-					"description": "New MCP server list (replaces existing)",
+					"description": "New MCP set list (replaces existing)",
 				},
 				"builtin_tools": map[string]any{
 					"type":        "array",

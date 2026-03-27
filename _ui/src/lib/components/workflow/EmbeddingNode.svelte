@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Handle, HandleGroup, type NodeProps } from 'kaykay';
   import NodePreview from './NodePreview.svelte';
-  import { nodeRunStates } from '@/lib/store/workflow-run.svelte';
+  import { workflowRun } from '@/lib/store/workflow-run.svelte';
 
   interface EmbeddingData {
     label?: string;
@@ -11,7 +11,7 @@
   }
 
   let { id, data, selected }: NodeProps<EmbeddingData> = $props();
-  let runState = $derived(nodeRunStates[id]);
+  let runState = $derived(workflowRun.nodeRunStates[id]);
 </script>
 
 <div

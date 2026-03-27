@@ -16,6 +16,7 @@
   import { listCollections, type RAGCollection } from '@/lib/api/rag';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
   import { listVariables, type Variable } from '@/lib/api/secrets';
   import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-svelte';
   import { md, renderMarkdown } from '@/lib/helper/markdown';
@@ -31,11 +32,13 @@
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
-    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'rag';
+    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'rag' | 'mcpset';
     /** MCP server URL (when type === 'mcp') */
     serverUrl?: string;
     /** Skill name (when type === 'skill') */
     skillName?: string;
+    /** MCP Set name (when type === 'mcpset') */
+    mcpSetName?: string;
   }
 
   interface TodoItem {
@@ -155,6 +158,12 @@
   let showToolsConfig = $state(false);
   let mcpUrls = $state<string[]>([]);
   let mcpNewUrl = $state('');
+  let mcpHeaders = $state<Record<string, string>>({});
+  let mcpNewHeaderKey = $state('');
+  let mcpNewHeaderValue = $state('');
+  let showMcpHeaders = $state(false);
+  let availableMCPSets = $state<MCPSet[]>([]);
+  let selectedMCPSetNames = $state<string[]>([]);
   let agents = $state<Agent[]>([]);
   let selectedAgentId = $state('');
   let skills = $state<Skill[]>([]);
@@ -268,12 +277,22 @@
     }
   }
 
+  async function loadMCPSets() {
+    try {
+      const res = await listMCPSets({ _limit: 500 });
+      availableMCPSets = res.data ?? [];
+    } catch {
+      // MCP sets may not be available
+    }
+  }
+
   loadInfo();
   loadAgents();
   loadSkills();
   loadBuiltinTools();
   loadRAGTools();
   loadRAGCollections();
+  loadMCPSets();
 
   async function loadChatVariables() {
     try {
@@ -387,10 +406,44 @@
     refreshTools();
   }
 
+  function addMcpHeader() {
+    const key = mcpNewHeaderKey.trim();
+    const value = mcpNewHeaderValue.trim();
+    if (!key) return;
+    mcpHeaders = { ...mcpHeaders, [key]: value };
+    mcpNewHeaderKey = '';
+    mcpNewHeaderValue = '';
+    refreshTools();
+  }
+
+  function removeMcpHeader(key: string) {
+    const { [key]: _, ...rest } = mcpHeaders;
+    mcpHeaders = rest;
+    refreshTools();
+  }
+
+  function clearAllToolSelections() {
+    selectedMCPSetNames = [];
+    mcpUrls = [];
+    mcpHeaders = {};
+    selectedSkillNames = [];
+    enabledBuiltinTools = [];
+    enabledFrontendTools = [];
+    enabledRagTools = [];
+    selectedRagCollectionIds = [];
+    refreshTools();
+  }
+
   function onAgentSelected() {
     if (!selectedAgentId) return;
     const agent = agents.find(a => a.id === selectedAgentId);
     if (!agent) return;
+
+    // Merge agent's MCP Sets (avoid duplicates)
+    const newSets = agent.config.mcp_sets?.filter(s => !selectedMCPSetNames.includes(s)) || [];
+    if (newSets.length > 0) {
+      selectedMCPSetNames = [...selectedMCPSetNames, ...newSets];
+    }
 
     // Merge agent's MCP URLs (avoid duplicates)
     const newUrls = agent.config.mcp_urls?.filter(u => !mcpUrls.includes(u)) || [];
@@ -418,6 +471,15 @@
       selectedSkillNames = selectedSkillNames.filter(s => s !== skillName);
     } else {
       selectedSkillNames = [...selectedSkillNames, skillName];
+    }
+    refreshTools();
+  }
+
+  function toggleMCPSet(setName: string) {
+    if (selectedMCPSetNames.includes(setName)) {
+      selectedMCPSetNames = selectedMCPSetNames.filter(s => s !== setName);
+    } else {
+      selectedMCPSetNames = [...selectedMCPSetNames, setName];
     }
     refreshTools();
   }
@@ -476,7 +538,7 @@
     try {
       // 1. Discover MCP tools
       if (mcpUrls.length > 0) {
-        const res = await listMCPTools(mcpUrls);
+        const res = await listMCPTools(mcpUrls, mcpHeaders);
         if (res.errors && res.errors.length > 0) {
           for (const err of res.errors) {
             addToast(`MCP: ${err}`, 'alert');
@@ -496,7 +558,38 @@
         }
       }
 
-      // 2. Discover skill tools
+      // 2. Discover MCP Set tools (server-side resolution)
+      for (const setName of selectedMCPSetNames) {
+        try {
+          const res = await listMCPSetTools(setName);
+          for (const t of res.tools ?? []) {
+            if (newSourceMap[t.name]) continue;
+            newTools.push({
+              type: 'function',
+              function: {
+                name: t.name,
+                description: t.description,
+                parameters: t.inputSchema || { type: 'object', properties: {} },
+              },
+            });
+            newSourceMap[t.name] = { type: 'mcpset', mcpSetName: setName };
+          }
+          // Also load system prompts from MCP Set's enabled skills
+          const mcpSet = availableMCPSets.find(s => s.name === setName);
+          if (mcpSet?.config?.enabled_skills) {
+            for (const skillName of mcpSet.config.enabled_skills) {
+              const skill = skills.find(s => s.name === skillName);
+              if (skill?.system_prompt) {
+                newSkillPrompts.push(skill.system_prompt);
+              }
+            }
+          }
+        } catch (e: any) {
+          addToast(`MCP Set "${setName}": ${e?.response?.data?.message || e.message || 'failed to discover tools'}`, 'alert');
+        }
+      }
+
+      // 3. Discover skill tools
       for (const skillName of selectedSkillNames) {
         const skill = skills.find(s => s.name === skillName);
         if (!skill) continue;
@@ -519,7 +612,7 @@
         }
       }
 
-      // 3. Add enabled built-in server tools
+      // 4. Add enabled built-in server tools
       for (const toolName of enabledBuiltinTools) {
         const def = builtinTools.find(t => t.name === toolName);
         if (!def || newSourceMap[def.name]) continue;
@@ -534,7 +627,7 @@
         newSourceMap[def.name] = { type: 'builtin' };
       }
 
-      // 4. Add enabled frontend tools
+      // 5. Add enabled frontend tools
       for (const toolName of enabledFrontendTools) {
         const def = FRONTEND_TOOLS.find(t => t.function.name === toolName);
         if (!def || newSourceMap[def.function.name]) continue;
@@ -542,7 +635,7 @@
         newSourceMap[def.function.name] = { type: 'frontend' };
       }
 
-      // 5. Add selected RAG tools
+      // 6. Add selected RAG tools
       if (enabledRagTools.length > 0 && ragAvailable) {
         for (const tool of ragTools) {
           if (!enabledRagTools.includes(tool.name)) continue;
@@ -583,8 +676,12 @@
     }
 
     try {
-      if (source.type === 'mcp' && source.serverUrl) {
-        const res = await callMCPTool(source.serverUrl, tc.function.name, args);
+      if (source.type === 'mcpset' && source.mcpSetName) {
+        const res = await callMCPSetTool(source.mcpSetName, tc.function.name, args);
+        const text = res.content?.map(c => c.text).join('\n') ?? '';
+        return text || 'Tool executed successfully (no output)';
+      } else if (source.type === 'mcp' && source.serverUrl) {
+        const res = await callMCPTool(source.serverUrl, tc.function.name, args, mcpHeaders);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'skill' && source.skillName) {
@@ -995,6 +1092,26 @@
         </div>
       {/if}
 
+      <!-- MCP Sets (Internal MCPs) -->
+      {#if availableMCPSets.length > 0}
+        <div>
+          <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</label>
+          <div class="flex flex-wrap gap-1.5">
+            {#each availableMCPSets as mcpSet}
+              <button
+                onclick={() => toggleMCPSet(mcpSet.name)}
+                class="px-2.5 py-1 text-xs border transition-colors {selectedMCPSetNames.includes(mcpSet.name)
+                  ? 'bg-purple-700 dark:bg-purple-600 text-white border-purple-700 dark:border-purple-600'
+                  : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                title={mcpSet.description || mcpSet.name}
+              >
+                {mcpSet.name}
+              </button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
       <!-- MCP Server URLs -->
       <div>
         <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP Servers</label>
@@ -1028,6 +1145,56 @@
               Add
             </button>
           </div>
+          <!-- Headers toggle -->
+          {#if mcpUrls.length > 0 || Object.keys(mcpHeaders).length > 0}
+            <button
+              onclick={() => showMcpHeaders = !showMcpHeaders}
+              class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors flex items-center gap-1"
+            >
+              <ChevronDown size={10} class="transition-transform {showMcpHeaders ? 'rotate-180' : ''}" />
+              Headers {Object.keys(mcpHeaders).length > 0 ? `(${Object.keys(mcpHeaders).length})` : ''}
+            </button>
+          {/if}
+          {#if showMcpHeaders}
+            <div class="pl-2 border-l-2 border-gray-200 dark:border-dark-border space-y-1.5">
+              {#each Object.entries(mcpHeaders) as [key, value]}
+                <div class="flex gap-1.5 items-center">
+                  <code class="border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-gray-600 dark:text-dark-text-secondary">{key}</code>
+                  <span class="text-gray-300 dark:text-dark-text-faint text-[10px]">:</span>
+                  <code class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-gray-500 dark:text-dark-text-muted truncate">{value}</code>
+                  <button
+                    onclick={() => removeMcpHeader(key)}
+                    class="p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                    title="Remove header"
+                  >
+                    <X size={10} />
+                  </button>
+                </div>
+              {/each}
+              <div class="flex gap-1.5">
+                <input
+                  type="text"
+                  bind:value={mcpNewHeaderKey}
+                  placeholder="Header name"
+                  class="w-32 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                />
+                <input
+                  type="text"
+                  bind:value={mcpNewHeaderValue}
+                  placeholder="Value"
+                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMcpHeader(); } }}
+                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                />
+                <button
+                  onclick={addMcpHeader}
+                  disabled={!mcpNewHeaderKey.trim()}
+                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary disabled:opacity-30 transition-colors"
+                >
+                  <Plus size={10} />
+                </button>
+              </div>
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -1167,7 +1334,7 @@
         </div>
       {/if}
 
-      <!-- Discovered tools summary -->
+      <!-- Discovered tools summary + clear button -->
       <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted pt-1 border-t border-gray-200 dark:border-dark-border">
         {#if loadingTools}
           <Loader2 size={12} class="animate-spin" />
@@ -1176,11 +1343,20 @@
           <Wrench size={12} />
           <span>{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
           <span class="text-gray-300 dark:text-dark-border">|</span>
-          <span class="truncate">{discoveredTools.map(t => t.function.name).join(', ')}</span>
-        {:else if mcpUrls.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || enabledRagTools.length > 0}
+          <span class="truncate flex-1">{discoveredTools.map(t => t.function.name).join(', ')}</span>
+        {:else if mcpUrls.length > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || enabledRagTools.length > 0}
           <span>No tools discovered</span>
         {:else}
           <span>Add MCP servers, enable skills, or toggle tools above</span>
+        {/if}
+        {#if toolCount > 0 || selectedMCPSetNames.length > 0 || mcpUrls.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || enabledRagTools.length > 0}
+          <button
+            onclick={clearAllToolSelections}
+            class="ml-auto shrink-0 px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 transition-colors"
+            title="Clear all tool selections"
+          >
+            Clear All
+          </button>
         {/if}
       </div>
     </div>

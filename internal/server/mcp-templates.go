@@ -94,8 +94,9 @@ func (s *Server) GetMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // InstallMCPTemplateAPI handles POST /api/v1/mcp-templates/{slug}/install.
+// Templates are installed as MCPSets (internal MCPs), not as external MCP Servers.
 func (s *Server) InstallMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
-	if s.mcpServerStore == nil {
+	if s.mcpSetStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -115,7 +116,7 @@ func (s *Server) InstallMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
 
 	userEmail := s.getUserEmail(r)
 
-	srv := service.MCPServer{
+	mcpSet := service.MCPSet{
 		Name:        tmpl.MCPServer.Name,
 		Description: tmpl.MCPServer.Description,
 		Config:      tmpl.MCPServer.Config,
@@ -123,7 +124,7 @@ func (s *Server) InstallMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
 		UpdatedBy:   userEmail,
 	}
 
-	record, err := s.mcpServerStore.CreateMCPServer(r.Context(), srv)
+	record, err := s.mcpSetStore.CreateMCPSet(r.Context(), mcpSet)
 	if err != nil {
 		slog.Error("install mcp template failed", "slug", slug, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to install template: %v", err), http.StatusInternalServerError)

@@ -200,7 +200,7 @@
   <!-- Header -->
   <div class="flex items-center justify-between mb-6">
     <div>
-      <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text-primary">Connections</h1>
+      <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Connections</h1>
       <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">Manage external service connections and credentials</p>
     </div>
     <button
@@ -218,7 +218,7 @@
     <!-- OAuth Connections -->
     {#if oauthConnections.length > 0}
       <div class="mb-6">
-        <h2 class="text-xs font-medium text-gray-400 dark:text-dark-text-muted tracking-wider uppercase mb-3">OAuth Connections</h2>
+        <h2 class="text-xs font-medium text-gray-400 dark:text-dark-text-secondary tracking-wider uppercase mb-3">OAuth Connections</h2>
         <div class="space-y-3">
           {#each oauthConnections as conn}
             <div class="border border-gray-200 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface transition-colors">
@@ -238,7 +238,7 @@
                     {/if}
                   </div>
                   <div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text-primary">{conn.name}</h3>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{conn.name}</h3>
                     <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{conn.description}</p>
                     <div class="mt-2">
                       {#if conn.connected}
@@ -338,7 +338,7 @@
                         value={oauthCode[conn.provider] ?? ''}
                         oninput={(e) => oauthCode[conn.provider] = (e.target as HTMLInputElement).value}
                         placeholder="Paste the authorization code here"
-                        class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text-primary placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+                        class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
                       />
                       <div class="flex items-center gap-3">
                         <button
@@ -380,7 +380,7 @@
                               value={getFormValue(conn.provider, v.key)}
                               oninput={(e) => setFormValue(conn.provider, v.key, (e.target as HTMLInputElement).value)}
                               placeholder={v.set ? '(stored - leave blank to keep)' : v.description}
-                              class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text-primary placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent pr-9"
+                              class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent pr-9"
                             />
                             {#if v.secret}
                               <button
@@ -450,7 +450,7 @@
                           value={oauthCode[conn.provider] ?? ''}
                           oninput={(e) => oauthCode[conn.provider] = (e.target as HTMLInputElement).value}
                           placeholder="Paste code here"
-                          class="flex-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text-primary placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+                          class="flex-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
                         />
                         <button
                           onclick={() => submitOAuthCode(conn.provider)}
@@ -487,7 +487,7 @@
     <!-- Token-based Connections -->
     {#if tokenConnections.length > 0}
       <div class="mb-6">
-        <h2 class="text-xs font-medium text-gray-400 dark:text-dark-text-muted tracking-wider uppercase mb-3">API Key Connections</h2>
+        <h2 class="text-xs font-medium text-gray-400 dark:text-dark-text-secondary tracking-wider uppercase mb-3">API Key Connections</h2>
         <div class="space-y-3">
           {#each tokenConnections as conn}
             <div class="border border-gray-200 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface transition-colors">
@@ -506,7 +506,7 @@
                     {/if}
                   </div>
                   <div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text-primary">{conn.name}</h3>
+                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{conn.name}</h3>
                     <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{conn.description}</p>
                     <div class="mt-2">
                       {#if conn.connected}
@@ -557,7 +557,7 @@
                             value={getFormValue(conn.provider, v.key)}
                             oninput={(e) => setFormValue(conn.provider, v.key, (e.target as HTMLInputElement).value)}
                             placeholder={v.set ? '(stored - leave blank to keep)' : v.description}
-                            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text-primary placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent pr-9"
+                            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent pr-9"
                           />
                           {#if v.secret}
                             <button

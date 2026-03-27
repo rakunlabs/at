@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -15,6 +17,9 @@ import (
 )
 
 const conversationStatePrefix = "[CONVERSATION_STATE]"
+
+// defaultTaskWorkspaceBase is the base directory under which task workspaces are created.
+const defaultTaskWorkspaceBase = "/tmp/at-tasks"
 
 // runOrgDelegation is the core recursive delegation function. It takes a Task
 // assigned to an agent in an organization and runs an LLM-driven agentic loop
@@ -38,6 +43,24 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			return fmt.Errorf("org-delegation: update task at max depth: %w", err)
 		}
 		return nil
+	}
+
+	// a2) Ensure a shared workspace directory exists for the entire delegation chain.
+	// If the context already carries a workspace (set by a parent delegation), reuse it.
+	// Otherwise, resolve the root task ID and create a workspace directory.
+	taskWorkDir := workflow.WorkDirFromContext(ctx)
+	if taskWorkDir == "" {
+		rootID := s.resolveRootTaskID(ctx, task)
+		taskWorkDir = filepath.Join(defaultTaskWorkspaceBase, rootID)
+		if err := os.MkdirAll(taskWorkDir, 0o755); err != nil {
+			slog.Warn("org-delegation: failed to create task workspace",
+				"task_id", task.ID, "root_id", rootID, "path", taskWorkDir, "error", err)
+			// Non-fatal: agents can still run, they just won't have a shared directory.
+		} else {
+			slog.Info("org-delegation: task workspace ready",
+				"task_id", task.ID, "root_id", rootID, "path", taskWorkDir)
+		}
+		ctx = workflow.ContextWithWorkDir(ctx, taskWorkDir)
 	}
 
 	// b) Load the agent.
@@ -241,12 +264,25 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			teamSection.WriteString(fmt.Sprintf("- %s (%s, %s): %s\n",
 				ri.agent.Name, ri.orgAgent.Role, ri.orgAgent.Title, ri.agent.Config.Description))
 		}
+		teamSection.WriteString("\n## CRITICAL Delegation Rules\n")
+		teamSection.WriteString("1. To delegate work you MUST call the delegate_to_* tool. Writing \"I'll delegate to X\" or \"Now delegating to X\" in text does NOT delegate — only tool calls do.\n")
+		teamSection.WriteString("2. Do NOT finish (stop making tool calls) until ALL planned delegations are complete and you have reviewed ALL results.\n")
+		teamSection.WriteString("3. After each delegation result comes back, review it and decide whether to delegate further, request revisions, or finalize.\n")
+		teamSection.WriteString("4. You are the decision-maker: only YOU decide when the overall task is complete. Summarize the final outcome in your last message.\n")
 		systemPrompt += teamSection.String()
 	}
 
 	// f2) Recall relevant past memories and inject into system prompt.
 	if memorySection := s.recallAgentMemories(ctx, org, task, agent, agentID); memorySection != "" {
 		systemPrompt += memorySection
+	}
+
+	// f3) Inject shared workspace directory into system prompt.
+	if taskWorkDir != "" {
+		systemPrompt += fmt.Sprintf("\n\n## Workspace\nAll agents in this task chain share the workspace directory: `%s`\n"+
+			"Use this directory for all file operations (reading, writing, temporary files). "+
+			"Files created by other agents in this task will be available here. "+
+			"Do NOT create your own temp directories — always use this shared workspace.\n", taskWorkDir)
 	}
 
 	// g) Update task status to in_progress.
@@ -475,8 +511,20 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			Content: assistantContent,
 		})
 
-		// If done (no tool calls), finish.
+		// If done (no tool calls), check for unfulfilled delegation intent before finishing.
 		if resp.Finished || len(resp.ToolCalls) == 0 {
+			// Detect if the agent mentioned delegating but didn't actually call a delegate tool.
+			// This catches cases like "Now delegating to Video Producer..." without a tool call.
+			if len(delegateToolMap) > 0 && resp.Content != "" && detectUnfulfilledDelegation(resp.Content, delegateToolMap) {
+				slog.Warn("org-delegation: agent mentioned delegation in text but made no tool call — nudging to use tool",
+					"task_id", task.ID, "agent_id", agentID, "iteration", iteration)
+				messages = append(messages, service.Message{
+					Role:    "user",
+					Content: "You mentioned delegating to a team member but did not call any delegate_to_* tool. Describing delegation in text does NOT execute it. You MUST call the appropriate delegate_to_* tool now to actually delegate the work. Do not repeat your analysis — just make the tool call.",
+				})
+				continue
+			}
+
 			finalContent = resp.Content
 			break
 		}
@@ -781,48 +829,18 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	return nil
 }
 
-// propagateStatusToParent checks if all child tasks of the parent are complete.
-// If all are done, marks the parent task as complete. If any failed (cancelled),
-// marks the parent as cancelled.
+// propagateStatusToParent logs a debug message when a child task reaches a terminal state.
+// It does NOT auto-complete the parent task — the parent's own delegation loop (runOrgDelegation)
+// is responsible for deciding when the parent task is complete. Auto-completing the parent would
+// race with the head agent's decision-making and could mark it done before the agent processes
+// all delegation results.
 func (s *Server) propagateStatusToParent(ctx context.Context, task *service.Task) {
 	if task.ParentID == "" {
 		return // root task, nothing to propagate
 	}
 
-	children, err := s.taskStore.ListChildTasks(ctx, task.ParentID)
-	if err != nil {
-		slog.Warn("org-delegation: failed to list child tasks for propagation",
-			"parent_id", task.ParentID, "error", err)
-		return
-	}
-
-	allDone := true
-	anyFailed := false
-
-	for _, child := range children {
-		switch child.Status {
-		case service.TaskStatusCompleted, service.TaskStatusDone:
-			// ok
-		case service.TaskStatusCancelled:
-			anyFailed = true
-		default:
-			allDone = false
-		}
-	}
-
-	if !allDone {
-		return
-	}
-
-	status := service.TaskStatusCompleted
-	if anyFailed {
-		status = service.TaskStatusCancelled
-	}
-
-	if err := s.taskStore.UpdateTaskStatus(ctx, task.ParentID, status, ""); err != nil {
-		slog.Warn("org-delegation: failed to propagate status to parent",
-			"parent_id", task.ParentID, "status", status, "error", err)
-	}
+	slog.Debug("org-delegation: child task reached terminal state, parent agent will decide completion",
+		"child_id", task.ID, "parent_id", task.ParentID, "child_status", task.Status)
 }
 
 // completeTaskWithStatus updates a task's status and result, then propagates
@@ -949,4 +967,41 @@ func (s *Server) createDelegationTask(ctx context.Context, org *service.Organiza
 	}
 
 	return childTask, nil
+}
+
+// resolveRootTaskID walks up the ParentID chain to find the root task ID.
+// This is used to create a shared workspace directory for the entire delegation chain.
+func (s *Server) resolveRootTaskID(ctx context.Context, task *service.Task) string {
+	current := task
+	for current.ParentID != "" {
+		parent, err := s.taskStore.GetTask(ctx, current.ParentID)
+		if err != nil || parent == nil {
+			// Can't walk further — use current as the root.
+			break
+		}
+		current = parent
+	}
+	return current.ID
+}
+
+// detectUnfulfilledDelegation checks if the agent's response text mentions
+// delegating to a team member without actually calling a delegate_to_* tool.
+// This catches LLM hallucinations like "Now delegating to Video Producer..."
+// where the model writes about delegation intent but doesn't make the tool call.
+func detectUnfulfilledDelegation(content string, delegateToolMap map[string]string) bool {
+	contentLower := strings.ToLower(content)
+	// Must contain some form of "delegat" (delegating, delegate, delegation).
+	if !strings.Contains(contentLower, "delegat") {
+		return false
+	}
+	for toolName := range delegateToolMap {
+		// Check for the agent name part (e.g. "video_producer" from "delegate_to_video_producer").
+		agentPart := strings.TrimPrefix(toolName, "delegate_to_")
+		// Also match natural language like "delegating to Video Producer".
+		naturalName := strings.ReplaceAll(agentPart, "_", " ")
+		if strings.Contains(contentLower, naturalName) || strings.Contains(contentLower, agentPart) {
+			return true
+		}
+	}
+	return false
 }

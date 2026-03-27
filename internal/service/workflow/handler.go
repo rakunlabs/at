@@ -79,6 +79,24 @@ func ExecuteJSHandlerWithOptions(handler string, args map[string]any, opts JSHan
 // defaultBashTimeout is the default execution timeout for bash handlers.
 const defaultBashTimeout = 60 * time.Second
 
+// ctxKeyWorkDir is a context key for injecting a working directory into bash handlers.
+// When set, ExecuteBashHandler uses it as cmd.Dir so all commands run in that directory.
+type ctxKeyWorkDir struct{}
+
+// ContextWithWorkDir returns a new context with the given working directory.
+// This is used by the delegation engine to give all agents in a chain the same workspace.
+func ContextWithWorkDir(ctx context.Context, dir string) context.Context {
+	return context.WithValue(ctx, ctxKeyWorkDir{}, dir)
+}
+
+// WorkDirFromContext returns the working directory from context, if set.
+func WorkDirFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxKeyWorkDir{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 // ExecuteBashHandler runs a bash command with tool arguments and variables as
 // environment variables. The parent process environment is inherited, then tool
 // arguments are overlaid as ARG_<NAME> (uppercased, dots/hyphens replaced with
@@ -136,13 +154,20 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 		}
 	}
 
+	// Set working directory from context if available (shared workspace for delegation chains).
+	// Also inject AT_WORK_DIR env var so scripts can reference the shared workspace explicitly.
+	if workDir := WorkDirFromContext(ctx); workDir != "" {
+		cmd.Dir = workDir
+		env = append(env, "AT_WORK_DIR="+workDir)
+	}
+
 	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	logi.Ctx(ctx).Debug("bash handler: executing", "handler_length", len(handler), "arg_count", len(args))
+	logi.Ctx(ctx).Debug("bash handler: executing", "handler_length", len(handler), "arg_count", len(args), "work_dir", cmd.Dir)
 
 	if err := cmd.Run(); err != nil {
 		stderrStr := strings.TrimSpace(stderr.String())

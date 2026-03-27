@@ -51,12 +51,12 @@ func (s *Server) execAgentCreate(ctx context.Context, args map[string]any) (stri
 		}
 	}
 
-	// Parse mcp_servers array.
-	if raw, ok := args["mcp_servers"]; ok {
+	// Parse mcp_sets array (internal MCPs).
+	if raw, ok := args["mcp_sets"]; ok {
 		data, _ := json.Marshal(raw)
-		var mcpServers []string
-		if err := json.Unmarshal(data, &mcpServers); err == nil {
-			config.MCPServers = mcpServers
+		var mcpSets []string
+		if err := json.Unmarshal(data, &mcpSets); err == nil {
+			config.MCPSets = mcpSets
 		}
 	}
 
@@ -229,15 +229,14 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 		}
 	}
 
-	// Replace mcp_servers if provided.
-	if raw, ok := args["mcp_servers"]; ok {
+	// Replace mcp_sets if provided.
+	if raw, ok := args["mcp_sets"]; ok {
 		data, _ := json.Marshal(raw)
-		var mcpServers []string
-		if err := json.Unmarshal(data, &mcpServers); err == nil {
-			existing.Config.MCPServers = mcpServers
+		var mcpSets []string
+		if err := json.Unmarshal(data, &mcpSets); err == nil {
+			existing.Config.MCPSets = mcpSets
 		}
 	}
-
 	// Replace builtin_tools if provided.
 	if raw, ok := args["builtin_tools"]; ok {
 		data, _ := json.Marshal(raw)

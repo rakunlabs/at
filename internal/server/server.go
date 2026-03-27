@@ -19,7 +19,6 @@ import (
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/tmc/langchaingo/schema"
@@ -40,7 +39,7 @@ var uiFS embed.FS
 // ProviderInfo holds a provider instance along with its metadata.
 type ProviderInfo struct {
 	provider     service.LLMProvider
-	providerType string // "anthropic", "openai", "vertex", "gemini"
+	providerType string // "anthropic", "openai", "vertex", "gemini", "minimax"
 	defaultModel string
 	models       []string // all supported models; if empty, only defaultModel is advertised
 }
@@ -105,6 +104,9 @@ type Server struct {
 
 	// mcpServerStore is the persistent store for general MCP server configurations.
 	mcpServerStore service.MCPServerStorer
+
+	// mcpSetStore is the persistent store for MCP set configurations (internal MCPs).
+	mcpSetStore service.MCPSetStorer
 
 	// botConfigStore is the persistent store for bot configurations.
 	botConfigStore service.BotConfigStorer
@@ -324,6 +326,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		ragStateStore:            store,
 		ragPageStore:             store,
 		mcpServerStore:           store,
+		mcpSetStore:              store,
 		botConfigStore:           store,
 		marketplaceSourceStore:   store,
 		userPrefStore:            store,
@@ -358,6 +361,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 	// Load predefined skill templates from embedded JSON files.
 	s.loadSkillTemplates()
+	// Sync installed skill handlers with current templates (applies handler bug fixes).
+	s.syncInstalledSkillHandlers(ctx)
 	s.loadMCPTemplates()
 
 	// Initialize stdio MCP process manager.
@@ -495,11 +500,18 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
 	webhookGroup.POST("/{id}", s.WebhookAPI)
 
-	// General MCP gateway endpoint (auth-gated)
+	// General MCP gateway endpoint (auth-gated, external)
 	gatewayGroup.POST("/v1/mcp/{name}", s.GatewayMCPHandler)
 	gatewayGroup.POST("/v1/mcp/{name}/mcp", s.GatewayMCPHandler) // MCP clients append /mcp per spec
 	gatewayGroup.GET("/v1/mcp/{name}", s.GatewayMCPSSEHandler)
 	gatewayGroup.GET("/v1/mcp/{name}/mcp", s.GatewayMCPSSEHandler)
+
+	// Internal MCP endpoint — no auth, for agent-to-server tool resolution.
+	// Serves tools from MCP Sets (RAG/skills/HTTP/builtins). Not under /gateway/
+	// so it's not exposed through any external reverse proxy.
+	internalGroup := mux.Group(cfg.BasePath + "/internal")
+	internalGroup.POST("/v1/mcp/{name}", s.InternalMCPHandler)
+	internalGroup.POST("/v1/mcp/{name}/mcp", s.InternalMCPHandler)
 
 	// ////////////////////////////////////////////
 	if cfg.ForwardAuth != nil {
@@ -522,6 +534,8 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/providers/device-auth-status", s.DeviceAuthStatusAPI)
 	apiGroup.POST("/v1/providers/claude-auth", s.ClaudeAuthStartAPI)
 	apiGroup.POST("/v1/providers/claude-auth/callback", s.ClaudeAuthCallbackAPI)
+	apiGroup.POST("/v1/providers/claude-auth/token", s.ClaudeAuthTokenAPI)
+	apiGroup.POST("/v1/providers/claude-auth/sync", s.ClaudeAuthSyncAPI)
 	apiGroup.GET("/v1/providers/{key}", s.GetProviderAPI)
 	apiGroup.PUT("/v1/providers/{key}", s.UpdateProviderAPI)
 	apiGroup.DELETE("/v1/providers/{key}", s.DeleteProviderAPI)
@@ -811,6 +825,17 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.PUT("/v1/mcp/servers/{id}", s.UpdateMCPServerAPI)
 	apiGroup.DELETE("/v1/mcp/servers/{id}", s.DeleteMCPServerAPI)
 
+	// MCP set management (internal MCPs)
+	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
+	apiGroup.POST("/v1/mcp/sets", s.CreateMCPSetAPI)
+	apiGroup.GET("/v1/mcp/sets/{id}", s.GetMCPSetAPI)
+	apiGroup.PUT("/v1/mcp/sets/{id}", s.UpdateMCPSetAPI)
+	apiGroup.DELETE("/v1/mcp/sets/{id}", s.DeleteMCPSetAPI)
+
+	// MCP set tool resolution (for Chat UI)
+	apiGroup.GET("/v1/mcp/set-tools/{name}", s.ListMCPSetToolsAPI)
+	apiGroup.POST("/v1/mcp/set-tools/{name}/call", s.CallMCPSetToolAPI)
+
 	// MCP templates (store)
 	apiGroup.GET("/v1/mcp-templates", s.ListMCPTemplatesAPI)
 	apiGroup.GET("/v1/mcp-templates/{slug}", s.GetMCPTemplateAPI)
@@ -909,39 +934,6 @@ func (s *Server) reloadProvider(key string, cfg config.LLMConfig) error {
 	provider, err := s.providerFactory(cfg)
 	if err != nil {
 		return fmt.Errorf("create provider %q: %w", key, err)
-	}
-
-	// Wire the token refresh callback for Claude OAuth providers so that
-	// refreshed tokens are persisted to the store automatically.
-	// This only updates the DB — it does NOT trigger reloadProvider again
-	// (which would create an infinite loop).
-	if cfg.Type == "anthropic" && cfg.AuthType == "claude-code" {
-		if ap, ok := provider.(interface {
-			SetTokenRefreshCallback(antropic.TokenRefreshCallback)
-		}); ok {
-			providerKey := key // capture for closure
-			ap.SetTokenRefreshCallback(func(ctx context.Context, accessToken, refreshToken string) {
-				if s.store == nil {
-					return
-				}
-				record, err := s.store.GetProvider(ctx, providerKey)
-				if err != nil || record == nil {
-					slog.Error("claude oauth: failed to read provider for token persist", "key", providerKey, "error", err)
-					return
-				}
-				updCfg := record.Config
-				updCfg.APIKey = accessToken
-				updCfg.RefreshToken = refreshToken
-				if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
-					Key:    providerKey,
-					Config: updCfg,
-				}); err != nil {
-					slog.Error("claude oauth: failed to persist refreshed tokens", "key", providerKey, "error", err)
-				} else {
-					slog.Debug("claude oauth: persisted refreshed tokens", "key", providerKey)
-				}
-			})
-		}
 	}
 
 	info := NewProviderInfo(provider, cfg)

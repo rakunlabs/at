@@ -29,7 +29,7 @@ type Provider struct {
 	Model     string
 	MaxTokens int
 
-	client      *klient.Client
+	Client      *klient.Client
 	tokenSource TokenSource
 }
 
@@ -148,7 +148,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 		return nil, err
 	}
 
-	p.client = client
+	p.Client = client
 
 	return p, nil
 }
@@ -159,8 +159,8 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	reqBody := p.buildRequestBody(model, messages, tools, opts)
-
 	jsonData, _ := json.Marshal(reqBody)
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
@@ -174,13 +174,23 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("anthropic-beta", oauthBetaHeader(reqBody))
+		p.setOAuthHeaders(req, model)
+	}
+
+	// Debug-log minimal request info for OAuth troubleshooting.
+	if p.tokenSource != nil {
+		slog.Debug("anthropic oauth request",
+			"url", "/v1/messages",
+			"model", model,
+			"body_length", len(jsonData),
+		)
 	}
 
 	var result AnthropicResponse
 	var headers http.Header
 	var statusCode int
 	var rawBody string
-	if err := p.client.Do(req, func(r *http.Response) error {
+	if err := p.Client.Do(req, func(r *http.Response) error {
 		headers = r.Header
 		statusCode = r.StatusCode
 		bodyData, err := io.ReadAll(r.Body)
@@ -213,7 +223,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			"error_type", result.Error.Type,
 			"status", statusCode,
 			"message", errMsg,
-			"raw_body", rawBody,
+			"model", model,
 		)
 		return nil, fmt.Errorf("anthropic API error [%s] (status %d): %s", result.Error.Type, statusCode, errMsg)
 	}
@@ -322,6 +332,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("anthropic-beta", oauthBetaHeader(reqBody))
+		p.setOAuthHeaders(req, model)
 	}
 
 	// Log outgoing headers for debugging auth issues.
@@ -333,7 +344,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	)
 
 	// Use the klient's HTTP client directly for streaming.
-	resp, err := p.client.HTTP.Do(req)
+	resp, err := p.Client.HTTP.Do(req)
 	if err != nil {
 		return nil, nil, fmt.Errorf("streaming request failed: %w", err)
 	}
@@ -341,16 +352,10 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
 		bodyData, _ := io.ReadAll(resp.Body)
-		// Log the request body (truncated) for debugging invalid_request_error.
-		reqBodyLog := string(jsonData)
-		if len(reqBodyLog) > 2000 {
-			reqBodyLog = reqBodyLog[:2000] + "...(truncated)"
-		}
 		slog.Error("anthropic stream error",
 			"status", resp.StatusCode,
 			"response", string(bodyData),
-			"request_body", reqBodyLog,
-			"request_headers", fmt.Sprintf("%v", req.Header),
+			"model", model,
 		)
 		return nil, nil, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
@@ -549,19 +554,32 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 					slog.Error("failed to get auth token in proxy", "error", err)
 				} else {
 					req.Header.Set("Authorization", "Bearer "+token)
-					// Forward the upstream anthropic-beta if present,
-					// otherwise use the default oauth beta.
+					// Merge beta flags for OAuth compatibility.
 					beta := req.Header.Get("anthropic-beta")
+					oauthFlags := oauthBetaHeader(nil) // base flags without thinking
 					if beta != "" {
-						if !strings.Contains(beta, "oauth-2025-04-20") {
-							beta = beta + ",oauth-2025-04-20"
+						// Merge unique flags.
+						existing := strings.Split(beta, ",")
+						required := strings.Split(oauthFlags, ",")
+						seen := make(map[string]bool)
+						var merged []string
+						for _, f := range append(required, existing...) {
+							f = strings.TrimSpace(f)
+							if f != "" && !seen[f] {
+								seen[f] = true
+								merged = append(merged, f)
+							}
 						}
+						beta = strings.Join(merged, ",")
 					} else {
-						beta = "oauth-2025-04-20"
+						beta = oauthFlags
 					}
 					req.Header.Set("anthropic-beta", beta)
 					// Remove any X-Api-Key that the upstream client may have sent.
 					req.Header.Del("x-api-key")
+					// Set OAuth-required headers.
+					req.Header.Set("User-Agent", "claude-cli/"+claudeCodeCLIVersion+" (external, cli)")
+					req.Header.Set("x-app", "cli")
 				}
 				req.Header.Set("anthropic-version", "2023-06-01")
 			} else if p.APIKey != "" {
@@ -569,7 +587,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 				req.Header.Set("anthropic-version", "2023-06-01")
 			}
 		},
-		Transport: p.client.HTTP.Transport,
+		Transport: p.Client.HTTP.Transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if err == context.Canceled {
 				// Client disconnected
@@ -592,10 +610,13 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) map[string]any {
 	anthropicTools := make([]map[string]any, len(tools))
 	for i, tool := range tools {
+		// Clean tool schemas: Anthropic may reject non-standard JSON Schema
+		// properties like "title" that MCP tool providers include.
+		cleanedSchema := cleanToolSchema(tool.InputSchema)
 		anthropicTools[i] = map[string]any{
 			"name":         tool.Name,
 			"description":  tool.Description,
-			"input_schema": tool.InputSchema,
+			"input_schema": cleanedSchema,
 		}
 	}
 
@@ -615,6 +636,22 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 			filteredMessages = append(filteredMessages, msg)
 		}
 	}
+
+	// OAuth via Claude Code beta requires a system identity prefix.
+	// Inject it if not already present.
+	if p.tokenSource != nil {
+		if !strings.Contains(systemPrompt, claudeCodeSystemIdentity) {
+			if systemPrompt != "" {
+				systemPrompt = claudeCodeSystemIdentity + "\n" + systemPrompt
+			} else {
+				systemPrompt = claudeCodeSystemIdentity
+			}
+		}
+	}
+
+	// Anthropic requires messages to strictly alternate between user and assistant.
+	// Merge consecutive messages with the same role into a single message.
+	filteredMessages = mergeConsecutiveMessages(filteredMessages)
 
 	// Convert content blocks to raw maps so we control exactly which fields
 	// are present.  Anthropic requires "input" on tool_use blocks, but Go's
@@ -639,6 +676,9 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		"messages":   filteredMessages,
 	}
 	if systemPrompt != "" {
+		// Always use plain string format for system prompt.
+		// The array format [{"type":"text","text":"..."}] causes 400 errors
+		// when combined with tools in Claude Code OAuth requests.
 		reqBody["system"] = systemPrompt
 	}
 	if len(tools) > 0 {
@@ -716,16 +756,135 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 	return reqBody
 }
 
-// oauthBetaHeader returns the anthropic-beta header value for OAuth requests.
-// When thinking is enabled in the request body, the interleaved-thinking beta
-// must also be included alongside the oauth beta.
-func oauthBetaHeader(reqBody map[string]any) string {
-	beta := "oauth-2025-04-20"
-	if _, hasThinking := reqBody["thinking"]; hasThinking {
-		beta += ",interleaved-thinking-2025-05-14"
+// mergeConsecutiveMessages merges adjacent messages that share the same role.
+// Anthropic requires strict user/assistant alternation. When two or more
+// consecutive messages have the same role, their content is concatenated
+// (strings joined with newlines, content-block arrays appended).
+func mergeConsecutiveMessages(msgs []service.Message) []service.Message {
+	if len(msgs) <= 1 {
+		return msgs
 	}
-	return beta
+
+	merged := make([]service.Message, 0, len(msgs))
+	merged = append(merged, msgs[0])
+
+	for i := 1; i < len(msgs); i++ {
+		last := &merged[len(merged)-1]
+		if msgs[i].Role == last.Role {
+			// Same role — merge content.
+			last.Content = mergeContent(last.Content, msgs[i].Content)
+		} else {
+			merged = append(merged, msgs[i])
+		}
+	}
+
+	return merged
 }
+
+// mergeContent combines two message Content values.
+// Content can be a string or []ContentBlock (or []any after conversion).
+func mergeContent(a, b any) any {
+	aStr, aIsStr := a.(string)
+	bStr, bIsStr := b.(string)
+
+	if aIsStr && bIsStr {
+		return aStr + "\n" + bStr
+	}
+
+	// Convert both to slices and concatenate.
+	aSlice := contentToSlice(a)
+	bSlice := contentToSlice(b)
+	return append(aSlice, bSlice...)
+}
+
+// contentToSlice normalizes message content to a []any slice.
+func contentToSlice(c any) []any {
+	switch v := c.(type) {
+	case string:
+		return []any{map[string]any{"type": "text", "text": v}}
+	case []any:
+		return v
+	case []service.ContentBlock:
+		out := make([]any, len(v))
+		for i, b := range v {
+			out[i] = b
+		}
+		return out
+	default:
+		return []any{c}
+	}
+}
+
+// cleanToolSchema removes the JSON Schema metadata "title" field that some
+// MCP providers include (e.g., "title": "text_to_audioArguments") but which
+// Anthropic's API may not accept. It only removes "title" from schema
+// definition objects (those that have a "type" key), NOT from the "properties"
+// map where "title" is a legitimate property name.
+func cleanToolSchema(schema any) any {
+	switch v := schema.(type) {
+	case map[string]any:
+		// Only remove "title" if this looks like a JSON Schema definition
+		// (has "type" or "properties" key), NOT if we're inside a "properties" map.
+		if _, hasType := v["type"]; hasType {
+			delete(v, "title")
+		} else if _, hasProps := v["properties"]; hasProps {
+			delete(v, "title")
+		}
+		// Recursively clean nested schemas, but skip the "properties" map's
+		// direct children keys (those are field names, not schema metadata).
+		for key, val := range v {
+			if key == "properties" {
+				// Inside "properties", each value is a schema definition — clean those.
+				if propsMap, ok := val.(map[string]any); ok {
+					for propName, propSchema := range propsMap {
+						propsMap[propName] = cleanToolSchema(propSchema)
+					}
+				}
+			} else {
+				v[key] = cleanToolSchema(val)
+			}
+		}
+		return v
+	case []any:
+		for i, val := range v {
+			v[i] = cleanToolSchema(val)
+		}
+		return v
+	default:
+		return schema
+	}
+}
+
+// setOAuthHeaders adds the additional HTTP headers required for Claude Code OAuth requests.
+func (p *Provider) setOAuthHeaders(req *http.Request, model string) {
+	req.Header.Set("User-Agent", "claude-cli/"+claudeCodeCLIVersion+" (external, cli)")
+	req.Header.Set("x-app", "cli")
+	req.Header.Set("anthropic-dangerous-direct-browser-access", "true")
+	req.Header.Set("x-anthropic-billing-header",
+		fmt.Sprintf("cc_version=%s.%s; cc_entrypoint=cli; cch=00000;", claudeCodeCLIVersion, model))
+}
+
+// claudeCodeSystemIdentity is the required system identity prefix for
+// Claude Code OAuth requests. Anthropic's API expects this when using
+// the claude-code beta flag.
+const claudeCodeSystemIdentity = "You are Claude Code, Anthropic's official CLI for Claude."
+
+// oauthBetaHeader returns the anthropic-beta header value for OAuth requests.
+// Includes all required beta flags for Claude Code OAuth compatibility.
+func oauthBetaHeader(reqBody map[string]any) string {
+	flags := []string{
+		"claude-code-20250219",
+		"oauth-2025-04-20",
+	}
+	if _, hasThinking := reqBody["thinking"]; hasThinking {
+		flags = append(flags, "interleaved-thinking-2025-05-14")
+	}
+	return strings.Join(flags, ",")
+}
+
+// claudeCodeCLIVersion is the Claude CLI version used in User-Agent
+// and billing headers for OAuth requests.
+const claudeCodeCLIVersion = "2.1.84"
 
 // modelRequiresThinking returns true for Claude 4.x Sonnet/Opus models
 // that require extended thinking when used via OAuth user:inference scope.

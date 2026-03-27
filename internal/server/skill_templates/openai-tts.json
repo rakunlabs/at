@@ -3,7 +3,14 @@
   "name": "OpenAI Text-to-Speech",
   "description": "Generate high-quality voiceover audio using OpenAI TTS (gpt-4o-mini-tts) with natural-sounding voices and style control",
   "category": "Content Creation",
-  "tags": ["tts", "audio", "voiceover", "speech", "openai", "narration"],
+  "tags": [
+    "tts",
+    "audio",
+    "voiceover",
+    "speech",
+    "openai",
+    "narration"
+  ],
   "required_variables": [
     {
       "key": "openai_api_key",
@@ -14,7 +21,7 @@
   "skill": {
     "name": "openai_tts",
     "description": "Generate voiceover audio using OpenAI Text-to-Speech",
-    "system_prompt": "You have access to OpenAI Text-to-Speech for generating voiceover narration.\n\nAvailable voices:\n- coral (warm, engaging — great for narration)\n- alloy (neutral, balanced)\n- ash (clear, authoritative)\n- ballad (soft, storytelling)\n- echo (calm, measured)\n- fable (expressive, animated)\n- nova (friendly, upbeat)\n- onyx (deep, resonant)\n- sage (wise, steady)\n- shimmer (bright, energetic)\n- verse (smooth, professional)\n\nTips:\n- Use the 'instructions' parameter to control speaking style: 'Speak in a warm, curious narrator voice' or 'Sound excited and energetic'\n- For YouTube Shorts, use a voice that matches the content tone\n- The audio is saved as an MP3 file and the file path is returned\n- A 150-word script generates roughly 60 seconds of audio\n- Model 'gpt-4o-mini-tts' is the default (best quality/cost ratio)",
+    "system_prompt": "You have access to OpenAI Text-to-Speech for generating voiceover narration.\n\nAvailable voices:\n- coral (warm, engaging \u2014 great for narration)\n- alloy (neutral, balanced)\n- ash (clear, authoritative)\n- ballad (soft, storytelling)\n- echo (calm, measured)\n- fable (expressive, animated)\n- nova (friendly, upbeat)\n- onyx (deep, resonant)\n- sage (wise, steady)\n- shimmer (bright, energetic)\n- verse (smooth, professional)\n\nTips:\n- Use the 'instructions' parameter to control speaking style: 'Speak in a warm, curious narrator voice' or 'Sound excited and energetic'\n- For YouTube Shorts, use a voice that matches the content tone\n- The audio is saved as an MP3 file and the file path is returned\n- A 150-word script generates roughly 60 seconds of audio\n- Model 'gpt-4o-mini-tts' is the default (best quality/cost ratio)",
     "tools": [
       {
         "name": "generate_voiceover",
@@ -39,9 +46,11 @@
               "description": "Speaking speed: 0.25 to 4.0 (1.0 = normal). Default: 1.0"
             }
           },
-          "required": ["text"]
+          "required": [
+            "text"
+          ]
         },
-        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_OPENAI_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"OpenAI API key not configured. Set the '\\''openai_api_key'\\'' variable.\"}'\n  exit 0\nfi\n\nTEXT=\"$ARG_TEXT\"\nVOICE=\"${ARG_VOICE:-coral}\"\nINSTRUCTIONS=\"${ARG_INSTRUCTIONS:-}\"\nSPEED=\"${ARG_SPEED:-1.0}\"\n\n# Create temp output file\nOUTPUT_FILE=$(mktemp /tmp/at-tts-XXXXXX.mp3)\n\n# Build JSON payload\nif [ -n \"$INSTRUCTIONS\" ]; then\n  PAYLOAD=$(python3 -c \"\nimport json, sys\nprint(json.dumps({\n    'model': 'gpt-4o-mini-tts',\n    'voice': sys.argv[1],\n    'input': sys.argv[2],\n    'instructions': sys.argv[3],\n    'speed': float(sys.argv[4]),\n    'response_format': 'mp3'\n}))\n\" \"$VOICE\" \"$TEXT\" \"$INSTRUCTIONS\" \"$SPEED\")\nelse\n  PAYLOAD=$(python3 -c \"\nimport json, sys\nprint(json.dumps({\n    'model': 'gpt-4o-mini-tts',\n    'voice': sys.argv[1],\n    'input': sys.argv[2],\n    'speed': float(sys.argv[3]),\n    'response_format': 'mp3'\n}))\n\" \"$VOICE\" \"$TEXT\" \"$SPEED\")\nfi\n\n# Make API call — response is binary audio\nHTTP_CODE=$(curl -s -w '%{http_code}' -o \"$OUTPUT_FILE\" \\\n  -X POST https://api.openai.com/v1/audio/speech \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"$PAYLOAD\")\n\nif [ \"$HTTP_CODE\" != \"200\" ]; then\n  ERROR_BODY=$(cat \"$OUTPUT_FILE\")\n  rm -f \"$OUTPUT_FILE\"\n  echo \"{\\\"error\\\": \\\"OpenAI TTS API error (HTTP $HTTP_CODE)\\\", \\\"details\\\": $(echo \"$ERROR_BODY\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '\"unknown\"')}\"\n  exit 0\nfi\n\n# Get file size and estimate duration\nSIZE=$(stat -c%s \"$OUTPUT_FILE\" 2>/dev/null || stat -f%z \"$OUTPUT_FILE\" 2>/dev/null || echo \"unknown\")\n\n# Try to get duration using ffprobe if available\nDURATION=\"unknown\"\nif command -v ffprobe &> /dev/null; then\n  DURATION=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 \"$OUTPUT_FILE\" 2>/dev/null || echo \"unknown\")\nfi\n\necho \"{\\\"audio_file\\\": \\\"$OUTPUT_FILE\\\", \\\"file_size_bytes\\\": $SIZE, \\\"duration_seconds\\\": \\\"$DURATION\\\", \\\"voice\\\": \\\"$VOICE\\\", \\\"format\\\": \\\"mp3\\\"}\"",
+        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_OPENAI_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"OpenAI API key not configured. Set the '\\''openai_api_key'\\'' variable.\"}'\n  exit 0\nfi\n\nTEXT=\"$ARG_TEXT\"\nVOICE=\"${ARG_VOICE:-coral}\"\nINSTRUCTIONS=\"${ARG_INSTRUCTIONS:-}\"\nSPEED=\"${ARG_SPEED:-1.0}\"\n\n# Create output file with .mp3 extension using a unique name.\n# Uses python3 uuid4 for collision-free naming (mktemp doesn't support suffixes portably).\nTTS_DIR=\"${AT_WORK_DIR:-/tmp}\"\nOUTPUT_FILE=\"${TTS_DIR}/at-tts-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])').mp3\"\n\n# Build JSON payload\nif [ -n \"$INSTRUCTIONS\" ]; then\n  PAYLOAD=$(python3 -c \"\nimport json, sys\nprint(json.dumps({\n    'model': 'gpt-4o-mini-tts',\n    'voice': sys.argv[1],\n    'input': sys.argv[2],\n    'instructions': sys.argv[3],\n    'speed': float(sys.argv[4]),\n    'response_format': 'mp3'\n}))\n\" \"$VOICE\" \"$TEXT\" \"$INSTRUCTIONS\" \"$SPEED\")\nelse\n  PAYLOAD=$(python3 -c \"\nimport json, sys\nprint(json.dumps({\n    'model': 'gpt-4o-mini-tts',\n    'voice': sys.argv[1],\n    'input': sys.argv[2],\n    'speed': float(sys.argv[3]),\n    'response_format': 'mp3'\n}))\n\" \"$VOICE\" \"$TEXT\" \"$SPEED\")\nfi\n\n# Make API call \u2014 response is binary audio\nHTTP_CODE=$(curl -s -w '%{http_code}' -o \"$OUTPUT_FILE\" \\\n  -X POST https://api.openai.com/v1/audio/speech \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"$PAYLOAD\")\n\nif [ \"$HTTP_CODE\" != \"200\" ]; then\n  ERROR_BODY=$(cat \"$OUTPUT_FILE\")\n  rm -f \"$OUTPUT_FILE\"\n  echo \"{\\\"error\\\": \\\"OpenAI TTS API error (HTTP $HTTP_CODE)\\\", \\\"details\\\": $(echo \"$ERROR_BODY\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '\"unknown\"')}\"\n  exit 0\nfi\n\n# Get file size and estimate duration\nSIZE=$(stat -c%s \"$OUTPUT_FILE\" 2>/dev/null || stat -f%z \"$OUTPUT_FILE\" 2>/dev/null || echo \"unknown\")\n\n# Try to get duration using ffprobe if available\nDURATION=\"unknown\"\nif command -v ffprobe &> /dev/null; then\n  DURATION=$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 \"$OUTPUT_FILE\" 2>/dev/null || echo \"unknown\")\nfi\n\necho \"{\\\"audio_file\\\": \\\"$OUTPUT_FILE\\\", \\\"file_size_bytes\\\": $SIZE, \\\"duration_seconds\\\": \\\"$DURATION\\\", \\\"voice\\\": \\\"$VOICE\\\", \\\"format\\\": \\\"mp3\\\"}\"\n",
         "handler_type": "bash"
       }
     ]

@@ -322,29 +322,54 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}()
 
 	var allTools []service.Tool
+	mcpSetToolMap := make(map[string]string) // tool name -> MCP set name (for direct dispatch)
 
-	// Collect MCP URLs from legacy mcp_urls and from MCP Servers.
+	// Collect MCP URLs from legacy mcp_urls.
 	var mcpURLs []string
 	mcpURLs = append(mcpURLs, agent.Config.MCPs...)
 
-	// Resolve MCP Servers to URLs and direct clients.
-	var mcpServerUpstreams []service.MCPUpstream
-	if s.mcpServerStore != nil {
-		for _, serverName := range agent.Config.MCPServers {
-			srv, err := s.mcpServerStore.GetMCPServerByName(ctx, serverName)
+	// Resolve MCP Sets (internal MCPs) to URLs and direct clients.
+	var mcpSetUpstreams []service.MCPUpstream
+	if s.mcpSetStore != nil {
+		for _, setName := range agent.Config.MCPSets {
+			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
 			if err != nil {
-				slog.Warn("agentic loop: failed to get MCP server", "server", serverName, "error", err)
+				slog.Warn("agentic loop: failed to get MCP set", "set", setName, "error", err)
 				continue
 			}
-			if srv == nil {
-				slog.Warn("agentic loop: MCP server not found", "server", serverName)
+			if set == nil {
+				slog.Warn("agentic loop: MCP set not found", "set", setName)
 				continue
 			}
-			// Add the server's own gateway URL for its tools.
-			gatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
-			mcpURLs = append(mcpURLs, gatewayURL)
-			// Collect direct upstreams from the server.
-			mcpServerUpstreams = append(mcpServerUpstreams, srv.Config.MCPUpstreams...)
+			// Resolve MCP Server references to gateway URLs.
+			for _, serverName := range set.Servers {
+				gatewayURL := fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s", s.config.Port, s.config.BasePath, serverName)
+				mcpURLs = append(mcpURLs, gatewayURL)
+			}
+			// Add custom MCP endpoint URLs.
+			mcpURLs = append(mcpURLs, set.URLs...)
+
+			// Collect direct upstreams for stdio/HTTP resolution.
+			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
+
+			// If the MCP set has server-side tools (RAG/HTTP/Skills/Builtins),
+			// resolve them directly — no HTTP loopback.
+			if len(set.Config.EnabledRAGTools) > 0 || len(set.Config.HTTPTools) > 0 ||
+				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
+				setTools, err := s.listMCPSetTools(setName)
+				if err != nil {
+					slog.Warn("agentic loop: failed to list MCP set tools", "set", setName, "error", err)
+				} else {
+					for _, t := range setTools {
+						mcpToolNames[t.Name] = true
+						allTools = append(allTools, t)
+					}
+					// Register set name for tool dispatch later.
+					for _, t := range setTools {
+						mcpSetToolMap[t.Name] = setName
+					}
+				}
+			}
 		}
 	}
 
@@ -368,8 +393,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}
 	}
 
-	// MCP tools — direct upstreams from MCP servers (HTTP or stdio).
-	for _, upstream := range mcpServerUpstreams {
+	// MCP tools — direct upstreams from MCP sets (HTTP or stdio).
+	for _, upstream := range mcpSetUpstreams {
 		client, err := s.newMCPClient(ctx, upstream)
 		if err != nil {
 			slog.Warn("agentic loop: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
@@ -838,7 +863,10 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			var result string
 			var callErr error
 
-			if mcpToolNames[tc.Name] {
+			if setName, ok := mcpSetToolMap[tc.Name]; ok {
+				// Direct MCPSet tool — no HTTP round-trip.
+				result, callErr = s.callMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
+			} else if mcpToolNames[tc.Name] {
 				result, callErr = callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
 				if hi.handlerType == "bash" {
