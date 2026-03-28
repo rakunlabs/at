@@ -36,6 +36,8 @@ export interface MCPServerConfig {
   enabled_skills?: string[];
   // Builtin tools
   enabled_builtin_tools?: string[];
+  // Workflow tools
+  workflow_ids?: string[];
 }
 
 export interface MCPUpstream {

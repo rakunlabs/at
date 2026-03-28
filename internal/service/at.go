@@ -84,6 +84,11 @@ type ChatOptions struct {
 	// When non-nil, providers activate their native thinking mechanism.
 	// This takes precedence over ReasoningEffort for Anthropic and Gemini.
 	Thinking *ThinkingConfig
+
+	// WebSearchOptions enables web search for models that support it.
+	// For OpenAI: forwarded as web_search_options in the request body.
+	// Currently supported by gpt-4o-search-preview, gpt-4o-mini-search-preview.
+	WebSearchOptions map[string]any
 }
 
 // ThinkingConfig enables extended thinking / chain-of-thought.
@@ -751,7 +756,7 @@ type OrganizationAgent struct {
 	HeartbeatSchedule string `json:"heartbeat_schedule,omitempty"` // Cron expression for periodic wake-ups within this org
 	MemoryModel       string `json:"memory_model,omitempty"`       // LLM model for memory summarization (defaults to agent's model)
 	MemoryProvider    string `json:"memory_provider,omitempty"`    // LLM provider key for summarization (defaults to agent's provider)
-	MemoryEnabled     *bool  `json:"memory_enabled,omitempty"`     // opt-in/out of memory extraction and recall (default: true)
+	MemoryMethod      string `json:"memory_method,omitempty"`      // "none" (default), "summary"; extensible for future methods
 	CreatedAt         string `json:"created_at"`
 	UpdatedAt         string `json:"updated_at"`
 }
@@ -1642,6 +1647,9 @@ type MCPServerConfig struct {
 
 	// Builtin tools — names of server-side builtin tools to expose.
 	EnabledBuiltinTools []string `json:"enabled_builtin_tools,omitempty"`
+
+	// Workflow tools — IDs of workflows to expose as individual named tools.
+	WorkflowIDs []string `json:"workflow_ids,omitempty"`
 }
 
 // MCPUpstream represents an upstream MCP server — either HTTP or stdio (local command).

@@ -1,7 +1,28 @@
 <script lang="ts">
+  import CodeExpander from './CodeExpander.svelte';
+
   let { data }: { data: Record<string, any> } = $props();
+
+  if (!data.language) data.language = 'bash';
+
+  let codeLang = $derived(data.language === 'python' ? 'python' : 'bash');
+  let codePlaceholder = $derived(data.language === 'python'
+    ? 'import json, sys\n\nprint(json.dumps({"result": "hello"}))'
+    : "echo 'Hello World'"
+  );
 </script>
 
+<div>
+  <label class="block">
+    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Language</span>
+  <select
+    bind:value={data.language}
+    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+  >
+    <option value="bash">Bash</option>
+    <option value="python">Python</option>
+  </select></label>
+</div>
 <div>
   <label class="block">
     <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Inputs</span>
@@ -15,15 +36,18 @@
   /></label>
 </div>
 <div>
-  <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Command</span>
-  <textarea
+  <CodeExpander
     bind:value={data.command}
+    label={data.language === 'python' ? 'Python Code' : 'Command'}
+    language={codeLang}
     rows={4}
-    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
-    placeholder="echo 'Hello World'"
-  ></textarea></label>
-  <div class="mt-0.5 text-[10px] text-gray-400">Shell command (supports <code class="font-mono bg-gray-100 px-0.5 rounded">{'{{.var}}'}</code> templates from inputs)</div>
+    placeholder={codePlaceholder}
+  />
+  {#if data.language === 'python'}
+    <div class="mt-0.5 text-[10px] text-gray-400">Python 3 script. Input data available via <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-0.5 rounded">AT_NODE_INPUT</code> env var (JSON). Print result to stdout.</div>
+  {:else}
+    <div class="mt-0.5 text-[10px] text-gray-400">Shell command (supports <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-0.5 rounded">{'{{.var}}'}</code> templates from inputs)</div>
+  {/if}
 </div>
 <div>
   <label class="block">

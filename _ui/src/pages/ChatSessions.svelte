@@ -304,6 +304,62 @@
     }
   }
 
+  async function retryLastMessage() {
+    if (sending || !selectedSessionId) return;
+
+    // Find the last user message
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+    if (!lastUserMsg) return;
+
+    const content = getMessageText(lastUserMsg.data);
+    if (!content) return;
+
+    sending = true;
+    streamContent = '';
+    toolEvents = [];
+
+    abortController = sendMessage(
+      selectedSessionId!,
+      content,
+      (event) => {
+        if (event.type === 'content') {
+          streamContent += event.content;
+          scrollToBottom();
+        } else if (event.type === 'tool_call') {
+          toolEvents = [...toolEvents, { type: 'call', name: event.tool_name, id: event.tool_id }];
+          scrollToBottom();
+        } else if (event.type === 'tool_result') {
+          toolEvents = [...toolEvents, { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
+          scrollToBottom();
+        } else if (event.type === 'tool_confirm') {
+          pendingConfirmation = {
+            toolName: event.tool_name,
+            toolId: event.tool_id,
+            arguments: event.arguments || '{}',
+          };
+          scrollToBottom();
+        }
+      },
+      (error) => {
+        addToast(error, 'error');
+        sending = false;
+        abortController = null;
+        pendingConfirmation = null;
+      },
+      async () => {
+        sending = false;
+        abortController = null;
+        pendingConfirmation = null;
+        if (selectedSessionId) {
+          await loadMessages(selectedSessionId);
+        }
+        streamContent = '';
+        toolEvents = [];
+        scrollToBottom();
+      },
+    );
+  }
+
   async function handleConfirmation(approved: boolean) {
     if (!pendingConfirmation || !selectedSessionId) return;
     const { toolId } = pendingConfirmation;
@@ -398,7 +454,7 @@
             ]}
           >
             <div class="min-w-0 flex-1">
-              <div class="truncate text-gray-700 dark:text-dark-text-primary font-medium">{session.name || 'Untitled'}</div>
+              <div class="truncate text-gray-700 dark:text-dark-text font-medium">{session.name || 'Untitled'}</div>
               <div class="truncate text-[10px] text-gray-400 dark:text-dark-text-muted">{getAgentName(session.agent_id)}</div>
             </div>
             <button
@@ -428,7 +484,7 @@
       <div class="flex items-center h-8 px-3 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
         <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
           <Bot size={12} />
-          <span class="font-medium text-gray-700 dark:text-dark-text-primary">{currentAgent?.name || 'Unknown agent'}</span>
+          <span class="font-medium text-gray-700 dark:text-dark-text">{currentAgent?.name || 'Unknown agent'}</span>
           {#if currentAgent?.config?.model}
             <span class="text-gray-400 dark:text-dark-text-muted">· {currentAgent.config.model}</span>
           {/if}
@@ -458,7 +514,7 @@
                   <span class="text-[11px] font-bold text-blue-600 dark:text-blue-400 select-none shrink-0">you</span>
                   <span class="text-[10px] text-gray-300 dark:text-dark-text-muted select-none">{formatTime(msg.created_at)}</span>
                 </div>
-                <div class="pl-0 mt-0.5 text-gray-800 dark:text-dark-text-primary whitespace-pre-wrap">{getMessageText(msg.data)}</div>
+                <div class="pl-0 mt-0.5 text-gray-800 dark:text-dark-text whitespace-pre-wrap">{getMessageText(msg.data)}</div>
               </div>
             {:else if msg.role === 'assistant'}
               <div class="py-1.5">
@@ -484,6 +540,20 @@
               </div>
             {/if}
           {/each}
+
+          <!-- Retry button (shown after last message when not streaming) -->
+          {#if messages.length > 0 && !sending && !streamContent}
+            <div class="flex justify-start py-1">
+              <button
+                onclick={retryLastMessage}
+                class="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+                title="Retry last message"
+              >
+                <RotateCcw size={11} />
+                Retry
+              </button>
+            </div>
+          {/if}
 
           <!-- Streaming output -->
           {#if toolEvents.length > 0}
@@ -557,16 +627,16 @@
     </div>
 
     <!-- Input bar -->
-    <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface relative">
+    <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated relative">
       <!-- Slash command menu -->
       {#if showSlashMenu && filteredSlashCommands.length > 0}
-        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-lg shadow-lg overflow-hidden z-10">
+        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded-lg shadow-lg overflow-hidden z-10">
           {#each filteredSlashCommands as cmd}
             <button
               onclick={() => handleSlashCommand(cmd.cmd)}
               class="w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 dark:hover:bg-dark-elevated flex items-center gap-3 transition-colors"
             >
-              <span class="font-mono font-bold text-gray-700 dark:text-dark-text-primary w-20">{cmd.cmd}</span>
+              <span class="font-mono font-bold text-gray-700 dark:text-dark-text w-20">{cmd.cmd}</span>
               <span class="text-gray-500 dark:text-dark-text-secondary">{cmd.desc}</span>
             </button>
           {/each}
@@ -587,7 +657,7 @@
             >
               <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
               <div>
-                <span class="font-medium text-gray-700 dark:text-dark-text-primary">{agent.name}</span>
+                <span class="font-medium text-gray-700 dark:text-dark-text">{agent.name}</span>
                 {#if agent.config.description}
                   <span class="text-gray-400 dark:text-dark-text-muted ml-1">— {agent.config.description}</span>
                 {/if}
@@ -625,7 +695,7 @@
           placeholder={selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
           rows={1}
           disabled={sending}
-          class="flex-1 resize-none bg-transparent px-2 py-1 text-[13px] font-mono text-gray-800 dark:text-dark-text-primary placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none disabled:opacity-50"
+          class="flex-1 resize-none bg-transparent px-2 py-1 text-[13px] font-mono text-gray-800 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none disabled:opacity-50"
         ></textarea>
 
         {#if sending}

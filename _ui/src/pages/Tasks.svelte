@@ -194,6 +194,7 @@
       applyFilters(params);
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
+      else params._sort = '-updated_at'; // default: newest first
       const res = await listTasks(params);
       tasks = res.data || [];
       total = res.meta?.total || 0;
@@ -208,7 +209,7 @@
   async function loadAll() {
     loading = true;
     try {
-      const params: any = { _limit: 500 };
+      const params: any = { _limit: 500, _sort: '-updated_at' };
       applyFilters(params);
       const res = await listTasks(params);
       allTasks = res.data || [];

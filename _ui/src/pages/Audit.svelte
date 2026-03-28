@@ -9,7 +9,7 @@
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
-  import { ScrollText, RefreshCw } from 'lucide-svelte';
+  import { ScrollText, RefreshCw, ChevronRight } from 'lucide-svelte';
 
   storeNavbar.title = 'Audit Trail';
 
@@ -17,6 +17,7 @@
 
   let entries = $state<AuditEntry[]>([]);
   let loading = $state(true);
+  let expandedIds = $state<Set<string>>(new Set());
 
   // Pagination
   let offset = $state(0);
@@ -65,13 +66,13 @@
   function actionBadgeClass(action: string): string {
     switch (action) {
       case 'tool_call':
-        return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
+        return 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300';
       case 'task_checkout':
-        return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
+        return 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300';
       case 'status_change':
-        return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
+        return 'bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300';
       case 'config_update':
-        return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
+        return 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300';
       default:
         return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
     }
@@ -79,6 +80,22 @@
 
   function truncate(text: string, max: number): string {
     return text.length > max ? text.slice(0, max) + '…' : text;
+  }
+
+  function toggleExpand(id: string) {
+    const next = new Set(expandedIds);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    expandedIds = next;
+  }
+
+  function formatDetailValue(value: any): string {
+    if (value === null || value === undefined) return 'null';
+    if (typeof value === 'object') return JSON.stringify(value, null, 2);
+    return String(value);
   }
 </script>
 
@@ -128,23 +145,60 @@
     {/snippet}
 
     {#snippet row(entry)}
-      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-        <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap">{formatDateTime(entry.created_at)}</td>
-        <td class="px-4 py-2.5 text-xs text-gray-700 dark:text-dark-text-secondary">
-          <span class="font-medium text-gray-500 dark:text-dark-text-muted">{entry.actor_type}:</span> {entry.actor_id}
+      {@const isExpanded = expandedIds.has(entry.id)}
+      {@const detailEntries = entry.details ? Object.entries(entry.details) : []}
+      <tr
+        class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer select-none"
+        onclick={() => toggleExpand(entry.id)}
+      >
+        <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-secondary whitespace-nowrap">
+          <div class="flex items-center gap-1.5">
+            <ChevronRight
+              size={12}
+              class="text-gray-400 dark:text-dark-text-secondary transition-transform flex-shrink-0 {isExpanded ? 'rotate-90' : ''}"
+            />
+            {formatDateTime(entry.created_at)}
+          </div>
+        </td>
+        <td class="px-4 py-2.5 text-xs text-gray-700 dark:text-dark-text">
+          <span class="font-medium text-gray-500 dark:text-dark-text-secondary">{entry.actor_type}:</span> {entry.actor_id}
         </td>
         <td class="px-4 py-2.5">
           <span class="inline-block px-2 py-0.5 text-xs font-medium rounded {actionBadgeClass(entry.action)}">
             {entry.action}
           </span>
         </td>
-        <td class="px-4 py-2.5 text-xs text-gray-700 dark:text-dark-text-secondary">
-          <span class="font-medium text-gray-500 dark:text-dark-text-muted">{entry.resource_type}:</span> {entry.resource_id}
+        <td class="px-4 py-2.5 text-xs text-gray-700 dark:text-dark-text">
+          <span class="font-medium text-gray-500 dark:text-dark-text-secondary">{entry.resource_type}:</span> {entry.resource_id}
         </td>
-        <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted max-w-48 truncate" title={JSON.stringify(entry.details)}>
-          {truncate(JSON.stringify(entry.details), 80)}
+        <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-secondary max-w-48 truncate">
+          {detailEntries.length > 0 ? truncate(JSON.stringify(entry.details), 60) : '—'}
         </td>
       </tr>
+      {#if isExpanded && detailEntries.length > 0}
+        <tr>
+          <td colspan="5" class="px-0 py-0">
+            <div class="mx-4 mb-3 mt-0 overflow-hidden">
+              <div class="divide-y divide-gray-100 dark:divide-dark-border">
+                {#each detailEntries as [key, value]}
+                  <div class="px-4 py-2 flex gap-4">
+                    <span class="text-xs font-medium text-gray-500 dark:text-accent-text min-w-[120px] flex-shrink-0">{key}</span>
+                    {#if typeof value === 'object' && value !== null}
+                      <pre class="text-xs font-mono text-gray-700 dark:text-dark-text whitespace-pre-wrap break-all flex-1">{JSON.stringify(value, null, 2)}</pre>
+                    {:else if typeof value === 'boolean'}
+                      <span class="inline-block px-1.5 py-0.5 text-xs font-medium rounded {value ? 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300'}">
+                        {value}
+                      </span>
+                    {:else}
+                      <span class="text-xs font-mono text-gray-700 dark:text-dark-text break-all flex-1">{formatDetailValue(value)}</span>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          </td>
+        </tr>
+      {/if}
     {/snippet}
   </DataTable>
 </div>

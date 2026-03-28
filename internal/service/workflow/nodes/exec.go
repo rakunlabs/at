@@ -3,6 +3,7 @@ package nodes
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -63,7 +64,8 @@ func (*execNode) Meta() workflow.NodeMeta {
 		},
 		Fields: []workflow.FieldMeta{
 			{Name: "label", Type: "string", Required: true, Description: "Display name"},
-			{Name: "command", Type: "string", Required: true, Description: "Shell command to execute"},
+			{Name: "language", Type: "string", Default: "bash", Description: "Language: bash or python"},
+			{Name: "command", Type: "string", Required: true, Description: "Code to execute"},
 			{Name: "working_dir", Type: "string", Description: "Working directory"},
 			{Name: "timeout", Type: "number", Default: 60, Description: "Timeout in seconds"},
 			{Name: "sandbox_root", Type: "string", Default: "/tmp/at-sandbox", Description: "Sandbox root directory"},
@@ -75,6 +77,7 @@ func (*execNode) Meta() workflow.NodeMeta {
 
 type execNode struct {
 	command            string
+	language           string // "bash" (default), "python"
 	workingDir         string
 	timeout            time.Duration
 	sandboxRoot        string
@@ -98,6 +101,11 @@ func init() {
 
 func newExecNode(node service.WorkflowNode) (workflow.Noder, error) {
 	command, _ := node.Data["command"].(string)
+
+	language, _ := node.Data["language"].(string)
+	if language == "" {
+		language = "bash"
+	}
 
 	workingDir, _ := node.Data["working_dir"].(string)
 
@@ -133,6 +141,7 @@ func newExecNode(node service.WorkflowNode) (workflow.Noder, error) {
 
 	return &execNode{
 		command:            command,
+		language:           language,
 		workingDir:         workingDir,
 		timeout:            timeout,
 		sandboxRoot:        sandboxRoot,
@@ -211,15 +220,27 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 	execCtx, cancel := context.WithTimeout(ctx, n.timeout)
 	defer cancel()
 
-	// Build the command.
-	cmd := exec.CommandContext(execCtx, "/bin/sh", "-c", command)
+	// Build the command based on language.
+	var cmd *exec.Cmd
+	switch n.language {
+	case "python":
+		// Write Python code to a temp file and execute with python3.
+		scriptFile := filepath.Join(workDirAbs, ".at_exec_script.py")
+		if err := os.WriteFile(scriptFile, []byte(command), 0o644); err != nil {
+			return nil, fmt.Errorf("exec: write python script: %w", err)
+		}
+		defer os.Remove(scriptFile)
+		cmd = exec.CommandContext(execCtx, "python3", scriptFile)
+	default: // bash
+		cmd = exec.CommandContext(execCtx, "/bin/sh", "-c", command)
+	}
 	cmd.Dir = workDirAbs
 
 	// Build environment: start with minimal defaults, add configured env,
 	// then add any env from inputs.
 	cmdEnv := []string{
 		"HOME=" + sandboxAbs,
-		"PATH=/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+		"PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		"TMPDIR=" + sandboxAbs,
 		"SANDBOX_ROOT=" + sandboxAbs,
 	}
@@ -231,6 +252,12 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 			cmdEnv = append(cmdEnv, fmt.Sprintf("%s=%v", k, v))
 		}
 	}
+
+	// Serialize input data as JSON and pass as AT_NODE_INPUT env var.
+	if inputJSON, err := json.Marshal(inputs); err == nil {
+		cmdEnv = append(cmdEnv, "AT_NODE_INPUT="+string(inputJSON))
+	}
+
 	cmd.Env = cmdEnv
 
 	// Capture stdout and stderr.

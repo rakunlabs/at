@@ -595,16 +595,19 @@
                   <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Memory</span>
                 </div>
 
-                <label class="flex items-center gap-2 cursor-pointer mb-2">
-                  <input
-                    type="checkbox"
-                    checked={membership.memory_enabled === true}
-                    onchange={(e) => handleUpdateMemoryConfig(membership.agent_id, 'memory_enabled', (e.target as HTMLInputElement).checked)}
-                    class="w-3.5 h-3.5 rounded border-gray-300 dark:border-dark-border-subtle text-gray-900 dark:text-accent focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20"
-                  />
-                  <span class="text-xs text-gray-700 dark:text-dark-text-secondary">Enabled</span>
-                </label>
+                <div class="mb-2">
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Method</span>
+                  <select
+                    value={membership.memory_method || 'none'}
+                    onchange={(e) => handleUpdateMemoryConfig(membership.agent_id, 'memory_method', (e.target as HTMLSelectElement).value)}
+                    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text"
+                  >
+                    <option value="none">Disabled</option>
+                    <option value="summary">Summary (L0/L1/L2)</option>
+                  </select>
+                </div>
 
+                {#if (membership.memory_method || 'none') !== 'none'}
                 <div class="mb-2">
                   <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Provider</span>
                   <select
@@ -629,6 +632,7 @@
                     class="mt-0.5 w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
                   />
                 </div>
+                {/if}
 
                 <button
                   onclick={() => push(`/organizations/${params.id}/memories?agent_id=${membership.agent_id}`)}

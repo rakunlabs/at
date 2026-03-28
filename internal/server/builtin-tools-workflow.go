@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -523,4 +525,123 @@ func (s *Server) chatSessionLookupFunc() workflow.ChatSessionLookupFunc {
 	return func(ctx context.Context, id string) (*service.ChatSession, error) {
 		return s.chatSessionStore.GetChatSession(ctx, id)
 	}
+}
+
+// ─── Workflow-as-MCP-Tool Helpers ───
+
+var reNonAlnum = regexp.MustCompile(`[^a-z0-9]+`)
+
+// workflowToolName converts a workflow name into a valid MCP tool name.
+// Example: "My Data Pipeline" → "wf_my_data_pipeline"
+func workflowToolName(wf *service.Workflow) string {
+	name := strings.ToLower(strings.TrimSpace(wf.Name))
+	name = reNonAlnum.ReplaceAllString(name, "_")
+	name = strings.Trim(name, "_")
+	if name == "" {
+		name = wf.ID
+	}
+	return "wf_" + name
+}
+
+// workflowToolDef builds a service.Tool definition from a workflow.
+// It lists available entry points (input node labels) in the description
+// so the caller knows which entries are available.
+func workflowToolDef(wf *service.Workflow) service.Tool {
+	desc := wf.Description
+	if desc == "" {
+		desc = "Run workflow: " + wf.Name
+	}
+
+	// Collect input node labels for the description.
+	graph := wf.Graph
+	var entryLabels []string
+	for _, n := range graph.Nodes {
+		if n.Type == "input" {
+			label, _ := n.Data["label"].(string)
+			if label == "" {
+				label = n.ID
+			}
+			entryLabels = append(entryLabels, label)
+		}
+	}
+	if len(entryLabels) > 0 {
+		desc += " | Available entries: " + strings.Join(entryLabels, ", ")
+	}
+
+	return service.Tool{
+		Name:        workflowToolName(wf),
+		Description: desc,
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"entry": map[string]any{
+					"type":        "string",
+					"description": "Name of the input node to enter (the label of the input node). If omitted, all input nodes are triggered.",
+				},
+				"inputs": map[string]any{
+					"type":        "object",
+					"description": "Key-value inputs to pass to the workflow",
+				},
+			},
+		},
+	}
+}
+
+// executeWorkflowTool runs a workflow synchronously and returns the JSON result.
+// If args contains an "entry" field, only the matching input node is used as
+// the entry point. Otherwise all input nodes are triggered.
+func (s *Server) executeWorkflowTool(ctx context.Context, wf *service.Workflow, args map[string]any) (string, error) {
+	graphToRun := wf.Graph
+	if wf.ActiveVersion != nil && s.workflowVersionStore != nil {
+		ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, wf.ID, *wf.ActiveVersion)
+		if err == nil && ver != nil {
+			graphToRun = ver.Graph
+		}
+	}
+
+	inputs, _ := args["inputs"].(map[string]any)
+	if inputs == nil {
+		inputs = make(map[string]any)
+	}
+
+	engine := s.buildWorkflowEngine()
+
+	// Resolve entry node IDs.
+	entryName, _ := args["entry"].(string)
+	var entryNodeIDs []string
+
+	if entryName != "" {
+		// Find the input node matching the requested entry by label or ID.
+		for _, n := range graphToRun.Nodes {
+			if n.Type != "input" {
+				continue
+			}
+			label, _ := n.Data["label"].(string)
+			if strings.EqualFold(label, entryName) || n.ID == entryName {
+				entryNodeIDs = append(entryNodeIDs, n.ID)
+				break
+			}
+		}
+		if len(entryNodeIDs) == 0 {
+			return "", fmt.Errorf("input node %q not found in workflow %q", entryName, wf.Name)
+		}
+	} else {
+		// Default: all input nodes.
+		for _, n := range graphToRun.Nodes {
+			if n.Type == "input" {
+				entryNodeIDs = append(entryNodeIDs, n.ID)
+			}
+		}
+	}
+
+	result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, nil)
+	if err != nil {
+		return "", fmt.Errorf("workflow execution failed: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(map[string]any{
+		"status":  "completed",
+		"outputs": result.Outputs,
+	}, "", "  ")
+	return string(data), nil
 }

@@ -32,6 +32,9 @@ type ChatCompletionRequest struct {
 	// Reasoning / thinking parameters
 	ReasoningEffort string       `json:"reasoning_effort,omitempty"` // "low", "medium", "high"
 	Thinking        *ThinkingReq `json:"thinking,omitempty"`
+
+	// Web search (OpenAI search models)
+	WebSearchOptions map[string]any `json:"web_search_options,omitempty"`
 }
 
 // ThinkingReq is the client-facing thinking configuration.
@@ -401,6 +404,11 @@ func buildChatOptions(req *ChatCompletionRequest) *service.ChatOptions {
 				any = true
 			}
 		}
+	}
+
+	if len(req.WebSearchOptions) > 0 {
+		opts.WebSearchOptions = req.WebSearchOptions
+		any = true
 	}
 
 	if !any {

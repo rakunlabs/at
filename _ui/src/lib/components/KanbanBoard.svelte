@@ -94,6 +94,8 @@
         data['todo'].push({ id: task.id, task });
       }
     }
+    // Sort "done" column descending by updated_at (newest first)
+    data['done'].sort((a, b) => (b.task.updated_at || '').localeCompare(a.task.updated_at || ''));
     columnData = data;
   });
 

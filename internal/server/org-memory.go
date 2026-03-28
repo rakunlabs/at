@@ -12,36 +12,99 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
-// ─── Memory Extraction ───
+// ─── Memory Method Interface ───
 
-// extractAndPersistMemory generates an L0/L1 summary from the conversation
-// and persists it along with the L2 messages. This is called after the agentic
-// loop completes in runOrgDelegation. Errors are logged but never propagated
-// (memory extraction failure must not block task completion).
+// memoryMethod defines the extraction and recall behavior for a specific
+// memory strategy. Implementations are registered by name in memoryMethods.
+type memoryMethod interface {
+	// Extract generates and persists memory from a completed task conversation.
+	Extract(ctx context.Context, s *Server, org *service.Organization, task *service.Task, agent *service.Agent, agentID string, messages []service.Message)
+	// Recall retrieves relevant past memories and returns formatted text
+	// for injection into the system prompt.
+	Recall(ctx context.Context, s *Server, org *service.Organization, task *service.Task, agent *service.Agent, agentID string) string
+}
+
+// memoryMethods is the registry of available memory methods.
+var memoryMethods = map[string]memoryMethod{
+	"summary": &summaryMemoryMethod{},
+}
+
+// resolveMemoryMethod returns the effective memory method name for the given org-agent.
+// Returns "none" if memory is disabled or unconfigured.
+func resolveMemoryMethod(orgAgent *service.OrganizationAgent) string {
+	if orgAgent == nil {
+		return "none"
+	}
+	if orgAgent.MemoryMethod != "" {
+		return orgAgent.MemoryMethod
+	}
+	return "none"
+}
+
+// ─── Dispatchers ───
+
+// extractAndPersistMemory resolves the memory method for the org-agent and
+// delegates to the method's Extract implementation. Errors are logged but
+// never propagated (memory extraction must not block task completion).
 func (s *Server) extractAndPersistMemory(ctx context.Context, org *service.Organization, task *service.Task, agent *service.Agent, agentID string, messages []service.Message) {
 	if s.agentMemoryStore == nil || s.orgAgentStore == nil {
 		return
 	}
 
-	// Check if memory is enabled for this agent in this org.
 	orgAgent, err := s.orgAgentStore.GetOrganizationAgentByPair(ctx, org.ID, agentID)
 	if err != nil {
 		slog.Warn("org-memory: failed to get org-agent config", "agent_id", agentID, "org_id", org.ID, "error", err)
 		return
 	}
-	if orgAgent != nil && orgAgent.MemoryEnabled != nil && !*orgAgent.MemoryEnabled {
-		return // memory explicitly disabled
+
+	methodName := resolveMemoryMethod(orgAgent)
+	m, ok := memoryMethods[methodName]
+	if !ok {
+		return // "none" or unknown method
 	}
 
+	m.Extract(ctx, s, org, task, agent, agentID, messages)
+}
+
+// recallAgentMemories resolves the memory method for the org-agent and
+// delegates to the method's Recall implementation. Returns empty string
+// if no relevant memories found or memory is disabled.
+func (s *Server) recallAgentMemories(ctx context.Context, org *service.Organization, task *service.Task, agent *service.Agent, agentID string) string {
+	if s.agentMemoryStore == nil || s.orgAgentStore == nil {
+		return ""
+	}
+
+	orgAgent, err := s.orgAgentStore.GetOrganizationAgentByPair(ctx, org.ID, agentID)
+	if err != nil {
+		slog.Warn("org-memory: failed to get org-agent config for recall", "agent_id", agentID, "error", err)
+		return ""
+	}
+
+	methodName := resolveMemoryMethod(orgAgent)
+	m, ok := memoryMethods[methodName]
+	if !ok {
+		return "" // "none" or unknown method
+	}
+
+	return m.Recall(ctx, s, org, task, agent, agentID)
+}
+
+// ─── "summary" Memory Method ───
+
+type summaryMemoryMethod struct{}
+
+func (m *summaryMemoryMethod) Extract(ctx context.Context, s *Server, org *service.Organization, task *service.Task, agent *service.Agent, agentID string, messages []service.Message) {
+	orgAgent, _ := s.orgAgentStore.GetOrganizationAgentByPair(ctx, org.ID, agentID)
+
 	// Resolve the summarization provider and model.
-	provider, model := s.resolveMemoryProvider(agent, orgAgent)
+	provider, model := resolveMemoryProvider(s, agent, orgAgent)
 	if provider == nil {
 		slog.Warn("org-memory: no provider available for summarization", "agent_id", agentID)
 		return
 	}
 
 	// Build and send summarization prompt.
-	summary, err := s.generateMemorySummary(ctx, provider, model, task, messages)
+	summary, err := generateMemorySummary(ctx, provider, model, task, messages)
 	if err != nil {
 		slog.Warn("org-memory: summarization failed", "agent_id", agentID, "task_id", task.ID, "error", err)
 		return
@@ -75,10 +138,34 @@ func (s *Server) extractAndPersistMemory(ctx context.Context, org *service.Organ
 		"l0_len", len(summary.l0), "tags", summary.tags)
 }
 
+func (m *summaryMemoryMethod) Recall(ctx context.Context, s *Server, org *service.Organization, task *service.Task, _ *service.Agent, agentID string) string {
+	// Load all org memories (cross-agent).
+	memories, err := s.agentMemoryStore.ListOrgMemories(ctx, org.ID)
+	if err != nil {
+		slog.Warn("org-memory: failed to load org memories for recall", "org_id", org.ID, "error", err)
+		return ""
+	}
+
+	if len(memories) == 0 {
+		return ""
+	}
+
+	// Score and rank.
+	scored := scoreMemories(memories, task, agentID)
+	if len(scored) == 0 {
+		return ""
+	}
+
+	// Format top memories within token budget.
+	return formatMemoriesForPrompt(scored, agentID)
+}
+
+// ─── Shared Helpers ───
+
 // resolveMemoryProvider returns the LLM provider and model to use for
 // summarization. It checks the org-agent memory config first, then falls
 // back to the agent's own provider/model.
-func (s *Server) resolveMemoryProvider(agent *service.Agent, orgAgent *service.OrganizationAgent) (service.LLMProvider, string) {
+func resolveMemoryProvider(s *Server, agent *service.Agent, orgAgent *service.OrganizationAgent) (service.LLMProvider, string) {
 	providerKey := agent.Config.Provider
 	model := agent.Config.Model
 
@@ -111,7 +198,7 @@ type memorySummary struct {
 
 // generateMemorySummary calls the LLM with a structured prompt to produce
 // L0 (one-line summary), L1 (decisions + approach), and tags.
-func (s *Server) generateMemorySummary(ctx context.Context, provider service.LLMProvider, model string, task *service.Task, messages []service.Message) (*memorySummary, error) {
+func generateMemorySummary(ctx context.Context, provider service.LLMProvider, model string, task *service.Task, messages []service.Message) (*memorySummary, error) {
 	// Build a compact representation of the conversation for the prompt.
 	var conversationBuf strings.Builder
 	for _, msg := range messages {
@@ -241,47 +328,6 @@ func parseMemorySummary(content string) *memorySummary {
 	}
 
 	return result
-}
-
-// ─── Memory Recall ───
-
-// recallAgentMemories loads relevant past memories for the agent and org,
-// scores them, and returns a formatted prompt section to inject into the
-// system prompt. Returns empty string if no relevant memories found.
-func (s *Server) recallAgentMemories(ctx context.Context, org *service.Organization, task *service.Task, agent *service.Agent, agentID string) string {
-	if s.agentMemoryStore == nil || s.orgAgentStore == nil {
-		return ""
-	}
-
-	// Check if memory is enabled for this agent.
-	orgAgent, err := s.orgAgentStore.GetOrganizationAgentByPair(ctx, org.ID, agentID)
-	if err != nil {
-		slog.Warn("org-memory: failed to get org-agent config for recall", "agent_id", agentID, "error", err)
-		return ""
-	}
-	if orgAgent != nil && orgAgent.MemoryEnabled != nil && !*orgAgent.MemoryEnabled {
-		return "" // memory explicitly disabled
-	}
-
-	// Load all org memories (cross-agent).
-	memories, err := s.agentMemoryStore.ListOrgMemories(ctx, org.ID)
-	if err != nil {
-		slog.Warn("org-memory: failed to load org memories for recall", "org_id", org.ID, "error", err)
-		return ""
-	}
-
-	if len(memories) == 0 {
-		return ""
-	}
-
-	// Score and rank.
-	scored := scoreMemories(memories, task, agentID)
-	if len(scored) == 0 {
-		return ""
-	}
-
-	// Format top memories within token budget.
-	return formatMemoriesForPrompt(scored, agentID)
 }
 
 type scoredMemory struct {

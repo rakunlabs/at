@@ -265,6 +265,18 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 		}
 	}
 
+	// Add workflow tools.
+	if s.workflowStore != nil {
+		for _, wfID := range srv.Config.WorkflowIDs {
+			wf, err := s.workflowStore.GetWorkflow(context.Background(), wfID)
+			if err != nil || wf == nil {
+				slog.Warn("failed to load workflow for MCP server", "id", wfID, "error", err)
+				continue
+			}
+			tools = append(tools, workflowToolDef(wf))
+		}
+	}
+
 	mcpResult(w, req.ID, map[string]any{"tools": tools})
 }
 
@@ -465,6 +477,29 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 			},
 		})
 		return
+	}
+
+	// Check if it's a workflow tool.
+	if s.workflowStore != nil {
+		for _, wfID := range srv.Config.WorkflowIDs {
+			wf, err := s.workflowStore.GetWorkflow(r.Context(), wfID)
+			if err != nil || wf == nil {
+				continue
+			}
+			if workflowToolName(wf) == params.Name {
+				result, err := s.executeWorkflowTool(r.Context(), wf, params.Arguments)
+				if err != nil {
+					mcpError(w, req.ID, -32000, fmt.Sprintf("workflow tool execution failed: %v", err))
+					return
+				}
+				mcpResult(w, req.ID, map[string]any{
+					"content": []map[string]any{
+						{"type": "text", "text": result},
+					},
+				})
+				return
+			}
+		}
 	}
 
 	mcpError(w, req.ID, -32602, fmt.Sprintf("unknown tool: %s", params.Name))

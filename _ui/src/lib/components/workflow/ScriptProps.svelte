@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CodeExpander from './CodeExpander.svelte';
+
   let { data }: { data: Record<string, any> } = $props();
 </script>
 
@@ -26,18 +28,17 @@
   </div>
 </div>
 <div>
-  <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Code (JS)</span>
-  <textarea
+  <CodeExpander
     bind:value={data.code}
+    label="Code (JS)"
+    language="javascript"
     rows={6}
-    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
     placeholder={
       (data.input_count || 1) <= 1
         ? '// Access inputs via data\nconst value = data.value * 2;\nreturn { doubled: value };'
         : '// Access inputs via data1, data2, ...\nconst sum = data1.value + data2.value;\nreturn { sum: sum };'
     }
-  ></textarea></label>
+  />
   <div class="mt-0.5 text-[10px] text-gray-400">Use <code class="font-mono bg-gray-100 px-0.5 rounded">return</code> to set the result → "true" port. <code class="font-mono bg-gray-100 px-0.5 rounded">throw</code> → "false" port (with <code class="font-mono bg-gray-100 px-0.5 rounded">error</code> in output). "always" always fires.</div>
 </div>
 <div>

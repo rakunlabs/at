@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"sort"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 // findOrCreateBotSession looks up an existing chat session by platform identifiers,
@@ -244,4 +246,234 @@ func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode s
 		return slices.Contains(allowedUsers, userID), false
 	}
 	return true, false // open mode
+}
+
+// TaskDoneCallback is called when a bot-created task finishes (success or failure).
+type TaskDoneCallback func(identifier, status, result string)
+
+// createBotTask creates a background org task for the given agent and topic.
+// It finds the agent's organization, creates a task, and starts async delegation.
+// An optional callback is called when the task finishes.
+// Returns (taskID, identifier, error).
+func (s *Server) createBotTask(ctx context.Context, agentID, topic string, onDone ...TaskDoneCallback) (string, string, error) {
+	if s.orgAgentStore == nil || s.organizationStore == nil || s.taskStore == nil {
+		return "", "", fmt.Errorf("task/org stores not configured")
+	}
+
+	// Find which org this agent belongs to — check memberships first, then head agent.
+	var org *service.Organization
+
+	// Check org memberships
+	orgMemberships, err := s.orgAgentStore.ListAgentOrganizations(ctx, agentID)
+	if err == nil && len(orgMemberships) > 0 {
+		org, _ = s.organizationStore.GetOrganization(ctx, orgMemberships[0].OrganizationID)
+	}
+
+	// If not found via membership, search all orgs for this agent as head
+	if org == nil {
+		allOrgs, err := s.organizationStore.ListOrganizations(ctx, nil)
+		if err == nil {
+			for _, o := range allOrgs.Data {
+				if o.HeadAgentID == agentID {
+					org = &o
+					break
+				}
+			}
+		}
+	}
+
+	if org == nil {
+		return "", "", fmt.Errorf("agent is not a member or head of any organization. Add the agent to an organization first.")
+	}
+
+	// The head agent of the org handles task delegation
+	if org.HeadAgentID == "" {
+		return "", "", fmt.Errorf("organization has no head agent configured")
+	}
+
+	// Generate identifier
+	counter, err := s.organizationStore.IncrementIssueCounter(ctx, org.ID)
+	if err != nil {
+		return "", "", fmt.Errorf("generate identifier: %w", err)
+	}
+
+	prefix := org.IssuePrefix
+	if prefix == "" {
+		prefix = org.ID
+		if len(prefix) > 4 {
+			prefix = prefix[:4]
+		}
+	}
+	identifier := fmt.Sprintf("%s-%d", prefix, counter)
+
+	// Create task
+	task := service.Task{
+		OrganizationID:  org.ID,
+		AssignedAgentID: org.HeadAgentID,
+		Title:           topic,
+		Status:          service.TaskStatusOpen,
+		Identifier:      identifier,
+		RequestDepth:    0,
+		CreatedBy:       "telegram-bot",
+	}
+
+	record, err := s.taskStore.CreateTask(ctx, task)
+	if err != nil {
+		return "", "", fmt.Errorf("create task: %w", err)
+	}
+
+	// Fire async delegation with optional completion callback
+	go func() {
+		delegCtx := context.Background()
+		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
+			slog.Error("bot-task: delegation failed",
+				"org_id", org.ID,
+				"task_id", record.ID,
+				"error", err,
+			)
+			errResult := fmt.Sprintf("delegation failed: %v", err)
+			if s.taskStore != nil {
+				_, _ = s.taskStore.UpdateTask(delegCtx, record.ID, service.Task{
+					Status: service.TaskStatusCancelled,
+					Result: errResult,
+				})
+			}
+			// Notify callback of failure
+			for _, cb := range onDone {
+				cb(identifier, "failed", errResult)
+			}
+			return
+		}
+
+		// Task succeeded — get the final state and notify
+		if s.taskStore != nil {
+			if updated, err := s.taskStore.GetTask(delegCtx, record.ID); err == nil && updated != nil {
+				for _, cb := range onDone {
+					cb(identifier, updated.Status, updated.Result)
+				}
+				return
+			}
+		}
+
+		// Fallback notify
+		for _, cb := range onDone {
+			cb(identifier, "done", "")
+		}
+	}()
+
+	return record.ID, identifier, nil
+}
+
+// agentOrgIDs returns all organization IDs this agent belongs to (via membership or as head agent).
+func (s *Server) agentOrgIDs(ctx context.Context, agentID string) []string {
+	orgIDs := make(map[string]bool)
+
+	if s.orgAgentStore != nil {
+		memberships, _ := s.orgAgentStore.ListAgentOrganizations(ctx, agentID)
+		for _, m := range memberships {
+			orgIDs[m.OrganizationID] = true
+		}
+	}
+
+	if s.organizationStore != nil {
+		q := query.New().SetLimit(100)
+		allOrgs, _ := s.organizationStore.ListOrganizations(ctx, q)
+		if allOrgs != nil {
+			for _, o := range allOrgs.Data {
+				if o.HeadAgentID == agentID {
+					orgIDs[o.ID] = true
+				}
+			}
+		}
+	}
+
+	result := make([]string, 0, len(orgIDs))
+	for id := range orgIDs {
+		result = append(result, id)
+	}
+	return result
+}
+
+// findTaskByIdentifier finds a task by its human-readable identifier (e.g., YTS-1).
+func (s *Server) findTaskByIdentifier(ctx context.Context, agentID, identifier string) (*service.Task, error) {
+	if s.taskStore == nil {
+		return nil, fmt.Errorf("task store not configured")
+	}
+
+	identifier = strings.TrimSpace(identifier)
+
+	result, err := s.taskStore.ListTasks(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	for i := range result.Data {
+		t := &result.Data[i]
+		if strings.EqualFold(t.Identifier, identifier) || t.ID == identifier {
+			return t, nil
+		}
+	}
+
+	return nil, nil
+}
+
+// listBotTasks returns recent tasks (up to 10) for the agent's org, newest first.
+func (s *Server) listBotTasks(ctx context.Context, agentID string) ([]service.Task, error) {
+	if s.taskStore == nil {
+		return nil, fmt.Errorf("task store not configured")
+	}
+
+	orgIDs := s.agentOrgIDs(ctx, agentID)
+	if len(orgIDs) == 0 {
+		return nil, fmt.Errorf("agent is not a member of any organization")
+	}
+
+	orgIDSet := make(map[string]bool, len(orgIDs))
+	for _, id := range orgIDs {
+		orgIDSet[id] = true
+	}
+
+	// Simple approach: get all tasks, filter + sort in Go
+	result, err := s.taskStore.ListTasks(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("list tasks: %w", err)
+	}
+	if result == nil {
+		return nil, nil
+	}
+
+	var tasks []service.Task
+	for i := range result.Data {
+		t := result.Data[i]
+		if t.ParentID != "" {
+			continue // skip subtasks
+		}
+		if !orgIDSet[t.OrganizationID] {
+			continue // skip other orgs
+		}
+		tasks = append(tasks, t)
+	}
+
+	// Sort by updated_at descending
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].UpdatedAt > tasks[j].UpdatedAt
+	})
+
+	if len(tasks) > 10 {
+		tasks = tasks[:10]
+	}
+
+	return tasks, nil
+}
+
+// findLatestTask returns the most recently updated task for the agent's org.
+func (s *Server) findLatestTask(ctx context.Context, agentID string) (*service.Task, error) {
+	tasks, err := s.listBotTasks(ctx, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if len(tasks) == 0 {
+		return nil, nil
+	}
+	return &tasks[0], nil
 }

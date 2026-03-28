@@ -1,0 +1,22 @@
+{
+  "slug": "elevenlabs",
+  "name": "ElevenLabs",
+  "description": "Text-to-speech, speech-to-text, voice cloning, sound effects, and music generation via ElevenLabs API.",
+  "category": "Audio",
+  "tags": ["audio", "tts", "speech", "voice", "elevenlabs", "music", "sound-effects"],
+  "mcp_server": {
+    "name": "elevenlabs",
+    "description": "ElevenLabs audio AI — text-to-speech, voice cloning, sound effects, and more",
+    "config": {
+      "mcp_upstreams": [
+        {
+          "command": "uvx",
+          "args": ["elevenlabs-mcp"],
+          "env": {
+            "ELEVENLABS_API_KEY": "{{var:ELEVENLABS_API_KEY}}"
+          }
+        }
+      ]
+    }
+  }
+}

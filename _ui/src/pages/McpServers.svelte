@@ -10,6 +10,7 @@
   } from '@/lib/api/mcp-servers';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
+  import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import {
     Server,
     Plus,
@@ -21,6 +22,7 @@
     Copy,
     Wrench,
     Layers,
+    GitBranch,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'MCP Servers';
@@ -40,10 +42,12 @@
   let formDescription = $state('');
   let formMCPSets = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
+  let formWorkflowIds = $state<string[]>([]);
 
   // Helpers
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let availableMCPSets = $state<MCPSet[]>([]);
+  let availableWorkflows = $state<Workflow[]>([]);
 
   // ─── Load Data ───
 
@@ -79,6 +83,15 @@
 
   loadMCPSets();
 
+  async function loadWorkflows() {
+    try {
+      const res = await listWorkflows({ _limit: 500 });
+      availableWorkflows = res.data || [];
+    } catch {}
+  }
+
+  loadWorkflows();
+
   // ─── Form Logic ───
 
   function resetForm() {
@@ -86,6 +99,7 @@
     formDescription = '';
     formMCPSets = [];
     formBuiltinTools = [];
+    formWorkflowIds = [];
     editingId = null;
     showForm = false;
   }
@@ -102,6 +116,7 @@
     formDescription = s.config.description || '';
     formMCPSets = [...(s.servers || [])];
     formBuiltinTools = s.config.enabled_builtin_tools ?? [];
+    formWorkflowIds = s.config.workflow_ids ?? [];
     showForm = true;
   }
 
@@ -119,6 +134,7 @@
         config: {
           description: formDescription.trim(),
           enabled_builtin_tools: formBuiltinTools,
+          workflow_ids: formWorkflowIds,
         },
       };
 
@@ -304,6 +320,47 @@
               <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Server-side builtin tools (file ops, shell, etc.) available on this endpoint.</p>
             {:else}
               <span class="text-xs text-gray-400 dark:text-dark-text-muted">No builtin tools available.</span>
+            {/if}
+          </div>
+        </div>
+
+        <!-- Workflows -->
+        <div class="grid grid-cols-4 gap-3 items-start">
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
+            <div class="flex items-center gap-1.5">
+              <GitBranch size={14} />
+              Workflows
+            </div>
+          </span>
+          <div class="col-span-3">
+            {#if availableWorkflows.length > 0}
+              <div class="space-y-1.5 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                {#each availableWorkflows as wf}
+                  <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-white dark:hover:bg-dark-elevated transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formWorkflowIds.includes(wf.id)}
+                      onchange={() => {
+                        if (formWorkflowIds.includes(wf.id)) {
+                          formWorkflowIds = formWorkflowIds.filter(id => id !== wf.id);
+                        } else {
+                          formWorkflowIds = [...formWorkflowIds, wf.id];
+                        }
+                      }}
+                      class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                    />
+                    <div class="flex-1 min-w-0">
+                      <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{wf.name}</span>
+                      {#if wf.description}
+                        <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{wf.description}</div>
+                      {/if}
+                    </div>
+                  </label>
+                {/each}
+              </div>
+              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Expose selected workflows as individual MCP tools on this endpoint.</p>
+            {:else}
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">No workflows available.</span>
             {/if}
           </div>
         </div>

@@ -3,9 +3,16 @@
   import NodePreview from './NodePreview.svelte';
   import { workflowRun } from '@/lib/store/workflow-run.svelte';
 
+  interface InputField {
+    name: string;
+    type?: string;
+    description?: string;
+    default?: any;
+  }
+
   interface InputData {
     label?: string;
-    fields?: string[];
+    fields?: InputField[];
     node_number?: number;
   }
 
@@ -28,7 +35,11 @@
     {#if data.fields && data.fields.length > 0}
       <div class="flex flex-col gap-0.5">
         {#each data.fields as field}
-          <div class="text-gray-500 font-mono text-[11px]">{field}</div>
+          <div class="flex items-center gap-1 text-[11px]">
+            <span class="text-gray-600 font-mono">{field.name}</span>
+            <span class="text-gray-300">·</span>
+            <span class="text-gray-400">{field.type || 'string'}</span>
+          </div>
         {/each}
       </div>
     {:else}

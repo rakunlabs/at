@@ -221,6 +221,18 @@ func (s *Server) listMCPSetTools(setName string) ([]service.Tool, error) {
 		}
 	}
 
+	// Workflow tools.
+	if s.workflowStore != nil {
+		for _, wfID := range virtualSrv.Config.WorkflowIDs {
+			wf, err := s.workflowStore.GetWorkflow(context.Background(), wfID)
+			if err != nil || wf == nil {
+				slog.Warn("listMCPSetTools: failed to load workflow", "id", wfID, "error", err)
+				continue
+			}
+			tools = append(tools, workflowToolDef(wf))
+		}
+	}
+
 	// Upstream MCP tools (stdio/HTTP — these are direct clients, not round-trips to self).
 	for _, upstream := range virtualSrv.Config.MCPUpstreams {
 		client, err := s.newMCPClient(context.Background(), upstream)
@@ -265,6 +277,19 @@ func (s *Server) callMCPSetTool(ctx context.Context, setName, toolName string, a
 	// Builtin tool.
 	if slices.Contains(virtualSrv.Config.EnabledBuiltinTools, toolName) && isKnownBuiltinTool(toolName) {
 		return s.dispatchBuiltinTool(ctx, toolName, args)
+	}
+
+	// Workflow tool.
+	if s.workflowStore != nil {
+		for _, wfID := range virtualSrv.Config.WorkflowIDs {
+			wf, err := s.workflowStore.GetWorkflow(ctx, wfID)
+			if err != nil || wf == nil {
+				continue
+			}
+			if workflowToolName(wf) == toolName {
+				return s.executeWorkflowTool(ctx, wf, args)
+			}
+		}
 	}
 
 	// Upstream MCP tool (stdio/HTTP — direct client, no self-loopback).

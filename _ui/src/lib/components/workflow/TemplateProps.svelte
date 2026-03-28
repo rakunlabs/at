@@ -1,16 +1,17 @@
 <script lang="ts">
+  import CodeExpander from './CodeExpander.svelte';
+
   let { data }: { data: Record<string, any> } = $props();
 </script>
 
 <div>
-  <label class="block">
-    <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Template</span>
-  <textarea
+  <CodeExpander
     bind:value={data.template}
+    label="Template"
+    language="go-template"
     rows={4}
-    class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
-     placeholder={'Hello \x7B\x7B.name\x7D\x7D, ...'}
-  ></textarea></label>
+    placeholder={'Hello \x7B\x7B.name\x7D\x7D, ...'}
+  />
 </div>
 <div>
   <label class="block">

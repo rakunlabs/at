@@ -242,9 +242,19 @@
   let runInputMode = $state<'text' | 'json'>('text');
   let runSync = $state(true);
   let runEntryNodeId = $state<string>(''); // '' means all input nodes
+  let runFormValues = $state<Record<string, any>>({});
+  let runUseForm = $state(false);
+
+  interface InputFieldDef {
+    name: string;
+    type: 'string' | 'number' | 'boolean' | 'select' | 'textarea';
+    description?: string;
+    default?: any;
+    options?: string[];
+  }
 
   // Collect input nodes from the canvas for the entry-node selector.
-  function getInputNodes(): { id: string; label: string }[] {
+  function getInputNodes(): { id: string; label: string; fields?: InputFieldDef[] }[] {
     if (!canvasRef) return [];
     const flow = canvasRef.getFlow();
     return flow.nodes
@@ -252,7 +262,23 @@
       .map((n: any) => ({
         id: n.id,
         label: n.data?.label || 'Input',
+        fields: Array.isArray(n.data?.fields) ? n.data.fields : undefined,
       }));
+  }
+
+  function syncEditorFormFromEntry() {
+    const nodes = getInputNodes();
+    const node = nodes.find(n => n.id === runEntryNodeId);
+    if (node?.fields && node.fields.length > 0) {
+      runUseForm = true;
+      const values: Record<string, any> = {};
+      for (const f of node.fields) {
+        values[f.name] = f.default ?? (f.type === 'number' ? 0 : f.type === 'boolean' ? false : '');
+      }
+      runFormValues = values;
+    } else {
+      runUseForm = false;
+    }
   }
 
   // Versioning
@@ -586,9 +612,11 @@
           graph,
         });
       }
-      const inputs = runInputMode === 'json'
-        ? JSON.parse(runInputsJson || '{}')
-        : { text: runInputsJson };
+      const inputs = runUseForm
+        ? { ...runFormValues }
+        : runInputMode === 'json'
+          ? JSON.parse(runInputsJson || '{}')
+          : { text: runInputsJson };
       const entryNodeIds = runEntryNodeId ? [runEntryNodeId] : undefined;
 
       // Use streaming run for real-time per-node updates.
@@ -1201,6 +1229,29 @@
               />
             {/if}
 
+            <!-- Run Result (shown when node has run data) -->
+            {#if selectedNodeId && workflowRun.nodeRunStates[selectedNodeId]}
+              {@const nodeState = workflowRun.nodeRunStates[selectedNodeId]}
+              {#if nodeState.status === 'completed' || nodeState.status === 'error'}
+                <div class="border-t border-gray-200 dark:border-dark-border pt-2 mt-2">
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Result</span>
+                  {#if nodeState.status === 'completed' && nodeState.data}
+                    <div class="mt-1 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded max-h-60 overflow-y-auto">
+                      <pre class="text-[11px] font-mono text-green-800 dark:text-green-300 whitespace-pre-wrap break-all">{JSON.stringify(nodeState.data, null, 2)}</pre>
+                    </div>
+                  {/if}
+                  {#if nodeState.status === 'error' && nodeState.error}
+                    <div class="mt-1 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded max-h-40 overflow-y-auto">
+                      <pre class="text-[11px] font-mono text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">{nodeState.error}</pre>
+                    </div>
+                  {/if}
+                  {#if nodeState.duration_ms != null}
+                    <div class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Duration: {nodeState.duration_ms < 1000 ? `${nodeState.duration_ms}ms` : `${(nodeState.duration_ms / 1000).toFixed(1)}s`}</div>
+                  {/if}
+                </div>
+              {/if}
+            {/if}
+
           </div>
           <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
             <button
@@ -1223,28 +1274,126 @@
             </button>
           </div>
           <div class="p-3 space-y-3">
-            <div>
-              <div class="flex items-center justify-between mb-0.5">
-                <label for="run-inputs" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</label>
-                <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
-                  <button
-                    onclick={() => { runInputMode = 'text'; }}
-                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runInputMode === 'text' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
-                  >Text</button>
-                  <button
-                    onclick={() => { runInputMode = 'json'; }}
-                    class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-dark-border-subtle {runInputMode === 'json' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
-                  >JSON</button>
+            <!-- Entry Point selector (always show if multiple) -->
+            {#if getInputNodes().length > 1}
+              <div>
+                <label for="run-entry-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Entry Point</label>
+                <select
+                  id="run-entry-select"
+                  bind:value={runEntryNodeId}
+                  onchange={() => syncEditorFormFromEntry()}
+                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                >
+                  <option value="">All input nodes</option>
+                  {#each getInputNodes() as node}
+                    <option value={node.id}>{node.label} ({node.id.slice(0, 6)})</option>
+                  {/each}
+                </select>
+                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
+                  {runEntryNodeId ? 'Only the selected input node will run' : 'All input nodes will be triggered'}
                 </div>
               </div>
-              <textarea
-                id="run-inputs"
-                bind:value={runInputsJson}
-                rows={5}
-                class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
-                placeholder={runInputMode === 'text' ? 'Type your input text...' : '{"key": "value"}'}
-              ></textarea>
-            </div>
+            {/if}
+
+            <!-- Inputs: Form or Text/JSON -->
+            {#if runUseForm}
+              {@const selectedNode = getInputNodes().find(n => n.id === runEntryNodeId)}
+              {@const fields = selectedNode?.fields || []}
+              <div class="space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</span>
+                  <button
+                    onclick={() => { runUseForm = false; runInputMode = 'json'; runInputsJson = JSON.stringify(runFormValues, null, 2); }}
+                    class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                  >JSON</button>
+                </div>
+                {#each fields as field}
+                  <div>
+                    <label class="text-[10px] font-medium text-gray-600 dark:text-dark-text-secondary block mb-0.5">
+                      {field.name}
+                      {#if field.description}
+                        <span class="font-normal text-gray-400 dark:text-dark-text-muted ml-1">— {field.description}</span>
+                      {/if}
+                    </label>
+                    {#if field.type === 'select' && field.options}
+                      <select
+                        value={runFormValues[field.name] ?? field.default ?? ''}
+                        onchange={(e) => { runFormValues[field.name] = (e.target as HTMLSelectElement).value; }}
+                        class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                      >
+                        {#each field.options as opt}
+                          <option value={opt}>{opt}</option>
+                        {/each}
+                      </select>
+                    {:else if field.type === 'number'}
+                      <input
+                        type="number"
+                        value={runFormValues[field.name] ?? field.default ?? 0}
+                        oninput={(e) => { runFormValues[field.name] = Number((e.target as HTMLInputElement).value); }}
+                        class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                      />
+                    {:else if field.type === 'boolean'}
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={runFormValues[field.name] ?? field.default ?? false}
+                          onchange={(e) => { runFormValues[field.name] = (e.target as HTMLInputElement).checked; }}
+                          class="w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                        />
+                        <span class="text-xs text-gray-600 dark:text-dark-text-secondary">{runFormValues[field.name] ? 'Yes' : 'No'}</span>
+                      </label>
+                    {:else if field.type === 'textarea'}
+                      <textarea
+                        value={runFormValues[field.name] ?? field.default ?? ''}
+                        oninput={(e) => { runFormValues[field.name] = (e.target as HTMLTextAreaElement).value; }}
+                        rows={3}
+                        class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text resize-y"
+                      ></textarea>
+                    {:else}
+                      <input
+                        type="text"
+                        value={runFormValues[field.name] ?? field.default ?? ''}
+                        oninput={(e) => { runFormValues[field.name] = (e.target as HTMLInputElement).value; }}
+                        class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                      />
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            {:else}
+              <div>
+                <div class="flex items-center justify-between mb-0.5">
+                  <label for="run-inputs" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</label>
+                  <div class="flex items-center gap-1">
+                    {#if getInputNodes().find(n => n.id === runEntryNodeId)?.fields}
+                      <button
+                        onclick={() => syncEditorFormFromEntry()}
+                        class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary mr-1"
+                      >Form</button>
+                    {/if}
+                    <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
+                      <button
+                        onclick={() => { runInputMode = 'text'; }}
+                        class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runInputMode === 'text' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                      >Text</button>
+                      <button
+                        onclick={() => { runInputMode = 'json'; }}
+                        class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-dark-border-subtle {runInputMode === 'json' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                      >JSON</button>
+                    </div>
+                  </div>
+                </div>
+                <textarea
+                  id="run-inputs"
+                  bind:value={runInputsJson}
+                  rows={5}
+                  class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text resize-y {runInputMode === 'json' ? 'font-mono' : ''}"
+                  placeholder={runInputMode === 'text' ? 'Type your input text...' : '{"key": "value"}'}
+                ></textarea>
+              </div>
+            {/if}
+
+            <!-- Sync/Async mode -->
             <div class="flex items-center justify-between">
               <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Mode</span>
               <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
@@ -1258,24 +1407,7 @@
                 >Async</button>
               </div>
             </div>
-            {#if getInputNodes().length > 1}
-              <div>
-                <label for="run-entry-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Entry Point</label>
-                <select
-                  id="run-entry-select"
-                  bind:value={runEntryNodeId}
-                  class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
-                >
-                  <option value="">All input nodes</option>
-                  {#each getInputNodes() as node}
-                    <option value={node.id}>{node.label} ({node.id.slice(0, 6)})</option>
-                  {/each}
-                </select>
-                <div class="mt-0.5 text-[10px] text-gray-400 dark:text-dark-text-faint">
-                  {runEntryNodeId ? 'Only the selected input node will run' : 'All input nodes will be triggered'}
-                </div>
-              </div>
-            {/if}
+
             {#if versions.length > 0}
               <div>
                 <label for="run-version-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Version</label>

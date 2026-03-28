@@ -32,7 +32,7 @@
     Tag, MessageSquare, ListTree, Calendar, User,
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
     Layers, ChevronRight, ChevronDown, Building2, Play,
-    RotateCcw,
+    RotateCcw, RefreshCw,
   } from 'lucide-svelte';
   import { createComment } from '@/lib/api/issue-comments';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
@@ -481,14 +481,25 @@
 {:else if task}
   <div class="h-full overflow-y-auto">
     <div class="max-w-6xl mx-auto p-6">
-      <!-- Back navigation -->
-      <button
-        onclick={() => push('/tasks')}
-        class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors mb-4"
-      >
-        <ArrowLeft size={14} />
-        Back to Tasks
-      </button>
+      <!-- Back navigation + Refresh -->
+      <div class="flex items-center justify-between mb-4">
+        <button
+          onclick={() => push('/tasks')}
+          class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+        >
+          <ArrowLeft size={14} />
+          Back to Tasks
+        </button>
+        <button
+          onclick={() => { loadTask(); loadLabels(); loadSubTasks(); }}
+          disabled={loading}
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors"
+          title="Refresh task"
+        >
+          <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+      </div>
 
       <div class="flex gap-6">
         <!-- Main content -->

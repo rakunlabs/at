@@ -861,6 +861,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/runs", s.ListActiveRunsAPI)
 	apiGroup.POST("/v1/runs/{id}/cancel", s.CancelRunAPI)
 
+	// File browser
+	apiGroup.GET("/v1/files/browse", s.FileBrowseAPI)
+	apiGroup.GET("/v1/files/serve", s.FileServeAPI)
+	apiGroup.DELETE("/v1/files", s.FileDeleteAPI)
+
 	// Settings API (protected by admin token)
 	settingsGroup := apiGroup.Group("/v1/settings")
 	settingsGroup.Use(s.adminAuthMiddleware())

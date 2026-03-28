@@ -27,6 +27,7 @@
     ScrollText,
     Receipt,
     Plug,
+    FolderOpen,
   } from "lucide-svelte";
 
 
@@ -220,6 +221,19 @@
     >
       <Key size={14} />
       <span>Tokens</span>
+    </a>
+    <a
+      href="#/files"
+      onclick={(e) => navigate(e, "/files")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/files"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <FolderOpen size={14} />
+      <span>Files</span>
     </a>
     <a
       href="#/docs"

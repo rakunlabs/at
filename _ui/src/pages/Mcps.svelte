@@ -7,7 +7,8 @@
   import { listVariables, type Variable } from '@/lib/api/secrets';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Check, Package, Wrench } from 'lucide-svelte';
+  import { listWorkflows, type Workflow } from '@/lib/api/workflows';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Check, Package, Wrench, GitBranch } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -70,6 +71,7 @@
   let availableVariables = $state<Variable[]>([]);
   let availableSkills = $state<Skill[]>([]);
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
+  let availableWorkflows = $state<Workflow[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
@@ -101,12 +103,14 @@
   let formMCPUpstreams = $state<MCPUpstream[]>([]);
   let formEnabledSkills = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
+  let formWorkflowIds = $state<string[]>([]);
 
   // Section visibility
   let showRAGSection = $state(false);
   let showHTTPSection = $state(false);
   let showSkillsSection = $state(false);
   let showBuiltinToolsSection = $state(false);
+  let showWorkflowsSection = $state(false);
   let showUpstreamSection = $state(false);
 
   const allRAGTools = [
@@ -167,6 +171,13 @@
     } catch {}
   }
 
+  async function loadWorkflows() {
+    try {
+      const res = await listWorkflows({ _limit: 500 });
+      availableWorkflows = res.data || [];
+    } catch {}
+  }
+
   function handleSearch(value: string) {
     searchQuery = value;
     offset = 0;
@@ -184,6 +195,7 @@
   loadVariables();
   loadSkills();
   loadBuiltinToolDefs();
+  loadWorkflows();
 
   // ─── Form ───
 
@@ -202,12 +214,14 @@
     formMCPUpstreams = [];
     formEnabledSkills = [];
     formBuiltinTools = [];
+    formWorkflowIds = [];
     editingId = null;
     showForm = false;
     showRAGSection = false;
     showHTTPSection = false;
     showSkillsSection = false;
     showBuiltinToolsSection = false;
+    showWorkflowsSection = false;
     showUpstreamSection = false;
   }
 
@@ -235,10 +249,12 @@
     formMCPUpstreams = (cfg.mcp_upstreams ?? []).map((u: MCPUpstream) => ({ ...u, headers: u.headers ? { ...u.headers } : undefined, args: u.args ? [...u.args] : undefined, env: u.env ? { ...u.env } : undefined }));
     formEnabledSkills = cfg.enabled_skills ?? [];
     formBuiltinTools = cfg.enabled_builtin_tools ?? [];
+    formWorkflowIds = cfg.workflow_ids ?? [];
     showRAGSection = formEnabledRAGTools.length > 0;
     showHTTPSection = formHTTPTools.length > 0;
     showSkillsSection = formEnabledSkills.length > 0;
     showBuiltinToolsSection = formBuiltinTools.length > 0;
+    showWorkflowsSection = formWorkflowIds.length > 0;
     showUpstreamSection = formMCPUpstreams.length > 0;
     showForm = true;
   }
@@ -278,6 +294,7 @@
               : { url: u.url!.trim(), headers: u.headers }),
           enabled_skills: formEnabledSkills,
           enabled_builtin_tools: formBuiltinTools,
+          workflow_ids: formWorkflowIds,
         },
       };
 
@@ -866,6 +883,53 @@
                     {/each}
                   {:else}
                     <span class="text-xs text-gray-400 dark:text-dark-text-muted">No builtin tools available.</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
+
+            <!-- ═══ Workflows Section ═══ -->
+            <div class="border border-gray-200 dark:border-dark-border-subtle">
+              <button
+                type="button"
+                onclick={() => showWorkflowsSection = !showWorkflowsSection}
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+              >
+                {#if showWorkflowsSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
+                <GitBranch size={14} />
+                Workflows
+                {#if formWorkflowIds.length > 0}
+                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">({formWorkflowIds.length} selected)</span>
+                {/if}
+              </button>
+
+              {#if showWorkflowsSection}
+                <div class="px-4 pb-4 pt-2 space-y-2 border-t border-gray-200 dark:border-dark-border-subtle">
+                  {#if availableWorkflows.length > 0}
+                    {#each availableWorkflows as wf}
+                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={formWorkflowIds.includes(wf.id)}
+                          onchange={() => {
+                            if (formWorkflowIds.includes(wf.id)) {
+                              formWorkflowIds = formWorkflowIds.filter(id => id !== wf.id);
+                            } else {
+                              formWorkflowIds = [...formWorkflowIds, wf.id];
+                            }
+                          }}
+                          class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                        />
+                        <div class="flex-1 min-w-0">
+                          <span class="text-xs font-mono font-medium text-gray-700 dark:text-dark-text-secondary">{wf.name}</span>
+                          {#if wf.description}
+                            <div class="text-xs text-gray-400 dark:text-dark-text-muted truncate">{wf.description}</div>
+                          {/if}
+                        </div>
+                      </label>
+                    {/each}
+                  {:else}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted">No workflows available.</span>
                   {/if}
                 </div>
               {/if}

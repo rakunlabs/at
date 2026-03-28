@@ -668,7 +668,7 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}organization_agents (
     heartbeat_schedule TEXT DEFAULT '',
     memory_model TEXT DEFAULT '',
     memory_provider TEXT DEFAULT '',
-    memory_enabled TEXT DEFAULT '',
+    memory_method TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(organization_id, agent_id)

@@ -508,6 +508,9 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		if opts.ReasoningEffort != "" {
 			reqBody["reasoning_effort"] = opts.ReasoningEffort
 		}
+		if len(opts.WebSearchOptions) > 0 {
+			reqBody["web_search_options"] = opts.WebSearchOptions
+		}
 	}
 
 	return reqBody

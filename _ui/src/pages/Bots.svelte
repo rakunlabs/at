@@ -273,6 +273,70 @@
               </select>
             </div>
 
+            <!-- Platform description -->
+            {#if formPlatform === 'telegram'}
+              <div class="col-span-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 px-4 py-3 text-xs space-y-2">
+                <div class="font-medium text-blue-700 dark:text-blue-400">Telegram Bot Setup</div>
+                <ol class="list-decimal list-inside text-blue-600 dark:text-blue-300 space-y-1">
+                  <li>Open <a href="https://t.me/BotFather" target="_blank" class="underline font-medium">@BotFather</a> on Telegram</li>
+                  <li>Send <code class="bg-blue-100 dark:bg-blue-900/40 px-1 rounded font-mono">/newbot</code> and follow the steps to get a token</li>
+                  <li>Paste the token in the Token field above</li>
+                  <li>Set commands in BotFather with <code class="bg-blue-100 dark:bg-blue-900/40 px-1 rounded font-mono">/setcommands</code>:</li>
+                </ol>
+                <div class="bg-white dark:bg-dark-elevated border border-blue-200 dark:border-blue-800 rounded p-2 font-mono text-[11px] text-gray-700 dark:text-dark-text-secondary leading-relaxed">
+                  new - Create a background task<br>
+                  tasks - List recent tasks<br>
+                  status - Check task status<br>
+                  result - Get task output and video<br>
+                  pick - Select task to chat about<br>
+                  current - Show active task<br>
+                  reset - Clear conversation<br>
+                  agents - List available agents<br>
+                  switch - Switch to a different agent<br>
+                  login - Connect your Google account<br>
+                  help - Show available commands
+                </div>
+                <div class="text-blue-500 dark:text-blue-400">
+                  Copy the commands above and paste them when BotFather asks for the command list.
+                </div>
+                <div class="font-medium text-blue-700 dark:text-blue-400 mt-2">Available Commands</div>
+                <div class="text-blue-600 dark:text-blue-300 space-y-0.5">
+                  <div><code class="font-mono font-medium">/new &lt;topic&gt;</code> — Creates a background task and runs it via the org delegation system. Returns a task ID you can track.</div>
+                  <div><code class="font-mono font-medium">/tasks</code> — List recent tasks with status and clickable IDs</div>
+                  <div><code class="font-mono font-medium">/status [id]</code> — Check task status. No ID = active task</div>
+                  <div><code class="font-mono font-medium">/result [id]</code> — Get task output + sends video/images as raw files</div>
+                  <div><code class="font-mono font-medium">/pick &lt;id&gt;</code> — Select a task to chat about. Messages include task context. Use <code>/pick</code> alone to deselect</div>
+                  <div><code class="font-mono font-medium">/current</code> — Show which task is currently active</div>
+                  <div><code class="font-mono font-medium">/reset</code> — Clears conversation history for normal chat</div>
+                  <div><code class="font-mono font-medium">/agents</code> — Lists all agents the user can switch to</div>
+                  <div><code class="font-mono font-medium">/switch &lt;name&gt;</code> — Switches to a different agent and clears session</div>
+                  <div><code class="font-mono font-medium">/login [provider]</code> — Generates an OAuth login link (default: google)</div>
+                  <div><code class="font-mono font-medium">/help</code> — Shows the list of available commands</div>
+                </div>
+                <div class="mt-2 p-2 bg-blue-100 dark:bg-blue-900/30 rounded text-blue-700 dark:text-blue-300 space-y-1">
+                  <div><span class="font-medium">Workflow:</span></div>
+                  <div>1. <code class="font-mono">/new top 5 deadliest animals</code> → Creates task YTS-1</div>
+                  <div>2. Task runs in background, bot notifies when done/failed</div>
+                  <div>3. <code class="font-mono">/status</code> → Check if done</div>
+                  <div>4. <code class="font-mono">/result</code> → Get the video file</div>
+                  <div>5. <code class="font-mono">/new how volcanoes work</code> → New task YTS-2</div>
+                  <div>6. <code class="font-mono">/tasks</code> → See all tasks</div>
+                  <div>7. <code class="font-mono">/current</code> → See which task is active</div>
+                </div>
+              </div>
+            {:else if formPlatform === 'discord'}
+              <div class="col-span-4 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800 px-4 py-3 text-xs space-y-2">
+                <div class="font-medium text-indigo-700 dark:text-indigo-400">Discord Bot Setup</div>
+                <ol class="list-decimal list-inside text-indigo-600 dark:text-indigo-300 space-y-1">
+                  <li>Go to <a href="https://discord.com/developers/applications" target="_blank" class="underline font-medium">Discord Developer Portal</a></li>
+                  <li>Create a new application and add a Bot</li>
+                  <li>Copy the bot token and paste it in the Token field</li>
+                  <li>Enable Message Content Intent under Bot → Privileged Gateway Intents</li>
+                  <li>Invite the bot to your server with OAuth2 URL Generator (scopes: bot, permissions: Send Messages)</li>
+                </ol>
+              </div>
+            {/if}
+
             <!-- Name -->
             <div class="grid grid-cols-4 gap-3 items-center">
               <label for="form-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>

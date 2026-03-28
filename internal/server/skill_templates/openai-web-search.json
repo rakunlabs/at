@@ -1,0 +1,54 @@
+{
+  "slug": "openai-web-search",
+  "name": "OpenAI Web Search",
+  "description": "Search the web using OpenAI's search models (gpt-4o-search-preview). Returns answers with cited sources.",
+  "category": "Utilities",
+  "tags": [
+    "search",
+    "web",
+    "openai",
+    "research",
+    "internet",
+    "citations"
+  ],
+  "required_variables": [
+    {
+      "key": "openai_api_key",
+      "description": "OpenAI API key (get from https://platform.openai.com/api-keys)",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "openai_web_search",
+    "description": "Search the web using OpenAI for up-to-date information with cited sources",
+    "system_prompt": "You have access to a web search tool powered by OpenAI. Use it to find current, accurate information from the internet.\n\nWhen to use web_search:\n- Facts, statistics, or data that may have changed recently\n- Current events, news, or trending topics\n- Verifying claims or looking up specific details\n- Finding technical documentation or API references\n- Researching people, places, products, or companies\n\nThe tool returns an answer with source citations. Always mention key sources when relaying search results to the user.\n\nYou can optionally set the country for location-relevant results (e.g., 'US', 'GB', 'TR').",
+    "tools": [
+      {
+        "name": "web_search",
+        "description": "Search the web for current information using OpenAI. Returns an answer with source citations.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string",
+              "description": "The search query — be specific and descriptive for best results"
+            },
+            "context": {
+              "type": "string",
+              "description": "Optional context about what you're looking for and why, helps get more relevant results"
+            },
+            "country": {
+              "type": "string",
+              "description": "Optional ISO country code for location-relevant results (e.g., 'US', 'GB', 'DE', 'TR')"
+            }
+          },
+          "required": [
+            "query"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_OPENAI_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"OpenAI API key not configured. Set the openai_api_key variable.\"}'\n  exit 0\nfi\n\nQUERY=\"$ARG_QUERY\"\nCONTEXT=\"${ARG_CONTEXT:-}\"\nCOUNTRY=\"${ARG_COUNTRY:-}\"\n\nif [ -z \"$QUERY\" ]; then\n  echo '{\"error\": \"query is required\"}'\n  exit 0\nfi\n\n# Build the user message\nif [ -n \"$CONTEXT\" ]; then\n  USER_MSG=\"${QUERY}\\n\\nContext: ${CONTEXT}\"\nelse\n  USER_MSG=\"$QUERY\"\nfi\n\n# Build JSON payload with web_search_options\nPAYLOAD=$(python3 << 'PYEOF' - \"$USER_MSG\" \"$COUNTRY\"\nimport json, sys\n\nuser_msg = sys.argv[1]\ncountry = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None\n\npayload = {\n    \"model\": \"gpt-4o-search-preview\",\n    \"messages\": [\n        {\n            \"role\": \"system\",\n            \"content\": \"You are a research assistant. Search the web and provide accurate, concise answers with source citations. Always include the URLs of your sources.\"\n        },\n        {\n            \"role\": \"user\",\n            \"content\": user_msg\n        }\n    ],\n    \"web_search_options\": {}\n}\n\nif country:\n    payload[\"web_search_options\"][\"user_location\"] = {\n        \"type\": \"approximate\",\n        \"approximate\": {\n            \"country\": country\n        }\n    }\n\nprint(json.dumps(payload))\nPYEOF\n)\n\n# Call OpenAI API\nRESPONSE=$(curl -s -w '\\n%{http_code}' \\\n  -X POST https://api.openai.com/v1/chat/completions \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"$PAYLOAD\")\n\nHTTP_CODE=$(echo \"$RESPONSE\" | tail -1)\nRESP_BODY=$(echo \"$RESPONSE\" | sed '$d')\n\nif [ \"$HTTP_CODE\" != \"200\" ]; then\n  echo \"{\\\"error\\\": \\\"OpenAI search API error (HTTP $HTTP_CODE)\\\", \\\"details\\\": $(echo \"$RESP_BODY\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '\"unknown\"')}\"\n  exit 0\nfi\n\n# Extract the answer and annotations (citations)\npython3 << 'PYEOF' - \"$RESP_BODY\"\nimport json, sys\n\ntry:\n    data = json.loads(sys.argv[1])\n    choices = data.get(\"choices\", [])\n    if not choices:\n        print(json.dumps({\"error\": \"No response from search model\"}))\n        sys.exit(0)\n\n    message = choices[0].get(\"message\", {})\n    content = message.get(\"content\", \"\")\n\n    # Extract annotations (URL citations) if present\n    annotations = []\n    if isinstance(content, str):\n        # Content is plain text with citations\n        pass\n\n    # Check for annotations in message\n    raw_annotations = message.get(\"annotations\", [])\n    sources = []\n    for ann in raw_annotations:\n        if ann.get(\"type\") == \"url_citation\":\n            sources.append({\n                \"title\": ann.get(\"title\", \"\"),\n                \"url\": ann.get(\"url\", \"\")\n            })\n\n    usage = data.get(\"usage\", {})\n\n    result = {\n        \"answer\": content,\n        \"sources\": sources,\n        \"tokens_used\": usage.get(\"total_tokens\", 0)\n    }\n\n    print(json.dumps(result, indent=2, ensure_ascii=False))\n\nexcept Exception as e:\n    print(json.dumps({\"error\": f\"Failed to parse response: {str(e)}\", \"raw\": sys.argv[1][:500]}))\nPYEOF\n",
+        "handler_type": "bash"
+      }
+    ]
+  }
+}

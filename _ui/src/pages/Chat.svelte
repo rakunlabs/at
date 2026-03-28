@@ -1461,7 +1461,7 @@
         {:else if msg.role === 'assistant'}
           <div class="flex justify-start">
             <div class="max-w-[75%]">
-              <div class="px-4 py-2.5 text-sm leading-relaxed bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-sm text-gray-800 dark:text-dark-text">
+              <div class="px-4 py-2.5 text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-800 dark:text-dark-text">
                 {#if typeof msg.content === 'string'}
                   {#if !msg.content && streaming && i === messages.length - 1}
                     <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
@@ -1511,7 +1511,7 @@
   </div>
 
   <!-- Input area -->
-  <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 shrink-0">
+  <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-3 shrink-0">
     <!-- Pending image previews -->
     {#if pendingImages.length > 0}
       <div class="flex gap-2 mb-2 flex-wrap">
@@ -1565,7 +1565,7 @@
         placeholder={models.length === 0 ? 'No models available' : 'Type a message... (Enter to send, Shift+Enter for new line)'}
         disabled={models.length === 0}
         rows={1}
-        class="flex-1 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
+        class="flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
       ></textarea>
       {#if streaming}
         <button
