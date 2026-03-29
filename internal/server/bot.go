@@ -25,6 +25,14 @@ func (s *Server) findOrCreateBotSession(ctx context.Context, platform, userID, c
 		return "", fmt.Errorf("lookup platform session: %w", err)
 	}
 	if session != nil {
+		// If the bot's default agent changed, update the session to use the new agent
+		if session.AgentID != agentID && agentID != "" {
+			slog.Info("bot session: updating agent", "session_id", session.ID, "old_agent", session.AgentID, "new_agent", agentID)
+			session.AgentID = agentID
+			_, _ = s.chatSessionStore.UpdateChatSession(ctx, session.ID, *session)
+			// Clear old messages to avoid tool_call mismatch errors with different agent
+			_ = s.chatSessionStore.DeleteChatMessages(ctx, session.ID)
+		}
 		return session.ID, nil
 	}
 
@@ -356,6 +364,91 @@ func (s *Server) createBotTask(ctx context.Context, agentID, topic string, onDon
 		}
 
 		// Fallback notify
+		for _, cb := range onDone {
+			cb(identifier, "done", "")
+		}
+	}()
+
+	return record.ID, identifier, nil
+}
+
+// createBotSubtask creates a subtask under a parent task and runs it in background.
+func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task, title, description string, onDone ...TaskDoneCallback) (string, string, error) {
+	if s.taskStore == nil || s.organizationStore == nil {
+		return "", "", fmt.Errorf("stores not configured")
+	}
+
+	org, err := s.organizationStore.GetOrganization(ctx, parentTask.OrganizationID)
+	if err != nil || org == nil {
+		return "", "", fmt.Errorf("organization not found")
+	}
+
+	if org.HeadAgentID == "" {
+		return "", "", fmt.Errorf("organization has no head agent")
+	}
+
+	// Generate identifier
+	counter, err := s.organizationStore.IncrementIssueCounter(ctx, parentTask.OrganizationID)
+	if err != nil {
+		return "", "", fmt.Errorf("generate identifier: %w", err)
+	}
+
+	prefix := org.IssuePrefix
+	if prefix == "" {
+		prefix = parentTask.OrganizationID
+		if len(prefix) > 4 {
+			prefix = prefix[:4]
+		}
+	}
+	identifier := fmt.Sprintf("%s-%d", prefix, counter)
+
+	task := service.Task{
+		OrganizationID:  parentTask.OrganizationID,
+		ParentID:        parentTask.ID,
+		AssignedAgentID: org.HeadAgentID,
+		Title:           title,
+		Description:     description,
+		Status:          service.TaskStatusOpen,
+		Identifier:      identifier,
+		RequestDepth:    0,
+		CreatedBy:       "telegram-bot",
+	}
+
+	record, err := s.taskStore.CreateTask(ctx, task)
+	if err != nil {
+		return "", "", fmt.Errorf("create subtask: %w", err)
+	}
+
+	go func() {
+		delegCtx := context.Background()
+		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
+			slog.Error("bot-subtask: delegation failed",
+				"parent_id", parentTask.ID,
+				"subtask_id", record.ID,
+				"error", err,
+			)
+			errResult := fmt.Sprintf("delegation failed: %v", err)
+			if s.taskStore != nil {
+				_, _ = s.taskStore.UpdateTask(delegCtx, record.ID, service.Task{
+					Status: service.TaskStatusCancelled,
+					Result: errResult,
+				})
+			}
+			for _, cb := range onDone {
+				cb(identifier, "failed", errResult)
+			}
+			return
+		}
+
+		if s.taskStore != nil {
+			if updated, err := s.taskStore.GetTask(delegCtx, record.ID); err == nil && updated != nil {
+				for _, cb := range onDone {
+					cb(identifier, updated.Status, updated.Result)
+				}
+				return
+			}
+		}
+
 		for _, cb := range onDone {
 			cb(identifier, "done", "")
 		}

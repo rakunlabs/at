@@ -1,0 +1,94 @@
+{
+  "slug": "openai-video",
+  "name": "OpenAI Video Generation (Sora)",
+  "description": "Generate videos from text prompts or images using OpenAI Sora. Supports text-to-video and image-to-video.",
+  "category": "Content Creation",
+  "tags": [
+    "video",
+    "sora",
+    "openai",
+    "image-to-video",
+    "text-to-video",
+    "ai",
+    "content"
+  ],
+  "required_variables": [
+    {
+      "key": "openai_api_key",
+      "description": "OpenAI API key (get from https://platform.openai.com/api-keys)",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "openai_video",
+    "description": "Generate videos using OpenAI Sora (text-to-video and image-to-video)",
+    "system_prompt": "You have access to OpenAI Sora video generation.\n\nAvailable tools:\n- generate_video: Create a video from a text prompt (text-to-video)\n- image_to_video: Create a video from an image + motion prompt (image-to-video)\n\nTips:\n- Use descriptive prompts with camera movements, lighting, and style details\n- For image-to-video, the image becomes the first frame\n- Available sizes: 1920x1080, 1280x720, 1080x1920 (vertical), 480x480\n- Duration: 4, 8, or 12 seconds (default 8)\n- Models: sora-2 (fast) or sora-2-pro (high quality)\n- Generation takes 1-5 minutes \u2014 the tool polls automatically\n- Output is saved as MP4 in the work directory",
+    "tools": [
+      {
+        "name": "generate_video",
+        "description": "Generate a video from a text prompt using OpenAI Sora. Returns the file path of the saved MP4.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Text description of the video to generate. Be specific about camera movement, lighting, style."
+            },
+            "size": {
+              "type": "string",
+              "description": "Video resolution: 1920x1080, 1280x720, 1080x1920 (vertical), 480x480. Default: 1280x720"
+            },
+            "seconds": {
+              "type": "string",
+              "description": "Duration: '4', '8', or '12' seconds. Default: '8'"
+            },
+            "model": {
+              "type": "string",
+              "description": "Model: sora-2 (fast) or sora-2-pro (high quality). Default: sora-2"
+            }
+          },
+          "required": [
+            "prompt"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_OPENAI_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"OpenAI API key not configured. Set the openai_api_key variable.\"}'\n  exit 0\nfi\n\nPROMPT=\"$ARG_PROMPT\"\nSIZE=\"${ARG_SIZE:-1280x720}\"\nSECONDS=\"${ARG_SECONDS:-8}\"\nMODEL=\"${ARG_MODEL:-sora-2}\"\n\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nOUTPUT=\"$WORK_DIR/sora-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])').mp4\"\n\n# Step 1: Create video generation job\nCREATE_RESP=$(curl -s -X POST https://api.openai.com/v1/videos \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"$(python3 -c \"\nimport json, sys\nprint(json.dumps({\n    'model': '$MODEL',\n    'prompt': sys.argv[1],\n    'size': '$SIZE',\n    'seconds': '$SECONDS'\n}))\n\" \"$PROMPT\")\")\n\nVIDEO_ID=$(echo \"$CREATE_RESP\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('id',''))\" 2>/dev/null)\n\nif [ -z \"$VIDEO_ID\" ]; then\n  echo \"{\\\"error\\\": \\\"Failed to create video job\\\", \\\"details\\\": $(echo \"$CREATE_RESP\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '\"unknown\"')}\"\n  exit 0\nfi\n\necho \"{\\\"status\\\": \\\"processing\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\"}\" >&2\n\n# Step 2: Poll for completion (max 10 minutes)\nfor i in $(seq 1 60); do\n  sleep 10\n  STATUS_RESP=$(curl -s https://api.openai.com/v1/videos/$VIDEO_ID \\\n    -H \"Authorization: Bearer $API_KEY\")\n  \n  STATUS=$(echo \"$STATUS_RESP\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('status',''))\" 2>/dev/null)\n  \n  if [ \"$STATUS\" = \"completed\" ]; then\n    break\n  elif [ \"$STATUS\" = \"failed\" ]; then\n    ERROR=$(echo \"$STATUS_RESP\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('error',{}).get('message','unknown error'))\" 2>/dev/null)\n    echo \"{\\\"error\\\": \\\"Video generation failed: $ERROR\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\"}\"\n    exit 0\n  fi\ndone\n\nif [ \"$STATUS\" != \"completed\" ]; then\n  echo \"{\\\"error\\\": \\\"Video generation timed out\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\", \\\"last_status\\\": \\\"$STATUS\\\"}\"\n  exit 0\nfi\n\n# Step 3: Download the video\nHTTP_CODE=$(curl -s -w '%{http_code}' -o \"$OUTPUT\" \\\n  \"https://api.openai.com/v1/videos/$VIDEO_ID/content?variant=video\" \\\n  -H \"Authorization: Bearer $API_KEY\")\n\nif [ \"$HTTP_CODE\" != \"200\" ] || [ ! -s \"$OUTPUT\" ]; then\n  echo \"{\\\"error\\\": \\\"Failed to download video (HTTP $HTTP_CODE)\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\"}\"\n  exit 0\nfi\n\n# Get duration\nDURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$OUTPUT\" 2>/dev/null || echo \"unknown\")\nSIZE_BYTES=$(stat -f%z \"$OUTPUT\" 2>/dev/null || stat -c%s \"$OUTPUT\" 2>/dev/null || echo 0)\n\necho \"{\\\"video_file\\\": \\\"$OUTPUT\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\", \\\"duration_seconds\\\": \\\"$DURATION\\\", \\\"size_bytes\\\": $SIZE_BYTES, \\\"model\\\": \\\"$MODEL\\\"}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "image_to_video",
+        "description": "Generate a video from an image (image becomes first frame) using OpenAI Sora. Returns the file path of the saved MP4.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "image_path": {
+              "type": "string",
+              "description": "Path to the input image (PNG, JPEG, WebP). This becomes the first frame of the video."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Motion/animation description. What should happen in the video starting from this image."
+            },
+            "size": {
+              "type": "string",
+              "description": "Video resolution (must match image dimensions): 1920x1080, 1280x720, 1080x1920, 480x480. Default: auto-detect from image"
+            },
+            "seconds": {
+              "type": "string",
+              "description": "Duration: '4', '8', or '12' seconds. Default: '8'"
+            },
+            "model": {
+              "type": "string",
+              "description": "Model: sora-2 (fast) or sora-2-pro (high quality). Default: sora-2"
+            }
+          },
+          "required": [
+            "image_path",
+            "prompt"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_OPENAI_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"OpenAI API key not configured. Set the openai_api_key variable.\"}'\n  exit 0\nfi\n\nIMAGE_PATH=\"$ARG_IMAGE_PATH\"\nPROMPT=\"$ARG_PROMPT\"\nSECONDS=\"${ARG_SECONDS:-8}\"\nMODEL=\"${ARG_MODEL:-sora-2}\"\n\nif [ ! -f \"$IMAGE_PATH\" ]; then\n  echo \"{\\\"error\\\": \\\"Image file not found: $IMAGE_PATH\\\"}\"\n  exit 0\nfi\n\n# Auto-detect size from image if not specified\nif [ -z \"$ARG_SIZE\" ]; then\n  SIZE=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 \"$IMAGE_PATH\" 2>/dev/null | tr ',' 'x')\n  # Map to nearest supported size\n  case \"$SIZE\" in\n    1920x1080|1080x1920|1280x720|480x480) ;;\n    *) SIZE=\"1280x720\" ;;\n  esac\nelse\n  SIZE=\"$ARG_SIZE\"\nfi\n\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nOUTPUT=\"$WORK_DIR/sora-i2v-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])').mp4\"\n\n# Step 1: Create video generation job with image input (multipart)\nCREATE_RESP=$(curl -s -X POST https://api.openai.com/v1/videos \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -F \"model=$MODEL\" \\\n  -F \"prompt=$PROMPT\" \\\n  -F \"size=$SIZE\" \\\n  -F \"seconds=$SECONDS\" \\\n  -F \"input_reference=@$IMAGE_PATH\")\n\nVIDEO_ID=$(echo \"$CREATE_RESP\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('id',''))\" 2>/dev/null)\n\nif [ -z \"$VIDEO_ID\" ]; then\n  echo \"{\\\"error\\\": \\\"Failed to create image-to-video job\\\", \\\"details\\\": $(echo \"$CREATE_RESP\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '\"unknown\"')}\"\n  exit 0\nfi\n\necho \"{\\\"status\\\": \\\"processing\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\"}\" >&2\n\n# Step 2: Poll for completion (max 10 minutes)\nfor i in $(seq 1 60); do\n  sleep 10\n  STATUS_RESP=$(curl -s https://api.openai.com/v1/videos/$VIDEO_ID \\\n    -H \"Authorization: Bearer $API_KEY\")\n  \n  STATUS=$(echo \"$STATUS_RESP\" | python3 -c \"import sys,json; print(json.load(sys.stdin).get('status',''))\" 2>/dev/null)\n  \n  if [ \"$STATUS\" = \"completed\" ]; then\n    break\n  elif [ \"$STATUS\" = \"failed\" ]; then\n    ERROR=$(echo \"$STATUS_RESP\" | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('error',{}).get('message','unknown error'))\" 2>/dev/null)\n    echo \"{\\\"error\\\": \\\"Video generation failed: $ERROR\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\"}\"\n    exit 0\n  fi\ndone\n\nif [ \"$STATUS\" != \"completed\" ]; then\n  echo \"{\\\"error\\\": \\\"Video generation timed out\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\", \\\"last_status\\\": \\\"$STATUS\\\"}\"\n  exit 0\nfi\n\n# Step 3: Download the video\nHTTP_CODE=$(curl -s -w '%{http_code}' -o \"$OUTPUT\" \\\n  \"https://api.openai.com/v1/videos/$VIDEO_ID/content?variant=video\" \\\n  -H \"Authorization: Bearer $API_KEY\")\n\nif [ \"$HTTP_CODE\" != \"200\" ] || [ ! -s \"$OUTPUT\" ]; then\n  echo \"{\\\"error\\\": \\\"Failed to download video (HTTP $HTTP_CODE)\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\"}\"\n  exit 0\nfi\n\nDURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$OUTPUT\" 2>/dev/null || echo \"unknown\")\nSIZE_BYTES=$(stat -f%z \"$OUTPUT\" 2>/dev/null || stat -c%s \"$OUTPUT\" 2>/dev/null || echo 0)\n\necho \"{\\\"video_file\\\": \\\"$OUTPUT\\\", \\\"video_id\\\": \\\"$VIDEO_ID\\\", \\\"duration_seconds\\\": \\\"$DURATION\\\", \\\"size_bytes\\\": $SIZE_BYTES, \\\"model\\\": \\\"$MODEL\\\", \\\"source_image\\\": \\\"$IMAGE_PATH\\\"}\"",
+        "handler_type": "bash"
+      }
+    ]
+  }
+}

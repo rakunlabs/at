@@ -28,6 +28,7 @@
   let messages = $state<ChatMessage[]>([]);
   let streamContent = $state('');
   let toolEvents = $state<any[]>([]);
+  let expandedTools = $state<Record<string, boolean>>({});
   let inputText = $state('');
   let loading = $state(false);
   let sending = $state(false);
@@ -532,11 +533,23 @@
                 </div>
               </div>
             {:else if msg.role === 'tool'}
+              {@const toolText = getMessageText(msg.data)}
+              {@const toolId = `tool-${msg.id}`}
               <div class="py-0.5 pl-4 border-l-2 border-gray-200 dark:border-dark-border">
-                <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
+                <div
+                  class="text-[10px] text-gray-400 dark:text-dark-text-muted cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                  onclick={() => { expandedTools[toolId] = !expandedTools[toolId]; }}
+                >
                   tool {#if msg.data.tool_call_id}<span class="text-gray-500">{msg.data.tool_call_id.slice(0, 12)}</span>{/if}
+                  <span class="ml-1">{expandedTools[toolId] ? '▼' : '▶'} {toolText.length > 150 ? `${toolText.length} chars` : ''}</span>
                 </div>
-                <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-32 overflow-y-auto">{getMessageText(msg.data)}</pre>
+                {#if expandedTools[toolId]}
+                  <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 rounded border border-gray-200 dark:border-dark-border">{toolText}</pre>
+                {:else}
+                  <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-8 overflow-hidden">{toolText.slice(0, 150)}{toolText.length > 150 ? '...' : ''}</pre>
+                {/if}
               </div>
             {/if}
           {/each}
@@ -565,8 +578,22 @@
                     <span>{evt.name}</span>
                   </div>
                 {:else}
-                  <div class="text-[10px] text-gray-500 dark:text-dark-text-muted">
-                    <span class="text-green-600 dark:text-green-400">{evt.name}</span> → <span class="font-mono">{(evt.result || '').slice(0, 150)}{(evt.result || '').length > 150 ? '…' : ''}</span>
+                  {@const evtResult = evt.result || ''}
+                  {@const evtId = `stream-${evt.id || evt.name}`}
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div
+                    class="text-[10px] text-gray-500 dark:text-dark-text-muted cursor-pointer hover:text-gray-700 dark:hover:text-dark-text-secondary"
+                    onclick={() => { expandedTools[evtId] = !expandedTools[evtId]; }}
+                  >
+                    <span class="text-green-600 dark:text-green-400">{evt.name}</span>
+                    {#if expandedTools[evtId]}
+                      <span class="ml-1">▼</span>
+                      <pre class="mt-0.5 font-mono whitespace-pre-wrap break-all max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 rounded border border-gray-200 dark:border-dark-border">{evtResult}</pre>
+                    {:else}
+                      <span class="ml-1">{evtResult.length > 100 ? '▶' : '→'}</span>
+                      <span class="font-mono">{evtResult.slice(0, 150)}{evtResult.length > 150 ? '…' : ''}</span>
+                    {/if}
                   </div>
                 {/if}
               {/each}

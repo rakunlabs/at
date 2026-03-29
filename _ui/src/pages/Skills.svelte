@@ -252,9 +252,10 @@
     try {
       const cat = selectedCategory || undefined;
       templates = await listSkillTemplates(cat);
-      // Check which templates are already installed by matching skill names
-      const skillNames = new Set(skills.map((s) => s.name));
-      installedSlugs = new Set(templates.filter((t) => skillNames.has(t.skill.name)).map((t) => t.slug));
+      // Fetch ALL installed skills (not just current page) to check installed status
+      const allSkillsRes = await listSkills({ _limit: 500 });
+      const allSkillNames = new Set((allSkillsRes.data || []).map((s: Skill) => s.name));
+      installedSlugs = new Set(templates.filter((t) => allSkillNames.has(t.skill.name)).map((t) => t.slug));
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load templates', 'alert');
     } finally {

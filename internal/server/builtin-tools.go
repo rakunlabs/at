@@ -601,7 +601,7 @@ Edges connect nodes via source_handle (output handle ID of source node) and targ
 	},
 	{
 		Name:        "trigger_list",
-		Description: "List workflow triggers. Optionally filter by workflow ID. Shows trigger type (http/cron), config, alias, and enabled status.",
+		Description: "List workflow triggers. Optionally filter by workflow ID and/or scope (user identity). Shows trigger type (http/cron), config, alias, and enabled status.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -609,7 +609,117 @@ Edges connect nodes via source_handle (output handle ID of source node) and targ
 					"type":        "string",
 					"description": "Filter triggers by workflow ID (optional — lists all if omitted)",
 				},
+				"scope": map[string]any{
+					"type":        "string",
+					"description": "Filter triggers by scope/owner (e.g., telegram chat_id). Only shows triggers created by this scope.",
+				},
 			},
+		},
+	},
+
+	{
+		Name:        "trigger_create",
+		Description: "Create a cron or HTTP trigger for a workflow. Cron triggers run workflows on a schedule (e.g., every day at 6 AM). HTTP triggers create webhook URLs.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"workflow_id": map[string]any{
+					"type":        "string",
+					"description": "Workflow ID to trigger",
+				},
+				"type": map[string]any{
+					"type":        "string",
+					"description": "Trigger type: 'cron' or 'http'",
+					"enum":        []string{"cron", "http"},
+				},
+				"schedule": map[string]any{
+					"type":        "string",
+					"description": "Cron expression (for cron type). Examples: '0 6 * * *' (daily 6 AM), '*/30 * * * *' (every 30 min), '0 9 * * 1-5' (weekdays 9 AM)",
+				},
+				"timezone": map[string]any{
+					"type":        "string",
+					"description": "IANA timezone for cron schedule. Default: UTC. Examples: 'Europe/Istanbul', 'America/New_York'",
+				},
+				"payload": map[string]any{
+					"type":        "object",
+					"description": "JSON payload to pass as workflow inputs when triggered",
+				},
+				"entry_node_id": map[string]any{
+					"type":        "string",
+					"description": "Optional: specific input node ID to trigger (for multi-entry workflows)",
+				},
+				"alias": map[string]any{
+					"type":        "string",
+					"description": "Optional human-friendly alias (must be unique)",
+				},
+				"scope": map[string]any{
+					"type":        "string",
+					"description": "Owner scope (e.g., telegram chat_id). Used to isolate triggers per user. ALWAYS set this from the user context.",
+				},
+				"enabled": map[string]any{
+					"type":        "boolean",
+					"description": "Whether the trigger is active. Default: true",
+				},
+			},
+			"required": []string{"workflow_id", "type"},
+		},
+	},
+	{
+		Name:        "trigger_get",
+		Description: "Get details of a specific trigger by ID.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "Trigger ID",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "trigger_update",
+		Description: "Update a trigger's schedule, payload, or enabled status.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "Trigger ID to update",
+				},
+				"schedule": map[string]any{
+					"type":        "string",
+					"description": "New cron expression",
+				},
+				"timezone": map[string]any{
+					"type":        "string",
+					"description": "New timezone",
+				},
+				"payload": map[string]any{
+					"type":        "object",
+					"description": "New payload",
+				},
+				"enabled": map[string]any{
+					"type":        "boolean",
+					"description": "Enable or disable the trigger",
+				},
+			},
+			"required": []string{"id"},
+		},
+	},
+	{
+		Name:        "trigger_delete",
+		Description: "Delete a trigger by ID.",
+		InputSchema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id": map[string]any{
+					"type":        "string",
+					"description": "Trigger ID to delete",
+				},
+			},
+			"required": []string{"id"},
 		},
 	},
 
@@ -1439,6 +1549,14 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execWorkflowRun(ctx, args)
 	case "trigger_list":
 		return s.execTriggerList(ctx, args)
+	case "trigger_create":
+		return s.execTriggerCreate(ctx, args)
+	case "trigger_get":
+		return s.execTriggerGet(ctx, args)
+	case "trigger_update":
+		return s.execTriggerUpdate(ctx, args)
+	case "trigger_delete":
+		return s.execTriggerDelete(ctx, args)
 
 	// User preference tools.
 	case "set_user_preference":

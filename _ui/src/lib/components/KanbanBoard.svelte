@@ -294,7 +294,7 @@
               ]}
               onclick={() => push(`/tasks/${item.task.id}`)}
             >
-              {item.task.title}
+              {item.task.title || item.task.identifier || item.task.id.slice(0, 12)}
             </div>
 
             <!-- Description preview -->

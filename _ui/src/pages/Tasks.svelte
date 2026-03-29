@@ -632,7 +632,7 @@
                   <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{task.identifier}</span>
                 {/if}
                 <a href="#/tasks/{task.id}" class="font-medium text-gray-900 dark:text-dark-text hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
-                  {task.title}
+                  {task.title || task.identifier || task.id.slice(0, 12)}
                 </a>
               </div>
             </td>

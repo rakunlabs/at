@@ -36,7 +36,9 @@ func sendTelegramText(bot *tgbotapi.BotAPI, chatID int64, text string) {
 			text = ""
 		}
 		reply := tgbotapi.NewMessage(chatID, chunk)
-		bot.Send(reply) //nolint:errcheck
+		if _, err := bot.Send(reply); err != nil {
+			slog.Error("telegram: sendTelegramText failed", "error", err, "text_len", len(chunk))
+		}
 	}
 }
 
@@ -260,20 +262,20 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				}
 			}
 
+			slog.Info("telegram bot: creating task", "topic", topic, "agent_id", agentID)
 			taskID, identifier, createErr := s.createBotTask(ctx, agentID, topic, onDone)
 			if createErr != nil {
 				slog.Error("telegram bot: create task failed", "error", createErr)
-				reply := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("Failed to create task: %v", createErr))
-				bot.Send(reply) //nolint:errcheck
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed to create task: %v", createErr))
 				return
 			}
+
+			slog.Info("telegram bot: task created", "task_id", taskID, "identifier", identifier)
 
 			// Auto-pick this task as active
 			tgCtx.activeTask.Store(chatIDStr, identifier)
 
-			reply := tgbotapi.NewMessage(msg.Chat.ID, fmt.Sprintf("✅ Task %s created and running in background.\n📌 Set as active task.\n\nTopic: %s\n\nI'll notify you when it's done. You can also check with /status", identifier, topic))
-			bot.Send(reply) //nolint:errcheck
-			_ = taskID
+			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s created and running in background.\nSet as active task.\n\nTopic: %s\n\nI'll notify you when it's done.\n/status to check", sanitizeUTF8(identifier), sanitizeUTF8(topic)))
 			return
 		case "status":
 			// /status [identifier] — check task status. If no ID given, show the latest task.
@@ -568,29 +570,87 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		}
 	}
 
-	// If there's an active task, prepend context so the agent knows which task
+	// If there's an active task, create a subtask and run it in background
 	if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok {
 		taskRef := activeID.(string)
-		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
-		if task != nil {
-			taskContext := fmt.Sprintf("[Active task: %s | Status: %s | Title: %s]", taskRef, task.Status, task.Title)
-			if task.Result != "" {
-				resultPreview := task.Result
-				if len(resultPreview) > 500 {
-					resultPreview = resultPreview[:500] + "..."
-				}
-				taskContext += fmt.Sprintf("\n[Task result: %s]", resultPreview)
+		parentTask, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
+		if parentTask != nil && parentTask.OrganizationID != "" {
+			typingCancel() // stop typing — this will run in background
+
+			// Create subtask under the parent task
+			subtaskTitle := content
+			if len(subtaskTitle) > 100 {
+				subtaskTitle = subtaskTitle[:100] + "..."
 			}
-			content = taskContext + "\n\n" + content
+
+			// Build subtask description with parent context
+			description := fmt.Sprintf("Follow-up on %s: %s", taskRef, sanitizeUTF8(parentTask.Title))
+			if parentTask.Result != "" {
+				resultPreview := parentTask.Result
+				if len(resultPreview) > 1000 {
+					resultPreview = resultPreview[:1000] + "..."
+				}
+				description += fmt.Sprintf("\n\nPrevious result:\n%s", resultPreview)
+			}
+
+			chatID := msg.Chat.ID
+			onSubDone := func(ident, status, result string) {
+				switch status {
+				case "done", "completed":
+					// Update parent task result with subtask result
+					if s.taskStore != nil && result != "" {
+						_, _ = s.taskStore.UpdateTask(context.Background(), parentTask.ID, service.Task{
+							Result: result,
+						})
+					}
+					sendTelegramText(bot, chatID, fmt.Sprintf("Subtask %s done.\nParent %s updated.\n/result %s to see output.", sanitizeUTF8(ident), sanitizeUTF8(taskRef), sanitizeUTF8(taskRef)))
+				case "failed", "cancelled", "blocked":
+					errMsg := sanitizeUTF8(result)
+					if len(errMsg) > 300 {
+						errMsg = errMsg[:300] + "..."
+					}
+					sendTelegramText(bot, chatID, fmt.Sprintf("Subtask %s failed.\n%s", sanitizeUTF8(ident), errMsg))
+				}
+			}
+
+			subtaskID, subtaskIdent, err := s.createBotSubtask(ctx, parentTask, subtaskTitle, description, onSubDone)
+			if err != nil {
+				slog.Error("telegram bot: create subtask failed", "error", err)
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed to create subtask: %v", err))
+				return
+			}
+
+			_ = subtaskID
+			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Subtask %s created under %s.\nRunning in background...\n/status %s to check parent.", sanitizeUTF8(subtaskIdent), sanitizeUTF8(taskRef), sanitizeUTF8(taskRef)))
+			return
 		}
 	}
 
+	// Prepend user context so agents know the user's identity for triggers/notifications
+	userContext := fmt.Sprintf("[User context: platform=telegram, chat_id=%s, user_id=%s, bot_id=%s]\n\n",
+		chatIDStr, userIDStr, tgCtx.botID)
+	content = userContext + content
+
+	// No active task — normal chat flow
 	response, err := s.collectAgenticResponse(ctx, sessionID, content)
+
+	// If the error is about corrupt message history, clear and retry once
+	if err != nil && strings.Contains(err.Error(), "tool call result does not follow") {
+		slog.Warn("telegram bot: corrupt message history, clearing and retrying", "session_id", sessionID)
+		if s.chatSessionStore != nil {
+			_ = s.chatSessionStore.DeleteChatMessages(ctx, sessionID)
+		}
+		response, err = s.collectAgenticResponse(ctx, sessionID, content)
+	}
+
 	typingCancel()
 
 	if err != nil {
 		slog.Error("telegram bot: agentic loop failed", "session_id", sessionID, "error", err)
-		sendTelegramText(bot, msg.Chat.ID, "Sorry, an error occurred processing your message.")
+		sendTelegramText(bot, msg.Chat.ID, "Sorry, an error occurred. Session has been reset, please try again.")
+		if s.chatSessionStore != nil {
+			_ = s.chatSessionStore.DeleteChatMessages(ctx, sessionID)
+		}
 		return
 	}
 
@@ -598,7 +658,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		response = "(no response)"
 	}
 
-	// If there's an active task, always update its result with the latest response
+	// No active task — just update if somehow one is set
 	if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok && s.taskStore != nil {
 		taskRef := activeID.(string)
 		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)

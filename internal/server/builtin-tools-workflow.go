@@ -385,14 +385,14 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 	return fmt.Sprintf("Workflow %q started asynchronously.", id), nil
 }
 
-// execTriggerList lists triggers, optionally filtered by workflow ID.
-// Parameters: workflow_id (string, optional)
+// execTriggerList lists triggers, optionally filtered by workflow ID and/or scope.
 func (s *Server) execTriggerList(ctx context.Context, args map[string]any) (string, error) {
 	if s.triggerStore == nil {
 		return "", fmt.Errorf("trigger store not configured")
 	}
 
 	workflowID, _ := args["workflow_id"].(string)
+	scope, _ := args["scope"].(string)
 
 	var triggers []service.Trigger
 	var err error
@@ -405,6 +405,19 @@ func (s *Server) execTriggerList(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("list triggers: %w", err)
 	}
 
+	// Filter by scope if provided (user-level isolation)
+	if scope != "" {
+		var filtered []service.Trigger
+		for _, t := range triggers {
+			if t.CreatedBy == scope {
+				filtered = append(filtered, t)
+			} else if cfg, ok := t.Config["scope"].(string); ok && cfg == scope {
+				filtered = append(filtered, t)
+			}
+		}
+		triggers = filtered
+	}
+
 	if len(triggers) == 0 {
 		return "No triggers found.", nil
 	}
@@ -415,6 +428,160 @@ func (s *Server) execTriggerList(ctx context.Context, args map[string]any) (stri
 	}
 
 	return string(data), nil
+}
+
+// execTriggerCreate creates a new cron or HTTP trigger.
+func (s *Server) execTriggerCreate(ctx context.Context, args map[string]any) (string, error) {
+	if s.triggerStore == nil {
+		return "", fmt.Errorf("trigger store not configured")
+	}
+
+	workflowID, _ := args["workflow_id"].(string)
+	triggerType, _ := args["type"].(string)
+	if workflowID == "" || triggerType == "" {
+		return "", fmt.Errorf("workflow_id and type are required")
+	}
+
+	config := make(map[string]any)
+	if triggerType == "cron" {
+		schedule, _ := args["schedule"].(string)
+		if schedule == "" {
+			return "", fmt.Errorf("schedule is required for cron triggers (e.g., '0 6 * * *')")
+		}
+		config["schedule"] = schedule
+		if tz, ok := args["timezone"].(string); ok && tz != "" {
+			config["timezone"] = tz
+		}
+	}
+	if payload, ok := args["payload"].(map[string]any); ok {
+		config["payload"] = payload
+	}
+
+	enabled := true
+	if e, ok := args["enabled"].(bool); ok {
+		enabled = e
+	}
+
+	// Store scope (user identity) in config for per-user isolation
+	if scope, ok := args["scope"].(string); ok && scope != "" {
+		config["scope"] = scope
+	}
+
+	trigger := service.Trigger{
+		WorkflowID:  workflowID,
+		TargetType:  service.TriggerTargetWorkflow,
+		TargetID:    workflowID,
+		Type:        triggerType,
+		Config:      config,
+		Enabled:     enabled,
+	}
+
+	if alias, ok := args["alias"].(string); ok && alias != "" {
+		trigger.Alias = alias
+	}
+	if entryNodeID, ok := args["entry_node_id"].(string); ok && entryNodeID != "" {
+		trigger.EntryNodeID = entryNodeID
+	}
+	// Tag with creator scope for filtering
+	if scope, ok := config["scope"].(string); ok {
+		trigger.CreatedBy = scope
+	}
+
+	record, err := s.triggerStore.CreateTrigger(ctx, trigger)
+	if err != nil {
+		return "", fmt.Errorf("create trigger: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(record, "", "  ")
+	return string(data), nil
+}
+
+// execTriggerGet gets a trigger by ID.
+func (s *Server) execTriggerGet(ctx context.Context, args map[string]any) (string, error) {
+	if s.triggerStore == nil {
+		return "", fmt.Errorf("trigger store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	trigger, err := s.triggerStore.GetTrigger(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("get trigger: %w", err)
+	}
+	if trigger == nil {
+		return "", fmt.Errorf("trigger %q not found", id)
+	}
+
+	data, _ := json.MarshalIndent(trigger, "", "  ")
+	return string(data), nil
+}
+
+// execTriggerUpdate updates a trigger.
+func (s *Server) execTriggerUpdate(ctx context.Context, args map[string]any) (string, error) {
+	if s.triggerStore == nil {
+		return "", fmt.Errorf("trigger store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	existing, err := s.triggerStore.GetTrigger(ctx, id)
+	if err != nil || existing == nil {
+		return "", fmt.Errorf("trigger %q not found", id)
+	}
+
+	if schedule, ok := args["schedule"].(string); ok && schedule != "" {
+		if existing.Config == nil {
+			existing.Config = make(map[string]any)
+		}
+		existing.Config["schedule"] = schedule
+	}
+	if tz, ok := args["timezone"].(string); ok && tz != "" {
+		if existing.Config == nil {
+			existing.Config = make(map[string]any)
+		}
+		existing.Config["timezone"] = tz
+	}
+	if payload, ok := args["payload"].(map[string]any); ok {
+		if existing.Config == nil {
+			existing.Config = make(map[string]any)
+		}
+		existing.Config["payload"] = payload
+	}
+	if enabled, ok := args["enabled"].(bool); ok {
+		existing.Enabled = enabled
+	}
+
+	updated, err := s.triggerStore.UpdateTrigger(ctx, id, *existing)
+	if err != nil {
+		return "", fmt.Errorf("update trigger: %w", err)
+	}
+
+	data, _ := json.MarshalIndent(updated, "", "  ")
+	return string(data), nil
+}
+
+// execTriggerDelete deletes a trigger.
+func (s *Server) execTriggerDelete(ctx context.Context, args map[string]any) (string, error) {
+	if s.triggerStore == nil {
+		return "", fmt.Errorf("trigger store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	if err := s.triggerStore.DeleteTrigger(ctx, id); err != nil {
+		return "", fmt.Errorf("delete trigger: %w", err)
+	}
+
+	return fmt.Sprintf("Trigger %q deleted.", id), nil
 }
 
 // buildWorkflowEngine creates a workflow engine with all the server's

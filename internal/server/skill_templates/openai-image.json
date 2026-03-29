@@ -1,0 +1,93 @@
+{
+  "slug": "openai-image",
+  "name": "OpenAI Image Generation (GPT Image)",
+  "description": "Generate and edit images using OpenAI's latest GPT Image models (gpt-image-1.5). Superior instruction following, text rendering, and style control compared to DALL-E 3.",
+  "category": "Content Creation",
+  "tags": [
+    "image",
+    "openai",
+    "gpt-image",
+    "generation",
+    "editing",
+    "ai",
+    "content"
+  ],
+  "required_variables": [
+    {
+      "key": "openai_api_key",
+      "description": "OpenAI API key (get from https://platform.openai.com/api-keys)",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "openai_image",
+    "description": "Generate and edit images using OpenAI GPT Image models",
+    "system_prompt": "You have access to OpenAI's latest image generation (GPT Image).\n\nAvailable tools:\n- generate_image_gpt: Generate an image from a text prompt (gpt-image-1.5)\n- edit_image_gpt: Edit an existing image with a text prompt\n\nGPT Image advantages over DALL-E 3:\n- Much better instruction following — style requests are respected\n- Accurate text rendering in images\n- Better understanding of spatial relationships\n- Supports transparent backgrounds\n- Available formats: png, jpeg, webp\n\nSizes: 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait), auto\nQuality: standard (fast) or high (detailed)\n\nTips:\n- Be specific and detailed in prompts\n- GPT Image follows style instructions much better than DALL-E 3\n- Use 'high' quality for production images\n- Use 'png' format for transparent backgrounds\n- The image is saved locally and the file path is returned",
+    "tools": [
+      {
+        "name": "generate_image_gpt",
+        "description": "Generate an image from a text prompt using OpenAI GPT Image (gpt-image-1.5). Returns the file path of the saved image.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Text description of the image to generate. Be specific about style, composition, lighting."
+            },
+            "size": {
+              "type": "string",
+              "description": "Image size: 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait), auto. Default: 1024x1536"
+            },
+            "quality": {
+              "type": "string",
+              "description": "Quality: standard (fast) or high (detailed). Default: high"
+            },
+            "format": {
+              "type": "string",
+              "description": "Output format: png, jpeg, webp. Default: png"
+            },
+            "background": {
+              "type": "string",
+              "description": "Background: opaque or transparent. Default: opaque"
+            }
+          },
+          "required": ["prompt"]
+        },
+        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_OPENAI_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"OpenAI API key not configured. Set the openai_api_key variable.\"}'\n  exit 0\nfi\n\nPROMPT=\"$ARG_PROMPT\"\nSIZE=\"${ARG_SIZE:-1024x1536}\"\nQUALITY=\"${ARG_QUALITY:-high}\"\nFORMAT=\"${ARG_FORMAT:-png}\"\nBACKGROUND=\"${ARG_BACKGROUND:-opaque}\"\n\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nOUTPUT=\"$WORK_DIR/gpt-img-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])').$FORMAT\"\n\n# Build request payload\nPAYLOAD=$(python3 -c \"\nimport json, sys\nprint(json.dumps({\n    'model': 'gpt-image-1.5',\n    'prompt': sys.argv[1],\n    'n': 1,\n    'size': '$SIZE',\n    'quality': '$QUALITY',\n    'output_format': '$FORMAT',\n    'background': '$BACKGROUND'\n}))\n\" \"$PROMPT\")\n\n# Call API\nRESP=$(curl -s -w '\\n%{http_code}' \\\n  -X POST https://api.openai.com/v1/images/generations \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"$PAYLOAD\")\n\nHTTP_CODE=$(echo \"$RESP\" | tail -1)\nRESP_BODY=$(echo \"$RESP\" | sed '$d')\n\nif [ \"$HTTP_CODE\" != \"200\" ]; then\n  echo \"{\\\"error\\\": \\\"API error (HTTP $HTTP_CODE)\\\", \\\"details\\\": $(echo \"$RESP_BODY\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()[:500]))' 2>/dev/null || echo '\"unknown\"')}\"\n  exit 0\nfi\n\n# Extract image data\npython3 << 'PYEOF' - \"$RESP_BODY\" \"$OUTPUT\" \"$FORMAT\"\nimport sys, json, base64, urllib.request\n\nresp = json.loads(sys.argv[1])\noutput = sys.argv[2]\nfmt = sys.argv[3]\n\ndata = resp.get('data', [{}])[0]\n\n# Check if response has b64_json or url\nif data.get('b64_json'):\n    img_bytes = base64.b64decode(data['b64_json'])\n    with open(output, 'wb') as f:\n        f.write(img_bytes)\nelif data.get('url'):\n    urllib.request.urlretrieve(data['url'], output)\nelse:\n    print(json.dumps({'error': 'No image data in response', 'raw': str(resp)[:200]}))\n    sys.exit(0)\n\nimport os\nsize = os.path.getsize(output)\nrevised = data.get('revised_prompt', '')\n\nprint(json.dumps({\n    'image_file': output,\n    'revised_prompt': revised,\n    'size_bytes': size,\n    'format': fmt\n}, indent=2))\nPYEOF",
+        "handler_type": "bash"
+      },
+      {
+        "name": "edit_image_gpt",
+        "description": "Edit an existing image using a text prompt with OpenAI GPT Image. Returns the file path of the edited image.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "image_path": {
+              "type": "string",
+              "description": "Path to the image file to edit (PNG, JPEG, WebP)"
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Description of the edit to make (e.g., 'change the sky to sunset', 'add a hat to the character')"
+            },
+            "size": {
+              "type": "string",
+              "description": "Output size: 1024x1024, 1536x1024, 1024x1536, auto. Default: auto"
+            },
+            "quality": {
+              "type": "string",
+              "description": "Quality: standard or high. Default: high"
+            },
+            "format": {
+              "type": "string",
+              "description": "Output format: png, jpeg, webp. Default: png"
+            }
+          },
+          "required": ["image_path", "prompt"]
+        },
+        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_OPENAI_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"OpenAI API key not configured. Set the openai_api_key variable.\"}'\n  exit 0\nfi\n\nIMAGE_PATH=\"$ARG_IMAGE_PATH\"\nPROMPT=\"$ARG_PROMPT\"\nSIZE=\"${ARG_SIZE:-auto}\"\nQUALITY=\"${ARG_QUALITY:-high}\"\nFORMAT=\"${ARG_FORMAT:-png}\"\n\nif [ ! -f \"$IMAGE_PATH\" ]; then\n  echo \"{\\\"error\\\": \\\"Image file not found: $IMAGE_PATH\\\"}\"\n  exit 0\nfi\n\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nOUTPUT=\"$WORK_DIR/gpt-edit-$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])').$FORMAT\"\n\n# Call edit API with multipart upload\nRESP=$(curl -s -w '\\n%{http_code}' \\\n  -X POST https://api.openai.com/v1/images/edits \\\n  -H \"Authorization: Bearer $API_KEY\" \\\n  -F \"model=gpt-image-1.5\" \\\n  -F \"image=@$IMAGE_PATH\" \\\n  -F \"prompt=$PROMPT\" \\\n  -F \"n=1\" \\\n  -F \"size=$SIZE\" \\\n  -F \"quality=$QUALITY\")\n\nHTTP_CODE=$(echo \"$RESP\" | tail -1)\nRESP_BODY=$(echo \"$RESP\" | sed '$d')\n\nif [ \"$HTTP_CODE\" != \"200\" ]; then\n  echo \"{\\\"error\\\": \\\"API error (HTTP $HTTP_CODE)\\\", \\\"details\\\": $(echo \"$RESP_BODY\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()[:500]))' 2>/dev/null || echo '\"unknown\"')}\"\n  exit 0\nfi\n\n# Extract and save image\npython3 << 'PYEOF' - \"$RESP_BODY\" \"$OUTPUT\" \"$FORMAT\" \"$IMAGE_PATH\"\nimport sys, json, base64, urllib.request\n\nresp = json.loads(sys.argv[1])\noutput = sys.argv[2]\nfmt = sys.argv[3]\nsource = sys.argv[4]\n\ndata = resp.get('data', [{}])[0]\n\nif data.get('b64_json'):\n    img_bytes = base64.b64decode(data['b64_json'])\n    with open(output, 'wb') as f:\n        f.write(img_bytes)\nelif data.get('url'):\n    urllib.request.urlretrieve(data['url'], output)\nelse:\n    print(json.dumps({'error': 'No image data in response'}))\n    sys.exit(0)\n\nimport os\nsize = os.path.getsize(output)\n\nprint(json.dumps({\n    'image_file': output,\n    'source_image': source,\n    'size_bytes': size,\n    'format': fmt\n}, indent=2))\nPYEOF",
+        "handler_type": "bash"
+      }
+    ]
+  }
+}
