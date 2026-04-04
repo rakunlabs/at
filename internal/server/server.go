@@ -19,6 +19,7 @@ import (
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/container"
 	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/tmc/langchaingo/schema"
@@ -234,6 +235,9 @@ type Server struct {
 	// pendingConfirmations tracks tool calls awaiting human approval.
 	// Key: "{sessionID}:{toolCallID}", Value: chan confirmationResult.
 	pendingConfirmations sync.Map
+
+	// containerManager manages per-org and per-user Docker containers for isolated execution.
+	containerManager *container.Manager
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
@@ -357,6 +361,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		botsCfg:                  botsCfg,
 		todos:                    newTodoStore(),
 		lspManager:               newLSPManager(),
+		containerManager:         container.New(),
 	}
 
 	// Load predefined skill templates from embedded JSON files.
@@ -866,6 +871,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/files/serve", s.FileServeAPI)
 	apiGroup.DELETE("/v1/files", s.FileDeleteAPI)
 
+	// Audio transcription
+	apiGroup.POST("/v1/audio/transcribe", s.TranscribeAudioAPI)
+
 	// Settings API (protected by admin token)
 	settingsGroup := apiGroup.Group("/v1/settings")
 	settingsGroup.Use(s.adminAuthMiddleware())
@@ -909,6 +917,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 	// Start bot adapters from DB config.
 	s.startBotsFromDB(ctx)
+
+	// Cleanup containers on shutdown.
+	go func() {
+		<-ctx.Done()
+		slog.Info("server: cleaning up containers")
+		s.containerManager.StopAll(context.Background())
+	}()
 
 	return s, nil
 }

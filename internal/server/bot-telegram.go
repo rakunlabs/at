@@ -1,11 +1,16 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"mime/multipart"
+	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -16,9 +21,188 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
+// downloadTelegramFile downloads a file from Telegram to /tmp and returns the local path.
+func (s *Server) downloadTelegramFile(bot *tgbotapi.BotAPI, fileID, fileName string) (string, error) {
+	file, err := bot.GetFile(tgbotapi.FileConfig{FileID: fileID})
+	if err != nil {
+		return "", fmt.Errorf("get file info: %w", err)
+	}
 
+	fileURL := file.Link(bot.Token)
+
+	// Create temp dir
+	dir := fmt.Sprintf("/tmp/tg-files/%d", time.Now().UnixNano())
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create dir: %w", err)
+	}
+
+	// Sanitize filename
+	if fileName == "" {
+		fileName = filepath.Base(file.FilePath)
+	}
+	localPath := filepath.Join(dir, fileName)
+
+	// Download
+	resp, err := http.Get(fileURL) //nolint:gosec
+	if err != nil {
+		return "", fmt.Errorf("download file: %w", err)
+	}
+	defer resp.Body.Close()
+
+	out, err := os.Create(localPath)
+	if err != nil {
+		return "", fmt.Errorf("create file: %w", err)
+	}
+	defer out.Close()
+
+	if _, err := io.Copy(out, resp.Body); err != nil {
+		return "", fmt.Errorf("save file: %w", err)
+	}
+
+	slog.Info("telegram bot: downloaded file", "path", localPath, "size", resp.ContentLength)
+	return localPath, nil
+}
+
+// transcribeAudio transcribes an audio file using the configured method.
+// method: "openai" (cloud API), "local" (openai-whisper), "faster-whisper", "none"
+// whisperModel: local model size ("tiny", "base", "small", "medium", "large-v3")
+func (s *Server) transcribeAudio(ctx context.Context, audioPath string) string {
+	return s.transcribeAudioWithConfig(ctx, audioPath, "openai", "base")
+}
+
+func (s *Server) transcribeAudioWithConfig(ctx context.Context, audioPath, method, whisperModel string) string {
+	if method == "none" || method == "" {
+		method = "openai"
+	}
+	if whisperModel == "" {
+		whisperModel = "base"
+	}
+
+	switch method {
+	case "local":
+		return s.transcribeLocal(ctx, audioPath, whisperModel, "whisper")
+	case "faster-whisper":
+		return s.transcribeLocal(ctx, audioPath, whisperModel, "faster-whisper")
+	default:
+		return s.transcribeOpenAI(ctx, audioPath)
+	}
+}
+
+// transcribeOpenAI uses OpenAI's cloud Whisper API.
+func (s *Server) transcribeOpenAI(ctx context.Context, audioPath string) string {
+	apiKey := ""
+	if s.variableStore != nil {
+		v, err := s.variableStore.GetVariableByKey(ctx, "openai_api_key")
+		if err == nil && v != nil {
+			apiKey = v.Value
+		}
+	}
+	if apiKey == "" {
+		slog.Warn("transcribeAudio: no openai_api_key variable configured")
+		return ""
+	}
+
+	f, err := os.Open(audioPath)
+	if err != nil {
+		slog.Warn("transcribeAudio: failed to open file", "path", audioPath, "error", err)
+		return ""
+	}
+	defer f.Close()
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	writer.WriteField("model", "whisper-1")
+	writer.WriteField("response_format", "text")
+
+	part, err := writer.CreateFormFile("file", filepath.Base(audioPath))
+	if err != nil {
+		return ""
+	}
+	if _, err := io.Copy(part, f); err != nil {
+		return ""
+	}
+	writer.Close()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://api.openai.com/v1/audio/transcriptions", &body)
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		slog.Warn("transcribeAudio: API request failed", "error", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+
+	if resp.StatusCode != 200 {
+		slog.Warn("transcribeAudio: API error", "status", resp.StatusCode, "body", string(respBody[:min(200, len(respBody))]))
+		return ""
+	}
+
+	return strings.TrimSpace(string(respBody))
+}
+
+// transcribeLocal uses locally installed whisper or faster-whisper via uvx.
+func (s *Server) transcribeLocal(_ context.Context, audioPath, model, pkg string) string {
+	var script string
+	if pkg == "faster-whisper" {
+		script = fmt.Sprintf(`
+from faster_whisper import WhisperModel
+model = WhisperModel("%s", device="cpu", compute_type="int8")
+segments, info = model.transcribe("%s")
+text = " ".join([s.text for s in segments])
+print(text.strip())
+`, model, audioPath)
+	} else {
+		script = fmt.Sprintf(`
+import whisper
+model = whisper.load_model("%s")
+result = model.transcribe("%s")
+print(result["text"].strip())
+`, model, audioPath)
+	}
+
+	// Use uvx to run with the package dependency — no install step needed
+	uvxPkg := "openai-whisper"
+	if pkg == "faster-whisper" {
+		uvxPkg = "faster-whisper"
+	}
+
+	cmd := exec.CommandContext(context.Background(), "uvx", "--from", uvxPkg, "python3", "-c", script)
+	cmd.Env = append(os.Environ(), "PIP_BREAK_SYSTEM_PACKAGES=1", "UV_SYSTEM_PYTHON=1")
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Fallback: try direct python3 (in case uvx is not available or package is already installed)
+		slog.Debug("transcribeLocal: uvx failed, trying direct python3", "error", err)
+		cmd2 := exec.CommandContext(context.Background(), "python3", "-c", script)
+		cmd2.Env = append(os.Environ(), "PIP_BREAK_SYSTEM_PACKAGES=1")
+		var stdout2, stderr2 bytes.Buffer
+		cmd2.Stdout = &stdout2
+		cmd2.Stderr = &stderr2
+		if err2 := cmd2.Run(); err2 != nil {
+			slog.Warn("transcribeLocal: both uvx and direct python3 failed", "pkg", pkg, "model", model, "uvx_err", err, "py_err", err2)
+			return ""
+		}
+		return strings.TrimSpace(stdout2.String())
+	}
+
+	return strings.TrimSpace(stdout.String())
+}
 
 // sendTelegramText sends a UTF-8 sanitized text message to a Telegram chat.
 func sendTelegramText(bot *tgbotapi.BotAPI, chatID int64, text string) {
@@ -26,20 +210,202 @@ func sendTelegramText(bot *tgbotapi.BotAPI, chatID int64, text string) {
 	if text == "" {
 		text = "(empty)"
 	}
+
+	// Convert to MarkdownV2
+	md := toTelegramMarkdownV2(text)
+
 	// Telegram limit is 4096 chars
-	for len(text) > 0 {
-		chunk := text
+	for len(md) > 0 {
+		chunk := md
 		if len(chunk) > 4096 {
-			chunk = text[:4096]
-			text = text[4096:]
+			cutAt := 4096
+			if idx := strings.LastIndex(md[:4096], "\n"); idx > 2000 {
+				cutAt = idx + 1
+			}
+			chunk = md[:cutAt]
+			md = md[cutAt:]
 		} else {
-			text = ""
+			md = ""
 		}
 		reply := tgbotapi.NewMessage(chatID, chunk)
+		reply.ParseMode = "MarkdownV2"
+		reply.DisableWebPagePreview = true
 		if _, err := bot.Send(reply); err != nil {
-			slog.Error("telegram: sendTelegramText failed", "error", err, "text_len", len(chunk))
+			// MarkdownV2 failed — fall back to plain text
+			slog.Warn("telegram: MarkdownV2 failed, sending plain", "error", err)
+			plain := sanitizeUTF8(chunk)
+			// Strip MarkdownV2 escapes for plain fallback
+			plain = strings.ReplaceAll(plain, "\\", "")
+			reply2 := tgbotapi.NewMessage(chatID, plain)
+			if _, err2 := bot.Send(reply2); err2 != nil {
+				slog.Error("telegram: plain send also failed", "error", err2)
+			}
 		}
 	}
+}
+
+// telegramMDV2EscapeChars are characters that must be escaped in MarkdownV2 outside of code blocks.
+const telegramMDV2EscapeChars = `_[]()~>#+-=|{}.!`
+
+// escapeMDV2 escapes special characters for Telegram MarkdownV2.
+func escapeMDV2(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) * 2)
+	for _, r := range s {
+		if strings.ContainsRune(telegramMDV2EscapeChars, r) {
+			b.WriteRune('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// toTelegramMarkdownV2 converts standard markdown to Telegram MarkdownV2 format.
+func toTelegramMarkdownV2(text string) string {
+	// First handle code blocks — content inside must NOT be escaped
+	var codeBlocks []string
+	placeholder := "\x00CODEBLOCK%d\x00"
+
+	// Extract ```...``` blocks
+	for strings.Contains(text, "```") {
+		start := strings.Index(text, "```")
+		afterStart := text[start+3:]
+		// Skip language identifier on same line
+		nlIdx := strings.Index(afterStart, "\n")
+		var codeContent string
+		var endOffset int
+		if nlIdx >= 0 {
+			afterLang := afterStart[nlIdx+1:]
+			endIdx := strings.Index(afterLang, "```")
+			if endIdx == -1 {
+				break
+			}
+			codeContent = afterLang[:endIdx]
+			endOffset = start + 3 + nlIdx + 1 + endIdx + 3
+		} else {
+			endIdx := strings.Index(afterStart, "```")
+			if endIdx == -1 {
+				break
+			}
+			codeContent = afterStart[:endIdx]
+			endOffset = start + 3 + endIdx + 3
+		}
+		ph := fmt.Sprintf(placeholder, len(codeBlocks))
+		codeBlocks = append(codeBlocks, "```\n"+codeContent+"```")
+		text = text[:start] + ph + text[endOffset:]
+	}
+
+	// Extract inline `code`
+	var inlineCode []string
+	inlinePH := "\x00INLINE%d\x00"
+	for strings.Contains(text, "`") {
+		start := strings.Index(text, "`")
+		rest := text[start+1:]
+		end := strings.Index(rest, "`")
+		if end == -1 {
+			break
+		}
+		ph := fmt.Sprintf(inlinePH, len(inlineCode))
+		inlineCode = append(inlineCode, "`"+rest[:end]+"`")
+		text = text[:start] + ph + text[start+1+end+1:]
+	}
+
+	// Now process line by line
+	lines := strings.Split(text, "\n")
+	var result []string
+
+	for _, line := range lines {
+		// Extract bold **text** before escaping
+		var bolds []string
+		boldPH := "\x00BOLD%d\x00"
+		for strings.Contains(line, "**") {
+			start := strings.Index(line, "**")
+			rest := line[start+2:]
+			end := strings.Index(rest, "**")
+			if end == -1 {
+				break
+			}
+			ph := fmt.Sprintf(boldPH, len(bolds))
+			bolds = append(bolds, rest[:end])
+			line = line[:start] + ph + rest[end+2:]
+		}
+
+		// Extract italic *text*
+		var italics []string
+		italicPH := "\x00ITALIC%d\x00"
+		for {
+			start := -1
+			for i := 0; i < len(line); i++ {
+				if line[i] == '*' {
+					if start == -1 {
+						start = i
+					} else {
+						ph := fmt.Sprintf(italicPH, len(italics))
+						italics = append(italics, line[start+1:i])
+						line = line[:start] + ph + line[i+1:]
+						start = -1
+						break
+					}
+				}
+			}
+			if start != -1 {
+				break
+			}
+			if start == -1 {
+				break
+			}
+		}
+
+		// Headers → bold
+		isHeader := false
+		if strings.HasPrefix(line, "### ") {
+			line = strings.TrimPrefix(line, "### ")
+			isHeader = true
+		} else if strings.HasPrefix(line, "## ") {
+			line = strings.TrimPrefix(line, "## ")
+			isHeader = true
+		} else if strings.HasPrefix(line, "# ") {
+			line = strings.TrimPrefix(line, "# ")
+			isHeader = true
+		}
+
+		// Escape the remaining text
+		line = escapeMDV2(line)
+
+		// Restore bold
+		for i, b := range bolds {
+			ph := escapeMDV2(fmt.Sprintf(boldPH, i))
+			line = strings.Replace(line, ph, "*"+escapeMDV2(b)+"*", 1)
+		}
+
+		// Restore italic
+		for i, it := range italics {
+			ph := escapeMDV2(fmt.Sprintf(italicPH, i))
+			line = strings.Replace(line, ph, "_"+escapeMDV2(it)+"_", 1)
+		}
+
+		if isHeader {
+			line = "*" + line + "*"
+		}
+
+		result = append(result, line)
+	}
+
+	text = strings.Join(result, "\n")
+
+	// Restore code blocks (not escaped)
+	for i, cb := range codeBlocks {
+		ph := escapeMDV2(fmt.Sprintf(placeholder, i))
+		text = strings.Replace(text, ph, cb, 1)
+	}
+
+	// Restore inline code (not escaped)
+	for i, ic := range inlineCode {
+		ph := escapeMDV2(fmt.Sprintf(inlinePH, i))
+		text = strings.Replace(text, ph, ic, 1)
+	}
+
+	return text
 }
 
 // sanitizeUTF8 ensures a string is valid UTF-8 by replacing invalid bytes.
@@ -192,11 +558,13 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 	chatIDStr := fmt.Sprintf("%d", msg.Chat.ID)
 	userIDStr := fmt.Sprintf("%d", msg.From.ID)
 
-	sessionID, err := s.findOrCreateBotSession(ctx, "telegram", userIDStr, chatIDStr, agentID)
+	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "telegram", userIDStr, chatIDStr, agentID)
 	if err != nil {
 		slog.Error("telegram bot: session lookup failed", "error", err)
 		return
 	}
+	// Use the session's actual agent (respects /switch), not the bot's default.
+	agentID = sessionAgentID
 
 	// Send typing indicator periodically.
 	typingCtx, typingCancel := context.WithCancel(ctx)
@@ -220,6 +588,92 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 	if content == "" {
 		content = msg.Caption
 	}
+
+	// Handle file attachments — download and include path in content
+	var attachments []string
+
+	if msg.Document != nil {
+		filePath, err := s.downloadTelegramFile(bot, msg.Document.FileID, msg.Document.FileName)
+		if err == nil {
+			attachments = append(attachments, fmt.Sprintf("[Attached file: %s (%s)]", filePath, msg.Document.FileName))
+		} else {
+			slog.Warn("telegram bot: failed to download document", "error", err)
+		}
+	}
+
+	if msg.Photo != nil && len(msg.Photo) > 0 {
+		// Get the largest photo
+		photo := msg.Photo[len(msg.Photo)-1]
+		filePath, err := s.downloadTelegramFile(bot, photo.FileID, "photo.jpg")
+		if err == nil {
+			attachments = append(attachments, fmt.Sprintf("[Attached image: %s]", filePath))
+		} else {
+			slog.Warn("telegram bot: failed to download photo", "error", err)
+		}
+	}
+
+	if msg.Voice != nil {
+		filePath, err := s.downloadTelegramFile(bot, msg.Voice.FileID, "voice.ogg")
+		if err == nil {
+			// Auto-transcribe voice message using configured method
+			sttMethod := "openai"
+			sttModel := "base"
+			if tgCtx.botID != "" && s.botConfigStore != nil {
+				if botCfg, err := s.botConfigStore.GetBotConfig(ctx, tgCtx.botID); err == nil && botCfg != nil {
+					if botCfg.SpeechToText != "" {
+						sttMethod = botCfg.SpeechToText
+					}
+					if botCfg.WhisperModel != "" {
+						sttModel = botCfg.WhisperModel
+					}
+				}
+			}
+			transcription := s.transcribeAudioWithConfig(ctx, filePath, sttMethod, sttModel)
+			if transcription != "" {
+				// Use transcription as the message content
+				if content == "" {
+					content = transcription
+				} else {
+					content += "\n" + transcription
+				}
+				slog.Info("telegram bot: voice transcribed", "duration", msg.Voice.Duration, "text_len", len(transcription))
+			} else {
+				// Fallback: attach the file path
+				attachments = append(attachments, fmt.Sprintf("[Voice message: %s, duration: %ds — transcription failed]", filePath, msg.Voice.Duration))
+			}
+		}
+	}
+
+	if msg.Audio != nil {
+		fileName := msg.Audio.FileName
+		if fileName == "" {
+			fileName = "audio.mp3"
+		}
+		filePath, err := s.downloadTelegramFile(bot, msg.Audio.FileID, fileName)
+		if err == nil {
+			attachments = append(attachments, fmt.Sprintf("[Attached audio: %s (%s)]", filePath, fileName))
+		}
+	}
+
+	if msg.Video != nil {
+		fileName := msg.Video.FileName
+		if fileName == "" {
+			fileName = "video.mp4"
+		}
+		filePath, err := s.downloadTelegramFile(bot, msg.Video.FileID, fileName)
+		if err == nil {
+			attachments = append(attachments, fmt.Sprintf("[Attached video: %s (%s)]", filePath, fileName))
+		}
+	}
+
+	// Append attachment info to content
+	if len(attachments) > 0 {
+		if content == "" {
+			content = "User sent file(s):"
+		}
+		content += "\n" + strings.Join(attachments, "\n")
+	}
+
 	if content == "" {
 		return
 	}
@@ -556,6 +1010,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				"/status [id] - Check task status\n" +
 				"/result [id] - Get task output + video\n" +
 				"/pick <id> - Select task to chat about\n" +
+				"/run <instruction> - Run a background subtask on active task\n" +
 				"/current - Show active task\n" +
 				"/reset - Clear conversation history\n" +
 				"/login - Connect your Google account (usage: /login or /login google)\n" +
@@ -565,25 +1020,34 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			reply := tgbotapi.NewMessage(msg.Chat.ID, helpText)
 			bot.Send(reply) //nolint:errcheck
 			return
-		default:
-			slog.Warn("telegram bot: unknown command, passing to agent", "command", msg.Command())
-		}
-	}
+		case "run":
+			// /run <instruction> — create a background subtask under the active task
+			instruction := strings.TrimSpace(msg.CommandArguments())
+			if instruction == "" {
+				sendTelegramText(bot, msg.Chat.ID, "Usage: /run <instruction>\nExample: /run upload to youtube draft")
+				return
+			}
 
-	// If there's an active task, create a subtask and run it in background
-	if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok {
-		taskRef := activeID.(string)
-		parentTask, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
-		if parentTask != nil && parentTask.OrganizationID != "" {
-			typingCancel() // stop typing — this will run in background
+			activeID, hasActive := tgCtx.activeTask.Load(chatIDStr)
+			if !hasActive {
+				sendTelegramText(bot, msg.Chat.ID, "No active task. Use /pick <id> to select one first.")
+				return
+			}
 
-			// Create subtask under the parent task
-			subtaskTitle := content
+			taskRef := activeID.(string)
+			parentTask, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
+			if parentTask == nil || parentTask.OrganizationID == "" {
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s not found or has no organization.", sanitizeUTF8(taskRef)))
+				return
+			}
+
+			typingCancel()
+
+			subtaskTitle := instruction
 			if len(subtaskTitle) > 100 {
 				subtaskTitle = subtaskTitle[:100] + "..."
 			}
 
-			// Build subtask description with parent context
 			description := fmt.Sprintf("Follow-up on %s: %s", taskRef, sanitizeUTF8(parentTask.Title))
 			if parentTask.Result != "" {
 				resultPreview := parentTask.Result
@@ -597,32 +1061,88 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			onSubDone := func(ident, status, result string) {
 				switch status {
 				case "done", "completed":
-					// Update parent task result with subtask result
 					if s.taskStore != nil && result != "" {
+						// Append to parent result instead of overwriting
+						existingResult := ""
+						if fresh, err := s.taskStore.GetTask(context.Background(), parentTask.ID); err == nil && fresh != nil {
+							existingResult = fresh.Result
+						}
+						separator := "\n\n---\n"
+						newResult := existingResult
+						if newResult != "" {
+							newResult += separator
+						}
+						newResult += fmt.Sprintf("[Subtask %s]: %s", ident, result)
 						_, _ = s.taskStore.UpdateTask(context.Background(), parentTask.ID, service.Task{
-							Result: result,
+							Result: newResult,
 						})
 					}
-					sendTelegramText(bot, chatID, fmt.Sprintf("Subtask %s done.\nParent %s updated.\n/result %s to see output.", sanitizeUTF8(ident), sanitizeUTF8(taskRef), sanitizeUTF8(taskRef)))
+					// Show what was done
+					summary := sanitizeUTF8(result)
+					if len(summary) > 500 {
+						summary = summary[:500] + "..."
+					}
+					sendTelegramText(bot, chatID, fmt.Sprintf("Done: %s\n\nResult:\n%s\n\n/result %s for full output", sanitizeUTF8(ident), summary, sanitizeUTF8(taskRef)))
 				case "failed", "cancelled", "blocked":
 					errMsg := sanitizeUTF8(result)
 					if len(errMsg) > 300 {
 						errMsg = errMsg[:300] + "..."
 					}
-					sendTelegramText(bot, chatID, fmt.Sprintf("Subtask %s failed.\n%s", sanitizeUTF8(ident), errMsg))
+					sendTelegramText(bot, chatID, fmt.Sprintf("Failed: %s\n%s", sanitizeUTF8(ident), errMsg))
 				}
 			}
 
-			subtaskID, subtaskIdent, err := s.createBotSubtask(ctx, parentTask, subtaskTitle, description, onSubDone)
+			_, subtaskIdent, err := s.createBotSubtask(ctx, parentTask, subtaskTitle, description, onSubDone)
 			if err != nil {
-				slog.Error("telegram bot: create subtask failed", "error", err)
-				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed to create subtask: %v", err))
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed: %v", err))
 				return
 			}
 
-			_ = subtaskID
-			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Subtask %s created under %s.\nRunning in background...\n/status %s to check parent.", sanitizeUTF8(subtaskIdent), sanitizeUTF8(taskRef), sanitizeUTF8(taskRef)))
+			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Running: %s\nSubtask: %s\n\nI'll notify you when done.", sanitizeUTF8(instruction), sanitizeUTF8(subtaskIdent)))
 			return
+		default:
+			slog.Warn("telegram bot: unknown command, passing to agent", "command", msg.Command())
+		}
+	}
+
+	// If there's an active task, inject task context into the message (chat mode)
+	if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok {
+		taskRef := activeID.(string)
+		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
+		if task != nil {
+			taskContext := fmt.Sprintf("[Active task: %s | Status: %s | Title: %s]", taskRef, task.Status, task.Title)
+			if task.Result != "" {
+				resultPreview := task.Result
+				if len(resultPreview) > 4000 {
+					resultPreview = resultPreview[:4000] + "..."
+				}
+				taskContext += fmt.Sprintf("\n[Task result: %s]", resultPreview)
+
+				// Always extract and list media file paths from the FULL result,
+				// so the agent can reference them even if the result text was truncated.
+				videos, images := extractMediaFiles(task.Result)
+				if len(videos) > 0 || len(images) > 0 {
+					taskContext += "\n[Available files:"
+					for _, v := range videos {
+						taskContext += fmt.Sprintf(" %s (video)", v)
+					}
+					for _, img := range images {
+						taskContext += fmt.Sprintf(" %s (image)", img)
+					}
+					taskContext += "]"
+				}
+			}
+			content = taskContext + "\n\n" + content
+
+			// Set the task's workspace directory so bash tool handlers (e.g. upload_to_youtube)
+			// can find files created by the task's delegation chain.
+			if s.taskStore != nil {
+				rootID := s.resolveRootTaskID(ctx, task)
+				taskWorkDir := filepath.Join(defaultTaskWorkspaceBase, rootID)
+				if _, statErr := os.Stat(taskWorkDir); statErr == nil {
+					ctx = workflow.ContextWithWorkDir(ctx, taskWorkDir)
+				}
+			}
 		}
 	}
 
@@ -631,11 +1151,27 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		chatIDStr, userIDStr, tgCtx.botID)
 	content = userContext + content
 
+	// Set container scope for per-user isolation if bot has user_containers enabled
+	if tgCtx.botID != "" && s.botConfigStore != nil {
+		botCfg, err := s.botConfigStore.GetBotConfig(ctx, tgCtx.botID)
+		if err == nil && botCfg != nil && botCfg.UserContainers {
+			ctx = workflow.ContextWithContainerScope(ctx, workflow.ContainerScope{
+				UserID: "tg-" + chatIDStr,
+			})
+		}
+	}
+
 	// No active task — normal chat flow
 	response, err := s.collectAgenticResponse(ctx, sessionID, content)
 
-	// If the error is about corrupt message history, clear and retry once
-	if err != nil && strings.Contains(err.Error(), "tool call result does not follow") {
+	// If the error is about corrupt message history, clear and retry once.
+	// RunAgenticLoop emits LLM errors as events (not Go errors), so we must
+	// check both the returned error AND the response text for tool-call errors.
+	isToolCallError := (err != nil && strings.Contains(err.Error(), "tool call result does not follow")) ||
+		(response != "" && (strings.Contains(response, "tool call result does not follow") ||
+			strings.Contains(response, "tool_use content block") ||
+			strings.Contains(response, "tool_result") && strings.Contains(response, "not follow")))
+	if isToolCallError {
 		slog.Warn("telegram bot: corrupt message history, clearing and retrying", "session_id", sessionID)
 		if s.chatSessionStore != nil {
 			_ = s.chatSessionStore.DeleteChatMessages(ctx, sessionID)
@@ -658,15 +1194,25 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		response = "(no response)"
 	}
 
-	// No active task — just update if somehow one is set
+	// If there's an active task and the response has file paths, append to task result
 	if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok && s.taskStore != nil {
 		taskRef := activeID.(string)
 		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
 		if task != nil {
-			_, _ = s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-				Result: response,
-			})
-			slog.Info("telegram bot: task result updated", "task", taskRef)
+			// Only update if response contains actionable content (file paths, JSON results)
+			videos, images := extractMediaFiles(response)
+			if len(videos) > 0 || len(images) > 0 {
+				// Append — don't overwrite
+				newResult := task.Result
+				if newResult != "" {
+					newResult += "\n\n---\n"
+				}
+				newResult += fmt.Sprintf("[Chat update]: %s", response)
+				_, _ = s.taskStore.UpdateTask(ctx, task.ID, service.Task{
+					Result: newResult,
+				})
+				slog.Info("telegram bot: task result appended", "task", taskRef)
+			}
 		}
 	}
 

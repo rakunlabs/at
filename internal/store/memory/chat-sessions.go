@@ -107,8 +107,12 @@ func (m *Memory) UpdateChatSession(_ context.Context, id string, session service
 		return nil, nil
 	}
 
-	existing.Name = session.Name
-	existing.Config = session.Config
+	if session.Name != "" {
+		existing.Name = session.Name
+	}
+	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" {
+		existing.Config = session.Config
+	}
 	existing.UpdatedAt = now
 	existing.UpdatedBy = session.UpdatedBy
 	if session.AgentID != "" {

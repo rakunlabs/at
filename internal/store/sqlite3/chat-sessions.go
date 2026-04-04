@@ -201,10 +201,11 @@ func (s *SQLite) UpdateChatSession(ctx context.Context, id string, session servi
 	now := time.Now().UTC()
 
 	record := goqu.Record{
-		"name":       session.Name,
-		"config":     string(configJSON),
 		"updated_at": now.Format(time.RFC3339),
 		"updated_by": session.UpdatedBy,
+	}
+	if session.Name != "" {
+		record["name"] = session.Name
 	}
 	if session.AgentID != "" {
 		record["agent_id"] = session.AgentID
@@ -214,6 +215,10 @@ func (s *SQLite) UpdateChatSession(ctx context.Context, id string, session servi
 	}
 	if session.OrganizationID != "" {
 		record["organization_id"] = session.OrganizationID
+	}
+	// Only update config if any platform field is set (avoids wiping config on partial updates).
+	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" {
+		record["config"] = string(configJSON)
 	}
 
 	query, _, err := s.goqu.Update(s.tableChatSessions).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()

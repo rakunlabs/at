@@ -14,11 +14,12 @@
     type OrganizationAgent,
     type CanvasLayout,
     type IntakeTaskResponse,
+    type ContainerConfig,
   } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listGoals, type Goal } from '@/lib/api/goals';
   import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@/lib/api/tasks';
-  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Brain } from 'lucide-svelte';
+  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Brain, Container } from 'lucide-svelte';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { agentAvatar } from '@/lib/helper/avatar';
   import OrgChart from '@/lib/components/OrgChart.svelte';
@@ -45,6 +46,8 @@
 
   // Submit-task panel
   let showTaskPanel = $state(false);
+  let showContainerPanel = $state(false);
+  let containerConfig = $state<ContainerConfig>({ enabled: false, image: 'at-agent-runtime:latest', cpu: '2', memory: '4g', network: true });
   let taskTitle = $state('');
   let taskDescription = $state('');
   let taskPriority = $state('');
@@ -95,6 +98,9 @@
     try {
       organization = await getOrganization(params.id);
       storeNavbar.title = `Org: ${organization.name}`;
+      if (organization.container_config) {
+        containerConfig = { ...containerConfig, ...organization.container_config };
+      }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load organization', 'alert');
       push('/organizations');
@@ -151,6 +157,18 @@
     editName = organization.name;
     editDescription = organization.description;
     editingOrg = true;
+  }
+
+  async function saveContainerConfig() {
+    if (!organization) return;
+    try {
+      organization = await updateOrganization(organization.id, {
+        container_config: containerConfig,
+      });
+      addToast('Container config saved');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to save', 'alert');
+    }
   }
 
   async function saveOrg() {
@@ -390,8 +408,104 @@
           <Send size={12} />
           Submit Task
         </button>
+        <button
+          onclick={() => { showContainerPanel = !showContainerPanel; showAddPanel = false; showTaskPanel = false; }}
+          class="flex items-center gap-1 px-2 py-1 text-xs {showContainerPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
+        >
+          <Container size={12} />
+          Container
+          {#if containerConfig.enabled}
+            <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
+          {/if}
+        </button>
       </div>
     </div>
+
+    <!-- Container Config Panel -->
+    {#if showContainerPanel}
+      <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 shrink-0">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Container Isolation</span>
+          <button onclick={() => { showContainerPanel = false; }} class="text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text">
+            <X size={14} />
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <!-- Enable toggle -->
+          <label class="flex items-center gap-2 col-span-2">
+            <input
+              type="checkbox"
+              bind:checked={containerConfig.enabled}
+              class="w-3.5 h-3.5 dark:accent-accent"
+            />
+            <span class="text-xs text-gray-700 dark:text-dark-text-secondary">Enable Docker container isolation</span>
+          </label>
+
+          {#if containerConfig.enabled}
+            <!-- Image -->
+            <div class="col-span-2">
+              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</label>
+              <input
+                type="text"
+                bind:value={containerConfig.image}
+                placeholder="at-agent-runtime:latest"
+                class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+              />
+            </div>
+
+            <!-- CPU -->
+            <div>
+              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU Limit</label>
+              <input
+                type="text"
+                bind:value={containerConfig.cpu}
+                placeholder="2"
+                class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+              />
+            </div>
+
+            <!-- Memory -->
+            <div>
+              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory Limit</label>
+              <input
+                type="text"
+                bind:value={containerConfig.memory}
+                placeholder="4g"
+                class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+              />
+            </div>
+
+            <!-- Network -->
+            <label class="flex items-center gap-2 col-span-2">
+              <input
+                type="checkbox"
+                bind:checked={containerConfig.network}
+                class="w-3.5 h-3.5 dark:accent-accent"
+              />
+              <span class="text-xs text-gray-700 dark:text-dark-text-secondary">Allow network access</span>
+            </label>
+          {/if}
+        </div>
+
+        <div class="flex justify-end mt-3 pt-2 border-t border-gray-100 dark:border-dark-border">
+          <button
+            onclick={saveContainerConfig}
+            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded transition-colors"
+          >
+            <Save size={12} />
+            Save
+          </button>
+        </div>
+
+        {#if containerConfig.enabled}
+          <div class="mt-2 text-[10px] text-gray-400 dark:text-dark-text-muted">
+            All agents in this org will execute commands inside an isolated Docker container.
+            Build the image first: <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">docker build -f Dockerfile.agent-runtime -t {containerConfig.image} .</code>
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     <!-- Main area -->
     <div class="flex flex-1 overflow-hidden">

@@ -16,10 +16,19 @@ export interface Organization {
   head_agent_id?: string;
   max_delegation_depth?: number;
   canvas_layout?: CanvasLayout;
+  container_config?: ContainerConfig;
   created_at: string;
   updated_at: string;
   created_by: string;
   updated_by: string;
+}
+
+export interface ContainerConfig {
+  enabled: boolean;
+  image?: string;
+  cpu?: string;
+  memory?: string;
+  network?: boolean;
 }
 
 export interface CanvasLayout {

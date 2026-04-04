@@ -202,10 +202,11 @@ func (p *Postgres) UpdateChatSession(ctx context.Context, id string, session ser
 	now := time.Now().UTC()
 
 	record := goqu.Record{
-		"name":       session.Name,
-		"config":     types.RawJSON(configJSON),
 		"updated_at": now,
 		"updated_by": session.UpdatedBy,
+	}
+	if session.Name != "" {
+		record["name"] = session.Name
 	}
 	if session.AgentID != "" {
 		record["agent_id"] = session.AgentID
@@ -215,6 +216,10 @@ func (p *Postgres) UpdateChatSession(ctx context.Context, id string, session ser
 	}
 	if session.OrganizationID != "" {
 		record["organization_id"] = session.OrganizationID
+	}
+	// Only update config if any platform field is set (avoids wiping config on partial updates).
+	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" {
+		record["config"] = types.RawJSON(configJSON)
 	}
 
 	query, _, err := p.goqu.Update(p.tableChatSessions).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()

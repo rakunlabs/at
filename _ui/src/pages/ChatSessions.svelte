@@ -14,7 +14,8 @@
     type ChatSession,
     type ChatMessage,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff } from 'lucide-svelte';
+  import axios from 'axios';
   import { agentAvatar } from '@/lib/helper/avatar';
   import { md, renderMarkdown } from '@/lib/helper/markdown';
 
@@ -29,6 +30,96 @@
   let streamContent = $state('');
   let toolEvents = $state<any[]>([]);
   let expandedTools = $state<Record<string, boolean>>({});
+
+  // Voice recording
+  let voiceMethod = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-method') || 'openai') : 'openai');
+  let voiceModel = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-model') || 'tiny') : 'tiny');
+  let showVoiceSettings = $state(false);
+
+  function voiceLabel(): string {
+    if (voiceMethod === 'openai') return 'API';
+    if (voiceMethod === 'faster-whisper') return `fw:${voiceModel}`;
+    return voiceModel;
+  }
+  let recording = $state(false);
+  let transcribing = $state(false);
+  let mediaRecorder = $state<MediaRecorder | null>(null);
+  let recordingTimer = $state<ReturnType<typeof setInterval> | null>(null);
+  let recordingDuration = $state(0);
+
+  async function startRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Pick a supported mime type
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = ''; // let browser pick default
+        }
+      }
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+
+      recorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
+
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const type = recorder.mimeType || 'audio/webm';
+        const ext = type.includes('mp4') ? '.m4a' : '.webm';
+        const blob = new Blob(chunks, { type });
+        transcribeBlob(blob, ext);
+      };
+
+      recorder.start(1000); // request data every second for reliability
+      mediaRecorder = recorder;
+      recording = true;
+      recordingDuration = 0;
+      recordingTimer = setInterval(() => { recordingDuration++; }, 1000);
+    } catch (e) {
+      addToast('Microphone access denied', 'alert');
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      mediaRecorder.stop();
+    }
+    recording = false;
+    if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; }
+    recordingDuration = 0;
+  }
+
+  async function transcribeBlob(blob: Blob, ext: string) {
+    transcribing = true;
+    try {
+      const form = new FormData();
+      form.append('file', blob, `voice${ext}`);
+      const params = voiceMethod !== 'openai' ? `?method=${voiceMethod}&model=${voiceModel}` : '';
+      const res = await axios.post(`api/v1/audio/transcribe${params}`, form);
+      const text = res.data?.text;
+      if (text) {
+        inputText = (inputText ? inputText + ' ' : '') + text;
+        inputEl?.focus();
+      } else {
+        addToast('Transcription returned empty', 'warn');
+      }
+    } catch (e: any) {
+      addToast('Transcription failed: ' + (e?.response?.data || e.message), 'alert');
+    } finally {
+      transcribing = false;
+    }
+  }
+
+  function formatRecordingTime(seconds: number): string {
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${m}:${s.toString().padStart(2, '0')}`;
+  }
   let inputText = $state('');
   let loading = $state(false);
   let sending = $state(false);
@@ -48,6 +139,9 @@
 
   let selectedSession = $derived(sessions.find(s => s.id === selectedSessionId) || null);
   let currentAgent = $derived(selectedSession ? agents.find(a => a.id === selectedSession.agent_id) : null);
+  // Agent pre-selected for new session creation (before a session exists).
+  let pendingAgentId = $state<string | null>(null);
+  let pendingAgent = $derived(pendingAgentId ? agents.find(a => a.id === pendingAgentId) : null);
 
   const slashCommands = [
     { cmd: '/agents', label: 'Switch agent', desc: 'Change the agent for this session' },
@@ -212,9 +306,10 @@
       }
     }
 
-    // Auto-create session if none selected.
+    // Auto-create session if none selected — use the pre-selected agent if any.
     if (!selectedSessionId) {
-      await quickCreateSession();
+      await quickCreateSession(pendingAgentId || undefined);
+      pendingAgentId = null;
       if (!selectedSessionId) return;
     }
 
@@ -500,10 +595,29 @@
     <div class="flex-1 overflow-y-auto font-mono text-[13px]">
       {#if !selectedSessionId}
         <div class="flex items-center justify-center h-full text-gray-400 dark:text-dark-text-muted">
-          <div class="text-center text-sm">
-            <p class="text-gray-500 dark:text-dark-text-secondary font-medium mb-1">No session selected</p>
-            <p class="text-[11px]">Click <strong>+</strong> or type a message to start</p>
-            <p class="text-[11px] mt-1 text-gray-400">Type <kbd class="px-1 py-0.5 bg-gray-200 dark:bg-dark-elevated rounded text-[10px]">/</kbd> for commands</p>
+          <div class="text-center text-sm max-w-md">
+            <p class="text-gray-500 dark:text-dark-text-secondary font-medium mb-2">Select an agent to start</p>
+            {#if agents.length > 0}
+              <div class="flex flex-wrap gap-2 justify-center mb-3">
+                {#each agents as agent (agent.id)}
+                  <button
+                    onclick={() => { pendingAgentId = agent.id; inputEl?.focus(); }}
+                    class={[
+                      'flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-lg border transition-all',
+                      pendingAgentId === agent.id
+                        ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white shadow-sm'
+                        : 'border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated',
+                    ]}
+                  >
+                    <img src={agentAvatar(agent.config.avatar_seed, agent.name, 16)} alt="" class="w-4 h-4 rounded-full bg-gray-100 dark:bg-dark-elevated" />
+                    {agent.name}
+                  </button>
+                {/each}
+              </div>
+              <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">{pendingAgentId ? 'Type a message to start chatting' : 'Pick an agent, then type a message'}</p>
+            {:else}
+              <p class="text-[11px]">No agents configured. Create an agent first.</p>
+            {/if}
           </div>
         </div>
       {:else}
@@ -700,7 +814,7 @@
         </div>
       {/if}
 
-      <div class="flex items-end gap-2 px-3 py-2">
+      <div class="flex items-center gap-2 px-3 py-2">
         <!-- Agent pill -->
         {#if selectedSession}
           <button
@@ -712,6 +826,11 @@
             <span class="max-w-[80px] truncate">{currentAgent?.name || '?'}</span>
             <ChevronDown size={10} />
           </button>
+        {:else if pendingAgent}
+          <span class="flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-gray-900 dark:border-accent text-gray-700 dark:text-dark-text shrink-0">
+            <Bot size={11} />
+            <span class="max-w-[80px] truncate">{pendingAgent.name}</span>
+          </span>
         {/if}
 
         <textarea
@@ -724,6 +843,83 @@
           disabled={sending}
           class="flex-1 resize-none bg-transparent px-2 py-1 text-[13px] font-mono text-gray-800 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none disabled:opacity-50"
         ></textarea>
+
+        <!-- Mic button with settings -->
+        <div class="relative shrink-0">
+          {#if transcribing}
+            <div class="flex items-center gap-1 p-1 text-blue-500">
+              <Loader2 size={14} class="animate-spin" />
+              <span class="text-[10px]">...</span>
+            </div>
+          {:else if recording}
+            <button
+              onclick={stopRecording}
+              class="flex items-center gap-1 p-1 text-red-500 hover:text-red-600 animate-pulse"
+              title="Stop recording"
+            >
+              <MicOff size={14} />
+              <span class="text-[10px] font-mono">{formatRecordingTime(recordingDuration)}</span>
+            </button>
+          {:else}
+            <div class="flex items-center h-[22px]">
+              <button
+                onclick={startRecording}
+                disabled={sending}
+                class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-20"
+                title="Voice input (click to record)"
+              >
+                <Mic size={14} />
+              </button>
+              <button
+                onclick={() => { showVoiceSettings = !showVoiceSettings; }}
+                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary px-0.5 rounded hover:bg-gray-100 dark:hover:bg-dark-elevated"
+                title="Voice settings"
+              >
+                {voiceLabel()}
+              </button>
+            </div>
+          {/if}
+
+          {#if showVoiceSettings}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
+            <div
+              class="fixed inset-0 z-40"
+              onclick={() => { showVoiceSettings = false; }}
+            ></div>
+            <div class="absolute bottom-full right-0 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded shadow-lg p-2 z-50 w-52">
+              <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Method</div>
+              {#each [
+                { value: 'openai', label: 'OpenAI API (cloud)' },
+                { value: 'local', label: 'Local Whisper' },
+                { value: 'faster-whisper', label: 'Faster-Whisper' },
+              ] as opt}
+                <button
+                  onclick={() => { voiceMethod = opt.value; localStorage.setItem('at-voice-method', opt.value); }}
+                  class="w-full text-left px-2 py-1 text-[11px] rounded transition-colors {voiceMethod === opt.value ? 'bg-gray-900 dark:bg-accent text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+                >
+                  {opt.label}
+                </button>
+              {/each}
+              {#if voiceMethod !== 'openai'}
+                <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mt-2 mb-1">Model</div>
+                {#each [
+                  { value: 'tiny', label: 'tiny (39M, fastest)' },
+                  { value: 'base', label: 'base (74M, fast)' },
+                  { value: 'small', label: 'small (244M, good)' },
+                  { value: 'medium', label: 'medium (769M, better)' },
+                ] as opt}
+                  <button
+                    onclick={() => { voiceModel = opt.value; localStorage.setItem('at-voice-model', opt.value); showVoiceSettings = false; }}
+                    class="w-full text-left px-2 py-1 text-[11px] rounded transition-colors {voiceModel === opt.value ? 'bg-gray-700 dark:bg-dark-highest text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+                  >
+                    {opt.label}
+                  </button>
+                {/each}
+              {/if}
+            </div>
+          {/if}
+        </div>
 
         {#if sending}
           <button onclick={stopGeneration} class="p-1 text-red-400 hover:text-red-500 shrink-0" title="Stop">

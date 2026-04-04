@@ -14,36 +14,30 @@ import (
 )
 
 // findOrCreateBotSession looks up an existing chat session by platform identifiers,
-// or creates a new one if none exists.
-func (s *Server) findOrCreateBotSession(ctx context.Context, platform, userID, channelID, agentID string) (string, error) {
+// or creates a new one if none exists. Returns the session ID and the session's
+// actual agent ID (which may differ from defaultAgentID if the user switched agents).
+func (s *Server) findOrCreateBotSession(ctx context.Context, platform, userID, channelID, defaultAgentID string) (string, string, error) {
 	if s.chatSessionStore == nil {
-		return "", fmt.Errorf("chat session store not configured")
+		return "", "", fmt.Errorf("chat session store not configured")
 	}
 
 	session, err := s.chatSessionStore.GetChatSessionByPlatform(ctx, platform, userID, channelID)
 	if err != nil {
-		return "", fmt.Errorf("lookup platform session: %w", err)
+		return "", "", fmt.Errorf("lookup platform session: %w", err)
 	}
 	if session != nil {
-		// If the bot's default agent changed, update the session to use the new agent
-		if session.AgentID != agentID && agentID != "" {
-			slog.Info("bot session: updating agent", "session_id", session.ID, "old_agent", session.AgentID, "new_agent", agentID)
-			session.AgentID = agentID
-			_, _ = s.chatSessionStore.UpdateChatSession(ctx, session.ID, *session)
-			// Clear old messages to avoid tool_call mismatch errors with different agent
-			_ = s.chatSessionStore.DeleteChatMessages(ctx, session.ID)
-		}
-		return session.ID, nil
+		// Return the session's current agent — respect /switch choices.
+		return session.ID, session.AgentID, nil
 	}
 
-	// Create new session.
+	// Create new session with the bot's default agent.
 	name := fmt.Sprintf("%s-%s", platform, channelID)
 	if channelID == "" {
 		name = fmt.Sprintf("%s-%s", platform, userID)
 	}
 
 	newSession, err := s.chatSessionStore.CreateChatSession(ctx, service.ChatSession{
-		AgentID: agentID,
+		AgentID: defaultAgentID,
 		Name:    name,
 		Config: service.ChatSessionConfig{
 			Platform:          platform,
@@ -54,11 +48,11 @@ func (s *Server) findOrCreateBotSession(ctx context.Context, platform, userID, c
 		UpdatedBy: platform + "-bot",
 	})
 	if err != nil {
-		return "", fmt.Errorf("create platform session: %w", err)
+		return "", "", fmt.Errorf("create platform session: %w", err)
 	}
 
-	slog.Info("created bot chat session", "platform", platform, "session_id", newSession.ID, "agent_id", agentID)
-	return newSession.ID, nil
+	slog.Info("created bot chat session", "platform", platform, "session_id", newSession.ID, "agent_id", defaultAgentID)
+	return newSession.ID, defaultAgentID, nil
 }
 
 // collectAgenticResponse runs the agentic loop and collects all text content into a single string.

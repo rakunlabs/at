@@ -38,6 +38,12 @@
   let formAllowedUsers = $state<{ value: string }[]>([]);
   let formPendingUsers = $state<string[]>([]);
   let formChannelAgents = $state<{ key: string; value: string }[]>([]);
+  let formUserContainers = $state(false);
+  let formContainerImage = $state('at-agent-runtime:latest');
+  let formContainerCpu = $state('1');
+  let formContainerMemory = $state('2g');
+  let formSpeechToText = $state('openai');
+  let formWhisperModel = $state('base');
 
   // ─── Load ───
 
@@ -89,6 +95,12 @@
     formAllowedUsers = [];
     formPendingUsers = [];
     formChannelAgents = [];
+    formUserContainers = false;
+    formContainerImage = 'at-agent-runtime:latest';
+    formContainerCpu = '1';
+    formContainerMemory = '2g';
+    formSpeechToText = 'openai';
+    formWhisperModel = 'base';
     editingId = null;
     showForm = false;
   }
@@ -111,6 +123,12 @@
     formAllowedUsers = (bot.allowed_users || []).map((v) => ({ value: v }));
     formPendingUsers = bot.pending_users || [];
     formChannelAgents = Object.entries(bot.channel_agents || {}).map(([key, value]) => ({ key, value }));
+    formUserContainers = bot.user_containers || false;
+    formContainerImage = bot.container_image || 'at-agent-runtime:latest';
+    formContainerCpu = bot.container_cpu || '1';
+    formContainerMemory = bot.container_memory || '2g';
+    formSpeechToText = bot.speech_to_text || 'openai';
+    formWhisperModel = bot.whisper_model || 'base';
     showForm = true;
   }
 
@@ -144,6 +162,12 @@
         allowed_users: formAllowedUsers.map((e) => e.value.trim()).filter(Boolean),
         pending_users: formPendingUsers,
         enabled: formEnabled,
+        user_containers: formUserContainers,
+        container_image: formUserContainers ? formContainerImage : undefined,
+        container_cpu: formUserContainers ? formContainerCpu : undefined,
+        container_memory: formUserContainers ? formContainerMemory : undefined,
+        speech_to_text: formSpeechToText,
+        whisper_model: formSpeechToText !== 'openai' && formSpeechToText !== 'none' ? formWhisperModel : undefined,
       };
 
       if (editingId) {
@@ -514,6 +538,78 @@
                   Add override
                 </button>
               </div>
+            </div>
+
+            <!-- Speech-to-Text -->
+            <div class="grid grid-cols-4 gap-3 items-start">
+              <label class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Voice Transcription</label>
+              <div class="col-span-3 space-y-2">
+                <select
+                  bind:value={formSpeechToText}
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                >
+                  <option value="openai">OpenAI Whisper API (cloud, best quality)</option>
+                  <option value="local">Local Whisper (free, uses CPU/GPU)</option>
+                  <option value="faster-whisper">Faster-Whisper (free, optimized)</option>
+                  <option value="none">Disabled</option>
+                </select>
+                {#if formSpeechToText === 'local' || formSpeechToText === 'faster-whisper'}
+                  <select
+                    bind:value={formWhisperModel}
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                  >
+                    <option value="tiny">tiny (39M, fastest)</option>
+                    <option value="base">base (74M, fast)</option>
+                    <option value="small">small (244M, good)</option>
+                    <option value="medium">medium (769M, better)</option>
+                    <option value="large-v3">large-v3 (1.5G, best)</option>
+                  </select>
+                  <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                    Uses <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">uvx</code> to run {formSpeechToText === 'faster-whisper' ? 'faster-whisper' : 'openai-whisper'} locally. First run downloads the model.
+                  </div>
+                {:else if formSpeechToText === 'openai'}
+                  <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                    Uses OpenAI API (~$0.006/min). Requires <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">openai_api_key</code> variable.
+                  </div>
+                {:else}
+                  <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                    Voice messages will be attached as files instead of transcribed.
+                  </div>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Per-User Container Isolation -->
+            <div class="border border-gray-200 dark:border-dark-border-subtle p-3 space-y-3">
+              <label class="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" bind:checked={formUserContainers} class="w-3.5 h-3.5 dark:accent-accent" />
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Per-user container isolation</span>
+              </label>
+              {#if formUserContainers}
+                <div class="text-[10px] text-gray-400 dark:text-dark-text-muted mb-2">
+                  Each bot user gets their own isolated Docker container. Files, packages, and state are completely separate between users.
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                  <div>
+                    <label class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</label>
+                    <input type="text" bind:value={formContainerImage} placeholder="at-agent-runtime:latest"
+                      class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU</label>
+                    <input type="text" bind:value={formContainerCpu} placeholder="1"
+                      class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory</label>
+                    <input type="text" bind:value={formContainerMemory} placeholder="2g"
+                      class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text" />
+                  </div>
+                </div>
+                <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                  Build image: <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">docker build -f Dockerfile.agent-runtime -t {formContainerImage} .</code>
+                </div>
+              {/if}
             </div>
 
             <!-- Actions -->

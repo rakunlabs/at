@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
@@ -294,6 +295,10 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	if err != nil {
 		return fmt.Errorf("load messages: %w", err)
 	}
+
+	// 4b. Sanitize message history — remove orphaned tool results that don't follow a tool call.
+	// This prevents "tool call result does not follow tool call" errors from LLM providers.
+	dbMessages = sanitizeMessageHistory(dbMessages)
 
 	// 5. Persist user message.
 	userMsg := service.ChatMessage{
@@ -734,9 +739,21 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 		resp, err := info.provider.Chat(ctx, model, llmMessages, llmTools, nil)
 		if err != nil {
-			slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
-			onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("LLM error: %v", err)})
-			return nil
+			// Recover from corrupted tool call history — sanitize and retry once.
+			errStr := err.Error()
+			if strings.Contains(errStr, "tool call result does not follow") ||
+				strings.Contains(errStr, "tool_use content block") ||
+				(strings.Contains(errStr, "tool_result") && strings.Contains(errStr, "not follow")) {
+				slog.Warn("agentic loop: tool call history error, sanitizing and retrying",
+					"iteration", iteration, "error", err)
+				llmMessages = sanitizeLLMMessages(llmMessages)
+				resp, err = info.provider.Chat(ctx, model, llmMessages, llmTools, nil)
+			}
+			if err != nil {
+				slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
+				onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("LLM error: %v", err)})
+				return nil
+			}
 		}
 
 		// Record token usage for cost tracking.
@@ -1118,6 +1135,251 @@ func (s *Server) persistAssistantMessage(ctx context.Context, sessionID, content
 	}
 }
 
+// getToolCallIDs extracts tool call IDs from an assistant message's ToolCalls field.
+func getToolCallIDs(toolCalls any) []string {
+	if toolCalls == nil {
+		return nil
+	}
+	var ids []string
+	switch v := toolCalls.(type) {
+	case []any:
+		for _, tc := range v {
+			if tcMap, ok := tc.(map[string]any); ok {
+				for _, key := range []string{"id", "Id", "ID"} {
+					if id, ok := tcMap[key].(string); ok && id != "" {
+						ids = append(ids, id)
+						break
+					}
+				}
+			}
+		}
+	case []map[string]any:
+		for _, tcMap := range v {
+			for _, key := range []string{"id", "Id", "ID"} {
+				if id, ok := tcMap[key].(string); ok && id != "" {
+					ids = append(ids, id)
+					break
+				}
+			}
+		}
+	}
+	return ids
+}
+
+// sanitizeMessageHistory removes corrupted tool call/result sequences from message history.
+// This prevents LLM "tool call result does not follow tool call" errors.
+func sanitizeMessageHistory(msgs []service.ChatMessage) []service.ChatMessage {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	// Step 1: Collect ALL valid tool_call IDs from ALL assistant messages
+	validToolCallIDs := make(map[string]bool)
+	for _, msg := range msgs {
+		if msg.Role == "assistant" {
+			for _, id := range getToolCallIDs(msg.Data.ToolCalls) {
+				validToolCallIDs[id] = true
+			}
+		}
+	}
+
+	// Step 2: Collect ALL tool_call_ids from tool result messages
+	presentToolResults := make(map[string]bool)
+	for _, msg := range msgs {
+		if msg.Role == "tool" && msg.Data.ToolCallID != "" {
+			presentToolResults[msg.Data.ToolCallID] = true
+		}
+	}
+
+	// Step 3: Find assistant messages that are missing tool results
+	// These are "broken" — their tool_call IDs are dangling
+	brokenToolCallIDs := make(map[string]bool)
+	for _, msg := range msgs {
+		if msg.Role == "assistant" {
+			ids := getToolCallIDs(msg.Data.ToolCalls)
+			if len(ids) == 0 {
+				continue
+			}
+			allPresent := true
+			for _, id := range ids {
+				if !presentToolResults[id] {
+					allPresent = false
+					break
+				}
+			}
+			if !allPresent {
+				// Mark ALL tool call IDs from this assistant as broken
+				for _, id := range ids {
+					brokenToolCallIDs[id] = true
+				}
+			}
+		}
+	}
+
+	// Step 4: Build clean result — drop broken blocks and orphaned tool messages
+	var result []service.ChatMessage
+	for _, msg := range msgs {
+		if msg.Role == "assistant" {
+			ids := getToolCallIDs(msg.Data.ToolCalls)
+			if len(ids) > 0 {
+				// Check if any of this assistant's tool calls are broken
+				isBroken := false
+				for _, id := range ids {
+					if brokenToolCallIDs[id] {
+						isBroken = true
+						break
+					}
+				}
+				if isBroken {
+					slog.Debug("sanitizeMessageHistory: dropping broken assistant message", "tool_call_ids", len(ids))
+					continue
+				}
+			}
+			result = append(result, msg)
+		} else if msg.Role == "tool" {
+			// Drop tool results that are orphaned or belong to broken blocks
+			if msg.Data.ToolCallID == "" {
+				continue
+			}
+			if !validToolCallIDs[msg.Data.ToolCallID] || brokenToolCallIDs[msg.Data.ToolCallID] {
+				slog.Debug("sanitizeMessageHistory: dropping tool message", "tool_call_id", msg.Data.ToolCallID)
+				continue
+			}
+			result = append(result, msg)
+		} else {
+			result = append(result, msg)
+		}
+	}
+
+	return result
+}
+
+// sanitizeLLMMessages removes corrupted tool call/result sequences from an in-memory
+// LLM message list ([]service.Message). This is used for restored conversation state
+// in org-delegation where messages are not stored as ChatMessage rows.
+// It drops assistant messages whose tool_use blocks lack matching tool_result responses.
+func sanitizeLLMMessages(msgs []service.Message) []service.Message {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	// Helper: extract tool_use IDs from an assistant message's content blocks.
+	extractToolUseIDs := func(content any) []string {
+		blocks, ok := content.([]service.ContentBlock)
+		if !ok {
+			return nil
+		}
+		var ids []string
+		for _, b := range blocks {
+			if b.Type == "tool_use" && b.ID != "" {
+				ids = append(ids, b.ID)
+			}
+		}
+		return ids
+	}
+
+	// Helper: extract tool_result IDs from a user message's content blocks.
+	extractToolResultIDs := func(content any) []string {
+		blocks, ok := content.([]service.ContentBlock)
+		if !ok {
+			return nil
+		}
+		var ids []string
+		for _, b := range blocks {
+			if b.Type == "tool_result" && b.ToolUseID != "" {
+				ids = append(ids, b.ToolUseID)
+			}
+		}
+		return ids
+	}
+
+	// Step 1: Collect ALL tool_use IDs and ALL tool_result IDs.
+	validToolUseIDs := make(map[string]bool)
+	presentToolResults := make(map[string]bool)
+	for _, msg := range msgs {
+		if msg.Role == "assistant" {
+			for _, id := range extractToolUseIDs(msg.Content) {
+				validToolUseIDs[id] = true
+			}
+		} else if msg.Role == "user" {
+			for _, id := range extractToolResultIDs(msg.Content) {
+				presentToolResults[id] = true
+			}
+		}
+	}
+
+	// Step 2: Find assistant messages with incomplete tool results.
+	brokenToolUseIDs := make(map[string]bool)
+	for _, msg := range msgs {
+		if msg.Role != "assistant" {
+			continue
+		}
+		ids := extractToolUseIDs(msg.Content)
+		if len(ids) == 0 {
+			continue
+		}
+		allPresent := true
+		for _, id := range ids {
+			if !presentToolResults[id] {
+				allPresent = false
+				break
+			}
+		}
+		if !allPresent {
+			for _, id := range ids {
+				brokenToolUseIDs[id] = true
+			}
+		}
+	}
+
+	if len(brokenToolUseIDs) == 0 {
+		return msgs // nothing to fix
+	}
+
+	// Step 3: Rebuild message list, dropping broken assistant and orphaned tool_result messages.
+	var result []service.Message
+	for _, msg := range msgs {
+		if msg.Role == "assistant" {
+			ids := extractToolUseIDs(msg.Content)
+			if len(ids) > 0 {
+				isBroken := false
+				for _, id := range ids {
+					if brokenToolUseIDs[id] {
+						isBroken = true
+						break
+					}
+				}
+				if isBroken {
+					slog.Debug("sanitizeLLMMessages: dropping broken assistant message", "tool_use_ids", len(ids))
+					continue
+				}
+			}
+			result = append(result, msg)
+		} else if msg.Role == "user" {
+			resultIDs := extractToolResultIDs(msg.Content)
+			if len(resultIDs) > 0 {
+				// Check if any tool_result references a broken tool_use.
+				hasBroken := false
+				for _, id := range resultIDs {
+					if brokenToolUseIDs[id] || !validToolUseIDs[id] {
+						hasBroken = true
+						break
+					}
+				}
+				if hasBroken {
+					slog.Debug("sanitizeLLMMessages: dropping orphaned tool_result message", "tool_result_ids", len(resultIDs))
+					continue
+				}
+			}
+			result = append(result, msg)
+		} else {
+			result = append(result, msg)
+		}
+	}
+
+	return result
+}
+
 func (s *Server) persistToolResults(ctx context.Context, sessionID string, results []service.ContentBlock) {
 	if s.chatSessionStore == nil {
 		return
@@ -1125,11 +1387,20 @@ func (s *Server) persistToolResults(ctx context.Context, sessionID string, resul
 
 	var msgs []service.ChatMessage
 	for _, r := range results {
+		content := r.Content
+		// Sanitize: remove non-UTF8 bytes that break PostgreSQL
+		if !utf8.ValidString(content) {
+			content = strings.ToValidUTF8(content, "")
+		}
+		// Truncate very large tool results (e.g., binary file dumps) to prevent DB bloat
+		if len(content) > 50000 {
+			content = content[:50000] + "\n... [truncated, " + fmt.Sprintf("%d", len(r.Content)) + " bytes total]"
+		}
 		msgs = append(msgs, service.ChatMessage{
 			SessionID: sessionID,
 			Role:      "tool",
 			Data: service.ChatMessageData{
-				Content:    r.Content,
+				Content:    content,
 				ToolCallID: r.ToolUseID,
 			},
 		})

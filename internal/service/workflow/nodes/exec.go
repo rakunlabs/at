@@ -243,6 +243,8 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 		"PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
 		"TMPDIR=" + sandboxAbs,
 		"SANDBOX_ROOT=" + sandboxAbs,
+		"UV_SYSTEM_PYTHON=1",
+		"PIP_BREAK_SYSTEM_PACKAGES=1",
 	}
 	for k, v := range n.env {
 		cmdEnv = append(cmdEnv, k+"="+v)

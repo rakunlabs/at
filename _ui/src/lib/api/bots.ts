@@ -15,6 +15,12 @@ export interface BotConfig {
   allowed_users: string[];
   pending_users: string[];
   enabled: boolean;
+  user_containers?: boolean;
+  container_image?: string;
+  container_cpu?: string;
+  container_memory?: string;
+  speech_to_text?: string;
+  whisper_model?: string;
   created_at: string;
   updated_at: string;
   created_by: string;

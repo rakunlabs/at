@@ -79,6 +79,26 @@ func ExecuteJSHandlerWithOptions(handler string, args map[string]any, opts JSHan
 // defaultBashTimeout is the default execution timeout for bash handlers.
 const defaultBashTimeout = 60 * time.Second
 
+// ctxKeyContainerScope is a context key for routing execution to a Docker container.
+type ctxKeyContainerScope struct{}
+
+// ContainerScope identifies which container to use for command execution.
+type ContainerScope struct {
+	OrgID  string // organization ID (for per-org containers)
+	UserID string // user ID (for per-user containers, e.g., telegram chat_id)
+}
+
+// ContextWithContainerScope returns a context with a container scope.
+func ContextWithContainerScope(ctx context.Context, scope ContainerScope) context.Context {
+	return context.WithValue(ctx, ctxKeyContainerScope{}, scope)
+}
+
+// ContainerScopeFromContext returns the container scope from context, if set.
+func ContainerScopeFromContext(ctx context.Context) (ContainerScope, bool) {
+	v, ok := ctx.Value(ctxKeyContainerScope{}).(ContainerScope)
+	return v, ok
+}
+
 // ctxKeyWorkDir is a context key for injecting a working directory into bash handlers.
 // When set, ExecuteBashHandler uses it as cmd.Dir so all commands run in that directory.
 type ctxKeyWorkDir struct{}
@@ -116,6 +136,9 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	// Start with the parent process environment so that PATH, HOME,
 	// SSH_AUTH_SOCK, git config, etc. are available to the subprocess.
 	env := os.Environ()
+
+	// Allow pip/uv to install packages on externally managed Python (macOS Homebrew).
+	env = append(env, "PIP_BREAK_SYSTEM_PACKAGES=1", "UV_SYSTEM_PYTHON=1")
 
 	// Overlay tool arguments as ARG_<NAME>.
 	// Strings are passed as-is; all other types (arrays, objects, numbers,

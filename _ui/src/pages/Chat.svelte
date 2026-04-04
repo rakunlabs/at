@@ -18,7 +18,8 @@
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
   import { listVariables, type Variable } from '@/lib/api/secrets';
-  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, Mic, MicOff } from 'lucide-svelte';
+  import axios from 'axios';
   import { md, renderMarkdown } from '@/lib/helper/markdown';
 
   storeNavbar.title = 'Chat';
@@ -139,6 +140,70 @@
   let messages = $state<ChatMessage[]>([]);
   let loading = $state(true);
   let streaming = $state(false);
+
+  // Voice recording
+  let chatVoiceMethod = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-method') || 'openai') : 'openai');
+  let chatVoiceModel = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-model') || 'tiny') : 'tiny');
+  let showChatVoiceSettings = $state(false);
+
+  function chatVoiceLabel(): string {
+    if (chatVoiceMethod === 'openai') return 'API';
+    if (chatVoiceMethod === 'faster-whisper') return `fw:${chatVoiceModel}`;
+    return chatVoiceModel;
+  }
+
+  let chatRecording = $state(false);
+  let chatTranscribing = $state(false);
+  let chatMediaRecorder = $state<MediaRecorder | null>(null);
+  let chatRecordingDuration = $state(0);
+  let chatRecordingTimer = $state<ReturnType<typeof setInterval> | null>(null);
+
+  async function startChatRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      let mimeType = 'audio/webm';
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4';
+        if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
+      }
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = () => {
+        stream.getTracks().forEach(t => t.stop());
+        const type = recorder.mimeType || 'audio/webm';
+        const ext = type.includes('mp4') ? '.m4a' : '.webm';
+        const blob = new Blob(chunks, { type });
+        chatTranscribing = true;
+        const params = chatVoiceMethod !== 'openai' ? `?method=${chatVoiceMethod}&model=${chatVoiceModel}` : '';
+        const form = new FormData();
+        form.append('file', blob, `voice${ext}`);
+        axios.post(`api/v1/audio/transcribe${params}`, form)
+          .then(res => {
+            if (res.data?.text) userInput = (userInput ? userInput + ' ' : '') + res.data.text;
+            else addToast('Transcription returned empty', 'warn');
+          })
+          .catch(e => addToast('Transcription failed: ' + (e?.response?.data || e.message), 'alert'))
+          .finally(() => { chatTranscribing = false; });
+      };
+      recorder.start(1000);
+      chatMediaRecorder = recorder;
+      chatRecording = true;
+      chatRecordingDuration = 0;
+      chatRecordingTimer = setInterval(() => { chatRecordingDuration++; }, 1000);
+    } catch {
+      addToast('Microphone access denied', 'alert');
+    }
+  }
+
+  function stopChatRecording() {
+    if (chatMediaRecorder && chatMediaRecorder.state === 'recording') chatMediaRecorder.stop();
+    chatRecording = false;
+    if (chatRecordingTimer) { clearInterval(chatRecordingTimer); chatRecordingTimer = null; }
+    chatRecordingDuration = 0;
+  }
   let abortController = $state<AbortController | null>(null);
   let chatContainer: HTMLDivElement | undefined = $state();
   let showSystemPrompt = $state(false);
@@ -1537,7 +1602,7 @@
       </div>
     {/if}
 
-    <div class="flex gap-2">
+    <div class="flex items-center gap-2">
       <!-- Hidden file input -->
       <input
         bind:this={fileInput}
@@ -1567,6 +1632,80 @@
         rows={1}
         class="flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
       ></textarea>
+      <!-- Mic button with settings -->
+      <div class="relative">
+        {#if chatTranscribing}
+          <div class="px-2.5 py-2 flex items-center gap-1 text-blue-500">
+            <Loader2 size={14} class="animate-spin" />
+            <span class="text-[10px]">...</span>
+          </div>
+        {:else if chatRecording}
+          <button
+            onclick={stopChatRecording}
+            class="px-2.5 py-2 text-red-500 hover:text-red-600 flex items-center gap-1 animate-pulse transition-colors"
+            title="Stop recording"
+          >
+            <MicOff size={14} />
+            <span class="text-[10px] font-mono">{Math.floor(chatRecordingDuration / 60)}:{(chatRecordingDuration % 60).toString().padStart(2, '0')}</span>
+          </button>
+        {:else}
+          <div class="flex items-center border border-gray-300 dark:border-dark-border-subtle">
+            <button
+              onclick={startChatRecording}
+              disabled={models.length === 0}
+              class="px-2.5 py-2 hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 transition-colors"
+              title="Voice input"
+            >
+              <Mic size={14} />
+            </button>
+            <button
+              onclick={() => { showChatVoiceSettings = !showChatVoiceSettings; }}
+              class="px-1.5 py-2 text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated border-l border-gray-300 dark:border-dark-border-subtle transition-colors"
+              title="Voice settings"
+            >
+              {chatVoiceLabel()}
+            </button>
+          </div>
+        {/if}
+
+        {#if showChatVoiceSettings}
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div class="fixed inset-0 z-40" onclick={() => { showChatVoiceSettings = false; }}></div>
+          <div class="absolute bottom-full right-0 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded shadow-lg p-2 z-50 w-52">
+            <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Method</div>
+            {#each [
+              { value: 'openai', label: 'OpenAI API (cloud)' },
+              { value: 'local', label: 'Local Whisper' },
+              { value: 'faster-whisper', label: 'Faster-Whisper' },
+            ] as opt}
+              <button
+                onclick={() => { chatVoiceMethod = opt.value; localStorage.setItem('at-voice-method', opt.value); }}
+                class="w-full text-left px-2 py-1 text-[11px] rounded transition-colors {chatVoiceMethod === opt.value ? 'bg-gray-900 dark:bg-accent text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+              >
+                {opt.label}
+              </button>
+            {/each}
+            {#if chatVoiceMethod !== 'openai'}
+              <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mt-2 mb-1">Model</div>
+              {#each [
+                { value: 'tiny', label: 'tiny (39M, fastest)' },
+                { value: 'base', label: 'base (74M, fast)' },
+                { value: 'small', label: 'small (244M, good)' },
+                { value: 'medium', label: 'medium (769M, better)' },
+              ] as opt}
+                <button
+                  onclick={() => { chatVoiceModel = opt.value; localStorage.setItem('at-voice-model', opt.value); showChatVoiceSettings = false; }}
+                  class="w-full text-left px-2 py-1 text-[11px] rounded transition-colors {chatVoiceModel === opt.value ? 'bg-gray-700 dark:bg-dark-highest text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+                >
+                  {opt.label}
+                </button>
+              {/each}
+            {/if}
+          </div>
+        {/if}
+      </div>
+
       {#if streaming}
         <button
           onclick={stopStreaming}

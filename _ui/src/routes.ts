@@ -28,6 +28,7 @@ import AgentMemories from '@/pages/AgentMemories.svelte';
 import AgentMemoryDetail from '@/pages/AgentMemoryDetail.svelte';
 import Connections from '@/pages/Connections.svelte';
 import Files from '@/pages/Files.svelte';
+import Guides from '@/pages/Guides.svelte';
 import NotFound from '@/pages/NotFound.svelte';
 
 export default {
@@ -59,6 +60,7 @@ export default {
   '/audit': Audit,
   '/cost-events': CostEvents,
   '/files': Files,
+  '/guides': Guides,
   '/organizations/:id/memories': AgentMemories,
   '/agent-memories/:id': AgentMemoryDetail,
   '*': NotFound

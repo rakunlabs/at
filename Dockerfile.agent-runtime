@@ -1,0 +1,54 @@
+# Agent Runtime Container
+# Pre-built with common tools agents need.
+# Used for per-organization isolated execution.
+
+FROM python:3.13-slim
+
+# System packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    curl \
+    wget \
+    git \
+    jq \
+    imagemagick \
+    poppler-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js (for MCP servers like Playwright)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python packages commonly used by agents
+RUN pip install --no-cache-dir \
+    pdfminer.six \
+    PyPDF2 \
+    Pillow \
+    requests \
+    beautifulsoup4 \
+    yt-dlp \
+    python-pptx \
+    python-docx \
+    openpyxl \
+    numpy
+
+# UV package manager (fast pip alternative)
+RUN pip install --no-cache-dir uv
+
+# Playwright (headless browser)
+RUN npx -y playwright install --with-deps chromium
+
+# Create workspace
+RUN mkdir -p /workspace /tmp/at-sandbox
+WORKDIR /workspace
+
+# Default environment
+ENV PYTHONUNBUFFERED=1
+ENV PIP_BREAK_SYSTEM_PACKAGES=1
+ENV UV_SYSTEM_PYTHON=1
+ENV SANDBOX_ROOT=/tmp/at-sandbox
+ENV PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+
+# Keep container running (AT sends commands via docker exec)
+CMD ["sleep", "infinity"]

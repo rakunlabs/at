@@ -63,6 +63,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		ctx = workflow.ContextWithWorkDir(ctx, taskWorkDir)
 	}
 
+	// a3) Set container scope if the org has container isolation enabled.
+	if _, hasScope := workflow.ContainerScopeFromContext(ctx); !hasScope {
+		if org.ContainerConfig != nil && org.ContainerConfig.Enabled {
+			ctx = workflow.ContextWithContainerScope(ctx, workflow.ContainerScope{
+				OrgID: org.ID,
+			})
+		}
+	}
+
 	// b) Load the agent.
 	agent, err := s.agentStore.GetAgent(ctx, agentID)
 	if err != nil {
@@ -378,7 +387,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 	// If we have saved conversation state, resume from it instead of starting fresh.
 	if len(savedConversation) > 0 {
-		messages = savedConversation
+		// Sanitize restored messages — a previous interrupted run may have left
+		// assistant tool_use blocks without matching tool_result responses.
+		messages = sanitizeLLMMessages(savedConversation)
 		// Add a continuation prompt so the agent knows to pick up where it left off.
 		continueMsg := "Continue processing this task from where you left off. Your previous run was interrupted because it reached the iteration limit. Review your progress so far and complete the remaining work."
 		if task.Result != "" {
@@ -442,13 +453,40 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 		}
 
-		// Call LLM.
-		resp, err := info.provider.Chat(ctx, model, messages, llmTools, nil)
-		if err != nil {
+		// Call LLM with retry on transient errors (5xx, rate limits).
+		var resp *service.LLMResponse
+		var chatErr error
+		for attempt := 0; attempt < 3; attempt++ {
+			resp, chatErr = info.provider.Chat(ctx, model, messages, llmTools, nil)
+			if chatErr == nil {
+				break
+			}
+			errStr := chatErr.Error()
+			// Recover from corrupted tool call history — sanitize messages and retry once.
+			if attempt == 0 && (strings.Contains(errStr, "tool call result does not follow") ||
+				strings.Contains(errStr, "tool_use content block") ||
+				strings.Contains(errStr, "tool_result") && strings.Contains(errStr, "not follow")) {
+				slog.Warn("org-delegation: tool call history error, sanitizing and retrying",
+					"agent_id", agentID, "task_id", task.ID, "error", chatErr)
+				messages = sanitizeLLMMessages(messages)
+				continue
+			}
+			// Retry on 5xx server errors and rate limits
+			if strings.Contains(errStr, "status 500") || strings.Contains(errStr, "status 502") ||
+				strings.Contains(errStr, "status 503") || strings.Contains(errStr, "status 520") ||
+				strings.Contains(errStr, "status 429") || strings.Contains(errStr, "unknown error") {
+				slog.Warn("org-delegation: transient LLM error, retrying",
+					"agent_id", agentID, "task_id", task.ID, "attempt", attempt+1, "error", chatErr)
+				time.Sleep(time.Duration(attempt+1) * 3 * time.Second) // 3s, 6s, 9s backoff
+				continue
+			}
+			break // non-retryable error
+		}
+		if chatErr != nil {
 			slog.Error("org-delegation: chat failed",
-				"agent_id", agentID, "task_id", task.ID, "iteration", iteration, "error", err)
-			_ = s.completeTaskWithStatus(ctx, task, service.TaskStatusCancelled, fmt.Sprintf("chat failed: %v", err))
-			return fmt.Errorf("org-delegation: chat failed (iteration %d): %w", iteration, err)
+				"agent_id", agentID, "task_id", task.ID, "iteration", iteration, "error", chatErr)
+			_ = s.completeTaskWithStatus(ctx, task, service.TaskStatusCancelled, fmt.Sprintf("chat failed: %v", chatErr))
+			return fmt.Errorf("org-delegation: chat failed (iteration %d): %w", iteration, chatErr)
 		}
 
 		// Record token usage.
