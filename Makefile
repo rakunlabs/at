@@ -56,6 +56,16 @@ lint: ## Lint Go files
 test: ## Run unit tests
 	@go test -v -race ./...
 
+.PHONY: pg-dump
+pg-dump: ## Dump PostgreSQL database to dump.sql
+	@echo "> Dumping PostgreSQL database"
+	docker compose --project-name=$(PROJECT) exec postgres pg_dumpall -U postgres > dump.sql
+
+.PHONY: pg-restore
+pg-restore: ## Restore PostgreSQL database from dump.sql
+	@echo "> Restoring PostgreSQL database"
+	docker compose --project-name=$(PROJECT) exec -T postgres psql -U postgres < dump.sql
+
 .PHONY: help
 help: ## Display this help screen
 	@grep -h -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-30s\033[0m %s\n", $$1, $$2}'
