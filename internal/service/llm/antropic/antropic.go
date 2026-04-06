@@ -554,9 +554,20 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 					slog.Error("failed to get auth token in proxy", "error", err)
 				} else {
 					req.Header.Set("Authorization", "Bearer "+token)
+					// Detect whether the request body enables thinking so we
+					// can include the interleaved-thinking beta flag.
+					oauthFlags := oauthBetaHeader(nil) // base flags
+					if req.Body != nil {
+						if bodyBytes, readErr := io.ReadAll(req.Body); readErr == nil && len(bodyBytes) > 0 {
+							req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+							var body map[string]any
+							if json.Unmarshal(bodyBytes, &body) == nil {
+								oauthFlags = oauthBetaHeader(body)
+							}
+						}
+					}
 					// Merge beta flags for OAuth compatibility.
 					beta := req.Header.Get("anthropic-beta")
-					oauthFlags := oauthBetaHeader(nil) // base flags without thinking
 					if beta != "" {
 						// Merge unique flags.
 						existing := strings.Split(beta, ",")
@@ -580,6 +591,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 					// Set OAuth-required headers.
 					req.Header.Set("User-Agent", "claude-cli/"+claudeCodeCLIVersion+" (external, cli)")
 					req.Header.Set("x-app", "cli")
+					req.Header.Set("anthropic-dangerous-direct-browser-access", "true")
 				}
 				req.Header.Set("anthropic-version", "2023-06-01")
 			} else if p.APIKey != "" {
@@ -610,9 +622,12 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) map[string]any {
 	anthropicTools := make([]map[string]any, len(tools))
 	for i, tool := range tools {
-		// Clean tool schemas: Anthropic may reject non-standard JSON Schema
-		// properties like "title" that MCP tool providers include.
-		cleanedSchema := cleanToolSchema(tool.InputSchema)
+		// First apply the generic schema sanitization (strips $ref, $defs,
+		// additionalProperties, etc.) that all other providers also use, then
+		// clean Anthropic-specific issues like stray "title" fields from MCP
+		// tool providers.
+		sanitized := service.SanitizeSchema(tool.InputSchema)
+		cleanedSchema := cleanToolSchema(sanitized)
 		anthropicTools[i] = map[string]any{
 			"name":         tool.Name,
 			"description":  tool.Description,
@@ -884,7 +899,7 @@ func oauthBetaHeader(reqBody map[string]any) string {
 
 // claudeCodeCLIVersion is the Claude CLI version used in User-Agent
 // and billing headers for OAuth requests.
-const claudeCodeCLIVersion = "2.1.84"
+const claudeCodeCLIVersion = "2.1.92"
 
 // modelRequiresThinking returns true for Claude 4.x Sonnet/Opus models
 // that require extended thinking when used via OAuth user:inference scope.
@@ -949,8 +964,10 @@ func contentBlockToMap(b service.ContentBlock) map[string]any {
 			m["content"] = b.Content
 		}
 		return m
-	case "image":
-		m := map[string]any{"type": "image"}
+	case "image", "document", "audio", "video":
+		// Media content blocks carry their data in a Source field
+		// (base64-encoded or URL reference).
+		m := map[string]any{"type": b.Type}
 		if b.Source != nil {
 			m["source"] = b.Source
 		}

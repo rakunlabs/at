@@ -116,7 +116,11 @@ func (ts *OAuthTokenSource) Token(ctx context.Context) (string, error) {
 
 	if ts.refreshToken == "" {
 		if ts.accessToken != "" {
-			// Token expired but no refresh token — return stale token and hope for the best.
+			// Token expired but no refresh token — log a warning so the operator
+			// knows auth may fail, then return the stale token as a best-effort
+			// fallback. This is better than a hard error because short-lived
+			// clock skew or server-side grace periods may still accept the token.
+			slog.Warn("anthropic oauth: access token expired and no refresh token available, using stale token")
 			return ts.accessToken, nil
 		}
 
