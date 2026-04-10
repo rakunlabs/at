@@ -21,6 +21,8 @@ type skillRow struct {
 	ID           string        `db:"id"`
 	Name         string        `db:"name"`
 	Description  string        `db:"description"`
+	Category     string        `db:"category"`
+	Tags         types.RawJSON `db:"tags"`
 	SystemPrompt string        `db:"system_prompt"`
 	Tools        types.RawJSON `db:"tools"`
 	CreatedAt    time.Time     `db:"created_at"`
@@ -30,7 +32,7 @@ type skillRow struct {
 }
 
 func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.ListResult[service.Skill], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableSkills, q, "id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableSkills, q, "id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list skills query: %w", err)
 	}
@@ -44,7 +46,7 @@ func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.Lis
 	var items []service.Skill
 	for rows.Next() {
 		var row skillRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan skill row: %w", err)
 		}
 
@@ -69,7 +71,7 @@ func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.Lis
 
 func (p *Postgres) GetSkill(ctx context.Context, id string) (*service.Skill, error) {
 	query, _, err := p.goqu.From(p.tableSkills).
-		Select("id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -77,7 +79,7 @@ func (p *Postgres) GetSkill(ctx context.Context, id string) (*service.Skill, err
 	}
 
 	var row skillRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -90,7 +92,7 @@ func (p *Postgres) GetSkill(ctx context.Context, id string) (*service.Skill, err
 
 func (p *Postgres) GetSkillByName(ctx context.Context, name string) (*service.Skill, error) {
 	query, _, err := p.goqu.From(p.tableSkills).
-		Select("id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -98,7 +100,7 @@ func (p *Postgres) GetSkillByName(ctx context.Context, name string) (*service.Sk
 	}
 
 	var row skillRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -114,6 +116,10 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 	if err != nil {
 		return nil, fmt.Errorf("marshal skill tools: %w", err)
 	}
+	tagsJSON, err := json.Marshal(sk.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("marshal skill tags: %w", err)
+	}
 
 	id := ulid.Make().String()
 	now := time.Now().UTC()
@@ -123,6 +129,8 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 			"id":            id,
 			"name":          sk.Name,
 			"description":   sk.Description,
+			"category":      sk.Category,
+			"tags":          types.RawJSON(tagsJSON),
 			"system_prompt": sk.SystemPrompt,
 			"tools":         types.RawJSON(toolsJSON),
 			"created_at":    now,
@@ -143,6 +151,8 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 		ID:           id,
 		Name:         sk.Name,
 		Description:  sk.Description,
+		Category:     sk.Category,
+		Tags:         sk.Tags,
 		SystemPrompt: sk.SystemPrompt,
 		Tools:        sk.Tools,
 		CreatedAt:    now.Format(time.RFC3339),
@@ -157,6 +167,10 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 	if err != nil {
 		return nil, fmt.Errorf("marshal skill tools: %w", err)
 	}
+	tagsJSON, err := json.Marshal(sk.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("marshal skill tags: %w", err)
+	}
 
 	now := time.Now().UTC()
 
@@ -164,6 +178,8 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 		goqu.Record{
 			"name":          sk.Name,
 			"description":   sk.Description,
+			"category":      sk.Category,
+			"tags":          types.RawJSON(tagsJSON),
 			"system_prompt": sk.SystemPrompt,
 			"tools":         types.RawJSON(toolsJSON),
 			"updated_at":    now,
@@ -213,10 +229,19 @@ func skillRowToRecord(row skillRow) (*service.Skill, error) {
 		return nil, fmt.Errorf("unmarshal skill tools for %q: %w", row.ID, err)
 	}
 
+	var tags []string
+	if len(row.Tags) > 0 {
+		if err := json.Unmarshal(row.Tags, &tags); err != nil {
+			return nil, fmt.Errorf("unmarshal skill tags for %q: %w", row.ID, err)
+		}
+	}
+
 	return &service.Skill{
 		ID:           row.ID,
 		Name:         row.Name,
 		Description:  row.Description,
+		Category:     row.Category,
+		Tags:         tags,
 		SystemPrompt: row.SystemPrompt,
 		Tools:        tools,
 		CreatedAt:    row.CreatedAt.Format(time.RFC3339),

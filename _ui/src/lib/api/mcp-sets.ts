@@ -12,6 +12,8 @@ export interface MCPSet {
   id: string;
   name: string;
   description: string;
+  category?: string;
+  tags?: string[];
   config: MCPServerConfig;
   servers: string[];
   urls: string[];
@@ -45,6 +47,23 @@ export async function updateMCPSet(id: string, data: Partial<MCPSet>): Promise<M
 
 export async function deleteMCPSet(id: string): Promise<void> {
   await api.delete(`/mcp/sets/${id}`);
+}
+
+// ─── Import / Export ───
+
+export async function exportMCPSet(id: string): Promise<Partial<MCPSet>> {
+  const res = await api.get<Partial<MCPSet>>(`/mcp/sets/${id}/export`);
+  return res.data;
+}
+
+export async function importMCPSet(data: Partial<MCPSet>): Promise<MCPSet> {
+  const res = await api.post<MCPSet>('/mcp/sets/import', data);
+  return res.data;
+}
+
+export async function previewImportMCPSet(data: Partial<MCPSet>): Promise<Partial<MCPSet>> {
+  const res = await api.post<Partial<MCPSet>>('/mcp/sets/import/preview', data);
+  return res.data;
 }
 
 // ─── Tool Resolution (for Chat UI) ───

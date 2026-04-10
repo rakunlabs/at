@@ -27,6 +27,7 @@ import CostEvents from '@/pages/CostEvents.svelte';
 import AgentMemories from '@/pages/AgentMemories.svelte';
 import AgentMemoryDetail from '@/pages/AgentMemoryDetail.svelte';
 import Connections from '@/pages/Connections.svelte';
+import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
 import Files from '@/pages/Files.svelte';
 import Guides from '@/pages/Guides.svelte';
 import NotFound from '@/pages/NotFound.svelte';
@@ -48,6 +49,7 @@ export default {
   '/crons': Crons,
   '/rag': Rag,
   '/connections': Connections,
+  '/integrations': IntegrationPacks,
   '/mcp-servers': McpServers,
   '/mcps': Mcps,
   '/bots': Bots,

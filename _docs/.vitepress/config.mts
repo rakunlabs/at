@@ -10,6 +10,8 @@ export default defineConfig({
         text: "Guide",
         items: [
           { text: "Getting Started", link: "/getting-started" },
+          { text: "Setup", link: "/setup" },
+          { text: "Runtime Dependencies", link: "/runtime" },
           { text: "Bots", link: "/bots" },
           { text: "Task Delegation", link: "/task-delegation" },
         ],

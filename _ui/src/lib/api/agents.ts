@@ -51,3 +51,29 @@ export async function updateAgent(id: string, data: Partial<Agent>): Promise<Age
 export async function deleteAgent(id: string): Promise<void> {
   await api.delete(`/agents/${id}`);
 }
+
+// ─── Import / Export ───
+
+export async function exportAgent(id: string): Promise<string> {
+  const res = await api.get<string>(`/agents/${id}/export`, { responseType: 'text' as any });
+  return res.data;
+}
+
+export async function exportAgentJSON(id: string): Promise<Partial<Agent>> {
+  const res = await api.get<Partial<Agent>>(`/agents/${id}/export-json`);
+  return res.data;
+}
+
+export async function importAgent(markdownContent: string): Promise<Agent> {
+  const res = await api.post<Agent>('/agents/import', markdownContent, {
+    headers: { 'Content-Type': 'text/markdown' },
+  });
+  return res.data;
+}
+
+export async function previewImportAgent(markdownContent: string): Promise<Partial<Agent>> {
+  const res = await api.post<Partial<Agent>>('/agents/import/preview', markdownContent, {
+    headers: { 'Content-Type': 'text/markdown' },
+  });
+  return res.data;
+}

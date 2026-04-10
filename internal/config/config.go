@@ -138,6 +138,10 @@ type Server struct {
 	// If empty, OAuth login commands in bots will not be available.
 	ExternalURL string `cfg:"external_url"`
 
+	// PacksDir is the directory where user-created integration packs are stored.
+	// Defaults to ~/.config/at/packs/ if not set.
+	PacksDir string `cfg:"packs_dir"`
+
 	// Alan, if set, enables distributed clustering via UDP peer discovery.
 	// This allows multiple AT instances to coordinate encryption key rotation
 	// and other admin operations across the cluster.

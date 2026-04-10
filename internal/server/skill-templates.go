@@ -187,6 +187,8 @@ func (s *Server) InstallSkillTemplateAPI(w http.ResponseWriter, r *http.Request)
 	skill := service.Skill{
 		Name:         tmpl.Skill.Name,
 		Description:  tmpl.Skill.Description,
+		Category:     tmpl.Category,
+		Tags:         tmpl.Tags,
 		SystemPrompt: tmpl.Skill.SystemPrompt,
 		Tools:        tmpl.Skill.Tools,
 		CreatedBy:    userEmail,

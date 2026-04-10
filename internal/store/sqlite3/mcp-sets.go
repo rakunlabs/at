@@ -18,6 +18,8 @@ type mcpSetRow struct {
 	ID          string         `db:"id"`
 	Name        string         `db:"name"`
 	Description string         `db:"description"`
+	Category    string         `db:"category"`
+	Tags        string         `db:"tags"`
 	Config      sql.NullString `db:"config"`
 	Servers     sql.NullString `db:"servers"`
 	URLs        sql.NullString `db:"urls"`
@@ -28,7 +30,7 @@ type mcpSetRow struct {
 }
 
 func (s *SQLite) ListMCPSets(ctx context.Context, q *query.Query) (*service.ListResult[service.MCPSet], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableMCPSets, q, "id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := s.buildListQuery(ctx, s.tableMCPSets, q, "id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list mcp sets query: %w", err)
 	}
@@ -42,7 +44,7 @@ func (s *SQLite) ListMCPSets(ctx context.Context, q *query.Query) (*service.List
 	var items []service.MCPSet
 	for rows.Next() {
 		var row mcpSetRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan mcp set row: %w", err)
 		}
 
@@ -67,7 +69,7 @@ func (s *SQLite) ListMCPSets(ctx context.Context, q *query.Query) (*service.List
 
 func (s *SQLite) GetMCPSet(ctx context.Context, id string) (*service.MCPSet, error) {
 	query, _, err := s.goqu.From(s.tableMCPSets).
-		Select("id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -75,7 +77,7 @@ func (s *SQLite) GetMCPSet(ctx context.Context, id string) (*service.MCPSet, err
 	}
 
 	var row mcpSetRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -88,7 +90,7 @@ func (s *SQLite) GetMCPSet(ctx context.Context, id string) (*service.MCPSet, err
 
 func (s *SQLite) GetMCPSetByName(ctx context.Context, name string) (*service.MCPSet, error) {
 	query, _, err := s.goqu.From(s.tableMCPSets).
-		Select("id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -96,7 +98,7 @@ func (s *SQLite) GetMCPSetByName(ctx context.Context, name string) (*service.MCP
 	}
 
 	var row mcpSetRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -120,6 +122,10 @@ func (s *SQLite) CreateMCPSet(ctx context.Context, set service.MCPSet) (*service
 	if err != nil {
 		return nil, fmt.Errorf("marshal mcp set urls: %w", err)
 	}
+	tagsJSON, err := json.Marshal(set.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mcp set tags: %w", err)
+	}
 
 	id := ulid.Make().String()
 	now := time.Now().UTC()
@@ -129,6 +135,8 @@ func (s *SQLite) CreateMCPSet(ctx context.Context, set service.MCPSet) (*service
 			"id":          id,
 			"name":        set.Name,
 			"description": set.Description,
+			"category":    set.Category,
+			"tags":        string(tagsJSON),
 			"config":      string(configJSON),
 			"servers":     string(serversJSON),
 			"urls":        string(urlsJSON),
@@ -150,6 +158,8 @@ func (s *SQLite) CreateMCPSet(ctx context.Context, set service.MCPSet) (*service
 		ID:          id,
 		Name:        set.Name,
 		Description: set.Description,
+		Category:    set.Category,
+		Tags:        set.Tags,
 		Config:      set.Config,
 		Servers:     set.Servers,
 		URLs:        set.URLs,
@@ -173,6 +183,10 @@ func (s *SQLite) UpdateMCPSet(ctx context.Context, id string, set service.MCPSet
 	if err != nil {
 		return nil, fmt.Errorf("marshal mcp set urls: %w", err)
 	}
+	tagsJSON, err := json.Marshal(set.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("marshal mcp set tags: %w", err)
+	}
 
 	now := time.Now().UTC()
 
@@ -180,6 +194,8 @@ func (s *SQLite) UpdateMCPSet(ctx context.Context, id string, set service.MCPSet
 		goqu.Record{
 			"name":        set.Name,
 			"description": set.Description,
+			"category":    set.Category,
+			"tags":        string(tagsJSON),
 			"config":      string(configJSON),
 			"servers":     string(serversJSON),
 			"urls":        string(urlsJSON),
@@ -245,10 +261,19 @@ func mcpSetRowToRecord(row mcpSetRow) (*service.MCPSet, error) {
 		}
 	}
 
+	var tags []string
+	if row.Tags != "" {
+		if err := json.Unmarshal([]byte(row.Tags), &tags); err != nil {
+			return nil, fmt.Errorf("unmarshal mcp set tags for %q: %w", row.ID, err)
+		}
+	}
+
 	return &service.MCPSet{
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: row.Description,
+		Category:    row.Category,
+		Tags:        tags,
 		Config:      cfg,
 		Servers:     servers,
 		URLs:        urls,

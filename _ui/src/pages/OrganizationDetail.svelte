@@ -10,16 +10,21 @@
     removeAgentFromOrg,
     updateOrgAgent,
     submitOrgTask,
+    getExportBundleURL,
+    previewImportBundle,
+    importBundle,
     type Organization,
     type OrganizationAgent,
     type CanvasLayout,
     type IntakeTaskResponse,
     type ContainerConfig,
+    type BundlePreview,
   } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listGoals, type Goal } from '@/lib/api/goals';
   import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@/lib/api/tasks';
-  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Brain, Container } from 'lucide-svelte';
+  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Brain, Container, Download, Upload } from 'lucide-svelte';
+  import ImportPreviewDialog from '@/lib/components/ImportPreviewDialog.svelte';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { agentAvatar } from '@/lib/helper/avatar';
   import OrgChart from '@/lib/components/OrgChart.svelte';
@@ -61,6 +66,13 @@
 
   // Selected node
   let selectedAgentId = $state<string | null>(null);
+
+  // Bundle import
+  let showImportPreview = $state(false);
+  let bundlePreview = $state<BundlePreview | null>(null);
+  let bundleFile = $state<File | null>(null);
+  let importingBundle = $state(false);
+  let bundleImportFileInput: HTMLInputElement;
 
   // ─── Helpers ───
 
@@ -303,6 +315,58 @@
     if (!selectedAgentId) return null;
     return allAgents.find((a) => a.id === selectedAgentId) || null;
   }
+
+  // ─── Bundle Export / Import ───
+
+  function handleExportBundle() {
+    if (!params.id) return;
+    const url = getExportBundleURL(params.id);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${organization?.name || 'organization'}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    addToast('Downloading organization bundle...');
+  }
+
+  async function handleImportBundleFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    bundleFile = file;
+    try {
+      bundlePreview = await previewImportBundle(file);
+      showImportPreview = true;
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to parse bundle', 'alert');
+      bundleFile = null;
+    }
+    input.value = '';
+  }
+
+  async function handleConfirmImport(actions: Record<string, string>) {
+    if (!bundleFile) return;
+    importingBundle = true;
+    try {
+      const result = await importBundle(bundleFile, actions);
+      addToast(`Imported: ${result.agents_imported} agents, ${result.skills_imported} skills, ${result.mcp_sets_imported} MCP sets`);
+      showImportPreview = false;
+      bundleFile = null;
+      bundlePreview = null;
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to import bundle', 'alert');
+    } finally {
+      importingBundle = false;
+    }
+  }
+
+  function handleCancelImport() {
+    showImportPreview = false;
+    bundleFile = null;
+    bundlePreview = null;
+  }
 </script>
 
 <svelte:head>
@@ -392,6 +456,29 @@
           <RefreshCw size={12} />
           Refresh
         </button>
+        <button
+          onclick={handleExportBundle}
+          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          title="Export organization bundle as ZIP"
+        >
+          <Download size={12} />
+          Export
+        </button>
+        <button
+          onclick={() => bundleImportFileInput.click()}
+          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          title="Import organization bundle from ZIP"
+        >
+          <Upload size={12} />
+          Import
+        </button>
+        <input
+          bind:this={bundleImportFileInput}
+          type="file"
+          accept=".zip"
+          onchange={handleImportBundleFile}
+          class="hidden"
+        />
         <button
           onclick={() => { showAddPanel = !showAddPanel; showTaskPanel = false; }}
           class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
@@ -775,4 +862,13 @@
       {/if}
     </div>
   </div>
+{/if}
+
+{#if showImportPreview && bundlePreview}
+  <ImportPreviewDialog
+    preview={bundlePreview}
+    onconfirm={handleConfirmImport}
+    oncancel={handleCancelImport}
+    importing={importingBundle}
+  />
 {/if}

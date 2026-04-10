@@ -1,12 +1,12 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listAgents, createAgent, updateAgent, deleteAgent, type Agent } from '@/lib/api/agents';
+  import { listAgents, createAgent, updateAgent, deleteAgent, exportAgent, importAgent, type Agent } from '@/lib/api/agents';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
-  import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck } from 'lucide-svelte';
+  import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload } from 'lucide-svelte';
   import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -107,6 +107,42 @@
     } catch {
       addToast('Nothing to paste — copy an agent first or check clipboard permissions', 'warn');
     }
+  }
+
+  // Export agent as .md file download
+  async function handleExport(agent: Agent) {
+    try {
+      const mdContent = await exportAgent(agent.id);
+      const blob = new Blob([mdContent], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${agent.name}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addToast(`Exported "${agent.name}" as ${agent.name}.md`);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to export agent', 'alert');
+    }
+  }
+
+  // Import agent from .md file
+  let importFileInput: HTMLInputElement;
+  async function handleImportFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const content = await file.text();
+      await importAgent(content);
+      addToast(`Imported agent from "${file.name}"`);
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to import agent', 'alert');
+    }
+    input.value = '';
   }
 
   // ─── Load ───
@@ -300,6 +336,21 @@
           >
             <RefreshCw size={14} />
           </button>
+          <button
+            onclick={() => importFileInput.click()}
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            title="Import agent from .md file"
+          >
+            <Upload size={12} />
+            Import
+          </button>
+          <input
+            bind:this={importFileInput}
+            type="file"
+            accept=".md"
+            onchange={handleImportFile}
+            class="hidden"
+          />
           <button
             onclick={openCreate}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
@@ -664,6 +715,13 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  <button
+                    onclick={() => handleExport(agent)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    title="Export as .md"
+                  >
+                    <Download size={14} />
+                  </button>
                   <button
                     onclick={() => copyAgent(agent)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"

@@ -19,6 +19,8 @@ export interface Skill {
   id: string;
   name: string;
   description: string;
+  category?: string;
+  tags?: string[];
   system_prompt: string;
   tools: SkillTool[];
   created_at: string;
@@ -98,6 +100,11 @@ export async function importSkill(skill: Partial<Skill>): Promise<Skill> {
 
 export async function exportSkill(id: string): Promise<Partial<Skill>> {
   const res = await api.get<Partial<Skill>>(`/skills/${id}/export`);
+  return res.data;
+}
+
+export async function exportSkillMD(id: string): Promise<string> {
+  const res = await api.get<string>(`/skills/${id}/export-md`, { responseType: 'text' as any });
   return res.data;
 }
 

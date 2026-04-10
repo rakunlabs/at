@@ -86,3 +86,20 @@ export async function updateMCPServer(id: string, data: Partial<MCPServer>): Pro
 export async function deleteMCPServer(id: string): Promise<void> {
   await api.delete(`/mcp/servers/${id}`);
 }
+
+// ─── Import / Export ───
+
+export async function exportMCPServer(id: string): Promise<Partial<MCPServer>> {
+  const res = await api.get<Partial<MCPServer>>(`/mcp/servers/${id}/export`);
+  return res.data;
+}
+
+export async function importMCPServer(data: Partial<MCPServer>): Promise<MCPServer> {
+  const res = await api.post<MCPServer>('/mcp/servers/import', data);
+  return res.data;
+}
+
+export async function previewImportMCPServer(data: Partial<MCPServer>): Promise<Partial<MCPServer>> {
+  const res = await api.post<Partial<MCPServer>>('/mcp/servers/import/preview', data);
+  return res.data;
+}

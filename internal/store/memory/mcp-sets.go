@@ -65,6 +65,8 @@ func (m *Memory) CreateMCPSet(_ context.Context, set service.MCPSet) (*service.M
 		ID:          id,
 		Name:        set.Name,
 		Description: set.Description,
+		Category:    set.Category,
+		Tags:        set.Tags,
 		Config:      set.Config,
 		Servers:     set.Servers,
 		URLs:        set.URLs,
@@ -94,6 +96,8 @@ func (m *Memory) UpdateMCPSet(_ context.Context, id string, set service.MCPSet) 
 
 	existing.Name = set.Name
 	existing.Description = set.Description
+	existing.Category = set.Category
+	existing.Tags = set.Tags
 	existing.Config = set.Config
 	existing.Servers = set.Servers
 	existing.URLs = set.URLs

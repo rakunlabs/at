@@ -1,14 +1,14 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, type MCPSet } from '@/lib/api/mcp-sets';
+  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, type MCPSet } from '@/lib/api/mcp-sets';
   import { type MCPHTTPTool, type MCPUpstream } from '@/lib/api/mcp-servers';
   import { listCollections, type RAGCollection } from '@/lib/api/rag';
   import { listVariables, type Variable } from '@/lib/api/secrets';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Check, Package, Wrench, GitBranch } from 'lucide-svelte';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -67,6 +67,16 @@
   // ─── State ───
 
   let sets = $state<MCPSet[]>([]);
+
+  // ─── My MCPs Category Filter ───
+
+  let mySelectedCategory = $state('');
+  let myCategories = $derived([...new Set((sets || []).map((s) => s.category).filter((c): c is string => Boolean(c)))].sort());
+  let filteredSets = $derived(
+    mySelectedCategory
+      ? (sets || []).filter((s) => s.category === mySelectedCategory)
+      : sets || []
+  );
   let collections = $state<RAGCollection[]>([]);
   let availableVariables = $state<Variable[]>([]);
   let availableSkills = $state<Skill[]>([]);
@@ -89,6 +99,8 @@
   // Form fields
   let formName = $state('');
   let formDescription = $state('');
+  let formCategory = $state('');
+  let formTags = $state<string[]>([]);
 
   // Config form fields (RAG/HTTP/External/Skills)
   let formEnabledRAGTools = $state<string[]>([]);
@@ -202,6 +214,8 @@
   function resetForm() {
     formName = '';
     formDescription = '';
+    formCategory = '';
+    formTags = [];
     formEnabledRAGTools = [];
     formCollectionIds = [];
     formFetchMode = 'auto';
@@ -235,6 +249,8 @@
     editingId = set.id;
     formName = set.name;
     formDescription = set.description;
+    formCategory = set.category || '';
+    formTags = set.tags ? [...set.tags] : [];
     // Config fields
     const cfg = set.config || {} as any;
     formEnabledRAGTools = cfg.enabled_rag_tools ?? [];
@@ -270,6 +286,8 @@
       const payload = {
         name: formName.trim(),
         description: formDescription.trim(),
+        category: formCategory.trim() || undefined,
+        tags: formTags.length > 0 ? formTags : undefined,
         config: {
           description: formDescription.trim(),
           enabled_rag_tools: formEnabledRAGTools,
@@ -323,6 +341,43 @@
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete MCP', 'alert');
     }
+  }
+
+  // ─── Export / Import ───
+
+  async function handleExportMCPSet(set: MCPSet) {
+    try {
+      const data = await exportMCPSet(set.id);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${set.name}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addToast(`Exported "${set.name}" as ${set.name}.json`);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to export MCP', 'alert');
+    }
+  }
+
+  let mcpImportFileInput: HTMLInputElement;
+  async function handleImportMCPFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await importMCPSet(data);
+      addToast(`Imported MCP from "${file.name}"`);
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to import MCP', 'alert');
+    }
+    input.value = '';
   }
 
   // ─── Tool Config Helpers ───
@@ -493,6 +548,21 @@
             <RefreshCw size={14} />
           </button>
           <button
+            onclick={() => mcpImportFileInput.click()}
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            title="Import MCP from JSON file"
+          >
+            <Upload size={12} />
+            Import
+          </button>
+          <input
+            bind:this={mcpImportFileInput}
+            type="file"
+            accept=".json"
+            onchange={handleImportMCPFile}
+            class="hidden"
+          />
+          <button
             onclick={openCreate}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
           >
@@ -501,6 +571,22 @@
           </button>
         </div>
       </div>
+      <!-- Category Filter Chips -->
+      {#if myCategories.length > 0}
+        <div class="flex items-center gap-2 px-4 py-2 flex-wrap">
+          <button
+            onclick={() => mySelectedCategory = ''}
+            class={["px-2 py-0.5 text-xs border transition-colors", !mySelectedCategory ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+          >All</button>
+          {#each myCategories as cat}
+            <button
+              onclick={() => mySelectedCategory = cat}
+              class={["px-2 py-0.5 text-xs border transition-colors", mySelectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+            >{cat}</button>
+          {/each}
+        </div>
+      {/if}
+
       <!-- Inline Form -->
       {#if showForm}
         <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
@@ -534,6 +620,31 @@
                 type="text"
                 bind:value={formDescription}
                 placeholder="What this MCP contains"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              />
+            </div>
+
+            <!-- Category -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="form-category" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Category</label>
+              <input
+                id="form-category"
+                type="text"
+                bind:value={formCategory}
+                placeholder="e.g. OpenMontage, Utilities"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              />
+            </div>
+
+            <!-- Tags -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="form-tags" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Tags</label>
+              <input
+                id="form-tags"
+                type="text"
+                value={formTags.join(', ')}
+                oninput={(e) => { formTags = (e.target as HTMLInputElement).value.split(',').map(t => t.trim()).filter(Boolean); }}
+                placeholder="e.g. video, production"
                 class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
@@ -1133,9 +1244,9 @@
       <!-- Set list -->
       {#if loading || sets.length > 0 || !showForm}
         <DataTable
-          items={sets}
+          items={filteredSets}
           {loading}
-          {total}
+          total={mySelectedCategory ? filteredSets.length : total}
           {limit}
           bind:offset
           onchange={loadData}
@@ -1182,6 +1293,13 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  <button
+                    onclick={() => handleExportMCPSet(set)}
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    title="Export as JSON"
+                  >
+                    <Download size={14} />
+                  </button>
                   <button
                     onclick={() => openEdit(set)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"

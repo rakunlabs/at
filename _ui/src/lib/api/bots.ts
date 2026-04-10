@@ -50,3 +50,24 @@ export async function updateBotConfig(id: string, data: Partial<BotConfig>): Pro
 export async function deleteBotConfig(id: string): Promise<void> {
   await api.delete(`/bots/${id}`);
 }
+
+export async function startBot(id: string): Promise<any> {
+  const res = await api.post(`/bots/${id}/start`);
+  return res.data;
+}
+
+export async function stopBot(id: string): Promise<any> {
+  const res = await api.post(`/bots/${id}/stop`);
+  return res.data;
+}
+
+export interface BotStatus {
+  running: boolean;
+  platform?: string;
+  started_at?: string;
+}
+
+export async function getBotStatus(id: string): Promise<BotStatus> {
+  const res = await api.get<BotStatus>(`/bots/${id}/status`);
+  return res.data;
+}

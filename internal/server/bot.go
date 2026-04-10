@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -98,11 +99,55 @@ func (s *Server) startBotsFromDB(ctx context.Context) {
 	}
 }
 
+// runningBot tracks a running bot instance with its cancel function.
+type runningBot struct {
+	cancel    context.CancelFunc
+	platform  string
+	startedAt string
+}
+
+// stopBot stops a running bot by cancelling its context.
+func (s *Server) stopBot(botID string) bool {
+	if v, ok := s.runningBots.LoadAndDelete(botID); ok {
+		rb := v.(*runningBot)
+		rb.cancel()
+		slog.Info("bot stopped", "id", botID, "platform", rb.platform)
+		return true
+	}
+	return false
+}
+
+// isBotRunning checks if a bot is currently running.
+func (s *Server) isBotRunning(botID string) bool {
+	_, ok := s.runningBots.Load(botID)
+	return ok
+}
+
+// getBotRunningInfo returns running info for a bot, or nil if not running.
+func (s *Server) getBotRunningInfo(botID string) *runningBot {
+	if v, ok := s.runningBots.Load(botID); ok {
+		return v.(*runningBot)
+	}
+	return nil
+}
+
 // startBotFromConfig starts a single bot based on its DB configuration.
 func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig) {
+	// Stop any existing instance first.
+	s.stopBot(bot.ID)
+
+	// Create per-bot cancellable context.
+	botCtx, cancel := context.WithCancel(ctx)
+
+	rb := &runningBot{
+		cancel:    cancel,
+		platform:  bot.Platform,
+		startedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+	s.runningBots.Store(bot.ID, rb)
 	switch bot.Platform {
 	case "discord":
-		s.startDiscordBot(ctx, bot.ID, &config.DiscordBotConfig{
+		s.startDiscordBot(botCtx, bot.ID, &config.DiscordBotConfig{
 			Token:           bot.Token,
 			DefaultAgentID:  bot.DefaultAgentID,
 			ChannelAgents:   bot.ChannelAgents,
@@ -112,7 +157,7 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 			AllowedUsers:    bot.AllowedUsers,
 		})
 	case "telegram":
-		s.startTelegramBot(ctx, bot.ID, &config.TelegramBotConfig{
+		s.startTelegramBot(botCtx, bot.ID, &config.TelegramBotConfig{
 			Token:           bot.Token,
 			DefaultAgentID:  bot.DefaultAgentID,
 			ChatAgents:      bot.ChannelAgents,
@@ -122,6 +167,8 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 			AllowedUsers:    bot.AllowedUsers,
 		})
 	default:
+		cancel() // no bot started, clean up context
+		s.runningBots.Delete(bot.ID)
 		slog.Warn("unknown bot platform", "platform", bot.Platform, "id", bot.ID)
 	}
 }

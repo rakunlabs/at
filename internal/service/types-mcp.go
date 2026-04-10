@@ -89,6 +89,8 @@ type MCPSet struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
+	Category    string          `json:"category,omitempty"`
+	Tags        []string        `json:"tags,omitempty"`
 	Config      MCPServerConfig `json:"config"`
 	Servers     []string        `json:"servers"`
 	URLs        []string        `json:"urls"`

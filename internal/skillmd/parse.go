@@ -2,7 +2,9 @@ package skillmd
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -11,6 +13,8 @@ import (
 type SkillMD struct {
 	Name          string            `yaml:"name"`
 	Description   string            `yaml:"description"`
+	Category      string            `yaml:"category"`
+	Tags          []string          `yaml:"tags"`
 	License       string            `yaml:"license"`
 	Compatibility string            `yaml:"compatibility"`
 	Metadata      map[string]string `yaml:"metadata"`
@@ -61,4 +65,74 @@ func Parse(data []byte) (*SkillMD, error) {
 	s.Body = string(body)
 
 	return &s, nil
+}
+
+// ParseWithTools parses a SKILL.md and additionally extracts tools from a
+// ## Tools section in the body. The tools section must contain a JSON code
+// block with an array of tool definitions. The body returned in SkillMD.Body
+// has the ## Tools section stripped so it only contains the system prompt.
+func ParseWithTools(data []byte) (*SkillMD, []ToolDef, error) {
+	s, err := Parse(data)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	tools, cleanBody := extractToolsSection(s.Body)
+	s.Body = cleanBody
+
+	return s, tools, nil
+}
+
+// extractToolsSection finds a ## Tools heading in the body, extracts the JSON
+// code block beneath it, and returns the parsed tools plus the body with the
+// tools section removed.
+func extractToolsSection(body string) ([]ToolDef, string) {
+	// Find the ## Tools heading (case-insensitive match on "tools").
+	toolsIdx := -1
+	for _, marker := range []string{"## Tools\n", "## Tools\r\n"} {
+		idx := strings.Index(body, marker)
+		if idx >= 0 {
+			toolsIdx = idx
+			break
+		}
+	}
+
+	if toolsIdx < 0 {
+		return nil, body
+	}
+
+	// Everything before ## Tools is the system prompt.
+	before := strings.TrimRight(body[:toolsIdx], "\n\r ")
+	after := body[toolsIdx:]
+
+	// Find JSON code block within the tools section.
+	codeStart := strings.Index(after, "```json\n")
+	if codeStart < 0 {
+		codeStart = strings.Index(after, "```json\r\n")
+	}
+	if codeStart < 0 {
+		// No code block found — return body as-is.
+		return nil, body
+	}
+
+	jsonStart := strings.Index(after[codeStart:], "\n")
+	if jsonStart < 0 {
+		return nil, body
+	}
+	jsonStart += codeStart + 1 // skip past the ```json\n line
+
+	codeEnd := strings.Index(after[jsonStart:], "\n```")
+	if codeEnd < 0 {
+		return nil, body
+	}
+
+	jsonBlock := after[jsonStart : jsonStart+codeEnd]
+
+	var tools []ToolDef
+	if err := json.Unmarshal([]byte(jsonBlock), &tools); err != nil {
+		// If JSON is invalid, return body unchanged.
+		return nil, body
+	}
+
+	return tools, before
 }

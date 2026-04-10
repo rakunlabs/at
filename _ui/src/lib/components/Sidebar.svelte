@@ -28,6 +28,7 @@
     Receipt,
     Plug,
     FolderOpen,
+    Package,
   } from "lucide-svelte";
 
 
@@ -156,6 +157,19 @@
     >
       <WandSparkles size={14} />
       <span>Skills</span>
+    </a>
+    <a
+      href="#/integrations"
+      onclick={(e) => navigate(e, "/integrations")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/integrations"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Package size={14} />
+      <span>Integrations</span>
     </a>
     <a
       href="#/connections"

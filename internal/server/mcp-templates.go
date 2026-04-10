@@ -119,6 +119,8 @@ func (s *Server) InstallMCPTemplateAPI(w http.ResponseWriter, r *http.Request) {
 	mcpSet := service.MCPSet{
 		Name:        tmpl.MCPServer.Name,
 		Description: tmpl.MCPServer.Description,
+		Category:    tmpl.Category,
+		Tags:        tmpl.Tags,
 		Config:      tmpl.MCPServer.Config,
 		CreatedBy:   userEmail,
 		UpdatedBy:   userEmail,

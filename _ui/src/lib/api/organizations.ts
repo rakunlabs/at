@@ -79,6 +79,70 @@ export async function deleteOrganization(id: string): Promise<void> {
   await api.delete(`/organizations/${id}`);
 }
 
+// ─── Bundle Export / Import ───
+
+export interface BundlePreviewItem {
+  name: string;
+  conflict?: string;
+  existing_id?: string;
+}
+
+export interface BundleRelationship {
+  agent_name: string;
+  role?: string;
+  title?: string;
+  parent_agent_name?: string;
+  status?: string;
+  heartbeat_schedule?: string;
+  memory_model?: string;
+  memory_provider?: string;
+  memory_method?: string;
+  is_head?: boolean;
+}
+
+export interface BundlePreview {
+  organization?: BundlePreviewItem;
+  agents: BundlePreviewItem[];
+  skills: BundlePreviewItem[];
+  mcp_sets: BundlePreviewItem[];
+  mcp_servers: BundlePreviewItem[];
+  relationships: BundleRelationship[];
+}
+
+export interface BundleImportResult {
+  organization_id: string;
+  agents_imported: number;
+  skills_imported: number;
+  mcp_sets_imported: number;
+}
+
+export function getExportBundleURL(orgId: string): string {
+  return `api/v1/organizations/${orgId}/export`;
+}
+
+export async function previewImportBundle(file: File): Promise<BundlePreview> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await api.post<BundlePreview>('/organizations/import/preview', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return res.data;
+}
+
+export async function importBundle(file: File, actions?: Record<string, string>): Promise<BundleImportResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const params: Record<string, string> = {};
+  if (actions) {
+    params.actions = JSON.stringify(actions);
+  }
+  const res = await api.post<BundleImportResult>('/organizations/import', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    params,
+  });
+  return res.data;
+}
+
 // ─── Task Intake ───
 
 export interface IntakeTaskRequest {

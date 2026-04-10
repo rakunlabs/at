@@ -64,6 +64,7 @@ type Memory struct {
 	orgAgentIndex        map[string]string                         // "orgID::agentID" -> id
 	agentMemory          map[string]service.AgentMemory            // id -> agent memory
 	agentMemoryMessages  map[string]service.AgentMemoryMessages    // memory_id -> messages
+	packSources          map[string]service.PackSource             // id -> pack source
 }
 
 func New() *Memory {
@@ -114,6 +115,7 @@ func New() *Memory {
 		orgAgentIndex:        make(map[string]string),
 		agentMemory:          make(map[string]service.AgentMemory),
 		agentMemoryMessages:  make(map[string]service.AgentMemoryMessages),
+		packSources:          make(map[string]service.PackSource),
 	}
 }
 

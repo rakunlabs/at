@@ -218,6 +218,62 @@ func (s *Server) ExportSkillAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, export, http.StatusOK)
 }
 
+// ExportSkillMDAPI handles GET /api/v1/skills/{id}/export-md.
+// Returns the skill as a downloadable SKILL.md file with tools in the body.
+func (s *Server) ExportSkillMDAPI(w http.ResponseWriter, r *http.Request) {
+	if s.skillStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "skill id is required", http.StatusBadRequest)
+		return
+	}
+
+	record, err := s.skillStore.GetSkill(r.Context(), id)
+	if err != nil {
+		slog.Error("export skill md failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to export skill: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		httpResponse(w, fmt.Sprintf("skill %q not found", id), http.StatusNotFound)
+		return
+	}
+
+	sm := &skillmd.SkillMD{
+		Name:        record.Name,
+		Description: record.Description,
+		Body:        record.SystemPrompt,
+	}
+
+	// Convert service.Tool to skillmd.ToolDef.
+	var tools []skillmd.ToolDef
+	for _, t := range record.Tools {
+		tools = append(tools, skillmd.ToolDef{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+			Handler:     t.Handler,
+			HandlerType: t.HandlerType,
+		})
+	}
+
+	data, err := skillmd.Generate(sm, tools)
+	if err != nil {
+		slog.Error("generate skill markdown failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to generate skill markdown: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.md"`, record.Name))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
 // ImportSkillAPI handles POST /api/v1/skills/import.
 func (s *Server) ImportSkillAPI(w http.ResponseWriter, r *http.Request) {
 	if s.skillStore == nil {

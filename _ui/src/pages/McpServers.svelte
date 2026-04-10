@@ -6,6 +6,8 @@
     createMCPServer,
     updateMCPServer,
     deleteMCPServer,
+    exportMCPServer,
+    importMCPServer,
     type MCPServer,
   } from '@/lib/api/mcp-servers';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
@@ -23,6 +25,8 @@
     Wrench,
     Layers,
     GitBranch,
+    Download,
+    Upload,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'MCP Servers';
@@ -172,6 +176,42 @@
     setTimeout(() => { copiedName = null; }, 2000);
   }
 
+  // ─── Export / Import ───
+
+  async function handleExportServer(server: MCPServer) {
+    try {
+      const data = await exportMCPServer(server.id);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${server.name}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addToast(`Exported "${server.name}" as ${server.name}.json`);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to export server', 'alert');
+    }
+  }
+
+  let serverImportFileInput: HTMLInputElement;
+  async function handleImportServerFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await importMCPServer(data);
+      addToast(`Imported MCP server from "${file.name}"`);
+      await loadServers();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to import MCP server', 'alert');
+    }
+    input.value = '';
+  }
 
 </script>
 
@@ -195,6 +235,21 @@
       >
         <RefreshCw size={14} />
       </button>
+      <button
+        onclick={() => serverImportFileInput.click()}
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+        title="Import MCP server from JSON file"
+      >
+        <Upload size={12} />
+        Import
+      </button>
+      <input
+        bind:this={serverImportFileInput}
+        type="file"
+        accept=".json"
+        onchange={handleImportServerFile}
+        class="hidden"
+      />
       <button
         onclick={openCreate}
         class="flex items-center gap-1.5 px-3 py-1.5 text-xs whitespace-nowrap font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors"
@@ -457,6 +512,9 @@
                   </div>
                 {:else}
                   <div class="flex items-center gap-1 justify-end">
+                    <button onclick={() => handleExportServer(s)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors" title="Export as JSON">
+                      <Download size={14} />
+                    </button>
                     <button onclick={() => openEdit(s)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors" title="Edit">
                       <Pencil size={14} />
                     </button>

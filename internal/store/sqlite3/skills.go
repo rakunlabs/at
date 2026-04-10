@@ -20,6 +20,8 @@ type skillRow struct {
 	ID           string `db:"id"`
 	Name         string `db:"name"`
 	Description  string `db:"description"`
+	Category     string `db:"category"`
+	Tags         string `db:"tags"`
 	SystemPrompt string `db:"system_prompt"`
 	Tools        string `db:"tools"`
 	CreatedAt    string `db:"created_at"`
@@ -29,7 +31,7 @@ type skillRow struct {
 }
 
 func (s *SQLite) ListSkills(ctx context.Context, q *query.Query) (*service.ListResult[service.Skill], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableSkills, q, "id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := s.buildListQuery(ctx, s.tableSkills, q, "id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list skills query: %w", err)
 	}
@@ -43,7 +45,7 @@ func (s *SQLite) ListSkills(ctx context.Context, q *query.Query) (*service.ListR
 	var items []service.Skill
 	for rows.Next() {
 		var row skillRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan skill row: %w", err)
 		}
 
@@ -68,7 +70,7 @@ func (s *SQLite) ListSkills(ctx context.Context, q *query.Query) (*service.ListR
 
 func (s *SQLite) GetSkill(ctx context.Context, id string) (*service.Skill, error) {
 	query, _, err := s.goqu.From(s.tableSkills).
-		Select("id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -76,7 +78,7 @@ func (s *SQLite) GetSkill(ctx context.Context, id string) (*service.Skill, error
 	}
 
 	var row skillRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -89,7 +91,7 @@ func (s *SQLite) GetSkill(ctx context.Context, id string) (*service.Skill, error
 
 func (s *SQLite) GetSkillByName(ctx context.Context, name string) (*service.Skill, error) {
 	query, _, err := s.goqu.From(s.tableSkills).
-		Select("id", "name", "description", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -97,7 +99,7 @@ func (s *SQLite) GetSkillByName(ctx context.Context, name string) (*service.Skil
 	}
 
 	var row skillRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -113,6 +115,10 @@ func (s *SQLite) CreateSkill(ctx context.Context, sk service.Skill) (*service.Sk
 	if err != nil {
 		return nil, fmt.Errorf("marshal skill tools: %w", err)
 	}
+	tagsJSON, err := json.Marshal(sk.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("marshal skill tags: %w", err)
+	}
 
 	id := ulid.Make().String()
 	now := time.Now().UTC()
@@ -122,6 +128,8 @@ func (s *SQLite) CreateSkill(ctx context.Context, sk service.Skill) (*service.Sk
 			"id":            id,
 			"name":          sk.Name,
 			"description":   sk.Description,
+			"category":      sk.Category,
+			"tags":          string(tagsJSON),
 			"system_prompt": sk.SystemPrompt,
 			"tools":         string(toolsJSON),
 			"created_at":    now.Format(time.RFC3339),
@@ -142,6 +150,8 @@ func (s *SQLite) CreateSkill(ctx context.Context, sk service.Skill) (*service.Sk
 		ID:           id,
 		Name:         sk.Name,
 		Description:  sk.Description,
+		Category:     sk.Category,
+		Tags:         sk.Tags,
 		SystemPrompt: sk.SystemPrompt,
 		Tools:        sk.Tools,
 		CreatedAt:    now.Format(time.RFC3339),
@@ -156,6 +166,10 @@ func (s *SQLite) UpdateSkill(ctx context.Context, id string, sk service.Skill) (
 	if err != nil {
 		return nil, fmt.Errorf("marshal skill tools: %w", err)
 	}
+	tagsJSON, err := json.Marshal(sk.Tags)
+	if err != nil {
+		return nil, fmt.Errorf("marshal skill tags: %w", err)
+	}
 
 	now := time.Now().UTC()
 
@@ -163,6 +177,8 @@ func (s *SQLite) UpdateSkill(ctx context.Context, id string, sk service.Skill) (
 		goqu.Record{
 			"name":          sk.Name,
 			"description":   sk.Description,
+			"category":      sk.Category,
+			"tags":          string(tagsJSON),
 			"system_prompt": sk.SystemPrompt,
 			"tools":         string(toolsJSON),
 			"updated_at":    now.Format(time.RFC3339),
@@ -212,10 +228,19 @@ func skillRowToRecord(row skillRow) (*service.Skill, error) {
 		return nil, fmt.Errorf("unmarshal skill tools for %q: %w", row.ID, err)
 	}
 
+	var tags []string
+	if row.Tags != "" {
+		if err := json.Unmarshal([]byte(row.Tags), &tags); err != nil {
+			return nil, fmt.Errorf("unmarshal skill tags for %q: %w", row.ID, err)
+		}
+	}
+
 	return &service.Skill{
 		ID:           row.ID,
 		Name:         row.Name,
 		Description:  row.Description,
+		Category:     row.Category,
+		Tags:         tags,
 		SystemPrompt: row.SystemPrompt,
 		Tools:        tools,
 		CreatedAt:    row.CreatedAt,

@@ -9,6 +9,7 @@
     listSkillTemplates,
     installSkillTemplate,
     exportSkill,
+    exportSkillMD,
     importSkillFromURL,
     importSkillMD,
     getOAuthStartURL,
@@ -60,6 +61,15 @@
   let searchQuery = $state('');
   let sorts = $state<SortEntry[]>([]);
 
+  // Category filter for My Skills tab
+  let mySelectedCategory = $state('');
+  let myCategories = $derived([...new Set((skills || []).map((s) => s.category).filter((c): c is string => Boolean(c)))].sort());
+  let filteredSkills = $derived(
+    mySelectedCategory
+      ? (skills || []).filter((s) => s.category === mySelectedCategory)
+      : skills || []
+  );
+
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
@@ -68,6 +78,8 @@
   // Form fields
   let formName = $state('');
   let formDescription = $state('');
+  let formCategory = $state('');
+  let formTags = $state<string[]>([]);
   let formSystemPrompt = $state('');
   let formTools = $state<SkillTool[]>([]);
   let saving = $state(false);
@@ -100,6 +112,8 @@
       resetForm();
       formName = src.name + '_copy';
       formDescription = src.description || '';
+      formCategory = src.category || '';
+      formTags = Array.isArray(src.tags) ? [...src.tags] : [];
       formSystemPrompt = src.system_prompt || '';
       formTools = (src.tools || []).map((t: any) => ({
         name: t.name || '',
@@ -153,6 +167,8 @@
   function resetForm() {
     formName = '';
     formDescription = '';
+    formCategory = '';
+    formTags = [];
     formSystemPrompt = '';
     formTools = [];
     editingId = null;
@@ -169,6 +185,8 @@
     editingId = skill.id;
     formName = skill.name;
     formDescription = skill.description;
+    formCategory = skill.category || '';
+    formTags = skill.tags ? [...skill.tags] : [];
     formSystemPrompt = skill.system_prompt;
     formTools = (skill.tools || []).map((t) => ({ ...t }));
     showForm = true;
@@ -190,6 +208,8 @@
       const payload: Partial<Skill> = {
         name: formName.trim(),
         description: formDescription.trim(),
+        category: formCategory.trim() || undefined,
+        tags: formTags.length > 0 ? formTags : undefined,
         system_prompt: formSystemPrompt,
         tools: formTools.filter((t) => t.name.trim()),
       };
@@ -361,15 +381,17 @@
 
   async function handleExport(skill: Skill) {
     try {
-      const data = await exportSkill(skill.id);
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const mdContent = await exportSkillMD(skill.id);
+      const blob = new Blob([mdContent], { type: 'text/markdown' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${skill.name}.json`;
+      a.download = `${skill.name}.md`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      addToast(`Exported "${skill.name}"`);
+      addToast(`Exported "${skill.name}" as ${skill.name}.md`);
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to export skill', 'alert');
     }
@@ -703,6 +725,22 @@
         </div>
       {/if}
 
+      <!-- Category Filter Chips -->
+      {#if myCategories.length > 0}
+        <div class="flex items-center gap-2 px-4 py-2 flex-wrap">
+          <button
+            onclick={() => mySelectedCategory = ''}
+            class={["px-2 py-0.5 text-xs border transition-colors", !mySelectedCategory ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+          >All</button>
+          {#each myCategories as cat}
+            <button
+              onclick={() => mySelectedCategory = cat}
+              class={["px-2 py-0.5 text-xs border transition-colors", mySelectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+            >{cat}</button>
+          {/each}
+        </div>
+      {/if}
+
       <!-- Form -->
       {#if showForm}
         <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
@@ -749,6 +787,31 @@
                 type="text"
                 bind:value={formDescription}
                 placeholder="What this skill does"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              />
+            </div>
+
+            <!-- Category -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="form-category" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Category</label>
+              <input
+                id="form-category"
+                type="text"
+                bind:value={formCategory}
+                placeholder="e.g. OpenMontage, Utilities"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+              />
+            </div>
+
+            <!-- Tags -->
+            <div class="grid grid-cols-4 gap-3 items-center">
+              <label for="form-tags" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Tags</label>
+              <input
+                id="form-tags"
+                type="text"
+                value={formTags.join(', ')}
+                oninput={(e) => { formTags = (e.target as HTMLInputElement).value.split(',').map(t => t.trim()).filter(Boolean); }}
+                placeholder="e.g. video, production"
                 class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
@@ -868,9 +931,9 @@
       <!-- Skill list -->
       {#if loading || skills.length > 0 || !showForm}
         <DataTable
-          items={skills}
+          items={filteredSkills}
           {loading}
-          {total}
+          total={mySelectedCategory ? filteredSkills.length : total}
           {limit}
           bind:offset
           onchange={load}

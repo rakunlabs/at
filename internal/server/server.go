@@ -223,6 +223,16 @@ type Server struct {
 	// mcpTemplates holds predefined MCP templates loaded from embedded JSON.
 	mcpTemplates []MCPTemplate
 
+	// integrationPacks holds predefined integration packs loaded from embedded JSON.
+	integrationPacks []IntegrationPack
+
+	// packSourceStore is the persistent store for Git pack sources.
+	packSourceStore service.PackSourceStorer
+
+	// runningBots tracks currently-running bot instances.
+	// map key: bot config ID (string), value: *runningBot
+	runningBots sync.Map
+
 	// stdioManager manages stdio-based MCP subprocess lifecycles.
 	stdioManager *service.StdioProcessManager
 
@@ -352,16 +362,18 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		costEventStore:           store,
 		orgAgentStore:            store,
 		agentMemoryStore:         store,
-		marketplaceClient:        &http.Client{Timeout: 10 * time.Second},
-		providerFactory:          factory,
-		storeType:                storeType,
-		authTokens:               gatewayCfg.AuthTokens,
-		cluster:                  cl,
-		version:                  version,
-		botsCfg:                  botsCfg,
-		todos:                    newTodoStore(),
-		lspManager:               newLSPManager(),
-		containerManager:         container.New(),
+		packSourceStore:          store,
+
+		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
+		providerFactory:   factory,
+		storeType:         storeType,
+		authTokens:        gatewayCfg.AuthTokens,
+		cluster:           cl,
+		version:           version,
+		botsCfg:           botsCfg,
+		todos:             newTodoStore(),
+		lspManager:        newLSPManager(),
+		containerManager:  container.New(),
 	}
 
 	// Load predefined skill templates from embedded JSON files.
@@ -369,6 +381,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// Sync installed skill handlers with current templates (applies handler bug fixes).
 	s.syncInstalledSkillHandlers(ctx)
 	s.loadMCPTemplates()
+
+	// Load predefined integration packs from embedded JSON files.
+	s.loadIntegrationPacks()
 
 	// Initialize stdio MCP process manager.
 	s.stdioManager = service.NewStdioProcessManager(ctx)
@@ -589,11 +604,29 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.PUT("/v1/skills/{id}", s.UpdateSkillAPI)
 	apiGroup.DELETE("/v1/skills/{id}", s.DeleteSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export", s.ExportSkillAPI)
+	apiGroup.GET("/v1/skills/{id}/export-md", s.ExportSkillMDAPI)
 
 	// Skill templates (predefined / store)
 	apiGroup.GET("/v1/skill-templates", s.ListSkillTemplatesAPI)
 	apiGroup.GET("/v1/skill-templates/{slug}", s.GetSkillTemplateAPI)
 	apiGroup.POST("/v1/skill-templates/{slug}/install", s.InstallSkillTemplateAPI)
+
+	// Integration packs
+	apiGroup.GET("/v1/integration-packs", s.ListIntegrationPacksAPI)
+	apiGroup.POST("/v1/integration-packs", s.CreatePackAPI)
+	apiGroup.GET("/v1/integration-packs/{slug}", s.GetIntegrationPackAPI)
+	apiGroup.DELETE("/v1/integration-packs/{slug}", s.DeletePackAPI)
+	apiGroup.POST("/v1/integration-packs/{slug}/install", s.InstallIntegrationPackAPI)
+	apiGroup.POST("/v1/integration-packs/{slug}/skills", s.AddSkillToPackAPI)
+	apiGroup.POST("/v1/integration-packs/{slug}/agents", s.AddAgentToPackAPI)
+	apiGroup.POST("/v1/integration-packs/{slug}/mcp-sets", s.AddMCPSetToPackAPI)
+	apiGroup.DELETE("/v1/integration-packs/{slug}/{type}/{name}", s.RemoveFromPackAPI)
+
+	// Pack sources (Git repos)
+	apiGroup.GET("/v1/pack-sources", s.ListPackSourcesAPI)
+	apiGroup.POST("/v1/pack-sources", s.CreatePackSourceAPI)
+	apiGroup.DELETE("/v1/pack-sources/{id}", s.DeletePackSourceAPI)
+	apiGroup.POST("/v1/pack-sources/{id}/sync", s.SyncPackSourceAPI)
 
 	// Variable management
 	apiGroup.GET("/v1/variables", s.ListVariablesAPI)
@@ -612,9 +645,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// Agent management
 	apiGroup.GET("/v1/agents", s.ListAgentsAPI)
 	apiGroup.POST("/v1/agents", s.CreateAgentAPI)
+	apiGroup.POST("/v1/agents/import", s.ImportAgentAPI)
+	apiGroup.POST("/v1/agents/import/preview", s.PreviewImportAgentAPI)
 	apiGroup.GET("/v1/agents/{id}", s.GetAgentAPI)
 	apiGroup.PUT("/v1/agents/{id}", s.UpdateAgentAPI)
 	apiGroup.DELETE("/v1/agents/{id}", s.DeleteAgentAPI)
+	apiGroup.GET("/v1/agents/{id}/export", s.ExportAgentAPI)
+	apiGroup.GET("/v1/agents/{id}/export-json", s.ExportAgentJSONAPI)
 
 	apiGroup.GET("/v1/agents/{id}/tasks", s.ListTasksByAgentAPI)
 	apiGroup.GET("/v1/agents/{id}/budget", s.GetAgentBudgetAPI)
@@ -628,9 +665,12 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// Organization management
 	apiGroup.GET("/v1/organizations", s.ListOrganizationsAPI)
 	apiGroup.POST("/v1/organizations", s.CreateOrganizationAPI)
+	apiGroup.POST("/v1/organizations/import", s.ImportOrganizationBundleAPI)
+	apiGroup.POST("/v1/organizations/import/preview", s.PreviewImportBundleAPI)
 	apiGroup.GET("/v1/organizations/{id}", s.GetOrganizationAPI)
 	apiGroup.PUT("/v1/organizations/{id}", s.UpdateOrganizationAPI)
 	apiGroup.DELETE("/v1/organizations/{id}", s.DeleteOrganizationAPI)
+	apiGroup.GET("/v1/organizations/{id}/export", s.ExportOrganizationBundleAPI)
 
 	// Organization–Agent membership
 	apiGroup.GET("/v1/organizations/{id}/agents", s.ListOrganizationAgentsAPI)
@@ -797,6 +837,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/bots/{id}", s.GetBotConfigAPI)
 	apiGroup.PUT("/v1/bots/{id}", s.UpdateBotConfigAPI)
 	apiGroup.DELETE("/v1/bots/{id}", s.DeleteBotConfigAPI)
+	apiGroup.POST("/v1/bots/{id}/start", s.StartBotAPI)
+	apiGroup.POST("/v1/bots/{id}/stop", s.StopBotAPI)
+	apiGroup.GET("/v1/bots/{id}/status", s.GetBotStatusAPI)
 
 	// Marketplace management
 	apiGroup.GET("/v1/marketplace/sources", s.ListMarketplaceSourcesAPI)
@@ -826,16 +869,22 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// General MCP server management
 	apiGroup.GET("/v1/mcp/servers", s.ListMCPServersAPI)
 	apiGroup.POST("/v1/mcp/servers", s.CreateMCPServerAPI)
+	apiGroup.POST("/v1/mcp/servers/import", s.ImportMCPServerAPI)
+	apiGroup.POST("/v1/mcp/servers/import/preview", s.PreviewImportMCPServerAPI)
 	apiGroup.GET("/v1/mcp/servers/{id}", s.GetMCPServerAPI)
 	apiGroup.PUT("/v1/mcp/servers/{id}", s.UpdateMCPServerAPI)
 	apiGroup.DELETE("/v1/mcp/servers/{id}", s.DeleteMCPServerAPI)
+	apiGroup.GET("/v1/mcp/servers/{id}/export", s.ExportMCPServerAPI)
 
 	// MCP set management (internal MCPs)
 	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
 	apiGroup.POST("/v1/mcp/sets", s.CreateMCPSetAPI)
+	apiGroup.POST("/v1/mcp/sets/import", s.ImportMCPSetAPI)
+	apiGroup.POST("/v1/mcp/sets/import/preview", s.PreviewImportMCPSetAPI)
 	apiGroup.GET("/v1/mcp/sets/{id}", s.GetMCPSetAPI)
 	apiGroup.PUT("/v1/mcp/sets/{id}", s.UpdateMCPSetAPI)
 	apiGroup.DELETE("/v1/mcp/sets/{id}", s.DeleteMCPSetAPI)
+	apiGroup.GET("/v1/mcp/sets/{id}/export", s.ExportMCPSetAPI)
 
 	// MCP set tool resolution (for Chat UI)
 	apiGroup.GET("/v1/mcp/set-tools/{name}", s.ListMCPSetToolsAPI)

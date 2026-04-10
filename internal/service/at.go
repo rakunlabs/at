@@ -75,6 +75,7 @@ type Storer interface {
 	CostEventStorer
 	OrganizationAgentStorer
 	AgentMemoryStorer
+	PackSourceStorer
 }
 
 // ─── Skill Management ───
@@ -83,15 +84,17 @@ type Storer interface {
 // and a set of tools. Skills can be attached to agent_call workflow nodes
 // to provide the agent with domain-specific capabilities.
 type Skill struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	SystemPrompt string `json:"system_prompt"` // Prompt fragment appended to the agent's system prompt
-	Tools        []Tool `json:"tools"`         // Built-in tool definitions (may include JS handlers)
-	CreatedAt    string `json:"created_at"`
-	UpdatedAt    string `json:"updated_at"`
-	CreatedBy    string `json:"created_by"`
-	UpdatedBy    string `json:"updated_by"`
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Description  string   `json:"description"`
+	Category     string   `json:"category,omitempty"`
+	Tags         []string `json:"tags,omitempty"`
+	SystemPrompt string   `json:"system_prompt"` // Prompt fragment appended to the agent's system prompt
+	Tools        []Tool   `json:"tools"`         // Built-in tool definitions (may include JS handlers)
+	CreatedAt    string   `json:"created_at"`
+	UpdatedAt    string   `json:"updated_at"`
+	CreatedBy    string   `json:"created_by"`
+	UpdatedBy    string   `json:"updated_by"`
 }
 
 // SkillStorer defines CRUD operations for skill definitions.
@@ -102,6 +105,30 @@ type SkillStorer interface {
 	CreateSkill(ctx context.Context, s Skill) (*Skill, error)
 	UpdateSkill(ctx context.Context, id string, s Skill) (*Skill, error)
 	DeleteSkill(ctx context.Context, id string) error
+}
+
+// ─── Pack Source Management ───
+
+// PackSource represents a Git repository registered as a source of integration packs.
+type PackSource struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	URL       string `json:"url"`
+	Branch    string `json:"branch"`
+	Status    string `json:"status"` // "pending", "synced", "error"
+	LastSync  string `json:"last_sync,omitempty"`
+	Error     string `json:"error,omitempty"`
+	CreatedAt string `json:"created_at"`
+	UpdatedAt string `json:"updated_at"`
+}
+
+// PackSourceStorer defines CRUD operations for pack sources.
+type PackSourceStorer interface {
+	ListPackSources(ctx context.Context, q *query.Query) (*ListResult[PackSource], error)
+	GetPackSource(ctx context.Context, id string) (*PackSource, error)
+	CreatePackSource(ctx context.Context, ps PackSource) (*PackSource, error)
+	UpdatePackSource(ctx context.Context, id string, ps PackSource) (*PackSource, error)
+	DeletePackSource(ctx context.Context, id string) error
 }
 
 // ─── Variable Management ───

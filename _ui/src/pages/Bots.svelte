@@ -1,9 +1,9 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, type BotConfig } from '@/lib/api/bots';
+  import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, startBot, stopBot, getBotStatus, type BotConfig, type BotStatus } from '@/lib/api/bots';
   import { listAgents, type Agent } from '@/lib/api/agents';
-  import { Trash2, Plus, X, Pencil, Radio, RefreshCw, Save } from 'lucide-svelte';
+  import { Trash2, Plus, X, Pencil, Radio, RefreshCw, Save, Play, Square } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -21,6 +21,7 @@
   let saving = $state(false);
   let searchQuery = $state('');
   let sorts = $state<SortEntry[]>([]);
+  let botStatuses = $state<Record<string, BotStatus>>({});
 
   // Pagination
   let offset = $state(0);
@@ -61,11 +62,24 @@
       bots = bResult.data || [];
       total = bResult.meta?.total || 0;
       agents = aResult.data || [];
+      await loadStatuses();
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
       loading = false;
     }
+  }
+
+  async function loadStatuses() {
+    const newStatuses: Record<string, BotStatus> = {};
+    for (const bot of bots) {
+      try {
+        newStatuses[bot.id] = await getBotStatus(bot.id);
+      } catch {
+        newStatuses[bot.id] = { running: false };
+      }
+    }
+    botStatuses = newStatuses;
   }
 
   function handleSearch(value: string) {
@@ -183,6 +197,28 @@
       addToast(e?.response?.data?.message || 'Failed to save bot config', 'alert');
     } finally {
       saving = false;
+    }
+  }
+
+  async function handleStartBot(id: string) {
+    try {
+      await startBot(id);
+      addToast('Bot started');
+      await loadStatuses();
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to start bot', 'alert');
+    }
+  }
+
+  async function handleStopBot(id: string) {
+    try {
+      await stopBot(id);
+      addToast('Bot stopped');
+      await loadStatuses();
+      await loadData();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to stop bot', 'alert');
     }
   }
 
@@ -693,14 +729,37 @@
                 {/if}
               </td>
               <td class="px-4 py-2.5">
-                {#if bot.enabled}
-                  <span class="px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">enabled</span>
+                {#if botStatuses[bot.id]?.running}
+                  <span class="inline-flex items-center gap-1.5 px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300">
+                    <span class="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
+                    Running
+                  </span>
+                {:else if bot.enabled}
+                  <span class="px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300">Enabled</span>
                 {:else}
-                  <span class="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 dark:bg-dark-elevated dark:text-dark-text-muted">disabled</span>
+                  <span class="px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-500 dark:bg-dark-elevated dark:text-dark-text-muted">Stopped</span>
                 {/if}
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  {#if botStatuses[bot.id]?.running}
+                    <button
+                      onclick={() => handleStopBot(bot.id)}
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      title="Stop bot"
+                    >
+                      <Square size={14} />
+                    </button>
+                  {:else}
+                    <button
+                      onclick={() => handleStartBot(bot.id)}
+                      disabled={!bot.token}
+                      class="p-1.5 hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-400 hover:text-green-600 dark:text-dark-text-muted dark:hover:text-green-400 transition-colors disabled:opacity-30"
+                      title="Start bot"
+                    >
+                      <Play size={14} />
+                    </button>
+                  {/if}
                   <button
                     onclick={() => openEdit(bot)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
