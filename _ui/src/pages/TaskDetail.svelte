@@ -9,6 +9,9 @@
     getTaskWithSubtasks,
     processTask,
     createTaskChat,
+    cancelTaskDelegation,
+    listActiveDelegations,
+    type ActiveDelegation,
     TASK_STATUSES,
     TASK_STATUS_LABELS,
     TASK_PRIORITIES,
@@ -32,8 +35,13 @@
     Tag, MessageSquare, ListTree, Calendar, User,
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
     Layers, ChevronRight, ChevronDown, Building2, Play,
-    RotateCcw, RefreshCw,
+    RotateCcw, RefreshCw, Send, Square, Loader2, Activity,
   } from 'lucide-svelte';
+  import {
+    listChatMessages,
+    sendMessage as sendChatMessage,
+    type ChatMessage,
+  } from '@/lib/api/chat-sessions';
   import { createComment } from '@/lib/api/issue-comments';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
@@ -79,7 +87,26 @@
   let expandedNodes = $state<Set<string>>(new Set());
 
   // Active tab
-  let activeTab = $state<'comments' | 'subtasks' | 'labels'>('comments');
+  let activeTab = $state<'comments' | 'subtasks' | 'labels' | 'activity'>('activity');
+
+  // ─── Activity / Chat state ───
+  let chatSessionId = $state<string | null>(null);
+  let chatMessages = $state<ChatMessage[]>([]);
+  let chatLoading = $state(false);
+  let chatInput = $state('');
+  let chatSending = $state(false);
+  let chatStreamContent = $state('');
+  let chatToolEvents = $state<{ type: string; name: string; id?: string; result?: string }[]>([]);
+  let chatExpandedTools = $state<Record<string, boolean>>({});
+  let chatAbortController: AbortController | null = null;
+  let chatMessagesEnd = $state<HTMLDivElement | undefined>(undefined);
+  let chatInputEl = $state<HTMLTextAreaElement | undefined>(undefined);
+
+  // ─── Active delegation tracking ───
+  let delegationActive = $state(false);
+  let delegationDuration = $state('');
+  let cancelling = $state(false);
+  let delegationPollTimer: ReturnType<typeof setInterval> | null = null;
 
   // Reference data
   let organizations = $state<Organization[]>([]);
@@ -382,19 +409,208 @@
     }
   }
 
+  // ─── Active delegation poll ───
+  // Polls /api/v1/active-delegations every 3s while the task is in_progress
+  // to show whether an agent goroutine is actually running, and its duration.
+
+  async function checkDelegation() {
+    if (!task) return;
+    try {
+      const res = await listActiveDelegations();
+      const match = res.delegations.find((d: ActiveDelegation) => d.task_id === task!.id);
+      delegationActive = !!match;
+      delegationDuration = match?.duration ?? '';
+    } catch {
+      delegationActive = false;
+    }
+  }
+
+  function startDelegationPoll() {
+    stopDelegationPoll();
+    checkDelegation();
+    delegationPollTimer = setInterval(async () => {
+      await checkDelegation();
+      // Auto-refresh task when delegation finishes
+      if (!delegationActive && task?.status === 'in_progress') {
+        await loadTask();
+        await loadSubTasks();
+      }
+    }, 3000);
+  }
+
+  function stopDelegationPoll() {
+    if (delegationPollTimer) {
+      clearInterval(delegationPollTimer);
+      delegationPollTimer = null;
+    }
+  }
+
+  // Start/stop polling based on task status
+  $effect(() => {
+    if (task && (task.status === 'in_progress' || task.status === 'open')) {
+      startDelegationPoll();
+    } else {
+      stopDelegationPoll();
+      delegationActive = false;
+    }
+    return () => stopDelegationPoll();
+  });
+
+  async function handleCancelDelegation() {
+    if (!task) return;
+    cancelling = true;
+    try {
+      await cancelTaskDelegation(task.id);
+      addToast('Cancel signal sent — the agent will stop after the current step');
+      // Give it a moment, then refresh
+      setTimeout(async () => {
+        await checkDelegation();
+        await loadTask();
+        await loadSubTasks();
+      }, 2000);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'No active delegation to cancel', 'alert');
+    } finally {
+      cancelling = false;
+    }
+  }
+
+  // ─── Activity / Chat ───
+
   let openingChat = $state(false);
+
   async function handleOpenChat() {
     if (!task) return;
     openingChat = true;
     try {
       const session = await createTaskChat(task.id);
-      push(`/sessions?session=${session.id}`);
+      chatSessionId = session.id;
+      activeTab = 'activity';
+      await loadChatMessages();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to open chat', 'alert');
     } finally {
       openingChat = false;
     }
   }
+
+  async function loadChatSession() {
+    if (!task || chatLoading) return;
+    chatLoading = true;
+    try {
+      const session = await createTaskChat(task.id);
+      chatSessionId = session.id;
+      await loadChatMessages();
+    } catch {
+      // Chat not available (no org or no agent assigned)
+      chatSessionId = null;
+    } finally {
+      chatLoading = false;
+    }
+  }
+
+  async function loadChatMessages() {
+    if (!chatSessionId) return;
+    try {
+      chatMessages = await listChatMessages(chatSessionId);
+      scrollChatToBottom();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load messages', 'alert');
+    }
+  }
+
+  function scrollChatToBottom() {
+    setTimeout(() => {
+      chatMessagesEnd?.scrollIntoView({ behavior: 'smooth' });
+    }, 50);
+  }
+
+  function getMessageText(data: any): string {
+    if (typeof data?.content === 'string') return data.content;
+    if (Array.isArray(data?.content)) {
+      return data.content
+        .filter((b: any) => b.type === 'text')
+        .map((b: any) => b.text)
+        .join('');
+    }
+    return '';
+  }
+
+  function handleChatSend() {
+    if (!chatSessionId || !chatInput.trim() || chatSending) return;
+    const content = chatInput.trim();
+    chatInput = '';
+    chatSending = true;
+    chatStreamContent = '';
+    chatToolEvents = [];
+
+    // Optimistic user message
+    chatMessages = [
+      ...chatMessages,
+      {
+        id: `pending-${Date.now()}`,
+        session_id: chatSessionId,
+        role: 'user',
+        data: { content },
+        created_at: new Date().toISOString(),
+      },
+    ];
+    scrollChatToBottom();
+
+    chatAbortController = sendChatMessage(
+      chatSessionId,
+      content,
+      (event) => {
+        if (event.type === 'content') {
+          chatStreamContent += event.content;
+          scrollChatToBottom();
+        } else if (event.type === 'tool_call') {
+          chatToolEvents = [...chatToolEvents, { type: 'call', name: event.tool_name, id: event.tool_id }];
+          scrollChatToBottom();
+        } else if (event.type === 'tool_result') {
+          chatToolEvents = [...chatToolEvents, { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
+          scrollChatToBottom();
+        }
+      },
+      (error) => {
+        addToast(error, 'alert');
+        chatSending = false;
+        chatAbortController = null;
+      },
+      async () => {
+        chatSending = false;
+        chatAbortController = null;
+        chatStreamContent = '';
+        chatToolEvents = [];
+        await loadChatMessages();
+        // Refresh task to pick up status/result changes
+        await loadTask();
+        await loadSubTasks();
+      },
+    );
+  }
+
+  function stopChatGeneration() {
+    chatAbortController?.abort();
+    chatAbortController = null;
+    chatSending = false;
+    chatStreamContent = '';
+    chatToolEvents = [];
+  }
+
+  function handleChatKeydown(e: KeyboardEvent) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleChatSend();
+    }
+  }
+
+  // Auto-load chat session when Activity tab is first opened
+  $effect(() => {
+    if (activeTab === 'activity' && !chatSessionId && !chatLoading && task) {
+      loadChatSession();
+    }
+  });
   // ─── Tree toggle ───
 
   function toggleNode(nodeId: string) {
@@ -601,6 +817,16 @@
           <div class="border-b border-gray-200 dark:border-dark-border">
             <div class="flex gap-0">
               <button
+                onclick={() => (activeTab = 'activity')}
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'activity' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+              >
+                <Activity size={13} />
+                Activity
+                {#if chatSending}
+                  <Loader2 size={10} class="animate-spin text-green-500" />
+                {/if}
+              </button>
+              <button
                 onclick={() => (activeTab = 'comments')}
                 class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'comments' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
@@ -632,7 +858,179 @@
 
           <!-- Tab content -->
           <div class="min-h-[200px]">
-            {#if activeTab === 'comments'}
+            {#if activeTab === 'activity'}
+              <!-- ─── Activity / Chat panel ─── -->
+              <div class="flex flex-col h-[550px] border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+                <!-- Chat messages area -->
+                <div class="flex-1 overflow-y-auto min-h-0">
+                  {#if chatLoading}
+                    <div class="flex items-center justify-center h-full">
+                      <div class="flex items-center gap-2 text-xs text-gray-400 dark:text-dark-text-muted">
+                        <Loader2 size={14} class="animate-spin" />
+                        Loading chat session...
+                      </div>
+                    </div>
+                  {:else if !chatSessionId}
+                    <div class="flex flex-col items-center justify-center h-full text-center px-6">
+                      <Activity size={24} class="text-gray-300 dark:text-dark-text-faint mb-3" />
+                      <p class="text-sm text-gray-500 dark:text-dark-text-muted mb-1">No chat session available</p>
+                      <p class="text-[11px] text-gray-400 dark:text-dark-text-muted mb-4">
+                        This task needs an organization with an assigned agent to enable chat.
+                      </p>
+                      {#if task?.organization_id}
+                        <button
+                          onclick={handleOpenChat}
+                          disabled={openingChat}
+                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                        >
+                          <MessageSquare size={12} />
+                          {openingChat ? 'Starting...' : 'Start Chat Session'}
+                        </button>
+                      {/if}
+                    </div>
+                  {:else}
+                    <div class="px-4 py-3 space-y-1">
+                      {#if chatMessages.length === 0 && !chatSending}
+                        <div class="flex flex-col items-center justify-center py-12 text-center">
+                          <MessageSquare size={20} class="text-gray-300 dark:text-dark-text-faint mb-2" />
+                          <p class="text-xs text-gray-400 dark:text-dark-text-muted">
+                            Send a message to start chatting with the agent.
+                          </p>
+                        </div>
+                      {/if}
+
+                      {#each chatMessages as msg (msg.id)}
+                        {#if msg.role === 'user'}
+                          <div class="py-1.5">
+                            <div class="flex items-baseline gap-2">
+                              <span class="text-[11px] font-bold text-blue-600 dark:text-blue-400 select-none shrink-0">you</span>
+                              <span class="text-[10px] text-gray-300 dark:text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
+                            </div>
+                            <div class="mt-0.5 text-[13px] text-gray-800 dark:text-dark-text whitespace-pre-wrap">{getMessageText(msg.data)}</div>
+                          </div>
+                        {:else if msg.role === 'assistant'}
+                          <div class="py-1.5">
+                            <div class="flex items-baseline gap-2">
+                              <span class="text-[11px] font-bold text-green-600 dark:text-green-400 select-none shrink-0">assistant</span>
+                              <span class="text-[10px] text-gray-300 dark:text-dark-text-muted select-none">{formatDateTime(msg.created_at)}</span>
+                              {#if msg.data.tool_calls}
+                                <span class="text-[10px] text-yellow-600 dark:text-yellow-400">
+                                  [{Array.isArray(msg.data.tool_calls) ? msg.data.tool_calls.map((tc: any) => tc.Name || tc.name || tc.function?.name).join(', ') : 'tools'}]
+                                </span>
+                              {/if}
+                            </div>
+                            <div class="mt-0.5 prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 prose-code:text-[12px]" use:renderMarkdown>
+                              {@html md(getMessageText(msg.data))}
+                            </div>
+                          </div>
+                        {:else if msg.role === 'tool'}
+                          {@const toolText = getMessageText(msg.data)}
+                          {@const toolId = `tool-${msg.id}`}
+                          <div class="py-0.5 pl-4 border-l-2 border-gray-200 dark:border-dark-border">
+                            <button
+                              class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                              onclick={() => { chatExpandedTools[toolId] = !chatExpandedTools[toolId]; }}
+                            >
+                              tool {#if msg.data.tool_call_id}<span class="text-gray-500">{msg.data.tool_call_id.slice(0, 12)}</span>{/if}
+                              <span class="ml-1">{chatExpandedTools[toolId] ? '▼' : '▶'} {toolText.length > 150 ? `${toolText.length} chars` : ''}</span>
+                            </button>
+                            {#if chatExpandedTools[toolId]}
+                              <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 border border-gray-200 dark:border-dark-border">{toolText}</pre>
+                            {:else}
+                              <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-8 overflow-hidden">{toolText.slice(0, 150)}{toolText.length > 150 ? '...' : ''}</pre>
+                            {/if}
+                          </div>
+                        {/if}
+                      {/each}
+
+                      <!-- Streaming tool events -->
+                      {#if chatToolEvents.length > 0}
+                        <div class="py-0.5 pl-4 border-l-2 border-yellow-300 dark:border-yellow-600">
+                          {#each chatToolEvents as evt}
+                            {#if evt.type === 'call'}
+                              <div class="flex items-center gap-1 text-[11px] text-yellow-700 dark:text-yellow-400">
+                                <Loader2 size={10} class="animate-spin" />
+                                <span>{evt.name}</span>
+                              </div>
+                            {:else}
+                              {@const evtResult = evt.result || ''}
+                              {@const evtId = `stream-${evt.id || evt.name}`}
+                              <button
+                                class="text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary text-left"
+                                onclick={() => { chatExpandedTools[evtId] = !chatExpandedTools[evtId]; }}
+                              >
+                                <span class="text-green-600 dark:text-green-400">{evt.name}</span>
+                                {#if chatExpandedTools[evtId]}
+                                  <span class="ml-1">▼</span>
+                                {:else}
+                                  <span class="ml-1">{evtResult.length > 100 ? '▶' : '→'}</span>
+                                  <span class="font-mono">{evtResult.slice(0, 150)}{evtResult.length > 150 ? '...' : ''}</span>
+                                {/if}
+                              </button>
+                              {#if chatExpandedTools[evtId]}
+                                <pre class="mt-0.5 text-[11px] font-mono whitespace-pre-wrap break-all max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 border border-gray-200 dark:border-dark-border">{evtResult}</pre>
+                              {/if}
+                            {/if}
+                          {/each}
+                        </div>
+                      {/if}
+
+                      <!-- Streaming assistant content -->
+                      {#if chatStreamContent}
+                        <div class="py-1.5">
+                          <div class="flex items-baseline gap-2">
+                            <span class="text-[11px] font-bold text-green-600 dark:text-green-400 select-none">assistant</span>
+                            {#if chatSending}
+                              <Loader2 size={10} class="animate-spin text-gray-400" />
+                            {/if}
+                          </div>
+                          <div class="mt-0.5 prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 prose-code:text-[12px]" use:renderMarkdown>
+                            {@html md(chatStreamContent)}
+                          </div>
+                        </div>
+                      {/if}
+
+                      <div bind:this={chatMessagesEnd}></div>
+                    </div>
+                  {/if}
+                </div>
+
+                <!-- Input bar -->
+                {#if chatSessionId}
+                  <div class="border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated px-3 py-2 shrink-0">
+                    <div class="flex items-center gap-2">
+                      <textarea
+                        bind:this={chatInputEl}
+                        bind:value={chatInput}
+                        onkeydown={handleChatKeydown}
+                        placeholder="Message the agent... (Enter to send)"
+                        rows={1}
+                        disabled={chatSending}
+                        class="flex-1 resize-none bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border px-3 py-1.5 text-[13px] text-gray-800 dark:text-dark-text placeholder:text-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 disabled:opacity-50"
+                      ></textarea>
+                      {#if chatSending}
+                        <button
+                          onclick={stopChatGeneration}
+                          class="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                          title="Stop generation"
+                        >
+                          <Square size={14} />
+                        </button>
+                      {:else}
+                        <button
+                          onclick={handleChatSend}
+                          disabled={!chatInput.trim()}
+                          class="p-1.5 text-gray-500 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-20 transition-colors shrink-0"
+                          title="Send"
+                        >
+                          <Send size={14} />
+                        </button>
+                      {/if}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+            {:else if activeTab === 'comments'}
               <CommentThread taskId={params.id} />
             {:else if activeTab === 'subtasks'}
               {#if subTasksLoading}
@@ -945,9 +1343,29 @@
                 <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Actions</span>
               </div>
               <div class="px-3 py-2 space-y-2">
+                {#if delegationActive}
+                  <div class="flex items-center gap-2 px-2 py-1.5 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/40 text-yellow-800 dark:text-yellow-400 text-[11px]">
+                    <Loader2 size={12} class="animate-spin shrink-0" />
+                    <div class="flex-1 min-w-0">
+                      <div class="font-medium">Agent working</div>
+                      {#if delegationDuration}
+                        <div class="text-[10px] text-yellow-600 dark:text-yellow-500">{delegationDuration} elapsed</div>
+                      {/if}
+                    </div>
+                    <button
+                      onclick={handleCancelDelegation}
+                      disabled={cancelling}
+                      class="px-2 py-1 text-[10px] font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 shrink-0"
+                      title="Cancel delegation"
+                    >
+                      {cancelling ? '...' : 'Stop'}
+                    </button>
+                  </div>
+                {/if}
+
                 <button
                   onclick={handleProcess}
-                  disabled={processing}
+                  disabled={processing || delegationActive}
                   class="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 transition-colors disabled:opacity-50"
                 >
                   <Play size={12} />
@@ -959,7 +1377,7 @@
                   disabled={openingChat}
                   class="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors disabled:opacity-50"
                 >
-                  <MessageSquare size={12} />
+                  <Activity size={12} />
                   {openingChat ? 'Opening...' : 'Open Chat'}
                 </button>
 

@@ -76,6 +76,7 @@ type Storer interface {
 	OrganizationAgentStorer
 	AgentMemoryStorer
 	PackSourceStorer
+	GuideStorer
 }
 
 // ─── Skill Management ───
@@ -157,4 +158,30 @@ type VariableStorer interface {
 	CreateVariable(ctx context.Context, v Variable) (*Variable, error)
 	UpdateVariable(ctx context.Context, id string, v Variable) (*Variable, error)
 	DeleteVariable(ctx context.Context, id string) error
+}
+
+// ─── Guide Management ───
+
+// Guide represents a user-authored documentation guide. Content is stored
+// as raw markdown and rendered client-side. Built-in guides are hardcoded
+// in the UI; user guides live in the database alongside them.
+type Guide struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Icon        string `json:"icon"`    // lucide-svelte icon name (e.g. "BookOpen")
+	Content     string `json:"content"` // raw markdown
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	CreatedBy   string `json:"created_by"`
+	UpdatedBy   string `json:"updated_by"`
+}
+
+// GuideStorer defines CRUD operations for user-authored guides.
+type GuideStorer interface {
+	ListGuides(ctx context.Context, q *query.Query) (*ListResult[Guide], error)
+	GetGuide(ctx context.Context, id string) (*Guide, error)
+	CreateGuide(ctx context.Context, g Guide) (*Guide, error)
+	UpdateGuide(ctx context.Context, id string, g Guide) (*Guide, error)
+	DeleteGuide(ctx context.Context, id string) error
 }

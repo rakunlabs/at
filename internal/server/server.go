@@ -212,6 +212,10 @@ type Server struct {
 	// map key: run ID (string), value: *activeRun
 	activeRuns sync.Map
 
+	// activeDelegations tracks currently-running task delegation goroutines.
+	// map key: task ID (string), value: *activeDelegation
+	activeDelegations sync.Map
+
 	version string
 
 	// botsCfg holds optional Discord/Telegram bot configuration.
@@ -228,6 +232,9 @@ type Server struct {
 
 	// packSourceStore is the persistent store for Git pack sources.
 	packSourceStore service.PackSourceStorer
+
+	// guideStore is the persistent store for user-authored guides.
+	guideStore service.GuideStorer
 
 	// runningBots tracks currently-running bot instances.
 	// map key: bot config ID (string), value: *runningBot
@@ -363,6 +370,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		orgAgentStore:            store,
 		agentMemoryStore:         store,
 		packSourceStore:          store,
+		guideStore:               store,
 
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
@@ -628,6 +636,13 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.DELETE("/v1/pack-sources/{id}", s.DeletePackSourceAPI)
 	apiGroup.POST("/v1/pack-sources/{id}/sync", s.SyncPackSourceAPI)
 
+	// Guides (user-authored markdown docs)
+	apiGroup.GET("/v1/guides", s.ListGuidesAPI)
+	apiGroup.POST("/v1/guides", s.CreateGuideAPI)
+	apiGroup.GET("/v1/guides/{id}", s.GetGuideAPI)
+	apiGroup.PUT("/v1/guides/{id}", s.UpdateGuideAPI)
+	apiGroup.DELETE("/v1/guides/{id}", s.DeleteGuideAPI)
+
 	// Variable management
 	apiGroup.GET("/v1/variables", s.ListVariablesAPI)
 	apiGroup.POST("/v1/variables", s.CreateVariableAPI)
@@ -708,7 +723,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.POST("/v1/tasks/{id}/checkout", s.CheckoutTaskAPI)
 	apiGroup.POST("/v1/tasks/{id}/release", s.ReleaseTaskAPI)
 	apiGroup.POST("/v1/tasks/{id}/process", s.ProcessTaskAPI)
+	apiGroup.POST("/v1/tasks/{id}/cancel", s.CancelTaskDelegationAPI)
 	apiGroup.POST("/v1/tasks/{id}/chat", s.CreateTaskChatAPI)
+	apiGroup.GET("/v1/active-delegations", s.ListActiveDelegationsAPI)
 
 	// Model pricing
 	apiGroup.GET("/v1/model-pricing", s.ListModelPricingAPI)

@@ -416,9 +416,10 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fire async delegation in background goroutine.
+	// Fire async delegation in a tracked, cancellable background goroutine.
 	go func() {
-		delegCtx := context.Background()
+		delegCtx, cleanup := s.registerDelegation(context.Background(), task.ID, org.HeadAgentID, org.ID)
+		defer cleanup()
 
 		// Audit: task processing triggered.
 		if recordAudit := s.recordAuditFunc(); recordAudit != nil {

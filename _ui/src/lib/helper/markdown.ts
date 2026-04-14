@@ -208,6 +208,22 @@ export function md(source: string): string {
   return marked.parse(source, { async: false }) as string;
 }
 
+/**
+ * Highlight an arbitrary code string as HTML using highlight.js.
+ * Use `@html` to inject the result inside `<code class="hljs language-xxx">`.
+ * Falls back to HTML-escaped plain text if the language is unknown.
+ */
+export function highlightCode(source: string, lang: string): string {
+  if (lang && hljs.getLanguage(lang)) {
+    try {
+      return hljs.highlight(source, { language: lang, ignoreIllegals: true }).value;
+    } catch {
+      // fall through to escaped plain text
+    }
+  }
+  return source.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 // ─── Mermaid Post-Processing (Svelte Action) ───
 
 let renderCounter = 0;

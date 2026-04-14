@@ -110,6 +110,24 @@ export async function createTaskChat(id: string): Promise<{ id: string; agent_id
   return res.data;
 }
 
+export async function cancelTaskDelegation(id: string): Promise<{ message: string; task_id: string }> {
+  const res = await api.post<{ message: string; task_id: string }>(`/tasks/${id}/cancel`);
+  return res.data;
+}
+
+export interface ActiveDelegation {
+  task_id: string;
+  agent_id: string;
+  org_id: string;
+  started_at: string;
+  duration: string;
+}
+
+export async function listActiveDelegations(): Promise<{ delegations: ActiveDelegation[] }> {
+  const res = await api.get<{ delegations: ActiveDelegation[] }>('/active-delegations');
+  return res.data;
+}
+
 export async function listTasksByAgent(agentId: string, params?: ListParams): Promise<ListResult<Task>> {
   const res = await api.get<ListResult<Task>>(`/agents/${agentId}/tasks`, { params });
   return res.data;

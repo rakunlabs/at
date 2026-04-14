@@ -125,11 +125,11 @@ func (s *Server) IntakeTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fire async delegation in background goroutine.
-	// Uses context.Background() because the HTTP request context will be cancelled
-	// after the 202 response is sent, but delegation may take 15+ seconds.
+	// Fire async delegation in a tracked, cancellable background goroutine.
 	go func() {
-		delegCtx := context.Background()
+		delegCtx, cleanup := s.registerDelegation(context.Background(), record.ID, org.HeadAgentID, org.ID)
+		defer cleanup()
+
 		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
 			slog.Error("org-delegation: failed",
 				"org_id", org.ID,
