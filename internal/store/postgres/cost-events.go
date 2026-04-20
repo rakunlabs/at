@@ -29,13 +29,19 @@ type costEventRow struct {
 	InputTokens    int64          `db:"input_tokens"`
 	OutputTokens   int64          `db:"output_tokens"`
 	CostCents      float64        `db:"cost_cents"`
+	LatencyMs      int64          `db:"latency_ms"`
+	Status         string         `db:"status"`
+	ErrorCode      sql.NullString `db:"error_code"`
+	ErrorMessage   sql.NullString `db:"error_message"`
 	CreatedAt      time.Time      `db:"created_at"`
 }
 
 var costEventColumns = []interface{}{
 	"id", "organization_id", "agent_id", "task_id", "project_id", "goal_id",
 	"billing_code", "run_id", "provider", "model",
-	"input_tokens", "output_tokens", "cost_cents", "created_at",
+	"input_tokens", "output_tokens", "cost_cents",
+	"latency_ms", "status", "error_code", "error_message",
+	"created_at",
 }
 
 func scanCostEventRow(scanner interface {
@@ -45,13 +51,20 @@ func scanCostEventRow(scanner interface {
 		&row.ID, &row.OrganizationID, &row.AgentID, &row.TaskID,
 		&row.ProjectID, &row.GoalID, &row.BillingCode, &row.RunID,
 		&row.Provider, &row.Model, &row.InputTokens, &row.OutputTokens,
-		&row.CostCents, &row.CreatedAt,
+		&row.CostCents,
+		&row.LatencyMs, &row.Status, &row.ErrorCode, &row.ErrorMessage,
+		&row.CreatedAt,
 	)
 }
 
 func (p *Postgres) RecordCostEvent(ctx context.Context, event service.CostEvent) error {
 	id := ulid.Make().String()
 	now := time.Now().UTC()
+
+	status := event.Status
+	if status == "" {
+		status = "ok"
+	}
 
 	query, _, err := p.goqu.Insert(p.tableCostEvents).Rows(
 		goqu.Record{
@@ -68,6 +81,10 @@ func (p *Postgres) RecordCostEvent(ctx context.Context, event service.CostEvent)
 			"input_tokens":    event.InputTokens,
 			"output_tokens":   event.OutputTokens,
 			"cost_cents":      event.CostCents,
+			"latency_ms":      event.LatencyMs,
+			"status":          status,
+			"error_code":      event.ErrorCode,
+			"error_message":   truncatePGString(event.ErrorMessage, 500),
 			"created_at":      now,
 		},
 	).ToSQL()
@@ -168,6 +185,17 @@ func costEventRowToRecord(row costEventRow) *service.CostEvent {
 		InputTokens:    row.InputTokens,
 		OutputTokens:   row.OutputTokens,
 		CostCents:      row.CostCents,
+		LatencyMs:      row.LatencyMs,
+		Status:         row.Status,
+		ErrorCode:      row.ErrorCode.String,
+		ErrorMessage:   row.ErrorMessage.String,
 		CreatedAt:      row.CreatedAt.Format(time.RFC3339),
 	}
+}
+
+func truncatePGString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
 }

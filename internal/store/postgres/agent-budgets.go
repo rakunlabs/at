@@ -74,6 +74,36 @@ func (p *Postgres) GetAgentBudget(ctx context.Context, agentID string) (*service
 	return agentBudgetRowToRecord(row), nil
 }
 
+// ListAgentBudgets returns all configured agent budgets.
+func (p *Postgres) ListAgentBudgets(ctx context.Context) ([]service.AgentBudget, error) {
+	query, _, err := p.goqu.From(p.tableAgentBudgets).
+		Select("id", "agent_id", "monthly_limit", "current_spend", "period_start", "period_end", "created_at", "updated_at").
+		Order(goqu.I("agent_id").Asc()).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list agent budgets query: %w", err)
+	}
+
+	rows, err := p.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list agent budgets: %w", err)
+	}
+	defer rows.Close()
+
+	var budgets []service.AgentBudget
+	for rows.Next() {
+		var row agentBudgetRow
+		if err := rows.Scan(
+			&row.ID, &row.AgentID, &row.MonthlyLimit, &row.CurrentSpend,
+			&row.PeriodStart, &row.PeriodEnd, &row.CreatedAt, &row.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan agent budget row: %w", err)
+		}
+		budgets = append(budgets, *agentBudgetRowToRecord(row))
+	}
+	return budgets, rows.Err()
+}
+
 func (p *Postgres) SetAgentBudget(ctx context.Context, budget service.AgentBudget) error {
 	id := ulid.Make().String()
 	now := time.Now().UTC()

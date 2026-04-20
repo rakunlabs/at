@@ -15,7 +15,7 @@ internal/service/           → domain types + store interfaces (at.go)
 internal/service/workflow/  → DAG engine: parse → topoSort → run (concurrent fan-out)
 internal/service/workflow/nodes/ → node types registered via init()
 internal/service/llm/       → provider adapters: openai/, antropic/, gemini/, vertex/
-internal/store/             → store factory → postgres | sqlite3 | memory
+internal/store/             → store factory → postgres | sqlite3 (default: sqlite at ./data/at.db)
 internal/crypto/            → AES-256-GCM credential encryption, key rotation
 _ui/                        → Svelte 5 + Vite 6 + TailwindCSS 4 SPA
 ```
@@ -95,7 +95,7 @@ make env-down           # docker compose down --volumes
 - Private `fooRow` struct with `db:"..."` tags, converted via `fooRowToRecord(row)`
 - SQL built with `goqu` query builder
 - Updates re-fetch after write; `RowsAffected() == 0` → return `nil, nil`
-- Factory: `store.New(ctx, cfg)` tries postgres → sqlite3 → memory
+- Factory: `store.New(ctx, cfg)` tries postgres → sqlite3 (default: on-disk sqlite at `./data/at.db` when no backend is configured; the parent directory is auto-created so Docker users can bind-mount a volume to `/data`)
 
 ### Tests
 - Standard `testing` package, table-driven with `t.Run`

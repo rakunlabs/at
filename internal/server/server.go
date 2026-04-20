@@ -236,6 +236,10 @@ type Server struct {
 	// guideStore is the persistent store for user-authored guides.
 	guideStore service.GuideStorer
 
+	// connectionStore is the persistent store for named external-service connections
+	// (multi-instance OAuth/token credentials referenced by agents).
+	connectionStore service.ConnectionStorer
+
 	// runningBots tracks currently-running bot instances.
 	// map key: bot config ID (string), value: *runningBot
 	runningBots sync.Map
@@ -371,6 +375,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		agentMemoryStore:         store,
 		packSourceStore:          store,
 		guideStore:               store,
+		connectionStore:          store,
 
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
@@ -502,6 +507,9 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		s.scheduler.SetRAGSync(s.ragSyncFunc())
 		s.scheduler.SetRAGPageUpsert(s.ragPageUpsertFunc())
 		s.scheduler.SetMemoryRecall(s.memoryRecallFunc())
+		s.scheduler.SetConnectionLookup(s.connectionLookupFunc())
+		s.scheduler.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
+		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
 			// Non-fatal: server can run without cron triggers.
@@ -807,6 +815,12 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.GET("/v1/projects/{id}/cost", s.GetCostByProjectAPI)
 	apiGroup.GET("/v1/goals/{id}/cost", s.GetCostByGoalAPI)
 
+	// Usage dashboard (tokens, requests, latency, errors, budgets)
+	apiGroup.GET("/v1/usage/summary", s.GetUsageSummaryAPI)
+	apiGroup.GET("/v1/usage/grouped", s.GetUsageGroupedAPI)
+	apiGroup.GET("/v1/usage/timeseries", s.GetUsageTimeSeriesAPI)
+	apiGroup.GET("/v1/usage/budgets", s.GetUsageBudgetsAPI)
+
 	// Chat session management
 	apiGroup.GET("/v1/chat/sessions", s.ListChatSessionsAPI)
 	apiGroup.POST("/v1/chat/sessions", s.CreateChatSessionAPI)
@@ -882,6 +896,14 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	apiGroup.POST("/v1/oauth/exchange", s.OAuthExchangeAPI)
 	apiGroup.GET("/v1/oauth/connections", s.OAuthConnectionsAPI)
 	apiGroup.DELETE("/v1/oauth/connections/{provider}", s.OAuthDisconnectAPI)
+
+	// Named connections (multi-instance OAuth / token credential sets).
+	apiGroup.GET("/v1/connections", s.ListConnectionsAPI)
+	apiGroup.POST("/v1/connections", s.CreateConnectionAPI)
+	apiGroup.POST("/v1/connections/import-from-variables", s.ImportConnectionsFromVariablesAPI)
+	apiGroup.GET("/v1/connections/{id}", s.GetConnectionAPI)
+	apiGroup.PUT("/v1/connections/{id}", s.UpdateConnectionAPI)
+	apiGroup.DELETE("/v1/connections/{id}", s.DeleteConnectionAPI)
 
 	// General MCP server management
 	apiGroup.GET("/v1/mcp/servers", s.ListMCPServersAPI)
@@ -1146,6 +1168,19 @@ func (s *Server) ragDeleteBySourceFunc() workflow.RAGDeleteBySourceFunc {
 	}
 }
 
+// connectionLookupFunc returns a workflow.ConnectionLookup that resolves a
+// named Connection by ID. Returns nil when the connection store is not
+// configured (in which case agent_call nodes resolve only against global
+// variables, preserving pre-connections behavior).
+func (s *Server) connectionLookupFunc() workflow.ConnectionLookup {
+	if s.connectionStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, id string) (*service.Connection, error) {
+		return s.connectionStore.GetConnection(ctx, id)
+	}
+}
+
 // varSaveFunc returns a workflow.VarSaveFunc that creates or updates a variable
 // by key. Returns nil when variable store is not configured.
 func (s *Server) varSaveFunc() workflow.VarSaveFunc {
@@ -1201,33 +1236,77 @@ func (s *Server) ragStateSaveFunc() workflow.RAGStateSaveFunc {
 }
 
 // recordUsageFunc returns a workflow.RecordUsageFunc that records agent token
-// usage with cost estimation. Returns nil when the budget store is not configured.
+// usage with cost estimation. It writes to both agent_usage (legacy) and
+// cost_events (dashboard-ready). Returns nil when the budget store is not configured.
 func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
-	if s.agentBudgetStore == nil {
+	if s.agentBudgetStore == nil && s.costEventStore == nil {
 		return nil
 	}
-	return func(ctx context.Context, agentID, model string, usage service.Usage) error {
+	return func(ctx context.Context, event workflow.UsageEvent) error {
 		// Look up model pricing to estimate cost.
 		var estimatedCost float64
-		pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
-		if err == nil {
-			for _, p := range pricingList {
-				if p.Model == model {
-					estimatedCost = (float64(usage.PromptTokens) * p.PromptPricePer1M / 1_000_000) +
-						(float64(usage.CompletionTokens) * p.CompletionPricePer1M / 1_000_000)
-					break
+		if s.agentBudgetStore != nil {
+			pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
+			if err == nil {
+				for _, p := range pricingList {
+					if p.Model == event.Model {
+						estimatedCost = (float64(event.Usage.PromptTokens) * p.PromptPricePer1M / 1_000_000) +
+							(float64(event.Usage.CompletionTokens) * p.CompletionPricePer1M / 1_000_000)
+						break
+					}
 				}
 			}
 		}
 
-		return s.agentBudgetStore.RecordAgentUsage(ctx, service.AgentUsageRecord{
-			AgentID:          agentID,
-			Model:            model,
-			PromptTokens:     int64(usage.PromptTokens),
-			CompletionTokens: int64(usage.CompletionTokens),
-			TotalTokens:      int64(usage.TotalTokens),
-			EstimatedCost:    estimatedCost,
-		})
+		// Dollar-denominated for agent_usage (historic), cents for cost_events.
+		costCents := estimatedCost * 100
+
+		// 1. Legacy: agent_usage (per-agent totals, budget enforcement).
+		if s.agentBudgetStore != nil {
+			if err := s.agentBudgetStore.RecordAgentUsage(ctx, service.AgentUsageRecord{
+				AgentID:          event.AgentID,
+				TaskID:           event.TaskID,
+				WorkflowRunID:    event.RunID,
+				Model:            event.Model,
+				PromptTokens:     int64(event.Usage.PromptTokens),
+				CompletionTokens: int64(event.Usage.CompletionTokens),
+				TotalTokens:      int64(event.Usage.TotalTokens),
+				EstimatedCost:    estimatedCost,
+			}); err != nil {
+				return err
+			}
+		}
+
+		// 2. Dashboard: cost_events (per-call with latency/status/attribution).
+		if s.costEventStore != nil {
+			status := event.Status
+			if status == "" {
+				status = "ok"
+			}
+			if err := s.costEventStore.RecordCostEvent(ctx, service.CostEvent{
+				OrganizationID: event.OrganizationID,
+				AgentID:        event.AgentID,
+				TaskID:         event.TaskID,
+				ProjectID:      event.ProjectID,
+				GoalID:         event.GoalID,
+				BillingCode:    event.BillingCode,
+				RunID:          event.RunID,
+				Provider:       event.Provider,
+				Model:          event.Model,
+				InputTokens:    int64(event.Usage.PromptTokens),
+				OutputTokens:   int64(event.Usage.CompletionTokens),
+				CostCents:      costCents,
+				LatencyMs:      event.LatencyMs,
+				Status:         status,
+				ErrorCode:      event.ErrorCode,
+				ErrorMessage:   event.ErrorMessage,
+			}); err != nil {
+				// Non-fatal: budget write already succeeded; log and continue.
+				slog.Warn("record cost event failed", "agent_id", event.AgentID, "error", err)
+			}
+		}
+
+		return nil
 	}
 }
 

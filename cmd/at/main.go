@@ -146,7 +146,10 @@ func run(ctx context.Context) error {
 		slog.Debug("provider created from config", "key", key, "type", provCfg.Type, "model", provCfg.Model)
 	}
 
-	// Initialize store (falls back to in-memory if no backend is configured).
+	// Initialize store. Falls back to a default on-disk SQLite database
+	// (./data/at.db) if no backend is configured. The ./data/ directory
+	// is created on startup if missing, so Docker users can bind-mount a
+	// host volume to /data in a single step.
 	st, err := store.New(ctx, cfg.Store)
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
@@ -171,12 +174,10 @@ func run(ctx context.Context) error {
 	}
 
 	// Determine store type for info API.
-	storeType := "memory"
-	switch {
-	case cfg.Store.Postgres != nil:
+	// The store is always either postgres or sqlite (default when unconfigured).
+	storeType := "sqlite"
+	if cfg.Store.Postgres != nil {
 		storeType = "postgres"
-	case cfg.Store.SQLite != nil:
-		storeType = "sqlite"
 	}
 
 	// Initialize optional cluster (distributed coordination via alan).

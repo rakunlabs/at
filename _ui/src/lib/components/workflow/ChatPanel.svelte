@@ -15,7 +15,7 @@
   import { listNodeConfigs } from '@/lib/api/node-configs';
   import { getNodeTypes, type NodeTypeMeta, type PortMeta, type FieldMeta } from '@/lib/api/workflows';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
-  import { md, renderMarkdown } from '@/lib/helper/markdown';
+  import Markdown from '@/lib/components/Markdown.svelte';
 
   // ─── Props ───
   let { onclose, flow }: { onclose: () => void; flow: FlowState } = $props();
@@ -721,7 +721,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
         <div class="flex justify-start">
           <div class="max-w-[85%] px-2.5 py-1.5 rounded-lg bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle text-[11px]">
             {#if getTextContent(msg.content)}
-              <div class="markdown-body text-gray-700 dark:text-dark-text" use:renderMarkdown>{@html md(getTextContent(msg.content))}</div>
+              <Markdown source={getTextContent(msg.content)} class="text-gray-700 dark:text-dark-text" />
             {:else if streaming && i === messages.length - 1}
               <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
             {/if}
@@ -781,50 +781,5 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
   </div>
 </div>
 
-<style>
-  @reference "../../../style/global.css";
-
-  .markdown-body :global(p) {
-    @apply mb-1.5 last:mb-0;
-  }
-  .markdown-body :global(a) {
-    @apply underline underline-offset-2 hover:opacity-80;
-  }
-  .markdown-body :global(strong) {
-    @apply font-semibold;
-  }
-  .markdown-body :global(code) {
-    @apply font-mono text-[0.85em] bg-gray-100 dark:bg-dark-base px-1 py-0.5 rounded;
-  }
-  .markdown-body :global(pre) {
-    @apply bg-gray-100 dark:bg-dark-base px-2 py-1.5 my-1.5 overflow-x-auto text-[0.85em] rounded;
-  }
-  .markdown-body :global(pre code) {
-    @apply bg-transparent px-0 py-0;
-  }
-  .markdown-body :global(ul) {
-    @apply list-disc pl-4 mb-1.5;
-  }
-  .markdown-body :global(ol) {
-    @apply list-decimal pl-4 mb-1.5;
-  }
-  .markdown-body :global(li) {
-    @apply mb-0.5;
-  }
-  .markdown-body :global(blockquote) {
-    @apply border-l-2 border-gray-300 dark:border-dark-border pl-2 my-1.5 text-gray-500 dark:text-dark-text-muted;
-  }
-  .markdown-body :global(h1),
-  .markdown-body :global(h2),
-  .markdown-body :global(h3) {
-    @apply font-semibold mb-1;
-  }
-  .markdown-body :global(h4),
-  .markdown-body :global(h5),
-  .markdown-body :global(h6) {
-    @apply font-medium mb-1;
-  }
-  .markdown-body :global(hr) {
-    @apply border-t border-gray-200 dark:border-dark-border my-2;
-  }
-</style>
+<!-- Markdown typography is provided globally via `.markdown-body` rules in
+     src/style/global.css. No component-local overrides needed. -->

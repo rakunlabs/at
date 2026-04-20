@@ -317,6 +317,14 @@ func (s *SQLite) CreateChatMessage(ctx context.Context, msg service.ChatMessage)
 		return nil, fmt.Errorf("create chat message: %w", err)
 	}
 
+	// Bump the owning session's updated_at so the UI can surface the
+	// most-recently-active session at the top of the list.
+	if msg.SessionID != "" {
+		if err := s.touchChatSession(ctx, nil, msg.SessionID, now); err != nil {
+			return nil, err
+		}
+	}
+
 	return &service.ChatMessage{
 		ID:        id,
 		SessionID: msg.SessionID,
@@ -324,6 +332,28 @@ func (s *SQLite) CreateChatMessage(ctx context.Context, msg service.ChatMessage)
 		Data:      msg.Data,
 		CreatedAt: now.Format(time.RFC3339),
 	}, nil
+}
+
+// touchChatSession updates the session's updated_at to now. Runs inside the
+// given transaction when tx is non-nil, otherwise against the main DB handle.
+func (s *SQLite) touchChatSession(ctx context.Context, tx *sql.Tx, sessionID string, now time.Time) error {
+	q, _, err := s.goqu.Update(s.tableChatSessions).
+		Set(goqu.Record{"updated_at": now.Format(time.RFC3339)}).
+		Where(goqu.I("id").Eq(sessionID)).
+		ToSQL()
+	if err != nil {
+		return fmt.Errorf("build touch chat session query: %w", err)
+	}
+	if tx != nil {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("touch chat session: %w", err)
+		}
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx, q); err != nil {
+		return fmt.Errorf("touch chat session: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLite) CreateChatMessages(ctx context.Context, msgs []service.ChatMessage) error {
@@ -334,6 +364,7 @@ func (s *SQLite) CreateChatMessages(ctx context.Context, msgs []service.ChatMess
 	defer tx.Rollback() //nolint:errcheck
 
 	now := time.Now().UTC()
+	touched := make(map[string]struct{}, len(msgs))
 
 	for _, msg := range msgs {
 		dataJSON, err := json.Marshal(msg.Data)
@@ -358,6 +389,18 @@ func (s *SQLite) CreateChatMessages(ctx context.Context, msgs []service.ChatMess
 
 		if _, err := tx.ExecContext(ctx, query); err != nil {
 			return fmt.Errorf("create chat message: %w", err)
+		}
+
+		if msg.SessionID != "" {
+			touched[msg.SessionID] = struct{}{}
+		}
+	}
+
+	// Bump updated_at on every session that received a new message so
+	// recently-active sessions sort to the top of the UI list.
+	for sessionID := range touched {
+		if err := s.touchChatSession(ctx, tx, sessionID, now); err != nil {
+			return err
 		}
 	}
 

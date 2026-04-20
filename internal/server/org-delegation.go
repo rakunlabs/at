@@ -167,13 +167,24 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	type skillToolHandler struct {
 		handler     string
 		handlerType string
+		skillID     string
 	}
 	skillToolMap := make(map[string]skillToolHandler)
 	var skillTools []service.Tool
 	var skillPromptFragments []string
 
+	// skillConnOverrides maps skill ID to per-skill connection bindings
+	// declared on the agent's SkillRef entries.
+	skillConnOverrides := map[string]map[string]string{}
+	for _, sr := range agent.Config.Skills {
+		if sr.ID != "" && len(sr.Connections) > 0 {
+			skillConnOverrides[sr.ID] = sr.Connections
+		}
+	}
+
 	if s.skillStore != nil {
-		for _, nameOrID := range agent.Config.Skills {
+		for _, skillRef := range agent.Config.Skills {
+			nameOrID := skillRef.ID
 			skill, err := s.skillStore.GetSkill(ctx, nameOrID)
 			if err != nil {
 				slog.Warn("org-delegation: skill lookup failed", "skill", nameOrID, "error", err)
@@ -192,7 +203,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 			for _, t := range skill.Tools {
 				if t.Handler != "" {
-					skillToolMap[t.Name] = skillToolHandler{handler: t.Handler, handlerType: t.HandlerType}
+					skillToolMap[t.Name] = skillToolHandler{
+						handler:     t.Handler,
+						handlerType: t.HandlerType,
+						skillID:     skill.ID,
+					}
 				}
 				skillTools = append(skillTools, t)
 			}
@@ -456,8 +471,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		// Call LLM with retry on transient errors (5xx, rate limits).
 		var resp *service.LLMResponse
 		var chatErr error
+		var latencyMs int64
 		for attempt := 0; attempt < 3; attempt++ {
+			callStart := time.Now()
 			resp, chatErr = info.provider.Chat(ctx, model, messages, llmTools, nil)
+			latencyMs = time.Since(callStart).Milliseconds()
 			if chatErr == nil {
 				break
 			}
@@ -483,6 +501,19 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			break // non-retryable error
 		}
 		if chatErr != nil {
+			// Record failed call for usage dashboard.
+			if recordUsage := s.recordUsageFunc(); recordUsage != nil {
+				_ = recordUsage(ctx, workflow.UsageEvent{
+					AgentID:      agentID,
+					Model:        model,
+					Provider:     info.providerType,
+					TaskID:       task.ID,
+					LatencyMs:    latencyMs,
+					Status:       "error",
+					ErrorCode:    classifyHTTPError(chatErr),
+					ErrorMessage: chatErr.Error(),
+				})
+			}
 			slog.Error("org-delegation: chat failed",
 				"agent_id", agentID, "task_id", task.ID, "iteration", iteration, "error", chatErr)
 			_ = s.completeTaskWithStatus(ctx, task, service.TaskStatusCancelled, fmt.Sprintf("chat failed: %v", chatErr))
@@ -493,7 +524,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		if resp.Usage.TotalTokens > 0 {
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
-				if usageErr := recordUsage(ctx, agentID, model, resp.Usage); usageErr != nil {
+				if usageErr := recordUsage(ctx, workflow.UsageEvent{
+					AgentID:   agentID,
+					Model:     model,
+					Provider:  info.providerType,
+					TaskID:    task.ID,
+					Usage:     resp.Usage,
+					LatencyMs: latencyMs,
+					Status:    "ok",
+				}); usageErr != nil {
 					slog.Warn("org-delegation: failed to record usage",
 						"agent_id", agentID, "error", usageErr)
 				}
@@ -652,10 +691,30 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				var result string
 				var callErr error
 
+				// Wrap VarLookup/VarLister with connection bindings so that
+				// provider-scoped keys resolve through the agent's bound
+				// Connection, falling back to global variables.
+				toolVarLookup := varLookup
+				toolVarLister := varLister
+				if s.connectionStore != nil {
+					var perSkill map[string]string
+					if hi.skillID != "" {
+						perSkill = skillConnOverrides[hi.skillID]
+					}
+					bindings := workflow.ResolveAgentConnectionBindings(
+						ctx, s.connectionLookupFunc(),
+						agent.Config.Connections, perSkill,
+					)
+					if len(bindings) > 0 {
+						toolVarLookup = workflow.WrapVarLookupWithConnections(varLookup, bindings)
+						toolVarLister = workflow.WrapVarListerWithConnections(varLister, bindings)
+					}
+				}
+
 				if hi.handlerType == "bash" {
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
 				} else {
-					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, varLookup)
+					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, toolVarLookup)
 				}
 
 				if callErr != nil {

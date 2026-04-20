@@ -73,6 +73,9 @@ type Engine struct {
 	goalAncestry          GoalAncestryFunc
 	versionLookup         VersionLookupFunc
 	memoryRecall          MemoryRecallFunc
+	connectionLookup      ConnectionLookup
+	workflowByNameLookup  WorkflowByNameLookupFunc
+	workflowExecutor      WorkflowExecutorFunc
 
 	// eventCh receives real-time node execution events when set.
 	// The channel is optional; when nil, no events are emitted.
@@ -120,6 +123,29 @@ func (e *Engine) SetRAGPageUpsert(f RAGPageUpsertFunc) {
 // mode. Optional — if not set, recall mode falls back to static pass-through.
 func (e *Engine) SetMemoryRecall(f MemoryRecallFunc) {
 	e.memoryRecall = f
+}
+
+// SetConnectionLookup sets the callback used by agent_call nodes to resolve
+// a named Connection by ID. When set, tool handlers inside the agentic loop
+// resolve provider-scoped variable keys (e.g. "youtube_refresh_token") through
+// the agent's bound connections before falling back to global variables.
+// Optional — when nil, only global variables are used.
+func (e *Engine) SetConnectionLookup(f ConnectionLookup) {
+	e.connectionLookup = f
+}
+
+// SetWorkflowByNameLookup sets the callback used by agent_call nodes to
+// resolve agent-attached workflows (AgentConfig.Workflows) by name.
+// Optional — when nil, agents cannot attach workflows directly.
+func (e *Engine) SetWorkflowByNameLookup(f WorkflowByNameLookupFunc) {
+	e.workflowByNameLookup = f
+}
+
+// SetWorkflowExecutor sets the callback used by agent_call nodes to dispatch
+// `wf_*` tool calls. Optional — when nil, workflow tool calls fail with a
+// "no handler" error message.
+func (e *Engine) SetWorkflowExecutor(f WorkflowExecutorFunc) {
+	e.workflowExecutor = f
 }
 
 // SetEventChannel sets the channel for real-time node execution events.
@@ -364,6 +390,9 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordAudit, e.goalAncestry, e.versionLookup, inputs)
 	reg.RAGPageUpsert = e.ragPageUpsert
 	reg.MemoryRecall = e.memoryRecall
+	reg.ConnectionLookup = e.connectionLookup
+	reg.WorkflowByNameLookup = e.workflowByNameLookup
+	reg.WorkflowExecutor = e.workflowExecutor
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)

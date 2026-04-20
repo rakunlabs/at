@@ -11,7 +11,7 @@
   } from '@/lib/api/agent-memory';
   import { getAgent, type Agent } from '@/lib/api/agents';
   import { formatDateTime } from '@/lib/helper/format';
-  import { md, renderMarkdown } from '@/lib/helper/markdown';
+  import Markdown from '@/lib/components/Markdown.svelte';
   import {
     Brain, Trash2, ArrowLeft, MessageSquare, FileText,
     User, Hash, Clock, Tag, Bot, ChevronDown, ChevronRight,
@@ -289,9 +289,7 @@
       <div class="card bg-base-100 border border-base-200">
         <div class="card-body p-6">
           {#if memory.summary_l1}
-            <div class="prose prose-sm max-w-none dark:prose-invert" use:renderMarkdown>
-              {@html md(memory.summary_l1)}
-            </div>
+            <Markdown source={memory.summary_l1} class="max-w-none" enhance />
           {:else}
             <p class="text-base-content/40 text-center py-8">No detailed summary available.</p>
           {/if}
@@ -343,9 +341,7 @@
               {#if collapsedMessages.has(idx) || !isLong}
                 <div class="px-4 pb-3 border-t border-base-200">
                   {#if text}
-                    <div class="prose prose-sm max-w-none dark:prose-invert mt-3" use:renderMarkdown>
-                      {@html md(text)}
-                    </div>
+                    <Markdown source={text} class="max-w-none mt-3" />
                   {/if}
 
                   {#if toolCalls.length}

@@ -20,7 +20,7 @@
   import { listVariables, type Variable } from '@/lib/api/secrets';
   import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, Mic, MicOff } from 'lucide-svelte';
   import axios from 'axios';
-  import { md, renderMarkdown } from '@/lib/helper/markdown';
+  import Markdown from '@/lib/components/Markdown.svelte';
 
   storeNavbar.title = 'Chat';
 
@@ -1531,14 +1531,14 @@
                   {#if !msg.content && streaming && i === messages.length - 1}
                     <span class="text-gray-400 dark:text-dark-text-muted italic">Thinking...</span>
                   {:else}
-                    <div class="markdown-body" use:renderMarkdown>{@html md(msg.content)}</div>
+                    <Markdown source={msg.content} />
                   {/if}
                 {:else}
                   {#each msg.content as part}
                     {#if part.type === 'image_url' && part.image_url?.url}
                       <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border" />
                     {:else if part.type === 'text' && part.text}
-                      <div class="markdown-body" use:renderMarkdown>{@html md(part.text)}</div>
+                      <Markdown source={part.text} />
                     {/if}
                   {/each}
                 {/if}
@@ -1783,67 +1783,5 @@
   {/if}
 </div>
 
-<style>
-  @reference "../style/global.css";
-
-  .markdown-body :global(p) {
-    @apply mb-2 last:mb-0;
-  }
-  .markdown-body :global(a) {
-    @apply underline underline-offset-2 hover:opacity-80;
-  }
-  .markdown-body :global(strong) {
-    @apply font-semibold;
-  }
-  .markdown-body :global(code) {
-    @apply font-mono text-[0.85em] bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5 rounded;
-  }
-  .markdown-body :global(pre) {
-    @apply bg-gray-100 dark:bg-dark-elevated px-3 py-2 my-2 overflow-x-auto text-[0.85em] rounded;
-  }
-  .markdown-body :global(pre code) {
-    @apply bg-transparent px-0 py-0;
-  }
-  .markdown-body :global(ul) {
-    @apply list-disc pl-5 mb-2;
-  }
-  .markdown-body :global(ol) {
-    @apply list-decimal pl-5 mb-2;
-  }
-  .markdown-body :global(li) {
-    @apply mb-0.5;
-  }
-  .markdown-body :global(blockquote) {
-    @apply border-l-2 border-gray-300 dark:border-dark-border pl-3 my-2 text-gray-600 dark:text-dark-text-secondary;
-  }
-  .markdown-body :global(h1) {
-    @apply text-lg font-semibold mb-2;
-  }
-  .markdown-body :global(h2) {
-    @apply text-base font-semibold mb-1.5;
-  }
-  .markdown-body :global(h3) {
-    @apply text-sm font-semibold mb-1;
-  }
-  .markdown-body :global(h4),
-  .markdown-body :global(h5),
-  .markdown-body :global(h6) {
-    @apply text-sm font-medium mb-1;
-  }
-  .markdown-body :global(hr) {
-    @apply border-t border-gray-200 dark:border-dark-border my-3;
-  }
-  .markdown-body :global(img) {
-    @apply max-w-full my-2;
-  }
-  .markdown-body :global(table) {
-    @apply w-full border-collapse my-2 text-sm;
-  }
-  .markdown-body :global(th),
-  .markdown-body :global(td) {
-    @apply border border-gray-200 dark:border-dark-border px-2 py-1 text-left;
-  }
-  .markdown-body :global(th) {
-    @apply bg-gray-50 dark:bg-dark-elevated font-medium;
-  }
-</style>
+<!-- Markdown typography is provided globally via `.markdown-body` rules in
+     src/style/global.css. No component-local overrides needed. -->

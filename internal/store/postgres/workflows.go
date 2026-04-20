@@ -88,6 +88,28 @@ func (p *Postgres) GetWorkflow(ctx context.Context, id string) (*service.Workflo
 	return workflowRowToRecord(row)
 }
 
+func (p *Postgres) GetWorkflowByName(ctx context.Context, name string) (*service.Workflow, error) {
+	query, _, err := p.goqu.From(p.tableWorkflows).
+		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by").
+		Where(goqu.I("name").Eq(name)).
+		Limit(1).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build get workflow by name query: %w", err)
+	}
+
+	var row workflowRow
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get workflow by name %q: %w", name, err)
+	}
+
+	return workflowRowToRecord(row)
+}
+
 func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*service.Workflow, error) {
 	graphJSON, err := json.Marshal(w.Graph)
 	if err != nil {

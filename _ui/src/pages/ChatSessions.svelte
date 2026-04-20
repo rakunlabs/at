@@ -14,10 +14,10 @@
     type ChatSession,
     type ChatMessage,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, User, Wrench, Brain, Terminal, Check, Code, Eye } from 'lucide-svelte';
   import axios from 'axios';
   import { agentAvatar } from '@/lib/helper/avatar';
-  import { md, renderMarkdown } from '@/lib/helper/markdown';
+  import Markdown from '@/lib/components/Markdown.svelte';
 
   storeNavbar.title = 'Sessions';
 
@@ -30,6 +30,9 @@
   let streamContent = $state('');
   let toolEvents = $state<any[]>([]);
   let expandedTools = $state<Record<string, boolean>>({});
+  // Per-message toggle: when true, render the raw markdown source instead
+  // of the rendered HTML so users can inspect / copy the original content.
+  let rawSourceMode = $state<Record<string, boolean>>({});
 
   // Voice recording
   let voiceMethod = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-method') || 'openai') : 'openai');
@@ -161,8 +164,10 @@
   async function loadSessions() {
     loading = true;
     try {
-      const res = await listChatSessions({ _sort: '-created_at' });
-      sessions = res.data || [];
+      // Sort by most-recently-active first. The backend bumps updated_at
+      // whenever a new message is inserted so live sessions float to top.
+      const res = await listChatSessions({ _sort: '-updated_at' });
+      sessions = (res.data || []).slice().sort((a, b) => sessionActivityTime(b) - sessionActivityTime(a));
     } catch (e: any) {
       addToast(e.message || 'Failed to load sessions', 'error');
     } finally {
@@ -321,6 +326,7 @@
     toolEvents = [];
 
     // Optimistic user message.
+    const nowIso = new Date().toISOString();
     messages = [
       ...messages,
       {
@@ -328,9 +334,13 @@
         session_id: selectedSessionId!,
         role: 'user',
         data: { content },
-        created_at: new Date().toISOString(),
+        created_at: nowIso,
       },
     ];
+    // Optimistically bump the session's updated_at so it floats to the top
+    // of the sidebar immediately (the backend will persist the same bump
+    // when the message is stored).
+    bumpSessionToTop(selectedSessionId!, nowIso);
     scrollToBottom();
 
     abortController = sendMessage(
@@ -413,6 +423,7 @@
     sending = true;
     streamContent = '';
     toolEvents = [];
+    bumpSessionToTop(selectedSessionId!);
 
     abortController = sendMessage(
       selectedSessionId!,
@@ -471,6 +482,18 @@
     return agents.find(a => a.id === agentId)?.name || agentId.slice(0, 8);
   }
 
+  // Move the given session to the top of the sidebar and bump its
+  // updated_at so subsequent sorts keep it pinned until another session
+  // receives newer activity.
+  function bumpSessionToTop(sessionId: string, iso: string = new Date().toISOString()) {
+    const idx = sessions.findIndex(s => s.id === sessionId);
+    if (idx === -1) return;
+    const next = sessions.slice();
+    next[idx] = { ...next[idx], updated_at: iso };
+    const [s] = next.splice(idx, 1);
+    sessions = [s, ...next];
+  }
+
   function getMessageText(data: any): string {
     if (typeof data.content === 'string') return data.content;
     if (Array.isArray(data.content)) {
@@ -479,10 +502,89 @@
     return '';
   }
 
+  // Extract non-text structured content blocks so the UI can render
+  // reasoning/thinking alongside the main text body.
+  function getMessageReasoning(data: any): string {
+    if (!Array.isArray(data?.content)) return '';
+    return data.content
+      .filter((b: any) => b && (b.type === 'reasoning' || b.type === 'thinking'))
+      .map((b: any) => b.text || b.thinking || '')
+      .join('\n')
+      .trim();
+  }
+
+  // Normalise an assistant message's tool calls for display. Handles both
+  // OpenAI-style (`tool_calls: [{id, function:{name, arguments}}]`) and
+  // Anthropic-style (`content: [{type:'tool_use', id, name, input}]`).
+  function getToolCalls(data: any): Array<{ id: string; name: string; args: string }> {
+    const out: Array<{ id: string; name: string; args: string }> = [];
+    if (Array.isArray(data?.tool_calls)) {
+      for (const tc of data.tool_calls) {
+        const name = tc.name || tc.Name || tc.function?.name || tc.Function?.Name || '';
+        const id = tc.id || tc.ID || '';
+        let args = '';
+        const raw = tc.function?.arguments ?? tc.Function?.Arguments ?? tc.arguments ?? tc.Arguments;
+        if (typeof raw === 'string') args = raw;
+        else if (raw !== undefined) {
+          try { args = JSON.stringify(raw, null, 2); } catch { args = String(raw); }
+        }
+        out.push({ id, name, args });
+      }
+    }
+    if (Array.isArray(data?.content)) {
+      for (const b of data.content) {
+        if (b?.type === 'tool_use') {
+          let args = '';
+          if (b.input !== undefined) {
+            try { args = JSON.stringify(b.input, null, 2); } catch { args = String(b.input); }
+          }
+          out.push({ id: b.id || '', name: b.name || '', args });
+        }
+      }
+    }
+    return out;
+  }
+
+  // Try to pretty-print JSON content; otherwise return the original string.
+  function prettyJSON(text: string): { pretty: string; isJSON: boolean } {
+    const t = (text || '').trim();
+    if (!t || (t[0] !== '{' && t[0] !== '[')) return { pretty: text, isJSON: false };
+    try {
+      return { pretty: JSON.stringify(JSON.parse(t), null, 2), isJSON: true };
+    } catch {
+      return { pretty: text, isJSON: false };
+    }
+  }
+
+  // Sort key: prefer updated_at (bumped by backend on every new message),
+  // fall back to created_at for sessions that haven't been touched yet.
+  function sessionActivityTime(s: ChatSession): number {
+    const raw = s.updated_at || s.created_at || '';
+    const t = Date.parse(raw);
+    return Number.isNaN(t) ? 0 : t;
+  }
+
   function formatTime(iso: string): string {
     try {
       const d = new Date(iso);
       return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return '';
+    }
+  }
+
+  // Human-friendly relative time for the session sidebar (e.g. "2m", "3h", "4d").
+  function formatRelative(iso: string): string {
+    if (!iso) return '';
+    const t = Date.parse(iso);
+    if (Number.isNaN(t)) return '';
+    const diff = Date.now() - t;
+    if (diff < 60_000) return 'now';
+    if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h`;
+    if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)}d`;
+    try {
+      return new Date(t).toLocaleDateString();
     } catch {
       return '';
     }
@@ -514,7 +616,7 @@
 
 <div class="flex h-full bg-gray-50 dark:bg-dark-base">
   <!-- Left: Session list -->
-  <div class="w-48 flex-shrink-0 border-r border-gray-200 dark:border-dark-border flex flex-col bg-white dark:bg-dark-surface">
+  <div class="w-56 flex-shrink-0 border-r border-gray-200 dark:border-dark-border flex flex-col bg-white dark:bg-dark-surface">
     <div class="flex items-center justify-between px-2 h-8 border-b border-gray-200 dark:border-dark-border">
       <span class="text-[11px] font-semibold text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Sessions</span>
       <button
@@ -550,7 +652,12 @@
             ]}
           >
             <div class="min-w-0 flex-1">
-              <div class="truncate text-gray-700 dark:text-dark-text font-medium">{session.name || 'Untitled'}</div>
+              <div class="flex items-baseline gap-1.5">
+                <span class="truncate text-gray-700 dark:text-dark-text font-medium flex-1 min-w-0">{session.name || 'Untitled'}</span>
+                <span class="text-[9px] text-gray-400 dark:text-dark-text-muted shrink-0 tabular-nums" title={session.updated_at || session.created_at}>
+                  {formatRelative(session.updated_at || session.created_at)}
+                </span>
+              </div>
               <div class="truncate text-[10px] text-gray-400 dark:text-dark-text-muted">{getAgentName(session.agent_id)}</div>
             </div>
             <button
@@ -592,7 +699,7 @@
     {/if}
 
     <!-- Messages area -->
-    <div class="flex-1 overflow-y-auto font-mono text-[13px]">
+    <div class="flex-1 overflow-y-auto text-[13px] leading-relaxed">
       {#if !selectedSessionId}
         <div class="flex items-center justify-center h-full text-gray-400 dark:text-dark-text-muted">
           <div class="text-center text-sm max-w-md">
@@ -621,49 +728,141 @@
           </div>
         </div>
       {:else}
-        <div class="max-w-3xl mx-auto px-4 py-3 space-y-1">
+        <div class="max-w-3xl mx-auto px-4 py-4 space-y-4">
           {#each messages as msg (msg.id)}
             {#if msg.role === 'user'}
-              <div class="py-1.5">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-[11px] font-bold text-blue-600 dark:text-blue-400 select-none shrink-0">you</span>
-                  <span class="text-[10px] text-gray-300 dark:text-dark-text-muted select-none">{formatTime(msg.created_at)}</span>
+              <!-- User bubble -->
+              <div class="flex gap-3 justify-end group">
+                <div class="max-w-[80%] flex flex-col items-end">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted tabular-nums">{formatTime(msg.created_at)}</span>
+                    <span class="text-[11px] font-semibold text-blue-600 dark:text-blue-400">You</span>
+                  </div>
+                  <div class="px-3 py-2 rounded-2xl rounded-tr-sm bg-blue-600 text-white shadow-sm whitespace-pre-wrap break-words">{getMessageText(msg.data)}</div>
                 </div>
-                <div class="pl-0 mt-0.5 text-gray-800 dark:text-dark-text whitespace-pre-wrap">{getMessageText(msg.data)}</div>
+                <div class="shrink-0 w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-sm">
+                  <User size={14} />
+                </div>
               </div>
+
             {:else if msg.role === 'assistant'}
-              <div class="py-1.5">
-                <div class="flex items-baseline gap-2">
-                  <span class="text-[11px] font-bold text-green-600 dark:text-green-400 select-none shrink-0">assistant</span>
-                  <span class="text-[10px] text-gray-300 dark:text-dark-text-muted select-none">{formatTime(msg.created_at)}</span>
-                  {#if msg.data.tool_calls}
-                    <span class="text-[10px] text-yellow-600 dark:text-yellow-400">
-                      [{Array.isArray(msg.data.tool_calls) ? msg.data.tool_calls.map((tc: any) => tc.Name || tc.name).join(', ') : 'tools'}]
-                    </span>
+              {@const text = getMessageText(msg.data)}
+              {@const reasoning = getMessageReasoning(msg.data)}
+              {@const toolCalls = getToolCalls(msg.data)}
+              {@const reasoningId = `reason-${msg.id}`}
+              {@const showSource = rawSourceMode[msg.id]}
+              <!-- Assistant bubble -->
+              <div class="flex gap-3 group">
+                <div class="shrink-0 w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-sm">
+                  <Bot size={14} />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{currentAgent?.name || 'Assistant'}</span>
+                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted tabular-nums">{formatTime(msg.created_at)}</span>
+                    {#if text}
+                      <button
+                        type="button"
+                        onclick={() => { rawSourceMode[msg.id] = !rawSourceMode[msg.id]; }}
+                        class="ml-auto flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        title={showSource ? 'Show rendered markdown' : 'Show raw source'}
+                      >
+                        {#if showSource}
+                          <Eye size={11} />
+                          <span>rendered</span>
+                        {:else}
+                          <Code size={11} />
+                          <span>source</span>
+                        {/if}
+                      </button>
+                    {/if}
+                  </div>
+
+                  <!-- Reasoning / thinking (collapsible) -->
+                  {#if reasoning}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div class="mb-1.5 border-l-2 border-purple-300 dark:border-purple-700/60 pl-2 py-1 bg-purple-50/50 dark:bg-purple-950/20 rounded-r">
+                      <div class="flex items-center gap-1 text-[11px] text-purple-700 dark:text-purple-300 cursor-pointer select-none" onclick={() => { expandedTools[reasoningId] = !expandedTools[reasoningId]; }}>
+                        <Brain size={12} />
+                        <span class="font-medium">Reasoning</span>
+                        <span class="ml-auto text-[10px] opacity-60">{expandedTools[reasoningId] ? '▼' : '▶'}</span>
+                      </div>
+                      {#if expandedTools[reasoningId]}
+                        <div class="mt-1 text-[12px] text-purple-900 dark:text-purple-200 whitespace-pre-wrap italic opacity-90">{reasoning}</div>
+                      {/if}
+                    </div>
+                  {/if}
+
+                  <!-- Main text body: rendered markdown OR raw source -->
+                  {#if text}
+                    {#if showSource}
+                      <pre class="px-3 py-2 rounded-2xl rounded-tl-sm bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{text}</pre>
+                    {:else}
+                      <Markdown
+                        source={text}
+                        class="px-3 py-2 rounded-2xl rounded-tl-sm bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-[13px]"
+                      />
+                    {/if}
+                  {/if}
+
+                  <!-- Tool call summary -->
+                  {#if toolCalls.length > 0}
+                    <div class="mt-1.5 space-y-1">
+                      {#each toolCalls as tc (tc.id || tc.name)}
+                        {@const tcId = `tc-${msg.id}-${tc.id || tc.name}`}
+                        <!-- svelte-ignore a11y_click_events_have_key_events -->
+                        <!-- svelte-ignore a11y_no_static_element_interactions -->
+                        <div class="rounded-md border border-yellow-300 dark:border-yellow-700/60 bg-yellow-50/60 dark:bg-yellow-950/20">
+                          <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] text-yellow-800 dark:text-yellow-300 cursor-pointer" onclick={() => { expandedTools[tcId] = !expandedTools[tcId]; }}>
+                            <Wrench size={11} />
+                            <span class="font-mono font-semibold">{tc.name || '(tool)'}</span>
+                            {#if tc.id}<span class="text-[10px] opacity-60 font-mono">{tc.id.slice(0, 10)}</span>{/if}
+                            <span class="ml-auto text-[10px] opacity-60">{expandedTools[tcId] ? '▼' : '▶'}</span>
+                          </div>
+                          {#if expandedTools[tcId] && tc.args}
+                            <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-white dark:bg-dark-base rounded border border-yellow-200 dark:border-yellow-800/40 max-h-64 overflow-y-auto">{tc.args}</pre>
+                          {/if}
+                        </div>
+                      {/each}
+                    </div>
                   {/if}
                 </div>
-                <div class="pl-0 mt-0.5 prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 prose-code:text-[12px]" use:renderMarkdown>
-                  {@html md(getMessageText(msg.data))}
-                </div>
               </div>
+
             {:else if msg.role === 'tool'}
               {@const toolText = getMessageText(msg.data)}
+              {@const pretty = prettyJSON(toolText)}
               {@const toolId = `tool-${msg.id}`}
-              <div class="py-0.5 pl-4 border-l-2 border-gray-200 dark:border-dark-border">
-                <!-- svelte-ignore a11y_click_events_have_key_events -->
-                <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div
-                  class="text-[10px] text-gray-400 dark:text-dark-text-muted cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary"
-                  onclick={() => { expandedTools[toolId] = !expandedTools[toolId]; }}
-                >
-                  tool {#if msg.data.tool_call_id}<span class="text-gray-500">{msg.data.tool_call_id.slice(0, 12)}</span>{/if}
-                  <span class="ml-1">{expandedTools[toolId] ? '▼' : '▶'} {toolText.length > 150 ? `${toolText.length} chars` : ''}</span>
+              <!-- Tool result row -->
+              <div class="flex gap-3 group">
+                <div class="shrink-0 w-7 h-7 rounded-full bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted flex items-center justify-center">
+                  <Terminal size={13} />
                 </div>
-                {#if expandedTools[toolId]}
-                  <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 rounded border border-gray-200 dark:border-dark-border">{toolText}</pre>
-                {:else}
-                  <pre class="text-[11px] text-gray-500 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-0.5 max-h-8 overflow-hidden">{toolText.slice(0, 150)}{toolText.length > 150 ? '...' : ''}</pre>
-                {/if}
+                <div class="flex-1 min-w-0">
+                  <!-- svelte-ignore a11y_click_events_have_key_events -->
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div class="flex items-center gap-2 mb-1 cursor-pointer select-none" onclick={() => { expandedTools[toolId] = !expandedTools[toolId]; }}>
+                    <span class="text-[11px] font-semibold text-gray-600 dark:text-dark-text-secondary">Tool result</span>
+                    {#if msg.data.tool_call_id}
+                      <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{msg.data.tool_call_id.slice(0, 12)}</span>
+                    {/if}
+                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">· {toolText.length} chars{pretty.isJSON ? ' · json' : ''}</span>
+                    <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted">{expandedTools[toolId] ? '▼ collapse' : '▶ expand'}</span>
+                  </div>
+                  {#if expandedTools[toolId]}
+                    <pre class="text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base p-2.5 rounded-md border border-gray-200 dark:border-dark-border max-h-96 overflow-y-auto">{pretty.pretty}</pre>
+                  {:else}
+                    <pre class="text-[11px] font-mono text-gray-500 dark:text-dark-text-muted whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base/50 px-2.5 py-1.5 rounded-md border border-gray-200 dark:border-dark-border/60 line-clamp-2 overflow-hidden">{toolText.slice(0, 240)}{toolText.length > 240 ? '…' : ''}</pre>
+                  {/if}
+                </div>
+              </div>
+
+            {:else if msg.role === 'system'}
+              <!-- System message (hint banner) -->
+              <div class="px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-[12px] text-amber-800 dark:text-amber-300">
+                <div class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">System</div>
+                <div class="whitespace-pre-wrap">{getMessageText(msg.data)}</div>
               </div>
             {/if}
           {/each}
@@ -682,35 +881,42 @@
             </div>
           {/if}
 
-          <!-- Streaming output -->
+          <!-- Live tool events (while streaming) -->
           {#if toolEvents.length > 0}
-            <div class="py-0.5 pl-4 border-l-2 border-yellow-300 dark:border-yellow-600">
-              {#each toolEvents as evt}
-                {#if evt.type === 'call'}
-                  <div class="flex items-center gap-1 text-[11px] text-yellow-700 dark:text-yellow-400">
-                    <Loader2 size={10} class="animate-spin" />
-                    <span>{evt.name}</span>
-                  </div>
-                {:else}
-                  {@const evtResult = evt.result || ''}
-                  {@const evtId = `stream-${evt.id || evt.name}`}
-                  <!-- svelte-ignore a11y_click_events_have_key_events -->
-                  <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <div
-                    class="text-[10px] text-gray-500 dark:text-dark-text-muted cursor-pointer hover:text-gray-700 dark:hover:text-dark-text-secondary"
-                    onclick={() => { expandedTools[evtId] = !expandedTools[evtId]; }}
-                  >
-                    <span class="text-green-600 dark:text-green-400">{evt.name}</span>
-                    {#if expandedTools[evtId]}
-                      <span class="ml-1">▼</span>
-                      <pre class="mt-0.5 font-mono whitespace-pre-wrap break-all max-h-96 overflow-y-auto bg-gray-50 dark:bg-dark-base p-2 rounded border border-gray-200 dark:border-dark-border">{evtResult}</pre>
-                    {:else}
-                      <span class="ml-1">{evtResult.length > 100 ? '▶' : '→'}</span>
-                      <span class="font-mono">{evtResult.slice(0, 150)}{evtResult.length > 150 ? '…' : ''}</span>
-                    {/if}
-                  </div>
-                {/if}
-              {/each}
+            <div class="flex gap-3">
+              <div class="shrink-0 w-7 h-7 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 flex items-center justify-center">
+                <Wrench size={13} />
+              </div>
+              <div class="flex-1 min-w-0 space-y-1">
+                {#each toolEvents as evt}
+                  {#if evt.type === 'call'}
+                    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] rounded-md bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800/40 text-yellow-800 dark:text-yellow-300">
+                      <Loader2 size={11} class="animate-spin" />
+                      <span class="font-mono font-semibold">{evt.name}</span>
+                      <span class="text-[10px] opacity-60">running…</span>
+                    </div>
+                  {:else}
+                    {@const evtResult = evt.result || ''}
+                    {@const evtPretty = prettyJSON(evtResult)}
+                    {@const evtId = `stream-${evt.id || evt.name}`}
+                    <!-- svelte-ignore a11y_click_events_have_key_events -->
+                    <!-- svelte-ignore a11y_no_static_element_interactions -->
+                    <div class="rounded-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated">
+                      <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] cursor-pointer select-none" onclick={() => { expandedTools[evtId] = !expandedTools[evtId]; }}>
+                        <Check size={11} class="text-green-600 dark:text-green-400" />
+                        <span class="font-mono font-semibold text-gray-700 dark:text-dark-text">{evt.name}</span>
+                        <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">· {evtResult.length} chars{evtPretty.isJSON ? ' · json' : ''}</span>
+                        <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted">{expandedTools[evtId] ? '▼' : '▶'}</span>
+                      </div>
+                      {#if expandedTools[evtId]}
+                        <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base rounded border border-gray-200 dark:border-dark-border max-h-80 overflow-y-auto">{evtPretty.pretty}</pre>
+                      {:else if evtResult}
+                        <div class="mx-2 mb-1.5 px-2 py-1 text-[11px] font-mono text-gray-500 dark:text-dark-text-muted truncate">{evtResult.slice(0, 200)}{evtResult.length > 200 ? '…' : ''}</div>
+                      {/if}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
             </div>
           {/if}
 
@@ -749,15 +955,40 @@
             </div>
           {/if}
           {#if streamContent}
-            <div class="py-1.5">
-              <div class="flex items-baseline gap-2">
-                <span class="text-[11px] font-bold text-green-600 dark:text-green-400 select-none">assistant</span>
-                {#if sending}
-                  <Loader2 size={10} class="animate-spin text-gray-400" />
-                {/if}
+            {@const streamShowSource = rawSourceMode['__streaming']}
+            <div class="flex gap-3 group">
+              <div class="shrink-0 w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-sm">
+                <Bot size={14} />
               </div>
-              <div class="pl-0 mt-0.5 prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 prose-code:text-[12px]" use:renderMarkdown>
-                {@html md(streamContent)}
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{currentAgent?.name || 'Assistant'}</span>
+                  {#if sending}
+                    <Loader2 size={11} class="animate-spin text-gray-400" />
+                  {/if}
+                  <button
+                    type="button"
+                    onclick={() => { rawSourceMode['__streaming'] = !rawSourceMode['__streaming']; }}
+                    class="ml-auto flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    title={streamShowSource ? 'Show rendered markdown' : 'Show raw source'}
+                  >
+                    {#if streamShowSource}
+                      <Eye size={11} />
+                      <span>rendered</span>
+                    {:else}
+                      <Code size={11} />
+                      <span>source</span>
+                    {/if}
+                  </button>
+                </div>
+                {#if streamShowSource}
+                  <pre class="px-3 py-2 rounded-2xl rounded-tl-sm bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{streamContent}</pre>
+                {:else}
+                  <Markdown
+                    source={streamContent}
+                    class="px-3 py-2 rounded-2xl rounded-tl-sm bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-[13px]"
+                  />
+                {/if}
               </div>
             </div>
           {/if}

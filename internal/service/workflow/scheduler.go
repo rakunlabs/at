@@ -62,6 +62,9 @@ type Scheduler struct {
 	ragSync               RAGSyncFunc
 	ragPageUpsert         RAGPageUpsertFunc
 	memoryRecall          MemoryRecallFunc
+	connectionLookup      ConnectionLookup
+	workflowByNameLookup  WorkflowByNameLookupFunc
+	workflowExecutor      WorkflowExecutorFunc
 	runRegistrar          RunRegistrar
 
 	cluster *cluster.Cluster
@@ -132,6 +135,26 @@ func (s *Scheduler) SetRAGPageUpsert(f RAGPageUpsertFunc) {
 // mode. Optional — if not set, recall mode falls back to static pass-through.
 func (s *Scheduler) SetMemoryRecall(f MemoryRecallFunc) {
 	s.memoryRecall = f
+}
+
+// SetConnectionLookup sets the callback used by agent_call nodes to resolve
+// a named Connection by ID. Optional — when nil, provider-scoped variable
+// keys inside agent loops resolve only against global variables.
+func (s *Scheduler) SetConnectionLookup(f ConnectionLookup) {
+	s.connectionLookup = f
+}
+
+// SetWorkflowByNameLookup sets the callback used by agent_call nodes to
+// resolve AgentConfig.Workflows by name. Optional — when nil, agents cannot
+// attach workflows directly.
+func (s *Scheduler) SetWorkflowByNameLookup(f WorkflowByNameLookupFunc) {
+	s.workflowByNameLookup = f
+}
+
+// SetWorkflowExecutor sets the callback used by agent_call nodes to dispatch
+// `wf_*` tool calls to the workflow engine.
+func (s *Scheduler) SetWorkflowExecutor(f WorkflowExecutorFunc) {
+	s.workflowExecutor = f
 }
 
 // Start loads all enabled cron triggers from the store and starts the
@@ -431,6 +454,9 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordAudit, s.goalAncestry, versionLookup)
 		engine.SetRAGPageUpsert(s.ragPageUpsert)
 		engine.SetMemoryRecall(s.memoryRecall)
+		engine.SetConnectionLookup(s.connectionLookup)
+		engine.SetWorkflowByNameLookup(s.workflowByNameLookup)
+		engine.SetWorkflowExecutor(s.workflowExecutor)
 
 		// Determine entry node(s) for this trigger.
 		var entryNodeIDs []string

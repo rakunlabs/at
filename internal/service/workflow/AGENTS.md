@@ -34,8 +34,20 @@ Engine.Run(ctx, graph, inputs)
 - `SkillLookup func(nameOrID) (*Skill, error)`
 - `VarLookup func(key) (string, error)` / `VarLister func() (map[string]string, error)`
 - `NodeConfigLookup func(id) (*NodeConfig, error)`
+- `AgentLookup func(ctx, id) (*Agent, error)`
+- `ConnectionLookup func(ctx, id) (*Connection, error)` — multi-instance OAuth/token credential resolution
 - `RunInputs map[string]any` — original trigger inputs
 - Thread-safe error collection and output aggregation
+
+## Named Connections (multi-instance credentials)
+
+Agents can bind named `Connection` rows (see `internal/service/types-connection.go`) by provider. At runtime, `agent-call` nodes wrap `VarLookup`/`VarLister` with `WrapVarLookupWithConnections` / `WrapVarListerWithConnections` (see `connection_resolver.go`) before executing tool handlers. Provider-scoped keys (`<provider>_client_id`, `<provider>_client_secret`, `<provider>_refresh_token`, `<provider>_api_key`) resolve through the cascade:
+
+1. Per-skill connection override (from `SkillRef.Connections`)
+2. Per-agent default binding (from `AgentConfig.Connections`)
+3. Global variable (via the base `VarLookup`)
+
+This lets two agents use two different YouTube accounts while sharing the same skill JS handler code — the handler stays `getVar('youtube_refresh_token')` and the resolver picks the right account.
 
 ## Node Contract
 

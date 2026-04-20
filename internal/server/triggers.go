@@ -634,6 +634,9 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
 	engine.SetRAGPageUpsert(s.ragPageUpsertFunc())
 	engine.SetMemoryRecall(s.memoryRecallFunc())
+	engine.SetConnectionLookup(s.connectionLookupFunc())
+	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
+	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
 
 	// Determine entry node(s) for this trigger.
 	var entryNodeIDs []string

@@ -291,9 +291,28 @@ type Registry struct {
 	// Used by workflow_call nodes to load and execute sub-workflows.
 	WorkflowLookup WorkflowLookup
 
+	// WorkflowByNameLookup resolves a workflow by its unique name.
+	// Used by agent_call nodes to attach workflows by name (AgentConfig.Workflows)
+	// and expose them to the LLM as `wf_<name>` tools.
+	// nil when workflow store is not configured.
+	WorkflowByNameLookup WorkflowByNameLookupFunc
+
+	// WorkflowExecutor runs a workflow synchronously with the given args and
+	// returns the textual result. Used by agent_call to dispatch `wf_*` tool
+	// calls to the server's workflow engine. nil when workflow execution is
+	// not wired.
+	WorkflowExecutor WorkflowExecutorFunc
+
 	// AgentLookup resolves an agent ID to its definition.
 	// Used by agent_call nodes to load pre-configured agent settings.
 	AgentLookup AgentLookup
+
+	// ConnectionLookup resolves a connection ID to its credentials bundle.
+	// Used by agent_call nodes to build a per-tool VarLookup that maps
+	// provider-scoped keys (e.g. "youtube_refresh_token") to the bound
+	// connection's credentials before falling back to global variables.
+	// nil when connection store is not configured.
+	ConnectionLookup ConnectionLookup
 
 	// RAGSearch performs a similarity search across RAG collections.
 	// Used by rag_search nodes to query the knowledge base.
@@ -411,8 +430,19 @@ type NodeConfigLookup func(id string) (*service.NodeConfig, error)
 // Used by workflow_call nodes to load and execute sub-workflows.
 type WorkflowLookup func(ctx context.Context, id string) (*service.Workflow, error)
 
+// WorkflowByNameLookupFunc resolves a workflow by its unique name.
+type WorkflowByNameLookupFunc func(ctx context.Context, name string) (*service.Workflow, error)
+
+// WorkflowExecutorFunc runs a workflow synchronously and returns the stringified result.
+// args typically contains "inputs" (map) and optionally "entry" (string) matching
+// the existing workflow-tool dispatch contract (see builtin-tools-workflow.go).
+type WorkflowExecutorFunc func(ctx context.Context, wf *service.Workflow, args map[string]any) (string, error)
+
 // AgentLookup resolves an agent ID to its definition.
 type AgentLookup func(ctx context.Context, id string) (*service.Agent, error)
+
+// ConnectionLookup resolves a connection ID to its decrypted definition.
+type ConnectionLookup func(ctx context.Context, id string) (*service.Connection, error)
 
 // RAGSearchResult holds a single search hit from the RAG engine.
 type RAGSearchResult struct {
@@ -473,9 +503,31 @@ type ChatSessionLookupFunc func(ctx context.Context, id string) (*service.ChatSe
 // Returns the tool's text result or an error.
 type BuiltinToolDispatcher func(ctx context.Context, name string, args map[string]any) (string, error)
 
+// UsageEvent carries full per-LLM-call attribution for cost/usage tracking.
+// Only AgentID, Model, and Usage are required; the remaining fields are
+// best-effort attribution that callers provide when available.
+type UsageEvent struct {
+	AgentID        string
+	Model          string
+	Provider       string
+	OrganizationID string
+	TaskID         string
+	ProjectID      string
+	GoalID         string
+	RunID          string
+	BillingCode    string
+	Usage          service.Usage
+	LatencyMs      int64
+	// Status is "ok" on success, "error" on failure. Empty defaults to "ok".
+	Status       string
+	ErrorCode    string
+	ErrorMessage string
+}
+
 // RecordUsageFunc records token usage for an agent after each LLM call.
-// agentID is the agent performing the call, model is the model used.
-type RecordUsageFunc func(ctx context.Context, agentID, model string, usage service.Usage) error
+// The full event carries latency, status, and attribution so callers can
+// populate the usage dashboard's cost_events stream.
+type RecordUsageFunc func(ctx context.Context, event UsageEvent) error
 
 // CheckBudgetFunc checks if an agent has exceeded its spending budget.
 // Returns a non-nil error if the agent is over budget.

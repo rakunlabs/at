@@ -216,9 +216,13 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Call the provider (non-streaming)
+	callStart := time.Now()
 	resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
+	latencyMs := time.Since(callStart).Milliseconds()
 	if err != nil {
 		slog.Error("provider chat failed", "provider", providerKey, "error", err)
+		// Record the failed call for the usage dashboard.
+		s.recordUsageAsync(r.Context(), auth, req.Model, service.Usage{}, latencyMs, "error", classifyHTTPError(err), err.Error())
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("provider error: %v", err),
@@ -241,7 +245,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
 
 	// Fire-and-forget usage recording for DB tokens.
-	s.recordUsageAsync(r.Context(), auth, req.Model, resp.Usage)
+	s.recordUsageAsync(r.Context(), auth, req.Model, resp.Usage, latencyMs, "ok", "", "")
 
 	httpResponseJSON(w, chatResp, http.StatusOK)
 }
@@ -575,8 +579,12 @@ func (s *Server) handleStreamingChat(
 	if sp, ok := provider.(service.LLMStreamProvider); ok {
 		slog.Debug("streaming via provider", "provider", providerKey, "model", actualModel)
 
+		streamStart := time.Now()
 		chunks, headers, err := sp.ChatStream(r.Context(), actualModel, messages, tools, opts)
 		if err != nil {
+			// Record the failed call for the usage dashboard.
+			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{},
+				time.Since(streamStart).Milliseconds(), "error", classifyHTTPError(err), err.Error())
 			// Can't send JSON error after SSE headers are set in some cases,
 			// but we haven't written anything yet, so we can still respond.
 			slog.Error("provider stream failed", "provider", providerKey, "error", err)
@@ -709,14 +717,17 @@ func (s *Server) handleStreamingChat(
 				PromptTokens:     streamUsage.PromptTokens,
 				CompletionTokens: streamUsage.CompletionTokens,
 				TotalTokens:      streamUsage.TotalTokens,
-			})
+			}, time.Since(streamStart).Milliseconds(), "ok", "", "")
 		}
 	} else {
 		// Fallback: fake streaming via non-streaming Chat call.
 		slog.Debug("fake streaming (provider doesn't support streaming)", "provider", providerKey, "model", actualModel)
 
+		callStart := time.Now()
 		resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
+		fakeLatencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
+			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{}, fakeLatencyMs, "error", classifyHTTPError(err), err.Error())
 			slog.Error("provider chat failed", "provider", providerKey, "error", err)
 			writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("provider error: %v", err))
 			return
@@ -823,7 +834,7 @@ func (s *Server) handleStreamingChat(
 		}
 
 		// Fire-and-forget usage recording for DB tokens (fake streaming).
-		s.recordUsageAsync(r.Context(), auth, fullModel, resp.Usage)
+		s.recordUsageAsync(r.Context(), auth, fullModel, resp.Usage, fakeLatencyMs, "ok", "", "")
 	}
 
 	// End the stream
@@ -962,21 +973,89 @@ func (s *Server) shouldResetUsage(token *service.APIToken) bool {
 
 // recordUsageAsync fires a goroutine to record token usage.
 // Failures are logged but do not affect the request.
-func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullModel string, usage service.Usage) {
+//
+// It writes to two places when possible:
+//  1. token_usage — cumulative per-(token, model) counters (legacy; rate limiting)
+//  2. cost_events — per-call rows with latency/status (usage dashboard)
+//
+// latencyMs, status, errCode, and errMsg are best-effort — callers pass zero /
+// empty when they don't have the info (the summary response usually does).
+func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullModel string, usage service.Usage, latencyMs int64, status, errCode, errMsg string) {
 	if auth == nil || auth.token == nil || auth.token.ID == "" {
 		return // config token or unrestricted — no tracking
 	}
-	if s.tokenUsageStore == nil {
+	tokenID := auth.token.ID
+
+	// Default successful status if caller left it empty.
+	if status == "" {
+		status = "ok"
+	}
+	// Skip entirely if we have nothing to record.
+	hasUsage := usage.TotalTokens > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0
+	if !hasUsage && status == "ok" {
 		return
 	}
-	if usage.TotalTokens == 0 && usage.PromptTokens == 0 && usage.CompletionTokens == 0 {
-		return // no usage to record
+
+	// 1. token_usage: cumulative counters.
+	if s.tokenUsageStore != nil && hasUsage {
+		go func() {
+			if err := s.tokenUsageStore.RecordUsage(context.WithoutCancel(ctx), tokenID, fullModel, usage); err != nil {
+				slog.Error("failed to record token usage", "token_id", tokenID, "model", fullModel, "error", err)
+			}
+		}()
 	}
 
-	tokenID := auth.token.ID
-	go func() {
-		if err := s.tokenUsageStore.RecordUsage(context.WithoutCancel(ctx), tokenID, fullModel, usage); err != nil {
-			slog.Error("failed to record token usage", "token_id", tokenID, "model", fullModel, "error", err)
+	// 2. cost_events: per-call row with latency/status for the usage dashboard.
+	if s.costEventStore != nil {
+		providerKey, actualModel := splitProviderModel(fullModel)
+
+		// Best-effort cost estimation via model_pricing.
+		var costCents float64
+		if s.agentBudgetStore != nil && hasUsage {
+			if pricingList, err := s.agentBudgetStore.ListModelPricing(context.WithoutCancel(ctx)); err == nil {
+				for _, p := range pricingList {
+					if p.Model == actualModel || p.Model == fullModel {
+						dollars := (float64(usage.PromptTokens) * p.PromptPricePer1M / 1_000_000) +
+							(float64(usage.CompletionTokens) * p.CompletionPricePer1M / 1_000_000)
+						costCents = dollars * 100
+						break
+					}
+				}
+			}
 		}
-	}()
+
+		// There is no billing_code on APIToken today; use the token Name as a
+		// human-readable attribution tag for gateway-originated calls.
+		billingCode := ""
+		if auth.token != nil && auth.token.Name != "" {
+			billingCode = "token:" + auth.token.Name
+		}
+
+		go func() {
+			if err := s.costEventStore.RecordCostEvent(context.WithoutCancel(ctx), service.CostEvent{
+				AgentID:      "gateway:" + tokenID, // gateway calls have no agent; tag with token ID
+				Provider:     providerKey,
+				Model:        actualModel,
+				BillingCode:  billingCode,
+				InputTokens:  int64(usage.PromptTokens),
+				OutputTokens: int64(usage.CompletionTokens),
+				CostCents:    costCents,
+				LatencyMs:    latencyMs,
+				Status:       status,
+				ErrorCode:    errCode,
+				ErrorMessage: errMsg,
+			}); err != nil {
+				slog.Error("failed to record cost event", "token_id", tokenID, "model", fullModel, "error", err)
+			}
+		}()
+	}
+}
+
+// splitProviderModel splits a "provider/model" string. If no slash is present,
+// returns ("", fullModel).
+func splitProviderModel(fullModel string) (string, string) {
+	if i := strings.Index(fullModel, "/"); i > 0 {
+		return fullModel[:i], fullModel[i+1:]
+	}
+	return "", fullModel
 }

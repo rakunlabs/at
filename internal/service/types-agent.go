@@ -2,10 +2,89 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/rakunlabs/query"
 )
+
+// SkillRef references a skill attached to an agent. It behaves like a plain
+// string (the skill's name or ID) for backward compatibility but can also
+// carry a Connections map that overrides the agent's default connection
+// bindings for the duration of this skill's tool handlers.
+//
+// JSON encoding:
+//   - Simple reference:    "youtube_publish"
+//   - With overrides:      {"id": "youtube_publish", "connections": {"youtube": "conn_01HV..."}}
+//
+// Both shapes round-trip cleanly: a bare string unmarshals into {ID, nil},
+// and a SkillRef with no Connections marshals back into a bare string.
+type SkillRef struct {
+	ID          string            `json:"id"`
+	Connections map[string]string `json:"connections,omitempty"` // provider -> connection_id
+}
+
+// MarshalJSON emits a bare string when no connection overrides are set, so
+// existing agent configs and downstream consumers that expect a []string-ish
+// shape keep seeing the old format.
+func (r SkillRef) MarshalJSON() ([]byte, error) {
+	if len(r.Connections) == 0 {
+		return json.Marshal(r.ID)
+	}
+	type alias SkillRef
+	return json.Marshal(alias(r))
+}
+
+// UnmarshalJSON accepts either a bare string or a {id, connections} object.
+func (r *SkillRef) UnmarshalJSON(data []byte) error {
+	if len(data) == 0 || string(data) == "null" {
+		*r = SkillRef{}
+		return nil
+	}
+	if data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*r = SkillRef{ID: s}
+		return nil
+	}
+	type alias SkillRef
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return fmt.Errorf("skill ref: %w", err)
+	}
+	*r = SkillRef(a)
+	return nil
+}
+
+// SkillRefsFromStrings wraps a list of skill names/IDs as SkillRefs with no
+// connection overrides. Used by code paths that still deal with plain strings.
+func SkillRefsFromStrings(ss []string) []SkillRef {
+	if ss == nil {
+		return nil
+	}
+	out := make([]SkillRef, len(ss))
+	for i, s := range ss {
+		out[i] = SkillRef{ID: s}
+	}
+	return out
+}
+
+// StringsFromSkillRefs returns the bare skill identifiers from a slice of
+// SkillRefs, discarding any connection overrides. Used by export paths and
+// by code that only needs to look up the skill definition.
+func StringsFromSkillRefs(refs []SkillRef) []string {
+	if refs == nil {
+		return nil
+	}
+	out := make([]string, len(refs))
+	for i, r := range refs {
+		out[i] = r.ID
+	}
+	return out
+}
 
 // ─── Agent Registry ───
 
@@ -18,18 +97,31 @@ const (
 
 // AgentConfig holds the configuration fields for an agent, stored as JSON in the database.
 type AgentConfig struct {
-	Description               string   `json:"description,omitempty"`
-	Provider                  string   `json:"provider"`                              // Provider key
-	Model                     string   `json:"model,omitempty"`                       // Model identifier
-	SystemPrompt              string   `json:"system_prompt,omitempty"`               // System prompt
-	Skills                    []string `json:"skills,omitempty"`                      // List of skill IDs/names
-	MCPs                      []string `json:"mcp_urls,omitempty"`                    // List of MCP server URLs (legacy)
-	MCPSets                   []string `json:"mcp_sets,omitempty"`                    // List of MCP Set names (internal MCPs)
+	Description  string     `json:"description,omitempty"`
+	Provider     string     `json:"provider"`                // Provider key
+	Model        string     `json:"model,omitempty"`         // Model identifier
+	SystemPrompt string     `json:"system_prompt,omitempty"` // System prompt
+	Skills       []SkillRef `json:"skills,omitempty"`        // Skill attachments (bare string or {id, connections})
+	MCPs         []string   `json:"mcp_urls,omitempty"`      // List of MCP server URLs (legacy)
+	MCPSets      []string   `json:"mcp_sets,omitempty"`      // List of MCP Set names (internal MCPs)
+	// Workflows lists workflow NAMES exposed to the agent as callable tools.
+	// Each workflow becomes one tool named `workflow_<name>` in the agentic
+	// loop. Agents can also reach workflows indirectly via MCP sets; this
+	// field is the explicit, portable attachment — export/import move agents
+	// and their workflows together without relying on MCP-set indirection.
+	Workflows                 []string `json:"workflows,omitempty"`
 	BuiltinTools              []string `json:"builtin_tools,omitempty"`               // Enabled builtin tool names
 	MaxIterations             int      `json:"max_iterations"`                        // Max iterations for the loop
 	ToolTimeout               int      `json:"tool_timeout"`                          // Timeout in seconds
 	ConfirmationRequiredTools []string `json:"confirmation_required_tools,omitempty"` // Tools that require human confirmation before execution
 	AvatarSeed                string   `json:"avatar_seed,omitempty"`                 // Seed for deterministic avatar generation (defaults to agent name when empty)
+
+	// Connections maps a provider name (e.g. "youtube", "google") to a
+	// connection ID. Tool handlers that request variables bound to a provider
+	// (e.g. getVar("youtube_refresh_token")) resolve through this map before
+	// falling back to global variables. Per-skill overrides live on
+	// SkillRef.Connections and take priority over this map.
+	Connections map[string]string `json:"connections,omitempty"`
 
 	// NOTE: Organizational fields (role, title, parent_agent_id, organization_id,
 	// status, delegation_rules, heartbeat_schedule) live on the OrganizationAgent

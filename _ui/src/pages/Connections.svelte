@@ -1,39 +1,78 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listConnections, disconnectProvider, getOAuthStartURL, saveVariable, getManualAuthURL, exchangeCode, type Connection, type ConnectionVar } from '@/lib/api/connections';
-  import { Plug, Unplug, RefreshCw, Settings, CheckCircle2, XCircle, AlertCircle, Eye, EyeOff, ChevronDown, ChevronUp, ExternalLink, ClipboardPaste } from 'lucide-svelte';
+  import {
+    listConnections,
+    createConnection,
+    updateConnection,
+    deleteConnection,
+    importConnectionsFromVariables,
+    getOAuthStartURLForConnection,
+    getManualAuthURL,
+    exchangeCode,
+    type Connection,
+  } from '@/lib/api/connections';
+  import {
+    Plug,
+    Unplug,
+    RefreshCw,
+    CheckCircle2,
+    XCircle,
+    AlertCircle,
+    Plus,
+    Pencil,
+    Trash2,
+    Download,
+    ExternalLink,
+    ClipboardPaste,
+    Eye,
+    EyeOff,
+    Users,
+    X,
+  } from 'lucide-svelte';
 
   storeNavbar.title = 'Connections';
 
-  // --- State ---
+  // ─── Provider catalog ───
+  // Providers known to support OAuth. Other providers shown in the UI are
+  // inferred from the live list of connections.
+  const OAUTH_PROVIDERS: Record<string, { name: string; description: string }> = {
+    youtube: { name: 'YouTube', description: 'Upload and publish videos to YouTube' },
+    google: { name: 'Google', description: 'Access Gmail and Google Calendar' },
+  };
+
+  // ─── State ───
   let connections = $state<Connection[]>([]);
   let loading = $state(true);
   let saving = $state(false);
 
-  // Inline form state: provider -> { varKey -> value }
-  let formValues = $state<Record<string, Record<string, string>>>({});
-  let showPassword = $state<Record<string, boolean>>({});
-  let expandedSetup = $state<Record<string, boolean>>({});
+  // Modal state: either creating a new connection or editing an existing one.
+  type EditorMode =
+    | { kind: 'create'; provider: string }
+    | { kind: 'edit'; connection: Connection };
+  let editor = $state<EditorMode | null>(null);
 
-  // Manual OAuth flow state
-  let oauthStep = $state<Record<string, 'credentials' | 'authorize' | 'paste-code'>>({});
+  // Form fields for the editor modal.
+  let formName = $state('');
+  let formDescription = $state('');
+  let formClientID = $state('');
+  let formClientSecret = $state('');
+  let formRefreshToken = $state('');
+  let formAPIKey = $state('');
+  let showSecrets = $state(false);
+
+  // Manual OAuth flow state (per connection ID).
+  type OAuthStep = 'authorize' | 'paste-code';
+  let oauthStep = $state<Record<string, OAuthStep>>({});
   let oauthAuthURL = $state<Record<string, string>>({});
   let oauthRedirectURI = $state<Record<string, string>>({});
   let oauthCode = $state<Record<string, string>>({});
-  let showManualFlow = $state<Record<string, boolean>>({});
 
-  // --- Load ---
+  // ─── Load ───
   async function load() {
     loading = true;
     try {
       connections = await listConnections();
-      // Auto-expand setup for unconfigured OAuth connections.
-      for (const conn of connections) {
-        if (conn.type === 'oauth' && !conn.setup_complete && !conn.connected) {
-          expandedSetup[conn.provider] = true;
-        }
-      }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load connections', 'alert');
     } finally {
@@ -43,78 +82,154 @@
 
   load();
 
-  // --- Get/set form value ---
-  function getFormValue(provider: string, key: string): string {
-    return formValues[provider]?.[key] ?? '';
-  }
-
-  function setFormValue(provider: string, key: string, value: string) {
-    if (!formValues[provider]) formValues[provider] = {};
-    formValues[provider][key] = value;
-  }
-
-  // --- Save credentials and start OAuth ---
-  async function saveCredentialsAndStartAuth(conn: Connection) {
-    if (!conn.required_variables) return;
-
-    // Validate all fields have values (skip already-set ones).
-    for (const v of conn.required_variables) {
-      if (!v.set && !getFormValue(conn.provider, v.key)) {
-        addToast(`Please fill in ${formatVarLabel(v.key)}`, 'warn');
-        return;
-      }
+  // ─── Derived: group by provider ───
+  const byProvider = $derived(() => {
+    const map = new Map<string, Connection[]>();
+    for (const c of connections) {
+      const arr = map.get(c.provider) ?? [];
+      arr.push(c);
+      map.set(c.provider, arr);
     }
+    // Ensure all OAuth providers are represented so empty providers still
+    // render an "Add account" card.
+    for (const p of Object.keys(OAUTH_PROVIDERS)) {
+      if (!map.has(p)) map.set(p, []);
+    }
+    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+  });
 
+  function providerLabel(provider: string): string {
+    return OAUTH_PROVIDERS[provider]?.name ?? provider;
+  }
+
+  function providerDescription(provider: string): string {
+    return OAUTH_PROVIDERS[provider]?.description ?? '';
+  }
+
+  function isOAuthProvider(provider: string): boolean {
+    return provider in OAUTH_PROVIDERS;
+  }
+
+  // ─── Editor modal ───
+  function openCreate(provider: string) {
+    editor = { kind: 'create', provider };
+    formName = '';
+    formDescription = '';
+    formClientID = '';
+    formClientSecret = '';
+    formRefreshToken = '';
+    formAPIKey = '';
+    showSecrets = false;
+  }
+
+  function openEdit(c: Connection) {
+    editor = { kind: 'edit', connection: c };
+    formName = c.name;
+    formDescription = c.description ?? '';
+    formClientID = c.credentials.client_id ?? '';
+    formClientSecret = '';
+    formRefreshToken = '';
+    formAPIKey = '';
+    showSecrets = false;
+  }
+
+  function closeEditor() {
+    editor = null;
+  }
+
+  async function saveEditor() {
+    if (!editor) return;
+    const provider = editor.kind === 'create' ? editor.provider : editor.connection.provider;
+    if (!formName.trim()) {
+      addToast('Name is required', 'warn');
+      return;
+    }
     saving = true;
     try {
-      // Save each variable that has a new value.
-      for (const v of conn.required_variables) {
-        const newValue = getFormValue(conn.provider, v.key);
-        if (newValue) {
-          await saveVariable({
-            key: v.key,
-            value: newValue,
-            description: v.description,
-            secret: v.secret,
-          });
-        }
-      }
+      const credentials: Record<string, string> = {};
+      if (formClientID.trim()) credentials.client_id = formClientID.trim();
+      if (formClientSecret.trim()) credentials.client_secret = formClientSecret.trim();
+      if (formRefreshToken.trim()) credentials.refresh_token = formRefreshToken.trim();
+      if (formAPIKey.trim()) credentials.api_key = formAPIKey.trim();
 
-      // Try popup OAuth first.
-      startPopupOAuth(conn.provider);
+      if (editor.kind === 'create') {
+        await createConnection({
+          provider,
+          name: formName.trim(),
+          description: formDescription.trim(),
+          credentials,
+        });
+        addToast(`${providerLabel(provider)} account "${formName.trim()}" created`, 'info');
+      } else {
+        await updateConnection(editor.connection.id, {
+          provider,
+          name: formName.trim(),
+          description: formDescription.trim(),
+          credentials,
+        });
+        addToast(`${providerLabel(provider)} account "${formName.trim()}" updated`, 'info');
+      }
+      closeEditor();
+      await load();
     } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to save credentials', 'alert');
+      addToast(e?.response?.data?.message || 'Failed to save connection', 'alert');
     } finally {
       saving = false;
     }
   }
 
-  // --- Popup OAuth flow (primary) ---
-  function startPopupOAuth(provider: string) {
-    const url = getOAuthStartURL(provider);
+  // ─── Delete ───
+  async function remove(c: Connection) {
+    if (!confirm(`Delete connection "${c.name}"?`)) return;
+    try {
+      const result = await deleteConnection(c.id);
+      if (result?.error && result.used_by_agents?.length) {
+        const names = result.used_by_agents.map((a) => a.name).join(', ');
+        if (!confirm(`This connection is used by ${result.used_by_agents.length} agent(s): ${names}\n\nForce-delete and detach from all agents?`)) {
+          return;
+        }
+        const forceResult = await deleteConnection(c.id, true);
+        if (forceResult?.status === 'deleted') {
+          addToast(`Deleted. Detached from ${forceResult.detached_from_agents ?? 0} agent(s).`, 'info');
+          await load();
+        } else {
+          addToast(forceResult?.error || 'Force-delete failed', 'alert');
+        }
+        return;
+      }
+      addToast(`Connection "${c.name}" deleted`, 'info');
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to delete connection', 'alert');
+    }
+  }
+
+  // ─── OAuth: popup flow ───
+  function startPopupOAuth(c: Connection) {
+    const url = getOAuthStartURLForConnection(c.id, c.provider);
     const w = 500;
     const h = 650;
     const left = window.screenX + (window.outerWidth - w) / 2;
     const top = window.screenY + (window.outerHeight - h) / 2;
-    const popup = window.open(url, 'oauth-connect', `width=${w},height=${h},left=${left},top=${top},toolbar=yes,menubar=yes,scrollbars=yes,resizable=yes`);
+    const popup = window.open(
+      url,
+      'oauth-connect',
+      `width=${w},height=${h},left=${left},top=${top},toolbar=yes,menubar=yes,scrollbars=yes,resizable=yes`,
+    );
 
-    // Listen for the OAuth result from the popup.
     function handleMessage(event: MessageEvent) {
       if (event.data?.type === 'oauth-result') {
         window.removeEventListener('message', handleMessage);
         if (event.data.status === 'success') {
-          addToast('Connected successfully!', 'info');
-          expandedSetup[provider] = false;
+          addToast(`${c.name} connected successfully!`, 'info');
           load();
         } else {
-          addToast('Connection failed. Try the manual method below.', 'alert');
-          showManualFlow[provider] = true;
+          addToast('Connection failed. Try the manual method.', 'alert');
         }
       }
     }
     window.addEventListener('message', handleMessage);
 
-    // Poll for popup close.
     const pollInterval = setInterval(() => {
       if (popup && popup.closed) {
         clearInterval(pollInterval);
@@ -122,43 +237,33 @@
         setTimeout(() => load(), 1000);
       }
     }, 500);
-
-    // Show manual fallback link after a delay in case the popup doesn't work.
-    setTimeout(() => {
-      showManualFlow[provider] = true;
-    }, 3000);
   }
 
-  // --- Manual OAuth flow (fallback) ---
-  async function startManualOAuth(provider: string) {
-    expandedSetup[provider] = true;
+  // ─── OAuth: manual paste-code flow ───
+  async function startManualOAuth(c: Connection) {
     try {
-      const result = await getManualAuthURL(provider);
-      oauthAuthURL[provider] = result.url;
-      oauthRedirectURI[provider] = result.redirect_uri;
-      oauthCode[provider] = '';
-      oauthStep[provider] = 'authorize';
+      const result = await getManualAuthURL(c.provider, c.id);
+      oauthAuthURL[c.id] = result.url;
+      oauthRedirectURI[c.id] = result.redirect_uri;
+      oauthCode[c.id] = '';
+      oauthStep[c.id] = 'authorize';
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to get auth URL', 'alert');
     }
   }
 
-  async function submitOAuthCode(provider: string) {
-    const code = oauthCode[provider]?.trim();
+  async function submitOAuthCode(c: Connection) {
+    const code = oauthCode[c.id]?.trim();
     if (!code) {
       addToast('Please paste the authorization code', 'warn');
       return;
     }
-
     saving = true;
     try {
-      const result = await exchangeCode(provider, code, oauthRedirectURI[provider]);
-      addToast(result.message || 'Connected successfully!', 'info');
-      oauthStep[provider] = 'credentials';
-      oauthCode[provider] = '';
-      formValues[provider] = {};
-      expandedSetup[provider] = false;
-      showManualFlow[provider] = false;
+      const result = await exchangeCode(c.provider, code, oauthRedirectURI[c.id], c.id);
+      addToast(result.message || `${c.name} connected!`, 'info');
+      oauthCode[c.id] = '';
+      delete oauthStep[c.id];
       await load();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to exchange code', 'alert');
@@ -167,32 +272,39 @@
     }
   }
 
-  // --- Disconnect ---
-  async function disconnect(provider: string, name: string) {
-    if (!confirm(`Disconnect ${name}? This will remove the stored credentials.`)) return;
+  function cancelManualOAuth(c: Connection) {
+    delete oauthStep[c.id];
+    delete oauthAuthURL[c.id];
+    delete oauthRedirectURI[c.id];
+    delete oauthCode[c.id];
+  }
+
+  // ─── Import ───
+  async function runImport() {
     try {
-      await disconnectProvider(provider);
-      addToast(`${name} disconnected`, 'info');
-      load();
+      const result = await importConnectionsFromVariables();
+      const created = result.created?.length ?? 0;
+      const skipped = result.skipped?.length ?? 0;
+      if (created > 0) {
+        addToast(`Imported ${created} connection${created === 1 ? '' : 's'} from existing variables`, 'info');
+      } else if (skipped > 0) {
+        addToast('Nothing new to import', 'warn');
+      } else {
+        addToast('No existing OAuth variables found', 'warn');
+      }
+      await load();
     } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to disconnect', 'alert');
+      addToast(e?.response?.data?.message || 'Import failed', 'alert');
     }
   }
 
-  // --- Helpers ---
-  const oauthConnections = $derived(connections.filter(c => c.type === 'oauth'));
-  const tokenConnections = $derived(connections.filter(c => c.type === 'token'));
-
-  function formatVarLabel(key: string): string {
-    // youtube_client_id -> Client ID, google_client_secret -> Client Secret
-    const parts = key.split('_');
-    // Remove the provider prefix (first 1-2 segments).
-    const meaningful = parts.slice(parts.indexOf('client') >= 0 ? parts.indexOf('client') : 1);
-    return meaningful.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  // ─── Status helpers ───
+  function isConnected(c: Connection): boolean {
+    return !!c.credentials.refresh_token_set;
   }
 
-  function toggleSetup(provider: string) {
-    expandedSetup[provider] = !expandedSetup[provider];
+  function isSetupComplete(c: Connection): boolean {
+    return !!c.credentials.client_id && !!c.credentials.client_secret_set;
   }
 </script>
 
@@ -201,427 +313,364 @@
   <div class="flex items-center justify-between mb-6">
     <div>
       <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Connections</h1>
-      <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">Manage external service connections and credentials</p>
+      <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">
+        Named external-service accounts. Multiple accounts per provider are supported — agents reference them by ID.
+      </p>
     </div>
-    <button
-      onclick={() => load()}
-      class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
-    >
-      <RefreshCw size={14} />
-      Refresh
-    </button>
+    <div class="flex items-center gap-2">
+      <button
+        onclick={runImport}
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+        title="Import from existing global variables (youtube_client_id, etc.)"
+      >
+        <Download size={14} />
+        Import from variables
+      </button>
+      <button
+        onclick={() => load()}
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+      >
+        <RefreshCw size={14} />
+        Refresh
+      </button>
+    </div>
   </div>
 
   {#if loading}
-    <div class="text-sm text-gray-500 dark:text-dark-text-muted p-8 text-center">Loading connections...</div>
+    <div class="text-sm text-gray-500 dark:text-dark-text-muted p-8 text-center">Loading connections…</div>
   {:else}
-    <!-- OAuth Connections -->
-    {#if oauthConnections.length > 0}
-      <div class="mb-6">
-        <h2 class="text-xs font-medium text-gray-400 dark:text-dark-text-secondary tracking-wider uppercase mb-3">OAuth Connections</h2>
-        <div class="space-y-3">
-          {#each oauthConnections as conn}
-            <div class="border border-gray-200 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface transition-colors">
-              <!-- Header row -->
-              <div class="flex items-start justify-between p-4">
-                <div class="flex items-start gap-3">
-                  <div class={[
-                    "mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center",
-                    conn.connected
-                      ? "bg-green-50 dark:bg-green-900/20"
-                      : "bg-gray-50 dark:bg-dark-elevated"
-                  ]}>
-                    {#if conn.connected}
-                      <CheckCircle2 size={18} class="text-green-600 dark:text-green-400" />
-                    {:else}
-                      <XCircle size={18} class="text-gray-400 dark:text-dark-text-muted" />
+    {#each byProvider() as [provider, items] (provider)}
+      <section class="mb-6">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">
+              {providerLabel(provider)}
+            </h2>
+            {#if providerDescription(provider)}
+              <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">
+                {providerDescription(provider)}
+              </p>
+            {/if}
+          </div>
+          <button
+            onclick={() => openCreate(provider)}
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
+          >
+            <Plus size={12} />
+            Add {providerLabel(provider)} account
+          </button>
+        </div>
+
+        {#if items.length === 0}
+          <div class="text-xs text-gray-500 dark:text-dark-text-muted italic px-3 py-4 border border-dashed border-gray-200 dark:border-dark-border rounded">
+            No {providerLabel(provider)} accounts yet. Click "Add" above to create one.
+          </div>
+        {:else}
+          <div class="space-y-2">
+            {#each items as c (c.id)}
+              <div class="border border-gray-200 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface">
+                <div class="flex items-start justify-between p-3">
+                  <div class="flex items-start gap-3 min-w-0">
+                    <div class={[
+                      'mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
+                      isConnected(c)
+                        ? 'bg-green-50 dark:bg-green-900/20'
+                        : 'bg-gray-50 dark:bg-dark-elevated',
+                    ]}>
+                      {#if isConnected(c)}
+                        <CheckCircle2 size={18} class="text-green-600 dark:text-green-400" />
+                      {:else}
+                        <XCircle size={18} class="text-gray-400 dark:text-dark-text-muted" />
+                      {/if}
+                    </div>
+                    <div class="min-w-0">
+                      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text truncate">{c.name}</h3>
+                      {#if c.account_label}
+                        <p class="text-xs text-gray-600 dark:text-dark-text-secondary mt-0.5 truncate">
+                          {c.account_label}
+                        </p>
+                      {/if}
+                      {#if c.description}
+                        <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{c.description}</p>
+                      {/if}
+                      <div class="mt-2 flex flex-wrap items-center gap-2">
+                        {#if isConnected(c)}
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-full">
+                            <CheckCircle2 size={10} />
+                            Connected
+                          </span>
+                        {:else if isSetupComplete(c)}
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-full">
+                            <AlertCircle size={10} />
+                            Ready to connect
+                          </span>
+                        {:else}
+                          <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted rounded-full">
+                            <XCircle size={10} />
+                            Not configured
+                          </span>
+                        {/if}
+                        {#if c.used_by_agents && c.used_by_agents.length > 0}
+                          <span
+                            class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 rounded-full"
+                            title={c.used_by_agents.map((a) => a.name).join(', ')}
+                          >
+                            <Users size={10} />
+                            {c.used_by_agents.length} agent{c.used_by_agents.length === 1 ? '' : 's'}
+                          </span>
+                        {/if}
+                      </div>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1 shrink-0">
+                    {#if isOAuthProvider(provider) && isSetupComplete(c) && !isConnected(c)}
+                      <button
+                        onclick={() => startPopupOAuth(c)}
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
+                      >
+                        <Plug size={12} />
+                        Connect
+                      </button>
+                    {/if}
+                    {#if isOAuthProvider(provider) && isConnected(c)}
+                      <button
+                        onclick={() => startPopupOAuth(c)}
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+                        title="Re-authorize"
+                      >
+                        <RefreshCw size={12} />
+                      </button>
+                    {/if}
+                    <button
+                      onclick={() => openEdit(c)}
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+                      title="Edit"
+                    >
+                      <Pencil size={12} />
+                    </button>
+                    <button
+                      onclick={() => remove(c)}
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                      title="Delete"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Manual OAuth flow panel -->
+                {#if isOAuthProvider(provider) && oauthStep[c.id]}
+                  <div class="border-t border-gray-100 dark:border-dark-border p-3 bg-gray-50/50 dark:bg-dark-base/50 rounded-b-lg">
+                    {#if oauthStep[c.id] === 'authorize'}
+                      <div class="space-y-2">
+                        <p class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">
+                          Open the link below, sign in, and authorize. Then paste the code here.
+                        </p>
+                        <div class="flex items-center gap-2">
+                          <a
+                            href={oauthAuthURL[c.id]}
+                            target="_blank"
+                            rel="noopener"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
+                          >
+                            <ExternalLink size={12} />
+                            Open authorization
+                          </a>
+                          <button
+                            onclick={() => (oauthStep[c.id] = 'paste-code')}
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+                          >
+                            <ClipboardPaste size={12} />
+                            I have the code
+                          </button>
+                          <button
+                            onclick={() => cancelManualOAuth(c)}
+                            class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    {:else if oauthStep[c.id] === 'paste-code'}
+                      <div class="space-y-2">
+                        <p class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Paste the authorization code:</p>
+                        <div class="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={oauthCode[c.id] ?? ''}
+                            oninput={(e) => (oauthCode[c.id] = (e.target as HTMLInputElement).value)}
+                            placeholder="Paste code here"
+                            class="flex-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+                          />
+                          <button
+                            onclick={() => submitOAuthCode(c)}
+                            disabled={saving}
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
+                          >
+                            <Plug size={12} />
+                            {saving ? 'Connecting…' : 'Connect'}
+                          </button>
+                          <button
+                            onclick={() => cancelManualOAuth(c)}
+                            class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
                     {/if}
                   </div>
-                  <div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{conn.name}</h3>
-                    <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{conn.description}</p>
-                    <div class="mt-2">
-                      {#if conn.connected}
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-full">
-                          <CheckCircle2 size={10} />
-                          Connected
-                        </span>
-                      {:else if conn.setup_complete}
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-full">
-                          <AlertCircle size={10} />
-                          Ready to connect
-                        </span>
-                      {:else}
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted rounded-full">
-                          <XCircle size={10} />
-                          Not configured
-                        </span>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-                <div class="flex items-center gap-2">
-                  {#if conn.connected}
+                {:else if isOAuthProvider(provider) && isSetupComplete(c)}
+                  <div class="border-t border-gray-100 dark:border-dark-border px-3 py-2">
                     <button
-                      onclick={() => disconnect(conn.provider, conn.name)}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
-                    >
-                      <Unplug size={12} />
-                      Disconnect
-                    </button>
-                  {:else if conn.setup_complete}
-                    <button
-                      onclick={() => startPopupOAuth(conn.provider)}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
-                    >
-                      <Plug size={12} />
-                      Connect {conn.name}
-                    </button>
-                  {:else}
-                    <button
-                      onclick={() => toggleSetup(conn.provider)}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
-                    >
-                      <Settings size={12} />
-                      Set up
-                      {#if expandedSetup[conn.provider]}
-                        <ChevronUp size={12} />
-                      {:else}
-                        <ChevronDown size={12} />
-                      {/if}
-                    </button>
-                  {/if}
-                </div>
-              </div>
-
-              <!-- Inline setup form (multi-step) -->
-              {#if !conn.connected && expandedSetup[conn.provider] && conn.required_variables}
-                <div class="border-t border-gray-100 dark:border-dark-border p-4 bg-gray-50/50 dark:bg-dark-base/50 rounded-b-lg">
-
-                  {#if oauthStep[conn.provider] === 'authorize'}
-                    <!-- Step 2: Open Google auth link -->
-                    <div class="space-y-3">
-                      <div class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">
-                        <span class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-900 dark:bg-accent text-white text-[10px] font-bold">2</span>
-                        Open the link below, sign in with Google, and authorize access
-                      </div>
-                      <a
-                        href={oauthAuthURL[conn.provider]}
-                        target="_blank"
-                        rel="noopener"
-                        class="flex items-center gap-2 px-4 py-2.5 text-sm font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors w-fit"
-                      >
-                        <ExternalLink size={14} />
-                        Open {conn.name} Authorization
-                      </a>
-                      <p class="text-xs text-gray-500 dark:text-dark-text-muted">
-                        After authorizing, you'll see a page with a code. Copy that code and come back here.
-                      </p>
-                      <button
-                        onclick={() => oauthStep[conn.provider] = 'paste-code'}
-                        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
-                      >
-                        <ClipboardPaste size={12} />
-                        I have the code, next step
-                      </button>
-                    </div>
-
-                  {:else if oauthStep[conn.provider] === 'paste-code'}
-                    <!-- Step 3: Paste authorization code -->
-                    <div class="space-y-3">
-                      <div class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">
-                        <span class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-900 dark:bg-accent text-white text-[10px] font-bold">3</span>
-                        Paste the authorization code
-                      </div>
-                      <input
-                        type="text"
-                        value={oauthCode[conn.provider] ?? ''}
-                        oninput={(e) => oauthCode[conn.provider] = (e.target as HTMLInputElement).value}
-                        placeholder="Paste the authorization code here"
-                        class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
-                      />
-                      <div class="flex items-center gap-3">
-                        <button
-                          onclick={() => submitOAuthCode(conn.provider)}
-                          disabled={saving}
-                          class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
-                        >
-                          <Plug size={14} />
-                          {saving ? 'Connecting...' : `Connect ${conn.name}`}
-                        </button>
-                        <button
-                          onclick={() => oauthStep[conn.provider] = 'authorize'}
-                          class="px-3 py-2 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
-                        >
-                          Back
-                        </button>
-                      </div>
-                    </div>
-
-                  {:else}
-                    <!-- Step 1: Enter credentials -->
-                    <div class="space-y-3">
-                      <div class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">
-                        <span class="flex items-center justify-center w-5 h-5 rounded-full bg-gray-900 dark:bg-accent text-white text-[10px] font-bold">1</span>
-                        Enter your OAuth2 credentials from
-                        <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener" class="text-blue-600 dark:text-blue-400 underline">Google Cloud Console</a>
-                      </div>
-                      {#each conn.required_variables as v}
-                        <div>
-                          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-                            {formatVarLabel(v.key)}
-                            {#if v.set}
-                              <span class="text-green-600 dark:text-green-400 font-normal ml-1">(already set)</span>
-                            {/if}
-                          </label>
-                          <div class="relative">
-                            <input
-                              type={v.secret && !showPassword[v.key] ? 'password' : 'text'}
-                              value={getFormValue(conn.provider, v.key)}
-                              oninput={(e) => setFormValue(conn.provider, v.key, (e.target as HTMLInputElement).value)}
-                              placeholder={v.set ? '(stored - leave blank to keep)' : v.description}
-                              class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent pr-9"
-                            />
-                            {#if v.secret}
-                              <button
-                                type="button"
-                                onclick={() => showPassword[v.key] = !showPassword[v.key]}
-                                class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
-                              >
-                                {#if showPassword[v.key]}
-                                  <EyeOff size={14} />
-                                {:else}
-                                  <Eye size={14} />
-                                {/if}
-                              </button>
-                            {/if}
-                          </div>
-                        </div>
-                      {/each}
-                      <div class="flex items-center gap-3 pt-1">
-                        <button
-                          onclick={() => saveCredentialsAndStartAuth(conn)}
-                          disabled={saving}
-                          class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
-                        >
-                          {saving ? 'Saving...' : 'Save & Continue'}
-                        </button>
-                        <button
-                          onclick={() => expandedSetup[conn.provider] = false}
-                          class="px-3 py-2 text-sm text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    </div>
-                  {/if}
-
-                </div>
-              {/if}
-
-              <!-- Manual flow fallback - shows after popup attempt or on demand -->
-              {#if !conn.connected && (showManualFlow[conn.provider] || oauthStep[conn.provider]) && conn.setup_complete && !expandedSetup[conn.provider]}
-                <div class="border-t border-gray-100 dark:border-dark-border px-4 py-3 bg-gray-50/50 dark:bg-dark-base/50 rounded-b-lg">
-                  {#if oauthStep[conn.provider] === 'authorize'}
-                    <div class="space-y-3">
-                      <p class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Manual connection: open the link, authorize, then paste the code</p>
-                      <a
-                        href={oauthAuthURL[conn.provider]}
-                        target="_blank"
-                        rel="noopener"
-                        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
-                      >
-                        <ExternalLink size={12} />
-                        Open {conn.name} Authorization
-                      </a>
-                      <button
-                        onclick={() => oauthStep[conn.provider] = 'paste-code'}
-                        class="ml-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-                      >
-                        I have the code
-                      </button>
-                    </div>
-                  {:else if oauthStep[conn.provider] === 'paste-code'}
-                    <div class="space-y-3">
-                      <p class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Paste the authorization code:</p>
-                      <div class="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={oauthCode[conn.provider] ?? ''}
-                          oninput={(e) => oauthCode[conn.provider] = (e.target as HTMLInputElement).value}
-                          placeholder="Paste code here"
-                          class="flex-1 px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
-                        />
-                        <button
-                          onclick={() => submitOAuthCode(conn.provider)}
-                          disabled={saving}
-                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
-                        >
-                          <Plug size={12} />
-                          {saving ? 'Connecting...' : 'Connect'}
-                        </button>
-                      </div>
-                      <button
-                        onclick={() => oauthStep[conn.provider] = 'authorize'}
-                        class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700"
-                      >
-                        Back
-                      </button>
-                    </div>
-                  {:else}
-                    <button
-                      onclick={() => startManualOAuth(conn.provider)}
+                      onclick={() => startManualOAuth(c)}
                       class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
                     >
-                      Popup not working? Try manual connection method
+                      Popup blocked? Use manual connection
                     </button>
-                  {/if}
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-    <!-- Token-based Connections -->
-    {#if tokenConnections.length > 0}
-      <div class="mb-6">
-        <h2 class="text-xs font-medium text-gray-400 dark:text-dark-text-secondary tracking-wider uppercase mb-3">API Key Connections</h2>
-        <div class="space-y-3">
-          {#each tokenConnections as conn}
-            <div class="border border-gray-200 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface transition-colors">
-              <div class="flex items-start justify-between p-4">
-                <div class="flex items-start gap-3">
-                  <div class={[
-                    "mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center",
-                    conn.connected
-                      ? "bg-green-50 dark:bg-green-900/20"
-                      : "bg-gray-50 dark:bg-dark-elevated"
-                  ]}>
-                    {#if conn.connected}
-                      <CheckCircle2 size={18} class="text-green-600 dark:text-green-400" />
-                    {:else}
-                      <XCircle size={18} class="text-gray-400 dark:text-dark-text-muted" />
-                    {/if}
                   </div>
-                  <div>
-                    <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{conn.name}</h3>
-                    <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{conn.description}</p>
-                    <div class="mt-2">
-                      {#if conn.connected}
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-full">
-                          <CheckCircle2 size={10} />
-                          Configured
-                        </span>
-                      {:else}
-                        <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted rounded-full">
-                          <XCircle size={10} />
-                          Not configured
-                        </span>
-                      {/if}
-                    </div>
-                  </div>
-                </div>
-                <div>
-                  <button
-                    onclick={() => toggleSetup(conn.provider)}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
-                  >
-                    <Settings size={12} />
-                    {conn.connected ? 'Update' : 'Configure'}
-                    {#if expandedSetup[conn.provider]}
-                      <ChevronUp size={12} />
-                    {:else}
-                      <ChevronDown size={12} />
-                    {/if}
-                  </button>
-                </div>
+                {/if}
               </div>
-
-              <!-- Inline config form for token connections -->
-              {#if expandedSetup[conn.provider] && conn.required_variables}
-                <div class="border-t border-gray-100 dark:border-dark-border p-4 bg-gray-50/50 dark:bg-dark-base/50 rounded-b-lg">
-                  <div class="space-y-3">
-                    {#each conn.required_variables as v}
-                      <div>
-                        <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-                          {formatVarLabel(v.key)}
-                          {#if v.set}
-                            <span class="text-green-600 dark:text-green-400 font-normal ml-1">(already set)</span>
-                          {/if}
-                        </label>
-                        <div class="relative">
-                          <input
-                            type={v.secret && !showPassword[v.key] ? 'password' : 'text'}
-                            value={getFormValue(conn.provider, v.key)}
-                            oninput={(e) => setFormValue(conn.provider, v.key, (e.target as HTMLInputElement).value)}
-                            placeholder={v.set ? '(stored - leave blank to keep)' : v.description}
-                            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent pr-9"
-                          />
-                          {#if v.secret}
-                            <button
-                              type="button"
-                              onclick={() => showPassword[v.key] = !showPassword[v.key]}
-                              class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
-                            >
-                              {#if showPassword[v.key]}
-                                <EyeOff size={14} />
-                              {:else}
-                                <Eye size={14} />
-                              {/if}
-                            </button>
-                          {/if}
-                        </div>
-                      </div>
-                    {/each}
-                  </div>
-                  <div class="mt-4 flex items-center gap-3">
-                    <button
-                      onclick={async () => {
-                        saving = true;
-                        try {
-                          for (const v of conn.required_variables || []) {
-                            const val = getFormValue(conn.provider, v.key);
-                            if (val) {
-                              await saveVariable({ key: v.key, value: val, description: v.description, secret: v.secret });
-                            }
-                          }
-                          addToast('Credentials saved', 'info');
-                          formValues[conn.provider] = {};
-                          await load();
-                        } catch (e: any) {
-                          addToast(e?.response?.data?.message || 'Failed to save', 'alert');
-                        } finally {
-                          saving = false;
-                        }
-                      }}
-                      disabled={saving}
-                      class="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
-                    >
-                      {saving ? 'Saving...' : 'Save'}
-                    </button>
-                    <button
-                      onclick={() => expandedSetup[conn.provider] = false}
-                      class="px-3 py-2 text-sm text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              {/if}
-            </div>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-    {#if connections.length === 0}
-      <div class="text-center py-12">
-        <Plug size={32} class="mx-auto text-gray-300 dark:text-dark-text-muted mb-3" />
-        <p class="text-sm text-gray-500 dark:text-dark-text-muted">No connections available</p>
-        <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Install skill templates to see available connections</p>
-      </div>
-    {/if}
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {/each}
   {/if}
 </div>
+
+<!-- Editor modal -->
+{#if editor}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+    <div class="bg-white dark:bg-dark-surface rounded-lg shadow-lg max-w-md w-full">
+      <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-dark-border">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">
+          {editor.kind === 'create'
+            ? `Add ${providerLabel(editor.provider)} account`
+            : `Edit ${providerLabel(editor.connection.provider)} account`}
+        </h2>
+        <button
+          onclick={closeEditor}
+          class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
+        >
+          <X size={16} />
+        </button>
+      </div>
+
+      <div class="p-4 space-y-3">
+        <div>
+          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Name <span class="text-red-500">*</span>
+          </label>
+          <input
+            type="text"
+            bind:value={formName}
+            placeholder="e.g. Main Channel"
+            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent"
+          />
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Description
+          </label>
+          <input
+            type="text"
+            bind:value={formDescription}
+            placeholder="Optional note for future-you"
+            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent"
+          />
+        </div>
+
+        <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">OAuth2 credentials</h3>
+            <button
+              type="button"
+              onclick={() => (showSecrets = !showSecrets)}
+              class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
+              title={showSecrets ? 'Hide' : 'Show'}
+            >
+              {#if showSecrets}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+            </button>
+          </div>
+
+          <div class="space-y-2">
+            <div>
+              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Client ID</label>
+              <input
+                type="text"
+                bind:value={formClientID}
+                placeholder={editor.kind === 'edit' && editor.connection.credentials.client_id
+                  ? editor.connection.credentials.client_id
+                  : 'Paste from Google Cloud Console'}
+                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+              />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+                Client Secret
+                {#if editor.kind === 'edit' && editor.connection.credentials.client_secret_set}
+                  <span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>
+                {/if}
+              </label>
+              <input
+                type={showSecrets ? 'text' : 'password'}
+                bind:value={formClientSecret}
+                placeholder={editor.kind === 'edit' && editor.connection.credentials.client_secret_set
+                  ? '(leave blank to keep stored value)'
+                  : 'GOCSPX-...'}
+                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+              />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+                Refresh Token
+                {#if editor.kind === 'edit' && editor.connection.credentials.refresh_token_set}
+                  <span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>
+                {/if}
+                <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">— leave blank to obtain via OAuth</span>
+              </label>
+              <input
+                type={showSecrets ? 'text' : 'password'}
+                bind:value={formRefreshToken}
+                placeholder={editor.kind === 'edit' && editor.connection.credentials.refresh_token_set
+                  ? '(leave blank to keep stored value)'
+                  : 'Use "Connect" after saving to get this automatically'}
+                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+              />
+            </div>
+            <div>
+              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+                API Key
+                <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">— only for token-based providers</span>
+              </label>
+              <input
+                type={showSecrets ? 'text' : 'password'}
+                bind:value={formAPIKey}
+                placeholder="(optional)"
+                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-dark-border">
+        <button
+          onclick={closeEditor}
+          class="px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onclick={saveEditor}
+          disabled={saving || !formName.trim()}
+          class="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
+        >
+          {saving ? 'Saving…' : editor.kind === 'create' ? 'Create' : 'Save'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}

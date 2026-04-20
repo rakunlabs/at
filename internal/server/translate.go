@@ -278,7 +278,13 @@ func translateOpenAIToAnthropic(msgs []OpenAIMessage) (systemPrompt string, mess
 				for _, tc := range msg.ToolCalls {
 					var args map[string]any
 					if tc.Function.Arguments != "" {
-						json.Unmarshal([]byte(tc.Function.Arguments), &args)
+						_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+					}
+					// Anthropic requires "input" to be a valid JSON object.
+					// If arguments were empty or failed to parse, default to {}
+					// to avoid a 400 "invalid function arguments json string".
+					if args == nil {
+						args = map[string]any{}
 					}
 					blocks = append(blocks, service.ContentBlock{
 						Type:  "tool_use",

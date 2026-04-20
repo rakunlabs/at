@@ -36,117 +36,15 @@
     Loader2,
     FileCode,
   } from 'lucide-svelte';
-  import { md, renderMarkdown, highlightCode } from '@/lib/helper/markdown';
+  import { renderMarkdown, highlightCode } from '@/lib/helper/markdown';
+  import Markdown from '@/lib/components/Markdown.svelte';
   import { push, querystring } from 'svelte-spa-router';
   import { addToast } from '@/lib/store/toast.svelte';
   import { tick } from 'svelte';
 
-  // ─── enhanceMarkdown action ───
-  // Post-processes rendered markdown content to:
-  //  1. Add a copy button + language label to each <pre> code block.
-  //  2. Wrap each <table> in a horizontally scrollable container so wide
-  //     tables don't break the layout.
-  // Safe to re-run (idempotent via data-enhanced / wrapper class checks).
-  // Debounced so live-typing in the editor preview stays fast.
-  function enhanceMarkdown(node: HTMLElement) {
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    function enhanceCodeBlocks() {
-      const pres = node.querySelectorAll<HTMLPreElement>('pre');
-      for (const pre of pres) {
-        if (pre.dataset.enhanced === 'true') continue;
-        if (pre.classList.contains('mermaid-pending')) continue;
-        pre.dataset.enhanced = 'true';
-
-        const code = pre.querySelector('code');
-        if (!code) continue;
-
-        // Extract language from "language-xxx" class
-        const langMatch = code.className.match(/language-([\w-]+)/);
-        const lang = langMatch ? langMatch[1] : '';
-
-        pre.classList.add('guide-pre');
-
-        // Language label (top-left)
-        if (lang && lang !== 'plaintext' && lang !== 'text') {
-          const label = document.createElement('span');
-          label.className = 'guide-pre-lang';
-          label.textContent = lang;
-          pre.appendChild(label);
-        }
-
-        // Copy button (top-right)
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'guide-pre-copy';
-        btn.textContent = 'Copy';
-        btn.setAttribute('aria-label', 'Copy code');
-        btn.addEventListener('click', async (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          const text = code.textContent ?? '';
-          try {
-            await navigator.clipboard.writeText(text);
-            btn.textContent = 'Copied';
-            btn.classList.add('copied');
-            setTimeout(() => {
-              btn.textContent = 'Copy';
-              btn.classList.remove('copied');
-            }, 1500);
-          } catch {
-            btn.textContent = 'Failed';
-            setTimeout(() => {
-              btn.textContent = 'Copy';
-            }, 1500);
-          }
-        });
-        pre.appendChild(btn);
-      }
-    }
-
-    function enhanceTables() {
-      const tables = node.querySelectorAll<HTMLTableElement>('table');
-      for (const table of tables) {
-        const parent = table.parentElement;
-        if (!parent || parent.classList.contains('guide-table-wrap')) continue;
-        const wrapper = document.createElement('div');
-        wrapper.className = 'guide-table-wrap';
-        parent.insertBefore(wrapper, table);
-        wrapper.appendChild(table);
-      }
-    }
-
-    function enhance() {
-      enhanceCodeBlocks();
-      enhanceTables();
-    }
-
-    function schedule() {
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        timer = null;
-        enhance();
-      }, 50);
-    }
-
-    // Initial pass (synchronous — content already rendered by {@html})
-    enhance();
-
-    // Watch for content changes (live preview, streaming, etc.)
-    const observer = new MutationObserver(schedule);
-    observer.observe(node, {
-      childList: true,
-      subtree: true,
-      characterData: true,
-    });
-
-    return {
-      destroy() {
-        observer.disconnect();
-        if (timer) clearTimeout(timer);
-      },
-    };
-  }
+  // Markdown rendering is delegated to @/lib/components/Markdown.svelte,
+  // which handles parsing + mermaid + copy-button / table-wrapper
+  // enhancements in one place via the shared helpers.
   import {
     listGuides,
     createGuide,
@@ -504,53 +402,6 @@ switch - Switch to a different agent
 login - Connect your Google account
 help - Show available commands
 \`\`\`
-`,
-    },
-    {
-      id: 'youtube',
-      title: 'YouTube Shorts Pipeline',
-      description: 'How the video production pipeline works',
-      iconName: 'Film',
-      builtin: true,
-      content: `
-## YouTube Shorts Pipeline
-
-### Agents
-
-| Agent | Role |
-|-------|------|
-| **Content Director** | Orchestrates the whole process |
-| **Script Writer** | Writes conversational scripts with scene breakdowns |
-| **Graphic Designer** | Generates/finds images for each scene |
-| **Video Producer** | Creates TTS audio, composes video with FFmpeg |
-
-### Process
-
-1. You send: \`/new top 5 deadliest animals\`
-2. **Content Director** receives the task
-3. Delegates to **Script Writer** → writes script with voiceover, countdowns, transitions
-4. Reviews script (rejects if robotic or missing countdowns)
-5. Delegates to **Graphic Designer** → generates DALL-E images + Pexels stock photos
-6. Reviews images
-7. Delegates to **Video Producer** → generates TTS audio, creates Ken Burns clips, countdowns, merges, adds polish
-8. Returns the final video
-9. You get notified: \`Task YTS-5 completed!\`
-10. \`/result\` to get the video file
-
-### Customization
-
-- **Voice**: OpenAI TTS voices (onyx, echo, nova, coral, etc.)
-- **Style**: Per-scene voice direction for natural delivery
-- **Countdown**: Automatic for list topics (Top 5, Top 10)
-- **Transitions**: 46+ types (fade, slideup, dissolve, etc.)
-- **Ken Burns**: Zoom in/out, pan left/right with shake-free 4x pre-scale
-
-### Tools
-
-- **Video Toolkit** workflow: countdown generation, scene clips, merging, polish
-- **FFmpeg Guide** skill: comprehensive FFmpeg knowledge
-- **OpenAI TTS** skill: text-to-speech
-- **Image Generation** skill: DALL-E 3
 `,
     },
   ];
@@ -1021,31 +872,24 @@ help - Show available commands
           </header>
 
           <!-- Markdown content -->
-          <article
-            class="guide-content prose prose-sm dark:prose-invert max-w-none
-                   prose-headings:text-gray-900 dark:prose-headings:text-dark-text
-                   prose-headings:font-semibold
-                   prose-h2:text-lg prose-h2:mt-10 prose-h2:mb-4 prose-h2:pb-2 prose-h2:border-b prose-h2:border-gray-200 dark:prose-h2:border-dark-border
-                   prose-h3:text-base prose-h3:mt-7 prose-h3:mb-3
-                   prose-h4:text-sm prose-h4:font-semibold prose-h4:text-gray-800 dark:prose-h4:text-dark-text prose-h4:mt-5 prose-h4:mb-2
-                   prose-p:text-[13.5px] prose-p:leading-[1.7]
-                   prose-li:text-[13.5px] prose-li:leading-[1.7] prose-li:my-0.5
-                   prose-a:text-accent prose-a:no-underline hover:prose-a:underline
-                   prose-strong:text-gray-900 dark:prose-strong:text-dark-text
-                   prose-ol:text-[13.5px] prose-ul:text-[13.5px]
-                   prose-blockquote:border-l-2 prose-blockquote:border-gray-300 dark:prose-blockquote:border-dark-border-subtle prose-blockquote:text-gray-600 dark:prose-blockquote:text-dark-text-secondary prose-blockquote:italic"
-            use:renderMarkdown
-            use:enhanceMarkdown
-          >
-            {#if viewMode === 'source'}
+          {#if viewMode === 'source'}
+            <article
+              class="markdown-body max-w-none text-[13.5px] leading-[1.7]"
+              use:renderMarkdown
+            >
               <pre><code class="hljs language-markdown">{@html highlightCode(
                   selectedGuide.content.trim(),
                   'markdown',
                 )}</code></pre>
-            {:else}
-              {@html md(selectedGuide.content.trim())}
-            {/if}
-          </article>
+            </article>
+          {:else}
+            <Markdown
+              source={selectedGuide.content.trim()}
+              as="article"
+              class="max-w-none text-[13.5px] leading-[1.7]"
+              enhance
+            />
+          {/if}
         </div>
       {:else}
         <div class="h-full flex items-center justify-center text-sm text-gray-500 dark:text-dark-text-muted">
@@ -1147,24 +991,12 @@ help - Show available commands
             </div>
             <div class="flex-1 overflow-y-auto px-5 py-4 bg-gray-50 dark:bg-dark-base min-h-0">
               {#if draftContent.trim()}
-                <article
-                  class="guide-content prose prose-sm dark:prose-invert max-w-none
-                         prose-headings:text-gray-900 dark:prose-headings:text-dark-text
-                         prose-headings:font-semibold
-                         prose-h2:text-lg prose-h2:mt-8 prose-h2:mb-3 prose-h2:pb-2 prose-h2:border-b prose-h2:border-gray-200 dark:prose-h2:border-dark-border
-                         prose-h3:text-base prose-h3:mt-6 prose-h3:mb-2
-                         prose-h4:text-sm prose-h4:font-semibold prose-h4:text-gray-800 dark:prose-h4:text-dark-text prose-h4:mt-5 prose-h4:mb-2
-                         prose-p:text-[13.5px] prose-p:leading-[1.7]
-                         prose-li:text-[13.5px] prose-li:leading-[1.7] prose-li:my-0.5
-                         prose-a:text-accent prose-a:no-underline hover:prose-a:underline
-                         prose-strong:text-gray-900 dark:prose-strong:text-dark-text
-                         prose-ol:text-[13.5px] prose-ul:text-[13.5px]
-                         prose-blockquote:border-l-2 prose-blockquote:border-gray-300 dark:prose-blockquote:border-dark-border-subtle prose-blockquote:text-gray-600 dark:prose-blockquote:text-dark-text-secondary prose-blockquote:italic"
-                  use:renderMarkdown
-                  use:enhanceMarkdown
-                >
-                  {@html md(draftContent)}
-                </article>
+                <Markdown
+                  source={draftContent}
+                  as="article"
+                  class="max-w-none text-[13.5px] leading-[1.7]"
+                  enhance
+                />
               {:else}
                 <div class="text-xs text-gray-400 dark:text-dark-text-muted italic">
                   Preview will appear here as you type.
@@ -1188,186 +1020,8 @@ help - Show available commands
     scrollbar-width: none;
   }
 
-  /* ─── Guide content: :global overrides for @html rendered markdown ─── */
-
-  /* Inline code (not inside a pre) */
-  .guide-content :global(code:not(pre code)) {
-    background: #f3f4f6;
-    color: #b45309;
-    padding: 1px 6px;
-    border: 1px solid #e5e7eb;
-    border-radius: 4px;
-    font-size: 12.5px;
-    font-weight: 500;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  }
-  .guide-content :global(code:not(pre code))::before,
-  .guide-content :global(code:not(pre code))::after {
-    content: none;
-  }
-  :global(.dark) .guide-content :global(code:not(pre code)) {
-    background: #252422;
-    color: #f69d50;
-    border-color: #302e2c;
-  }
-
-  /* Code block wrapper (pre) — wider, nicer, with room for copy button */
-  .guide-content :global(pre.guide-pre) {
-    position: relative;
-    margin: 1.25rem 0;
-    padding: 2.25rem 1rem 1rem 1rem;
-    background: #f6f8fa;
-    border: 1px solid #e1e4e8;
-    border-radius: 6px;
-    overflow-x: auto;
-    font-size: 13px;
-    line-height: 1.6;
-  }
-  :global(.dark) .guide-content :global(pre.guide-pre) {
-    background: #22272e;
-    border-color: #373e47;
-  }
-
-  /* Inner <code> should not repaint bg — hljs theme colors show through */
-  .guide-content :global(pre.guide-pre code) {
-    background: transparent !important;
-    padding: 0 !important;
-    border: 0 !important;
-    font-size: inherit !important;
-    color: inherit !important;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  }
-
-  /* Language label (top-left of code block) */
-  .guide-content :global(.guide-pre-lang) {
-    position: absolute;
-    top: 0.5rem;
-    left: 0.75rem;
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    font-size: 10px;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #6b7280;
-    pointer-events: none;
-    user-select: none;
-  }
-  :global(.dark) .guide-content :global(.guide-pre-lang) {
-    color: #706d68;
-  }
-
-  /* Copy button (top-right of code block) */
-  .guide-content :global(.guide-pre-copy) {
-    position: absolute;
-    top: 0.35rem;
-    right: 0.35rem;
-    padding: 0.2rem 0.55rem;
-    font-family: ui-sans-serif, system-ui, sans-serif;
-    font-size: 10px;
-    font-weight: 600;
-    color: #4b5563;
-    background: rgba(255, 255, 255, 0.9);
-    border: 1px solid #d1d5db;
-    border-radius: 3px;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 120ms, background 120ms, color 120ms;
-  }
-  .guide-content :global(pre.guide-pre:hover .guide-pre-copy),
-  .guide-content :global(.guide-pre-copy:focus) {
-    opacity: 1;
-  }
-  .guide-content :global(.guide-pre-copy:hover) {
-    background: #f3f4f6;
-    color: #111827;
-  }
-  .guide-content :global(.guide-pre-copy.copied) {
-    opacity: 1;
-    color: #16a34a;
-    border-color: #86efac;
-    background: #f0fdf4;
-  }
-  :global(.dark) .guide-content :global(.guide-pre-copy) {
-    color: #a8a5a0;
-    background: rgba(37, 36, 34, 0.9);
-    border-color: #3a3836;
-  }
-  :global(.dark) .guide-content :global(.guide-pre-copy:hover) {
-    background: #2e2c2a;
-    color: #e8e6e3;
-  }
-  :global(.dark) .guide-content :global(.guide-pre-copy.copied) {
-    color: #55e870;
-    background: #00d92626;
-    border-color: #00d926;
-  }
-
-  /* Table wrapper — horizontal scroll on overflow */
-  .guide-content :global(.guide-table-wrap) {
-    margin: 1.25rem 0;
-    overflow-x: auto;
-    border: 1px solid #e5e7eb;
-    border-radius: 6px;
-    background: #ffffff;
-  }
-  :global(.dark) .guide-content :global(.guide-table-wrap) {
-    border-color: #302e2c;
-    background: #1e1e20;
-  }
-
-  /* Table itself — full width inside wrapper */
-  .guide-content :global(.guide-table-wrap table) {
-    margin: 0 !important;
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    border: 0 !important;
-  }
-
-  /* Table header */
-  .guide-content :global(.guide-table-wrap th) {
-    background: #f9fafb;
-    font-weight: 600;
-    text-align: left;
-    color: #111827;
-    padding: 0.625rem 1rem;
-    border-bottom: 1px solid #e5e7eb;
-    border-right: 1px solid #e5e7eb;
-    white-space: nowrap;
-  }
-  .guide-content :global(.guide-table-wrap th:last-child) {
-    border-right: 0;
-  }
-  :global(.dark) .guide-content :global(.guide-table-wrap th) {
-    background: #252422;
-    color: #e8e6e3;
-    border-bottom-color: #302e2c;
-    border-right-color: #302e2c;
-  }
-
-  /* Table cells */
-  .guide-content :global(.guide-table-wrap td) {
-    padding: 0.55rem 1rem;
-    border-bottom: 1px solid #f3f4f6;
-    border-right: 1px solid #f3f4f6;
-    vertical-align: top;
-  }
-  .guide-content :global(.guide-table-wrap td:last-child) {
-    border-right: 0;
-  }
-  .guide-content :global(.guide-table-wrap tbody tr:last-child td) {
-    border-bottom: 0;
-  }
-  :global(.dark) .guide-content :global(.guide-table-wrap td) {
-    border-bottom-color: #2e2c2a;
-    border-right-color: #2e2c2a;
-  }
-
-  /* Zebra striping */
-  .guide-content :global(.guide-table-wrap tbody tr:nth-child(even)) {
-    background: #f9fafb;
-  }
-  :global(.dark) .guide-content :global(.guide-table-wrap tbody tr:nth-child(even)) {
-    background: #252422;
-  }
+  /* All markdown typography — including inline code, code blocks with copy
+     button + language label, and tables with horizontal scroll — is now
+     centralised in global.css under `.markdown-body` so every md() call
+     site renders identically. */
 </style>

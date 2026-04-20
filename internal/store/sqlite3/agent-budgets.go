@@ -56,6 +56,42 @@ func (s *SQLite) GetAgentBudget(ctx context.Context, agentID string) (*service.A
 	}, nil
 }
 
+// ListAgentBudgets returns every configured agent budget.
+func (s *SQLite) ListAgentBudgets(ctx context.Context) ([]service.AgentBudget, error) {
+	query, _, err := s.goqu.From(s.tableAgentBudgets).
+		Select("id", "agent_id", "monthly_limit", "current_spend", "period_start", "period_end", "created_at", "updated_at").
+		Order(goqu.I("agent_id").Asc()).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list agent budgets query: %w", err)
+	}
+
+	rows, err := s.db.QueryContext(ctx, query)
+	if err != nil {
+		return nil, fmt.Errorf("list agent budgets: %w", err)
+	}
+	defer rows.Close()
+
+	var budgets []service.AgentBudget
+	for rows.Next() {
+		var row agentBudgetRow
+		if err := rows.Scan(&row.ID, &row.AgentID, &row.MonthlyLimit, &row.CurrentSpend, &row.PeriodStart, &row.PeriodEnd, &row.CreatedAt, &row.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan agent budget row: %w", err)
+		}
+		budgets = append(budgets, service.AgentBudget{
+			ID:           row.ID,
+			AgentID:      row.AgentID,
+			MonthlyLimit: row.MonthlyLimit,
+			CurrentSpend: row.CurrentSpend,
+			PeriodStart:  row.PeriodStart,
+			PeriodEnd:    row.PeriodEnd,
+			CreatedAt:    row.CreatedAt,
+			UpdatedAt:    row.UpdatedAt,
+		})
+	}
+	return budgets, rows.Err()
+}
+
 func (s *SQLite) SetAgentBudget(ctx context.Context, budget service.AgentBudget) error {
 	now := time.Now().UTC()
 	id := ulid.Make().String()

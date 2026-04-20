@@ -820,9 +820,15 @@ func contentToSlice(c any) []any {
 	case []any:
 		return v
 	case []service.ContentBlock:
+		// Convert each block to its final map form so that subsequent
+		// merging/marshalling never sees a raw ContentBlock struct (whose
+		// Input map[string]any `json:"input,omitempty"` tag would drop an
+		// empty-but-required "input" field on tool_use blocks, causing
+		// Anthropic/MiniMax to reject the request with
+		// "invalid function arguments json string").
 		out := make([]any, len(v))
 		for i, b := range v {
-			out[i] = b
+			out[i] = contentBlockToMap(b)
 		}
 		return out
 	default:
@@ -926,11 +932,17 @@ func convertContent(content any) any {
 		}
 		return out
 	case []any:
-		for _, b := range blocks {
-			if m, ok := b.(map[string]any); ok {
-				if m["type"] == "tool_use" {
-					if _, has := m["input"]; !has {
-						m["input"] = map[string]any{}
+		for i, b := range blocks {
+			switch elem := b.(type) {
+			case service.ContentBlock:
+				// A raw struct slipped through (e.g. via mergeContent).
+				// Normalize via contentBlockToMap so tool_use blocks
+				// always carry an "input" object.
+				blocks[i] = contentBlockToMap(elem)
+			case map[string]any:
+				if elem["type"] == "tool_use" {
+					if _, has := elem["input"]; !has {
+						elem["input"] = map[string]any{}
 					}
 				}
 			}

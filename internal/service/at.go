@@ -77,6 +77,7 @@ type Storer interface {
 	AgentMemoryStorer
 	PackSourceStorer
 	GuideStorer
+	ConnectionStorer
 }
 
 // ─── Skill Management ───

@@ -16,6 +16,7 @@ type AgentMD struct {
 	Skills                    []string `yaml:"skills,omitempty"`
 	MCPSets                   []string `yaml:"mcp_sets,omitempty"`
 	MCPs                      []string `yaml:"mcp_urls,omitempty"`
+	Workflows                 []string `yaml:"workflows,omitempty"`
 	BuiltinTools              []string `yaml:"builtin_tools,omitempty"`
 	MaxIterations             int      `yaml:"max_iterations,omitempty"`
 	ToolTimeout               int      `yaml:"tool_timeout,omitempty"`

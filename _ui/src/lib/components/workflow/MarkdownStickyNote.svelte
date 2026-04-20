@@ -1,7 +1,7 @@
 <script lang="ts">
   import { StickyNoteNode } from 'kaykay';
   import type { NodeProps } from 'kaykay';
-  import { md } from '@/lib/helper/markdown';
+  import Markdown from '@/lib/components/Markdown.svelte';
 
   interface StickyNoteData {
     text: string;
@@ -13,6 +13,6 @@
 
 <StickyNoteNode {id} {data} {selected}>
   {#snippet children(text)}
-    {@html md(text)}
+    <Markdown source={text} />
   {/snippet}
 </StickyNoteNode>

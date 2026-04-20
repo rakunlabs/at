@@ -28,7 +28,7 @@
     type Label,
   } from '@/lib/api/labels';
   import { formatDate, formatDateTime } from '@/lib/helper/format';
-  import { md, renderMarkdown } from '@/lib/helper/markdown';
+  import Markdown from '@/lib/components/Markdown.svelte';
   import CommentThread from '@/lib/components/CommentThread.svelte';
   import {
     ArrowLeft, Save, Trash2, Pencil, X, Check,
@@ -788,9 +788,11 @@
               </div>
             {:else}
               {#if task.description}
-                <div class="markdown-body text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed min-h-[2rem]" use:renderMarkdown>
-                  {@html md(task.description)}
-                </div>
+                <Markdown
+                  source={task.description}
+                  class="text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed min-h-[2rem]"
+                  enhance
+                />
               {:else}
                 <div class="text-sm min-h-[2rem]">
                   <span class="text-gray-400 dark:text-dark-text-muted italic">No description</span>
@@ -806,9 +808,11 @@
                 <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Result</span>
               </div>
               <div class="px-3 py-3">
-                <div class="markdown-body text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed break-words" use:renderMarkdown>
-                  {@html md(task.result)}
-                </div>
+                <Markdown
+                  source={task.result}
+                  class="text-sm text-gray-700 dark:text-dark-text-secondary leading-relaxed break-words"
+                  enhance
+                />
               </div>
             </div>
           {/if}
@@ -919,9 +923,10 @@
                                 </span>
                               {/if}
                             </div>
-                            <div class="mt-0.5 prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 prose-code:text-[12px]" use:renderMarkdown>
-                              {@html md(getMessageText(msg.data))}
-                            </div>
+                            <Markdown
+                              source={getMessageText(msg.data)}
+                              class="mt-0.5 max-w-none text-[13px] leading-relaxed"
+                            />
                           </div>
                         {:else if msg.role === 'tool'}
                           {@const toolText = getMessageText(msg.data)}
@@ -984,9 +989,10 @@
                               <Loader2 size={10} class="animate-spin text-gray-400" />
                             {/if}
                           </div>
-                          <div class="mt-0.5 prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-1 prose-code:text-[12px]" use:renderMarkdown>
-                            {@html md(chatStreamContent)}
-                          </div>
+                          <Markdown
+                            source={chatStreamContent}
+                            class="mt-0.5 max-w-none text-[13px] leading-relaxed"
+                          />
                         </div>
                       {/if}
 

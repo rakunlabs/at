@@ -52,6 +52,18 @@ type bundleRelationship struct {
 	IsHead            bool   `json:"is_head,omitempty"`
 }
 
+// bundleWorkflow is the portable workflow payload. We export by name rather
+// than ID so imports into a different AT instance remap references cleanly.
+type bundleWorkflow struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	// OriginalID is the workflow's ID at export time. Used during import to
+	// rebuild the ID→ID mapping (old ID → new ID) so we can rewrite
+	// references embedded in MCP sets (WorkflowIDs) and in workflow_call nodes.
+	OriginalID string                `json:"original_id,omitempty"`
+	Graph      service.WorkflowGraph `json:"graph"`
+}
+
 // bundlePreview is the response for the import preview endpoint.
 type bundlePreview struct {
 	Organization  *bundlePreviewItem   `json:"organization"`
@@ -59,6 +71,7 @@ type bundlePreview struct {
 	Skills        []bundlePreviewItem  `json:"skills"`
 	MCPSets       []bundlePreviewItem  `json:"mcp_sets"`
 	MCPServers    []bundlePreviewItem  `json:"mcp_servers"`
+	Workflows     []bundlePreviewItem  `json:"workflows"`
 	Relationships []bundleRelationship `json:"relationships"`
 }
 
@@ -129,7 +142,7 @@ func (s *Server) ExportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 		agentsByID[agent.ID] = agent
 
 		for _, sk := range agent.Config.Skills {
-			skillNames[sk] = true
+			skillNames[sk.ID] = true
 		}
 		for _, ms := range agent.Config.MCPSets {
 			mcpSetNames[ms] = true
@@ -165,6 +178,18 @@ func (s *Server) ExportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 			}
 		}
 	}
+
+	// 5b. Collect workflow dependencies.
+	//
+	// Workflows can be referenced in three places:
+	//   a) AgentConfig.Workflows — direct by-name attachments on an agent
+	//      (the first-class path added alongside this export fix)
+	//   b) MCPSet.Config.WorkflowIDs — workflows exposed via an MCP set
+	//   c) workflow_call nodes inside other workflows — nested sub-workflows
+	//
+	// We walk all three transitively so a self-contained bundle always ships
+	// every workflow the agents actually need.
+	workflows := collectWorkflowClosure(ctx, s.workflowStore, agentsByID, mcpSets)
 
 	// 6. Build the ZIP.
 	var buf bytes.Buffer
@@ -241,6 +266,17 @@ func (s *Server) ExportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 			URLs:        set.URLs,
 		}
 		writeJSONToZip(zw, filepath.Join("mcp-sets", set.Name+".json"), export)
+	}
+
+	// workflows/*.json — referenced by MCP sets (as tools) and by other workflows.
+	for _, wf := range workflows {
+		export := bundleWorkflow{
+			Name:        wf.Name,
+			Description: wf.Description,
+			OriginalID:  wf.ID,
+			Graph:       wf.Graph,
+		}
+		writeJSONToZip(zw, filepath.Join("workflows", wf.Name+".json"), export)
 	}
 
 	// relationships.json — map agent IDs to names for portability.
@@ -351,6 +387,19 @@ func (s *Server) PreviewImportBundleAPI(w http.ResponseWriter, r *http.Request) 
 		preview.MCPSets = append(preview.MCPSets, item)
 	}
 
+	// Check workflow conflicts.
+	for _, wf := range bundle.workflows {
+		item := bundlePreviewItem{Name: wf.Name}
+		if s.workflowStore != nil {
+			existing := s.findWorkflowByName(ctx, wf.Name)
+			if existing != nil {
+				item.Conflict = "exists"
+				item.ExistingID = existing.ID
+			}
+		}
+		preview.Workflows = append(preview.Workflows, item)
+	}
+
 	httpResponseJSON(w, preview, http.StatusOK)
 }
 
@@ -431,10 +480,106 @@ func (s *Server) ImportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// 2. Import MCP sets.
+	// 2. Import workflows.
+	//
+	// Workflows must be persisted BEFORE MCP sets so we know the new IDs to
+	// splice into MCPSet.Config.WorkflowIDs and into any workflow_call nodes.
+	// We track (original_id → new_id) so later stages can rewrite references.
+	workflowIDMap := make(map[string]string)
+	workflowNameMap := make(map[string]string) // name -> new/existing ID
+	if s.workflowStore != nil {
+		for _, bwf := range bundle.workflows {
+			action := getAction("workflow", bwf.Name)
+			wf := service.Workflow{
+				Name:        bwf.Name,
+				Description: bwf.Description,
+				Graph:       bwf.Graph,
+			}
+			switch action {
+			case "skip":
+				existing := s.findWorkflowByName(ctx, bwf.Name)
+				if existing != nil {
+					workflowNameMap[bwf.Name] = existing.ID
+					if bwf.OriginalID != "" {
+						workflowIDMap[bwf.OriginalID] = existing.ID
+					}
+				}
+				continue
+			case "overwrite":
+				existing := s.findWorkflowByName(ctx, bwf.Name)
+				if existing != nil {
+					wf.UpdatedBy = userEmail
+					updated, err := s.workflowStore.UpdateWorkflow(ctx, existing.ID, wf)
+					if err != nil {
+						slog.Error("import bundle: overwrite workflow failed", "name", bwf.Name, "error", err)
+					} else if updated != nil {
+						workflowNameMap[bwf.Name] = updated.ID
+						if bwf.OriginalID != "" {
+							workflowIDMap[bwf.OriginalID] = updated.ID
+						}
+					}
+					continue
+				}
+				fallthrough
+			default:
+				wf.CreatedBy = userEmail
+				wf.UpdatedBy = userEmail
+				created, err := s.workflowStore.CreateWorkflow(ctx, wf)
+				if err != nil {
+					slog.Error("import bundle: create workflow failed", "name", bwf.Name, "error", err)
+				} else if created != nil {
+					workflowNameMap[bwf.Name] = created.ID
+					if bwf.OriginalID != "" {
+						workflowIDMap[bwf.OriginalID] = created.ID
+					}
+				}
+			}
+		}
+
+		// Second pass: rewrite nested workflow_call refs inside each imported
+		// workflow using the complete old→new ID map, then update.
+		for _, bwf := range bundle.workflows {
+			newID, ok := workflowNameMap[bwf.Name]
+			if !ok {
+				continue
+			}
+			graph := bwf.Graph
+			if !anyWorkflowCallRefs(graph, workflowIDMap) {
+				continue
+			}
+			rewriteWorkflowIDRefs(&graph, workflowIDMap)
+			// Fetch current row so we preserve fields we don't want to clobber.
+			current, err := s.workflowStore.GetWorkflow(ctx, newID)
+			if err != nil || current == nil {
+				slog.Error("import bundle: fetch workflow for rewrite failed", "id", newID, "error", err)
+				continue
+			}
+			current.Graph = graph
+			current.UpdatedBy = userEmail
+			if _, err := s.workflowStore.UpdateWorkflow(ctx, newID, *current); err != nil {
+				slog.Error("import bundle: rewrite workflow refs failed", "name", bwf.Name, "error", err)
+			}
+		}
+	}
+
+	// 3. Import MCP sets (with WorkflowIDs remapped).
 	mcpSetNameMap := make(map[string]string)
 	if s.mcpSetStore != nil {
 		for _, ms := range bundle.mcpSets {
+			// Rewrite workflow IDs in-place using the map from step 2.
+			if len(ms.Config.WorkflowIDs) > 0 && len(workflowIDMap) > 0 {
+				remapped := make([]string, 0, len(ms.Config.WorkflowIDs))
+				for _, id := range ms.Config.WorkflowIDs {
+					if newID, ok := workflowIDMap[id]; ok {
+						remapped = append(remapped, newID)
+					} else {
+						// Unknown ID: keep original so users can spot the gap.
+						remapped = append(remapped, id)
+					}
+				}
+				ms.Config.WorkflowIDs = remapped
+			}
+
 			action := getAction("mcp_set", ms.Name)
 			switch action {
 			case "skip":
@@ -614,6 +759,7 @@ type parsedBundle struct {
 	skills        []service.Skill
 	mcpSets       []service.MCPSet
 	mcpServers    []service.MCPServer
+	workflows     []bundleWorkflow
 	relationships []bundleRelationship
 }
 
@@ -737,6 +883,14 @@ func (s *Server) parseBundle(r *http.Request) (*parsedBundle, error) {
 				Servers:     export.Servers,
 				URLs:        export.URLs,
 			})
+
+		case strings.HasPrefix(f.Name, "workflows/") && strings.HasSuffix(f.Name, ".json"):
+			var wf bundleWorkflow
+			if err := json.Unmarshal(data, &wf); err != nil {
+				slog.Error("parse bundle: parse workflow failed", "file", f.Name, "error", err)
+				continue
+			}
+			bundle.workflows = append(bundle.workflows, wf)
 		}
 	}
 
@@ -766,6 +920,23 @@ func (s *Server) findAgentByName(ctx context.Context, name string) *service.Agen
 		return nil
 	}
 	result, err := s.agentStore.ListAgents(ctx, nil)
+	if err != nil || result == nil {
+		return nil
+	}
+	for i := range result.Data {
+		if result.Data[i].Name == name {
+			return &result.Data[i]
+		}
+	}
+	return nil
+}
+
+// findWorkflowByName searches for a workflow by name.
+func (s *Server) findWorkflowByName(ctx context.Context, name string) *service.Workflow {
+	if s.workflowStore == nil {
+		return nil
+	}
+	result, err := s.workflowStore.ListWorkflows(ctx, nil)
 	if err != nil || result == nil {
 		return nil
 	}
@@ -810,4 +981,137 @@ func readZipFile(f *zip.File) ([]byte, error) {
 // nowUTC returns the current time in UTC as an RFC3339 string.
 func nowUTC() string {
 	return time.Now().UTC().Format(time.RFC3339)
+}
+
+// collectWorkflowClosure resolves every workflow transitively reachable from
+// the given agents and MCP sets. Returns the de-duplicated list.
+//
+// Sources of workflow references (walked in order):
+//   - AgentConfig.Workflows — direct by-name attachments on an agent
+//   - MCPSet.Config.WorkflowIDs — indirect attachments via an MCP set
+//   - workflow_call nodes inside an already-queued workflow
+//
+// Safe to call with a nil store — returns an empty slice.
+func collectWorkflowClosure(ctx context.Context, store service.WorkflowStorer, agentsByID map[string]*service.Agent, mcpSets []service.MCPSet) []service.Workflow {
+	if store == nil {
+		return nil
+	}
+
+	seen := make(map[string]*service.Workflow)
+	var queue []string
+
+	// Seed: workflows attached by name on each agent.
+	for _, a := range agentsByID {
+		if a == nil {
+			continue
+		}
+		for _, name := range a.Config.Workflows {
+			if name == "" {
+				continue
+			}
+			wf, err := store.GetWorkflowByName(ctx, name)
+			if err != nil {
+				slog.Error("export org bundle: get workflow by name failed", "name", name, "error", err)
+				continue
+			}
+			if wf == nil {
+				slog.Warn("export org bundle: agent-attached workflow not found", "name", name)
+				continue
+			}
+			if _, already := seen[wf.ID]; !already {
+				queue = append(queue, wf.ID)
+			}
+		}
+	}
+
+	// Seed: workflows referenced by MCP sets.
+	for _, set := range mcpSets {
+		for _, id := range set.Config.WorkflowIDs {
+			if id != "" {
+				queue = append(queue, id)
+			}
+		}
+	}
+
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+
+		if _, ok := seen[id]; ok {
+			continue
+		}
+
+		wf, err := store.GetWorkflow(ctx, id)
+		if err != nil {
+			slog.Error("export org bundle: get workflow failed", "id", id, "error", err)
+			continue
+		}
+		if wf == nil {
+			slog.Warn("export org bundle: referenced workflow not found", "id", id)
+			continue
+		}
+		seen[id] = wf
+
+		// Walk nodes for nested workflow_call references.
+		for _, node := range wf.Graph.Nodes {
+			if node.Type != "workflow_call" {
+				continue
+			}
+			if nested, ok := node.Data["workflow_id"].(string); ok && nested != "" {
+				if _, already := seen[nested]; !already {
+					queue = append(queue, nested)
+				}
+			}
+		}
+	}
+
+	out := make([]service.Workflow, 0, len(seen))
+	for _, wf := range seen {
+		out = append(out, *wf)
+	}
+	return out
+}
+
+// anyWorkflowCallRefs reports whether the graph contains a workflow_call node
+// whose workflow_id is remapped by idMap. Used to skip the Update when nothing
+// would change.
+func anyWorkflowCallRefs(graph service.WorkflowGraph, idMap map[string]string) bool {
+	if len(idMap) == 0 {
+		return false
+	}
+	for _, node := range graph.Nodes {
+		if node.Type != "workflow_call" || node.Data == nil {
+			continue
+		}
+		if id, ok := node.Data["workflow_id"].(string); ok {
+			if _, remapped := idMap[id]; remapped {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// rewriteWorkflowIDRefs walks a workflow's nodes and rewrites any workflow_call
+// "workflow_id" that appears in the idMap. Safe to call with a nil/empty map.
+func rewriteWorkflowIDRefs(graph *service.WorkflowGraph, idMap map[string]string) {
+	if graph == nil || len(idMap) == 0 {
+		return
+	}
+	for i := range graph.Nodes {
+		if graph.Nodes[i].Type != "workflow_call" {
+			continue
+		}
+		data := graph.Nodes[i].Data
+		if data == nil {
+			continue
+		}
+		old, ok := data["workflow_id"].(string)
+		if !ok || old == "" {
+			continue
+		}
+		if newID, ok := idMap[old]; ok {
+			data["workflow_id"] = newID
+		}
+	}
 }

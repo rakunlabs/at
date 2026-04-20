@@ -3,19 +3,35 @@ import type { ListResult, ListParams } from './types';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
+/**
+ * A skill attachment. Plain strings and {id, connections?} objects are both
+ * accepted by the backend (see service.SkillRef). The UI normalizes to the
+ * object form so per-skill connection overrides can be edited uniformly.
+ */
+export interface SkillRef {
+  id: string;
+  /** provider name → connection ID (overrides AgentConfig.connections) */
+  connections?: Record<string, string>;
+}
+
 export interface AgentConfig {
   description: string;
   provider: string;
   model: string;
   system_prompt: string;
-  skills: string[];
+  /** Accepts either plain skill names/IDs (legacy) or SkillRef objects. */
+  skills: Array<string | SkillRef>;
   mcp_sets: string[];
   mcp_urls: string[];
+  /** Workflow NAMES exposed to the agent as callable wf_<name> tools. */
+  workflows?: string[];
   builtin_tools: string[];
   max_iterations: number;
   tool_timeout: number;
   confirmation_required_tools?: string[];
   avatar_seed?: string;
+  /** provider name → connection ID (agent-level default binding) */
+  connections?: Record<string, string>;
 }
 
 export interface Agent {

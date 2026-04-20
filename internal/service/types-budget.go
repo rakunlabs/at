@@ -50,6 +50,7 @@ type ModelPricing struct {
 type AgentBudgetStorer interface {
 	GetAgentBudget(ctx context.Context, agentID string) (*AgentBudget, error)
 	SetAgentBudget(ctx context.Context, budget AgentBudget) error
+	ListAgentBudgets(ctx context.Context) ([]AgentBudget, error)
 	RecordAgentUsage(ctx context.Context, usage AgentUsageRecord) error
 	GetAgentUsage(ctx context.Context, agentID string, q *query.Query) (*ListResult[AgentUsageRecord], error)
 	GetAgentTotalSpend(ctx context.Context, agentID string) (float64, error)
@@ -96,7 +97,77 @@ type CostEvent struct {
 	InputTokens    int64   `json:"input_tokens"`
 	OutputTokens   int64   `json:"output_tokens"`
 	CostCents      float64 `json:"cost_cents"`
-	CreatedAt      string  `json:"created_at"`
+	// LatencyMs is the wall-clock duration of the LLM call, in milliseconds.
+	// Zero for externally-ingested events that don't report latency.
+	LatencyMs int64 `json:"latency_ms"`
+	// Status is "ok" for successful calls, "error" for failed ones.
+	Status string `json:"status"`
+	// ErrorCode is a stable short tag (e.g. "rate_limit", "timeout") when Status="error".
+	ErrorCode string `json:"error_code,omitempty"`
+	// ErrorMessage is a truncated human-readable error description.
+	ErrorMessage string `json:"error_message,omitempty"`
+	CreatedAt    string `json:"created_at"`
+}
+
+// ─── Usage Dashboard Aggregations ───
+
+// UsageFilter narrows the set of cost_events considered by usage aggregations.
+// All slice fields are OR-matched within themselves and AND-matched across fields.
+// Zero-value From/To means "no lower/upper bound".
+type UsageFilter struct {
+	From         string   // RFC3339, inclusive
+	To           string   // RFC3339, exclusive
+	Providers    []string // match any
+	Models       []string
+	AgentIDs     []string
+	OrgIDs       []string
+	ProjectIDs   []string
+	GoalIDs      []string
+	BillingCodes []string
+	// Status, when non-empty, restricts to rows with this status (e.g. "ok" or "error").
+	Status string
+}
+
+// UsageSummary holds a single aggregated usage row across an arbitrary filter.
+// Used both for the /usage/summary endpoint (single row) and as the row shape
+// returned by /usage/grouped (keyed by the requested GroupBy dimension).
+type UsageSummary struct {
+	Key            string  `json:"key,omitempty"`
+	InputTokens    int64   `json:"input_tokens"`
+	OutputTokens   int64   `json:"output_tokens"`
+	TotalTokens    int64   `json:"total_tokens"`
+	RequestCount   int64   `json:"request_count"`
+	ErrorCount     int64   `json:"error_count"`
+	CostCents      float64 `json:"cost_cents"`
+	AvgLatencyMs   float64 `json:"avg_latency_ms"`
+	MaxLatencyMs   int64   `json:"max_latency_ms"`
+	TotalLatencyMs int64   `json:"total_latency_ms"`
+	FirstEventAt   string  `json:"first_event_at,omitempty"`
+	LastEventAt    string  `json:"last_event_at,omitempty"`
+}
+
+// UsageTimeSeriesPoint is one bucket in a time series.
+type UsageTimeSeriesPoint struct {
+	Bucket       string  `json:"bucket"` // RFC3339 timestamp at bucket start
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	TotalTokens  int64   `json:"total_tokens"`
+	RequestCount int64   `json:"request_count"`
+	ErrorCount   int64   `json:"error_count"`
+	CostCents    float64 `json:"cost_cents"`
+	AvgLatencyMs float64 `json:"avg_latency_ms"`
+}
+
+// BudgetUtilization combines an agent's budget with its current spend.
+type BudgetUtilization struct {
+	AgentID      string  `json:"agent_id"`
+	AgentName    string  `json:"agent_name,omitempty"`
+	MonthlyLimit float64 `json:"monthly_limit"`
+	CurrentSpend float64 `json:"current_spend"`
+	PeriodStart  string  `json:"period_start,omitempty"`
+	PeriodEnd    string  `json:"period_end,omitempty"`
+	// UsagePercent is (CurrentSpend / MonthlyLimit) * 100, capped by clients for display.
+	UsagePercent float64 `json:"usage_percent"`
 }
 
 // CostEventStorer defines operations for per-call cost tracking.
@@ -107,4 +178,14 @@ type CostEventStorer interface {
 	GetCostByProject(ctx context.Context, projectID string) (float64, error)
 	GetCostByGoal(ctx context.Context, goalID string) (float64, error)
 	GetCostByBillingCode(ctx context.Context, billingCode string) (float64, error)
+
+	// GetUsageSummary aggregates all matching events into a single row.
+	GetUsageSummary(ctx context.Context, filter UsageFilter) (UsageSummary, error)
+	// GetUsageGrouped returns one aggregated row per distinct value of groupBy.
+	// Allowed groupBy values: "provider", "model", "agent", "organization",
+	// "project", "goal", "billing_code", "status".
+	GetUsageGrouped(ctx context.Context, filter UsageFilter, groupBy string, limit int) ([]UsageSummary, error)
+	// GetUsageTimeSeries returns aggregated buckets.
+	// Allowed bucket values: "hour", "day".
+	GetUsageTimeSeries(ctx context.Context, filter UsageFilter, bucket string) ([]UsageTimeSeriesPoint, error)
 }

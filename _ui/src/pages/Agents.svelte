@@ -5,8 +5,10 @@
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
+  import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
-  import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload } from 'lucide-svelte';
+  import { listConnections, type Connection } from '@/lib/api/connections';
+  import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload, Workflow as WorkflowIcon } from 'lucide-svelte';
   import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -20,7 +22,9 @@
   let providers = $state<ProviderRecord[]>([]);
   let skills = $state<Skill[]>([]);
   let mcpSets = $state<MCPSet[]>([]);
+  let workflows = $state<Workflow[]>([]);
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
+  let connections = $state<Connection[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
@@ -42,6 +46,7 @@
   let formSystemPrompt = $state('');
   let formSkills = $state<string[]>([]);
   let formMCPSets = $state<string[]>([]);
+  let formWorkflows = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formMCPs = $state<string[]>(['']);
   let formMaxIterations = $state(10);
@@ -49,6 +54,12 @@
   let formConfirmationTools = $state<string[]>([]);
   let formAvatarSeed = $state('');
   let showAvatarSeed = $state(false);
+  /**
+   * provider → connection_id. Agents bind a default connection per provider;
+   * tool handlers resolve provider-scoped variable keys (e.g. youtube_refresh_token)
+   * through this map before falling back to global variables.
+   */
+  let formConnections = $state<Record<string, string>>({});
 
   // Copy / Paste via system clipboard
   
@@ -62,12 +73,14 @@
         system_prompt: agent.config.system_prompt,
         skills: agent.config.skills || [],
         mcp_sets: agent.config.mcp_sets || [],
+        workflows: agent.config.workflows || [],
         builtin_tools: agent.config.builtin_tools || [],
         mcp_urls: agent.config.mcp_urls || [],
         max_iterations: agent.config.max_iterations,
         tool_timeout: agent.config.tool_timeout,
         confirmation_required_tools: agent.config.confirmation_required_tools || [],
         avatar_seed: agent.config.avatar_seed || '',
+        connections: agent.config.connections || {},
       },
     };
     try {
@@ -94,8 +107,10 @@
       formProvider = cfg.provider || '';
       formModel = cfg.model || '';
       formSystemPrompt = cfg.system_prompt || '';
-      formSkills = cfg.skills || [];
+      formSkills = (cfg.skills || []).map((s: any) => (typeof s === 'string' ? s : s?.id ?? ''));
       formMCPSets = cfg.mcp_sets || [];
+      formWorkflows = cfg.workflows || [];
+      formConnections = cfg.connections || {};
       formBuiltinTools = cfg.builtin_tools || [];
       formMCPs = cfg.mcp_urls && cfg.mcp_urls.length > 0 ? [...cfg.mcp_urls] : [''];
       formMaxIterations = cfg.max_iterations || 10;
@@ -157,13 +172,23 @@
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       
-      const [aResult, pResult, sResult, mResult, btResult] = await Promise.all([listAgents(params), listProviders(), listSkills(), listMCPSets({ _limit: 500 }), listBuiltinTools()]);
+      const [aResult, pResult, sResult, mResult, btResult, cResult, wResult] = await Promise.all([
+        listAgents(params),
+        listProviders(),
+        listSkills(),
+        listMCPSets({ _limit: 500 }),
+        listBuiltinTools(),
+        listConnections().catch(() => [] as Connection[]),
+        listWorkflows({ _limit: 500 }).catch(() => ({ data: [] as Workflow[], meta: {} as any })),
+      ]);
       agents = aResult.data || [];
       total = aResult.meta?.total || 0;
       providers = pResult.data || [];
       skills = sResult.data || [];
       mcpSets = mResult.data || [];
       builtinToolDefs = btResult.tools || [];
+      connections = cResult || [];
+      workflows = wResult.data || [];
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -195,6 +220,7 @@
     formSystemPrompt = '';
     formSkills = [];
     formMCPSets = [];
+    formWorkflows = [];
     formBuiltinTools = [];
     formMCPs = [''];
     formMaxIterations = 10;
@@ -202,6 +228,7 @@
     formConfirmationTools = [];
     formAvatarSeed = '';
     showAvatarSeed = false;
+    formConnections = {};
     editingId = null;
     showForm = false;
   }
@@ -219,14 +246,16 @@
     formProvider = agent.config.provider;
     formModel = agent.config.model;
     formSystemPrompt = agent.config.system_prompt;
-    formSkills = [...(agent.config.skills || [])];
+    formSkills = (agent.config.skills || []).map((s) => (typeof s === 'string' ? s : s.id));
     formMCPSets = [...(agent.config.mcp_sets || [])];
+    formWorkflows = [...(agent.config.workflows || [])];
     formBuiltinTools = [...(agent.config.builtin_tools || [])];
     formMCPs = agent.config.mcp_urls && agent.config.mcp_urls.length > 0 ? [...agent.config.mcp_urls] : [''];
     formMaxIterations = agent.config.max_iterations || 10;
     formToolTimeout = agent.config.tool_timeout || 60;
     formConfirmationTools = [...(agent.config.confirmation_required_tools || [])];
     formAvatarSeed = agent.config.avatar_seed || '';
+    formConnections = { ...(agent.config.connections || {}) };
     showForm = true;
   }
 
@@ -252,12 +281,14 @@
           system_prompt: formSystemPrompt,
           skills: formSkills,
           mcp_sets: formMCPSets,
+          workflows: formWorkflows,
           builtin_tools: formBuiltinTools,
           mcp_urls: cleanMCPs,
           max_iterations: formMaxIterations,
           tool_timeout: formToolTimeout,
           confirmation_required_tools: formConfirmationTools,
           avatar_seed: formAvatarSeed || undefined,
+          connections: Object.keys(formConnections).length > 0 ? formConnections : undefined,
         },
       };
 
@@ -527,6 +558,51 @@
               </div>
             </div>
 
+            <!-- Connections (agent-level, per provider) -->
+            {#if connections.length > 0}
+              {@const providersWithConnections = Array.from(new Set(connections.map((c) => c.provider))).sort()}
+              <div>
+                <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+                  Connections
+                  <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">
+                    — which account this agent uses for each provider
+                  </span>
+                </span>
+                <div class="space-y-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                  {#each providersWithConnections as provider (provider)}
+                    {@const options = connections.filter((c) => c.provider === provider)}
+                    <div class="flex items-center gap-2">
+                      <label for="form-conn-{provider}" class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary w-24 shrink-0 capitalize">
+                        {provider}
+                      </label>
+                      <select
+                        id="form-conn-{provider}"
+                        value={formConnections[provider] ?? ''}
+                        onchange={(e) => {
+                          const v = (e.target as HTMLSelectElement).value;
+                          if (v) {
+                            formConnections = { ...formConnections, [provider]: v };
+                          } else {
+                            const next = { ...formConnections };
+                            delete next[provider];
+                            formConnections = next;
+                          }
+                        }}
+                        class="flex-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text"
+                      >
+                        <option value="">(fall back to global variables)</option>
+                        {#each options as opt (opt.id)}
+                          <option value={opt.id}>
+                            {opt.name}{opt.account_label ? ` — ${opt.account_label}` : ''}
+                          </option>
+                        {/each}
+                      </select>
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {/if}
+
             <!-- MCP Servers -->
             <div>
               <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">MCP Servers</span>
@@ -539,6 +615,30 @@
                 {/each}
                 {#if mcpSets.length === 0}
                   <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No MCP servers available</div>
+                {/if}
+              </div>
+            </div>
+
+            <!-- Workflows -->
+            <div>
+              <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">
+                <span class="inline-flex items-center gap-1.5">
+                  <WorkflowIcon size={12} />
+                  Workflows
+                </span>
+                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-normal ml-2">
+                  Exposed to the agent as <code class="font-mono">wf_&lt;name&gt;</code> tools
+                </span>
+              </span>
+              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
+                {#each workflows as wf}
+                  <label class="flex items-center gap-2 cursor-pointer" title={wf.description || wf.name}>
+                    <input type="checkbox" bind:group={formWorkflows} value={wf.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
+                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{wf.name}</span>
+                  </label>
+                {/each}
+                {#if workflows.length === 0}
+                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No workflows available</div>
                 {/if}
               </div>
             </div>

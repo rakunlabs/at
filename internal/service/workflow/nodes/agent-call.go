@@ -227,13 +227,27 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// ─── Collect Tools ───
 
 	// toolHandlerInfo holds handler body and type for skill/inline tools.
+	// skillID identifies the owning skill (empty for inline/builtin tools),
+	// so per-skill connection overrides can be applied when the handler runs.
 	type toolHandlerInfo struct {
 		handler     string
 		handlerType string // "js" (default) or "bash"
+		skillID     string // skill ID (empty for inline/builtin/sub-agent)
 	}
 
 	// toolHandlers maps tool name → handler info for skill/inline tools.
 	toolHandlers := make(map[string]toolHandlerInfo)
+
+	// skillConnOverrides maps skill ID (or name) to a per-skill connection
+	// binding override, as declared on the agent's SkillRef entries.
+	skillConnOverrides := map[string]map[string]string{}
+	if preset != nil {
+		for _, sr := range preset.Config.Skills {
+			if sr.ID != "" && len(sr.Connections) > 0 {
+				skillConnOverrides[sr.ID] = sr.Connections
+			}
+		}
+	}
 
 	// mcpToolNames tracks which tool names come from MCP (dispatched via MCP client).
 	mcpToolNames := make(map[string]bool)
@@ -322,7 +336,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// Merge skill names from static config + agent preset + edge inputs.
 	rawSkillNames := append([]string{}, n.skillNames...)
 	if preset != nil {
-		rawSkillNames = append(rawSkillNames, preset.Config.Skills...)
+		rawSkillNames = append(rawSkillNames, service.StringsFromSkillRefs(preset.Config.Skills)...)
 	}
 
 	if edgeSkills, ok := inputs["skills"]; ok {
@@ -384,7 +398,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 		for _, t := range skill.Tools {
 			if t.Handler != "" {
-				toolHandlers[t.Name] = toolHandlerInfo{handler: t.Handler, handlerType: t.HandlerType}
+				toolHandlers[t.Name] = toolHandlerInfo{
+					handler:     t.Handler,
+					handlerType: t.HandlerType,
+					skillID:     skill.ID,
+				}
 			}
 			allTools = append(allTools, t)
 		}
@@ -408,6 +426,36 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			toolHandlers[def.Name] = toolHandlerInfo{
 				handler:     def.Name,
 				handlerType: "builtin",
+			}
+		}
+	}
+
+	// 3b. Workflow tools (from agent preset config).
+	//
+	// AgentConfig.Workflows holds workflow NAMES the agent wants to use as
+	// callable tools. Each resolves to `wf_<slug>` in the LLM's tool list and
+	// dispatches through reg.WorkflowExecutor. This is the direct, explicit
+	// alternative to wiring workflows through an MCP set.
+	if preset != nil && len(preset.Config.Workflows) > 0 && reg.WorkflowByNameLookup != nil {
+		for _, wfName := range preset.Config.Workflows {
+			if wfName == "" {
+				continue
+			}
+			wf, err := reg.WorkflowByNameLookup(ctx, wfName)
+			if err != nil {
+				logi.Ctx(ctx).Warn("agent_call: failed to look up attached workflow",
+					"workflow", wfName, "error", err)
+				continue
+			}
+			if wf == nil {
+				logi.Ctx(ctx).Warn("agent_call: attached workflow not found", "workflow", wfName)
+				continue
+			}
+			toolDef := buildWorkflowToolDef(wf)
+			allTools = append(allTools, toolDef)
+			toolHandlers[toolDef.Name] = toolHandlerInfo{
+				handler:     wf.ID, // store ID; executor will re-fetch if needed
+				handlerType: "workflow",
 			}
 		}
 	}
@@ -601,14 +649,38 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			}
 		}
 
+		callStart := time.Now()
 		resp, err := provider.Chat(ctx, model, messages, llmTools, nil)
+		latencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
+			// Record the failed call for the usage dashboard before returning.
+			if n.agentID != "" && reg.RecordUsage != nil {
+				if usageErr := reg.RecordUsage(ctx, workflow.UsageEvent{
+					AgentID:      n.agentID,
+					Model:        model,
+					Provider:     providerKey,
+					LatencyMs:    latencyMs,
+					Status:       "error",
+					ErrorCode:    classifyLLMError(err),
+					ErrorMessage: err.Error(),
+				}); usageErr != nil {
+					logi.Ctx(ctx).Warn("agent_call: failed to record error usage",
+						"agent_id", n.agentID, "error", usageErr)
+				}
+			}
 			return nil, fmt.Errorf("agent_call: chat failed (iteration %d): %w", iteration, err)
 		}
 
 		// Record token usage for cost tracking.
 		if n.agentID != "" && reg.RecordUsage != nil && resp.Usage.TotalTokens > 0 {
-			if usageErr := reg.RecordUsage(ctx, n.agentID, model, resp.Usage); usageErr != nil {
+			if usageErr := reg.RecordUsage(ctx, workflow.UsageEvent{
+				AgentID:   n.agentID,
+				Model:     model,
+				Provider:  providerKey,
+				Usage:     resp.Usage,
+				LatencyMs: latencyMs,
+				Status:    "ok",
+			}); usageErr != nil {
 				logi.Ctx(ctx).Warn("agent_call: failed to record usage",
 					"agent_id", n.agentID, "error", usageErr)
 			}
@@ -660,12 +732,47 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				// Dispatch to MCP client.
 				result, callErr = callMCPTool(ctx, mcpClients, tc.Name, tc.Arguments)
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
+				// Build per-tool VarLookup / VarLister that maps provider-scoped
+				// keys (e.g. "youtube_refresh_token") to the agent's bound
+				// Connection, falling back to the registry's global lookup.
+				// Per-skill overrides on the owning SkillRef take priority.
+				var (
+					toolVarLookup = reg.VarLookup
+					toolVarLister = reg.VarLister
+				)
+				if reg.ConnectionLookup != nil && preset != nil {
+					var perSkill map[string]string
+					if hi.skillID != "" {
+						perSkill = skillConnOverrides[hi.skillID]
+					}
+					bindings := workflow.ResolveAgentConnectionBindings(
+						ctx, reg.ConnectionLookup,
+						preset.Config.Connections, perSkill,
+					)
+					if len(bindings) > 0 {
+						toolVarLookup = workflow.WrapVarLookupWithConnections(reg.VarLookup, bindings)
+						toolVarLister = workflow.WrapVarListerWithConnections(reg.VarLister, bindings)
+					}
+				}
+
 				if hi.handlerType == "bash" {
 					// Execute bash handler.
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, reg.VarLister, toolTimeout)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
 					// Execute builtin tool via dispatcher.
 					result, callErr = reg.BuiltinToolDispatcher(ctx, tc.Name, tc.Arguments)
+				} else if hi.handlerType == "workflow" {
+					// Execute an agent-attached workflow via the engine-owned executor.
+					if reg.WorkflowExecutor == nil || reg.WorkflowLookup == nil {
+						callErr = fmt.Errorf("workflow executor not configured")
+					} else {
+						wf, lookupErr := reg.WorkflowLookup(ctx, hi.handler)
+						if lookupErr != nil || wf == nil {
+							callErr = fmt.Errorf("workflow %s not found: %w", hi.handler, lookupErr)
+						} else {
+							result, callErr = reg.WorkflowExecutor(ctx, wf, tc.Arguments)
+						}
+					}
 				} else if hi.handlerType == "agent" {
 					// Execute sub-agent.
 					// hi.handler contains the agent ID.
@@ -704,9 +811,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 						}
 					}
 				} else {
-					// Execute JS handler via Goja (default).
+					// Execute JS handler via Goja (default). Use the per-tool
+					// VarLookup so that provider-scoped keys resolve through
+					// the agent's connection bindings before global variables.
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
-						VarLookup:      reg.VarLookup,
+						VarLookup:      toolVarLookup,
 						UserPrefLookup: reg.UserPrefLookup,
 					})
 				}

@@ -316,8 +316,19 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	type toolHandlerInfo struct {
 		handler     string
 		handlerType string
+		skillID     string // skill ID owning this tool (empty for inline/builtin/delegate)
 	}
 	toolHandlers := make(map[string]toolHandlerInfo)
+
+	// skillConnOverrides maps skill ID to its per-skill connection bindings
+	// declared on the agent's SkillRef entries. Used to look up a per-tool
+	// connection override when the tool is dispatched below.
+	skillConnOverrides := map[string]map[string]string{}
+	for _, sr := range agent.Config.Skills {
+		if sr.ID != "" && len(sr.Connections) > 0 {
+			skillConnOverrides[sr.ID] = sr.Connections
+		}
+	}
 	mcpToolNames := make(map[string]bool)
 	var mcpClients []service.MCPClient
 	defer func() {
@@ -421,7 +432,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	// Skill tools
 	var skillPromptFragments []string
 	if s.skillStore != nil {
-		for _, nameOrID := range agent.Config.Skills {
+		for _, skillRef := range agent.Config.Skills {
+			nameOrID := skillRef.ID
 			skill, err := s.skillStore.GetSkill(ctx, nameOrID)
 			if err != nil {
 				slog.Warn("agentic loop: skill lookup failed", "skill", nameOrID, "error", err)
@@ -440,7 +452,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 			for _, t := range skill.Tools {
 				if t.Handler != "" {
-					toolHandlers[t.Name] = toolHandlerInfo{handler: t.Handler, handlerType: t.HandlerType}
+					toolHandlers[t.Name] = toolHandlerInfo{
+						handler:     t.Handler,
+						handlerType: t.HandlerType,
+						skillID:     skill.ID,
+					}
 				}
 				allTools = append(allTools, t)
 			}
@@ -737,7 +753,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 		}
 
+		callStart := time.Now()
 		resp, err := info.provider.Chat(ctx, model, llmMessages, llmTools, nil)
+		latencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
 			// Recover from corrupted tool call history — sanitize and retry once.
 			errStr := err.Error()
@@ -747,9 +765,23 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				slog.Warn("agentic loop: tool call history error, sanitizing and retrying",
 					"iteration", iteration, "error", err)
 				llmMessages = sanitizeLLMMessages(llmMessages)
+				callStart = time.Now()
 				resp, err = info.provider.Chat(ctx, model, llmMessages, llmTools, nil)
+				latencyMs = time.Since(callStart).Milliseconds()
 			}
 			if err != nil {
+				// Record failed call for usage dashboard.
+				if recordUsage := s.recordUsageFunc(); recordUsage != nil {
+					_ = recordUsage(ctx, workflow.UsageEvent{
+						AgentID:      session.AgentID,
+						Model:        model,
+						Provider:     info.providerType,
+						LatencyMs:    latencyMs,
+						Status:       "error",
+						ErrorCode:    classifyHTTPError(err),
+						ErrorMessage: err.Error(),
+					})
+				}
 				slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
 				onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("LLM error: %v", err)})
 				return nil
@@ -760,7 +792,14 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		if resp.Usage.TotalTokens > 0 {
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
-				if usageErr := recordUsage(ctx, session.AgentID, model, resp.Usage); usageErr != nil {
+				if usageErr := recordUsage(ctx, workflow.UsageEvent{
+					AgentID:   session.AgentID,
+					Model:     model,
+					Provider:  info.providerType,
+					Usage:     resp.Usage,
+					LatencyMs: latencyMs,
+					Status:    "ok",
+				}); usageErr != nil {
 					slog.Warn("agentic loop: failed to record usage",
 						"agent_id", session.AgentID, "error", usageErr)
 				}
@@ -886,8 +925,28 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			} else if mcpToolNames[tc.Name] {
 				result, callErr = callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
 			} else if hi, ok := toolHandlers[tc.Name]; ok {
+				// Build per-tool VarLookup/VarLister that maps provider-scoped
+				// keys (e.g. "youtube_refresh_token") to the agent's bound
+				// Connection, falling back to the user-scoped / global lookups.
+				toolVarLookup := varLookup
+				toolVarLister := varLister
+				if s.connectionStore != nil {
+					var perSkill map[string]string
+					if hi.skillID != "" {
+						perSkill = skillConnOverrides[hi.skillID]
+					}
+					bindings := workflow.ResolveAgentConnectionBindings(
+						ctx, s.connectionLookupFunc(),
+						agent.Config.Connections, perSkill,
+					)
+					if len(bindings) > 0 {
+						toolVarLookup = workflow.WrapVarLookupWithConnections(varLookup, bindings)
+						toolVarLister = workflow.WrapVarListerWithConnections(varLister, bindings)
+					}
+				}
+
 				if hi.handlerType == "bash" {
-					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, varLister, toolTimeout)
+					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
 					result, callErr = s.dispatchBuiltinTool(ctx, tc.Name, tc.Arguments)
 				} else if hi.handlerType == "delegate" {
@@ -927,7 +986,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					}
 				} else {
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
-						VarLookup:      varLookup,
+						VarLookup:      toolVarLookup,
 						UserPrefLookup: userPrefLookup,
 					})
 				}

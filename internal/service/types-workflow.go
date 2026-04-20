@@ -71,6 +71,10 @@ type WorkflowVersion struct {
 type WorkflowStorer interface {
 	ListWorkflows(ctx context.Context, q *query.Query) (*ListResult[Workflow], error)
 	GetWorkflow(ctx context.Context, id string) (*Workflow, error)
+	// GetWorkflowByName resolves a workflow by its (unique) name. Returns
+	// nil, nil when no workflow matches. Used by agents to attach workflows
+	// by name the same way they attach skills and MCP sets.
+	GetWorkflowByName(ctx context.Context, name string) (*Workflow, error)
 	CreateWorkflow(ctx context.Context, w Workflow) (*Workflow, error)
 	UpdateWorkflow(ctx context.Context, id string, w Workflow) (*Workflow, error)
 	DeleteWorkflow(ctx context.Context, id string) error

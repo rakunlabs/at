@@ -26,6 +26,7 @@
     ClipboardList,
     ScrollText,
     Receipt,
+    BarChart3,
     Plug,
     FolderOpen,
     Package,
@@ -405,6 +406,19 @@
         >
           <ScrollText size={14} />
           <span>Audit</span>
+        </a>
+        <a
+          href="#/usage"
+          onclick={(e) => navigate(e, "/usage")}
+          class={[
+            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+            $location === "/usage"
+              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+          ]}
+        >
+          <BarChart3 size={14} />
+          <span>Usage</span>
         </a>
         <a
           href="#/cost-events"

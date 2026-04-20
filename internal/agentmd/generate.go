@@ -24,6 +24,7 @@ func Generate(a *AgentMD) ([]byte, error) {
 		Skills                    []string `yaml:"skills,omitempty"`
 		MCPSets                   []string `yaml:"mcp_sets,omitempty"`
 		MCPs                      []string `yaml:"mcp_urls,omitempty"`
+		Workflows                 []string `yaml:"workflows,omitempty"`
 		BuiltinTools              []string `yaml:"builtin_tools,omitempty"`
 		MaxIterations             int      `yaml:"max_iterations,omitempty"`
 		ToolTimeout               int      `yaml:"tool_timeout,omitempty"`
@@ -39,6 +40,7 @@ func Generate(a *AgentMD) ([]byte, error) {
 		Skills:                    a.Skills,
 		MCPSets:                   a.MCPSets,
 		MCPs:                      a.MCPs,
+		Workflows:                 a.Workflows,
 		BuiltinTools:              a.BuiltinTools,
 		MaxIterations:             a.MaxIterations,
 		ToolTimeout:               a.ToolTimeout,

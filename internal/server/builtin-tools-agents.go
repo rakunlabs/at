@@ -47,7 +47,7 @@ func (s *Server) execAgentCreate(ctx context.Context, args map[string]any) (stri
 		data, _ := json.Marshal(raw)
 		var skills []string
 		if err := json.Unmarshal(data, &skills); err == nil {
-			config.Skills = skills
+			config.Skills = service.SkillRefsFromStrings(skills)
 		}
 	}
 
@@ -225,7 +225,7 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 		data, _ := json.Marshal(raw)
 		var skills []string
 		if err := json.Unmarshal(data, &skills); err == nil {
-			existing.Config.Skills = skills
+			existing.Config.Skills = service.SkillRefsFromStrings(skills)
 		}
 	}
 

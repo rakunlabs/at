@@ -468,12 +468,12 @@ func (s *Server) execTriggerCreate(ctx context.Context, args map[string]any) (st
 	}
 
 	trigger := service.Trigger{
-		WorkflowID:  workflowID,
-		TargetType:  service.TriggerTargetWorkflow,
-		TargetID:    workflowID,
-		Type:        triggerType,
-		Config:      config,
-		Enabled:     enabled,
+		WorkflowID: workflowID,
+		TargetType: service.TriggerTargetWorkflow,
+		TargetID:   workflowID,
+		Type:       triggerType,
+		Config:     config,
+		Enabled:    enabled,
 	}
 
 	if alias, ok := args["alias"].(string); ok && alias != "" {
@@ -662,7 +662,30 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
 	engine.SetRAGPageUpsert(s.ragPageUpsertFunc())
 	engine.SetMemoryRecall(s.memoryRecallFunc())
+	engine.SetConnectionLookup(s.connectionLookupFunc())
+	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
+	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
 	return engine
+}
+
+// workflowByNameLookupFunc returns a WorkflowByNameLookupFunc used by
+// agent_call nodes to resolve workflows attached to an agent via
+// AgentConfig.Workflows. Returns nil when no workflow store is configured.
+func (s *Server) workflowByNameLookupFunc() workflow.WorkflowByNameLookupFunc {
+	if s.workflowStore == nil {
+		return nil
+	}
+	return func(ctx context.Context, name string) (*service.Workflow, error) {
+		return s.workflowStore.GetWorkflowByName(ctx, name)
+	}
+}
+
+// workflowExecutorFunc returns a WorkflowExecutorFunc used by agent_call
+// nodes to dispatch `wf_<name>` tool calls via the server's workflow engine.
+func (s *Server) workflowExecutorFunc() workflow.WorkflowExecutorFunc {
+	return func(ctx context.Context, wf *service.Workflow, args map[string]any) (string, error) {
+		return s.executeWorkflowTool(ctx, wf, args)
+	}
 }
 
 // chatMessageCreatorFunc returns a ChatMessageCreatorFunc that creates messages

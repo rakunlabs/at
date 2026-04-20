@@ -191,6 +191,34 @@ marked.use({
       const escaped = text.replace(/</g, '&lt;').replace(/>/g, '&gt;');
       return `<pre><code>${escaped}</code></pre>\n`;
     },
+    // Wrap every GFM table in a horizontally-scrollable container so wide
+    // columns don't blow out the chat bubble width, and emit proper
+    // <thead>/<tbody> for styling.
+    table(token: { header: any[]; rows: any[][] }) {
+      // `this` is the Renderer instance (bound by marked). `this.parser`
+      // gives access to parseInline for cell content.
+      // eslint-disable-next-line @typescript-eslint/no-this-alias
+      const self: any = this;
+      let thead = '<thead><tr>';
+      for (const cell of token.header) {
+        const align = cell.align ? ` style="text-align:${cell.align}"` : '';
+        thead += `<th${align}>${self.parser.parseInline(cell.tokens)}</th>`;
+      }
+      thead += '</tr></thead>';
+
+      let tbody = '<tbody>';
+      for (const row of token.rows) {
+        tbody += '<tr>';
+        for (const cell of row) {
+          const align = cell.align ? ` style="text-align:${cell.align}"` : '';
+          tbody += `<td${align}>${self.parser.parseInline(cell.tokens)}</td>`;
+        }
+        tbody += '</tr>';
+      }
+      tbody += '</tbody>';
+
+      return `<div class="table-wrapper"><table>${thead}${tbody}</table></div>\n`;
+    },
   },
   gfm: true,
   breaks: false,
@@ -292,6 +320,117 @@ export function renderMarkdown(node: HTMLElement) {
     scheduleProcess();
   });
 
+  observer.observe(node, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+  });
+
+  return {
+    destroy() {
+      observer.disconnect();
+      if (timer) clearTimeout(timer);
+    },
+  };
+}
+
+// ─── Enhance Action: copy buttons + table wrappers ───
+
+/**
+ * Post-processes rendered markdown HTML to decorate code blocks and tables:
+ *   1. Adds a "Copy" button + language label to every <pre> code block.
+ *   2. Ensures every <table> is wrapped in a horizontally-scrollable div,
+ *      reusing the `.table-wrapper` emitted by the renderer when present.
+ * Idempotent (safe to re-run on live-typing preview or streaming content).
+ *
+ * Usage:
+ *   <div class="markdown-body" use:renderMarkdown use:enhanceMarkdown>...
+ */
+export function enhanceMarkdown(node: HTMLElement) {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  function enhanceCodeBlocks() {
+    const pres = node.querySelectorAll<HTMLPreElement>('pre');
+    for (const pre of pres) {
+      if (pre.dataset.enhanced === 'true') continue;
+      if (pre.classList.contains('mermaid-pending')) continue;
+      pre.dataset.enhanced = 'true';
+
+      const code = pre.querySelector('code');
+      if (!code) continue;
+
+      // Extract language from "language-xxx" class
+      const langMatch = code.className.match(/language-([\w-]+)/);
+      const lang = langMatch ? langMatch[1] : '';
+
+      pre.classList.add('md-pre');
+
+      // Language label (top-left)
+      if (lang && lang !== 'plaintext' && lang !== 'text') {
+        const label = document.createElement('span');
+        label.className = 'md-pre-lang';
+        label.textContent = lang;
+        pre.appendChild(label);
+      }
+
+      // Copy button (top-right)
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'md-pre-copy';
+      btn.textContent = 'Copy';
+      btn.setAttribute('aria-label', 'Copy code');
+      btn.addEventListener('click', async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const text = code.textContent ?? '';
+        try {
+          await navigator.clipboard.writeText(text);
+          btn.textContent = 'Copied';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = 'Copy';
+            btn.classList.remove('copied');
+          }, 1500);
+        } catch {
+          btn.textContent = 'Failed';
+          setTimeout(() => {
+            btn.textContent = 'Copy';
+          }, 1500);
+        }
+      });
+      pre.appendChild(btn);
+    }
+  }
+
+  function enhanceTables() {
+    const tables = node.querySelectorAll<HTMLTableElement>('table');
+    for (const table of tables) {
+      const parent = table.parentElement;
+      if (!parent) continue;
+      if (parent.classList.contains('table-wrapper')) continue;
+      const wrapper = document.createElement('div');
+      wrapper.className = 'table-wrapper';
+      parent.insertBefore(wrapper, table);
+      wrapper.appendChild(table);
+    }
+  }
+
+  function run() {
+    enhanceCodeBlocks();
+    enhanceTables();
+  }
+
+  function schedule() {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      run();
+    }, 50);
+  }
+
+  run();
+
+  const observer = new MutationObserver(schedule);
   observer.observe(node, {
     childList: true,
     subtree: true,
