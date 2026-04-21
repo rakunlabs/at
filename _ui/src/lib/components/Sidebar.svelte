@@ -251,6 +251,19 @@
       <span>Files</span>
     </a>
     <a
+      href="#/audit"
+      onclick={(e) => navigate(e, "/audit")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/audit"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <ScrollText size={14} />
+      <span>Audit</span>
+    </a>
+    <a
       href="#/guides"
       onclick={(e) => navigate(e, "/guides")}
       class={[
@@ -393,19 +406,6 @@
         >
           <ClipboardList size={14} />
           <span>Tasks</span>
-        </a>
-        <a
-          href="#/audit"
-          onclick={(e) => navigate(e, "/audit")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/audit"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <ScrollText size={14} />
-          <span>Audit</span>
         </a>
         <a
           href="#/usage"
