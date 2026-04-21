@@ -10,9 +10,9 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"text/template"
 	"time"
 
+	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
@@ -773,20 +773,17 @@ func (s *Server) resolveTemplate(tmplStr string, args map[string]any) (string, e
 		}
 	}
 
-	// Then resolve Go template placeholders.
+	// Then resolve Go template placeholders via mugo (internal/render), which
+	// brings the full sprig/mugo function set — strings, math, crypto, json,
+	// yaml, regex, time, etc. See https://rytsh.io/mugo/functions/reference.html
 	if !strings.Contains(resolved, "{{") {
 		return resolved, nil
 	}
 
-	tmpl, err := template.New("").Option("missingkey=zero").Parse(resolved)
+	out, err := render.ExecuteWithData(resolved, args)
 	if err != nil {
-		return "", fmt.Errorf("parse template: %w", err)
-	}
-
-	var buf bytes.Buffer
-	if err := tmpl.Execute(&buf, args); err != nil {
 		return "", fmt.Errorf("execute template: %w", err)
 	}
 
-	return buf.String(), nil
+	return string(out), nil
 }
