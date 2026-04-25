@@ -313,22 +313,17 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}
 
 	// 6. Collect tools from agent config.
+	//
+	// toolHandlerInfo tracks non-skill tools (inline/builtin/delegate).
+	// Skill tool handlers live inside the SkillRuntime (built below) and
+	// only become discoverable after the LLM activates each skill via the
+	// `load_skill` meta-tool — progressive disclosure.
 	type toolHandlerInfo struct {
 		handler     string
 		handlerType string
-		skillID     string // skill ID owning this tool (empty for inline/builtin/delegate)
+		skillID     string // empty for non-skill tools
 	}
 	toolHandlers := make(map[string]toolHandlerInfo)
-
-	// skillConnOverrides maps skill ID to its per-skill connection bindings
-	// declared on the agent's SkillRef entries. Used to look up a per-tool
-	// connection override when the tool is dispatched below.
-	skillConnOverrides := map[string]map[string]string{}
-	for _, sr := range agent.Config.Skills {
-		if sr.ID != "" && len(sr.Connections) > 0 {
-			skillConnOverrides[sr.ID] = sr.Connections
-		}
-	}
 	mcpToolNames := make(map[string]bool)
 	var mcpClients []service.MCPClient
 	defer func() {
@@ -429,38 +424,31 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}
 	}
 
-	// Skill tools
-	var skillPromptFragments []string
+	// Skills — LAZY (progressive disclosure).
+	//
+	// SkillRuntime resolves all attached SkillRefs into an in-memory catalog
+	// once. The catalog is rendered into the system prompt, and a single
+	// `load_skill` meta-tool is exposed. The skill's SystemPrompt + Tools
+	// are NOT injected until the LLM activates the skill.
+	var skillLookup workflow.SkillLookup
 	if s.skillStore != nil {
-		for _, skillRef := range agent.Config.Skills {
-			nameOrID := skillRef.ID
-			skill, err := s.skillStore.GetSkill(ctx, nameOrID)
+		skillLookup = func(nameOrID string) (*service.Skill, error) {
+			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
 			if err != nil {
-				slog.Warn("agentic loop: skill lookup failed", "skill", nameOrID, "error", err)
-				continue
+				return nil, err
 			}
-			if skill == nil {
-				skill, err = s.skillStore.GetSkillByName(ctx, nameOrID)
-				if err != nil || skill == nil {
-					slog.Warn("agentic loop: skill not found", "skill", nameOrID)
-					continue
-				}
+			if sk != nil {
+				return sk, nil
 			}
-
-			if skill.SystemPrompt != "" {
-				skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)
-			}
-			for _, t := range skill.Tools {
-				if t.Handler != "" {
-					toolHandlers[t.Name] = toolHandlerInfo{
-						handler:     t.Handler,
-						handlerType: t.HandlerType,
-						skillID:     skill.ID,
-					}
-				}
-				allTools = append(allTools, t)
-			}
+			return s.skillStore.GetSkillByName(ctx, nameOrID)
 		}
+	}
+	skillRuntime, err := workflow.NewSkillRuntime(ctx, skillLookup, agent.Config.Skills, nil,
+		func(name string, lookupErr error) {
+			slog.Warn("agentic loop: skill lookup failed", "skill", name, "error", lookupErr)
+		})
+	if err != nil {
+		return fmt.Errorf("agentic loop: skill runtime: %w", err)
 	}
 
 	// Builtin tools (from agent config).
@@ -536,11 +524,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	// 7. Build system prompt.
 	systemPrompt := agent.Config.SystemPrompt
-	for _, fragment := range skillPromptFragments {
+	if catalog := skillRuntime.CatalogSystemPrompt(); catalog != "" {
 		if systemPrompt != "" {
 			systemPrompt += "\n\n"
 		}
-		systemPrompt += fragment
+		systemPrompt += catalog
 	}
 
 	// Inject task context into system prompt if this session is task-linked.
@@ -640,14 +628,19 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		Content: content,
 	})
 
-	// Strip handlers from tools sent to LLM.
-	llmTools := make([]service.Tool, len(allTools))
-	for i, t := range allTools {
-		llmTools[i] = service.Tool{
+	// Strip handlers from tools sent to the LLM. Skill tools are appended
+	// per-iteration via skillRuntime.ActiveSkillTools() once the LLM
+	// activates them with load_skill (progressive disclosure).
+	baseLLMTools := make([]service.Tool, 0, len(allTools)+1)
+	for _, t := range allTools {
+		baseLLMTools = append(baseLLMTools, service.Tool{
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: t.InputSchema,
-		}
+		})
+	}
+	if skillRuntime.HasSkills() {
+		baseLLMTools = append(baseLLMTools, skillRuntime.LoadSkillToolDef())
 	}
 
 	// Resolve max iterations and tool timeout.
@@ -737,6 +730,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	// 10. Agentic loop.
 	for iteration := 0; iteration < maxIterations; iteration++ {
+		// Rebuild LLM tool list each iteration: base tools + tools from
+		// any skills the LLM has activated so far.
+		llmTools := append([]service.Tool{}, baseLLMTools...)
+		llmTools = append(llmTools, skillRuntime.ActiveSkillTools()...)
+
 		if err := ctx.Err(); err != nil {
 			onEvent(AgenticEvent{Type: "error", Error: "request cancelled"})
 			return nil
@@ -919,12 +917,29 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			var result string
 			var callErr error
 
-			if setName, ok := mcpSetToolMap[tc.Name]; ok {
+			// Resolve handler: skill tools (lazily loaded) take priority
+			// over statically registered handlers (builtin/delegate/etc).
+			skillHi, isSkillTool := skillRuntime.HandlerFor(tc.Name)
+
+			if tc.Name == workflow.LoadSkillToolName {
+				// Activate a skill. Its SystemPrompt is embedded inline in
+				// the tool_result text so the LLM picks it up on the next
+				// turn — preserving correct assistant→user tool-call
+				// sequencing for Anthropic/OpenAI providers.
+				result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
 				// Direct MCPSet tool — no HTTP round-trip.
 				result, callErr = s.callMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
 			} else if mcpToolNames[tc.Name] {
 				result, callErr = callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
-			} else if hi, ok := toolHandlers[tc.Name]; ok {
+			} else if hi, ok := toolHandlers[tc.Name]; ok || isSkillTool {
+				if isSkillTool {
+					hi = toolHandlerInfo{
+						handler:     skillHi.Handler,
+						handlerType: skillHi.HandlerType,
+						skillID:     skillHi.SkillID,
+					}
+				}
 				// Build per-tool VarLookup/VarLister that maps provider-scoped
 				// keys (e.g. "youtube_refresh_token") to the agent's bound
 				// Connection, falling back to the user-scoped / global lookups.
@@ -933,7 +948,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				if s.connectionStore != nil {
 					var perSkill map[string]string
 					if hi.skillID != "" {
-						perSkill = skillConnOverrides[hi.skillID]
+						perSkill = skillRuntime.SkillConnOverrides(hi.skillID)
 					}
 					bindings := workflow.ResolveAgentConnectionBindings(
 						ctx, s.connectionLookupFunc(),

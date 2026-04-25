@@ -1,0 +1,76 @@
+{
+  "slug": "fal-image",
+  "name": "FAL Image Generation (Nano Banana)",
+  "description": "Generate images via FAL.ai Nano Banana (Google Gemini Image): Standard (Flash), Pro, and Nano Banana 2 (Gemini 3 Pro Image). Synchronous, returns image URL and downloads to AT_WORK_DIR.",
+  "category": "Content Creation",
+  "tags": [
+    "image",
+    "fal",
+    "nano-banana",
+    "gemini",
+    "ai",
+    "generation"
+  ],
+  "required_variables": [
+    {
+      "key": "fal_api_key",
+      "description": "FAL.ai API key (get from https://fal.ai/dashboard/keys). Falls back to FAL_KEY.",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "fal_image",
+    "description": "Generate images via FAL.ai Nano Banana (Google Gemini Image).",
+    "system_prompt": "You can generate images using FAL.ai's Nano Banana model family (Google Gemini Image).\n\n## Tools\n- `generate_image_nano_banana` — Standard (Gemini 2.5 Flash Image). Fastest, cheapest. Good for iteration.\n- `generate_image_nano_banana_pro` — Pro. Higher quality, photorealistic.\n- `generate_image_nano_banana_2` — Nano Banana 2 (Gemini 3 Pro Image). Newest, best quality. **Default pick.**\n\n## Aspect ratio\n- '1:1' (square)\n- '16:9' (landscape — YouTube, ASMR cozy room)\n- '9:16' (vertical — Shorts/TikTok)\n- '4:3', '3:4', '21:9'\n\n## Output\nAll tools return JSON: `{ image_url: '<https url>', local_file: '<path in AT_WORK_DIR>', size_bytes: N, description: '...' }`.\n- `image_url` is the FAL CDN URL (can expire — use the local file).\n- `local_file` is already downloaded to AT_WORK_DIR — use that path directly for downstream tools.\n- `description` is FAL's auto-generated description of the image — verify the subject matches what you asked for.\n\n## Prompt rules\n- Name the exact subject FIRST.\n- Include camera angle, distance, framing, lighting.\n- Use full descriptive sentences — Gemini follows natural language well.\n- For photoreal output, end with: 'photorealistic, cinematic lighting'.\n- For ASMR/lofi: 'painterly digital art, cozy lo-fi aesthetic, warm color palette, soft shadows, hand-illustrated'.",
+    "tools": [
+      {
+        "name": "generate_image_nano_banana_2",
+        "description": "Generate an image with Nano Banana 2 (Gemini 3 Pro Image). Best quality. Default for hero scenes and final output. Synchronous — returns local mp4/png path directly.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": { "type": "string", "description": "Image description." },
+            "aspect_ratio": { "type": "string", "description": "'1:1','16:9','9:16','4:3','3:4','21:9'. Default '16:9'." },
+            "output_format": { "type": "string", "description": "'png' (default) or 'jpeg'." },
+            "num_images": { "type": "number", "description": "1-4. Default 1." }
+          },
+          "required": ["prompt"]
+        },
+        "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured (set fal_api_key or FAL_KEY)\"}'\n  exit 0\nfi\n\nPROMPT=\"$ARG_PROMPT\"\nAR=\"${ARG_ASPECT_RATIO:-16:9}\"\nFMT=\"${ARG_OUTPUT_FORMAT:-png}\"\nN=\"${ARG_NUM_IMAGES:-1}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nmkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid; print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/nano-banana-2-$UUID.$FMT\"\n\nPAYLOAD=$(python3 -c \"\nimport json,sys\nprint(json.dumps({'prompt': sys.argv[1], 'aspect_ratio': sys.argv[2], 'output_format': sys.argv[3], 'num_images': int(sys.argv[4])}))\n\" \"$PROMPT\" \"$AR\" \"$FMT\" \"$N\")\n\nRESP=$(curl -sS --max-time 120 -X POST 'https://fal.run/fal-ai/nano-banana-2' \\\n  -H \"Authorization: Key $API_KEY\" \\\n  -H 'Content-Type: application/json' \\\n  -d \"$PAYLOAD\")\n\nIMG_URL=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin)\n    imgs=d.get('images') or []\n    if imgs: print(imgs[0].get('url',''))\nexcept: pass\n\")\nDESC=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print((d.get('description') or '')[:500])\nexcept: pass\n\")\n\nif [ -z \"$IMG_URL\" ]; then\n  ERR=$(echo \"$RESP\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL returned no image URL\\\",\\\"raw\\\":$ERR}\"\n  exit 0\nfi\n\ncurl -sSL -o \"$OUT\" \"$IMG_URL\"\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\nESC_DESC=$(python3 -c 'import sys,json;print(json.dumps(sys.argv[1]))' \"$DESC\")\necho \"{\\\"image_url\\\":\\\"$IMG_URL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"description\\\":$ESC_DESC,\\\"model\\\":\\\"nano-banana-2\\\"}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "generate_image_nano_banana_pro",
+        "description": "Generate an image with Nano Banana Pro. Higher fidelity than the standard model.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": { "type": "string" },
+            "aspect_ratio": { "type": "string" },
+            "output_format": { "type": "string" },
+            "num_images": { "type": "number" }
+          },
+          "required": ["prompt"]
+        },
+        "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured\"}'; exit 0\nfi\nPROMPT=\"$ARG_PROMPT\"; AR=\"${ARG_ASPECT_RATIO:-16:9}\"; FMT=\"${ARG_OUTPUT_FORMAT:-png}\"; N=\"${ARG_NUM_IMAGES:-1}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid;print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/nano-banana-pro-$UUID.$FMT\"\nPAYLOAD=$(python3 -c \"import json,sys;print(json.dumps({'prompt':sys.argv[1],'aspect_ratio':sys.argv[2],'output_format':sys.argv[3],'num_images':int(sys.argv[4])}))\" \"$PROMPT\" \"$AR\" \"$FMT\" \"$N\")\nRESP=$(curl -sS --max-time 120 -X POST 'https://fal.run/fal-ai/nano-banana-pro' -H \"Authorization: Key $API_KEY\" -H 'Content-Type: application/json' -d \"$PAYLOAD\")\nIMG_URL=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); imgs=d.get('images') or []\n    if imgs: print(imgs[0].get('url',''))\nexcept: pass\")\nDESC=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print((d.get('description') or '')[:500])\nexcept: pass\")\nif [ -z \"$IMG_URL\" ]; then\n  ERR=$(echo \"$RESP\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL returned no image URL\\\",\\\"raw\\\":$ERR}\"; exit 0\nfi\ncurl -sSL -o \"$OUT\" \"$IMG_URL\"\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\nESC_DESC=$(python3 -c 'import sys,json;print(json.dumps(sys.argv[1]))' \"$DESC\")\necho \"{\\\"image_url\\\":\\\"$IMG_URL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"description\\\":$ESC_DESC,\\\"model\\\":\\\"nano-banana-pro\\\"}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "generate_image_nano_banana",
+        "description": "Generate an image with the standard Nano Banana (Gemini 2.5 Flash Image). Fast and cheap.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": { "type": "string" },
+            "aspect_ratio": { "type": "string" },
+            "output_format": { "type": "string" },
+            "num_images": { "type": "number" }
+          },
+          "required": ["prompt"]
+        },
+        "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured\"}'; exit 0\nfi\nPROMPT=\"$ARG_PROMPT\"; AR=\"${ARG_ASPECT_RATIO:-16:9}\"; FMT=\"${ARG_OUTPUT_FORMAT:-png}\"; N=\"${ARG_NUM_IMAGES:-1}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid;print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/nano-banana-$UUID.$FMT\"\nPAYLOAD=$(python3 -c \"import json,sys;print(json.dumps({'prompt':sys.argv[1],'aspect_ratio':sys.argv[2],'output_format':sys.argv[3],'num_images':int(sys.argv[4])}))\" \"$PROMPT\" \"$AR\" \"$FMT\" \"$N\")\nRESP=$(curl -sS --max-time 120 -X POST 'https://fal.run/fal-ai/nano-banana' -H \"Authorization: Key $API_KEY\" -H 'Content-Type: application/json' -d \"$PAYLOAD\")\nIMG_URL=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); imgs=d.get('images') or []\n    if imgs: print(imgs[0].get('url',''))\nexcept: pass\")\nDESC=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print((d.get('description') or '')[:500])\nexcept: pass\")\nif [ -z \"$IMG_URL\" ]; then\n  ERR=$(echo \"$RESP\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL returned no image URL\\\",\\\"raw\\\":$ERR}\"; exit 0\nfi\ncurl -sSL -o \"$OUT\" \"$IMG_URL\"\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\nESC_DESC=$(python3 -c 'import sys,json;print(json.dumps(sys.argv[1]))' \"$DESC\")\necho \"{\\\"image_url\\\":\\\"$IMG_URL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"description\\\":$ESC_DESC,\\\"model\\\":\\\"nano-banana\\\"}\"",
+        "handler_type": "bash"
+      }
+    ]
+  }
+}

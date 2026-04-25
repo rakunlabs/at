@@ -1,0 +1,227 @@
+{
+  "slug": "fal-video",
+  "name": "FAL Video Generation",
+  "description": "Generate cinematic AI videos using FAL.ai (Veo3, Kling 2.1, Hailuo-02, MiniMax). Supports text-to-video and image-to-video with seamless looping for ASMR / ambient backgrounds.",
+  "category": "Content Creation",
+  "tags": [
+    "video",
+    "fal",
+    "veo3",
+    "kling",
+    "hailuo",
+    "minimax",
+    "image-to-video",
+    "text-to-video",
+    "ai",
+    "content",
+    "asmr",
+    "loop"
+  ],
+  "required_variables": [
+    {
+      "key": "fal_api_key",
+      "description": "FAL.ai API key (get from https://fal.ai/dashboard/keys). Falls back to FAL_KEY if set.",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "fal_video",
+    "description": "Generate cinematic AI videos using FAL.ai (Veo3, Kling 2.1, Hailuo-02). Supports text-to-video and image-to-video, plus seamless loop creation via FFmpeg.",
+    "system_prompt": "You have access to FAL.ai video generation tools.\n\n## Available models\n\n**Image-to-video** (most useful for ASMR/ambient loops \u2014 start with a still and add gentle motion):\n- `fal-ai/kling-video/v2.1/pro/image-to-video` \u2014 Kling 2.1 Pro. High quality, good motion control. Duration: 5 or 10s.\n- `fal-ai/minimax/hailuo-02/standard/image-to-video` \u2014 Hailuo-02 Standard. Fast, cheap, great for subtle ambient motion. Duration: 6 or 10s.\n- `fal-ai/minimax/hailuo-02/pro/image-to-video` \u2014 Hailuo-02 Pro. Higher fidelity. Duration: 6 or 10s.\n- `fal-ai/veo3/image-to-video` \u2014 Veo3. Cinematic. Slowest and most expensive but highest quality. Duration: 4 or 8s.\n\n**Text-to-video**:\n- `fal-ai/veo3` \u2014 Veo3 text-to-video.\n- `fal-ai/kling-video/v2.1/pro/text-to-video` \u2014 Kling 2.1 Pro text-to-video.\n\n## Workflow\n\n### For ASMR / ambient backgrounds (image-to-video \u2192 seamless loop)\n1. Generate or download a still image (e.g. cozy fireplace office, snow falling outside window). Use Nano Banana via fal_image skill.\n2. Call `image_to_video` with a SUBTLE motion prompt \u2014 fire flicker, slow particle drift, candle flame, soft snow falling. Avoid camera moves; you want a static shot with internal motion so it tiles seamlessly.\n3. Recommended models for this use case:\n   - `fal-ai/minimax/hailuo-02/standard/image-to-video` (cheapest)\n   - `fal-ai/kling-video/v2.1/pro/image-to-video` (best quality)\n4. Once you have the clip, call `make_seamless_loop` with the desired total duration (e.g. 1800s for a 30-min video). It uses FFmpeg palindrome to produce a long file that loops the short clip seamlessly.\n\n### For short cinematic clips (text-to-video)\n1. Call `text_to_video` with a detailed prompt (camera, lighting, mood, motion).\n2. Each clip is 4-10 seconds. Stitch via `stitch_clips` if needed.\n\n## Aspect ratios\n- 16:9 horizontal: `aspect_ratio: \"16:9\"`\n- 9:16 vertical (Shorts/TikTok): `aspect_ratio: \"9:16\"`\n- 1:1 square: `aspect_ratio: \"1:1\"`\n\n## Tips\n- For ASMR ambient: prefer image-to-video with SUBTLE motion. Big camera moves break the loop illusion.\n- All `image_to_video` and `text_to_video` calls poll until completion \u2014 internal timeout is 10 min. They return a local mp4 path (already downloaded) plus the FAL CDN URL.\n- Use `check_task` if a job's request_id is given but the polling timed out.",
+    "tools": [
+      {
+        "name": "image_to_video",
+        "description": "Generate a video from a source image and motion prompt using FAL.ai. Polls until complete (up to 10 min) and downloads the result locally. Default model is Hailuo-02 Standard (cheap, good for ASMR/ambient loops).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "image_url": {
+              "type": "string",
+              "description": "Public HTTPS URL of the source image (FAL.ai must be able to fetch it). The Nano Banana CDN URL works directly."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Motion/animation prompt. For ASMR/ambient: 'gentle fire flicker, soft particle drift, very slow drift'. Keep it specific and short (under 200 chars)."
+            },
+            "model": {
+              "type": "string",
+              "description": "FAL model id. Options: 'fal-ai/minimax/hailuo-02/standard/image-to-video' (default, cheap), 'fal-ai/minimax/hailuo-02/pro/image-to-video', 'fal-ai/kling-video/v2.1/pro/image-to-video', 'fal-ai/veo3/image-to-video'."
+            },
+            "duration": {
+              "type": "string",
+              "description": "Clip duration. Hailuo: '6' or '10'. Kling: '5' or '10'. Veo3: '4' or '8'. Default: '6'."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "description": "Aspect ratio: '16:9' (default), '9:16', '1:1'."
+            }
+          },
+          "required": [
+            "image_url",
+            "prompt"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured (set fal_api_key or FAL_KEY)\"}'; exit 0\nfi\nMODEL=\"${ARG_MODEL:-fal-ai/minimax/hailuo-02/standard/image-to-video}\"\nIMG=\"$ARG_IMAGE_URL\"\nPROMPT=\"$ARG_PROMPT\"\nDUR=\"${ARG_DURATION:-6}\"\nAR=\"${ARG_ASPECT_RATIO:-16:9}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid;print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/fal-i2v-$UUID.mp4\"\n\nPAYLOAD=$(python3 -c \"\nimport json,sys\np={'prompt':sys.argv[1],'image_url':sys.argv[2],'duration':sys.argv[3],'aspect_ratio':sys.argv[4]}\nprint(json.dumps(p))\n\" \"$PROMPT\" \"$IMG\" \"$DUR\" \"$AR\")\n\nSUBMIT=$(curl -sS --max-time 30 -X POST \"https://queue.fal.run/$MODEL\" \\\n  -H \"Authorization: Key $API_KEY\" \\\n  -H 'Content-Type: application/json' \\\n  -d \"$PAYLOAD\")\n\nREQ_ID=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('request_id',''))\nexcept: pass\")\nSTATUS_URL=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('status_url',''))\nexcept: pass\")\nRESP_URL=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('response_url',''))\nexcept: pass\")\n\nif [ -z \"$REQ_ID\" ]; then\n  ERR=$(echo \"$SUBMIT\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL submit failed\\\",\\\"raw\\\":$ERR}\"; exit 0\nfi\n\n[ -z \"$STATUS_URL\" ] && STATUS_URL=\"https://queue.fal.run/$MODEL/requests/$REQ_ID/status\"\n[ -z \"$RESP_URL\" ] && RESP_URL=\"https://queue.fal.run/$MODEL/requests/$REQ_ID\"\n\n# Poll up to 10 minutes (60 attempts * 10s)\nfor i in $(seq 1 60); do\n  sleep 10\n  ST=$(curl -sS --max-time 15 -H \"Authorization: Key $API_KEY\" \"$STATUS_URL\")\n  STATUS=$(echo \"$ST\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('status',''))\nexcept: pass\")\n  if [ \"$STATUS\" = \"COMPLETED\" ]; then\n    RR=$(curl -sS --max-time 30 -H \"Authorization: Key $API_KEY\" \"$RESP_URL\")\n    VURL=$(echo \"$RR\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin)\n    v=d.get('video') or {}\n    print(v.get('url',''))\nexcept: pass\")\n    if [ -z \"$VURL\" ]; then\n      echo \"{\\\"error\\\":\\\"FAL returned no video URL\\\",\\\"request_id\\\":\\\"$REQ_ID\\\"}\"; exit 0\n    fi\n    curl -sSL -o \"$OUT\" \"$VURL\"\n    SIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\n    DURM=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$OUT\" 2>/dev/null || echo \"\")\n    echo \"{\\\"video_url\\\":\\\"$VURL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"duration\\\":\\\"$DURM\\\",\\\"request_id\\\":\\\"$REQ_ID\\\",\\\"model\\\":\\\"$MODEL\\\"}\"\n    exit 0\n  fi\n  if [ \"$STATUS\" = \"FAILED\" ] || [ \"$STATUS\" = \"ERROR\" ]; then\n    echo \"{\\\"error\\\":\\\"FAL job failed\\\",\\\"status\\\":\\\"$STATUS\\\",\\\"request_id\\\":\\\"$REQ_ID\\\"}\"; exit 0\n  fi\ndone\necho \"{\\\"error\\\":\\\"FAL job timed out\\\",\\\"request_id\\\":\\\"$REQ_ID\\\",\\\"status_url\\\":\\\"$STATUS_URL\\\",\\\"response_url\\\":\\\"$RESP_URL\\\",\\\"hint\\\":\\\"Use check_task with this request_id and model.\\\"}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "text_to_video",
+        "description": "Generate a video from a text prompt using FAL.ai. Polls until complete (up to 10 min) and downloads the result locally.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Text description of the video. Be specific about subject, camera, lighting, mood, motion."
+            },
+            "model": {
+              "type": "string",
+              "description": "FAL model id. Options: 'fal-ai/veo3' (default), 'fal-ai/kling-video/v2.1/pro/text-to-video', 'fal-ai/minimax/hailuo-02/standard/text-to-video'."
+            },
+            "duration": {
+              "type": "string",
+              "description": "Duration string. Veo3: '4' or '8'. Kling: '5' or '10'."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "description": "'16:9' (default), '9:16', '1:1'."
+            }
+          },
+          "required": [
+            "prompt"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured\"}'; exit 0\nfi\nMODEL=\"${ARG_MODEL:-fal-ai/veo3}\"\nPROMPT=\"$ARG_PROMPT\"\nDUR=\"${ARG_DURATION:-}\"\nAR=\"${ARG_ASPECT_RATIO:-16:9}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid;print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/fal-t2v-$UUID.mp4\"\n\nPAYLOAD=$(python3 -c \"\nimport json,sys\np={'prompt':sys.argv[1],'aspect_ratio':sys.argv[2]}\nif sys.argv[3]: p['duration']=sys.argv[3]\nprint(json.dumps(p))\n\" \"$PROMPT\" \"$AR\" \"$DUR\")\n\nSUBMIT=$(curl -sS --max-time 30 -X POST \"https://queue.fal.run/$MODEL\" -H \"Authorization: Key $API_KEY\" -H 'Content-Type: application/json' -d \"$PAYLOAD\")\nREQ_ID=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('request_id',''))\nexcept: pass\")\nif [ -z \"$REQ_ID\" ]; then\n  ERR=$(echo \"$SUBMIT\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL submit failed\\\",\\\"raw\\\":$ERR}\"; exit 0\nfi\nSTATUS_URL=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('status_url',''))\nexcept: pass\")\nRESP_URL=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('response_url',''))\nexcept: pass\")\n[ -z \"$STATUS_URL\" ] && STATUS_URL=\"https://queue.fal.run/$MODEL/requests/$REQ_ID/status\"\n[ -z \"$RESP_URL\" ] && RESP_URL=\"https://queue.fal.run/$MODEL/requests/$REQ_ID\"\nfor i in $(seq 1 60); do\n  sleep 10\n  ST=$(curl -sS --max-time 15 -H \"Authorization: Key $API_KEY\" \"$STATUS_URL\")\n  STATUS=$(echo \"$ST\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('status',''))\nexcept: pass\")\n  if [ \"$STATUS\" = \"COMPLETED\" ]; then\n    RR=$(curl -sS --max-time 30 -H \"Authorization: Key $API_KEY\" \"$RESP_URL\")\n    VURL=$(echo \"$RR\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin)\n    v=d.get('video') or {}\n    print(v.get('url',''))\nexcept: pass\")\n    if [ -z \"$VURL\" ]; then echo \"{\\\"error\\\":\\\"no video url\\\",\\\"request_id\\\":\\\"$REQ_ID\\\"}\"; exit 0; fi\n    curl -sSL -o \"$OUT\" \"$VURL\"\n    SIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\n    DURM=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$OUT\" 2>/dev/null || echo \"\")\n    echo \"{\\\"video_url\\\":\\\"$VURL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"duration\\\":\\\"$DURM\\\",\\\"request_id\\\":\\\"$REQ_ID\\\",\\\"model\\\":\\\"$MODEL\\\"}\"\n    exit 0\n  fi\n  if [ \"$STATUS\" = \"FAILED\" ] || [ \"$STATUS\" = \"ERROR\" ]; then\n    echo \"{\\\"error\\\":\\\"FAL job failed\\\",\\\"status\\\":\\\"$STATUS\\\",\\\"request_id\\\":\\\"$REQ_ID\\\"}\"; exit 0\n  fi\ndone\necho \"{\\\"error\\\":\\\"timeout\\\",\\\"request_id\\\":\\\"$REQ_ID\\\"}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "check_task",
+        "description": "Check status of a FAL.ai video task without polling. Useful for jobs that timed out.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "request_id": {
+              "type": "string",
+              "description": "The FAL request_id."
+            },
+            "model": {
+              "type": "string",
+              "description": "The FAL model id used to submit."
+            }
+          },
+          "required": [
+            "request_id",
+            "model"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then echo '{\"error\":\"FAL API key not configured\"}'; exit 0; fi\nREQ=\"$ARG_REQUEST_ID\"; MODEL=\"$ARG_MODEL\"\n\n# Build a list of candidate parent-model paths to try, since FAL truncates\n# routing to the parent (e.g. fal-ai/minimax/hailuo-02/standard/image-to-video\n# \u2192 status URL uses fal-ai/minimax). We try the full path first, then walk up.\nCANDIDATES=()\nPATH_TRY=\"$MODEL\"\nwhile [ -n \"$PATH_TRY\" ]; do\n  CANDIDATES+=(\"$PATH_TRY\")\n  # Strip last segment\n  if echo \"$PATH_TRY\" | grep -q '/'; then\n    PATH_TRY=$(echo \"$PATH_TRY\" | sed 's|/[^/]*$||')\n    # Stop after we've stripped down to one segment (e.g. \"fal-ai\")\n    if ! echo \"$PATH_TRY\" | grep -q '/'; then break; fi\n  else\n    break\n  fi\ndone\n\nFOUND_STATUS=\"\"\nFOUND_VURL=\"\"\nWORKING_PATH=\"\"\nfor P in \"${CANDIDATES[@]}\"; do\n  ST=$(curl -sS --max-time 15 -H \"Authorization: Key $API_KEY\" \"https://queue.fal.run/$P/requests/$REQ/status\")\n  STATUS=$(echo \"$ST\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('status',''))\nexcept: pass\")\n  if [ -n \"$STATUS\" ]; then\n    FOUND_STATUS=\"$STATUS\"\n    WORKING_PATH=\"$P\"\n    break\n  fi\ndone\n\nif [ -z \"$FOUND_STATUS\" ]; then\n  echo \"{\\\"status\\\":\\\"\\\",\\\"request_id\\\":\\\"$REQ\\\",\\\"error\\\":\\\"could not find task at any FAL parent path\\\",\\\"tried\\\":\\\"${CANDIDATES[*]}\\\"}\"\n  exit 0\nfi\n\nif [ \"$FOUND_STATUS\" = \"COMPLETED\" ]; then\n  RR=$(curl -sS --max-time 30 -H \"Authorization: Key $API_KEY\" \"https://queue.fal.run/$WORKING_PATH/requests/$REQ\")\n  FOUND_VURL=$(echo \"$RR\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); v=d.get('video') or {}; print(v.get('url',''))\nexcept: pass\")\nfi\n\nif [ -n \"$FOUND_VURL\" ]; then\n  echo \"{\\\"status\\\":\\\"$FOUND_STATUS\\\",\\\"request_id\\\":\\\"$REQ\\\",\\\"video_url\\\":\\\"$FOUND_VURL\\\",\\\"resolved_path\\\":\\\"$WORKING_PATH\\\"}\"\nelse\n  echo \"{\\\"status\\\":\\\"$FOUND_STATUS\\\",\\\"request_id\\\":\\\"$REQ\\\",\\\"resolved_path\\\":\\\"$WORKING_PATH\\\"}\"\nfi\n",
+        "handler_type": "bash"
+      },
+      {
+        "name": "download_video",
+        "description": "Download a video URL to AT_WORK_DIR and return the local path.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "video_url": {
+              "type": "string",
+              "description": "The video URL to download."
+            },
+            "filename": {
+              "type": "string",
+              "description": "Optional filename."
+            }
+          },
+          "required": [
+            "video_url"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\nVIDEO_URL=\"$ARG_VIDEO_URL\"\nFILENAME=\"$ARG_FILENAME\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nif [ -z \"$FILENAME\" ]; then\n  FILENAME=\"fal-$(python3 -c 'import uuid;print(uuid.uuid4().hex[:10])').mp4\"\nfi\nOUT=\"$WORK_DIR/$FILENAME\"\ncurl -sSL -o \"$OUT\" \"$VIDEO_URL\"\nif [ ! -s \"$OUT\" ]; then echo '{\"error\":\"download failed\"}'; exit 0; fi\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\nDUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$OUT\" 2>/dev/null || echo \"\")\necho \"{\\\"file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"duration\\\":\\\"$DUR\\\"}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "make_seamless_loop",
+        "description": "Take a short video clip and produce a longer seamlessly-looped video using FFmpeg palindrome (forward + reverse). Ideal for ASMR ambient backgrounds where you want a 30-min video from a short clip.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "input_video": {
+              "type": "string",
+              "description": "Local path or URL of the source clip."
+            },
+            "target_seconds": {
+              "type": "number",
+              "description": "Total output duration in seconds."
+            },
+            "mute": {
+              "type": "boolean",
+              "description": "Strip audio. Default true."
+            }
+          },
+          "required": [
+            "input_video",
+            "target_seconds"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\nIN=\"$ARG_INPUT_VIDEO\"; TARGET=\"${ARG_TARGET_SECONDS:-60}\"; MUTE=\"${ARG_MUTE:-true}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nSRC=\"$IN\"\nif echo \"$IN\" | grep -qE '^https?://'; then\n  SRC=\"$WORK_DIR/loop-src-$(python3 -c 'import uuid;print(uuid.uuid4().hex[:8])').mp4\"\n  curl -sSL -o \"$SRC\" \"$IN\"\nfi\nif [ ! -f \"$SRC\" ]; then echo '{\"error\":\"source not found\"}'; exit 0; fi\nDUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$SRC\")\nREV=\"$WORK_DIR/loop-rev-$(python3 -c 'import uuid;print(uuid.uuid4().hex[:8])').mp4\"\nffmpeg -y -i \"$SRC\" -vf reverse -af areverse -c:v libx264 -preset fast -crf 20 -c:a aac \"$REV\" 2>/dev/null\nUNIT=\"$WORK_DIR/loop-unit-$(python3 -c 'import uuid;print(uuid.uuid4().hex[:8])').mp4\"\ncat > \"$WORK_DIR/concat-pal.txt\" <<EOF\nfile '$SRC'\nfile '$REV'\nEOF\nffmpeg -y -f concat -safe 0 -i \"$WORK_DIR/concat-pal.txt\" -c copy \"$UNIT\" 2>/dev/null\nUDUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$UNIT\")\nTIMES=$(python3 -c \"import math;print(int(math.ceil(${TARGET}/${UDUR})))\")\n: > \"$WORK_DIR/concat-loop.txt\"\nfor i in $(seq 1 $TIMES); do echo \"file '$UNIT'\" >> \"$WORK_DIR/concat-loop.txt\"; done\nLOOPED=\"$WORK_DIR/loop-full-$(python3 -c 'import uuid;print(uuid.uuid4().hex[:8])').mp4\"\nffmpeg -y -f concat -safe 0 -i \"$WORK_DIR/concat-loop.txt\" -t \"$TARGET\" -c copy \"$LOOPED\" 2>/dev/null || \\\n  ffmpeg -y -f concat -safe 0 -i \"$WORK_DIR/concat-loop.txt\" -t \"$TARGET\" -c:v libx264 -preset fast -crf 20 -c:a aac \"$LOOPED\" 2>/dev/null\nFINAL=\"$LOOPED\"\nif [ \"$MUTE\" = \"true\" ] || [ \"$MUTE\" = \"True\" ] || [ \"$MUTE\" = \"1\" ]; then\n  MUTED=\"$WORK_DIR/loop-muted-$(python3 -c 'import uuid;print(uuid.uuid4().hex[:8])').mp4\"\n  ffmpeg -y -i \"$LOOPED\" -an -c:v copy \"$MUTED\" 2>/dev/null\n  FINAL=\"$MUTED\"\nfi\nFD=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$FINAL\")\nSIZE=$(stat -c%s \"$FINAL\" 2>/dev/null || stat -f%z \"$FINAL\")\necho \"{\\\"file\\\":\\\"$FINAL\\\",\\\"duration\\\":$FD,\\\"size_bytes\\\":$SIZE,\\\"unit_duration\\\":$UDUR,\\\"repeats\\\":$TIMES}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "stitch_clips",
+        "description": "Concatenate multiple video clips (URLs or local paths) into a single mp4.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "clips": {
+              "type": "array",
+              "description": "Array of video URLs or local paths in order.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "clips"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\nCLIPS=\"$ARG_CLIPS\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}/at-fal-stitch-$(python3 -c 'import uuid;print(uuid.uuid4().hex[:8])')\"\nmkdir -p \"$WORK_DIR\"\nLIST=\"$WORK_DIR/list.txt\"; : > \"$LIST\"\nIDX=0\nwhile IFS= read -r u; do\n  [ -z \"$u\" ] && continue\n  if echo \"$u\" | grep -qE '^https?://'; then\n    F=\"$WORK_DIR/clip_${IDX}.mp4\"; curl -sSL -o \"$F\" \"$u\"\n  else\n    F=\"$u\"\n  fi\n  echo \"file '$F'\" >> \"$LIST\"\n  IDX=$((IDX+1))\ndone < <(echo \"$CLIPS\" | python3 -c 'import sys,json;[print(u) for u in json.load(sys.stdin)]')\nOUT=\"$WORK_DIR/stitched.mp4\"\nffmpeg -y -f concat -safe 0 -i \"$LIST\" -c copy \"$OUT\" 2>/dev/null || \\\n  ffmpeg -y -f concat -safe 0 -i \"$LIST\" -c:v libx264 -preset fast -crf 20 -c:a aac \"$OUT\" 2>/dev/null\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\necho \"{\\\"file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE}\"",
+        "handler_type": "bash"
+      },
+      {
+        "name": "submit_image_to_video",
+        "description": "Submit an image-to-video job to FAL.ai and return immediately with the request_id. Use this when polling needs to happen separately (e.g. for jobs longer than the bash handler timeout). Pair with check_task or wait_for_video to retrieve the result.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "image_url": {
+              "type": "string",
+              "description": "Public HTTPS URL of source image."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "Motion prompt."
+            },
+            "model": {
+              "type": "string",
+              "description": "FAL model id. Default: fal-ai/minimax/hailuo-02/standard/image-to-video"
+            },
+            "duration": {
+              "type": "string",
+              "description": "Clip duration string."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "description": "'16:9','9:16','1:1'. Default '16:9'."
+            }
+          },
+          "required": [
+            "image_url",
+            "prompt"
+          ]
+        },
+        "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured\"}'; exit 0\nfi\nMODEL=\"${ARG_MODEL:-fal-ai/minimax/hailuo-02/standard/image-to-video}\"\nIMG=\"$ARG_IMAGE_URL\"\nPROMPT=\"$ARG_PROMPT\"\nDUR=\"${ARG_DURATION:-6}\"\nAR=\"${ARG_ASPECT_RATIO:-16:9}\"\n\nPAYLOAD=$(python3 -c \"\nimport json,sys\np={'prompt':sys.argv[1],'image_url':sys.argv[2],'duration':sys.argv[3],'aspect_ratio':sys.argv[4]}\nprint(json.dumps(p))\n\" \"$PROMPT\" \"$IMG\" \"$DUR\" \"$AR\")\n\nSUBMIT=$(curl -sS --max-time 30 -X POST \"https://queue.fal.run/$MODEL\" \\\n  -H \"Authorization: Key $API_KEY\" \\\n  -H 'Content-Type: application/json' \\\n  -d \"$PAYLOAD\")\n\nREQ_ID=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('request_id',''))\nexcept: pass\")\nSTATUS_URL=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('status_url',''))\nexcept: pass\")\nRESP_URL=$(echo \"$SUBMIT\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print(d.get('response_url',''))\nexcept: pass\")\n\nif [ -z \"$REQ_ID\" ]; then\n  ERR=$(echo \"$SUBMIT\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL submit failed\\\",\\\"raw\\\":$ERR}\"; exit 0\nfi\n[ -z \"$STATUS_URL\" ] && STATUS_URL=\"https://queue.fal.run/$MODEL/requests/$REQ_ID/status\"\n[ -z \"$RESP_URL\" ] && RESP_URL=\"https://queue.fal.run/$MODEL/requests/$REQ_ID\"\n\necho \"{\\\"request_id\\\":\\\"$REQ_ID\\\",\\\"model\\\":\\\"$MODEL\\\",\\\"status_url\\\":\\\"$STATUS_URL\\\",\\\"response_url\\\":\\\"$RESP_URL\\\",\\\"status\\\":\\\"IN_QUEUE\\\"}\"\n",
+        "handler_type": "bash"
+      }
+    ]
+  }
+}

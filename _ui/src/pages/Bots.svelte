@@ -39,6 +39,7 @@
   let formAllowedUsers = $state<{ value: string }[]>([]);
   let formPendingUsers = $state<string[]>([]);
   let formChannelAgents = $state<{ key: string; value: string }[]>([]);
+  let formAllowedAgentIDs = $state<string[]>([]);
   let formUserContainers = $state(false);
   let formContainerImage = $state('at-agent-runtime:latest');
   let formContainerCpu = $state('1');
@@ -109,6 +110,7 @@
     formAllowedUsers = [];
     formPendingUsers = [];
     formChannelAgents = [];
+    formAllowedAgentIDs = [];
     formUserContainers = false;
     formContainerImage = 'at-agent-runtime:latest';
     formContainerCpu = '1';
@@ -137,6 +139,7 @@
     formAllowedUsers = (bot.allowed_users || []).map((v) => ({ value: v }));
     formPendingUsers = bot.pending_users || [];
     formChannelAgents = Object.entries(bot.channel_agents || {}).map(([key, value]) => ({ key, value }));
+    formAllowedAgentIDs = bot.allowed_agent_ids || [];
     formUserContainers = bot.user_containers || false;
     formContainerImage = bot.container_image || 'at-agent-runtime:latest';
     formContainerCpu = bot.container_cpu || '1';
@@ -171,6 +174,7 @@
         token: formToken.trim(),
         default_agent_id: formDefaultAgentID,
         channel_agents: channelAgents,
+        allowed_agent_ids: formAllowedAgentIDs.filter(Boolean),
         access_mode: formAccessMode,
         pending_approval: formPendingApproval,
         allowed_users: formAllowedUsers.map((e) => e.value.trim()).filter(Boolean),
@@ -422,18 +426,27 @@
             </div>
 
             <!-- Default Agent -->
-            <div class="grid grid-cols-4 gap-3 items-center">
-              <label for="form-agent" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Default Agent</label>
-              <select
-                id="form-agent"
-                bind:value={formDefaultAgentID}
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
-              >
-                <option value="">Select an agent...</option>
-                {#each agents as a}
-                  <option value={a.id}>{a.name}</option>
-                {/each}
-              </select>
+            <div class="grid grid-cols-4 gap-3 items-start">
+              <label for="form-agent" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Default Agent</label>
+              <div class="col-span-3 space-y-1">
+                <select
+                  id="form-agent"
+                  bind:value={formDefaultAgentID}
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                >
+                  <option value="">Select an agent...</option>
+                  {#each agents as a (a.id)}
+                    <option value={a.id}>{a.name}</option>
+                  {/each}
+                  {#if formDefaultAgentID && !agents.find((a) => a.id === formDefaultAgentID)}
+                    <!-- Saved agent no longer in the list (deleted, paginated out, or still loading). Keep it selectable so we don't silently lose it on save. -->
+                    <option value={formDefaultAgentID}>Unknown agent ({formDefaultAgentID.slice(0, 12)}…)</option>
+                  {/if}
+                </select>
+                <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                  This agent receives all messages by default. Use Channel/Chat Overrides below to route specific channels to other agents.
+                </div>
+              </div>
             </div>
 
             <!-- Enabled -->
@@ -573,6 +586,65 @@
                   <Plus size={12} />
                   Add override
                 </button>
+              </div>
+            </div>
+
+            <!-- Allowed Agents for /switch -->
+            <div class="grid grid-cols-4 gap-3 items-start">
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Switchable Agents</span>
+              <div class="col-span-3 space-y-2">
+                <div class="text-[10px] text-gray-500 dark:text-dark-text-muted">
+                  Agents users may pick with <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">/switch &lt;name&gt;</code> and see in <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">/agents</code>.
+                  Leave empty to <strong>disable</strong> agent switching entirely (everyone stays on the Default Agent).
+                </div>
+                {#if agents.length === 0}
+                  <div class="text-xs text-gray-400 dark:text-dark-text-muted italic px-2 py-3 border border-dashed border-gray-200 dark:border-dark-border">
+                    No agents available. Create at least one agent first.
+                  </div>
+                {:else}
+                  <div class="border border-gray-200 dark:border-dark-border max-h-48 overflow-y-auto bg-white dark:bg-dark-elevated">
+                    {#each agents as a (a.id)}
+                      <label class="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-dark-base/50 cursor-pointer border-b border-gray-100 dark:border-dark-border last:border-b-0">
+                        <input
+                          type="checkbox"
+                          checked={formAllowedAgentIDs.includes(a.id)}
+                          onchange={(e) => {
+                            const checked = (e.currentTarget as HTMLInputElement).checked;
+                            if (checked) {
+                              if (!formAllowedAgentIDs.includes(a.id)) formAllowedAgentIDs = [...formAllowedAgentIDs, a.id];
+                            } else {
+                              formAllowedAgentIDs = formAllowedAgentIDs.filter((id) => id !== a.id);
+                            }
+                          }}
+                          class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle"
+                        />
+                        <span class="text-sm text-gray-700 dark:text-dark-text-secondary flex-1">{a.name}</span>
+                        <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{a.id.slice(0, 12)}…</span>
+                      </label>
+                    {/each}
+                  </div>
+                  <div class="flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      onclick={() => formAllowedAgentIDs = agents.map((a) => a.id)}
+                      class="text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    >Select all</button>
+                    <span class="text-gray-300 dark:text-dark-border">·</span>
+                    <button
+                      type="button"
+                      onclick={() => formAllowedAgentIDs = []}
+                      class="text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    >Clear all</button>
+                    <span class="ml-auto text-gray-400 dark:text-dark-text-muted">
+                      {formAllowedAgentIDs.length} selected
+                    </span>
+                  </div>
+                  {#if formDefaultAgentID && !formAllowedAgentIDs.includes(formDefaultAgentID)}
+                    <div class="text-[10px] text-amber-600 dark:text-amber-400 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40">
+                      Tip: the Default Agent is not in this list. Users who <code class="font-mono">/switch</code> away from it won't be able to switch back.
+                    </div>
+                  {/if}
+                {/if}
               </div>
             </div>
 

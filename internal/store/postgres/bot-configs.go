@@ -24,19 +24,50 @@ type botConfigRow struct {
 	Token           string         `db:"token"`
 	DefaultAgentID  string         `db:"default_agent_id"`
 	ChannelAgents   types.RawJSON  `db:"channel_agents"`
+	AllowedAgentIDs types.RawJSON  `db:"allowed_agent_ids"`
 	AccessMode      string         `db:"access_mode"`
 	PendingApproval bool           `db:"pending_approval"`
 	AllowedUsers    types.RawJSON  `db:"allowed_users"`
 	PendingUsers    types.RawJSON  `db:"pending_users"`
 	Enabled         bool           `db:"enabled"`
+	UserContainers  bool           `db:"user_containers"`
+	ContainerImage  string         `db:"container_image"`
+	ContainerCPU    string         `db:"container_cpu"`
+	ContainerMemory string         `db:"container_memory"`
+	SpeechToText    string         `db:"speech_to_text"`
+	WhisperModel    string         `db:"whisper_model"`
 	CreatedAt       time.Time      `db:"created_at"`
 	UpdatedAt       time.Time      `db:"updated_at"`
 	CreatedBy       sql.NullString `db:"created_by"`
 	UpdatedBy       sql.NullString `db:"updated_by"`
 }
 
+var botConfigColumns = []any{
+	"id", "platform", "name", "token", "default_agent_id",
+	"channel_agents", "allowed_agent_ids",
+	"access_mode", "pending_approval", "allowed_users", "pending_users",
+	"enabled",
+	"user_containers", "container_image", "container_cpu", "container_memory",
+	"speech_to_text", "whisper_model",
+	"created_at", "updated_at", "created_by", "updated_by",
+}
+
+func scanBotConfigRow(scanner interface {
+	Scan(...any) error
+}, row *botConfigRow) error {
+	return scanner.Scan(
+		&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID,
+		&row.ChannelAgents, &row.AllowedAgentIDs,
+		&row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers,
+		&row.Enabled,
+		&row.UserContainers, &row.ContainerImage, &row.ContainerCPU, &row.ContainerMemory,
+		&row.SpeechToText, &row.WhisperModel,
+		&row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+	)
+}
+
 func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service.ListResult[service.BotConfig], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableBotConfigs, q, "id", "platform", "name", "token", "default_agent_id", "channel_agents", "access_mode", "pending_approval", "allowed_users", "pending_users", "enabled", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableBotConfigs, q, botConfigColumns...)
 	if err != nil {
 		return nil, fmt.Errorf("build list bot configs query: %w", err)
 	}
@@ -50,7 +81,7 @@ func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service
 	var items []service.BotConfig
 	for rows.Next() {
 		var row botConfigRow
-		if err := rows.Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := scanBotConfigRow(rows, &row); err != nil {
 			return nil, fmt.Errorf("scan bot config row: %w", err)
 		}
 
@@ -75,7 +106,7 @@ func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service
 
 func (p *Postgres) GetBotConfig(ctx context.Context, id string) (*service.BotConfig, error) {
 	query, _, err := p.goqu.From(p.tableBotConfigs).
-		Select("id", "platform", "name", "token", "default_agent_id", "channel_agents", "access_mode", "pending_approval", "allowed_users", "pending_users", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select(botConfigColumns...).
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -83,7 +114,7 @@ func (p *Postgres) GetBotConfig(ctx context.Context, id string) (*service.BotCon
 	}
 
 	var row botConfigRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = scanBotConfigRow(p.db.QueryRowContext(ctx, query), &row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -98,6 +129,10 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
+	}
+	allowedAgentIDsJSON, err := json.Marshal(bot.AllowedAgentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal allowed_agent_ids: %w", err)
 	}
 	allowedUsersJSON, err := json.Marshal(bot.AllowedUsers)
 	if err != nil {
@@ -117,21 +152,28 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 
 	query, _, err := p.goqu.Insert(p.tableBotConfigs).Rows(
 		goqu.Record{
-			"id":               id,
-			"platform":         bot.Platform,
-			"name":             bot.Name,
-			"token":            bot.Token,
-			"default_agent_id": bot.DefaultAgentID,
-			"channel_agents":   types.RawJSON(channelAgentsJSON),
-			"access_mode":      bot.AccessMode,
-			"pending_approval": bot.PendingApproval,
-			"allowed_users":    types.RawJSON(allowedUsersJSON),
-			"pending_users":    types.RawJSON(pendingUsersJSON),
-			"enabled":          bot.Enabled,
-			"created_at":       now,
-			"updated_at":       now,
-			"created_by":       bot.CreatedBy,
-			"updated_by":       bot.UpdatedBy,
+			"id":                id,
+			"platform":          bot.Platform,
+			"name":              bot.Name,
+			"token":             bot.Token,
+			"default_agent_id":  bot.DefaultAgentID,
+			"channel_agents":    types.RawJSON(channelAgentsJSON),
+			"allowed_agent_ids": types.RawJSON(allowedAgentIDsJSON),
+			"access_mode":       bot.AccessMode,
+			"pending_approval":  bot.PendingApproval,
+			"allowed_users":     types.RawJSON(allowedUsersJSON),
+			"pending_users":     types.RawJSON(pendingUsersJSON),
+			"enabled":           bot.Enabled,
+			"user_containers":   bot.UserContainers,
+			"container_image":   bot.ContainerImage,
+			"container_cpu":     bot.ContainerCPU,
+			"container_memory":  bot.ContainerMemory,
+			"speech_to_text":    bot.SpeechToText,
+			"whisper_model":     bot.WhisperModel,
+			"created_at":        now,
+			"updated_at":        now,
+			"created_by":        bot.CreatedBy,
+			"updated_by":        bot.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -142,33 +184,17 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 		return nil, fmt.Errorf("create bot config: %w", err)
 	}
 
-	if bot.ChannelAgents == nil {
-		bot.ChannelAgents = map[string]string{}
-	}
-
-	return &service.BotConfig{
-		ID:              id,
-		Platform:        bot.Platform,
-		Name:            bot.Name,
-		Token:           bot.Token,
-		DefaultAgentID:  bot.DefaultAgentID,
-		ChannelAgents:   bot.ChannelAgents,
-		AccessMode:      bot.AccessMode,
-		PendingApproval: bot.PendingApproval,
-		AllowedUsers:    bot.AllowedUsers,
-		PendingUsers:    bot.PendingUsers,
-		Enabled:         bot.Enabled,
-		CreatedAt:       now.Format(time.RFC3339),
-		UpdatedAt:       now.Format(time.RFC3339),
-		CreatedBy:       bot.CreatedBy,
-		UpdatedBy:       bot.UpdatedBy,
-	}, nil
+	return p.GetBotConfig(ctx, id)
 }
 
 func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.BotConfig) (*service.BotConfig, error) {
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
+	}
+	allowedAgentIDsJSON, err := json.Marshal(bot.AllowedAgentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal allowed_agent_ids: %w", err)
 	}
 	allowedUsersJSON, err := json.Marshal(bot.AllowedUsers)
 	if err != nil {
@@ -186,18 +212,25 @@ func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.B
 	now := time.Now().UTC()
 
 	record := goqu.Record{
-		"platform":         bot.Platform,
-		"name":             bot.Name,
-		"token":            bot.Token,
-		"default_agent_id": bot.DefaultAgentID,
-		"channel_agents":   types.RawJSON(channelAgentsJSON),
-		"access_mode":      bot.AccessMode,
-		"pending_approval": bot.PendingApproval,
-		"allowed_users":    types.RawJSON(allowedUsersJSON),
-		"pending_users":    types.RawJSON(pendingUsersJSON),
-		"enabled":          bot.Enabled,
-		"updated_at":       now,
-		"updated_by":       bot.UpdatedBy,
+		"platform":          bot.Platform,
+		"name":              bot.Name,
+		"token":             bot.Token,
+		"default_agent_id":  bot.DefaultAgentID,
+		"channel_agents":    types.RawJSON(channelAgentsJSON),
+		"allowed_agent_ids": types.RawJSON(allowedAgentIDsJSON),
+		"access_mode":       bot.AccessMode,
+		"pending_approval":  bot.PendingApproval,
+		"allowed_users":     types.RawJSON(allowedUsersJSON),
+		"pending_users":     types.RawJSON(pendingUsersJSON),
+		"enabled":           bot.Enabled,
+		"user_containers":   bot.UserContainers,
+		"container_image":   bot.ContainerImage,
+		"container_cpu":     bot.ContainerCPU,
+		"container_memory":  bot.ContainerMemory,
+		"speech_to_text":    bot.SpeechToText,
+		"whisper_model":     bot.WhisperModel,
+		"updated_at":        now,
+		"updated_by":        bot.UpdatedBy,
 	}
 
 	query, _, err := p.goqu.Update(p.tableBotConfigs).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()
@@ -245,6 +278,13 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 		}
 	}
 
+	var allowedAgentIDs []string
+	if len(row.AllowedAgentIDs) > 0 {
+		if err := json.Unmarshal(row.AllowedAgentIDs, &allowedAgentIDs); err != nil {
+			return nil, fmt.Errorf("unmarshal allowed_agent_ids for %q: %w", row.ID, err)
+		}
+	}
+
 	var allowedUsers []string
 	if len(row.AllowedUsers) > 0 {
 		if err := json.Unmarshal(row.AllowedUsers, &allowedUsers); err != nil {
@@ -271,11 +311,18 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 		Token:           row.Token,
 		DefaultAgentID:  row.DefaultAgentID,
 		ChannelAgents:   channelAgents,
+		AllowedAgentIDs: allowedAgentIDs,
 		AccessMode:      accessMode,
 		PendingApproval: row.PendingApproval,
 		AllowedUsers:    allowedUsers,
 		PendingUsers:    pendingUsers,
 		Enabled:         row.Enabled,
+		UserContainers:  row.UserContainers,
+		ContainerImage:  row.ContainerImage,
+		ContainerCPU:    row.ContainerCPU,
+		ContainerMemory: row.ContainerMemory,
+		SpeechToText:    row.SpeechToText,
+		WhisperModel:    row.WhisperModel,
 		CreatedAt:       row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:       row.UpdatedAt.Format(time.RFC3339),
 		CreatedBy:       row.CreatedBy.String,

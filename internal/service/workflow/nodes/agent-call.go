@@ -226,28 +226,18 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// ─── Collect Tools ───
 
-	// toolHandlerInfo holds handler body and type for skill/inline tools.
-	// skillID identifies the owning skill (empty for inline/builtin tools),
-	// so per-skill connection overrides can be applied when the handler runs.
+	// toolHandlerInfo holds handler body and type for non-skill tools
+	// (builtin / workflow / sub-agent / inline). Skill tool handlers are
+	// owned by skillRuntime and resolved on the fly during dispatch — see
+	// progressive disclosure below.
 	type toolHandlerInfo struct {
 		handler     string
-		handlerType string // "js" (default) or "bash"
-		skillID     string // skill ID (empty for inline/builtin/sub-agent)
+		handlerType string // "builtin" | "workflow" | "agent" | inline JS body
+		skillID     string // empty for inline/builtin/sub-agent
 	}
 
-	// toolHandlers maps tool name → handler info for skill/inline tools.
+	// toolHandlers maps tool name → handler info for non-skill tools.
 	toolHandlers := make(map[string]toolHandlerInfo)
-
-	// skillConnOverrides maps skill ID (or name) to a per-skill connection
-	// binding override, as declared on the agent's SkillRef entries.
-	skillConnOverrides := map[string]map[string]string{}
-	if preset != nil {
-		for _, sr := range preset.Config.Skills {
-			if sr.ID != "" && len(sr.Connections) > 0 {
-				skillConnOverrides[sr.ID] = sr.Connections
-			}
-		}
-	}
 
 	// mcpToolNames tracks which tool names come from MCP (dispatched via MCP client).
 	mcpToolNames := make(map[string]bool)
@@ -332,81 +322,51 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
-	// 2. Skill tools (also collect system prompt fragments)
-	// Merge skill names from static config + agent preset + edge inputs.
-	rawSkillNames := append([]string{}, n.skillNames...)
-	if preset != nil {
-		rawSkillNames = append(rawSkillNames, service.StringsFromSkillRefs(preset.Config.Skills)...)
-	}
-
+	// 2. Skill tools — LAZY (progressive disclosure).
+	//
+	// Skills are resolved into a SkillRuntime catalog up-front (single DB
+	// pass per attached skill), but their SystemPrompt + Tools are NOT
+	// injected into the LLM context until the LLM activates each one via
+	// the `load_skill` meta-tool. The catalog and the meta-tool are added
+	// below in the system-prompt and llmTools build sections.
+	var extraSkillNames []string
+	extraSkillNames = append(extraSkillNames, n.skillNames...)
 	if edgeSkills, ok := inputs["skills"]; ok {
 		switch v := edgeSkills.(type) {
 		case string:
 			if v != "" {
-				rawSkillNames = append(rawSkillNames, strings.TrimSpace(v))
+				extraSkillNames = append(extraSkillNames, strings.TrimSpace(v))
 			}
 		case []string:
 			for _, s := range v {
 				if s != "" {
-					rawSkillNames = append(rawSkillNames, strings.TrimSpace(s))
+					extraSkillNames = append(extraSkillNames, strings.TrimSpace(s))
 				}
 			}
 		case []any:
 			for _, s := range v {
 				if name, ok := s.(string); ok && name != "" {
-					rawSkillNames = append(rawSkillNames, strings.TrimSpace(name))
+					extraSkillNames = append(extraSkillNames, strings.TrimSpace(name))
 				}
 			}
 		}
 	}
 
-	// Deduplicate skill names
-	seenSkills := make(map[string]bool)
-	var skillNames []string
-	for _, name := range rawSkillNames {
-		if name != "" && !seenSkills[name] {
-			seenSkills[name] = true
-			skillNames = append(skillNames, name)
-		}
+	var presetSkillRefs []service.SkillRef
+	if preset != nil {
+		presetSkillRefs = preset.Config.Skills
 	}
 
-	logi.Ctx(ctx).Info("agent_call: processing skills", "skills", skillNames)
-
-	var skillPromptFragments []string
-	for _, nameOrID := range skillNames {
-		if reg.SkillLookup == nil {
-			logi.Ctx(ctx).Warn("agent_call: skill lookup not configured, skipping skill", "skill", nameOrID)
-			continue
-		}
-		skill, err := reg.SkillLookup(nameOrID)
-		if err != nil {
-			logi.Ctx(ctx).Warn("agent_call: failed to look up skill, skipping",
-				"skill", nameOrID, "error", err)
-			continue
-		}
-		if skill == nil {
-			logi.Ctx(ctx).Warn("agent_call: skill not found, skipping", "skill", nameOrID)
-			continue
-		}
-
-		logi.Ctx(ctx).Debug("agent_call: loaded skill",
-			"name", skill.Name, "id", skill.ID, "tools_count", len(skill.Tools))
-
-		if skill.SystemPrompt != "" {
-			skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)
-		}
-
-		for _, t := range skill.Tools {
-			if t.Handler != "" {
-				toolHandlers[t.Name] = toolHandlerInfo{
-					handler:     t.Handler,
-					handlerType: t.HandlerType,
-					skillID:     skill.ID,
-				}
-			}
-			allTools = append(allTools, t)
-		}
+	skillRuntime, err := workflow.NewSkillRuntime(ctx, reg.SkillLookup, presetSkillRefs, extraSkillNames,
+		func(name string, lookupErr error) {
+			logi.Ctx(ctx).Warn("agent_call: skill lookup failed, skipping",
+				"skill", name, "error", lookupErr)
+		})
+	if err != nil {
+		return nil, fmt.Errorf("agent_call: skill runtime: %w", err)
 	}
+	logi.Ctx(ctx).Info("agent_call: skill catalog ready",
+		"count", len(skillRuntime.Catalog()))
 
 	// 3. Builtin tools (from agent preset config).
 	if preset != nil && len(preset.Config.BuiltinTools) > 0 && reg.BuiltinToolDispatcher != nil {
@@ -555,11 +515,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			systemPrompt = preset.Config.SystemPrompt
 		}
 	}
-	for _, fragment := range skillPromptFragments {
+	if catalog := skillRuntime.CatalogSystemPrompt(); catalog != "" {
 		if systemPrompt != "" {
 			systemPrompt += "\n\n"
 		}
-		systemPrompt += fragment
+		systemPrompt += catalog
 	}
 
 	// ─── Build Initial Prompt ───
@@ -625,18 +585,28 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 	}
 
-	// Strip handlers from tools sent to the LLM (Handler field is omitted by
-	// json tag when empty, but let's be explicit).
-	llmTools := make([]service.Tool, len(allTools))
-	for i, t := range allTools {
-		llmTools[i] = service.Tool{
+	// Build the base tool set sent to the LLM — handlers stripped because
+	// LLM providers (OpenAI / Anthropic) only consume Name/Description/Schema.
+	// Active skill tools are appended per-iteration after the LLM activates
+	// each skill via load_skill (progressive disclosure).
+	baseLLMTools := make([]service.Tool, 0, len(allTools)+1)
+	for _, t := range allTools {
+		baseLLMTools = append(baseLLMTools, service.Tool{
 			Name:        t.Name,
 			Description: t.Description,
 			InputSchema: t.InputSchema,
-		}
+		})
+	}
+	if skillRuntime.HasSkills() {
+		baseLLMTools = append(baseLLMTools, skillRuntime.LoadSkillToolDef())
 	}
 
 	for iteration := 0; maxIterations == 0 || iteration < maxIterations; iteration++ {
+		// Rebuild tool list each iteration: base tools + tools from any
+		// skills the LLM has activated so far.
+		llmTools := append([]service.Tool{}, baseLLMTools...)
+		llmTools = append(llmTools, skillRuntime.ActiveSkillTools()...)
+
 		// Check for cancellation between iterations.
 		if err := ctx.Err(); err != nil {
 			return nil, fmt.Errorf("agent_call: cancelled: %w", err)
@@ -728,10 +698,28 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			var result string
 			var callErr error
 
-			if mcpToolNames[tc.Name] {
+			// Resolve handler: skill tools (lazily loaded) take priority over
+			// statically registered handlers. Both are independent maps.
+			skillHi, isSkillTool := skillRuntime.HandlerFor(tc.Name)
+
+			if tc.Name == workflow.LoadSkillToolName {
+				// Activate a skill. Its SystemPrompt is embedded inline in
+				// the tool_result text so the LLM picks it up on the next
+				// turn — preserving correct assistant→user tool-call
+				// sequencing for Anthropic/OpenAI providers. Subsequent
+				// iterations expose the skill's tools via ActiveSkillTools.
+				result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
+			} else if mcpToolNames[tc.Name] {
 				// Dispatch to MCP client.
 				result, callErr = callMCPTool(ctx, mcpClients, tc.Name, tc.Arguments)
-			} else if hi, ok := toolHandlers[tc.Name]; ok {
+			} else if hi, ok := toolHandlers[tc.Name]; ok || isSkillTool {
+				if isSkillTool {
+					hi = toolHandlerInfo{
+						handler:     skillHi.Handler,
+						handlerType: skillHi.HandlerType,
+						skillID:     skillHi.SkillID,
+					}
+				}
 				// Build per-tool VarLookup / VarLister that maps provider-scoped
 				// keys (e.g. "youtube_refresh_token") to the agent's bound
 				// Connection, falling back to the registry's global lookup.
@@ -743,7 +731,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				if reg.ConnectionLookup != nil && preset != nil {
 					var perSkill map[string]string
 					if hi.skillID != "" {
-						perSkill = skillConnOverrides[hi.skillID]
+						perSkill = skillRuntime.SkillConnOverrides(hi.skillID)
 					}
 					bindings := workflow.ResolveAgentConnectionBindings(
 						ctx, reg.ConnectionLookup,

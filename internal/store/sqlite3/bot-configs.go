@@ -17,30 +17,61 @@ import (
 // ─── Bot Config CRUD ───
 
 type botConfigRow struct {
-	ID             string         `db:"id"`
-	Platform       string         `db:"platform"`
-	Name           string         `db:"name"`
-	Token          string         `db:"token"`
-	DefaultAgentID string         `db:"default_agent_id"`
-	ChannelAgents  sql.NullString `db:"channel_agents"`
+	ID              string         `db:"id"`
+	Platform        string         `db:"platform"`
+	Name            string         `db:"name"`
+	Token           string         `db:"token"`
+	DefaultAgentID  string         `db:"default_agent_id"`
+	ChannelAgents   sql.NullString `db:"channel_agents"`
+	AllowedAgentIDs sql.NullString `db:"allowed_agent_ids"`
 	AccessMode      string         `db:"access_mode"`
 	PendingApproval bool           `db:"pending_approval"`
 	AllowedUsers    sql.NullString `db:"allowed_users"`
 	PendingUsers    sql.NullString `db:"pending_users"`
-	Enabled        bool           `db:"enabled"`
-	CreatedAt      string         `db:"created_at"`
-	UpdatedAt      string         `db:"updated_at"`
-	CreatedBy      sql.NullString `db:"created_by"`
-	UpdatedBy      sql.NullString `db:"updated_by"`
+	Enabled         bool           `db:"enabled"`
+	UserContainers  bool           `db:"user_containers"`
+	ContainerImage  string         `db:"container_image"`
+	ContainerCPU    string         `db:"container_cpu"`
+	ContainerMemory string         `db:"container_memory"`
+	SpeechToText    string         `db:"speech_to_text"`
+	WhisperModel    string         `db:"whisper_model"`
+	CreatedAt       string         `db:"created_at"`
+	UpdatedAt       string         `db:"updated_at"`
+	CreatedBy       sql.NullString `db:"created_by"`
+	UpdatedBy       sql.NullString `db:"updated_by"`
+}
+
+var sqliteBotConfigColumns = []any{
+	"id", "platform", "name", "token", "default_agent_id",
+	"channel_agents", "allowed_agent_ids",
+	"access_mode", "pending_approval", "allowed_users", "pending_users",
+	"enabled",
+	"user_containers", "container_image", "container_cpu", "container_memory",
+	"speech_to_text", "whisper_model",
+	"created_at", "updated_at", "created_by", "updated_by",
+}
+
+func scanSQLiteBotConfigRow(scanner interface {
+	Scan(...any) error
+}, row *botConfigRow) error {
+	return scanner.Scan(
+		&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID,
+		&row.ChannelAgents, &row.AllowedAgentIDs,
+		&row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers,
+		&row.Enabled,
+		&row.UserContainers, &row.ContainerImage, &row.ContainerCPU, &row.ContainerMemory,
+		&row.SpeechToText, &row.WhisperModel,
+		&row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+	)
 }
 
 func (s *SQLite) ListBotConfigs(ctx context.Context, q *query.Query) (*service.ListResult[service.BotConfig], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableBotConfigs, q, "id", "platform", "name", "token", "default_agent_id", "channel_agents", "access_mode", "pending_approval", "allowed_users", "pending_users", "enabled", "created_at", "updated_at", "created_by", "updated_by")
+	sqlStr, total, err := s.buildListQuery(ctx, s.tableBotConfigs, q, sqliteBotConfigColumns...)
 	if err != nil {
 		return nil, fmt.Errorf("build list bot configs query: %w", err)
 	}
 
-	rows, err := s.db.QueryContext(ctx, sql)
+	rows, err := s.db.QueryContext(ctx, sqlStr)
 	if err != nil {
 		return nil, fmt.Errorf("list bot configs: %w", err)
 	}
@@ -49,7 +80,7 @@ func (s *SQLite) ListBotConfigs(ctx context.Context, q *query.Query) (*service.L
 	var items []service.BotConfig
 	for rows.Next() {
 		var row botConfigRow
-		if err := rows.Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := scanSQLiteBotConfigRow(rows, &row); err != nil {
 			return nil, fmt.Errorf("scan bot config row: %w", err)
 		}
 
@@ -73,8 +104,8 @@ func (s *SQLite) ListBotConfigs(ctx context.Context, q *query.Query) (*service.L
 }
 
 func (s *SQLite) GetBotConfig(ctx context.Context, id string) (*service.BotConfig, error) {
-	query, _, err := s.goqu.From(s.tableBotConfigs).
-		Select("id", "platform", "name", "token", "default_agent_id", "channel_agents", "access_mode", "pending_approval", "allowed_users", "pending_users", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+	queryStr, _, err := s.goqu.From(s.tableBotConfigs).
+		Select(sqliteBotConfigColumns...).
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -82,7 +113,7 @@ func (s *SQLite) GetBotConfig(ctx context.Context, id string) (*service.BotConfi
 	}
 
 	var row botConfigRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID, &row.ChannelAgents, &row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = scanSQLiteBotConfigRow(s.db.QueryRowContext(ctx, queryStr), &row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -97,6 +128,10 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
+	}
+	allowedAgentIDsJSON, err := json.Marshal(bot.AllowedAgentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal allowed_agent_ids: %w", err)
 	}
 	allowedUsersJSON, err := json.Marshal(bot.AllowedUsers)
 	if err != nil {
@@ -114,19 +149,26 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 		bot.AccessMode = "open"
 	}
 
-	query, _, err := s.goqu.Insert(s.tableBotConfigs).Rows(
+	queryStr, _, err := s.goqu.Insert(s.tableBotConfigs).Rows(
 		goqu.Record{
-			"id":               id,
-			"platform":         bot.Platform,
-			"name":             bot.Name,
-			"token":            bot.Token,
-			"default_agent_id": bot.DefaultAgentID,
-			"channel_agents":   string(channelAgentsJSON),
+			"id":                id,
+			"platform":          bot.Platform,
+			"name":              bot.Name,
+			"token":             bot.Token,
+			"default_agent_id":  bot.DefaultAgentID,
+			"channel_agents":    string(channelAgentsJSON),
+			"allowed_agent_ids": string(allowedAgentIDsJSON),
 			"access_mode":       bot.AccessMode,
 			"pending_approval":  bot.PendingApproval,
 			"allowed_users":     string(allowedUsersJSON),
 			"pending_users":     string(pendingUsersJSON),
 			"enabled":           bot.Enabled,
+			"user_containers":   bot.UserContainers,
+			"container_image":   bot.ContainerImage,
+			"container_cpu":     bot.ContainerCPU,
+			"container_memory":  bot.ContainerMemory,
+			"speech_to_text":    bot.SpeechToText,
+			"whisper_model":     bot.WhisperModel,
 			"created_at":        now.Format(time.RFC3339),
 			"updated_at":        now.Format(time.RFC3339),
 			"created_by":        bot.CreatedBy,
@@ -137,37 +179,21 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 		return nil, fmt.Errorf("build insert bot config query: %w", err)
 	}
 
-	if _, err := s.db.ExecContext(ctx, query); err != nil {
+	if _, err := s.db.ExecContext(ctx, queryStr); err != nil {
 		return nil, fmt.Errorf("create bot config: %w", err)
 	}
 
-	if bot.ChannelAgents == nil {
-		bot.ChannelAgents = map[string]string{}
-	}
-
-	return &service.BotConfig{
-		ID:             id,
-		Platform:       bot.Platform,
-		Name:           bot.Name,
-		Token:          bot.Token,
-		DefaultAgentID: bot.DefaultAgentID,
-		ChannelAgents:  bot.ChannelAgents,
-		AccessMode:      bot.AccessMode,
-		PendingApproval: bot.PendingApproval,
-		AllowedUsers:    bot.AllowedUsers,
-		PendingUsers:    bot.PendingUsers,
-		Enabled:         bot.Enabled,
-		CreatedAt:       now.Format(time.RFC3339),
-		UpdatedAt:       now.Format(time.RFC3339),
-		CreatedBy:       bot.CreatedBy,
-		UpdatedBy:       bot.UpdatedBy,
-	}, nil
+	return s.GetBotConfig(ctx, id)
 }
 
 func (s *SQLite) UpdateBotConfig(ctx context.Context, id string, bot service.BotConfig) (*service.BotConfig, error) {
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
+	}
+	allowedAgentIDsJSON, err := json.Marshal(bot.AllowedAgentIDs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal allowed_agent_ids: %w", err)
 	}
 	allowedUsersJSON, err := json.Marshal(bot.AllowedUsers)
 	if err != nil {
@@ -185,26 +211,33 @@ func (s *SQLite) UpdateBotConfig(ctx context.Context, id string, bot service.Bot
 	now := time.Now().UTC()
 
 	record := goqu.Record{
-		"platform":         bot.Platform,
-		"name":             bot.Name,
-		"token":            bot.Token,
-		"default_agent_id": bot.DefaultAgentID,
-		"channel_agents":   string(channelAgentsJSON),
+		"platform":          bot.Platform,
+		"name":              bot.Name,
+		"token":             bot.Token,
+		"default_agent_id":  bot.DefaultAgentID,
+		"channel_agents":    string(channelAgentsJSON),
+		"allowed_agent_ids": string(allowedAgentIDsJSON),
 		"access_mode":       bot.AccessMode,
 		"pending_approval":  bot.PendingApproval,
 		"allowed_users":     string(allowedUsersJSON),
 		"pending_users":     string(pendingUsersJSON),
 		"enabled":           bot.Enabled,
+		"user_containers":   bot.UserContainers,
+		"container_image":   bot.ContainerImage,
+		"container_cpu":     bot.ContainerCPU,
+		"container_memory":  bot.ContainerMemory,
+		"speech_to_text":    bot.SpeechToText,
+		"whisper_model":     bot.WhisperModel,
 		"updated_at":        now.Format(time.RFC3339),
 		"updated_by":        bot.UpdatedBy,
 	}
 
-	query, _, err := s.goqu.Update(s.tableBotConfigs).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()
+	queryStr, _, err := s.goqu.Update(s.tableBotConfigs).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update bot config query: %w", err)
 	}
 
-	res, err := s.db.ExecContext(ctx, query)
+	res, err := s.db.ExecContext(ctx, queryStr)
 	if err != nil {
 		return nil, fmt.Errorf("update bot config %q: %w", id, err)
 	}
@@ -221,14 +254,14 @@ func (s *SQLite) UpdateBotConfig(ctx context.Context, id string, bot service.Bot
 }
 
 func (s *SQLite) DeleteBotConfig(ctx context.Context, id string) error {
-	query, _, err := s.goqu.Delete(s.tableBotConfigs).
+	queryStr, _, err := s.goqu.Delete(s.tableBotConfigs).
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete bot config query: %w", err)
 	}
 
-	_, err = s.db.ExecContext(ctx, query)
+	_, err = s.db.ExecContext(ctx, queryStr)
 	if err != nil {
 		return fmt.Errorf("delete bot config %q: %w", id, err)
 	}
@@ -241,6 +274,13 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 	if row.ChannelAgents.Valid && row.ChannelAgents.String != "" {
 		if err := json.Unmarshal([]byte(row.ChannelAgents.String), &channelAgents); err != nil {
 			return nil, fmt.Errorf("unmarshal channel_agents for %q: %w", row.ID, err)
+		}
+	}
+
+	var allowedAgentIDs []string
+	if row.AllowedAgentIDs.Valid && row.AllowedAgentIDs.String != "" {
+		if err := json.Unmarshal([]byte(row.AllowedAgentIDs.String), &allowedAgentIDs); err != nil {
+			return nil, fmt.Errorf("unmarshal allowed_agent_ids for %q: %w", row.ID, err)
 		}
 	}
 
@@ -264,20 +304,27 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 	}
 
 	return &service.BotConfig{
-		ID:             row.ID,
-		Platform:       row.Platform,
-		Name:           row.Name,
-		Token:          row.Token,
-		DefaultAgentID: row.DefaultAgentID,
-		ChannelAgents:  channelAgents,
+		ID:              row.ID,
+		Platform:        row.Platform,
+		Name:            row.Name,
+		Token:           row.Token,
+		DefaultAgentID:  row.DefaultAgentID,
+		ChannelAgents:   channelAgents,
+		AllowedAgentIDs: allowedAgentIDs,
 		AccessMode:      accessMode,
 		PendingApproval: row.PendingApproval,
 		AllowedUsers:    allowedUsers,
 		PendingUsers:    pendingUsers,
 		Enabled:         row.Enabled,
-		CreatedAt:      row.CreatedAt,
-		UpdatedAt:      row.UpdatedAt,
-		CreatedBy:      row.CreatedBy.String,
-		UpdatedBy:      row.UpdatedBy.String,
+		UserContainers:  row.UserContainers,
+		ContainerImage:  row.ContainerImage,
+		ContainerCPU:    row.ContainerCPU,
+		ContainerMemory: row.ContainerMemory,
+		SpeechToText:    row.SpeechToText,
+		WhisperModel:    row.WhisperModel,
+		CreatedAt:       row.CreatedAt,
+		UpdatedAt:       row.UpdatedAt,
+		CreatedBy:       row.CreatedBy.String,
+		UpdatedBy:       row.UpdatedBy.String,
 	}, nil
 }
