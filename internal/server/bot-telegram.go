@@ -558,7 +558,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 	chatIDStr := fmt.Sprintf("%d", msg.Chat.ID)
 	userIDStr := fmt.Sprintf("%d", msg.From.ID)
 
-	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "telegram", userIDStr, chatIDStr, agentID)
+	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "telegram", tgCtx.botID, userIDStr, chatIDStr, agentID)
 	if err != nil {
 		slog.Error("telegram bot: session lookup failed", "error", err)
 		return

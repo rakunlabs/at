@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-svelte';
 
   let { data }: { data: Record<string, any> } = $props();
@@ -11,12 +12,16 @@
     options: string[];
   }
 
-  // Ensure fields array exists
-  if (!Array.isArray(data.fields)) {
-    data.fields = [];
-  }
+  // Ensure fields array exists (mutate prop in untracked context)
+  $effect.pre(() => {
+    untrack(() => {
+      if (!Array.isArray(data.fields)) {
+        data.fields = [];
+      }
+    });
+  });
 
-  let showFields = $state(data.fields.length > 0);
+  let showFields = $state(untrack(() => Array.isArray(data.fields) && data.fields.length > 0));
   let editingIndex = $state<number | null>(null);
 
   const fieldTypes = ['string', 'number', 'boolean', 'select', 'textarea'];

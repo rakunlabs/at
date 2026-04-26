@@ -7,6 +7,14 @@ export interface ChatSessionConfig {
   platform?: string;
   platform_user_id?: string;
   platform_channel_id?: string;
+  bot_config_id?: string;
+}
+
+export interface ListChatSessionsParams extends ListParams {
+  /** Filter sessions to only those tied to the given BotConfig. */
+  bot_config_id?: string;
+  /** Filter sessions to only those for a given platform (telegram, discord, …). */
+  platform?: string;
 }
 
 export interface ChatSession {
@@ -36,7 +44,7 @@ export interface ChatMessage {
   created_at: string;
 }
 
-export async function listChatSessions(params?: ListParams): Promise<ListResult<ChatSession>> {
+export async function listChatSessions(params?: ListChatSessionsParams): Promise<ListResult<ChatSession>> {
   const res = await api.get<ListResult<ChatSession>>('/chat/sessions', { params });
   return res.data;
 }

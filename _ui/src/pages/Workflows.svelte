@@ -299,22 +299,26 @@
           </div>
           <div class="p-4 space-y-4">
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>
-              <input
-                type="text"
-                bind:value={newName}
-                placeholder="Workflow name"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              />
+              <label class="contents">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</span>
+                <input
+                  type="text"
+                  bind:value={newName}
+                  placeholder="Workflow name"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                />
+              </label>
             </div>
             <div class="grid grid-cols-4 gap-3 items-center">
-              <label class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
-              <input
-                type="text"
-                bind:value={newDescription}
-                placeholder="Description (optional)"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              />
+              <label class="contents">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</span>
+                <input
+                  type="text"
+                  bind:value={newDescription}
+                  placeholder="Description (optional)"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                />
+              </label>
             </div>
             <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
               <button
@@ -453,8 +457,8 @@
       <div class="p-4 space-y-3 border-b border-gray-200 dark:border-dark-border shrink-0">
         <!-- Entry node selector -->
         {#if runInputNodes.length > 0}
-          <div>
-            <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-1">Entry Point</label>
+          <label class="block">
+            <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-1">Entry Point</span>
             <select
               bind:value={runSelectedEntry}
               onchange={() => syncFormFromEntry()}
@@ -465,7 +469,7 @@
                 <option value={node.id}>{getInputNodeLabel(node)}</option>
               {/each}
             </select>
-          </div>
+          </label>
         {:else}
           <div class="text-xs text-gray-400 dark:text-dark-text-muted">No input nodes found in this workflow.</div>
         {/if}
@@ -476,20 +480,20 @@
           {@const fields = node ? getInputNodeFields(node) : []}
           <div class="space-y-2.5">
             <div class="flex items-center justify-between">
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</label>
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</span>
               <button
                 onclick={() => { runUseForm = false; runInputsJson = JSON.stringify(runFormValues, null, 2); }}
                 class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
               >Switch to JSON</button>
             </div>
             {#each fields as field}
-              <div>
-                <label class="text-[10px] font-medium text-gray-600 dark:text-dark-text-secondary block mb-0.5">
+              <label class="block">
+                <span class="text-[10px] font-medium text-gray-600 dark:text-dark-text-secondary block mb-0.5">
                   {field.name}
                   {#if field.description}
                     <span class="font-normal text-gray-400 dark:text-dark-text-muted ml-1">— {field.description}</span>
                   {/if}
-                </label>
+                </span>
                 {#if field.type === 'select' && field.options}
                   <select
                     value={runFormValues[field.name] ?? field.default ?? ''}
@@ -537,13 +541,13 @@
                     class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
                   />
                 {/if}
-              </div>
+              </label>
             {/each}
           </div>
         {:else}
-          <div>
+          <label class="block">
             <div class="flex items-center justify-between mb-1">
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs (JSON)</label>
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs (JSON)</span>
               {#if runInputNodes.find(n => n.id === runSelectedEntry)?.data?.fields}
                 <button
                   onclick={() => { syncFormFromEntry(); }}
@@ -558,7 +562,7 @@
               class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-3 py-2 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
               placeholder={'{"key": "value"}'}
             ></textarea>
-          </div>
+          </label>
         {/if}
 
         <!-- Run / Stop buttons -->

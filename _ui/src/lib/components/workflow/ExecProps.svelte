@@ -1,9 +1,14 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import CodeExpander from './CodeExpander.svelte';
 
   let { data }: { data: Record<string, any> } = $props();
 
-  if (!data.language) data.language = 'bash';
+  $effect.pre(() => {
+    untrack(() => {
+      if (!data.language) data.language = 'bash';
+    });
+  });
 
   let codeLang = $derived(data.language === 'python' ? 'python' : 'bash');
   let codePlaceholder = $derived(data.language === 'python'

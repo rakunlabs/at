@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { push } from 'svelte-spa-router';
@@ -242,8 +243,12 @@
 
   // Initial load
   loadReferenceData();
-  if (viewMode === 'board') loadAll();
-  else load();
+  $effect(() => {
+    untrack(() => {
+      if (viewMode === 'board') loadAll();
+      else load();
+    });
+  });
 
   function refresh() {
     if (viewMode === 'board') loadAll();

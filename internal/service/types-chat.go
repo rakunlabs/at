@@ -14,6 +14,10 @@ type ChatSessionConfig struct {
 	Platform          string `json:"platform,omitempty"`
 	PlatformUserID    string `json:"platform_user_id,omitempty"`
 	PlatformChannelID string `json:"platform_channel_id,omitempty"`
+	// BotConfigID scopes a bot-driven session to the specific BotConfig
+	// that received the message. Without this, two bots talking to the
+	// same Telegram/Discord chat would share a single session row.
+	BotConfigID string `json:"bot_config_id,omitempty"`
 }
 
 // ChatSession represents a persistent chat session tied to an agent.
@@ -50,7 +54,7 @@ type ChatMessage struct {
 type ChatSessionStorer interface {
 	ListChatSessions(ctx context.Context, q *query.Query) (*ListResult[ChatSession], error)
 	GetChatSession(ctx context.Context, id string) (*ChatSession, error)
-	GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID string) (*ChatSession, error)
+	GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID, botConfigID string) (*ChatSession, error)
 	GetChatSessionByTaskID(ctx context.Context, taskID string) (*ChatSession, error)
 	CreateChatSession(ctx context.Context, session ChatSession) (*ChatSession, error)
 	UpdateChatSession(ctx context.Context, id string, session ChatSession) (*ChatSession, error)

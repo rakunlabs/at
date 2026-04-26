@@ -650,7 +650,8 @@
 
             <!-- Speech-to-Text -->
             <div class="grid grid-cols-4 gap-3 items-start">
-              <label class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Voice Transcription</label>
+              <label class="contents">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Voice Transcription</span>
               <div class="col-span-3 space-y-2">
                 <select
                   bind:value={formSpeechToText}
@@ -685,6 +686,7 @@
                   </div>
                 {/if}
               </div>
+              </label>
             </div>
 
             <!-- Per-User Container Isolation -->
@@ -698,21 +700,21 @@
                   Each bot user gets their own isolated Docker container. Files, packages, and state are completely separate between users.
                 </div>
                 <div class="grid grid-cols-3 gap-2">
-                  <div>
-                    <label class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</label>
+                  <label class="block">
+                    <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</span>
                     <input type="text" bind:value={formContainerImage} placeholder="at-agent-runtime:latest"
                       class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU</label>
+                  </label>
+                  <label class="block">
+                    <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU</span>
                     <input type="text" bind:value={formContainerCpu} placeholder="1"
                       class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text" />
-                  </div>
-                  <div>
-                    <label class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory</label>
+                  </label>
+                  <label class="block">
+                    <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory</span>
                     <input type="text" bind:value={formContainerMemory} placeholder="2g"
                       class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text" />
-                  </div>
+                  </label>
                 </div>
                 <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
                   Build image: <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">docker build -f Dockerfile.agent-runtime -t {formContainerImage} .</code>

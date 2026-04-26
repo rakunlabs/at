@@ -558,29 +558,29 @@
       </div>
 
       <div class="p-4 space-y-3">
-        <div>
-          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+        <label class="block">
+          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
             Name <span class="text-red-500">*</span>
-          </label>
+          </span>
           <input
             type="text"
             bind:value={formName}
             placeholder="e.g. Main Channel"
             class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent"
           />
-        </div>
+        </label>
 
-        <div>
-          <label class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+        <label class="block">
+          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
             Description
-          </label>
+          </span>
           <input
             type="text"
             bind:value={formDescription}
             placeholder="Optional note for future-you"
             class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent"
           />
-        </div>
+        </label>
 
         <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
           <div class="flex items-center justify-between mb-2">
@@ -596,8 +596,8 @@
           </div>
 
           <div class="space-y-2">
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Client ID</label>
+            <label class="block">
+              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Client ID</span>
               <input
                 type="text"
                 bind:value={formClientID}
@@ -606,14 +606,14 @@
                   : 'Paste from Google Cloud Console'}
                 class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
               />
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+            </label>
+            <label class="block">
+              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
                 Client Secret
                 {#if editor.kind === 'edit' && editor.connection.credentials.client_secret_set}
                   <span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>
                 {/if}
-              </label>
+              </span>
               <input
                 type={showSecrets ? 'text' : 'password'}
                 bind:value={formClientSecret}
@@ -622,15 +622,15 @@
                   : 'GOCSPX-...'}
                 class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
               />
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+            </label>
+            <label class="block">
+              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
                 Refresh Token
                 {#if editor.kind === 'edit' && editor.connection.credentials.refresh_token_set}
                   <span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>
                 {/if}
                 <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">— leave blank to obtain via OAuth</span>
-              </label>
+              </span>
               <input
                 type={showSecrets ? 'text' : 'password'}
                 bind:value={formRefreshToken}
@@ -639,19 +639,19 @@
                   : 'Use "Connect" after saving to get this automatically'}
                 class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
               />
-            </div>
-            <div>
-              <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+            </label>
+            <label class="block">
+              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
                 API Key
                 <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">— only for token-based providers</span>
-              </label>
+              </span>
               <input
                 type={showSecrets ? 'text' : 'password'}
                 bind:value={formAPIKey}
                 placeholder="(optional)"
                 class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
               />
-            </div>
+            </label>
           </div>
         </div>
       </div>

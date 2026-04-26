@@ -216,14 +216,14 @@
 
       {#if showAddSource}
         <div class="p-3 border-b border-gray-100 dark:border-dark-border flex items-end gap-2">
-          <div class="flex-1">
-            <label class="block text-[10px] text-gray-400 dark:text-dark-text-muted mb-0.5">Repository URL</label>
+          <label class="flex-1 block">
+            <span class="block text-[10px] text-gray-400 dark:text-dark-text-muted mb-0.5">Repository URL</span>
             <input type="text" bind:value={sourceURL} placeholder="https://github.com/rakunlabs/arpa" class="w-full px-2 py-1 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none" />
-          </div>
-          <div class="w-24">
-            <label class="block text-[10px] text-gray-400 dark:text-dark-text-muted mb-0.5">Branch</label>
+          </label>
+          <label class="w-24 block">
+            <span class="block text-[10px] text-gray-400 dark:text-dark-text-muted mb-0.5">Branch</span>
             <input type="text" bind:value={sourceBranch} placeholder="main" class="w-full px-2 py-1 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none" />
-          </div>
+          </label>
           <button onclick={handleAddSource} disabled={!sourceURL || addingSource} class="px-3 py-1 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50">
             {addingSource ? 'Adding...' : 'Add'}
           </button>
@@ -260,23 +260,23 @@
     <div class="mx-4 mt-4 p-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface space-y-3">
       <div class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Create New Pack</div>
       <div class="grid grid-cols-2 gap-3">
-        <div>
-          <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Slug (folder name)</label>
+        <label class="block">
+          <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Slug (folder name)</span>
           <input type="text" bind:value={createSlug} placeholder="my-pack" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none" />
-        </div>
-        <div>
-          <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Name</label>
+        </label>
+        <label class="block">
+          <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Name</span>
           <input type="text" bind:value={createName} placeholder="My Pack" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none" />
-        </div>
+        </label>
       </div>
-      <div>
-        <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Description</label>
+      <label class="block">
+        <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Description</span>
         <input type="text" bind:value={createDescription} placeholder="What this pack provides" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none" />
-      </div>
-      <div>
-        <label class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Category</label>
+      </label>
+      <label class="block">
+        <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Category</span>
         <input type="text" bind:value={createCategory} placeholder="e.g. Video Production" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none" />
-      </div>
+      </label>
       <div class="flex gap-2 justify-end">
         <button onclick={() => showCreate = false} class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated">Cancel</button>
         <button onclick={handleCreate} disabled={!createSlug || !createName} class="px-3 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50">Create</button>

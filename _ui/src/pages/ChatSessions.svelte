@@ -2,6 +2,7 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { listBotConfigs, type BotConfig } from '@/lib/api/bots';
   import {
     listChatSessions,
     createChatSession,
@@ -25,6 +26,9 @@
 
   let sessions = $state<ChatSession[]>([]);
   let agents = $state<Agent[]>([]);
+  let bots = $state<BotConfig[]>([]);
+  // Sidebar filter: 'all' | 'web' (no bot_config_id) | bot ID
+  let botFilter = $state<string>('all');
   let selectedSessionId = $state<string | null>(null);
   let messages = $state<ChatMessage[]>([]);
   let streamContent = $state('');
@@ -135,10 +139,21 @@
     arguments: string;
   } | null>(null);
   let abortController: AbortController | null = null;
-  let messagesEnd: HTMLDivElement;
-  let inputEl: HTMLTextAreaElement;
+  let messagesEnd = $state<HTMLDivElement | undefined>(undefined);
+  let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
 
   // ─── Derived ───
+
+  // Filter sessions by the bot dropdown selection. 'all' = show every session,
+  // 'web' = only sessions without a bot_config_id (created from this UI),
+  // any other value = the specific BotConfig ID.
+  let filteredSessions = $derived(
+    sessions.filter(s => {
+      if (botFilter === 'all') return true;
+      if (botFilter === 'web') return !s.config?.bot_config_id;
+      return s.config?.bot_config_id === botFilter;
+    })
+  );
 
   let selectedSession = $derived(sessions.find(s => s.id === selectedSessionId) || null);
   let currentAgent = $derived(selectedSession ? agents.find(a => a.id === selectedSession.agent_id) : null);
@@ -182,6 +197,27 @@
     } catch {
       // Agents may not be configured
     }
+  }
+
+  async function loadBots() {
+    try {
+      const res = await listBotConfigs();
+      bots = res.data || [];
+    } catch {
+      // Bots may not be configured — filter dropdown will just hide
+    }
+  }
+
+  function getBotName(botId: string | undefined): string {
+    if (!botId) return '';
+    const b = bots.find(x => x.id === botId);
+    return b ? `${b.platform} · ${b.name}` : botId.slice(0, 8);
+  }
+
+  function getBotShortName(botId: string | undefined): string {
+    if (!botId) return '';
+    const b = bots.find(x => x.id === botId);
+    return b?.name || botId.slice(0, 8);
   }
 
   async function loadMessages(sessionId: string) {
@@ -607,6 +643,7 @@
       }
     });
     loadAgents();
+    loadBots();
   });
 </script>
 
@@ -628,17 +665,33 @@
       </button>
     </div>
 
+    {#if bots.length > 0}
+      <div class="px-2 py-1.5 border-b border-gray-200 dark:border-dark-border">
+        <select
+          bind:value={botFilter}
+          class="w-full text-[11px] px-1.5 py-1 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-blue-500"
+          title="Filter sessions by bot"
+        >
+          <option value="all">All sessions</option>
+          <option value="web">Web only (no bot)</option>
+          {#each bots as bot (bot.id)}
+            <option value={bot.id}>{bot.platform} · {bot.name}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
+
     <div class="flex-1 overflow-y-auto">
       {#if loading}
         <div class="flex items-center justify-center py-6">
           <Loader2 size={14} class="animate-spin text-gray-400" />
         </div>
-      {:else if sessions.length === 0}
+      {:else if filteredSessions.length === 0}
         <div class="px-2 py-6 text-[11px] text-gray-400 dark:text-dark-text-muted text-center">
-          Type to start chatting
+          {sessions.length === 0 ? 'Type to start chatting' : 'No sessions match this filter'}
         </div>
       {:else}
-        {#each sessions as session (session.id)}
+        {#each filteredSessions as session (session.id)}
           <div
             onclick={() => selectSession(session.id)}
             onkeydown={(e) => { if (e.key === 'Enter') selectSession(session.id); }}
@@ -658,7 +711,9 @@
                   {formatRelative(session.updated_at || session.created_at)}
                 </span>
               </div>
-              <div class="truncate text-[10px] text-gray-400 dark:text-dark-text-muted">{getAgentName(session.agent_id)}</div>
+              <div class="truncate text-[10px] text-gray-400 dark:text-dark-text-muted">
+                {getAgentName(session.agent_id)}{#if session.config?.bot_config_id} · <span class="text-blue-500 dark:text-blue-400" title={getBotName(session.config.bot_config_id)}>{getBotShortName(session.config.bot_config_id)}</span>{/if}
+              </div>
             </div>
             <button
               onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'error')); }}

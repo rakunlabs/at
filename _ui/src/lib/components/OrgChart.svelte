@@ -267,6 +267,7 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   bind:this={containerEl}
   class="w-full h-full overflow-hidden relative select-none org-chart-container"
@@ -306,6 +307,7 @@
       {@const isSelected = selectedAgentId === node.agent.agent_id}
       {@const isHead = node.agent.is_head}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
       <div
         class="org-node absolute"
         style="left: {node.x}px; top: {node.y}px; width: {NODE_W}px;"

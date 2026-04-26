@@ -96,13 +96,19 @@ func (s *SQLite) GetChatSession(ctx context.Context, id string) (*service.ChatSe
 	return chatSessionRowToRecord(row)
 }
 
-func (s *SQLite) GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID string) (*service.ChatSession, error) {
+func (s *SQLite) GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID, botConfigID string) (*service.ChatSession, error) {
+	// botConfigID scopes the session to a specific BotConfig. Legacy rows
+	// without bot_config_id present should NOT match any current bot — every
+	// active bot today passes a non-empty botConfigID, so legacy rows
+	// effectively become orphaned and a fresh per-bot session is created on
+	// the next message. Use COALESCE to treat missing bot_config_id as ''.
 	query, _, err := s.goqu.From(s.tableChatSessions).
 		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(
 			goqu.L("json_extract(config, '$.platform')").Eq(platform),
 			goqu.L("json_extract(config, '$.platform_user_id')").Eq(platformUserID),
 			goqu.L("json_extract(config, '$.platform_channel_id')").Eq(platformChannelID),
+			goqu.L("COALESCE(json_extract(config, '$.bot_config_id'), '')").Eq(botConfigID),
 		).
 		Limit(1).
 		ToSQL()
@@ -217,7 +223,7 @@ func (s *SQLite) UpdateChatSession(ctx context.Context, id string, session servi
 		record["organization_id"] = session.OrganizationID
 	}
 	// Only update config if any platform field is set (avoids wiping config on partial updates).
-	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" {
+	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" || session.Config.BotConfigID != "" {
 		record["config"] = string(configJSON)
 	}
 

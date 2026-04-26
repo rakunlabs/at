@@ -72,7 +72,7 @@
   let bundlePreview = $state<BundlePreview | null>(null);
   let bundleFile = $state<File | null>(null);
   let importingBundle = $state(false);
-  let bundleImportFileInput: HTMLInputElement;
+  let bundleImportFileInput = $state<HTMLInputElement | undefined>(undefined);
 
   // ─── Helpers ───
 
@@ -465,7 +465,7 @@
           Export
         </button>
         <button
-          onclick={() => bundleImportFileInput.click()}
+          onclick={() => bundleImportFileInput?.click()}
           class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
           title="Import organization bundle from ZIP"
         >
@@ -531,37 +531,37 @@
 
           {#if containerConfig.enabled}
             <!-- Image -->
-            <div class="col-span-2">
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</label>
+            <label class="block col-span-2">
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Image</span>
               <input
                 type="text"
                 bind:value={containerConfig.image}
                 placeholder="at-agent-runtime:latest"
                 class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
               />
-            </div>
+            </label>
 
             <!-- CPU -->
-            <div>
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU Limit</label>
+            <label class="block">
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">CPU Limit</span>
               <input
                 type="text"
                 bind:value={containerConfig.cpu}
                 placeholder="2"
                 class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
               />
-            </div>
+            </label>
 
             <!-- Memory -->
-            <div>
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory Limit</label>
+            <label class="block">
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Memory Limit</span>
               <input
                 type="text"
                 bind:value={containerConfig.memory}
                 placeholder="4g"
                 class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
               />
-            </div>
+            </label>
 
             <!-- Network -->
             <label class="flex items-center gap-2 col-span-2">
@@ -624,18 +624,18 @@
             </button>
           </div>
           <div class="p-3 space-y-3 overflow-y-auto flex-1">
-            <div>
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Title *</label>
+            <label class="block">
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Title *</span>
               <input type="text" bind:value={taskTitle} placeholder="What needs to be done?"
                 class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text" />
-            </div>
-            <div>
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Description</label>
+            </label>
+            <label class="block">
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Description</span>
               <textarea bind:value={taskDescription} rows="3" placeholder="Additional context..."
                 class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"></textarea>
-            </div>
-            <div>
-              <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Priority</label>
+            </label>
+            <label class="block">
+              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Priority</span>
               <select bind:value={taskPriority}
                 class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text">
                 <option value="">None</option>
@@ -643,10 +643,10 @@
                   <option value={prio}>{TASK_PRIORITY_LABELS[prio]}</option>
                 {/each}
               </select>
-            </div>
+            </label>
             {#if orgGoals.length > 0}
-              <div>
-                <label class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Goal</label>
+              <label class="block">
+                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Goal</span>
                 <select bind:value={taskGoalId}
                   class="mt-0.5 w-full px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text">
                   <option value="">None</option>
@@ -654,7 +654,7 @@
                     <option value={goal.id}>{goal.name}</option>
                   {/each}
                 </select>
-              </div>
+              </label>
             {/if}
             <button
               onclick={handleSubmitTask}

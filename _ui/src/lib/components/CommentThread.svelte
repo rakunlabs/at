@@ -215,10 +215,11 @@
 </div>
 
 {#snippet commentBlock(comment: IssueComment, isReply: boolean)}
+  {@const AuthorIcon = authorIcon(comment.author_type)}
   <div class="group">
     <!-- Header -->
     <div class="flex items-center gap-2 mb-1">
-      <svelte:component this={authorIcon(comment.author_type)} size={12} class="text-gray-400 dark:text-dark-text-muted" />
+      <AuthorIcon size={12} class="text-gray-400 dark:text-dark-text-muted" />
       <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">
         {comment.author_id || 'Anonymous'}
       </span>

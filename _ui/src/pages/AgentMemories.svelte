@@ -189,9 +189,12 @@
   {:else}
     <div class="space-y-3">
       {#each memories as mem (mem.id)}
-        <button
+        <div
+          role="button"
+          tabindex="0"
           class="w-full text-left card bg-base-100 border border-base-200 hover:border-primary/30 hover:shadow-sm transition-all duration-150 cursor-pointer"
           onclick={() => push(`/agent-memories/${mem.id}`)}
+          onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); push(`/agent-memories/${mem.id}`); } }}
         >
           <div class="card-body p-4">
             <div class="flex items-start gap-3">
@@ -262,7 +265,7 @@
               </div>
             </div>
           </div>
-        </button>
+        </div>
       {/each}
     </div>
   {/if}

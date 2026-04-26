@@ -363,7 +363,7 @@
     }
   }
 
-  let mcpImportFileInput: HTMLInputElement;
+  let mcpImportFileInput = $state<HTMLInputElement | undefined>(undefined);
   async function handleImportMCPFile(event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -548,7 +548,7 @@
             <RefreshCw size={14} />
           </button>
           <button
-            onclick={() => mcpImportFileInput.click()}
+            onclick={() => mcpImportFileInput?.click()}
             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
             title="Import MCP from JSON file"
           >
@@ -799,20 +799,25 @@
                       </div>
 
                       <div class="grid grid-cols-4 gap-2 items-center">
-                        <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Name</label>
-                        <input type="text" bind:value={tool.name} placeholder="e.g., get_user, create_ticket"
-                          class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
+                        <label class="contents">
+                          <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Name</span>
+                          <input type="text" bind:value={tool.name} placeholder="e.g., get_user, create_ticket"
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
+                        </label>
                       </div>
 
                       <div class="grid grid-cols-4 gap-2 items-center">
-                        <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Description</label>
-                        <input type="text" bind:value={tool.description} placeholder="What this tool does"
-                          class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
+                        <label class="contents">
+                          <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Description</span>
+                          <input type="text" bind:value={tool.description} placeholder="What this tool does"
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
+                        </label>
                       </div>
 
                       <div class="grid grid-cols-4 gap-2 items-center">
-                        <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Request</label>
-                        <div class="col-span-3 flex gap-2">
+                        <label class="contents">
+                          <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Request</span>
+                          <div class="col-span-3 flex gap-2">
                           <select bind:value={tool.method}
                             class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text transition-colors w-24">
                             <option value="GET">GET</option>
@@ -824,13 +829,15 @@
                           </select>
                           <input type="text" bind:value={tool.url} placeholder={"https://api.example.com/{{.id}}"}
                             class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
-                        </div>
+                          </div>
+                        </label>
                       </div>
 
                       <!-- Headers -->
                       <div class="grid grid-cols-4 gap-2 items-start">
-                        <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Headers</label>
-                        <div class="col-span-3 space-y-1">
+                        <label class="contents">
+                          <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Headers</span>
+                          <div class="col-span-3 space-y-1">
                           {#if tool.headers}
                             {#each Object.entries(tool.headers) as [hk, hv]}
                               <div class="flex items-center gap-1">
@@ -852,29 +859,34 @@
                             </button>
                           </div>
                           <p class="text-xs text-gray-400 dark:text-dark-text-muted">Use <code class="font-mono">{"{{var:key}}"}</code> to reference a variable value</p>
-                        </div>
+                          </div>
+                        </label>
                       </div>
 
                       <!-- Body Template -->
                       {#if tool.method === 'POST' || tool.method === 'PUT' || tool.method === 'PATCH'}
                         <div class="grid grid-cols-4 gap-2 items-start">
-                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Body</label>
-                          <textarea bind:value={tool.body_template} placeholder={'{"key": "{{.value}}"}'}
-                            rows="3"
-                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors resize-y"></textarea>
+                          <label class="contents">
+                            <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Body</span>
+                            <textarea bind:value={tool.body_template} placeholder={'{"key": "{{.value}}"}'}
+                              rows="3"
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors resize-y"></textarea>
+                          </label>
                         </div>
                       {/if}
 
                       <!-- Input Schema -->
                       <div class="grid grid-cols-4 gap-2 items-start">
-                        <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Input Schema</label>
-                        <textarea
-                          value={getSchemaText(i)}
-                          oninput={(e) => setSchemaText(i, (e.target as HTMLTextAreaElement).value)}
-                          rows="4"
-                          placeholder={'{"type": "object", "properties": {}, "required": []}'}
-                          class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors resize-y"
-                        ></textarea>
+                        <label class="contents">
+                          <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Input Schema</span>
+                          <textarea
+                            value={getSchemaText(i)}
+                            oninput={(e) => setSchemaText(i, (e.target as HTMLTextAreaElement).value)}
+                            rows="4"
+                            placeholder={'{"type": "object", "properties": {}, "required": []}'}
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors resize-y"
+                          ></textarea>
+                        </label>
                       </div>
                     </div>
                   {/each}
@@ -1087,27 +1099,32 @@
                       {#if upstream.command !== undefined && upstream.command !== null}
                         <!-- Local Command mode -->
                         <div class="grid grid-cols-4 gap-2 items-center">
-                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Command</label>
-                          <input
-                            type="text"
-                            bind:value={formMCPUpstreams[i].command}
-                            placeholder="npx"
-                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                          />
+                          <label class="contents">
+                            <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Command</span>
+                            <input
+                              type="text"
+                              bind:value={formMCPUpstreams[i].command}
+                              placeholder="npx"
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                            />
+                          </label>
                         </div>
                         <div class="grid grid-cols-4 gap-2 items-center">
-                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Args</label>
-                          <input
-                            type="text"
-                            value={(upstream.args ?? []).join(' ')}
-                            oninput={(e: Event) => { formMCPUpstreams[i].args = (e.target as HTMLInputElement).value.split(/\s+/).filter(Boolean); formMCPUpstreams = [...formMCPUpstreams]; }}
-                            placeholder="@playwright/mcp@latest --headless"
-                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                          />
+                          <label class="contents">
+                            <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Args</span>
+                            <input
+                              type="text"
+                              value={(upstream.args ?? []).join(' ')}
+                              oninput={(e: Event) => { formMCPUpstreams[i].args = (e.target as HTMLInputElement).value.split(/\s+/).filter(Boolean); formMCPUpstreams = [...formMCPUpstreams]; }}
+                              placeholder="@playwright/mcp@latest --headless"
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                            />
+                          </label>
                         </div>
                         <div class="grid grid-cols-4 gap-2 items-start">
-                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Env</label>
-                          <div class="col-span-3 space-y-1">
+                          <label class="contents">
+                            <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Env</span>
+                            <div class="col-span-3 space-y-1">
                             {#if upstream.env}
                               {#each Object.entries(upstream.env) as [ek, ev]}
                                 <div class="flex items-center gap-1">
@@ -1128,23 +1145,27 @@
                                 Add
                               </button>
                             </div>
-                          </div>
+                            </div>
+                          </label>
                         </div>
                       {:else}
                         <!-- HTTP mode -->
                         <div class="grid grid-cols-4 gap-2 items-center">
-                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">URL</label>
-                          <input
-                            type="text"
-                            bind:value={formMCPUpstreams[i].url}
-                            placeholder="https://other-server:8000/sse"
-                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                          />
+                          <label class="contents">
+                            <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">URL</span>
+                            <input
+                              type="text"
+                              bind:value={formMCPUpstreams[i].url}
+                              placeholder="https://other-server:8000/sse"
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                            />
+                          </label>
                         </div>
 
                         <div class="grid grid-cols-4 gap-2 items-start">
-                          <label class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Headers</label>
-                          <div class="col-span-3 space-y-1">
+                          <label class="contents">
+                            <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Headers</span>
+                            <div class="col-span-3 space-y-1">
                             {#if upstream.headers}
                               {#each Object.entries(upstream.headers) as [hk, hv]}
                                 <div class="flex items-center gap-1">
@@ -1166,7 +1187,8 @@
                               </button>
                             </div>
                             <p class="text-xs text-gray-400 dark:text-dark-text-muted">Use <code class="font-mono">{"{{var:key}}"}</code> to reference a variable value</p>
-                          </div>
+                            </div>
+                          </label>
                         </div>
                       {/if}
                     </div>

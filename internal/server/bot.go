@@ -14,15 +14,20 @@ import (
 	"github.com/rakunlabs/query"
 )
 
-// findOrCreateBotSession looks up an existing chat session by platform identifiers,
-// or creates a new one if none exists. Returns the session ID and the session's
-// actual agent ID (which may differ from defaultAgentID if the user switched agents).
-func (s *Server) findOrCreateBotSession(ctx context.Context, platform, userID, channelID, defaultAgentID string) (string, string, error) {
+// findOrCreateBotSession looks up an existing chat session by platform identifiers
+// scoped to the BotConfig that received the message, or creates a new one if none
+// exists. Returns the session ID and the session's actual agent ID (which may
+// differ from defaultAgentID if the user switched agents).
+//
+// botConfigID is the ID of the BotConfig that received this message. Without it,
+// two bots talking to the same Telegram/Discord chat would share a single session
+// row and conversation history.
+func (s *Server) findOrCreateBotSession(ctx context.Context, platform, botConfigID, userID, channelID, defaultAgentID string) (string, string, error) {
 	if s.chatSessionStore == nil {
 		return "", "", fmt.Errorf("chat session store not configured")
 	}
 
-	session, err := s.chatSessionStore.GetChatSessionByPlatform(ctx, platform, userID, channelID)
+	session, err := s.chatSessionStore.GetChatSessionByPlatform(ctx, platform, userID, channelID, botConfigID)
 	if err != nil {
 		return "", "", fmt.Errorf("lookup platform session: %w", err)
 	}
@@ -44,6 +49,7 @@ func (s *Server) findOrCreateBotSession(ctx context.Context, platform, userID, c
 			Platform:          platform,
 			PlatformUserID:    userID,
 			PlatformChannelID: channelID,
+			BotConfigID:       botConfigID,
 		},
 		CreatedBy: platform + "-bot",
 		UpdatedBy: platform + "-bot",
@@ -52,7 +58,7 @@ func (s *Server) findOrCreateBotSession(ctx context.Context, platform, userID, c
 		return "", "", fmt.Errorf("create platform session: %w", err)
 	}
 
-	slog.Info("created bot chat session", "platform", platform, "session_id", newSession.ID, "agent_id", defaultAgentID)
+	slog.Info("created bot chat session", "platform", platform, "bot_config_id", botConfigID, "session_id", newSession.ID, "agent_id", defaultAgentID)
 	return newSession.ID, defaultAgentID, nil
 }
 

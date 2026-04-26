@@ -97,13 +97,16 @@ func (p *Postgres) GetChatSession(ctx context.Context, id string) (*service.Chat
 	return chatSessionRowToRecord(row)
 }
 
-func (p *Postgres) GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID string) (*service.ChatSession, error) {
+func (p *Postgres) GetChatSessionByPlatform(ctx context.Context, platform, platformUserID, platformChannelID, botConfigID string) (*service.ChatSession, error) {
+	// botConfigID scopes the session to a specific BotConfig. See the
+	// SQLite implementation for the rollout/legacy-row notes.
 	query, _, err := p.goqu.From(p.tableChatSessions).
 		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
 		Where(
 			goqu.L("config->>'platform'").Eq(platform),
 			goqu.L("config->>'platform_user_id'").Eq(platformUserID),
 			goqu.L("config->>'platform_channel_id'").Eq(platformChannelID),
+			goqu.L("COALESCE(config->>'bot_config_id', '')").Eq(botConfigID),
 		).
 		Limit(1).
 		ToSQL()
@@ -218,7 +221,7 @@ func (p *Postgres) UpdateChatSession(ctx context.Context, id string, session ser
 		record["organization_id"] = session.OrganizationID
 	}
 	// Only update config if any platform field is set (avoids wiping config on partial updates).
-	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" {
+	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" || session.Config.BotConfigID != "" {
 		record["config"] = types.RawJSON(configJSON)
 	}
 

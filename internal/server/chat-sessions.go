@@ -19,13 +19,35 @@ import (
 // ─── Chat Session CRUD ───
 
 // ListChatSessionsAPI handles GET /api/v1/chat/sessions.
+//
+// Optional query params (filter applied after store list):
+//   - bot_config_id=<id>  — only sessions tied to that BotConfig
+//   - platform=<key>      — only sessions for that platform (telegram, discord, …)
+//
+// These two filters live in the JSON config column, which the generic query
+// builder cannot index on, so we extract them up-front and post-filter the
+// store result. The session count per deployment is small (hundreds at most),
+// so this is acceptable for now.
 func (s *Server) ListChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 	if s.chatSessionStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	q, err := query.Parse(r.URL.RawQuery)
+	rawQuery := r.URL.RawQuery
+	urlVals := r.URL.Query()
+	botFilter := urlVals.Get("bot_config_id")
+	platformFilter := urlVals.Get("platform")
+
+	// Strip our custom params from the raw query so query.Parse doesn't try to
+	// build a SQL expression for them (there is no such column).
+	if botFilter != "" || platformFilter != "" {
+		urlVals.Del("bot_config_id")
+		urlVals.Del("platform")
+		rawQuery = urlVals.Encode()
+	}
+
+	q, err := query.Parse(rawQuery)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("invalid query: %v", err), http.StatusBadRequest)
 		return
@@ -40,6 +62,21 @@ func (s *Server) ListChatSessionsAPI(w http.ResponseWriter, r *http.Request) {
 
 	if records == nil {
 		records = &service.ListResult[service.ChatSession]{Data: []service.ChatSession{}}
+	}
+
+	if botFilter != "" || platformFilter != "" {
+		filtered := records.Data[:0:0]
+		for _, sess := range records.Data {
+			if botFilter != "" && sess.Config.BotConfigID != botFilter {
+				continue
+			}
+			if platformFilter != "" && sess.Config.Platform != platformFilter {
+				continue
+			}
+			filtered = append(filtered, sess)
+		}
+		records.Data = filtered
+		records.Meta.Total = uint64(len(filtered))
 	}
 
 	httpResponseJSON(w, records, http.StatusOK)

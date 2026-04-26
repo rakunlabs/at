@@ -1131,8 +1131,8 @@
     <div class="border-b border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50 px-4 py-3 shrink-0 space-y-3 max-h-80 overflow-y-auto">
       <!-- Agent selector (quick-fill MCP URLs + skills from agent config) -->
       {#if agents.length > 0}
-        <div>
-          <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Import from Agent</label>
+        <label class="block">
+          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Import from Agent</span>
           <div class="flex gap-2">
             <div class="relative flex-1">
               <select
@@ -1154,13 +1154,13 @@
               Import
             </button>
           </div>
-        </div>
+        </label>
       {/if}
 
       <!-- MCP Sets (Internal MCPs) -->
       {#if availableMCPSets.length > 0}
-        <div>
-          <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</label>
+        <label class="block">
+          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
           <div class="flex flex-wrap gap-1.5">
             {#each availableMCPSets as mcpSet}
               <button
@@ -1174,12 +1174,12 @@
               </button>
             {/each}
           </div>
-        </div>
+        </label>
       {/if}
 
       <!-- MCP Server URLs -->
-      <div>
-        <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP Servers</label>
+      <label class="block">
+        <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP Servers</span>
         <div class="space-y-1.5">
           {#each mcpUrls as url, i}
             <div class="flex gap-2 items-center">
@@ -1261,12 +1261,12 @@
             </div>
           {/if}
         </div>
-      </div>
+      </label>
 
       <!-- Skills -->
       {#if skills.length > 0}
-        <div>
-          <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</label>
+        <label class="block">
+          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
           <div class="flex flex-wrap gap-1.5">
             {#each skills as skill}
               <button
@@ -1283,13 +1283,13 @@
               </button>
             {/each}
           </div>
-        </div>
+        </label>
       {/if}
 
       <!-- Server Tools (built-in) -->
       {#if builtinTools.length > 0}
-        <div>
-          <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</label>
+        <label class="block">
+          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
           <div class="flex flex-wrap gap-1.5">
             {#each builtinTools as tool}
               <button
@@ -1303,12 +1303,12 @@
               </button>
             {/each}
           </div>
-        </div>
+        </label>
       {/if}
 
       <!-- Chat Tools (frontend-only) -->
-      <div>
-        <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</label>
+      <label class="block">
+        <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
         <div class="flex flex-wrap gap-1.5">
           {#each FRONTEND_TOOLS as tool}
             <button
@@ -1322,12 +1322,12 @@
             </button>
           {/each}
         </div>
-      </div>
+      </label>
 
       <!-- RAG Knowledge Base -->
       {#if ragAvailable && ragTools.length > 0}
-        <div>
-          <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">RAG Knowledge Base</label>
+        <label class="block">
+          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">RAG Knowledge Base</span>
           <div class="space-y-1.5">
             <div class="flex flex-wrap gap-1.5">
               {#each ragTools as tool}
@@ -1396,7 +1396,7 @@
               </div>
             {/if}
           </div>
-        </div>
+        </label>
       {/if}
 
       <!-- Discovered tools summary + clear button -->

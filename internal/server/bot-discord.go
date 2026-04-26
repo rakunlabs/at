@@ -81,7 +81,7 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 }
 
 func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Session, m *discordgo.MessageCreate, agentID string, dcCtx *discordContext) {
-	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "discord", m.Author.ID, m.ChannelID, agentID)
+	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "discord", dcCtx.botID, m.Author.ID, m.ChannelID, agentID)
 	if err != nil {
 		slog.Error("discord bot: session lookup failed", "error", err)
 		return

@@ -1112,8 +1112,8 @@
                     <div class="border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 p-3 mb-3 space-y-2">
                       <!-- Step 1: Required variables -->
                       {#each tmpl.required_variables as rv}
-                        <div>
-                          <label class="block text-[10px] text-gray-500 dark:text-dark-text-muted mb-0.5">{rv.key}</label>
+                        <label class="block">
+                          <span class="block text-[10px] text-gray-500 dark:text-dark-text-muted mb-0.5">{rv.key}</span>
                           {#if existingVars.has(rv.key)}
                             <div class="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
                               <Check size={10} />
@@ -1128,7 +1128,7 @@
                               class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-xs dark:text-dark-text dark:placeholder:text-dark-text-muted"
                             />
                           {/if}
-                        </div>
+                        </label>
                       {/each}
 
                       {#if !oauthAllVarsReady(tmpl)}
@@ -1288,6 +1288,7 @@
                   <div class="flex items-center gap-3">
                     <button
                       onclick={() => toggleSourceEnabled(src)}
+                      aria-label="Toggle {src.name}"
                       class="w-8 h-5 rounded-full transition-colors {src.enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-dark-border'} relative"
                     >
                       <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white shadow transition-all"></span>
@@ -1378,8 +1379,10 @@
         <!-- Preview Modal -->
         {#if previewSkill}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
           <div class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onclick={() => { previewSkill = null; previewData = null; }}>
             <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <!-- svelte-ignore a11y_click_events_have_key_events -->
             <div class="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border w-full max-w-2xl max-h-[80vh] flex flex-col" onclick={(e) => e.stopPropagation()}>
               <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
                 <div>
@@ -1400,24 +1403,24 @@
                 {:else if previewData}
                   <div class="space-y-4">
                     <div>
-                      <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Name</label>
+                      <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Name</span>
                       <p class="text-sm text-gray-900 dark:text-dark-text font-mono">{previewData.name || '-'}</p>
                     </div>
                     {#if previewData.description}
                       <div>
-                        <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Description</label>
+                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Description</span>
                         <p class="text-sm text-gray-700 dark:text-dark-text-secondary">{previewData.description}</p>
                       </div>
                     {/if}
                     {#if previewData.system_prompt}
                       <div>
-                        <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">System Prompt / Instructions</label>
+                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">System Prompt / Instructions</span>
                         <pre class="mt-1 p-3 bg-gray-50 dark:bg-dark-base/50 border border-gray-200 dark:border-dark-border text-xs text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap max-h-64 overflow-y-auto">{previewData.system_prompt}</pre>
                       </div>
                     {/if}
                     {#if previewData.tools && previewData.tools.length > 0}
                       <div>
-                        <label class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Tools ({previewData.tools.length})</label>
+                        <span class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted">Tools ({previewData.tools.length})</span>
                         <div class="mt-1 space-y-1">
                           {#each previewData.tools as tool}
                             <div class="px-2 py-1 bg-gray-50 dark:bg-dark-base/50 border border-gray-100 dark:border-dark-border">

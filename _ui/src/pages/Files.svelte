@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
@@ -191,7 +192,9 @@
     return crumbs;
   });
 
-  browse(currentPath);
+  $effect(() => {
+    untrack(() => browse(currentPath));
+  });
 </script>
 
 <div class="flex h-full">
@@ -291,13 +294,14 @@
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
             {#each filteredEntries as entry}
+              {@const FileIcon = getFileIcon(entry)}
               <tr class="hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors group">
                 <td class="px-4 py-2">
                   <button
                     onclick={() => openPreview(entry)}
                     class="flex items-center gap-2 text-left hover:text-blue-600 dark:hover:text-accent-text transition-colors w-full"
                   >
-                    <svelte:component this={getFileIcon(entry)} size={14} class={getFileIconColor(entry)} />
+                    <FileIcon size={14} class={getFileIconColor(entry)} />
                     <span class="truncate">{entry.name}</span>
                   </button>
                 </td>

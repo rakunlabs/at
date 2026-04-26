@@ -277,7 +277,7 @@
               {#if item.task.priority_level}
                 {@const Icon = priorityIcon(item.task.priority_level)}
                 {#if Icon}
-                  <svelte:component this={Icon} size={12} class={priorityColor(item.task.priority_level)} />
+                  <Icon size={12} class={priorityColor(item.task.priority_level)} />
                 {/if}
               {/if}
             </div>
@@ -341,6 +341,7 @@
 <!-- Context menu -->
 {#if contextMenu}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div
     class="fixed inset-0 z-40"
     onclick={closeContextMenu}

@@ -1308,13 +1308,13 @@
                   >JSON</button>
                 </div>
                 {#each fields as field}
-                  <div>
-                    <label class="text-[10px] font-medium text-gray-600 dark:text-dark-text-secondary block mb-0.5">
+                  <label class="block">
+                    <span class="text-[10px] font-medium text-gray-600 dark:text-dark-text-secondary block mb-0.5">
                       {field.name}
                       {#if field.description}
                         <span class="font-normal text-gray-400 dark:text-dark-text-muted ml-1">— {field.description}</span>
                       {/if}
-                    </label>
+                    </span>
                     {#if field.type === 'select' && field.options}
                       <select
                         value={runFormValues[field.name] ?? field.default ?? ''}
@@ -1357,7 +1357,7 @@
                         class="w-full px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
                       />
                     {/if}
-                  </div>
+                  </label>
                 {/each}
               </div>
             {:else}
