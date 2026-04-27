@@ -11,6 +11,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -1027,7 +1029,42 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 }
 
 func (s *Server) Start(ctx context.Context) error {
+	// Boot self-check: ensure the task workspace base dir exists and is writable.
+	// /tmp is tmpfs on most Linux deployments and is wiped on reboot, so the dir
+	// won't exist on a fresh boot. If creation fails (e.g. when running under a
+	// non-root systemd User= and the dir was previously created by another user),
+	// every subsequent task delegation logs a per-task warning and every
+	// bash_execute fails with `chdir: no such file or directory` until the LLM
+	// burns its iteration budget. Catch that here, loudly, at startup.
+	ensureTaskWorkspaceBase(defaultTaskWorkspaceBase)
+
 	return s.server.StartWithContext(ctx, net.JoinHostPort(s.config.Host, s.config.Port))
+}
+
+// ensureTaskWorkspaceBase makes sure the per-task workspace root exists and is
+// writable by the current process. Failures are logged at ERROR level but do
+// not abort startup — the server can still serve API/UI traffic; only org
+// delegation tasks will be degraded.
+func ensureTaskWorkspaceBase(base string) {
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		slog.Error("startup: cannot create task workspace base — org delegation will fail",
+			"path", base, "error", err.Error())
+		return
+	}
+	// Best-effort chmod in case the dir already existed with a tighter mode.
+	if err := os.Chmod(base, 0o755); err != nil {
+		slog.Warn("startup: cannot chmod task workspace base", "path", base, "error", err.Error())
+	}
+	// Smoke-test write access by creating and removing a sentinel file.
+	probe := filepath.Join(base, ".at-startup-probe")
+	if err := os.WriteFile(probe, []byte("ok"), 0o600); err != nil {
+		slog.Error("startup: task workspace base is not writable — org delegation will fail",
+			"path", base, "error", err.Error(),
+			"hint", "ensure the service user owns this directory; on systemd consider RuntimeDirectory= or chown the path")
+		return
+	}
+	_ = os.Remove(probe)
+	slog.Info("startup: task workspace base ready", "path", base)
 }
 
 // ─── Hot Reload ───

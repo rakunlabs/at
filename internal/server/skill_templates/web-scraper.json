@@ -23,7 +23,7 @@
           },
           "required": ["url"]
         },
-        "handler": "var resp = httpGet(args.url, {'User-Agent': 'AT-WebScraper/1.0'});\nvar html = resp.body;\n// Strip HTML tags to get text content\nvar text = html.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '');\ntext = text.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '');\ntext = text.replace(/<[^>]+>/g, ' ');\ntext = text.replace(/\\s+/g, ' ').trim();\n// Truncate if very long\nif (text.length > 10000) text = text.substring(0, 10000) + '... (truncated)';\nreturn JSON.stringify({url: args.url, status: resp.status, length: text.length, content: text}, null, 2);",
+        "handler": "var resp = httpGet(args.url, {'User-Agent': 'AT-WebScraper/1.0'});\n// httpGet auto-parses JSON bodies; coerce to string so .replace works on JSON pages too.\nvar html = (typeof resp.body === 'string') ? resp.body : JSON.stringify(resp.body);\n// Strip HTML tags to get text content\nvar text = html.replace(/<script[^>]*>[\\s\\S]*?<\\/script>/gi, '');\ntext = text.replace(/<style[^>]*>[\\s\\S]*?<\\/style>/gi, '');\ntext = text.replace(/<[^>]+>/g, ' ');\ntext = text.replace(/\\s+/g, ' ').trim();\n// Truncate if very long\nif (text.length > 10000) text = text.substring(0, 10000) + '... (truncated)';\nreturn JSON.stringify({url: args.url, status: resp.status, length: text.length, content: text}, null, 2);",
         "handler_type": "js"
       },
       {
@@ -39,7 +39,7 @@
           },
           "required": ["url"]
         },
-        "handler": "var resp = httpGet(args.url, {'User-Agent': 'AT-WebScraper/1.0'});\nvar html = resp.body;\nvar links = [];\nvar re = /<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)<\\/a>/gi;\nvar match;\nwhile ((match = re.exec(html)) !== null) {\n  var href = match[1];\n  var text = match[2].replace(/<[^>]+>/g, '').trim();\n  if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {\n    // Resolve relative URLs\n    if (href.startsWith('/')) href = args.url.replace(/(https?:\\/\\/[^\\/]+).*/, '$1') + href;\n    links.push({href: href, text: text || ''});\n  }\n}\nreturn JSON.stringify({url: args.url, count: links.length, links: links}, null, 2);",
+        "handler": "var resp = httpGet(args.url, {'User-Agent': 'AT-WebScraper/1.0'});\n// httpGet auto-parses JSON bodies; coerce to string so the regex matcher works on JSON pages too.\nvar html = (typeof resp.body === 'string') ? resp.body : JSON.stringify(resp.body);\nvar links = [];\nvar re = /<a[^>]+href=[\"']([^\"']+)[\"'][^>]*>(.*?)<\\/a>/gi;\nvar match;\nwhile ((match = re.exec(html)) !== null) {\n  var href = match[1];\n  var text = match[2].replace(/<[^>]+>/g, '').trim();\n  if (href && !href.startsWith('#') && !href.startsWith('javascript:')) {\n    // Resolve relative URLs\n    if (href.startsWith('/')) href = args.url.replace(/(https?:\\/\\/[^\\/]+).*/, '$1') + href;\n    links.push({href: href, text: text || ''});\n  }\n}\nreturn JSON.stringify({url: args.url, count: links.length, links: links}, null, 2);",
         "handler_type": "js"
       }
     ]
