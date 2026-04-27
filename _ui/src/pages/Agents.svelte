@@ -2,6 +2,7 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listAgents, createAgent, updateAgent, deleteAgent, exportAgent, importAgent, type Agent } from '@/lib/api/agents';
+  import { listActiveDelegations, type ActiveDelegation } from '@/lib/api/tasks';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
@@ -37,6 +38,35 @@
   let offset = $state(0);
   let limit = $state(10);
   let total = $state(0);
+
+  // Live "currently working" map: agent_id → list of active delegations
+  let activeByAgent = $state<Record<string, ActiveDelegation[]>>({});
+  let activePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function refreshActiveDelegations() {
+    try {
+      const res = await listActiveDelegations();
+      const map: Record<string, ActiveDelegation[]> = {};
+      for (const d of res.delegations) {
+        if (!d.agent_id) continue;
+        if (!map[d.agent_id]) map[d.agent_id] = [];
+        map[d.agent_id].push(d);
+      }
+      activeByAgent = map;
+    } catch {
+      // Non-fatal: just hide the indicator if the endpoint is unreachable
+      activeByAgent = {};
+    }
+  }
+
+  $effect(() => {
+    refreshActiveDelegations();
+    activePollTimer = setInterval(refreshActiveDelegations, 5000);
+    return () => {
+      if (activePollTimer) clearInterval(activePollTimer);
+      activePollTimer = null;
+    };
+  });
 
   // Form fields
   let formName = $state('');
@@ -358,6 +388,16 @@
           <Bot size={16} class="text-gray-500 dark:text-dark-text-muted" />
           <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Agents</h2>
           <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+          {#if Object.keys(activeByAgent).length > 0}
+            {@const totalActive = Object.values(activeByAgent).reduce((s, a) => s + a.length, 0)}
+            <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="Active delegations right now">
+              <span class="relative flex w-1.5 h-1.5">
+                <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+              </span>
+              {totalActive} working
+            </span>
+          {/if}
         </div>
         <div class="flex items-center gap-2">
           <button
@@ -798,7 +838,18 @@
                 <div class="flex items-center gap-2.5">
                   <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
                   <div class="flex flex-col gap-0.5 min-w-0">
-                    <span class="font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</span>
+                    <div class="flex items-center gap-1.5">
+                      <span class="font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</span>
+                      {#if activeByAgent[agent.id]?.length}
+                        <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="{activeByAgent[agent.id].length} active task{activeByAgent[agent.id].length === 1 ? '' : 's'}: {activeByAgent[agent.id].map(d => d.duration).join(', ')}">
+                          <span class="relative flex w-1.5 h-1.5">
+                            <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                            <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                          </span>
+                          {activeByAgent[agent.id].length === 1 ? `working · ${activeByAgent[agent.id][0].duration}` : `${activeByAgent[agent.id].length} running`}
+                        </span>
+                      {/if}
+                    </div>
                     {#if agent.config.description}
                       <span class="text-[10px] text-gray-400 dark:text-dark-text-muted truncate max-w-48">{agent.config.description}</span>
                     {/if}

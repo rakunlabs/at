@@ -9,6 +9,7 @@
     deleteOrganization,
     type Organization,
   } from '@/lib/api/organizations';
+  import { listActiveDelegations, type ActiveDelegation } from '@/lib/api/tasks';
   import { formatDate } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -34,6 +35,34 @@
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
+
+  // Live "currently working" map: org_id → list of active delegations
+  let activeByOrg = $state<Record<string, ActiveDelegation[]>>({});
+  let activePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function refreshActiveDelegations() {
+    try {
+      const res = await listActiveDelegations();
+      const map: Record<string, ActiveDelegation[]> = {};
+      for (const d of res.delegations) {
+        if (!d.org_id) continue;
+        if (!map[d.org_id]) map[d.org_id] = [];
+        map[d.org_id].push(d);
+      }
+      activeByOrg = map;
+    } catch {
+      activeByOrg = {};
+    }
+  }
+
+  $effect(() => {
+    refreshActiveDelegations();
+    activePollTimer = setInterval(refreshActiveDelegations, 5000);
+    return () => {
+      if (activePollTimer) clearInterval(activePollTimer);
+      activePollTimer = null;
+    };
+  });
 
   // Form fields
   let formName = $state('');
@@ -148,6 +177,16 @@
       <Building2 size={16} class="text-gray-500 dark:text-dark-text-muted" />
       <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Organizations</h2>
       <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+      {#if Object.keys(activeByOrg).length > 0}
+        {@const totalActive = Object.values(activeByOrg).reduce((s, a) => s + a.length, 0)}
+        <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="Active delegations right now">
+          <span class="relative flex w-1.5 h-1.5">
+            <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+            <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+          </span>
+          {totalActive} working
+        </span>
+      {/if}
     </div>
     <div class="flex items-center gap-2">
       <button
@@ -254,7 +293,20 @@
 
       {#snippet row(organization)}
         <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer" onclick={() => push(`/organizations/${organization.id}`)}>
-          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text hover:underline">{organization.name}</td>
+          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text">
+            <div class="flex items-center gap-2">
+              <span class="hover:underline">{organization.name}</span>
+              {#if activeByOrg[organization.id]?.length}
+                <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="{activeByOrg[organization.id].length} active task{activeByOrg[organization.id].length === 1 ? '' : 's'}">
+                  <span class="relative flex w-1.5 h-1.5">
+                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  </span>
+                  {activeByOrg[organization.id].length} running
+                </span>
+              {/if}
+            </div>
+          </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-48 truncate" title={organization.description}>
             {organization.description || '-'}
           </td>

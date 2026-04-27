@@ -22,7 +22,7 @@
   } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listGoals, type Goal } from '@/lib/api/goals';
-  import { TASK_PRIORITIES, TASK_PRIORITY_LABELS } from '@/lib/api/tasks';
+  import { TASK_PRIORITIES, TASK_PRIORITY_LABELS, listActiveDelegations, type ActiveDelegation } from '@/lib/api/tasks';
   import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Brain, Container, Download, Upload } from 'lucide-svelte';
   import ImportPreviewDialog from '@/lib/components/ImportPreviewDialog.svelte';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
@@ -67,6 +67,35 @@
   // Selected node
   let selectedAgentId = $state<string | null>(null);
 
+  // Live "currently working" map (only delegations belonging to this org)
+  let activeByAgent = $state<Record<string, ActiveDelegation[]>>({});
+  let activePollTimer: ReturnType<typeof setInterval> | null = null;
+
+  async function refreshActiveDelegations() {
+    if (!params.id) return;
+    try {
+      const res = await listActiveDelegations();
+      const map: Record<string, ActiveDelegation[]> = {};
+      for (const d of res.delegations) {
+        if (d.org_id !== params.id || !d.agent_id) continue;
+        if (!map[d.agent_id]) map[d.agent_id] = [];
+        map[d.agent_id].push(d);
+      }
+      activeByAgent = map;
+    } catch {
+      activeByAgent = {};
+    }
+  }
+
+  $effect(() => {
+    refreshActiveDelegations();
+    activePollTimer = setInterval(refreshActiveDelegations, 5000);
+    return () => {
+      if (activePollTimer) clearInterval(activePollTimer);
+      activePollTimer = null;
+    };
+  });
+
   // Bundle import
   let showImportPreview = $state(false);
   let bundlePreview = $state<BundlePreview | null>(null);
@@ -100,6 +129,7 @@
         parent_agent_id: m.parent_agent_id,
         is_head: organization?.head_agent_id === m.agent_id,
         avatar_seed: agent?.config.avatar_seed,
+        active_count: activeByAgent[m.agent_id]?.length || 0,
       };
     });
   }

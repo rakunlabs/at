@@ -14,6 +14,8 @@
     parent_agent_id?: string;
     is_head?: boolean;
     avatar_seed?: string;
+    /** Number of in-flight delegation goroutines for this agent. */
+    active_count?: number;
   }
 
   interface LayoutNode {
@@ -349,11 +351,26 @@
               <span class="text-xs font-medium text-gray-900 dark:text-dark-text truncate">
                 {node.agent.name}
               </span>
-              <span
-                class="shrink-0 ml-auto w-1.5 h-1.5 rounded-full"
-                style="background-color: {statusColor(node.agent.status)}"
-                title={statusLabel(node.agent.status)}
-              ></span>
+              {#if node.agent.active_count && node.agent.active_count > 0}
+                <span
+                  class="shrink-0 ml-auto flex items-center gap-1"
+                  title="{node.agent.active_count} active delegation{node.agent.active_count === 1 ? '' : 's'}"
+                >
+                  <span class="relative flex w-1.5 h-1.5">
+                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  </span>
+                  {#if node.agent.active_count > 1}
+                    <span class="text-[9px] font-medium text-green-600 dark:text-green-400">{node.agent.active_count}</span>
+                  {/if}
+                </span>
+              {:else}
+                <span
+                  class="shrink-0 ml-auto w-1.5 h-1.5 rounded-full"
+                  style="background-color: {statusColor(node.agent.status)}"
+                  title={statusLabel(node.agent.status)}
+                ></span>
+              {/if}
             </div>
 
             <!-- Details -->

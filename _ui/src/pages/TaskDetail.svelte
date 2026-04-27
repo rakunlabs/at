@@ -183,13 +183,11 @@
     }
   }
 
-  // Initial load
-  loadTask();
-  loadLabels();
-  loadSubTasks();
+  // Reference data is independent of the task id — fetch once
   loadReferenceData();
 
-  // Reload when params change
+  // Load (and reload when params change so navigating between tasks without
+  // remounting still works)
   $effect(() => {
     if (params.id) {
       loadTask();
@@ -418,8 +416,18 @@
     try {
       const res = await listActiveDelegations();
       const match = res.delegations.find((d: ActiveDelegation) => d.task_id === task!.id);
-      delegationActive = !!match;
+      const wasActive = delegationActive;
+      const nowActive = !!match;
+      delegationActive = nowActive;
       delegationDuration = match?.duration ?? '';
+      // Only refresh on the edge: a delegation that *was* running just finished.
+      // Without this guard, a task stuck in `in_progress` with no live goroutine
+      // (crashed agent, stale status, etc.) would refetch every 3s forever and
+      // visibly re-render the page on every tick.
+      if (wasActive && !nowActive && task?.status === 'in_progress') {
+        await loadTask();
+        await loadSubTasks();
+      }
     } catch {
       delegationActive = false;
     }
@@ -428,14 +436,7 @@
   function startDelegationPoll() {
     stopDelegationPoll();
     checkDelegation();
-    delegationPollTimer = setInterval(async () => {
-      await checkDelegation();
-      // Auto-refresh task when delegation finishes
-      if (!delegationActive && task?.status === 'in_progress') {
-        await loadTask();
-        await loadSubTasks();
-      }
-    }, 3000);
+    delegationPollTimer = setInterval(checkDelegation, 3000);
   }
 
   function stopDelegationPoll() {
@@ -445,9 +446,13 @@
     }
   }
 
-  // Start/stop polling based on task status
+  // Start/stop polling based on task status. We only react to the status
+  // string, not the `task` object reference — `loadTask()` reassigns `task`
+  // and would otherwise re-enter this effect, restarting the interval and
+  // firing checkDelegation() again on every tick.
+  let pollStatus = $derived(task?.status ?? null);
   $effect(() => {
-    if (task && (task.status === 'in_progress' || task.status === 'open')) {
+    if (pollStatus === 'in_progress' || pollStatus === 'open') {
       startDelegationPoll();
     } else {
       stopDelegationPoll();
