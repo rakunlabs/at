@@ -272,6 +272,12 @@ func (s *Server) execBatchExecute(ctx context.Context, args map[string]any) (str
 // ─── Persistent Task (Issue Tracker) Tool Executors ───
 
 // execTaskCreate creates a persistent task in the database.
+//
+// When called from inside a delegation loop (i.e. the executing agent is
+// already working on a task), missing parent_id and organization_id fields
+// are auto-inherited from the current task. This prevents agents from
+// accidentally creating orphaned, unscoped tasks when they forget to pass
+// these fields explicitly.
 func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (string, error) {
 	if s.taskStore == nil {
 		return "", fmt.Errorf("task store not configured")
@@ -304,6 +310,31 @@ func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (strin
 	}
 	if v, ok := args["status"].(string); ok && v != "" {
 		task.Status = v
+	}
+
+	// Auto-inherit parent_id and organization_id from the current task in
+	// context when the caller (agent) didn't supply them. This keeps
+	// agent-created subtasks correctly linked instead of orphaned.
+	if currentTaskID := taskIDFromContext(ctx); currentTaskID != "" {
+		needParent := task.ParentID == ""
+		needOrg := task.OrganizationID == ""
+		if needParent || needOrg {
+			if currentTask, err := s.taskStore.GetTask(ctx, currentTaskID); err == nil && currentTask != nil {
+				if needParent {
+					task.ParentID = currentTask.ID
+					slog.Debug("task_create: inherited parent_id from current task",
+						"parent_id", currentTask.ID, "title", title)
+				}
+				if needOrg {
+					task.OrganizationID = currentTask.OrganizationID
+					slog.Debug("task_create: inherited organization_id from current task",
+						"organization_id", currentTask.OrganizationID, "title", title)
+				}
+			} else if err != nil {
+				slog.Warn("task_create: failed to look up current task for inheritance",
+					"current_task_id", currentTaskID, "error", err)
+			}
+		}
 	}
 	// max_iterations: per-task override of the agent's iteration budget.
 	// Accept both float64 (JSON numbers) and int.

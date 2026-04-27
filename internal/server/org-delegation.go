@@ -73,6 +73,13 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 	}
 
+	// a4) Inject the executing agent and current task into context so that
+	// builtin tool executors (notably task_create) can auto-inherit
+	// parent_id and organization_id from the active task. Without this,
+	// agents that forget to pass parent_id end up creating orphaned tasks.
+	ctx = contextWithAgentID(ctx, agentID)
+	ctx = contextWithTaskID(ctx, task.ID)
+
 	// b) Load the agent.
 	agent, err := s.agentStore.GetAgent(ctx, agentID)
 	if err != nil {

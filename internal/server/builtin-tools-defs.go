@@ -58,6 +58,25 @@ func agentIDFromContext(ctx context.Context) string {
 	return ""
 }
 
+// ctxKeyTaskID is a context key for passing the currently-executing task ID
+// to builtin tool executors. Used to auto-inherit parent_id / organization_id
+// when an agent calls task_create from inside a delegation loop without
+// explicitly passing those fields.
+type ctxKeyTaskID struct{}
+
+// contextWithTaskID stores the current task ID in context.
+func contextWithTaskID(ctx context.Context, taskID string) context.Context {
+	return context.WithValue(ctx, ctxKeyTaskID{}, taskID)
+}
+
+// taskIDFromContext retrieves the current task ID from context.
+func taskIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(ctxKeyTaskID{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
 // ─── Built-in Tool Definitions ───
 //
 // These tools are available directly in the Chat UI without requiring an

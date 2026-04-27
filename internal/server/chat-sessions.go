@@ -715,6 +715,12 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	// Store session user ID and agent ID in context for builtin tool executors.
 	ctx = contextWithSessionUserID(ctx, sessionUserID)
 	ctx = contextWithAgentID(ctx, agent.ID)
+	// If the session is linked to a task, expose its ID so that builtin
+	// tools like task_create can auto-inherit parent_id / organization_id
+	// from the active task instead of producing orphaned subtasks.
+	if taskLinked != nil {
+		ctx = contextWithTaskID(ctx, taskLinked.ID)
+	}
 
 	// Build variable lookup/lister for skill tools.
 	// The lookup checks per-user preferences first, then per-user variables, then global.
