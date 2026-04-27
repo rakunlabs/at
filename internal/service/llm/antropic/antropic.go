@@ -892,10 +892,19 @@ const claudeCodeSystemIdentity = "You are Claude Code, Anthropic's official CLI 
 
 // oauthBetaHeader returns the anthropic-beta header value for OAuth requests.
 // Includes all required beta flags for Claude Code OAuth compatibility.
+//
+// Flags tracked against the upstream Claude Code CLI (mirrored by
+// opencode-claude-auth, which keeps these in sync):
+//   - claude-code-20250219: enables the Claude Code OAuth user:inference scope
+//   - oauth-2025-04-20: enables OAuth bearer-token request format
+//   - prompt-caching-scope-2026-01-05: opt-in scope for prompt caching with
+//     OAuth tokens (added 2026-01; harmless on accounts that don't use caching)
+//   - interleaved-thinking-2025-05-14: only when extended thinking is requested
 func oauthBetaHeader(reqBody map[string]any) string {
 	flags := []string{
 		"claude-code-20250219",
 		"oauth-2025-04-20",
+		"prompt-caching-scope-2026-01-05",
 	}
 	if _, hasThinking := reqBody["thinking"]; hasThinking {
 		flags = append(flags, "interleaved-thinking-2025-05-14")

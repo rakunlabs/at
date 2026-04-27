@@ -179,9 +179,24 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 
 	// Set working directory from context if available (shared workspace for delegation chains).
 	// Also inject AT_WORK_DIR env var so scripts can reference the shared workspace explicitly.
+	//
+	// Just-in-time create the directory: org-delegation calls MkdirAll optimistically at the
+	// start of a delegation chain but treats the failure as non-fatal, and child delegations
+	// reuse the parent workdir from context without re-validating it. If we hand a missing
+	// directory to exec.Cmd, Go's os/exec aborts process start with `chdir ...: no such file
+	// or directory` BEFORE the command runs, which the LLM sees as a recoverable tool error
+	// and retries until it burns the entire iteration budget. Idempotent MkdirAll here is
+	// cheap and prevents that runaway loop.
 	if workDir := WorkDirFromContext(ctx); workDir != "" {
-		cmd.Dir = workDir
-		env = append(env, "AT_WORK_DIR="+workDir)
+		if err := os.MkdirAll(workDir, 0o755); err != nil {
+			logi.Ctx(ctx).Warn("bash handler: failed to ensure work_dir exists, falling back to inherited cwd",
+				"work_dir", workDir, "error", err.Error())
+			// Don't set cmd.Dir to a guaranteed-broken path; let the command run from
+			// the inherited cwd and surface a real error if the script needs the workdir.
+		} else {
+			cmd.Dir = workDir
+			env = append(env, "AT_WORK_DIR="+workDir)
+		}
 	}
 
 	cmd.Env = env
