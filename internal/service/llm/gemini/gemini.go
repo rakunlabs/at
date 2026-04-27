@@ -18,6 +18,8 @@ import (
 	"github.com/worldline-go/klient"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/common"
+	"github.com/rakunlabs/at/internal/service/ratelimit"
 )
 
 // Google Generative Language API (generativelanguage.googleapis.com)
@@ -35,6 +37,22 @@ type Provider struct {
 	BaseURL string
 	APIKey  string
 	client  *klient.Client
+
+	// limiter is shared by all callers of this provider; nil means no
+	// rate limiting.
+	limiter *ratelimit.Limiter
+}
+
+// Option configures the Provider.
+type Option func(*Provider)
+
+// WithRateLimiter attaches a per-provider rate limiter. All Chat and
+// ChatStream calls will Acquire before issuing the upstream request.
+// Pass nil (or omit the option) to disable limiting.
+func WithRateLimiter(l *ratelimit.Limiter) Option {
+	return func(p *Provider) {
+		p.limiter = l
+	}
 }
 
 // New creates a Google AI (Gemini) provider.
@@ -43,7 +61,7 @@ type Provider struct {
 // model is the default model (e.g., "gemini-2.5-flash").
 // baseURL optionally overrides the default "https://generativelanguage.googleapis.com".
 // proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL. If empty, no proxy is used.
-func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provider, error) {
+func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...Option) (*Provider, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
 	}
@@ -76,12 +94,16 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool) (*Provid
 		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}
 
-	return &Provider{
+	p := &Provider{
 		Model:   model,
 		BaseURL: baseURL,
 		APIKey:  apiKey,
 		client:  client,
-	}, nil
+	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p, nil
 }
 
 // ─── Google API types ───
@@ -181,6 +203,13 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		model = p.Model
 	}
 
+	// Rate limit before issuing the request.
+	release, err := p.limiter.Acquire(ctx, common.EstimateInputTokens("", messages, tools))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	reqBody := p.buildRequest(ctx, messages, tools, opts)
 
 	jsonData, err := json.Marshal(reqBody)
@@ -197,8 +226,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 	var result generateContentResponse
 	var headers http.Header
+	var statusCode int
 	if err := p.client.Do(req, func(r *http.Response) error {
 		headers = r.Header
+		statusCode = r.StatusCode
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			return err
@@ -222,6 +253,23 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		return nil, err
 	}
 
+	// Surface 429 / RESOURCE_EXHAUSTED as a typed error so the agent
+	// retry loop can honour Retry-After.
+	if statusCode == http.StatusTooManyRequests ||
+		(result.Error != nil && (result.Error.Code == 429 || result.Error.Status == "RESOURCE_EXHAUSTED")) {
+		msg := "rate limited"
+		if result.Error != nil {
+			msg = result.Error.Message
+		}
+		return nil, &service.RateLimitError{
+			StatusCode: statusCode,
+			RetryAfter: common.ParseRetryAfter(headers),
+			Provider:   "gemini",
+			Message:    msg,
+			Underlying: fmt.Errorf("gemini API error (status %d): %s", statusCode, msg),
+		}
+	}
+
 	if result.Error != nil {
 		return &service.LLMResponse{
 			Content:  fmt.Sprintf("Error from Gemini API: %s (code: %d, status: %s)", result.Error.Message, result.Error.Code, result.Error.Status),
@@ -241,10 +289,23 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		model = p.Model
 	}
 
+	// Rate limit before issuing the request.
+	release, err := p.limiter.Acquire(ctx, common.EstimateInputTokens("", messages, tools))
+	if err != nil {
+		return nil, nil, err
+	}
+	releaseOnce := func() {
+		if release != nil {
+			release()
+			release = nil
+		}
+	}
+
 	reqBody := p.buildRequest(ctx, messages, tools, opts)
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
+		releaseOnce()
 		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
@@ -252,18 +313,30 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewBuffer(jsonData))
 	if err != nil {
+		releaseOnce()
 		return nil, nil, err
 	}
 
 	// Use the klient's HTTP client directly for streaming.
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
+		releaseOnce()
 		return nil, nil, fmt.Errorf("streaming request failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
+		defer releaseOnce()
 		bodyData, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, nil, &service.RateLimitError{
+				StatusCode: resp.StatusCode,
+				RetryAfter: common.ParseRetryAfter(resp.Header),
+				Provider:   "gemini",
+				Message:    string(bodyData),
+				Underlying: fmt.Errorf("gemini returned status %d: %s", resp.StatusCode, string(bodyData)),
+			}
+		}
 		return nil, nil, fmt.Errorf("gemini returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
@@ -272,6 +345,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
+		defer releaseOnce()
 
 		// Track whether any tool calls have been seen across all SSE events.
 		// Gemini may send functionCall parts and finishReason in separate events.

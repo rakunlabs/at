@@ -1281,6 +1281,24 @@
                 </div>
               {/if}
 
+              <!-- Max Iterations (per-task override) -->
+              <div class="px-3 py-2 flex items-center gap-2"
+                title="Per-task override of the agent's max_iterations. 0 = use agent default. Counter resets to 0 every time this task is processed.">
+                <Hash size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
+                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Max iter</span>
+                <input
+                  type="number"
+                  min="0"
+                  value={task.max_iterations ?? 0}
+                  onchange={(e) => {
+                    const n = parseInt((e.target as HTMLInputElement).value, 10);
+                    updateField('max_iterations', Number.isFinite(n) && n >= 0 ? n : 0);
+                  }}
+                  placeholder="0 = agent default"
+                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                />
+              </div>
+
               <!-- Checked Out By -->
               {#if task.checked_out_by}
                 <div class="px-3 py-2 flex items-center gap-2">

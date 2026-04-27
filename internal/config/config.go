@@ -323,6 +323,82 @@ type LLMConfig struct {
 	// connecting to the provider. Use this for self-signed certificates
 	// or internal endpoints that don't have valid TLS certs.
 	InsecureSkipVerify bool `cfg:"insecure_skip_verify" json:"insecure_skip_verify"`
+
+	// RateLimit, if set, applies a per-provider rate limit to ALL traffic
+	// going through this provider (agent calls AND gateway proxy calls).
+	// Use it to keep within upstream per-account quotas like Anthropic
+	// Pro/Max RPM and TPM. Leave nil for unlimited (default).
+	//
+	// Example for an Anthropic Pro/Max provider:
+	//
+	//   rate_limit:
+	//     max_concurrent: 1
+	//     requests_per_minute: 5
+	//     input_tokens_per_minute: 30000
+	//     wait_timeout_ms: 60000
+	//     retry_after_cap_ms: 60000
+	RateLimit *RateLimitConfig `cfg:"rate_limit" json:"rate_limit,omitempty"`
+}
+
+// RateLimitConfig describes the per-provider rate-limit policy. All fields
+// are optional; a nil RateLimitConfig (or one with all zero fields) means
+// no limiting.
+type RateLimitConfig struct {
+	// RequestsPerMinute caps the request rate (token-bucket).
+	// 0 = unlimited.
+	RequestsPerMinute int `cfg:"requests_per_minute" json:"requests_per_minute,omitempty"`
+
+	// InputTokensPerMinute caps the weighted input-token rate.
+	// 0 = unlimited.
+	InputTokensPerMinute int `cfg:"input_tokens_per_minute" json:"input_tokens_per_minute,omitempty"`
+
+	// MaxConcurrent caps the number of in-flight requests.
+	// 0 = unlimited.
+	MaxConcurrent int `cfg:"max_concurrent" json:"max_concurrent,omitempty"`
+
+	// WaitTimeoutMs bounds how long a call will block waiting for the
+	// limiter to permit it. 0 = use default (60s).
+	WaitTimeoutMs int `cfg:"wait_timeout_ms" json:"wait_timeout_ms,omitempty"`
+
+	// RetryAfterCapMs caps how long the agent retry loop will sleep when
+	// the upstream API returns Retry-After. Special values:
+	//   0  = use default cap (60s)
+	//   -1 = no cap (honour whatever upstream says)
+	//   >0 = cap in milliseconds
+	RetryAfterCapMs int `cfg:"retry_after_cap_ms" json:"retry_after_cap_ms,omitempty"`
+}
+
+// IsZero reports whether the config disables all limiting.
+func (c *RateLimitConfig) IsZero() bool {
+	if c == nil {
+		return true
+	}
+	return c.RequestsPerMinute <= 0 && c.InputTokensPerMinute <= 0 && c.MaxConcurrent <= 0
+}
+
+// WaitTimeout returns the configured wait timeout, or the default (60s)
+// when WaitTimeoutMs is zero. Negative values are treated as zero.
+func (c *RateLimitConfig) WaitTimeout() time.Duration {
+	if c == nil || c.WaitTimeoutMs <= 0 {
+		return 60 * time.Second
+	}
+	return time.Duration(c.WaitTimeoutMs) * time.Millisecond
+}
+
+// RetryAfterCap returns the configured Retry-After cap.
+//   - returns 60s when RetryAfterCapMs == 0 (default)
+//   - returns -1 when RetryAfterCapMs < 0 (no cap)
+//   - returns RetryAfterCapMs as a duration otherwise
+//
+// Callers should treat the returned -1 sentinel as "do not cap".
+func (c *RateLimitConfig) RetryAfterCap() time.Duration {
+	if c == nil || c.RetryAfterCapMs == 0 {
+		return 60 * time.Second
+	}
+	if c.RetryAfterCapMs < 0 {
+		return -1
+	}
+	return time.Duration(c.RetryAfterCapMs) * time.Millisecond
 }
 
 func Load(ctx context.Context, path string) (*Config, error) {

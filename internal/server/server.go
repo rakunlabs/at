@@ -45,6 +45,21 @@ type ProviderInfo struct {
 	providerType string // "anthropic", "openai", "vertex", "gemini", "minimax"
 	defaultModel string
 	models       []string // all supported models; if empty, only defaultModel is advertised
+
+	// retryAfterCap is the maximum time the agent retry loop will sleep
+	// when the upstream API returns Retry-After. Resolved from
+	// LLMConfig.RateLimit.RetryAfterCap() at provider build time:
+	//   - 0 (zero) means "use built-in default 60s" — but we resolve it
+	//     to that default here, so a zero value at this level means
+	//     "no rate-limit config at all" which we treat the same.
+	//   - -1 means "no cap" (sleep whatever upstream says).
+	retryAfterCap time.Duration
+}
+
+// RetryAfterCap returns the duration to cap an upstream Retry-After at.
+// A returned value of -1 means "do not cap".
+func (p ProviderInfo) RetryAfterCap() time.Duration {
+	return p.retryAfterCap
 }
 
 // ProviderFactory is a function that creates an LLMProvider from an LLMConfig.
@@ -1020,11 +1035,16 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 // NewProviderInfo creates a ProviderInfo from a provider and its config.
 func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) ProviderInfo {
+	cap := time.Duration(0)
+	if cfg.RateLimit != nil {
+		cap = cfg.RateLimit.RetryAfterCap()
+	}
 	return ProviderInfo{
-		provider:     provider,
-		providerType: cfg.Type,
-		defaultModel: cfg.Model,
-		models:       cfg.Models,
+		provider:      provider,
+		providerType:  cfg.Type,
+		defaultModel:  cfg.Model,
+		models:        cfg.Models,
+		retryAfterCap: cap,
 	}
 }
 

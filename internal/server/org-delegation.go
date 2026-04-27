@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -334,8 +335,22 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 
 	// h) Run agentic loop.
-	maxIterations := agent.Config.MaxIterations
-	if maxIterations == 0 {
+	//
+	// Iteration counter starts fresh at 0 for every runOrgDelegation call —
+	// each task gets its own budget; nothing carries over from previous tasks.
+	//
+	// max_iterations resolution order:
+	//   1. task.MaxIterations (per-task override, e.g. complex task gets 50)
+	//   2. agent.Config.MaxIterations (per-agent default)
+	//   3. fallback to 10
+	//
+	// 0 in the task means "use the agent default". 0 in the agent means
+	// "use the hard-coded fallback".
+	maxIterations := task.MaxIterations
+	if maxIterations <= 0 {
+		maxIterations = agent.Config.MaxIterations
+	}
+	if maxIterations <= 0 {
 		maxIterations = 10
 	}
 
@@ -489,7 +504,32 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				messages = sanitizeLLMMessages(messages)
 				continue
 			}
-			// Retry on 5xx server errors and rate limits
+			// Honour upstream Retry-After when the provider returned a
+			// typed *RateLimitError (anthropic/openai/gemini/vertex all
+			// produce this on 429). The sleep is capped per
+			// LLMConfig.RateLimit.RetryAfterCap (default 60s, configurable
+			// in the UI; -1 = no cap).
+			var rle *service.RateLimitError
+			if errors.As(chatErr, &rle) {
+				sleep := rle.RetryAfter
+				if sleep <= 0 {
+					sleep = time.Duration(attempt+1) * 3 * time.Second
+				}
+				if cap := info.RetryAfterCap(); cap > 0 && sleep > cap {
+					slog.Warn("org-delegation: capping upstream Retry-After",
+						"agent_id", agentID, "task_id", task.ID, "attempt", attempt+1,
+						"requested", rle.RetryAfter, "capped_to", cap, "provider", rle.Provider)
+					sleep = cap
+				}
+				slog.Warn("org-delegation: rate-limit, retrying",
+					"agent_id", agentID, "task_id", task.ID, "attempt", attempt+1,
+					"sleep", sleep, "provider", rle.Provider, "retry_after", rle.RetryAfter)
+				time.Sleep(sleep)
+				continue
+			}
+			// Retry on 5xx server errors and rate limits (string-match
+			// fallback for providers that don't yet return *RateLimitError,
+			// e.g. minimax wrapping antropic, or arbitrary status-500s).
 			if strings.Contains(errStr, "status 500") || strings.Contains(errStr, "status 502") ||
 				strings.Contains(errStr, "status 503") || strings.Contains(errStr, "status 520") ||
 				strings.Contains(errStr, "status 429") || strings.Contains(errStr, "unknown error") {

@@ -18,8 +18,23 @@ import (
 	"github.com/rakunlabs/at/internal/service/llm/minimax"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 	"github.com/rakunlabs/at/internal/service/llm/vertex"
+	"github.com/rakunlabs/at/internal/service/ratelimit"
 	"github.com/rakunlabs/at/internal/store"
 )
+
+// buildLimiter constructs a rate limiter from the provider config, or
+// returns nil when no limits are configured.
+func buildLimiter(rl *config.RateLimitConfig) *ratelimit.Limiter {
+	if rl.IsZero() {
+		return nil
+	}
+	return ratelimit.New(ratelimit.Config{
+		RequestsPerMinute: rl.RequestsPerMinute,
+		InputTokensPerMin: rl.InputTokensPerMinute,
+		MaxConcurrent:     rl.MaxConcurrent,
+		WaitTimeout:       rl.WaitTimeout(),
+	})
+}
 
 var (
 	name    = "at"
@@ -40,6 +55,10 @@ func main() {
 // ///////////////////////////////////////////////////////////////////
 
 func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
+	// Build the per-provider rate limiter once. It's safe to share with
+	// any of the provider types; nil means no limiting.
+	limiter := buildLimiter(cfg.RateLimit)
+
 	switch cfg.Type {
 	case "anthropic":
 		var opts []antropic.Option
@@ -63,6 +82,10 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			}
 		default:
 			return nil, fmt.Errorf("unknown auth_type %q for anthropic provider (supported: claude-code)", cfg.AuthType)
+		}
+
+		if limiter != nil {
+			opts = append(opts, antropic.WithRateLimiter(limiter))
 		}
 
 		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
@@ -107,21 +130,37 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			return nil, fmt.Errorf("unknown auth_type %q for openai provider (supported: copilot)", cfg.AuthType)
 		}
 
+		if limiter != nil {
+			opts = append(opts, openai.WithRateLimiter(limiter))
+		}
+
 		return openai.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers, opts...)
 	case "vertex":
-		return vertex.New(cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify)
+		var opts []vertex.Option
+		if limiter != nil {
+			opts = append(opts, vertex.WithRateLimiter(limiter))
+		}
+		return vertex.New(cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
 	case "gemini":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
 		}
-		return gemini.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify)
+		var opts []gemini.Option
+		if limiter != nil {
+			opts = append(opts, gemini.WithRateLimiter(limiter))
+		}
+		return gemini.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
 	case "minimax":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("minimax provider requires an api_key (get one from https://platform.minimax.io)")
 		}
 		headers := make(map[string]string, len(cfg.ExtraHeaders))
 		maps.Copy(headers, cfg.ExtraHeaders)
-		return minimax.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers)
+		var anthropicOpts []antropic.Option
+		if limiter != nil {
+			anthropicOpts = append(anthropicOpts, antropic.WithRateLimiter(limiter))
+		}
+		return minimax.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers, anthropicOpts...)
 	default:
 		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex, gemini, minimax)", cfg.Type)
 	}

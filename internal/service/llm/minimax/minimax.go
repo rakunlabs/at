@@ -57,7 +57,10 @@ type Provider struct {
 // defaults to "https://api.minimax.io/anthropic". For backward compatibility,
 // if the baseURL contains "/v1/chat/completions" (old OpenAI-style URL), it
 // is automatically converted to the Anthropic endpoint.
-func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHeaders map[string]string) (*Provider, error) {
+//
+// anthropicOpts are forwarded to the embedded antropic.Provider, e.g.
+// antropic.WithRateLimiter(...) to apply per-provider rate limiting.
+func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHeaders map[string]string, anthropicOpts ...antropic.Option) (*Provider, error) {
 	anthropicBaseURL := baseURL
 	nativeAPIBase := DefaultNativeAPIBase
 
@@ -98,7 +101,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 		pathPrefix = anthropicBaseURL[idx:]
 	}
 
-	anthProvider, err := antropic.New(apiKey, model, rootBaseURL, proxy, insecureSkipVerify)
+	anthProvider, err := antropic.New(apiKey, model, rootBaseURL, proxy, insecureSkipVerify, anthropicOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("minimax: create anthropic provider: %w", err)
 	}

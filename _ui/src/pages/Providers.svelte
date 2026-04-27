@@ -832,6 +832,14 @@
   let formExtraHeaders = $state<{ key: string; value: string }[]>([]);
   let discoveringModels = $state(false);
 
+  // Rate limit fields. Empty string = unlimited / use default.
+  let formRateLimitRPM = $state('');
+  let formRateLimitITPM = $state('');
+  let formRateLimitMaxConcurrent = $state('');
+  let formRateLimitWaitTimeoutMs = $state('');
+  let formRateLimitRetryAfterCapMs = $state('');
+  let showRateLimitSection = $state(false);
+
   // Device auth state (GitHub OAuth Device Flow for Copilot)
   let deviceAuthPending = $state(false);
   let deviceAuthCode = $state('');
@@ -905,6 +913,12 @@
     formInsecureSkipVerify = false;
     formHasStoredKey = false;
     formExtraHeaders = [];
+    formRateLimitRPM = '';
+    formRateLimitITPM = '';
+    formRateLimitMaxConcurrent = '';
+    formRateLimitWaitTimeoutMs = '';
+    formRateLimitRetryAfterCapMs = '';
+    showRateLimitSection = false;
     editingKey = null;
     activePreset = null;
     showForm = false;
@@ -956,6 +970,19 @@
     formExtraHeaders = Object.entries(rec.config.extra_headers || {}).map(
       ([key, value]) => ({ key, value })
     );
+    const rl = rec.config.rate_limit;
+    formRateLimitRPM = rl?.requests_per_minute ? String(rl.requests_per_minute) : '';
+    formRateLimitITPM = rl?.input_tokens_per_minute ? String(rl.input_tokens_per_minute) : '';
+    formRateLimitMaxConcurrent = rl?.max_concurrent ? String(rl.max_concurrent) : '';
+    formRateLimitWaitTimeoutMs = rl?.wait_timeout_ms ? String(rl.wait_timeout_ms) : '';
+    formRateLimitRetryAfterCapMs =
+      rl?.retry_after_cap_ms !== undefined && rl?.retry_after_cap_ms !== 0
+        ? String(rl.retry_after_cap_ms)
+        : '';
+    showRateLimitSection = !!rl && (
+      !!rl.requests_per_minute || !!rl.input_tokens_per_minute ||
+      !!rl.max_concurrent || !!rl.wait_timeout_ms || !!rl.retry_after_cap_ms
+    );
     showForm = true;
   }
 
@@ -977,6 +1004,30 @@
       if (h.key && h.value) headers[h.key] = h.value;
     }
     if (Object.keys(headers).length > 0) cfg.extra_headers = headers;
+
+    // Rate limit: include only if at least one knob is set, so existing
+    // unconfigured providers stay backward-compatible (no rate_limit at all).
+    const rl: NonNullable<LLMConfig['rate_limit']> = {};
+    let rlSet = false;
+    const parseRL = (s: string): number | undefined => {
+      const t = s.trim();
+      if (t === '') return undefined;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    const rpm = parseRL(formRateLimitRPM);
+    const itpm = parseRL(formRateLimitITPM);
+    const mc = parseRL(formRateLimitMaxConcurrent);
+    const wto = parseRL(formRateLimitWaitTimeoutMs);
+    const rac = parseRL(formRateLimitRetryAfterCapMs);
+    if (rpm !== undefined && rpm > 0) { rl.requests_per_minute = rpm; rlSet = true; }
+    if (itpm !== undefined && itpm > 0) { rl.input_tokens_per_minute = itpm; rlSet = true; }
+    if (mc !== undefined && mc > 0) { rl.max_concurrent = mc; rlSet = true; }
+    if (wto !== undefined && wto > 0) { rl.wait_timeout_ms = wto; rlSet = true; }
+    // Retry-After cap is also part of the limiter shape; -1 is a valid
+    // signal ("no cap"), so include it whenever the user provided any value.
+    if (rac !== undefined) { rl.retry_after_cap_ms = rac; rlSet = true; }
+    if (rlSet) cfg.rate_limit = rl;
 
     return cfg;
   }
@@ -1736,6 +1787,81 @@
             />
             <span class="text-sm text-gray-600 dark:text-dark-text-secondary">Disable certificate verification (insecure)</span>
           </label>
+        </div>
+
+        <!-- Rate Limit (collapsible) -->
+        <div class="border-t border-gray-200 dark:border-dark-border pt-4">
+          <button
+            type="button"
+            onclick={() => (showRateLimitSection = !showRateLimitSection)}
+            class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+          >
+            <ChevronDown size={14} class={showRateLimitSection ? '' : '-rotate-90'} />
+            Rate Limit (optional)
+          </button>
+          <p class="text-xs text-gray-500 dark:text-dark-text-faint mt-1 ml-6">
+            Throttles ALL traffic through this provider (agent calls and gateway proxy). Leave blank for unlimited.
+            For Claude Pro/Max try: max_concurrent=1, requests_per_minute=5, input_tokens_per_minute=30000.
+          </p>
+          {#if showRateLimitSection}
+            <div class="mt-3 ml-6 space-y-3">
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <label for="form-rl-mc" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Max concurrent</label>
+                <input
+                  id="form-rl-mc"
+                  type="number"
+                  min="0"
+                  bind:value={formRateLimitMaxConcurrent}
+                  placeholder="0 = unlimited"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                />
+              </div>
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <label for="form-rl-rpm" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Requests / min</label>
+                <input
+                  id="form-rl-rpm"
+                  type="number"
+                  min="0"
+                  bind:value={formRateLimitRPM}
+                  placeholder="0 = unlimited"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                />
+              </div>
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <label for="form-rl-itpm" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Input tokens / min</label>
+                <input
+                  id="form-rl-itpm"
+                  type="number"
+                  min="0"
+                  bind:value={formRateLimitITPM}
+                  placeholder="0 = unlimited"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                />
+              </div>
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <label for="form-rl-wto" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Wait timeout (ms)</label>
+                <input
+                  id="form-rl-wto"
+                  type="number"
+                  min="0"
+                  bind:value={formRateLimitWaitTimeoutMs}
+                  placeholder="default 60000"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                />
+              </div>
+              <div class="grid grid-cols-4 gap-3 items-center">
+                <label for="form-rl-rac" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Retry-After cap (ms)</label>
+                <input
+                  id="form-rl-rac"
+                  type="number"
+                  min="-1"
+                  bind:value={formRateLimitRetryAfterCapMs}
+                  placeholder="default 60000, -1 = no cap"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                />
+              </div>
+            </div>
+          {/if}
         </div>
 
         <!-- Model -->

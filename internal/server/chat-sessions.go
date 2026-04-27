@@ -681,7 +681,18 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}
 
 	// Resolve max iterations and tool timeout.
-	maxIterations := agent.Config.MaxIterations
+	//
+	// Iteration counter starts fresh at 0 for every RunAgenticLoop call.
+	// For task-linked chat sessions, task.MaxIterations (when set) takes
+	// precedence over agent.Config.MaxIterations so a complex task can have
+	// its own budget without affecting the agent's other interactions.
+	maxIterations := 0
+	if taskLinked != nil {
+		maxIterations = taskLinked.MaxIterations
+	}
+	if maxIterations <= 0 {
+		maxIterations = agent.Config.MaxIterations
+	}
 	if maxIterations <= 0 {
 		maxIterations = 10
 	}

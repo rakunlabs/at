@@ -19,6 +19,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/common"
+	"github.com/rakunlabs/at/internal/service/ratelimit"
 )
 
 // Vertex AI OpenAI-compatible endpoint format:
@@ -32,6 +33,22 @@ type Provider struct {
 
 	tokenSource oauth2.TokenSource
 	client      *klient.Client
+
+	// limiter is shared by all callers of this provider; nil means no
+	// rate limiting.
+	limiter *ratelimit.Limiter
+}
+
+// Option configures the Provider.
+type Option func(*Provider)
+
+// WithRateLimiter attaches a per-provider rate limiter. All Chat and
+// ChatStream calls will Acquire before issuing the upstream request.
+// Pass nil (or omit the option) to disable limiting.
+func WithRateLimiter(l *ratelimit.Limiter) Option {
+	return func(p *Provider) {
+		p.limiter = l
+	}
 }
 
 // New creates a Vertex AI provider.
@@ -44,7 +61,7 @@ type Provider struct {
 // Authentication uses Google Application Default Credentials (ADC).
 // Set GOOGLE_APPLICATION_CREDENTIALS env var to your service account key file,
 // or run on GCE/Cloud Run/GKE where ADC is automatically available.
-func New(model, endpointURL, proxy string, insecureSkipVerify bool) (*Provider, error) {
+func New(model, endpointURL, proxy string, insecureSkipVerify bool, opts ...Option) (*Provider, error) {
 	if endpointURL == "" {
 		return nil, fmt.Errorf("vertex provider requires a base_url with the full endpoint URL, e.g.: " +
 			"https://us-central1-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/endpoints/openapi/chat/completions")
@@ -74,12 +91,16 @@ func New(model, endpointURL, proxy string, insecureSkipVerify bool) (*Provider, 
 		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}
 
-	return &Provider{
+	p := &Provider{
 		Model:       model,
 		EndpointURL: endpointURL,
 		tokenSource: ts,
 		client:      client,
-	}, nil
+	}
+	for _, o := range opts {
+		o(p)
+	}
+	return p, nil
 }
 
 // Response types matching the OpenAI-compatible format returned by Vertex AI.
@@ -126,6 +147,13 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		model = p.Model
 	}
 
+	// Rate limit before issuing the request.
+	release, err := p.limiter.Acquire(ctx, common.EstimateInputTokens("", messages, tools))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	// Get a fresh access token (auto-refreshes when expired).
 	token, err := p.tokenSource.Token()
 	if err != nil {
@@ -148,8 +176,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 	var result vertexResponse
 	var headers http.Header
+	var statusCode int
 	if err := p.client.Do(req, func(r *http.Response) error {
 		headers = r.Header
+		statusCode = r.StatusCode
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			return err
@@ -162,6 +192,23 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		return nil
 	}); err != nil {
 		return nil, err
+	}
+
+	// Surface 429 as a typed error so the agent retry loop can honour
+	// Retry-After.
+	if statusCode == http.StatusTooManyRequests ||
+		(result.Error != nil && result.Error.Code == 429) {
+		msg := "rate limited"
+		if result.Error != nil {
+			msg = result.Error.Message
+		}
+		return nil, &service.RateLimitError{
+			StatusCode: statusCode,
+			RetryAfter: common.ParseRetryAfter(headers),
+			Provider:   "vertex",
+			Message:    msg,
+			Underlying: fmt.Errorf("vertex API error (status %d): %s", statusCode, msg),
+		}
 	}
 
 	if result.Error != nil {
@@ -235,8 +282,21 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		model = p.Model
 	}
 
+	// Rate limit before issuing the request.
+	release, err := p.limiter.Acquire(ctx, common.EstimateInputTokens("", messages, tools))
+	if err != nil {
+		return nil, nil, err
+	}
+	releaseOnce := func() {
+		if release != nil {
+			release()
+			release = nil
+		}
+	}
+
 	token, err := p.tokenSource.Token()
 	if err != nil {
+		releaseOnce()
 		return nil, nil, fmt.Errorf("failed to get access token: %w", err)
 	}
 
@@ -246,11 +306,13 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
+		releaseOnce()
 		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.EndpointURL, bytes.NewBuffer(jsonData))
 	if err != nil {
+		releaseOnce()
 		return nil, nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
@@ -258,12 +320,23 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
+		releaseOnce()
 		return nil, nil, fmt.Errorf("streaming request failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
+		defer releaseOnce()
 		bodyData, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, nil, &service.RateLimitError{
+				StatusCode: resp.StatusCode,
+				RetryAfter: common.ParseRetryAfter(resp.Header),
+				Provider:   "vertex",
+				Message:    string(bodyData),
+				Underlying: fmt.Errorf("vertex returned status %d: %s", resp.StatusCode, string(bodyData)),
+			}
+		}
 		return nil, nil, fmt.Errorf("vertex returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
@@ -272,6 +345,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
+		defer releaseOnce()
 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)

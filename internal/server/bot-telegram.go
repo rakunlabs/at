@@ -482,6 +482,61 @@ func extractMediaFiles(result string) (videos []string, images []string) {
 	return
 }
 
+// newCommandFlagRe matches inline /new flags such as:
+//
+//	max=50    --max=50    -max=50
+//	max_iter=50           --max-iterations=50
+//
+// Captured groups: [1]=key, [2]=value. Anchored to a word boundary so things
+// like "max-altitude=50" inside a topic don't get eaten.
+var newCommandFlagRe = regexp.MustCompile(`(?i)(?:^|\s)-{0,2}(max(?:[-_]?iter(?:ations)?)?)=([0-9]+)(?:\s|$)`)
+
+// parseNewCommandArgs splits a /new command argument string into the topic
+// and any inline option flags. Recognised flags (case-insensitive):
+//
+//	max=N | --max=N | -max=N | max_iter=N | max-iterations=N
+//
+// All matched flag tokens are stripped from the topic so the LLM never sees
+// them. Unknown tokens are left untouched in the topic.
+func parseNewCommandArgs(args string) (topic string, opts BotTaskOptions) {
+	stripped := newCommandFlagRe.ReplaceAllStringFunc(args, func(match string) string {
+		sub := newCommandFlagRe.FindStringSubmatch(match)
+		if len(sub) < 3 {
+			return match
+		}
+		key := strings.ToLower(sub[1])
+		val := sub[2]
+		switch {
+		case strings.HasPrefix(key, "max"):
+			// max, max_iter, max-iter, max_iterations, max-iterations all
+			// map to MaxIterations.
+			if n := atoiSafe(val); n > 0 {
+				opts.MaxIterations = n
+			}
+		}
+		// Replace with a single space so surrounding text doesn't glue together.
+		return " "
+	})
+	topic = strings.TrimSpace(strings.Join(strings.Fields(stripped), " "))
+	return topic, opts
+}
+
+// atoiSafe returns 0 for non-numeric input. Bounded to a sane upper limit
+// (10000) so a typo like max=99999999 doesn't blow up the agentic loop budget.
+func atoiSafe(s string) int {
+	n := 0
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+		if n > 10000 {
+			return 10000
+		}
+	}
+	return n
+}
+
 // telegramContext holds per-bot context passed to message handlers.
 type telegramContext struct {
 	botID           string
@@ -693,10 +748,23 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			bot.Send(reply) //nolint:errcheck
 			return
 		case "new":
-			// /new <topic> — create an org task and run it in the background
-			topic := strings.TrimSpace(msg.CommandArguments())
+			// /new <topic> — create an org task and run it in the background.
+			//
+			// Optional inline flags (anywhere in the args, parsed and stripped):
+			//   max=N | --max=N | -max=N | max_iter=N | --max-iterations=N
+			// e.g. "/new max=50 build a video about quantum computing"
+			rawArgs := strings.TrimSpace(msg.CommandArguments())
+			if rawArgs == "" {
+				reply := tgbotapi.NewMessage(msg.Chat.ID,
+					"Usage: /new [max=N] <topic or task>\n"+
+						"Example: /new top 5 deadliest animals\n"+
+						"Example: /new max=50 build a 30s short about quantum entanglement")
+				bot.Send(reply) //nolint:errcheck
+				return
+			}
+			topic, botOpts := parseNewCommandArgs(rawArgs)
 			if topic == "" {
-				reply := tgbotapi.NewMessage(msg.Chat.ID, "Usage: /new <topic or task>\nExample: /new top 5 deadliest animals")
+				reply := tgbotapi.NewMessage(msg.Chat.ID, "Usage: /new [max=N] <topic or task>")
 				bot.Send(reply) //nolint:errcheck
 				return
 			}
@@ -716,8 +784,9 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				}
 			}
 
-			slog.Info("telegram bot: creating task", "topic", topic, "agent_id", agentID)
-			taskID, identifier, createErr := s.createBotTask(ctx, agentID, topic, onDone)
+			slog.Info("telegram bot: creating task",
+				"topic", topic, "agent_id", agentID, "max_iterations", botOpts.MaxIterations)
+			taskID, identifier, createErr := s.createBotTaskWithOptions(ctx, agentID, topic, botOpts, onDone)
 			if createErr != nil {
 				slog.Error("telegram bot: create task failed", "error", createErr)
 				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed to create task: %v", createErr))
@@ -729,7 +798,13 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			// Auto-pick this task as active
 			tgCtx.activeTask.Store(chatIDStr, identifier)
 
-			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s created and running in background.\nSet as active task.\n\nTopic: %s\n\nI'll notify you when it's done.\n/status to check", sanitizeUTF8(identifier), sanitizeUTF8(topic)))
+			ack := fmt.Sprintf("Task %s created and running in background.\nSet as active task.\n\nTopic: %s\n",
+				sanitizeUTF8(identifier), sanitizeUTF8(topic))
+			if botOpts.MaxIterations > 0 {
+				ack += fmt.Sprintf("Max iterations: %d (per-task override)\n", botOpts.MaxIterations)
+			}
+			ack += "\nI'll notify you when it's done.\n/status to check"
+			sendTelegramText(bot, msg.Chat.ID, ack)
 			return
 		case "status":
 			// /status [identifier] — check task status. If no ID given, show the latest task.

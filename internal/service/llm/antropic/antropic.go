@@ -16,6 +16,8 @@ import (
 	"github.com/worldline-go/klient"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/common"
+	"github.com/rakunlabs/at/internal/service/ratelimit"
 )
 
 const DefaultBaseURL = "https://api.anthropic.com"
@@ -31,6 +33,16 @@ type Provider struct {
 
 	Client      *klient.Client
 	tokenSource TokenSource
+
+	// limiter is shared by all callers of this provider; nil means no
+	// rate limiting. When set, every Chat/ChatStream call must Acquire
+	// before issuing the upstream request.
+	limiter *ratelimit.Limiter
+
+	// systemForEstimate is an optional default system prompt used by the
+	// rate limiter to weight ITPM. Providers that build their own system
+	// message internally don't need to set this.
+	systemForEstimate string
 }
 
 // Option configures the Provider.
@@ -50,6 +62,15 @@ func WithTokenSource(ts TokenSource) Option {
 func WithMaxTokens(n int) Option {
 	return func(p *Provider) {
 		p.MaxTokens = n
+	}
+}
+
+// WithRateLimiter attaches a per-provider rate limiter. All Chat and
+// ChatStream calls will Acquire before issuing the upstream request.
+// Pass nil (or omit the option) to disable limiting.
+func WithRateLimiter(l *ratelimit.Limiter) Option {
+	return func(p *Provider) {
+		p.limiter = l
 	}
 }
 
@@ -158,6 +179,14 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		model = p.Model
 	}
 
+	// Rate limit before issuing the request. Acquire returns immediately
+	// when no limiter is configured (nil receiver is a no-op).
+	release, err := p.limiter.Acquire(ctx, common.EstimateInputTokens(p.systemForEstimate, messages, tools))
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	reqBody := p.buildRequestBody(model, messages, tools, opts)
 	jsonData, _ := json.Marshal(reqBody)
 
@@ -225,6 +254,17 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			"message", errMsg,
 			"model", model,
 		)
+		// Surface 429 as a typed error so the agent retry loop can
+		// honour Retry-After.
+		if statusCode == http.StatusTooManyRequests || result.Error.Type == "rate_limit_error" {
+			return nil, &service.RateLimitError{
+				StatusCode: statusCode,
+				RetryAfter: common.ParseRetryAfter(headers),
+				Provider:   "anthropic",
+				Message:    errMsg,
+				Underlying: fmt.Errorf("anthropic API error [%s] (status %d): %s", result.Error.Type, statusCode, errMsg),
+			}
+		}
 		return nil, fmt.Errorf("anthropic API error [%s] (status %d): %s", result.Error.Type, statusCode, errMsg)
 	}
 
@@ -304,11 +344,26 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		model = p.Model
 	}
 
+	// Rate limit before issuing the request. The release runs after the
+	// stream goroutine finishes; for synchronous error paths we release
+	// immediately via the helper below.
+	release, err := p.limiter.Acquire(ctx, common.EstimateInputTokens(p.systemForEstimate, messages, tools))
+	if err != nil {
+		return nil, nil, err
+	}
+	releaseOnce := func() {
+		if release != nil {
+			release()
+			release = nil
+		}
+	}
+
 	reqBody := p.buildRequestBody(model, messages, tools, opts)
 	reqBody["stream"] = true
 
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
+		releaseOnce()
 		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
@@ -321,6 +376,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/messages", bytes.NewBuffer(jsonData))
 	if err != nil {
+		releaseOnce()
 		return nil, nil, err
 	}
 
@@ -328,6 +384,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	if p.tokenSource != nil {
 		token, err := p.tokenSource.Token(ctx)
 		if err != nil {
+			releaseOnce()
 			return nil, nil, fmt.Errorf("failed to get auth token: %w", err)
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -346,17 +403,30 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	// Use the klient's HTTP client directly for streaming.
 	resp, err := p.Client.HTTP.Do(req)
 	if err != nil {
+		releaseOnce()
 		return nil, nil, fmt.Errorf("streaming request failed: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		defer resp.Body.Close()
+		defer releaseOnce()
 		bodyData, _ := io.ReadAll(resp.Body)
 		slog.Error("anthropic stream error",
 			"status", resp.StatusCode,
 			"response", string(bodyData),
 			"model", model,
 		)
+		// Surface 429 as a typed error so the agent retry loop can
+		// honour Retry-After.
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, nil, &service.RateLimitError{
+				StatusCode: resp.StatusCode,
+				RetryAfter: common.ParseRetryAfter(resp.Header),
+				Provider:   "anthropic",
+				Message:    string(bodyData),
+				Underlying: fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData)),
+			}
+		}
 		return nil, nil, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData))
 	}
 
@@ -365,6 +435,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 	go func() {
 		defer close(ch)
 		defer resp.Body.Close()
+		defer releaseOnce()
 
 		// Track the current content block for tool_use streaming.
 		// Anthropic streams tool input as partial JSON fragments that

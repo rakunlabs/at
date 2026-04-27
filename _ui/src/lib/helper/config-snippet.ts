@@ -39,6 +39,18 @@ function buildCleanConfig(config: LLMConfig): Record<string, unknown> {
     clean.proxy = config.proxy;
   }
 
+  if (config.rate_limit) {
+    const rl: Record<string, unknown> = {};
+    if (config.rate_limit.requests_per_minute) rl.requests_per_minute = config.rate_limit.requests_per_minute;
+    if (config.rate_limit.input_tokens_per_minute) rl.input_tokens_per_minute = config.rate_limit.input_tokens_per_minute;
+    if (config.rate_limit.max_concurrent) rl.max_concurrent = config.rate_limit.max_concurrent;
+    if (config.rate_limit.wait_timeout_ms) rl.wait_timeout_ms = config.rate_limit.wait_timeout_ms;
+    if (config.rate_limit.retry_after_cap_ms !== undefined && config.rate_limit.retry_after_cap_ms !== 0) {
+      rl.retry_after_cap_ms = config.rate_limit.retry_after_cap_ms;
+    }
+    if (Object.keys(rl).length > 0) clean.rate_limit = rl;
+  }
+
   return clean;
 }
 

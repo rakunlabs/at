@@ -31,6 +31,7 @@ type taskRow struct {
 	Result          sql.NullString `db:"result"`
 	BillingCode     sql.NullString `db:"billing_code"`
 	RequestDepth    int            `db:"request_depth"`
+	MaxIterations   int            `db:"max_iterations"`
 	CheckedOutBy    sql.NullString `db:"checked_out_by"`
 	CheckedOutAt    sql.NullTime   `db:"checked_out_at"`
 	StartedAt       sql.NullTime   `db:"started_at"`
@@ -46,7 +47,7 @@ type taskRow struct {
 var taskColumns = []interface{}{
 	"id", "organization_id", "project_id", "goal_id", "parent_id", "assigned_agent_id",
 	"identifier", "title", "description", "status", "priority_level", "priority", "result",
-	"billing_code", "request_depth", "checked_out_by", "checked_out_at",
+	"billing_code", "request_depth", "max_iterations", "checked_out_by", "checked_out_at",
 	"started_at", "completed_at", "cancelled_at", "hidden_at",
 	"created_at", "updated_at", "created_by", "updated_by",
 }
@@ -58,7 +59,8 @@ func scanTaskRow(scanner interface {
 		&row.ID, &row.OrganizationID, &row.ProjectID, &row.GoalID, &row.ParentID,
 		&row.AssignedAgentID, &row.Identifier, &row.Title, &row.Description,
 		&row.Status, &row.PriorityLevel, &row.Priority, &row.Result,
-		&row.BillingCode, &row.RequestDepth, &row.CheckedOutBy, &row.CheckedOutAt,
+		&row.BillingCode, &row.RequestDepth, &row.MaxIterations,
+		&row.CheckedOutBy, &row.CheckedOutAt,
 		&row.StartedAt, &row.CompletedAt, &row.CancelledAt, &row.HiddenAt,
 		&row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
 	)
@@ -140,6 +142,7 @@ func (p *Postgres) CreateTask(ctx context.Context, task service.Task) (*service.
 			"result":            nullString(task.Result),
 			"billing_code":      nullString(task.BillingCode),
 			"request_depth":     task.RequestDepth,
+			"max_iterations":    task.MaxIterations,
 			"checked_out_by":    nil,
 			"checked_out_at":    nil,
 			"started_at":        nil,
@@ -176,6 +179,7 @@ func (p *Postgres) CreateTask(ctx context.Context, task service.Task) (*service.
 		Result:          task.Result,
 		BillingCode:     task.BillingCode,
 		RequestDepth:    task.RequestDepth,
+		MaxIterations:   task.MaxIterations,
 		CreatedAt:       now.Format(time.RFC3339),
 		UpdatedAt:       now.Format(time.RFC3339),
 		CreatedBy:       task.CreatedBy,
@@ -202,6 +206,7 @@ func (p *Postgres) UpdateTask(ctx context.Context, id string, task service.Task)
 			"result":            nullString(task.Result),
 			"billing_code":      nullString(task.BillingCode),
 			"request_depth":     task.RequestDepth,
+			"max_iterations":    task.MaxIterations,
 			"started_at":        nullTimeString(task.StartedAt),
 			"completed_at":      nullTimeString(task.CompletedAt),
 			"cancelled_at":      nullTimeString(task.CancelledAt),
@@ -473,6 +478,7 @@ func taskRowToRecord(row taskRow) *service.Task {
 		Result:          row.Result.String,
 		BillingCode:     row.BillingCode.String,
 		RequestDepth:    row.RequestDepth,
+		MaxIterations:   row.MaxIterations,
 		CheckedOutBy:    row.CheckedOutBy.String,
 		CheckedOutAt:    checkedOutAt,
 		StartedAt:       startedAt,

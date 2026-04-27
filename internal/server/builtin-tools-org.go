@@ -257,6 +257,14 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 	description, _ := args["description"].(string)
 	priorityLevel, _ := args["priority_level"].(string)
 
+	// Per-task max_iterations override (0 = use agent default).
+	maxIterations := 0
+	if v, ok := args["max_iterations"].(float64); ok && v > 0 {
+		maxIterations = int(v)
+	} else if v, ok := args["max_iterations"].(int); ok && v > 0 {
+		maxIterations = v
+	}
+
 	task := service.Task{
 		OrganizationID:  orgID,
 		AssignedAgentID: org.HeadAgentID,
@@ -266,6 +274,7 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 		Status:          service.TaskStatusOpen,
 		Identifier:      identifier,
 		RequestDepth:    0,
+		MaxIterations:   maxIterations,
 	}
 
 	record, err := s.taskStore.CreateTask(ctx, task)

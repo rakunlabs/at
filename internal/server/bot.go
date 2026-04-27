@@ -306,11 +306,26 @@ func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode s
 // TaskDoneCallback is called when a bot-created task finishes (success or failure).
 type TaskDoneCallback func(identifier, status, result string)
 
+// BotTaskOptions are optional knobs for createBotTask. A zero value is fine —
+// every field is optional and falls back to the same behaviour as before.
+type BotTaskOptions struct {
+	// MaxIterations overrides the agent's max_iterations for this task only.
+	// 0 = use the agent's default.
+	MaxIterations int
+}
+
 // createBotTask creates a background org task for the given agent and topic.
 // It finds the agent's organization, creates a task, and starts async delegation.
 // An optional callback is called when the task finishes.
 // Returns (taskID, identifier, error).
 func (s *Server) createBotTask(ctx context.Context, agentID, topic string, onDone ...TaskDoneCallback) (string, string, error) {
+	return s.createBotTaskWithOptions(ctx, agentID, topic, BotTaskOptions{}, onDone...)
+}
+
+// createBotTaskWithOptions is like createBotTask but lets callers pass per-task
+// overrides such as max_iterations. Kept as a separate function so existing
+// call sites (other bots, slash commands, etc.) don't need to change.
+func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic string, opts BotTaskOptions, onDone ...TaskDoneCallback) (string, string, error) {
 	if s.orgAgentStore == nil || s.organizationStore == nil || s.taskStore == nil {
 		return "", "", fmt.Errorf("task/org stores not configured")
 	}
@@ -369,6 +384,7 @@ func (s *Server) createBotTask(ctx context.Context, agentID, topic string, onDon
 		Status:          service.TaskStatusOpen,
 		Identifier:      identifier,
 		RequestDepth:    0,
+		MaxIterations:   opts.MaxIterations,
 		CreatedBy:       "telegram-bot",
 	}
 

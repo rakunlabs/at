@@ -47,16 +47,23 @@ type Task struct {
 	Result          string `json:"result,omitempty"`
 	BillingCode     string `json:"billing_code,omitempty"`
 	RequestDepth    int    `json:"request_depth,omitempty"`
-	CheckedOutBy    string `json:"checked_out_by,omitempty"`
-	CheckedOutAt    string `json:"checked_out_at,omitempty"`
-	StartedAt       string `json:"started_at,omitempty"`
-	CompletedAt     string `json:"completed_at,omitempty"`
-	CancelledAt     string `json:"cancelled_at,omitempty"`
-	HiddenAt        string `json:"hidden_at,omitempty"`
-	CreatedAt       string `json:"created_at"`
-	UpdatedAt       string `json:"updated_at"`
-	CreatedBy       string `json:"created_by"`
-	UpdatedBy       string `json:"updated_by"`
+	// MaxIterations overrides agent.Config.MaxIterations for this specific
+	// task. 0 = use the agent's default. Use this to give complex tasks a
+	// higher iteration budget without affecting the agent's other tasks.
+	// The iteration counter always starts fresh at 0 for each runOrgDelegation
+	// invocation, so creating a brand-new task always begins with iteration 0
+	// regardless of any previous task's progress.
+	MaxIterations int    `json:"max_iterations,omitempty"`
+	CheckedOutBy  string `json:"checked_out_by,omitempty"`
+	CheckedOutAt  string `json:"checked_out_at,omitempty"`
+	StartedAt     string `json:"started_at,omitempty"`
+	CompletedAt   string `json:"completed_at,omitempty"`
+	CancelledAt   string `json:"cancelled_at,omitempty"`
+	HiddenAt      string `json:"hidden_at,omitempty"`
+	CreatedAt     string `json:"created_at"`
+	UpdatedAt     string `json:"updated_at"`
+	CreatedBy     string `json:"created_by"`
+	UpdatedBy     string `json:"updated_by"`
 }
 
 // TaskStorer defines CRUD operations for tasks.

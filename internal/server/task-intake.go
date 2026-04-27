@@ -16,6 +16,9 @@ type intakeTaskRequest struct {
 	Description   string `json:"description"`
 	GoalID        string `json:"goal_id,omitempty"`
 	PriorityLevel string `json:"priority_level,omitempty"`
+	// MaxIterations overrides agent.Config.MaxIterations for this task only.
+	// 0 = use the agent default.
+	MaxIterations int `json:"max_iterations,omitempty"`
 }
 
 // intakeTaskResponse is the minimal 202 response for task intake.
@@ -116,6 +119,7 @@ func (s *Server) IntakeTaskAPI(w http.ResponseWriter, r *http.Request) {
 		Status:          service.TaskStatusOpen,
 		Identifier:      identifier,
 		RequestDepth:    0,
+		MaxIterations:   req.MaxIterations,
 	}
 
 	record, err := s.taskStore.CreateTask(ctx, task)

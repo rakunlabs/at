@@ -305,6 +305,13 @@ func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (strin
 	if v, ok := args["status"].(string); ok && v != "" {
 		task.Status = v
 	}
+	// max_iterations: per-task override of the agent's iteration budget.
+	// Accept both float64 (JSON numbers) and int.
+	if v, ok := args["max_iterations"].(float64); ok && v > 0 {
+		task.MaxIterations = int(v)
+	} else if v, ok := args["max_iterations"].(int); ok && v > 0 {
+		task.MaxIterations = v
+	}
 
 	record, err := s.taskStore.CreateTask(ctx, task)
 	if err != nil {
@@ -463,6 +470,13 @@ func (s *Server) execTaskUpdate(ctx context.Context, args map[string]any) (strin
 	}
 	if v, ok := args["result"].(string); ok {
 		existing.Result = v
+	}
+	// max_iterations: per-task override of the agent's iteration budget.
+	// Pass 0 to clear the override and fall back to the agent's default.
+	if v, ok := args["max_iterations"].(float64); ok {
+		existing.MaxIterations = int(v)
+	} else if v, ok := args["max_iterations"].(int); ok {
+		existing.MaxIterations = v
 	}
 
 	record, err := s.taskStore.UpdateTask(ctx, id, *existing)

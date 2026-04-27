@@ -5,6 +5,20 @@ const api = axios.create({
   baseURL: 'api/v1',
 });
 
+export interface RateLimitConfig {
+  // Token-bucket rate (0 = unlimited).
+  requests_per_minute?: number;
+  // Weighted input-tokens-per-minute bucket (0 = unlimited).
+  input_tokens_per_minute?: number;
+  // Concurrency cap for in-flight requests (0 = unlimited).
+  max_concurrent?: number;
+  // How long Acquire blocks before failing fast (0 = default 60s).
+  wait_timeout_ms?: number;
+  // Cap on upstream Retry-After honoured by the agent retry loop.
+  // 0 = default 60s, -1 = no cap, >0 = ms.
+  retry_after_cap_ms?: number;
+}
+
 export interface LLMConfig {
   type: string;
   api_key?: string;
@@ -15,6 +29,7 @@ export interface LLMConfig {
   auth_type?: string;
   proxy?: string;
   insecure_skip_verify?: boolean;
+  rate_limit?: RateLimitConfig;
 }
 
 export interface ProviderRecord {

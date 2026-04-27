@@ -267,6 +267,14 @@ func applyTaskFields(t *service.Task, fields map[string]any) {
 			t.RequestDepth = n
 		}
 	}
+	if v, ok := fields["max_iterations"]; ok {
+		switch n := v.(type) {
+		case float64:
+			t.MaxIterations = int(n)
+		case int:
+			t.MaxIterations = n
+		}
+	}
 	if v, ok := fields["checked_out_by"]; ok {
 		t.CheckedOutBy, _ = v.(string)
 	}

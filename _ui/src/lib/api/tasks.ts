@@ -45,6 +45,9 @@ export interface Task {
   result: string;
   billing_code: string;
   request_depth: number;
+  // Per-task max iterations override. 0 = use the agent's default.
+  // The iteration counter always starts fresh at 0 for each task run.
+  max_iterations?: number;
   checked_out_by: string;
   checked_out_at: string;
   started_at: string;

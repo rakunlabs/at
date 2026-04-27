@@ -66,6 +66,32 @@ type providerRequest struct {
 	Config config.LLMConfig `json:"config"`
 }
 
+// validateRateLimitConfig checks that any user-provided rate-limit values
+// are sane. Returns a human-readable error message suitable for 400
+// responses, or empty string if valid.
+func validateRateLimitConfig(rl *config.RateLimitConfig) string {
+	if rl == nil {
+		return ""
+	}
+	if rl.RequestsPerMinute < 0 {
+		return "rate_limit.requests_per_minute must be >= 0"
+	}
+	if rl.InputTokensPerMinute < 0 {
+		return "rate_limit.input_tokens_per_minute must be >= 0"
+	}
+	if rl.MaxConcurrent < 0 {
+		return "rate_limit.max_concurrent must be >= 0"
+	}
+	if rl.WaitTimeoutMs < 0 {
+		return "rate_limit.wait_timeout_ms must be >= 0"
+	}
+	// RetryAfterCapMs may be -1 (no cap) or >= 0; reject anything else.
+	if rl.RetryAfterCapMs < -1 {
+		return "rate_limit.retry_after_cap_ms must be -1 (no cap), 0 (default), or > 0"
+	}
+	return ""
+}
+
 // providerResponse wraps a single provider record for JSON output.
 type providerResponse struct {
 	service.ProviderRecord
@@ -165,6 +191,11 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg := validateRateLimitConfig(req.Config.RateLimit); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
+
 	// Check if provider already exists.
 	existing, err := s.store.GetProvider(r.Context(), req.Key)
 	if err != nil {
@@ -219,6 +250,11 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 
 	if req.Config.Type == "" {
 		httpResponse(w, "config.type is required", http.StatusBadRequest)
+		return
+	}
+
+	if msg := validateRateLimitConfig(req.Config.RateLimit); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
 		return
 	}
 

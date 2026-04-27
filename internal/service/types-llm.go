@@ -2,7 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"time"
 )
 
 // ─── LLM Provider Interfaces ───
@@ -181,4 +184,49 @@ type ToolCall struct {
 	// It must be echoed back in the subsequent request for the model to
 	// maintain context continuity.
 	ThoughtSignature string
+}
+
+// ─── Errors ───
+
+// RateLimitError is returned by LLM providers when the upstream API
+// responds with HTTP 429 (or an equivalent rate-limit signal). Callers
+// (e.g. retry loops in org delegation) can use errors.As to detect it
+// and honour the suggested RetryAfter delay.
+type RateLimitError struct {
+	// StatusCode is the HTTP status returned by the upstream API
+	// (typically 429).
+	StatusCode int
+
+	// RetryAfter is the parsed Retry-After header value. 0 if the
+	// header was missing or unparseable — in that case callers should
+	// fall back to their own backoff.
+	RetryAfter time.Duration
+
+	// Provider is the upstream provider name ("anthropic", "openai", …).
+	Provider string
+
+	// Message is the upstream error message, if any.
+	Message string
+
+	// Underlying is the wrapped error from the lower layer.
+	Underlying error
+}
+
+func (e *RateLimitError) Error() string {
+	parts := fmt.Sprintf("%s rate_limit (status %d)", e.Provider, e.StatusCode)
+	if e.RetryAfter > 0 {
+		parts += fmt.Sprintf(", retry-after %s", e.RetryAfter)
+	}
+	if e.Message != "" {
+		parts += ": " + e.Message
+	}
+	return parts
+}
+
+func (e *RateLimitError) Unwrap() error { return e.Underlying }
+
+// IsRateLimitError reports whether err is or wraps a *RateLimitError.
+func IsRateLimitError(err error) bool {
+	var rle *RateLimitError
+	return errors.As(err, &rle)
 }

@@ -138,6 +138,7 @@
   let formPriority = $state(0);
   let formProjectId = $state('');
   let formIdentifier = $state('');
+  let formMaxIterations = $state(0);
   let saving = $state(false);
 
   // Persist view mode
@@ -268,6 +269,7 @@
     formPriority = 0;
     formProjectId = '';
     formIdentifier = '';
+    formMaxIterations = 0;
     editingId = null;
     showForm = false;
   }
@@ -290,6 +292,7 @@
     formPriority = task.priority || 0;
     formProjectId = task.project_id || '';
     formIdentifier = task.identifier || '';
+    formMaxIterations = task.max_iterations ?? 0;
     showForm = true;
   }
 
@@ -312,6 +315,7 @@
         priority: formPriority,
         project_id: formProjectId.trim(),
         identifier: formIdentifier.trim(),
+        max_iterations: formMaxIterations,
       };
 
       if (editingId) {
@@ -571,6 +575,17 @@
             <label for="form-project-id" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Project ID</label>
             <input id="form-project-id" type="text" bind:value={formProjectId} placeholder="Project ID"
               class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+          </div>
+          <!-- Max Iterations (per-task override) -->
+          <div>
+            <label for="form-max-iterations" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+              Max Iterations
+              <span class="text-gray-400 dark:text-dark-text-muted font-normal">(0 = use agent default)</span>
+            </label>
+            <input id="form-max-iterations" type="number" min="0" bind:value={formMaxIterations}
+              placeholder="0"
+              title="Per-task override of the agent's max_iterations. Counter resets to 0 every time this task runs."
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors" />
           </div>
         </div>
 
