@@ -665,6 +665,7 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 	engine.SetConnectionLookup(s.connectionLookupFunc())
 	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
+	engine.SetLoopGov(s.loopGov)
 	return engine
 }
 

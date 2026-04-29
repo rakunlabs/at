@@ -158,7 +158,7 @@ func (n *agentCallNode) Meta() workflow.NodeMeta {
 			{Name: "provider", Type: "string", Required: true, Description: "Provider key"},
 			{Name: "model", Type: "string", Description: "Model name"},
 			{Name: "system_prompt", Type: "string", Description: "System prompt"},
-			{Name: "max_iterations", Type: "number", Default: 10, Description: "Max tool call iterations, 0=unlimited"},
+			{Name: "max_iterations", Type: "number", Default: 10, Description: "Max tool call iterations (>= 1; clamped to platform ceiling)"},
 		},
 		Color: "purple",
 	}
@@ -171,6 +171,14 @@ func (n *agentCallNode) Validate(_ context.Context, reg *workflow.Registry) erro
 
 	if reg.ProviderLookup == nil {
 		return fmt.Errorf("agent_call: no provider lookup configured")
+	}
+
+	// Reject the legacy "0 = unlimited" sentinel — runaway loops were
+	// the leading cause of the 2026-04 token-burn incident. Use a real
+	// number or omit the field to take the agent default. The platform
+	// loop governor still clamps the effective value to its ceiling.
+	if n.maxIterations == 0 {
+		return fmt.Errorf("agent_call: max_iterations must be >= 1 (the legacy 0=unlimited mode is no longer supported)")
 	}
 
 	// Verify the provider exists if specified directly.
@@ -565,14 +573,29 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// ─── Agentic Loop ───
 
-	// Resolve maxIterations
+	// Resolve maxIterations.
+	// -1 means the field was absent in the workflow node — defer to the
+	// preset agent's MaxIterations, falling back to 10. The Validate()
+	// path already rejects an explicit 0 (legacy "unlimited" sentinel)
+	// at workflow create/update time. Apply the platform ceiling
+	// through the loop governor so config-time clamps are observable.
 	maxIterations := n.maxIterations
 	if maxIterations == -1 {
 		if preset != nil && preset.Config.MaxIterations > 0 {
 			maxIterations = preset.Config.MaxIterations
 		} else {
-			maxIterations = 10 // Default
+			maxIterations = 10
 		}
+	}
+	if reg.LoopGov != nil {
+		var presetMax int
+		if preset != nil {
+			presetMax = preset.Config.MaxIterations
+		}
+		// Pass node-configured value as taskMax (a per-call override
+		// of the agent's default), preset as agentMax. ClampIterations
+		// resolves precedence and applies the ceiling.
+		maxIterations = reg.LoopGov.ClampIterations(presetMax, maxIterations)
 	}
 
 	// Resolve toolTimeout
@@ -601,7 +624,10 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		baseLLMTools = append(baseLLMTools, skillRuntime.LoadSkillToolDef())
 	}
 
-	for iteration := 0; maxIterations == 0 || iteration < maxIterations; iteration++ {
+	// The legacy 0 = unlimited semantics is no longer supported; the
+	// loop runs at most maxIterations times and the platform ceiling
+	// is enforced by the governor's ClampIterations above.
+	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Rebuild tool list each iteration: base tools + tools from any
 		// skills the LLM has activated so far.
 		llmTools := append([]service.Tool{}, baseLLMTools...)
@@ -619,8 +645,17 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			}
 		}
 
+		// Apply the loop governor before the call: window the message
+		// slice and pass an explicit MaxTokens cap.
+		callMessages := messages
+		var chatOpts *service.ChatOptions
+		if reg.LoopGov != nil {
+			windowed, _ := reg.LoopGov.Limit(ctx, n.agentID, "", messages)
+			callMessages = windowed
+			chatOpts = reg.LoopGov.ChatOptions()
+		}
 		callStart := time.Now()
-		resp, err := provider.Chat(ctx, model, messages, llmTools, nil)
+		resp, err := provider.Chat(ctx, model, callMessages, llmTools, chatOpts)
 		latencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
 			// Record the failed call for the usage dashboard before returning.
@@ -814,6 +849,18 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 			if callErr != nil {
 				result = fmt.Sprintf("Error: %v", callErr)
+			}
+
+			// Apply governor truncation before the result enters the
+			// LLM message history. The runID for dump file naming is
+			// best-effort: agent_call doesn't always have a stable
+			// task id, so we use the agent id as a coarse namespace.
+			if reg.LoopGov != nil {
+				runID := n.agentID
+				if runID == "" {
+					runID = "agent_call"
+				}
+				result, _ = reg.LoopGov.TruncateToolResult(runID, tc.Name, result)
 			}
 
 			// Record audit entry for each tool call.

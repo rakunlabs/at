@@ -262,17 +262,24 @@ func (p *Postgres) DeleteChatSession(ctx context.Context, id string) error {
 	return nil
 }
 
-func (p *Postgres) ListChatMessages(ctx context.Context, sessionID string) ([]service.ChatMessage, error) {
-	query, _, err := p.goqu.From(p.tableChatMessages).
+func (p *Postgres) ListChatMessages(ctx context.Context, sessionID string, limit int) ([]service.ChatMessage, error) {
+	// When limit > 0 we want the *most recent* N messages but still
+	// returned in chronological order. We do this with a descending
+	// inner SELECT + LIMIT, then reverse in Go.
+	query := p.goqu.From(p.tableChatMessages).
 		Select("id", "session_id", "role", "data", "created_at").
-		Where(goqu.I("session_id").Eq(sessionID)).
-		Order(goqu.I("created_at").Asc()).
-		ToSQL()
+		Where(goqu.I("session_id").Eq(sessionID))
+	if limit > 0 {
+		query = query.Order(goqu.I("created_at").Desc()).Limit(uint(limit))
+	} else {
+		query = query.Order(goqu.I("created_at").Asc())
+	}
+	sql, _, err := query.ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list chat messages query: %w", err)
 	}
 
-	rows, err := p.db.QueryContext(ctx, query)
+	rows, err := p.db.QueryContext(ctx, sql)
 	if err != nil {
 		return nil, fmt.Errorf("list chat messages: %w", err)
 	}
@@ -291,8 +298,18 @@ func (p *Postgres) ListChatMessages(ctx context.Context, sessionID string) ([]se
 		}
 		items = append(items, *msg)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-	return items, rows.Err()
+	// When limit > 0 we fetched in descending order; reverse in place.
+	if limit > 0 && len(items) > 1 {
+		for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+			items[i], items[j] = items[j], items[i]
+		}
+	}
+
+	return items, nil
 }
 
 func (p *Postgres) CreateChatMessage(ctx context.Context, msg service.ChatMessage) (*service.ChatMessage, error) {

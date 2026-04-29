@@ -637,6 +637,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	engine.SetConnectionLookup(s.connectionLookupFunc())
 	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
+	engine.SetLoopGov(s.loopGov)
 
 	// Determine entry node(s) for this trigger.
 	var entryNodeIDs []string

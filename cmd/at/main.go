@@ -172,19 +172,6 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Build all providers from YAML config.
-	providers := make(map[string]server.ProviderInfo, len(cfg.Providers))
-	for key, provCfg := range cfg.Providers {
-		provider, err := newProvider(provCfg)
-		if err != nil {
-			slog.Warn("failed to create provider, skipping", "key", key, "error", err)
-			continue
-		}
-
-		providers[key] = server.NewProviderInfo(provider, provCfg)
-		slog.Debug("provider created from config", "key", key, "type", provCfg.Type, "model", provCfg.Model)
-	}
-
 	// Initialize store. Falls back to a default on-disk SQLite database
 	// (./data/at.db) if no backend is configured. The ./data/ directory
 	// is created on startup if missing, so Docker users can bind-mount a
@@ -195,12 +182,14 @@ func run(ctx context.Context) error {
 	}
 	defer st.Close()
 
-	// Load DB providers on top of YAML providers (DB overrides YAML).
+	// Build LLM providers from the database. Provider definitions are
+	// no longer accepted via YAML — add them through the UI / API.
 	dbRecords, err := st.ListProviders(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to load providers from DB: %w", err)
 	}
 
+	providers := make(map[string]server.ProviderInfo, len(dbRecords.Data))
 	for _, rec := range dbRecords.Data {
 		provider, err := newProvider(rec.Config)
 		if err != nil {
@@ -209,7 +198,7 @@ func run(ctx context.Context) error {
 		}
 
 		providers[rec.Key] = server.NewProviderInfo(provider, rec.Config)
-		slog.Debug("provider loaded from DB (overrides YAML)", "key", rec.Key, "type", rec.Config.Type)
+		slog.Debug("provider loaded from DB", "key", rec.Key, "type", rec.Config.Type)
 	}
 
 	// Determine store type for info API.
@@ -252,7 +241,7 @@ func run(ctx context.Context) error {
 	}
 
 	// Create and start HTTP server.
-	srv, err := server.New(ctx, cfg.Server, cfg.Gateway, cfg.Bots, providers, st, storeType, newProvider, cl, version)
+	srv, err := server.New(ctx, cfg.Server, providers, st, storeType, newProvider, cl, version)
 	if err != nil {
 		return fmt.Errorf("failed to create server: %w", err)
 	}

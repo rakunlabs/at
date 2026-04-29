@@ -848,3 +848,67 @@ func TestExec_EmptyCommand_ValidateError(t *testing.T) {
 		t.Fatal("expected validation error for empty command")
 	}
 }
+
+// ─── agent_call: max_iterations validation ───
+
+// TestAgentCall_RejectMaxIterationsZero verifies the workflow validator
+// rejects the legacy 0 = unlimited sentinel. This is the foot-gun that
+// contributed to the 2026-04 token-burn incident; the validator now
+// requires a positive integer (or the field omitted entirely so the
+// preset agent's default is used).
+func TestAgentCall_RejectMaxIterationsZero(t *testing.T) {
+	mp := &mockProvider{}
+	node := makeNode(t, "agent_call", map[string]any{
+		"provider":       "test-provider",
+		"max_iterations": float64(0),
+	})
+	reg := newTestRegistryWithProvider(mp)
+	err := node.Validate(context.Background(), reg)
+	if err == nil {
+		t.Fatal("expected validation error for max_iterations: 0")
+	}
+	if !contains(err.Error(), "max_iterations") {
+		t.Fatalf("error should mention max_iterations: %v", err)
+	}
+}
+
+// TestAgentCall_AcceptMaxIterationsOmitted verifies the validator
+// passes when max_iterations is absent (use preset / default).
+func TestAgentCall_AcceptMaxIterationsOmitted(t *testing.T) {
+	mp := &mockProvider{}
+	node := makeNode(t, "agent_call", map[string]any{
+		"provider": "test-provider",
+		// max_iterations omitted
+	})
+	reg := newTestRegistryWithProvider(mp)
+	if err := node.Validate(context.Background(), reg); err != nil {
+		t.Fatalf("expected validation to pass when max_iterations omitted, got: %v", err)
+	}
+}
+
+// TestAgentCall_AcceptPositiveMaxIterations verifies the validator
+// passes for a normal positive iteration count.
+func TestAgentCall_AcceptPositiveMaxIterations(t *testing.T) {
+	mp := &mockProvider{}
+	node := makeNode(t, "agent_call", map[string]any{
+		"provider":       "test-provider",
+		"max_iterations": float64(15),
+	})
+	reg := newTestRegistryWithProvider(mp)
+	if err := node.Validate(context.Background(), reg); err != nil {
+		t.Fatalf("expected validation to pass for max_iterations=15, got: %v", err)
+	}
+}
+
+func contains(s, sub string) bool {
+	return len(s) >= len(sub) && (s == sub || (len(sub) > 0 && (indexOf(s, sub) >= 0)))
+}
+
+func indexOf(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if s[i:i+len(sub)] == sub {
+			return i
+		}
+	}
+	return -1
+}

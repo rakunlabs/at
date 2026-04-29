@@ -76,11 +76,19 @@ type Engine struct {
 	connectionLookup      ConnectionLookup
 	workflowByNameLookup  WorkflowByNameLookupFunc
 	workflowExecutor      WorkflowExecutorFunc
+	loopGov               LoopGovernor
 
 	// eventCh receives real-time node execution events when set.
 	// The channel is optional; when nil, no events are emitted.
 	// The caller is responsible for draining it.
 	eventCh chan<- NodeEvent
+}
+
+// SetLoopGov installs the loop governor used by the agent_call node.
+// May be called once at engine construction; nil disables governance
+// (legacy behaviour).
+func (e *Engine) SetLoopGov(gov LoopGovernor) {
+	e.loopGov = gov
 }
 
 // NewEngine creates a new workflow execution engine.
@@ -393,6 +401,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	reg.ConnectionLookup = e.connectionLookup
 	reg.WorkflowByNameLookup = e.workflowByNameLookup
 	reg.WorkflowExecutor = e.workflowExecutor
+	reg.LoopGov = e.loopGov
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)

@@ -402,69 +402,22 @@ func parseModelID(model string) (providerKey, actualModel string, err error) {
 
 // authenticateRequest validates the Authorization header.
 // Returns an authResult on success, or an error message string on failure.
-// When no auth is configured at all (no config tokens and no token store),
-// all requests are rejected — at least one token must be configured.
+// When no token store is configured, all requests are rejected — at
+// least one API token must exist (managed through the UI).
 func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 	auth := r.Header.Get("Authorization")
 	bearerToken := strings.TrimPrefix(auth, "Bearer ")
 
 	// If no auth is configured at all, reject everything.
-	if len(s.authTokens) == 0 && s.tokenStore == nil {
-		return nil, "no authentication configured; add a token via config or UI"
+	if s.tokenStore == nil {
+		return nil, "no authentication configured; add a token via the UI"
 	}
 
 	if auth == "" || bearerToken == "" {
 		return nil, "missing Authorization header"
 	}
 
-	// 1. Check config auth tokens.
-	for _, cfgToken := range s.authTokens {
-		if cfgToken.Token == "" || bearerToken != cfgToken.Token {
-			continue
-		}
-
-		// Token matched — check expiry if set.
-		if cfgToken.ExpiresAt != "" {
-			expiresAt, err := time.Parse(time.RFC3339, cfgToken.ExpiresAt)
-			if err != nil {
-				slog.Error("invalid expires_at in config auth token, rejecting", "name", cfgToken.Name, "error", err)
-				return nil, "config token has invalid expires_at"
-			}
-
-			if expiresAt.Before(time.Now().UTC()) {
-				return nil, "token has expired"
-			}
-		}
-
-		// If no scoping is configured, return unrestricted access.
-		hasAnyScope := len(cfgToken.AllowedProviders) > 0 || len(cfgToken.AllowedModels) > 0 || len(cfgToken.AllowedWebhooks) > 0 || len(cfgToken.AllowedRAGMCPs) > 0 ||
-			(cfgToken.AllowedProvidersMode != "" && cfgToken.AllowedProvidersMode != service.AccessModeAll) ||
-			(cfgToken.AllowedModelsMode != "" && cfgToken.AllowedModelsMode != service.AccessModeAll) ||
-			(cfgToken.AllowedWebhooksMode != "" && cfgToken.AllowedWebhooksMode != service.AccessModeAll) ||
-			(cfgToken.AllowedRAGMCPsMode != "" && cfgToken.AllowedRAGMCPsMode != service.AccessModeAll)
-		if !hasAnyScope {
-			r.Header.Del("Authorization")
-			return &authResult{}, ""
-		}
-
-		// Build a synthetic APIToken for scope checking.
-		syntheticToken := &service.APIToken{
-			Name:                 cfgToken.Name,
-			AllowedProvidersMode: cfgToken.AllowedProvidersMode,
-			AllowedProviders:     cfgToken.AllowedProviders,
-			AllowedModelsMode:    cfgToken.AllowedModelsMode,
-			AllowedModels:        cfgToken.AllowedModels,
-			AllowedWebhooksMode:  cfgToken.AllowedWebhooksMode,
-			AllowedWebhooks:      cfgToken.AllowedWebhooks,
-			AllowedRAGMCPsMode:   cfgToken.AllowedRAGMCPsMode,
-			AllowedRAGMCPs:       cfgToken.AllowedRAGMCPs,
-		}
-
-		r.Header.Del("Authorization")
-		return &authResult{token: syntheticToken}, ""
-	}
-
-	// 2. Check DB token.
+	// Check DB token.
 	if s.tokenStore != nil {
 		hash := sha256.Sum256([]byte(bearerToken))
 		tokenHash := hex.EncodeToString(hash[:])

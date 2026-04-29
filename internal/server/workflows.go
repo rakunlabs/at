@@ -465,6 +465,7 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	engine.SetConnectionLookup(s.connectionLookupFunc())
 	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
+	engine.SetLoopGov(s.loopGov)
 
 	// Manual/API runs start from "input" nodes only.
 	// Collect all input node IDs and check for output nodes.
@@ -721,6 +722,7 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 	engine.SetConnectionLookup(s.connectionLookupFunc())
 	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
+	engine.SetLoopGov(s.loopGov)
 
 	// Create buffered event channel and attach to engine.
 	eventCh := make(chan workflow.NodeEvent, 64)

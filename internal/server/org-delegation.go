@@ -353,13 +353,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	//
 	// 0 in the task means "use the agent default". 0 in the agent means
 	// "use the hard-coded fallback".
-	maxIterations := task.MaxIterations
-	if maxIterations <= 0 {
-		maxIterations = agent.Config.MaxIterations
-	}
-	if maxIterations <= 0 {
-		maxIterations = 10
-	}
+	// Resolve and clamp iteration count via the loop governor. The
+	// governor enforces the platform ceiling (e.g. 30) regardless of
+	// agent or task config, and logs `loopgov.iter_clamped` whenever
+	// a configured value is reduced.
+	maxIterations := s.loopGov.ClampIterations(agent.Config.MaxIterations, task.MaxIterations)
 
 	// Build initial messages.
 	var messages []service.Message
@@ -491,12 +489,16 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 
 		// Call LLM with retry on transient errors (5xx, rate limits).
+		// The loop governor windows the message slice (with rolling
+		// summary fallback) and supplies a per-call MaxTokens cap.
 		var resp *service.LLMResponse
 		var chatErr error
 		var latencyMs int64
+		chatOpts := s.loopGov.ChatOptions()
 		for attempt := 0; attempt < 3; attempt++ {
+			windowed, _ := s.loopGov.Limit(ctx, agentID, task.ID, messages)
 			callStart := time.Now()
-			resp, chatErr = info.provider.Chat(ctx, model, messages, llmTools, nil)
+			resp, chatErr = info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
 			latencyMs = time.Since(callStart).Milliseconds()
 			if chatErr == nil {
 				break
@@ -702,6 +704,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						}
 					}
 
+					// Cap the child-task result before it enters the
+					// parent's LLM message history. Long child results
+					// otherwise compound through the delegation chain.
+					result, _ = s.loopGov.TruncateToolResult(task.ID, toolCall.Name, result)
+
 					resultMu.Lock()
 					toolResults[idx] = service.ContentBlock{
 						Type:      "tool_result",
@@ -777,6 +784,13 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						"tool", tc.Name, "task_id", task.ID, "result_length", len(result), "result", logResult)
 				}
 
+				// Apply governor truncation before the result is
+				// appended to the message history. Skill JS handlers
+				// are unbounded by default; this cap is the only
+				// thing standing between a noisy handler and a O(K²)
+				// context blow-up.
+				result, _ = s.loopGov.TruncateToolResult(task.ID, tc.Name, result)
+
 				toolResults[i] = service.ContentBlock{
 					Type:      "tool_result",
 					ToolUseID: tc.ID,
@@ -823,6 +837,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					slog.Debug("org-delegation: builtin tool call result",
 						"tool", tc.Name, "task_id", task.ID, "result_length", len(result), "result", logResult)
 				}
+
+				// Apply governor truncation. bash_execute is the most
+				// common offender — full stdout would otherwise be
+				// re-shipped on every subsequent iteration.
+				result, _ = s.loopGov.TruncateToolResult(task.ID, tc.Name, result)
 
 				toolResults[i] = service.ContentBlock{
 					Type:      "tool_result",

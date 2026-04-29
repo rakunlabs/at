@@ -250,7 +250,8 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	messages, err := s.chatSessionStore.ListChatMessages(r.Context(), id)
+	// Admin/UI surface: return all messages, no governor limit.
+	messages, err := s.chatSessionStore.ListChatMessages(r.Context(), id, 0)
 	if err != nil {
 		slog.Error("list chat messages failed", "session_id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list messages: %v", err), http.StatusInternalServerError)
@@ -328,7 +329,15 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}
 
 	// 4. Load message history.
-	dbMessages, err := s.chatSessionStore.ListChatMessages(ctx, sessionID)
+	// The chat-session loop applies a recency window so long-running
+	// sessions don't replay an unbounded history on every user turn.
+	// Older context, when needed, is reconstructed by the loop
+	// governor's rolling-summary mechanism.
+	historyLimit := 0
+	if s.loopGov != nil {
+		historyLimit = s.loopGov.ChatHistoryLimit()
+	}
+	dbMessages, err := s.chatSessionStore.ListChatMessages(ctx, sessionID, historyLimit)
 	if err != nil {
 		return fmt.Errorf("load messages: %w", err)
 	}
@@ -686,16 +695,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	// For task-linked chat sessions, task.MaxIterations (when set) takes
 	// precedence over agent.Config.MaxIterations so a complex task can have
 	// its own budget without affecting the agent's other interactions.
-	maxIterations := 0
+	taskMax := 0
 	if taskLinked != nil {
-		maxIterations = taskLinked.MaxIterations
+		taskMax = taskLinked.MaxIterations
 	}
-	if maxIterations <= 0 {
-		maxIterations = agent.Config.MaxIterations
-	}
-	if maxIterations <= 0 {
-		maxIterations = 10
-	}
+	maxIterations := s.loopGov.ClampIterations(agent.Config.MaxIterations, taskMax)
 
 	toolTimeout := time.Duration(agent.Config.ToolTimeout) * time.Second
 	if toolTimeout <= 0 {
@@ -805,8 +809,19 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 		}
 
+		// Apply the loop governor: window the message history (with a
+		// rolling summary fallback) and pass an explicit MaxTokens cap
+		// to bound output size.
+		windowed, _ := s.loopGov.Limit(ctx, session.AgentID,
+			func() string {
+				if taskLinked != nil {
+					return taskLinked.ID
+				}
+				return sessionID
+			}(), llmMessages)
+		chatOpts := s.loopGov.ChatOptions()
 		callStart := time.Now()
-		resp, err := info.provider.Chat(ctx, model, llmMessages, llmTools, nil)
+		resp, err := info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
 		latencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
 			// Recover from corrupted tool call history — sanitize and retry once.
@@ -817,8 +832,15 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				slog.Warn("agentic loop: tool call history error, sanitizing and retrying",
 					"iteration", iteration, "error", err)
 				llmMessages = sanitizeLLMMessages(llmMessages)
+				windowed, _ = s.loopGov.Limit(ctx, session.AgentID,
+					func() string {
+						if taskLinked != nil {
+							return taskLinked.ID
+						}
+						return sessionID
+					}(), llmMessages)
 				callStart = time.Now()
-				resp, err = info.provider.Chat(ctx, model, llmMessages, llmTools, nil)
+				resp, err = info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
 				latencyMs = time.Since(callStart).Milliseconds()
 			}
 			if err != nil {
@@ -1076,6 +1098,16 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 
 			onEvent(AgenticEvent{Type: "tool_result", ToolName: tc.Name, ToolID: tc.ID, Result: result})
+
+			// Apply governor truncation before the result enters the
+			// LLM message history. The full payload is preserved on
+			// disk under the workspace root (when configured); the LLM
+			// sees a marker pointing at the file.
+			runID := sessionID
+			if taskLinked != nil {
+				runID = taskLinked.ID
+			}
+			result, _ = s.loopGov.TruncateToolResult(runID, tc.Name, result)
 
 			// Record audit entry for each tool call.
 			recordAudit := s.recordAuditFunc()

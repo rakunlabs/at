@@ -392,6 +392,11 @@ type Registry struct {
 	// instead of the draft graph. nil when version store is not configured.
 	VersionLookup VersionLookupFunc
 
+	// LoopGov enforces context-window, iteration, and tool-result
+	// limits inside the agent_call node's agentic loop. nil means
+	// "no enforcement" (legacy behaviour); callers SHOULD populate it.
+	LoopGov LoopGovernor
+
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
 
@@ -543,6 +548,21 @@ type GoalAncestryFunc func(ctx context.Context, goalID string) ([]service.Goal, 
 // Given a workflow ID, it returns the active version's graph (if one is set),
 // or nil if no active version exists. Used by workflow_call nodes.
 type VersionLookupFunc func(ctx context.Context, workflowID string) (*service.WorkflowGraph, error)
+
+// LoopGovernor is the small surface the workflow agent_call node needs
+// from the loop governor. It is satisfied by *loopgov.Governor in the
+// production path and by a no-op stub in tests. The workflow package
+// does not import loopgov directly, so this stays an interface here.
+type LoopGovernor interface {
+	// Limit windows the message history; see loopgov.Governor.Limit.
+	Limit(ctx context.Context, agentID, taskID string, messages []service.Message) ([]service.Message, error)
+	// ClampIterations applies the platform iteration ceiling.
+	ClampIterations(agentMax, taskMax int) int
+	// ChatOptions returns options to pass to provider.Chat.
+	ChatOptions() *service.ChatOptions
+	// TruncateToolResult caps a tool result before it enters context.
+	TruncateToolResult(runID, toolName, body string) (string, bool)
+}
 
 // MemoryRecallFunc retrieves and formats relevant agent memories.
 // Returns a formatted text block suitable for injecting into a prompt,

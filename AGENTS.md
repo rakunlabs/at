@@ -47,6 +47,37 @@ make env                # docker compose up (postgres for local dev)
 make env-down           # docker compose down --volumes
 ```
 
+## Loop Governor
+
+The agentic loops (`internal/server/org-delegation.go`, `internal/server/chat-sessions.go`, `internal/service/workflow/nodes/agent-call.go`) are governed by `internal/service/loopgov`, which enforces:
+
+- A sliding-window message budget on every `provider.Chat` call (rolling-summary fallback)
+- A platform ceiling on iteration counts (clamps per-agent / per-task `max_iterations`)
+- A per-tool byte cap on tool results before they enter the LLM message history
+- An explicit `max_tokens` cap on every provider call
+- A `LIMIT` on `ListChatMessages` reads in the chat-session loop
+
+Defaults are baked into `loopgov.fillDefaults` (no YAML / env knobs):
+
+| Default | Value | Purpose |
+|---|---|---|
+| `WindowTokens` | 32768 | Input-token budget per Chat call |
+| `SummaryTokens` | 2000 | Cap on rolling-summary message |
+| `SummaryTimeout` | 10s | Bound on summarisation call |
+| `MaxIterCeiling` | 30 | Platform iteration ceiling |
+| `MaxOutputTokens` | 4096 | `max_tokens` for every Chat |
+| `ToolResultMaxBytes` | 8192 | Default tool-result cap (executable class) |
+| `ToolCapClassDefaults["structured"]` | 32768 | Cap for `task_get` / `task_list` etc. |
+| `ChatHistoryLimit` | 200 | Messages reloaded per chat turn |
+
+To override, edit the constants in `internal/service/loopgov/config.go` or add UI-driven configuration in a follow-up change. The `Disabled` field exists in `loopgov.Config` as an in-code rollback switch but is not exposed via YAML.
+
+**Breaking change**: workflow `agent_call` nodes no longer accept `max_iterations: 0` (legacy "unlimited" mode). Existing graphs are migrated to the platform ceiling on server startup.
+
+## Runtime configuration
+
+LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
+
 ## Go Code Style
 
 ### Formatting & Imports

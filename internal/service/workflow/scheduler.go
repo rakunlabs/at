@@ -65,6 +65,7 @@ type Scheduler struct {
 	connectionLookup      ConnectionLookup
 	workflowByNameLookup  WorkflowByNameLookupFunc
 	workflowExecutor      WorkflowExecutorFunc
+	loopGov               LoopGovernor
 	runRegistrar          RunRegistrar
 
 	cluster *cluster.Cluster
@@ -117,6 +118,13 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 // Must be called before Start.
 func (s *Scheduler) SetRunRegistrar(r RunRegistrar) {
 	s.runRegistrar = r
+}
+
+// SetLoopGov installs the loop governor used by the agent_call node
+// inside scheduled workflows. Optional — if unset, the node falls back
+// to legacy unbounded behaviour.
+func (s *Scheduler) SetLoopGov(gov LoopGovernor) {
+	s.loopGov = gov
 }
 
 // SetRAGSync sets the callback used to sync RAG collections.
@@ -457,6 +465,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 		engine.SetConnectionLookup(s.connectionLookup)
 		engine.SetWorkflowByNameLookup(s.workflowByNameLookup)
 		engine.SetWorkflowExecutor(s.workflowExecutor)
+		engine.SetLoopGov(s.loopGov)
 
 		// Determine entry node(s) for this trigger.
 		var entryNodeIDs []string

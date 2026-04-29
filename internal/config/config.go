@@ -19,77 +19,29 @@ import (
 
 var Service = ""
 
+// Config is the top-level YAML/env configuration loaded at startup.
+//
+// Bootstrap-only knobs (logging, server bind, store backend, telemetry)
+// stay here because they must be available BEFORE the database is
+// reachable. Everything else — LLM providers, gateway tokens, bot
+// adapters, agentic-loop tuning — is managed at runtime through the UI
+// (and persisted to the database). YAML / env do NOT carry those any
+// more; defaults baked into `internal/service/loopgov` cover the loop
+// governor and the database holds the provider, gateway-token, and
+// bot-config rows.
 type Config struct {
 	LogLevel string `cfg:"log_level,no_prefix" default:"info"`
 
-	// Providers is a map of named provider configurations.
-	// Each provider has a type ("anthropic", "openai", "vertex", or "gemini"), along with
-	// api_key, base_url, model, and extra_headers fields.
-	//
-	// Supported types:
-	//   - "openai":     OpenAI and all OpenAI-compatible APIs (Groq, DeepSeek,
-	//                   Mistral, Together AI, Fireworks, Perplexity, xAI/Grok,
-	//                   OpenRouter, Ollama, LM Studio, vLLM, GitHub Models, etc.)
-	//   - "anthropic":  Anthropic Claude API
-	//   - "vertex":     Google Vertex AI (Gemini) via OpenAI-compatible endpoint
-	//                   with automatic Google ADC authentication
-	//   - "gemini":     Google AI (Gemini) via generativelanguage.googleapis.com
-	//                   with API key authentication (from AI Studio)
-	//
-	// Example YAML:
-	//
-	//   providers:
-	//     anthropic:
-	//       type: anthropic
-	//       api_key: "sk-ant-..."
-	//       model: "claude-haiku-4-5"
-	//     openai:
-	//       type: openai
-	//       api_key: "sk-..."
-	//       model: "gpt-4o"
-	//     groq:
-	//       type: openai
-	//       api_key: "gsk_..."
-	//       base_url: "https://api.groq.com/openai/v1/chat/completions"
-	//       model: "llama-3.3-70b-versatile"
-	//     ollama:
-	//       type: openai
-	//       base_url: "http://localhost:11434/v1/chat/completions"
-	//       model: "llama3.2"
-	//     github:
-	//       type: openai
-	//       api_key: "ghp_..."
-	//       base_url: "https://models.github.ai/inference/chat/completions"
-	//       model: "openai/gpt-4.1"
-	//       extra_headers:
-	//         Accept: "application/vnd.github+json"
-	//         X-GitHub-Api-Version: "2022-11-28"
-	//     vertex:
-	//       type: vertex
-	//       base_url: "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/endpoints/openapi/chat/completions"
-	//       model: "google/gemini-2.5-flash"
-	//     gemini:
-	//       type: gemini
-	//       api_key: "AIzaSy..."
-	//       model: "gemini-2.5-flash"
-	Providers map[string]LLMConfig `cfg:"providers"`
-
-	// Gateway configures the OpenAI-compatible gateway server.
-	Gateway Gateway `cfg:"gateway"`
-
 	Store     Store       `cfg:"store"`
 	Server    Server      `cfg:"server"`
-	Bots      Bots        `cfg:"bots"`
 	Telemetry tell.Config `cfg:"telemetry,noprefix"`
 }
 
-// Bots holds configuration for chat bot integrations.
-type Bots struct {
-	Discord  *DiscordBotConfig  `cfg:"discord"`
-	Telegram *TelegramBotConfig `cfg:"telegram"`
-}
-
 // DiscordBotConfig holds Discord bot settings.
+//
+// Bot configurations are persisted in the database (`at_bot_configs`)
+// and managed through the UI; this struct is the in-memory shape used
+// when materialising a row before starting an adapter (see bot.go).
 type DiscordBotConfig struct {
 	Token           string            `cfg:"token" log:"-"`
 	DefaultAgentID  string            `cfg:"default_agent_id"`
@@ -146,77 +98,6 @@ type Server struct {
 	// This allows multiple AT instances to coordinate encryption key rotation
 	// and other admin operations across the cluster.
 	Alan *alan.Config `cfg:"alan"`
-}
-
-// Gateway configures the OpenAI-compatible gateway server endpoints.
-//
-// Example YAML:
-//
-//	gateway:
-//	  auth_tokens:
-//	    - token: "sk-master-key"
-//	      name: "Master Key"
-//	      # no restrictions = full access
-//	    - token: "sk-ci-token"
-//	      name: "CI Pipeline"
-//	      allowed_providers:
-//	        - openai
-//	      allowed_models:
-//	        - openai/gpt-4o
-//	      expires_at: "2026-12-31T23:59:59Z"
-type Gateway struct {
-	// AuthTokens is a list of bearer tokens for gateway authentication.
-	// Each token can optionally be scoped to specific providers/models and
-	// can have an expiration date. If the list is empty, tokens can still
-	// be managed via the UI/API (stored in the database).
-	// If no auth tokens are configured at all (neither here nor in DB),
-	// the gateway allows unauthenticated access.
-	AuthTokens []AuthTokenConfig `cfg:"auth_tokens"`
-}
-
-// AuthTokenConfig describes a single bearer token for gateway authentication,
-// with optional scoping and expiration.
-type AuthTokenConfig struct {
-	// Token is the bearer token value that clients send in the
-	// "Authorization: Bearer <token>" header.
-	Token string `cfg:"token" json:"token" log:"-"`
-
-	// Name is an optional human-readable label for this token
-	// (e.g., "CI Pipeline", "Dev Team").
-	Name string `cfg:"name" json:"name"`
-
-	// AllowedProvidersMode controls provider restriction: "all" (default/""), "none", or "list".
-	AllowedProvidersMode string `cfg:"allowed_providers_mode" json:"allowed_providers_mode"`
-
-	// AllowedProviders restricts this token to specific provider keys.
-	// Only used when AllowedProvidersMode is "list".
-	AllowedProviders []string `cfg:"allowed_providers" json:"allowed_providers"`
-
-	// AllowedModelsMode controls model restriction: "all" (default/""), "none", or "list".
-	AllowedModelsMode string `cfg:"allowed_models_mode" json:"allowed_models_mode"`
-
-	// AllowedModels restricts this token to specific models in
-	// "provider/model" format (e.g., "openai/gpt-4o").
-	// Only used when AllowedModelsMode is "list".
-	AllowedModels []string `cfg:"allowed_models" json:"allowed_models"`
-
-	// AllowedWebhooksMode controls webhook restriction: "all" (default/""), "none", or "list".
-	AllowedWebhooksMode string `cfg:"allowed_webhooks_mode" json:"allowed_webhooks_mode"`
-
-	// AllowedWebhooks restricts this token to specific webhook triggers
-	// by trigger ID or alias. Only used when AllowedWebhooksMode is "list".
-	AllowedWebhooks []string `cfg:"allowed_webhooks" json:"allowed_webhooks"`
-
-	// AllowedRAGMCPsMode controls RAG MCP restriction: "all" (default/""), "none", or "list".
-	AllowedRAGMCPsMode string `cfg:"allowed_rag_mcps_mode" json:"allowed_rag_mcps_mode"`
-
-	// AllowedRAGMCPs restricts this token to specific RAG MCP server
-	// names. Only used when AllowedRAGMCPsMode is "list".
-	AllowedRAGMCPs []string `cfg:"allowed_rag_mcps" json:"allowed_rag_mcps"`
-
-	// ExpiresAt is an optional RFC3339 expiration timestamp.
-	// After this time the token is rejected. If empty, the token never expires.
-	ExpiresAt string `cfg:"expires_at" json:"expires_at"`
 }
 
 type Store struct {

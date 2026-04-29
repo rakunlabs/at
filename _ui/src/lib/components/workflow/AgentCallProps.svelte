@@ -77,9 +77,9 @@
     bind:value={data.max_iterations}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-gray-400"
     placeholder={data.agent_id ? "Default from Agent" : "10"}
-    min="0"
+    min="1"
   /></label>
-  <div class="mt-0.5 text-[10px] text-gray-400">0 = unlimited</div>
+  <div class="mt-0.5 text-[10px] text-gray-400">Min 1; the platform clamps to its iteration ceiling</div>
 </div>
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">

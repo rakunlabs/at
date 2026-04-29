@@ -59,7 +59,10 @@ type ChatSessionStorer interface {
 	CreateChatSession(ctx context.Context, session ChatSession) (*ChatSession, error)
 	UpdateChatSession(ctx context.Context, id string, session ChatSession) (*ChatSession, error)
 	DeleteChatSession(ctx context.Context, id string) error
-	ListChatMessages(ctx context.Context, sessionID string) ([]ChatMessage, error)
+	// ListChatMessages returns the chat session's messages in chronological
+	// order. When limit > 0, only the most recent `limit` messages are
+	// returned (still in ascending order); 0 means "no limit".
+	ListChatMessages(ctx context.Context, sessionID string, limit int) ([]ChatMessage, error)
 	CreateChatMessage(ctx context.Context, msg ChatMessage) (*ChatMessage, error)
 	CreateChatMessages(ctx context.Context, msgs []ChatMessage) error
 	DeleteChatMessages(ctx context.Context, sessionID string) error

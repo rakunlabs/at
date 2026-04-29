@@ -264,12 +264,18 @@ func (s *SQLite) DeleteChatSession(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *SQLite) ListChatMessages(ctx context.Context, sessionID string) ([]service.ChatMessage, error) {
-	query, _, err := s.goqu.From(s.tableChatMessages).
+func (s *SQLite) ListChatMessages(ctx context.Context, sessionID string, limit int) ([]service.ChatMessage, error) {
+	q := s.goqu.From(s.tableChatMessages).
 		Select("id", "session_id", "role", "data", "created_at").
-		Where(goqu.I("session_id").Eq(sessionID)).
-		Order(goqu.I("created_at").Asc()).
-		ToSQL()
+		Where(goqu.I("session_id").Eq(sessionID))
+	if limit > 0 {
+		// Get the most recent N rows, then reverse in Go to keep
+		// chronological order in the returned slice.
+		q = q.Order(goqu.I("created_at").Desc()).Limit(uint(limit))
+	} else {
+		q = q.Order(goqu.I("created_at").Asc())
+	}
+	query, _, err := q.ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list chat messages query: %w", err)
 	}
@@ -293,8 +299,17 @@ func (s *SQLite) ListChatMessages(ctx context.Context, sessionID string) ([]serv
 		}
 		items = append(items, *msg)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 
-	return items, rows.Err()
+	if limit > 0 && len(items) > 1 {
+		for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+			items[i], items[j] = items[j], items[i]
+		}
+	}
+
+	return items, nil
 }
 
 func (s *SQLite) CreateChatMessage(ctx context.Context, msg service.ChatMessage) (*service.ChatMessage, error) {

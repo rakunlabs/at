@@ -22,6 +22,7 @@ import (
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
+	"github.com/rakunlabs/at/internal/service/loopgov"
 	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/tmc/langchaingo/schema"
@@ -201,8 +202,7 @@ type Server struct {
 	// providerFactory creates an LLMProvider from config (for hot reload).
 	providerFactory ProviderFactory
 
-	storeType  string // "postgres", "sqlite", or "none"
-	authTokens []config.AuthTokenConfig
+	storeType string // "postgres", "sqlite", or "none"
 
 	// cluster is the optional distributed coordination layer (alan).
 	// nil when clustering is not configured (single-instance mode).
@@ -234,9 +234,6 @@ type Server struct {
 	activeDelegations sync.Map
 
 	version string
-
-	// botsCfg holds optional Discord/Telegram bot configuration.
-	botsCfg config.Bots
 
 	// skillTemplates holds predefined skill templates loaded from embedded JSON.
 	skillTemplates []SkillTemplate
@@ -276,6 +273,12 @@ type Server struct {
 
 	// containerManager manages per-org and per-user Docker containers for isolated execution.
 	containerManager *container.Manager
+
+	// loopGov enforces context-window, iteration, and tool-result limits
+	// on the three agentic loops (org delegation, chat sessions, the
+	// workflow agent_call node). Always non-nil; pass-through mode is
+	// entered by configuring loopgov.Config.Disabled = true.
+	loopGov *loopgov.Governor
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
@@ -337,7 +340,12 @@ func (s *Server) sweepThoughtSigCache() {
 }
 
 // New creates a new server instance.
-func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, botsCfg config.Bots, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+//
+// LLM providers, gateway auth tokens, bot adapters, and the loop
+// governor are all configured at runtime through the UI / database;
+// they are no longer accepted as YAML / env. The loop governor uses
+// the defaults baked into `internal/service/loopgov`.
+func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -397,13 +405,15 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
 		storeType:         storeType,
-		authTokens:        gatewayCfg.AuthTokens,
-		cluster:           cl,
-		version:           version,
-		botsCfg:           botsCfg,
-		todos:             newTodoStore(),
-		lspManager:        newLSPManager(),
-		containerManager:  container.New(),
+		// Loop governor uses package defaults (loopgov.fillDefaults).
+		// Per-deployment tuning, when needed, lives in the database
+		// and is applied through the UI in a follow-up change.
+		loopGov:          loopgov.New(loopgov.Config{}, nil),
+		cluster:          cl,
+		version:          version,
+		todos:            newTodoStore(),
+		lspManager:       newLSPManager(),
+		containerManager: container.New(),
 	}
 
 	// Load predefined skill templates from embedded JSON files.
@@ -411,6 +421,11 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 	// Sync installed skill handlers with current templates (applies handler bug fixes).
 	s.syncInstalledSkillHandlers(ctx)
 	s.loadMCPTemplates()
+
+	// One-shot migration: rewrite any agent_call.max_iterations == 0
+	// (legacy "unlimited" sentinel) to the platform iteration ceiling.
+	// Idempotent across restarts. See loop-migration.go.
+	s.migrateAgentCallMaxIterations(ctx)
 
 	// Load predefined integration packs from embedded JSON files.
 	s.loadIntegrationPacks()
@@ -527,6 +542,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 		s.scheduler.SetConnectionLookup(s.connectionLookupFunc())
 		s.scheduler.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
+		s.scheduler.SetLoopGov(s.loopGov)
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
 			// Non-fatal: server can run without cron triggers.
@@ -1012,15 +1028,7 @@ func New(ctx context.Context, cfg config.Server, gatewayCfg config.Gateway, bots
 
 	baseGroup.Handle("/*", folderM)
 
-	// Start bot adapters from YAML config (non-fatal on failure).
-	if botsCfg.Discord != nil && botsCfg.Discord.Token != "" {
-		s.startDiscordBot(ctx, "", botsCfg.Discord)
-	}
-	if botsCfg.Telegram != nil && botsCfg.Telegram.Token != "" {
-		s.startTelegramBot(ctx, "", botsCfg.Telegram)
-	}
-
-	// Start bot adapters from DB config.
+	// Start bot adapters from DB config (managed via the UI).
 	s.startBotsFromDB(ctx)
 
 	// Cleanup containers on shutdown.
