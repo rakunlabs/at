@@ -55,6 +55,21 @@ func (s *Server) isDelegationActive(taskID string) bool {
 	return ok
 }
 
+// cancelDelegation sends a cancel signal to the delegation goroutine for
+// the given task ID and returns true if one was running.
+func (s *Server) cancelDelegation(taskID string) bool {
+	v, ok := s.activeDelegations.Load(taskID)
+	if !ok {
+		return false
+	}
+	deleg, ok := v.(*activeDelegation)
+	if !ok || deleg == nil {
+		return false
+	}
+	deleg.Cancel()
+	return true
+}
+
 // ListActiveDelegationsAPI handles GET /api/v1/active-delegations.
 func (s *Server) ListActiveDelegationsAPI(w http.ResponseWriter, _ *http.Request) {
 	now := time.Now()
@@ -88,14 +103,10 @@ func (s *Server) CancelTaskDelegationAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	val, ok := s.activeDelegations.Load(taskID)
-	if !ok {
+	if !s.cancelDelegation(taskID) {
 		httpResponse(w, fmt.Sprintf("no active delegation for task %q", taskID), http.StatusNotFound)
 		return
 	}
-
-	deleg := val.(*activeDelegation)
-	deleg.Cancel()
 
 	httpResponseJSON(w, map[string]any{
 		"message": "cancel signal sent",

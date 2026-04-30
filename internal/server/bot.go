@@ -393,9 +393,12 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
 
-	// Fire async delegation with optional completion callback
+	// Fire async delegation with optional completion callback.
+	// Register with activeDelegations so /cancel (and the HTTP cancel endpoint)
+	// can interrupt the goroutine via context cancellation.
 	go func() {
-		delegCtx := context.Background()
+		delegCtx, cleanup := s.registerDelegation(context.Background(), record.ID, org.HeadAgentID, org.ID)
+		defer cleanup()
 		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
 			slog.Error("bot-task: delegation failed",
 				"org_id", org.ID,
@@ -403,8 +406,10 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 				"error", err,
 			)
 			errResult := fmt.Sprintf("delegation failed: %v", err)
+			// Use a fresh context for the post-cancellation status update,
+			// otherwise delegCtx is already cancelled and the write fails.
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(delegCtx, record.ID, service.Task{
+				_, _ = s.taskStore.UpdateTask(context.Background(), record.ID, service.Task{
 					Status: service.TaskStatusCancelled,
 					Result: errResult,
 				})
@@ -483,7 +488,8 @@ func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task,
 	}
 
 	go func() {
-		delegCtx := context.Background()
+		delegCtx, cleanup := s.registerDelegation(context.Background(), record.ID, org.HeadAgentID, org.ID)
+		defer cleanup()
 		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
 			slog.Error("bot-subtask: delegation failed",
 				"parent_id", parentTask.ID,
@@ -492,7 +498,7 @@ func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task,
 			)
 			errResult := fmt.Sprintf("delegation failed: %v", err)
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(delegCtx, record.ID, service.Task{
+				_, _ = s.taskStore.UpdateTask(context.Background(), record.ID, service.Task{
 					Status: service.TaskStatusCancelled,
 					Result: errResult,
 				})

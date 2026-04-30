@@ -1086,6 +1086,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				"/result [id] - Get task output + video\n" +
 				"/pick <id> - Select task to chat about\n" +
 				"/run <instruction> - Run a background subtask on active task\n" +
+				"/cancel [id] - Cancel a running task (uses active task if no id)\n" +
 				"/current - Show active task\n" +
 				"/reset - Clear conversation history\n" +
 				"/login - Connect your Google account (usage: /login or /login google)\n" +
@@ -1174,6 +1175,33 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			}
 
 			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Running: %s\nSubtask: %s\n\nI'll notify you when done.", sanitizeUTF8(instruction), sanitizeUTF8(subtaskIdent)))
+			return
+		case "cancel":
+			// /cancel [id] — stop the agents running on a task and mark it cancelled.
+			// Defaults to the chat's active task when no id is supplied.
+			identifier := strings.TrimSpace(msg.CommandArguments())
+			if identifier == "" {
+				if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok {
+					identifier, _ = activeID.(string)
+				}
+			}
+			if identifier == "" {
+				sendTelegramText(bot, msg.Chat.ID, "Usage: /cancel [id]\nNo active task. Use /tasks to find one.")
+				return
+			}
+
+			task, err := s.findTaskByIdentifier(ctx, agentID, identifier)
+			if err != nil || task == nil {
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s not found.", sanitizeUTF8(identifier)))
+				return
+			}
+
+			if !s.cancelDelegation(task.ID) {
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s is not running (status: %s).", sanitizeUTF8(identifier), sanitizeUTF8(task.Status)))
+				return
+			}
+
+			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Cancel signal sent for %s. The task will stop at the next iteration.", sanitizeUTF8(identifier)))
 			return
 		default:
 			slog.Warn("telegram bot: unknown command, passing to agent", "command", msg.Command())
