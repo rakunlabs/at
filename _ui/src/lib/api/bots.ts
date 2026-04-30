@@ -3,6 +3,16 @@ import type { ListResult, ListParams } from './types';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
+export interface BotCustomCommand {
+  command: string;          // without leading slash
+  description?: string;     // shown in /help
+  organization_id?: string; // route via org intake
+  agent_id?: string;        // route to specific agent
+  brief?: string;           // task description template; "{args}" gets replaced with user args
+  title_prefix?: string;    // optional prefix for the resulting task title
+  max_iterations?: number;  // optional per-task override
+}
+
 export interface BotConfig {
   id: string;
   platform: string;
@@ -11,6 +21,7 @@ export interface BotConfig {
   default_agent_id: string;
   channel_agents: Record<string, string>;
   allowed_agent_ids?: string[];
+  custom_commands?: BotCustomCommand[];
   access_mode: string;
   pending_approval: boolean;
   allowed_users: string[];

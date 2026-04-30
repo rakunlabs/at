@@ -4,11 +4,16 @@
   interface Props {
     from?: string;
     to?: string;
+    preset?: string;
     onchange?: (range: { from: string; to: string; preset: string }) => void;
   }
 
-  let { from = $bindable(''), to = $bindable(''), onchange }: Props = $props();
-  let preset = $state('7d');
+  let {
+    from = $bindable(''),
+    to = $bindable(''),
+    preset = $bindable('7d'),
+    onchange,
+  }: Props = $props();
 
   // Initialize with preset if both are empty.
   $effect(() => {

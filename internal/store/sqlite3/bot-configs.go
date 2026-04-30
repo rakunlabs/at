@@ -24,6 +24,7 @@ type botConfigRow struct {
 	DefaultAgentID  string         `db:"default_agent_id"`
 	ChannelAgents   sql.NullString `db:"channel_agents"`
 	AllowedAgentIDs sql.NullString `db:"allowed_agent_ids"`
+	CustomCommands  sql.NullString `db:"custom_commands"`
 	AccessMode      string         `db:"access_mode"`
 	PendingApproval bool           `db:"pending_approval"`
 	AllowedUsers    sql.NullString `db:"allowed_users"`
@@ -43,7 +44,7 @@ type botConfigRow struct {
 
 var sqliteBotConfigColumns = []any{
 	"id", "platform", "name", "token", "default_agent_id",
-	"channel_agents", "allowed_agent_ids",
+	"channel_agents", "allowed_agent_ids", "custom_commands",
 	"access_mode", "pending_approval", "allowed_users", "pending_users",
 	"enabled",
 	"user_containers", "container_image", "container_cpu", "container_memory",
@@ -56,7 +57,7 @@ func scanSQLiteBotConfigRow(scanner interface {
 }, row *botConfigRow) error {
 	return scanner.Scan(
 		&row.ID, &row.Platform, &row.Name, &row.Token, &row.DefaultAgentID,
-		&row.ChannelAgents, &row.AllowedAgentIDs,
+		&row.ChannelAgents, &row.AllowedAgentIDs, &row.CustomCommands,
 		&row.AccessMode, &row.PendingApproval, &row.AllowedUsers, &row.PendingUsers,
 		&row.Enabled,
 		&row.UserContainers, &row.ContainerImage, &row.ContainerCPU, &row.ContainerMemory,
@@ -141,6 +142,10 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 	if err != nil {
 		return nil, fmt.Errorf("marshal pending_users: %w", err)
 	}
+	customCommandsJSON, err := json.Marshal(bot.CustomCommands)
+	if err != nil {
+		return nil, fmt.Errorf("marshal custom_commands: %w", err)
+	}
 
 	id := ulid.Make().String()
 	now := time.Now().UTC()
@@ -158,6 +163,7 @@ func (s *SQLite) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*s
 			"default_agent_id":  bot.DefaultAgentID,
 			"channel_agents":    string(channelAgentsJSON),
 			"allowed_agent_ids": string(allowedAgentIDsJSON),
+			"custom_commands":   string(customCommandsJSON),
 			"access_mode":       bot.AccessMode,
 			"pending_approval":  bot.PendingApproval,
 			"allowed_users":     string(allowedUsersJSON),
@@ -203,6 +209,10 @@ func (s *SQLite) UpdateBotConfig(ctx context.Context, id string, bot service.Bot
 	if err != nil {
 		return nil, fmt.Errorf("marshal pending_users: %w", err)
 	}
+	customCommandsJSON, err := json.Marshal(bot.CustomCommands)
+	if err != nil {
+		return nil, fmt.Errorf("marshal custom_commands: %w", err)
+	}
 
 	if bot.AccessMode == "" {
 		bot.AccessMode = "open"
@@ -217,6 +227,7 @@ func (s *SQLite) UpdateBotConfig(ctx context.Context, id string, bot service.Bot
 		"default_agent_id":  bot.DefaultAgentID,
 		"channel_agents":    string(channelAgentsJSON),
 		"allowed_agent_ids": string(allowedAgentIDsJSON),
+		"custom_commands":   string(customCommandsJSON),
 		"access_mode":       bot.AccessMode,
 		"pending_approval":  bot.PendingApproval,
 		"allowed_users":     string(allowedUsersJSON),
@@ -298,6 +309,13 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 		}
 	}
 
+	var customCommands []service.BotCustomCommand
+	if row.CustomCommands.Valid && row.CustomCommands.String != "" {
+		if err := json.Unmarshal([]byte(row.CustomCommands.String), &customCommands); err != nil {
+			return nil, fmt.Errorf("unmarshal custom_commands for %q: %w", row.ID, err)
+		}
+	}
+
 	accessMode := row.AccessMode
 	if accessMode == "" {
 		accessMode = "open"
@@ -311,6 +329,7 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 		DefaultAgentID:  row.DefaultAgentID,
 		ChannelAgents:   channelAgents,
 		AllowedAgentIDs: allowedAgentIDs,
+		CustomCommands:  customCommands,
 		AccessMode:      accessMode,
 		PendingApproval: row.PendingApproval,
 		AllowedUsers:    allowedUsers,

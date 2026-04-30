@@ -149,6 +149,38 @@ func (p *Postgres) GetCostByBillingCode(ctx context.Context, billingCode string)
 	return p.sumCostCents(ctx, "billing_code", billingCode)
 }
 
+// GetCostByTasks sums cost + token usage across the supplied task IDs in a
+// single grouped query. Empty taskIDs returns a zero result with no error.
+func (p *Postgres) GetCostByTasks(ctx context.Context, taskIDs []string) (service.CostByTasksResult, error) {
+	if len(taskIDs) == 0 {
+		return service.CostByTasksResult{}, nil
+	}
+	ids := make([]any, 0, len(taskIDs))
+	for _, id := range taskIDs {
+		ids = append(ids, id)
+	}
+	q, _, err := p.goqu.From(p.tableCostEvents).
+		Select(
+			goqu.COALESCE(goqu.SUM("cost_cents"), 0),
+			goqu.COALESCE(goqu.SUM("input_tokens"), 0),
+			goqu.COALESCE(goqu.SUM("output_tokens"), 0),
+			goqu.COUNT("*"),
+		).
+		Where(goqu.I("task_id").In(ids...)).
+		ToSQL()
+	if err != nil {
+		return service.CostByTasksResult{}, fmt.Errorf("build get cost by tasks query: %w", err)
+	}
+	var out service.CostByTasksResult
+	if err := p.db.QueryRowContext(ctx, q).Scan(
+		&out.CostCents, &out.InputTokens, &out.OutputTokens, &out.EventCount,
+	); err != nil {
+		return service.CostByTasksResult{}, fmt.Errorf("get cost by tasks: %w", err)
+	}
+	out.TotalTokens = out.InputTokens + out.OutputTokens
+	return out, nil
+}
+
 func (p *Postgres) sumCostCents(ctx context.Context, column, value string) (float64, error) {
 	query, _, err := p.goqu.From(p.tableCostEvents).
 		Select(goqu.COALESCE(goqu.SUM("cost_cents"), 0)).

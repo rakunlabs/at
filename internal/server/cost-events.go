@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -150,6 +151,104 @@ func (s *Server) GetCostByGoalAPI(w http.ResponseWriter, r *http.Request) {
 		"goal_id":          id,
 		"total_cost_cents": totalCost,
 	}, http.StatusOK)
+}
+
+// GetCostByTaskAPI handles GET /api/v1/tasks/{id}/cost.
+//
+// Returns the rolled-up cost for the given task PLUS every transitive
+// sub-task. Pipeline tasks (Director → Script Writer → Visual Designer →
+// Audio Producer → Composite) record cost events under each child's
+// task_id, so summing only the root would massively under-report. The
+// traversal is BFS and bounded to maxTaskDescendants nodes to defend
+// against pathological trees.
+func (s *Server) GetCostByTaskAPI(w http.ResponseWriter, r *http.Request) {
+	if s.costEventStore == nil {
+		httpResponse(w, "cost event store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	if s.taskStore == nil {
+		httpResponse(w, "task store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "task id is required", http.StatusBadRequest)
+		return
+	}
+
+	taskIDs, err := s.collectTaskTreeIDs(r.Context(), id)
+	if err != nil {
+		slog.Error("get cost by task: collect descendants failed",
+			"task_id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to walk task tree: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	rollup, err := s.costEventStore.GetCostByTasks(r.Context(), taskIDs)
+	if err != nil {
+		slog.Error("get cost by task: aggregate failed",
+			"task_id", id, "task_count", len(taskIDs), "error", err)
+		httpResponse(w, fmt.Sprintf("failed to aggregate cost: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	httpResponseJSON(w, map[string]any{
+		"task_id":          id,
+		"task_count":       len(taskIDs),
+		"task_ids":         taskIDs,
+		"cost_cents":       rollup.CostCents,
+		"input_tokens":     rollup.InputTokens,
+		"output_tokens":    rollup.OutputTokens,
+		"total_tokens":     rollup.TotalTokens,
+		"event_count":      rollup.EventCount,
+		"total_cost_cents": rollup.CostCents, // alias for the older naming
+	}, http.StatusOK)
+}
+
+// maxTaskDescendants caps the breadth-first walk of sub-tasks. A typical
+// pipeline has ~10 child tasks (Director + Script Writer + Visual Designer
+// + Audio Producer + a few revisions). 5000 is generous enough to handle
+// pathological cases without risking unbounded queries on a runaway tree.
+const maxTaskDescendants = 5000
+
+// collectTaskTreeIDs returns the root task ID followed by every transitive
+// descendant, in BFS order. The root is always first. Errors from the
+// underlying ListChildTasks call are surfaced; partial walks are not
+// returned (better to fail loud than silently under-count).
+func (s *Server) collectTaskTreeIDs(ctx context.Context, rootID string) ([]string, error) {
+	if rootID == "" {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, 16)
+	out := make([]string, 0, 16)
+	queue := []string{rootID}
+
+	for len(queue) > 0 && len(out) < maxTaskDescendants {
+		cur := queue[0]
+		queue = queue[1:]
+		if _, ok := seen[cur]; ok {
+			continue
+		}
+		seen[cur] = struct{}{}
+		out = append(out, cur)
+
+		children, err := s.taskStore.ListChildTasks(ctx, cur)
+		if err != nil {
+			return nil, fmt.Errorf("list child tasks for %s: %w", cur, err)
+		}
+		for _, c := range children {
+			if _, ok := seen[c.ID]; ok {
+				continue
+			}
+			queue = append(queue, c.ID)
+		}
+	}
+	if len(out) >= maxTaskDescendants {
+		slog.Warn("collectTaskTreeIDs: descendant cap reached, results may be partial",
+			"root_id", rootID, "cap", maxTaskDescendants)
+	}
+	return out, nil
 }
 
 // GetCostByBillingCodeAPI handles GET /api/v1/cost-events/by-billing-code?code=xxx.

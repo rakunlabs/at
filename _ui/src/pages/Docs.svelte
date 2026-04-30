@@ -1,15 +1,22 @@
 <script lang="ts">
   import { storeNavbar, storeInfo } from '@/lib/store/store.svelte';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
+  import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
   import { addToast } from '@/lib/store/toast.svelte';
   import { Copy, BookOpen, RefreshCw, Check, CheckSquare, Square } from 'lucide-svelte';
 
   storeNavbar.title = 'Documentation';
 
   let providers = $state<InfoProvider[]>([]);
+  let mcpServers = $state<MCPServer[]>([]);
   let loading = $state(true);
   let copiedId = $state<string | null>(null);
   let activeTab = $state('python');
+  // Currently selected MCP server name for the example snippet. Defaults
+  // to the first server returned by the API; falls back to "management"
+  // when none are configured so the snippet still demonstrates the
+  // canonical builtin server.
+  let selectedMcpName = $state('');
 
   const tabs = [
     { id: 'python', label: 'Python' },
@@ -21,8 +28,30 @@
   async function load() {
     loading = true;
     try {
-      const info = await getInfo();
-      providers = info.providers;
+      // Pull info + MCP servers in parallel. MCP server listing is best-effort
+      // because the docs page is still useful when no servers are configured;
+      // failures fall back to a "management" placeholder in the snippet.
+      const [info, mcpRes] = await Promise.allSettled([
+        getInfo(),
+        listMCPServers({ _limit: 100 }),
+      ]);
+
+      if (info.status === 'fulfilled') {
+        providers = info.value.providers;
+      } else {
+        addToast(info.reason?.response?.data?.message || 'Failed to load info', 'alert');
+      }
+
+      if (mcpRes.status === 'fulfilled') {
+        mcpServers = mcpRes.value.data || [];
+        if (mcpServers.length > 0 && !selectedMcpName) {
+          // Prefer "management" when present (the most common starter
+          // example) — otherwise just take the first one.
+          const mgmt = mcpServers.find((s) => s.name === 'management');
+          selectedMcpName = mgmt?.name || mcpServers[0].name;
+        }
+      }
+
       // Initialize selection: select default models for all providers
       if (providers.length > 0) {
         // Populate default models
@@ -36,8 +65,6 @@
         }
         selectedModels = defaults;
       }
-    } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to load info', 'alert');
     } finally {
       loading = false;
     }
@@ -105,6 +132,31 @@
     }
     selectedModels = new Set(selectedModels);
   }
+
+  // ─── Opencode MCP snippet ───
+  // Builds a JSON block that drops into ~/.config/opencode/opencode.json.
+  // The snippet uses the canonical "remote" transport that opencode
+  // supports for HTTP-MCP servers. We hardcode "at_xxxxx" as a token
+  // placeholder so the user knows to swap in their own from /tokens.
+  let opencodeMcpConfig = $derived.by(() => {
+    // Fallback to "management" if the user has no MCP servers yet —
+    // it's a builtin so the example is always meaningful.
+    const name = selectedMcpName || 'management';
+    const cfg = {
+      $schema: 'https://opencode.ai/config.json',
+      mcp: {
+        [`at-${name}`]: {
+          type: 'remote',
+          url: `${baseUrl}/gateway/v1/mcp/${name}`,
+          enabled: true,
+          headers: {
+            Authorization: 'Bearer at_xxxxx',
+          },
+        },
+      },
+    };
+    return JSON.stringify(cfg, null, 2);
+  });
 
   let opencodeConfig = $derived.by(() => {
     // Collect all selected models from the global set
@@ -404,24 +456,28 @@ func main() {
     </details>
   </div>
 
-  <!-- Opencode Config -->
+  <!-- Opencode Config (collapsable) -->
   <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Opencode Config</h3>
-        <span
-          class="px-1.5 py-0.5 text-[10px] font-mono bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border"
-          >~/.config/opencode/opencode.json</span
-        >
-      </div>
-      <button
-        onclick={() => copyCode('opencode', opencodeConfig)}
-        class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
-      >
-        <Copy size={12} />
-        {copiedId === 'opencode' ? 'Copied' : 'Copy'}
-      </button>
-    </div>
+    <details class="group">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none border-b border-gray-200 dark:border-dark-border group-[:not([open])]:border-b-0">
+        <div class="flex items-center gap-2 min-w-0">
+          <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Opencode Config</h3>
+          <span
+            class="px-1.5 py-0.5 text-[10px] font-mono bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border truncate"
+            >~/.config/opencode/opencode.json</span
+          >
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            onclick={(e) => { e.preventDefault(); e.stopPropagation(); copyCode('opencode', opencodeConfig); }}
+            class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+          >
+            <Copy size={12} />
+            {copiedId === 'opencode' ? 'Copied' : 'Copy'}
+          </button>
+          <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+        </div>
+      </summary>
     <div class="p-4 space-y-4">
       <!-- Provider Selection -->
       <div class="flex flex-col sm:flex-row sm:items-end gap-4">
@@ -509,6 +565,76 @@ func main() {
         </div>
       </details>
     </div>
+    </details>
+  </div>
+
+  <!-- Opencode MCP Config (collapsable) -->
+  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
+    <details class="group">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none border-b border-gray-200 dark:border-dark-border group-[:not([open])]:border-b-0">
+        <div class="flex items-center gap-2 min-w-0">
+          <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">MCP Configuration</h3>
+          <span
+            class="px-1.5 py-0.5 text-[10px] font-mono bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border truncate"
+            >~/.config/opencode/opencode.json</span
+          >
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            onclick={(e) => { e.preventDefault(); e.stopPropagation(); copyCode('opencode-mcp', opencodeMcpConfig); }}
+            class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+          >
+            <Copy size={12} />
+            {copiedId === 'opencode-mcp' ? 'Copied' : 'Copy'}
+          </button>
+          <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+        </div>
+      </summary>
+      <div class="p-4 space-y-3">
+        <p class="text-xs text-gray-600 dark:text-dark-text-secondary leading-relaxed">
+          Add an AT-hosted MCP server to opencode by extending your
+          <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-[11px]">opencode.json</code>
+          with an <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-[11px]">mcp</code> entry of type
+          <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-[11px]">remote</code>. Replace
+          <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-[11px]">at_xxxxx</code> with a token
+          generated on the <a href="#/tokens" class="underline underline-offset-2">Tokens</a> page.
+        </p>
+
+        <!-- MCP server selector. Only shown when there's more than one server,
+             otherwise the snippet just uses the single available server. -->
+        {#if mcpServers.length > 1}
+          <div class="flex flex-col sm:flex-row sm:items-end gap-2">
+            <label class="block text-xs text-gray-700 dark:text-dark-text-secondary">
+              MCP server
+              <select
+                bind:value={selectedMcpName}
+                class="block w-full sm:w-64 text-sm border border-gray-300 dark:border-dark-border focus:border-gray-900 dark:focus:border-accent focus:ring-gray-900 dark:focus:ring-accent bg-white dark:bg-dark-base text-gray-900 dark:text-dark-text mt-1"
+              >
+                {#each mcpServers as s}
+                  <option value={s.name}>{s.name}</option>
+                {/each}
+              </select>
+            </label>
+          </div>
+        {:else if mcpServers.length === 0}
+          <p class="text-[11px] text-gray-500 dark:text-dark-text-muted italic">
+            No MCP servers are configured yet — the example below uses
+            <code class="font-mono">management</code> as a placeholder. Add servers on the
+            <a href="#/mcp-servers" class="underline underline-offset-2">MCP Servers</a> page.
+          </p>
+        {/if}
+
+        <!-- The JSON snippet -->
+        <pre
+          class="p-3 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border">{opencodeMcpConfig}</pre>
+
+        <p class="text-[11px] text-gray-500 dark:text-dark-text-muted">
+          The full endpoint list is on the
+          <a href="#/mcp-servers" class="underline underline-offset-2">MCP Servers</a> page. Each entry advertises its own
+          <code class="font-mono">/gateway/v1/mcp/&lt;name&gt;</code> URL — point opencode at any of them.
+        </p>
+      </div>
+    </details>
   </div>
 
   <!-- List Models -->
@@ -533,32 +659,40 @@ func main() {
     </details>
   </div>
 
-  <!-- Available Models -->
+  <!-- Available Models (collapsable) -->
   <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
-      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Available Models</h3>
-    </div>
-    {#if loading}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
-    {:else if allModels.length === 0}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">No models available</div>
-    {:else}
-      <div class="p-4">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-          {#each allModels as model}
-            <div class="flex items-center gap-2 group">
-              <code class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary bg-gray-50 dark:bg-dark-elevated px-2 py-1 flex-1 truncate">{model}</code>
-              <button
-                onclick={() => copyCode(`model-${model}`, model)}
-                class="shrink-0 p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-500 dark:hover:text-dark-text-muted transition-colors opacity-0 group-hover:opacity-100"
-                title="Copy model ID"
-              >
-                <Copy size={12} />
-              </button>
-            </div>
-          {/each}
+    <details class="group">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none border-b border-gray-200 dark:border-dark-border group-[:not([open])]:border-b-0">
+        <div class="flex items-center gap-2">
+          <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Available Models</h3>
+          {#if !loading}
+            <span class="text-xs text-gray-400 dark:text-dark-text-muted">({allModels.length})</span>
+          {/if}
         </div>
-      </div>
-    {/if}
+        <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
+      </summary>
+      {#if loading}
+        <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
+      {:else if allModels.length === 0}
+        <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">No models available</div>
+      {:else}
+        <div class="p-4">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            {#each allModels as model}
+              <div class="flex items-center gap-2 group/row">
+                <code class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary bg-gray-50 dark:bg-dark-elevated px-2 py-1 flex-1 truncate">{model}</code>
+                <button
+                  onclick={() => copyCode(`model-${model}`, model)}
+                  class="shrink-0 p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-500 dark:hover:text-dark-text-muted transition-colors opacity-0 group-hover/row:opacity-100"
+                  title="Copy model ID"
+                >
+                  <Copy size={12} />
+                </button>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </details>
   </div>
 </div>

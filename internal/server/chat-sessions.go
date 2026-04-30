@@ -845,11 +845,16 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 			if err != nil {
 				// Record failed call for usage dashboard.
+				//
+				// Use the provider KEY (the user-facing identifier configured
+				// on the agent, e.g. "openai-prod" / "claude-personal") rather
+				// than info.providerType (the generic API family like "openai"
+				// / "anthropic"). The dashboard groups by user-facing provider.
 				if recordUsage := s.recordUsageFunc(); recordUsage != nil {
 					_ = recordUsage(ctx, workflow.UsageEvent{
 						AgentID:      session.AgentID,
 						Model:        model,
-						Provider:     info.providerType,
+						Provider:     providerKey,
 						LatencyMs:    latencyMs,
 						Status:       "error",
 						ErrorCode:    classifyHTTPError(err),
@@ -863,13 +868,15 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}
 
 		// Record token usage for cost tracking.
+		// Same rule as the error path above: store the provider KEY, not the
+		// generic API family.
 		if resp.Usage.TotalTokens > 0 {
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
 				if usageErr := recordUsage(ctx, workflow.UsageEvent{
 					AgentID:   session.AgentID,
 					Model:     model,
-					Provider:  info.providerType,
+					Provider:  providerKey,
 					Usage:     resp.Usage,
 					LatencyMs: latencyMs,
 					Status:    "ok",

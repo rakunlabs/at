@@ -100,6 +100,20 @@ const (
 	DefaultClassFreeformBytes   = 8 * 1024
 )
 
+// Default per-tool byte caps. These take precedence over class defaults
+// for the listed tool names. Tuned against the production data captured
+// in 2026-04 where Director-style head agents poll children with
+// task_get / task_list 100+ times per task; full 32KB descriptions were
+// re-fed into the LLM context on every poll, dominating input cost.
+//
+// 4KB is enough for status + identifier + first 3KB of result/title;
+// the agent can call file_read (or bash_execute cat) on the workspace
+// brief file when it needs the full payload.
+var defaultPerToolCaps = map[string]int{
+	"task_get":  4 * 1024,
+	"task_list": 4 * 1024,
+}
+
 // fillDefaults rewrites a zero value to the built-in default. It is
 // applied once in New() so callers don't have to special-case zero.
 func (c *Config) fillDefaults() {
@@ -126,6 +140,13 @@ func (c *Config) fillDefaults() {
 	}
 	if c.ToolCapOverrides == nil {
 		c.ToolCapOverrides = map[string]int{}
+	}
+	// Seed built-in per-tool caps for tools that empirically dominate
+	// input cost (head-agent polling). Operator-supplied overrides win.
+	for k, v := range defaultPerToolCaps {
+		if _, set := c.ToolCapOverrides[k]; !set {
+			c.ToolCapOverrides[k] = v
+		}
 	}
 	if c.ToolCapClassDefaults == nil {
 		c.ToolCapClassDefaults = map[string]int{

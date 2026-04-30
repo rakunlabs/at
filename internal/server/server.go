@@ -847,6 +847,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/agents/{id}/cost", s.GetCostByAgentAPI)
 	apiGroup.GET("/v1/projects/{id}/cost", s.GetCostByProjectAPI)
 	apiGroup.GET("/v1/goals/{id}/cost", s.GetCostByGoalAPI)
+	apiGroup.GET("/v1/tasks/{id}/cost", s.GetCostByTaskAPI)
 
 	// Usage dashboard (tokens, requests, latency, errors, budgets)
 	apiGroup.GET("/v1/usage/summary", s.GetUsageSummaryAPI)

@@ -38,11 +38,6 @@ export async function recordCostEvent(data: Partial<CostEvent>): Promise<CostEve
   return res.data;
 }
 
-export async function getCostByBillingCode(params?: ListParams): Promise<CostSummary[]> {
-  const res = await api.get<CostSummary[]>('/cost-events/by-billing-code', { params });
-  return res.data;
-}
-
 export async function getCostByAgent(agentId: string): Promise<CostSummary> {
   const res = await api.get<CostSummary>(`/agents/${agentId}/cost`);
   return res.data;
@@ -55,5 +50,24 @@ export async function getCostByProject(projectId: string): Promise<CostSummary> 
 
 export async function getCostByGoal(goalId: string): Promise<CostSummary> {
   const res = await api.get<CostSummary>(`/goals/${goalId}/cost`);
+  return res.data;
+}
+
+// CostByTaskResult is the rolled-up cost across a root task and every
+// transitive sub-task. Used by the TaskDetail "View cost" button so a
+// pipeline's full spend can be seen at a glance.
+export interface CostByTaskResult {
+  task_id: string;
+  task_count: number;
+  task_ids: string[];
+  cost_cents: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  event_count: number;
+}
+
+export async function getCostByTask(taskId: string): Promise<CostByTaskResult> {
+  const res = await api.get<CostByTaskResult>(`/tasks/${taskId}/cost`);
   return res.data;
 }

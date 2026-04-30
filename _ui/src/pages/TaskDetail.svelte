@@ -36,6 +36,7 @@
     FolderOpen, Hash, Clock, AlertTriangle, CreditCard,
     Layers, ChevronRight, ChevronDown, Building2, Play,
     RotateCcw, RefreshCw, Send, Square, Loader2, Activity,
+    Receipt,
   } from 'lucide-svelte';
   import {
     listChatMessages,
@@ -45,6 +46,7 @@
   import { createComment } from '@/lib/api/issue-comments';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { getCostByTask, type CostByTaskResult } from '@/lib/api/cost-events';
 
   interface Props {
     params: { id: string };
@@ -85,6 +87,43 @@
   let taskTree = $state<TaskWithSubtasks | null>(null);
   let subTasksLoading = $state(false);
   let expandedNodes = $state<Set<string>>(new Set());
+
+  // Rolled-up cost (this task + all descendants). Loaded lazily on demand
+  // because the BFS traversal touches every sub-task row in the database;
+  // we don't want to pay it on every TaskDetail open. Refreshed manually.
+  let costRollup = $state<CostByTaskResult | null>(null);
+  let costLoading = $state(false);
+
+  async function loadCost() {
+    if (!task) return;
+    costLoading = true;
+    try {
+      costRollup = await getCostByTask(task.id);
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load cost rollup', 'alert');
+    } finally {
+      costLoading = false;
+    }
+  }
+
+  // Format cents → "$0.0042" (matches CostEvents page convention).
+  function formatCostCents(cents: number): string {
+    return `$${(cents / 100).toFixed(4)}`;
+  }
+
+  function formatTokensShort(n: number): string {
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+    return String(n);
+  }
+
+  // URL for the Cost Events page filtered to the task tree. The CostEvents
+  // page reads ?task_ids=A,B,C from the hash querystring and passes it
+  // through to the backend as task_id[in]=A,B,C.
+  let costEventsUrl = $derived.by(() => {
+    if (!costRollup || !costRollup.task_ids?.length) return '#/cost-events';
+    return `#/cost-events?task_ids=${encodeURIComponent(costRollup.task_ids.join(','))}`;
+  });
 
   // Active tab
   let activeTab = $state<'comments' | 'subtasks' | 'labels' | 'activity'>('activity');
@@ -1274,6 +1313,48 @@
                   </span>
                 </div>
               {/if}
+
+              <!-- Rolled-up cost across this task + all descendants. Loaded
+                   lazily via a button (the BFS over sub-tasks isn't free). -->
+              <div class="px-3 py-2 flex items-center gap-2">
+                <CreditCard size={12} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
+                <span class="text-xs text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Cost</span>
+                <div class="flex-1 flex items-center gap-2 min-w-0">
+                  {#if costRollup}
+                    <span class="text-xs font-mono text-gray-900 dark:text-dark-text font-medium" title={`${costRollup.event_count} events across ${costRollup.task_count} task(s)`}>
+                      {formatCostCents(costRollup.cost_cents)}
+                    </span>
+                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+                      · {formatTokensShort(costRollup.total_tokens)} tok · {costRollup.event_count} ev
+                    </span>
+                    <button
+                      onclick={loadCost}
+                      disabled={costLoading}
+                      class="ml-auto p-0.5 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text disabled:opacity-50 transition-colors"
+                      title="Refresh cost"
+                    >
+                      <RefreshCw size={10} class={costLoading ? 'animate-spin' : ''} />
+                    </button>
+                    <a
+                      href={costEventsUrl}
+                      class="p-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                      title="View cost events for this task tree"
+                    >
+                      <Receipt size={10} />
+                    </a>
+                  {:else}
+                    <button
+                      onclick={loadCost}
+                      disabled={costLoading}
+                      class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+                    >
+                      {costLoading ? 'Loading...' : 'Show cost'}
+                    </button>
+                  {/if}
+                </div>
+              </div>
+              <!-- end Cost -->
+              
 
               <!-- Request Depth -->
               {#if task.request_depth}

@@ -551,11 +551,16 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 		if chatErr != nil {
 			// Record failed call for usage dashboard.
+			//
+			// Use the agent's configured provider KEY (e.g. "openai-prod",
+			// "claude-personal") rather than info.providerType (which is the
+			// generic API type like "openai" / "anthropic"). The dashboard
+			// groups by the user-facing provider, not by upstream API family.
 			if recordUsage := s.recordUsageFunc(); recordUsage != nil {
 				_ = recordUsage(ctx, workflow.UsageEvent{
 					AgentID:      agentID,
 					Model:        model,
-					Provider:     info.providerType,
+					Provider:     agent.Config.Provider,
 					TaskID:       task.ID,
 					LatencyMs:    latencyMs,
 					Status:       "error",
@@ -570,13 +575,20 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 
 		// Record token usage.
+		//
+		// As above, attribute the cost to the agent's configured provider KEY
+		// (the user-facing identifier like "openai-prod") rather than the
+		// generic API type. Without this the Usage dashboard's "by provider"
+		// breakdown collapses every OpenAI-compatible config to "openai" and
+		// every Anthropic-shaped one to "anthropic", hiding which named
+		// provider account actually drove the spend.
 		if resp.Usage.TotalTokens > 0 {
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
 				if usageErr := recordUsage(ctx, workflow.UsageEvent{
 					AgentID:   agentID,
 					Model:     model,
-					Provider:  info.providerType,
+					Provider:  agent.Config.Provider,
 					TaskID:    task.ID,
 					Usage:     resp.Usage,
 					LatencyMs: latencyMs,

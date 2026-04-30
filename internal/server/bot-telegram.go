@@ -427,6 +427,33 @@ func sanitizeUTF8(s string) string {
 	return string(v)
 }
 
+// isFinishedTaskStatus returns true when the task has reached a terminal state.
+// Used to decide whether the active task is a candidate for revision-spawning.
+func isFinishedTaskStatus(status string) bool {
+	switch status {
+	case service.TaskStatusDone,
+		service.TaskStatusCompleted,
+		service.TaskStatusCancelled,
+		service.TaskStatusBlocked:
+		return true
+	}
+	return false
+}
+
+// isRunningTaskStatus returns true when the task is still in motion.
+func isRunningTaskStatus(status string) bool {
+	switch status {
+	case service.TaskStatusInProgress,
+		service.TaskStatusInReview,
+		service.TaskStatusReview,
+		service.TaskStatusOpen,
+		service.TaskStatusTodo,
+		service.TaskStatusBacklog:
+		return true
+	}
+	return false
+}
+
 // extractMediaFiles scans task result text for video and image file paths.
 func extractMediaFiles(result string) (videos []string, images []string) {
 	videoExts := map[string]bool{".mp4": true, ".mov": true, ".webm": true, ".avi": true}
@@ -1086,6 +1113,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				"/result [id] - Get task output + video\n" +
 				"/pick <id> - Select task to chat about\n" +
 				"/run <instruction> - Run a background subtask on active task\n" +
+				"/revise <changes> - Re-run the active (finished) task with changes applied to its original brief\n" +
 				"/cancel [id] - Cancel a running task (uses active task if no id)\n" +
 				"/current - Show active task\n" +
 				"/reset - Clear conversation history\n" +
@@ -1093,6 +1121,11 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				"/agents - List available agents you can switch to\n" +
 				"/switch - Switch to a different agent (usage: /switch <agent name>)\n" +
 				"/help - Show this help message"
+
+			// Append any bot-specific custom commands.
+			if extra := s.formatTelegramCustomCommandsHelp(ctx, tgCtx.botID); extra != "" {
+				helpText += "\n\nCustom commands:\n" + extra
+			}
 			reply := tgbotapi.NewMessage(msg.Chat.ID, helpText)
 			bot.Send(reply) //nolint:errcheck
 			return
@@ -1125,6 +1158,15 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			}
 
 			description := fmt.Sprintf("Follow-up on %s: %s", taskRef, sanitizeUTF8(parentTask.Title))
+			// Include the parent's original brief so the agent has the
+			// full requirements when running the follow-up.
+			if parentTask.Description != "" {
+				origPreview := parentTask.Description
+				if len(origPreview) > 2000 {
+					origPreview = origPreview[:2000] + "..."
+				}
+				description += fmt.Sprintf("\n\nOriginal brief:\n%s", sanitizeUTF8(origPreview))
+			}
 			if parentTask.Result != "" {
 				resultPreview := parentTask.Result
 				if len(resultPreview) > 1000 {
@@ -1132,6 +1174,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				}
 				description += fmt.Sprintf("\n\nPrevious result:\n%s", resultPreview)
 			}
+			description += fmt.Sprintf("\n\nFollow-up instruction:\n%s", sanitizeUTF8(instruction))
 
 			chatID := msg.Chat.ID
 			onSubDone := func(ident, status, result string) {
@@ -1176,6 +1219,109 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 
 			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Running: %s\nSubtask: %s\n\nI'll notify you when done.", sanitizeUTF8(instruction), sanitizeUTF8(subtaskIdent)))
 			return
+		case "revise":
+			// /revise <changes> — create a NEW top-level task that is a revision
+			// of the active (finished) task. Carries forward the original brief
+			// and asks the org to apply the user's changes. Unlike /run, this
+			// creates a sibling task, not a subtask, so the new task gets its
+			// own clean delegation chain (no shared workspace, no entanglement
+			// with the original).
+			changes := strings.TrimSpace(msg.CommandArguments())
+			if changes == "" {
+				sendTelegramText(bot, msg.Chat.ID, "Usage: /revise <changes>\nExample: /revise make it 30 minutes instead of 25, switch ambient to rain")
+				return
+			}
+
+			activeID, hasActive := tgCtx.activeTask.Load(chatIDStr)
+			if !hasActive {
+				sendTelegramText(bot, msg.Chat.ID, "No active task. Use /pick <id> to select one first.")
+				return
+			}
+
+			sourceRef := activeID.(string)
+			sourceTask, _ := s.findTaskByIdentifier(ctx, agentID, sourceRef)
+			if sourceTask == nil || sourceTask.OrganizationID == "" {
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s not found or has no organization.", sanitizeUTF8(sourceRef)))
+				return
+			}
+
+			if !isFinishedTaskStatus(sourceTask.Status) {
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s is still %s. Wait for it to finish (or /cancel it first) before revising.", sanitizeUTF8(sourceRef), sanitizeUTF8(sourceTask.Status)))
+				return
+			}
+
+			typingCancel()
+
+			// Build a fresh brief that combines the original task's brief with
+			// the user's requested changes. We give the head agent everything
+			// it needs to produce a brand-new run that's anchored to the same
+			// requirements but applies the diff.
+			revTitle := fmt.Sprintf("[Revision of %s] %s", sourceRef, changes)
+			if len(revTitle) > 100 {
+				revTitle = revTitle[:100] + "..."
+			}
+
+			var revBriefBuilder strings.Builder
+			revBriefBuilder.WriteString(fmt.Sprintf("This is a REVISION of task %s. Produce a NEW deliverable from scratch — do not edit the original task's files in place.\n\n", sanitizeUTF8(sourceRef)))
+			revBriefBuilder.WriteString(fmt.Sprintf("Original task title: %s\n\n", sanitizeUTF8(sourceTask.Title)))
+			if sourceTask.Description != "" {
+				origBrief := sourceTask.Description
+				if len(origBrief) > 4000 {
+					origBrief = origBrief[:4000] + "..."
+				}
+				revBriefBuilder.WriteString("Original brief:\n")
+				revBriefBuilder.WriteString(sanitizeUTF8(origBrief))
+				revBriefBuilder.WriteString("\n\n")
+			}
+			if sourceTask.Result != "" {
+				prevResult := sourceTask.Result
+				if len(prevResult) > 2000 {
+					prevResult = prevResult[:2000] + "..."
+				}
+				revBriefBuilder.WriteString("Previous result (for reference; do NOT mutate its files):\n")
+				revBriefBuilder.WriteString(sanitizeUTF8(prevResult))
+				revBriefBuilder.WriteString("\n\n")
+			}
+			revBriefBuilder.WriteString("Apply these changes (this is what the user actually wants different this time):\n")
+			revBriefBuilder.WriteString(sanitizeUTF8(changes))
+			revBriefBuilder.WriteString("\n\nKeep everything from the original brief that the user did NOT ask to change. The new task gets a fresh workspace and runs the full pipeline end-to-end.")
+			revDescription := revBriefBuilder.String()
+
+			chatID := msg.Chat.ID
+			onRevDone := func(ident, status, result string) {
+				switch status {
+				case "done", "completed":
+					sendTelegramText(bot, chatID, fmt.Sprintf("Revision %s completed.\nUse /result %s to get the output.", sanitizeUTF8(ident), sanitizeUTF8(ident)))
+				case "failed", "cancelled", "blocked":
+					errMsg := sanitizeUTF8(result)
+					if len(errMsg) > 500 {
+						errMsg = errMsg[:500] + "..."
+					}
+					sendTelegramText(bot, chatID, fmt.Sprintf("Revision %s failed.\n\n%s", sanitizeUTF8(ident), errMsg))
+				}
+			}
+
+			// Submit the revision as a fresh top-level task into the same org as
+			// the source task. The org's head agent picks it up and runs the
+			// usual delegation pipeline.
+			_, revIdent, revErr := s.createBotOrgTask(ctx, sourceTask.OrganizationID, revTitle, revDescription, 0, onRevDone)
+			if revErr != nil {
+				slog.Error("telegram bot: revise failed", "source_task", sourceRef, "error", revErr)
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed to start revision: %v", revErr))
+				return
+			}
+
+			// Make the new revision the active task automatically — the user is
+			// almost certainly going to /status / /result it next.
+			tgCtx.activeTask.Store(chatIDStr, revIdent)
+
+			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf(
+				"Revision %s created and running in background.\nSource: %s\nChanges: %s\n\nNew task is now active. I'll notify you when it's done.\n/status to check",
+				sanitizeUTF8(revIdent),
+				sanitizeUTF8(sourceRef),
+				sanitizeUTF8(changes),
+			))
+			return
 		case "cancel":
 			// /cancel [id] — stop the agents running on a task and mark it cancelled.
 			// Defaults to the chat's active task when no id is supplied.
@@ -1204,6 +1350,12 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Cancel signal sent for %s. The task will stop at the next iteration.", sanitizeUTF8(identifier)))
 			return
 		default:
+			// Check for user-configured custom commands stored on the bot config.
+			// Custom commands are dispatched as background tasks (same UX as /new),
+			// optionally routed to a specific agent or organization.
+			if handled := s.handleTelegramCustomCommand(ctx, bot, msg, tgCtx, chatIDStr, agentID); handled {
+				return
+			}
 			slog.Warn("telegram bot: unknown command, passing to agent", "command", msg.Command())
 		}
 	}
@@ -1214,6 +1366,18 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
 		if task != nil {
 			taskContext := fmt.Sprintf("[Active task: %s | Status: %s | Title: %s]", taskRef, task.Status, task.Title)
+
+			// Include the ORIGINAL brief (task.Description) so the agent can remix it
+			// for revision requests. Without this, "change this part" loses the
+			// original requirements and the agent has to guess.
+			if task.Description != "" {
+				descPreview := task.Description
+				if len(descPreview) > 3000 {
+					descPreview = descPreview[:3000] + "..."
+				}
+				taskContext += fmt.Sprintf("\n[Original brief: %s]", descPreview)
+			}
+
 			if task.Result != "" {
 				resultPreview := task.Result
 				if len(resultPreview) > 4000 {
@@ -1234,6 +1398,25 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 					}
 					taskContext += "]"
 				}
+			}
+
+			// Revision guidance — when the active task is finished and the user
+			// is asking for a CHANGE (rather than just a question), the agent
+			// should spawn a NEW task that combines the original brief with the
+			// requested revision, NOT mutate the already-finished task in place.
+			//
+			// We surface this as a hint; the agent is responsible for detecting
+			// revision intent ("change", "make it shorter", "different ambient",
+			// "redo with X", "değiştir", "tekrar yap", etc.) and using
+			// `org_task_intake` (or `task_create` + `task_process`) with a brief
+			// of the form: "REVISION of <ID>. Original brief: <...>. Apply these
+			// changes: <user message>. Reuse anything reusable from <ID>'s
+			// components if possible." The user will be notified when the new
+			// task finishes via the same /status / /result flow.
+			if isFinishedTaskStatus(task.Status) {
+				taskContext += "\n[Revision policy: this task is FINISHED. If the user asks for a CHANGE / fix / variation / redo, do NOT touch the finished task or its files. Create a NEW task that includes the original brief above PLUS the user's requested changes, using `org_task_intake` (or `task_create` + `task_process`). Title prefix the new task with `[Revision of " + taskRef + "]`. The user can keep chatting and the new task will run in the background.]"
+			} else if isRunningTaskStatus(task.Status) {
+				taskContext += "\n[This task is currently RUNNING. The user's message is likely a question or a course-correction. Answer questions directly. For course-corrections that require restart, suggest the user wait for completion or use /cancel + a new task. Do NOT spawn another delegation chain on the same task.]"
 			}
 			content = taskContext + "\n\n" + content
 

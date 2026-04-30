@@ -170,6 +170,17 @@ type BudgetUtilization struct {
 	UsagePercent float64 `json:"usage_percent"`
 }
 
+// CostByTasksResult aggregates the cost rollup for a set of tasks. Used by
+// the TaskDetail page to show "this pipeline cost X" without forcing the
+// caller to fetch every cost_event individually.
+type CostByTasksResult struct {
+	CostCents    float64 `json:"cost_cents"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	TotalTokens  int64   `json:"total_tokens"`
+	EventCount   int64   `json:"event_count"`
+}
+
 // CostEventStorer defines operations for per-call cost tracking.
 type CostEventStorer interface {
 	RecordCostEvent(ctx context.Context, event CostEvent) error
@@ -178,6 +189,14 @@ type CostEventStorer interface {
 	GetCostByProject(ctx context.Context, projectID string) (float64, error)
 	GetCostByGoal(ctx context.Context, goalID string) (float64, error)
 	GetCostByBillingCode(ctx context.Context, billingCode string) (float64, error)
+	// GetCostByTasks returns the summed cost_cents across every cost_event whose
+	// task_id is in the supplied set. The caller is responsible for assembling
+	// the descendant set (typically root + all transitive sub-tasks) since
+	// task descendant traversal lives in the task store, not the cost-event store.
+	// Empty taskIDs returns 0 with no error. Also returns an aggregate event
+	// count and total token usage so the UI can show "X events, Y tokens" in
+	// addition to the cost.
+	GetCostByTasks(ctx context.Context, taskIDs []string) (CostByTasksResult, error)
 
 	// GetUsageSummary aggregates all matching events into a single row.
 	GetUsageSummary(ctx context.Context, filter UsageFilter) (UsageSummary, error)

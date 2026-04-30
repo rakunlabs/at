@@ -20,8 +20,11 @@
     mod_time: string;
   }
 
-  let currentPath = $state('/tmp');
-  let parentPath = $state('/');
+  // Default to the task-workspace root since the file API now only serves
+  // a small allow-list of agent workspace directories (/tmp/at-tasks,
+  // /tmp/at-sandbox, /tmp/at-audio, /tmp/at-git-cache, /tmp/at-org-*).
+  let currentPath = $state('/tmp/at-tasks');
+  let parentPath = $state('/tmp/at-tasks');
   let entries = $state<FileEntry[]>([]);
   let loading = $state(false);
   let deleteConfirm = $state<string | null>(null);
@@ -147,8 +150,16 @@
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
 
-  function serveUrl(path: string): string {
-    return `api/v1/files/serve?path=${encodeURIComponent(path)}`;
+  function serveUrl(path: string, modTime?: string): string {
+    // Append the file's mod_time as a cache-buster so re-running a task that
+    // overwrites the same path (e.g. a regenerated video at /tmp/at-tasks/<id>/final.mp4)
+    // forces the browser to re-fetch instead of showing the stale cached
+    // response. The server now sets Last-Modified via http.ServeContent, but
+    // browsers still aggressively cache same-URL media; bumping the query
+    // string is the simplest way to invalidate.
+    const base = `api/v1/files/serve?path=${encodeURIComponent(path)}`;
+    if (modTime) return `${base}&t=${encodeURIComponent(modTime)}`;
+    return base;
   }
 
   async function openPreview(entry: FileEntry) {
@@ -164,7 +175,7 @@
       previewText = '';
     } else if (type === 'text') {
       try {
-        const res = await fetch(serveUrl(entry.path));
+        const res = await fetch(serveUrl(entry.path, entry.mod_time));
         previewText = await res.text();
         previewFile = entry;
         previewType = 'text';
@@ -243,15 +254,23 @@
             class="w-36 pl-7 pr-2 py-1 text-[11px] border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted"
           />
         </div>
-        <!-- Quick nav buttons -->
+        <!-- Quick nav buttons. Only the allow-listed roots are reachable. -->
         <button
-          onclick={() => browse('/tmp')}
+          onclick={() => browse('/tmp/at-tasks')}
           class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
-        >/tmp</button>
+        >tasks</button>
         <button
           onclick={() => browse('/tmp/at-sandbox')}
           class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
         >sandbox</button>
+        <button
+          onclick={() => browse('/tmp/at-audio')}
+          class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
+        >audio</button>
+        <button
+          onclick={() => browse('/tmp/at-git-cache')}
+          class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
+        >git-cache</button>
         <!-- Hidden files toggle -->
         <button
           onclick={() => { showHidden = !showHidden; }}
@@ -315,7 +334,7 @@
                   <div class="flex items-center justify-end gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                     {#if !entry.is_dir}
                       <a
-                        href={serveUrl(entry.path)}
+                        href={serveUrl(entry.path, entry.mod_time)}
                         download={entry.name}
                         class="p-1 text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
                         title="Download"
@@ -362,7 +381,7 @@
         </div>
         <div class="flex items-center gap-1 shrink-0">
           <a
-            href={serveUrl(previewFile.path)}
+            href={serveUrl(previewFile.path, previewFile.mod_time)}
             download={previewFile.name}
             class="p-1 text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
             title="Download"
@@ -390,14 +409,15 @@
         {#if previewType === 'video'}
           <!-- svelte-ignore a11y_media_has_caption -->
           <video
-            src={serveUrl(previewFile.path)}
+            src={serveUrl(previewFile.path, previewFile.mod_time)}
             controls
+            preload="metadata"
             class="max-w-full max-h-full rounded shadow-lg"
             autoplay
           ></video>
         {:else if previewType === 'image'}
           <img
-            src={serveUrl(previewFile.path)}
+            src={serveUrl(previewFile.path, previewFile.mod_time)}
             alt={previewFile.name}
             class="max-w-full max-h-full object-contain rounded shadow-lg"
           />
@@ -409,8 +429,9 @@
             </div>
             <!-- svelte-ignore a11y_media_has_caption -->
             <audio
-              src={serveUrl(previewFile.path)}
+              src={serveUrl(previewFile.path, previewFile.mod_time)}
               controls
+              preload="metadata"
               class="w-full"
               autoplay
             ></audio>

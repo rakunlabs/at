@@ -344,6 +344,12 @@ func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (strin
 		task.MaxIterations = v
 	}
 
+	// Spill large descriptions to the shared task workspace and replace
+	// the in-DB description with a short reference. This caps the bytes
+	// the child agent re-reads on every iteration of its loop, which is
+	// the dominant input-token cost in pipeline tasks (Director → child).
+	task.Description, _ = s.maybeSpillBrief(ctx, task.Description, task.ParentID, task.Title)
+
 	record, err := s.taskStore.CreateTask(ctx, task)
 	if err != nil {
 		return "", fmt.Errorf("failed to create task: %w", err)

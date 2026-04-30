@@ -1,8 +1,9 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, startBot, stopBot, getBotStatus, type BotConfig, type BotStatus } from '@/lib/api/bots';
+  import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, startBot, stopBot, getBotStatus, type BotConfig, type BotCustomCommand, type BotStatus } from '@/lib/api/bots';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { Trash2, Plus, X, Pencil, Radio, RefreshCw, Save, Play, Square } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -14,6 +15,7 @@
 
   let bots = $state<BotConfig[]>([]);
   let agents = $state<Agent[]>([]);
+  let orgs = $state<Organization[]>([]);
   let loading = $state(true);
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
@@ -46,6 +48,7 @@
   let formContainerMemory = $state('2g');
   let formSpeechToText = $state('openai');
   let formWhisperModel = $state('base');
+  let formCustomCommands = $state<BotCustomCommand[]>([]);
 
   // ─── Load ───
 
@@ -59,10 +62,15 @@
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
 
-      const [bResult, aResult] = await Promise.all([listBotConfigs(params), listAgents({ _limit: 500 })]);
+      const [bResult, aResult, oResult] = await Promise.all([
+        listBotConfigs(params),
+        listAgents({ _limit: 500 }),
+        listOrganizations({ _limit: 200 }),
+      ]);
       bots = bResult.data || [];
       total = bResult.meta?.total || 0;
       agents = aResult.data || [];
+      orgs = oResult.data || [];
       await loadStatuses();
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
@@ -117,6 +125,7 @@
     formContainerMemory = '2g';
     formSpeechToText = 'openai';
     formWhisperModel = 'base';
+    formCustomCommands = [];
     editingId = null;
     showForm = false;
   }
@@ -146,6 +155,7 @@
     formContainerMemory = bot.container_memory || '2g';
     formSpeechToText = bot.speech_to_text || 'openai';
     formWhisperModel = bot.whisper_model || 'base';
+    formCustomCommands = (bot.custom_commands || []).map((c) => ({ ...c }));
     showForm = true;
   }
 
@@ -186,6 +196,17 @@
         container_memory: formUserContainers ? formContainerMemory : undefined,
         speech_to_text: formSpeechToText,
         whisper_model: formSpeechToText !== 'openai' && formSpeechToText !== 'none' ? formWhisperModel : undefined,
+        custom_commands: formCustomCommands
+          .map((c) => ({
+            command: (c.command || '').trim().replace(/^\//, ''),
+            description: (c.description || '').trim() || undefined,
+            organization_id: c.organization_id || undefined,
+            agent_id: c.agent_id || undefined,
+            brief: (c.brief || '').trim() || undefined,
+            title_prefix: (c.title_prefix || '').trim() || undefined,
+            max_iterations: c.max_iterations && c.max_iterations > 0 ? c.max_iterations : undefined,
+          }))
+          .filter((c) => c.command.length > 0),
       };
 
       if (editingId) {
@@ -245,6 +266,19 @@
 
   function removeChannelAgent(i: number) {
     formChannelAgents = formChannelAgents.filter((_, idx) => idx !== i);
+  }
+
+  // ─── Custom commands management ───
+
+  function addCustomCommand() {
+    formCustomCommands = [
+      ...formCustomCommands,
+      { command: '', description: '', organization_id: '', agent_id: '', brief: '', title_prefix: '', max_iterations: 0 },
+    ];
+  }
+
+  function removeCustomCommand(i: number) {
+    formCustomCommands = formCustomCommands.filter((_, idx) => idx !== i);
   }
 
   // ─── Allowed/pending users management ───
@@ -721,6 +755,109 @@
                 </div>
               {/if}
             </div>
+
+            <!-- Custom Commands -->
+            {#if formPlatform === 'telegram'}
+              <div class="grid grid-cols-4 gap-3 items-start">
+                <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Custom Commands</span>
+                <div class="col-span-3 space-y-3">
+                  <div class="text-[10px] text-gray-500 dark:text-dark-text-muted">
+                    Add slash commands like <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">/asmr</code> or <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">/silent</code>. Each command creates a background task. Use <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">{'{args}'}</code> in the brief to insert whatever the user typed after the command.
+                  </div>
+                  {#each formCustomCommands as cmd, i}
+                    <div class="border border-gray-200 dark:border-dark-border-subtle p-3 space-y-2 bg-gray-50/50 dark:bg-dark-base/40">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted">/</span>
+                        <input
+                          type="text"
+                          bind:value={cmd.command}
+                          placeholder="asmr"
+                          class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                        />
+                        <input
+                          type="text"
+                          bind:value={cmd.description}
+                          placeholder="Short description (shown in /help)"
+                          class="flex-[2] border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                        />
+                        <button
+                          type="button"
+                          onclick={() => removeCustomCommand(i)}
+                          class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                          title="Remove command"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                      <div class="grid grid-cols-2 gap-2">
+                        <label class="block">
+                          <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Route to organization</span>
+                          <select
+                            bind:value={cmd.organization_id}
+                            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                          >
+                            <option value="">— none —</option>
+                            {#each orgs as o (o.id)}
+                              <option value={o.id}>{o.name}</option>
+                            {/each}
+                          </select>
+                        </label>
+                        <label class="block">
+                          <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">…or assign to agent</span>
+                          <select
+                            bind:value={cmd.agent_id}
+                            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                          >
+                            <option value="">— bot's default —</option>
+                            {#each agents as a (a.id)}
+                              <option value={a.id}>{a.name}</option>
+                            {/each}
+                          </select>
+                        </label>
+                      </div>
+                      <label class="block">
+                        <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Brief template</span>
+                        <textarea
+                          bind:value={cmd.brief}
+                          placeholder={'Generate a 25-minute ASMR session. {args}'}
+                          rows="3"
+                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text dark:placeholder:text-dark-text-muted resize-y"
+                        ></textarea>
+                      </label>
+                      <div class="grid grid-cols-2 gap-2">
+                        <label class="block">
+                          <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Title prefix</span>
+                          <input
+                            type="text"
+                            bind:value={cmd.title_prefix}
+                            placeholder="[ASMR]"
+                            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                          />
+                        </label>
+                        <label class="block">
+                          <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Max iterations (0 = agent default)</span>
+                          <input
+                            type="number"
+                            min="0"
+                            bind:value={cmd.max_iterations}
+                            placeholder="0"
+                            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                          />
+                        </label>
+                      </div>
+                    </div>
+                  {/each}
+                  <button
+                    type="button"
+                    onclick={addCustomCommand}
+                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                  >
+                    <Plus size={12} />
+                    Add custom command
+                  </button>
+                </div>
+              </div>
+            {/if}
 
             <!-- Actions -->
             <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">

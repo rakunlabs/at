@@ -37,6 +37,11 @@
   const initial = presetRange('7d');
   let from = $state(initial.from);
   let to = $state(initial.to);
+  // The currently-active preset. When set to something other than "custom",
+  // the Refresh button re-evaluates the preset against `now` so "Last 24h"
+  // / "Last 7d" actually slide forward instead of staying frozen at the
+  // moment the page was first opened.
+  let preset = $state<'24h' | '7d' | '30d' | 'mtd' | 'custom'>('7d');
   let providers = $state<string[]>([]);
   let models = $state<string[]>([]);
   let agentIds = $state<string[]>([]);
@@ -163,6 +168,7 @@
   function handleRangeChange(r: { from: string; to: string; preset: string }) {
     from = r.from;
     to = r.to;
+    preset = r.preset as typeof preset;
     // Auto-select a sensible bucket based on range length.
     const diffMs = new Date(r.to).getTime() - new Date(r.from).getTime();
     bucket = diffMs <= 48 * 60 * 60 * 1000 ? 'hour' : 'day';
@@ -170,6 +176,18 @@
   }
 
   function handleFilterChange() {
+    loadAll();
+  }
+
+  // Refresh re-evaluates the active preset against the current clock so
+  // sliding-window presets (24h / 7d / 30d / mtd) actually advance. For
+  // "custom" ranges we leave the user's explicit from/to alone.
+  function refresh() {
+    if (preset !== 'custom') {
+      const r = presetRange(preset);
+      from = r.from;
+      to = r.to;
+    }
     loadAll();
   }
 
@@ -281,7 +299,7 @@
       {/if}
     </div>
     <button
-      onclick={loadAll}
+      onclick={refresh}
       disabled={loading}
       class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors disabled:opacity-50"
       title="Refresh"
@@ -292,7 +310,7 @@
 
   <!-- Filters -->
   <div class="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-gray-200 dark:border-dark-border">
-    <DateRangePicker bind:from bind:to onchange={handleRangeChange} />
+    <DateRangePicker bind:from bind:to bind:preset onchange={handleRangeChange} />
     <MultiSelect
       label="Provider"
       options={availableProviders}

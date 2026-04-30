@@ -70,30 +70,57 @@ type ChatSessionStorer interface {
 
 // ─── Bot Configs ───
 
+// BotCustomCommand defines a user-configurable slash command for a chat bot
+// (Telegram primarily). When the user sends /<command>, the bot creates an
+// org/agent task with a templated brief, optionally pre-pended to whatever
+// arguments the user typed after the command.
+//
+// Routing rules:
+//   - If OrganizationID is set, the task is submitted to that org (head agent
+//     handles delegation).
+//   - Else if AgentID is set, the task is created and assigned to that agent
+//     directly.
+//   - Else the bot's current default agent is used.
+//
+// The Brief is a free-text template that becomes the task description. The
+// literal token "{args}" inside the brief is replaced with the user-supplied
+// arguments (everything after the command in the Telegram message). If the
+// command takes no args, "{args}" expands to the empty string.
+type BotCustomCommand struct {
+	Command        string `json:"command"`                   // without leading slash, e.g. "asmr"
+	Description    string `json:"description,omitempty"`     // shown in /help
+	OrganizationID string `json:"organization_id,omitempty"` // route via org intake
+	AgentID        string `json:"agent_id,omitempty"`        // route to specific agent
+	Brief          string `json:"brief,omitempty"`           // task description template ({args} replaced)
+	TitlePrefix    string `json:"title_prefix,omitempty"`    // optional title prefix (e.g. "[ASMR]")
+	MaxIterations  int    `json:"max_iterations,omitempty"`  // optional per-task override
+}
+
 // BotConfig represents a Discord or Telegram bot configuration stored in the database.
 type BotConfig struct {
-	ID              string            `json:"id"`
-	Platform        string            `json:"platform"`
-	Name            string            `json:"name"`
-	Token           string            `json:"token"`
-	DefaultAgentID  string            `json:"default_agent_id"`
-	ChannelAgents   map[string]string `json:"channel_agents,omitempty"`
-	AllowedAgentIDs []string          `json:"allowed_agent_ids,omitempty"`
-	AccessMode      string            `json:"access_mode"`
-	PendingApproval bool              `json:"pending_approval"`
-	AllowedUsers    []string          `json:"allowed_users"`
-	PendingUsers    []string          `json:"pending_users"`
-	Enabled         bool              `json:"enabled"`
-	UserContainers  bool              `json:"user_containers,omitempty"`
-	ContainerImage  string            `json:"container_image,omitempty"`
-	ContainerCPU    string            `json:"container_cpu,omitempty"`
-	ContainerMemory string            `json:"container_memory,omitempty"`
-	SpeechToText    string            `json:"speech_to_text,omitempty"`
-	WhisperModel    string            `json:"whisper_model,omitempty"`
-	CreatedAt       string            `json:"created_at"`
-	UpdatedAt       string            `json:"updated_at"`
-	CreatedBy       string            `json:"created_by"`
-	UpdatedBy       string            `json:"updated_by"`
+	ID              string             `json:"id"`
+	Platform        string             `json:"platform"`
+	Name            string             `json:"name"`
+	Token           string             `json:"token"`
+	DefaultAgentID  string             `json:"default_agent_id"`
+	ChannelAgents   map[string]string  `json:"channel_agents,omitempty"`
+	AllowedAgentIDs []string           `json:"allowed_agent_ids,omitempty"`
+	CustomCommands  []BotCustomCommand `json:"custom_commands,omitempty"`
+	AccessMode      string             `json:"access_mode"`
+	PendingApproval bool               `json:"pending_approval"`
+	AllowedUsers    []string           `json:"allowed_users"`
+	PendingUsers    []string           `json:"pending_users"`
+	Enabled         bool               `json:"enabled"`
+	UserContainers  bool               `json:"user_containers,omitempty"`
+	ContainerImage  string             `json:"container_image,omitempty"`
+	ContainerCPU    string             `json:"container_cpu,omitempty"`
+	ContainerMemory string             `json:"container_memory,omitempty"`
+	SpeechToText    string             `json:"speech_to_text,omitempty"`
+	WhisperModel    string             `json:"whisper_model,omitempty"`
+	CreatedAt       string             `json:"created_at"`
+	UpdatedAt       string             `json:"updated_at"`
+	CreatedBy       string             `json:"created_by"`
+	UpdatedBy       string             `json:"updated_by"`
 }
 
 // BotConfigStorer defines CRUD operations for bot configurations.

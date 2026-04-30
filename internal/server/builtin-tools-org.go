@@ -265,6 +265,12 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 		maxIterations = v
 	}
 
+	// Spill large briefs to the shared task workspace before persisting.
+	// org_task_intake is the most common entry point for pipeline-stage
+	// briefs (Director → head agent of a sub-org), so this is where the
+	// largest payloads land.
+	description, _ = s.maybeSpillBrief(ctx, description, "", title)
+
 	task := service.Task{
 		OrganizationID:  orgID,
 		AssignedAgentID: org.HeadAgentID,

@@ -98,12 +98,32 @@ func TestTruncateClassDefaultStructured(t *testing.T) {
 		ToolResultMaxBytes: 100, // would normally truncate
 		WorkspaceRoot:      tmp,
 	}, nil)
-	// task_list classifies as "structured" (32 KB default cap). 5000
-	// bytes should pass through.
+	// agent_list classifies as "structured" (32 KB default cap) and has
+	// no per-tool override, so a 5_000-byte body should pass through.
+	// (task_get / task_list now have a 4 KB per-tool cap by default — see
+	// defaultPerToolCaps in config.go — and are exercised separately
+	// in TestTruncateTaskGetDefaultPerToolCap.)
 	body := strings.Repeat("c", 5_000)
-	_, did := g.TruncateToolResult("r", "task_list", body)
+	_, did := g.TruncateToolResult("r", "agent_list", body)
 	if did {
 		t.Fatal("structured class default should keep this body")
+	}
+}
+
+// TestTruncateTaskGetDefaultPerToolCap pins the new built-in 4 KB cap
+// for task_get / task_list. These tools are the dominant input-cost
+// driver in head-agent polling loops and must be capped tightly.
+func TestTruncateTaskGetDefaultPerToolCap(t *testing.T) {
+	tmp := t.TempDir()
+	g := New(Config{
+		WorkspaceRoot: tmp,
+	}, nil)
+	for _, tool := range []string{"task_get", "task_list"} {
+		body := strings.Repeat("x", 5_000)
+		_, did := g.TruncateToolResult("r", tool, body)
+		if !did {
+			t.Fatalf("%s default cap should truncate at 4KB; 5000-byte body was kept", tool)
+		}
 	}
 }
 
