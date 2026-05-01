@@ -169,6 +169,55 @@ var builtinTools = []builtinToolDef{
 
 	// ─── LSP Tool ───
 	{Name: "lsp_query", Description: "Interact with Language Server Protocol (LSP) servers for code intelligence. Supports goToDefinition, findReferences, hover, documentSymbol, workspaceSymbol, goToImplementation. Automatically starts the appropriate LSP server based on file language (Go, TypeScript, JavaScript, Python, Rust, Java, C/C++).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"operation": map[string]any{"type": "string", "description": "The LSP operation to perform", "enum": []string{"goToDefinition", "findReferences", "hover", "documentSymbol", "workspaceSymbol", "goToImplementation"}}, "file_path": map[string]any{"type": "string", "description": "The absolute path to the file (required for all operations except workspaceSymbol)"}, "line": map[string]any{"type": "integer", "description": "Line number (0-indexed) for position-based operations"}, "character": map[string]any{"type": "integer", "description": "Character offset (0-indexed) within the line"}, "query": map[string]any{"type": "string", "description": "Search query (for workspaceSymbol operation)"}, "language": map[string]any{"type": "string", "description": "Programming language (auto-detected from file extension if omitted). Supported: go, typescript, javascript, python, rust, java, c, cpp"}}, "required": []string{"operation"}}},
+
+	// ─── Bot Config Management Tools ───
+	// Tokens are redacted in all responses; pass the real token only when
+	// you intentionally need to update it. Most common use case: updating
+	// the `custom_commands` array on a bot to add/edit slash commands like
+	// /asmr or /silent without going through curl.
+	{Name: "bot_list", Description: "List all bot configurations (Telegram, Discord). Tokens are redacted in the response — never returns raw bot tokens. Use this to discover bot IDs before calling bot_get or bot_update.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "bot_get", Description: "Get a single bot config by ID, including its current custom_commands list, allowed users/agents, and routing settings. Token is redacted.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The bot config ID (e.g. '01KQ3AGX7TQY275NBFH8A23751')"}}, "required": []string{"id"}}},
+	{Name: "bot_update", Description: "Update a bot configuration. PARTIAL update — only the fields you provide are changed; everything else is preserved. The most common use case is editing the `custom_commands` array to add/edit slash commands like /asmr, /silent on a Telegram bot. Pass `custom_commands` as a complete array (full replacement of the list). Each command entry is `{command: 'asmr', description?: 'short text', organization_id?: '01K...', agent_id?: '01K...', brief?: 'task description template, supports {args} substitution', title_prefix?: '[ASMR]', max_iterations?: 0}`. Either organization_id (routes via org head agent) OR agent_id (routes to a specific agent) — if neither is set, the bot's default_agent_id handles the command. Returns the updated config (token redacted).", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":                map[string]any{"type": "string", "description": "The bot config ID to update"},
+			"name":              map[string]any{"type": "string", "description": "New bot display name"},
+			"platform":          map[string]any{"type": "string", "description": "New platform: 'telegram' or 'discord'"},
+			"token":             map[string]any{"type": "string", "description": "New bot token (e.g. Telegram BotFather token). Refused if you accidentally pass the redaction placeholder."},
+			"default_agent_id":  map[string]any{"type": "string", "description": "Default agent that handles unknown commands and chat messages"},
+			"allowed_agent_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Agents the user can /switch to (full replacement of the list)"},
+			"channel_agents":    map[string]any{"type": "object", "description": "chat_id → agent_id overrides (full replacement of the map)"},
+			"custom_commands": map[string]any{
+				"type":        "array",
+				"description": "Full replacement of the bot's custom slash-command list. Each entry: {command, description?, organization_id?, agent_id?, brief?, title_prefix?, max_iterations?}. The 'command' field is stored without leading slash (a leading '/' is auto-stripped if present).",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"command":         map[string]any{"type": "string", "description": "Slash command name without the leading slash, e.g. 'asmr'"},
+						"description":     map[string]any{"type": "string", "description": "Short text shown next to the command in /help"},
+						"organization_id": map[string]any{"type": "string", "description": "When set, the command creates a task assigned to this org's head agent (preferred for pipeline orgs)"},
+						"agent_id":        map[string]any{"type": "string", "description": "When set (and organization_id is not), the command creates a task directly assigned to this agent"},
+						"brief":           map[string]any{"type": "string", "description": "Task description template. The literal token '{args}' is replaced with whatever the user typed after the command."},
+						"title_prefix":    map[string]any{"type": "string", "description": "Prefix prepended to the new task's title, e.g. '[ASMR]'"},
+						"max_iterations":  map[string]any{"type": "number", "description": "Per-task override of the agent's max_iterations. 0 = use agent default."},
+					},
+					"required": []string{"command"},
+				},
+			},
+			"access_mode":      map[string]any{"type": "string", "description": "Access policy: 'public', 'allowlist', or 'pending'"},
+			"pending_approval": map[string]any{"type": "boolean", "description": "Require admin approval for new users"},
+			"allowed_users":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Allowlist of telegram/discord user IDs (full replacement)"},
+			"pending_users":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Users waiting on approval (full replacement)"},
+			"enabled":          map[string]any{"type": "boolean", "description": "Whether the bot polls/runs. Toggle to start/stop."},
+			"user_containers":  map[string]any{"type": "boolean", "description": "Whether each user gets a sandboxed container"},
+			"container_image":  map[string]any{"type": "string", "description": "Container image for user_containers mode"},
+			"container_cpu":    map[string]any{"type": "string", "description": "CPU limit for user containers, e.g. '500m'"},
+			"container_memory": map[string]any{"type": "string", "description": "Memory limit for user containers, e.g. '1Gi'"},
+			"speech_to_text":   map[string]any{"type": "string", "description": "STT provider for voice messages: 'none', 'openai', 'whisper'"},
+			"whisper_model":    map[string]any{"type": "string", "description": "Whisper model name when speech_to_text is set"},
+		},
+		"required": []string{"id"},
+	}},
 }
 
 // ─── Core Tool Executors ───

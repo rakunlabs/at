@@ -863,12 +863,17 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				result, _ = reg.LoopGov.TruncateToolResult(runID, tc.Name, result)
 			}
 
-			// Record audit entry for each tool call.
+			// Record audit entry for each tool call. Capture the input
+			// arguments and the post-truncation output so the workflow
+			// agent_call node leaves the same kind of trace as the
+			// org-delegation / chat-session loops.
 			if n.agentID != "" && reg.RecordAudit != nil {
 				auditDetails := map[string]any{
 					"tool_name": tc.Name,
 					"iteration": iteration,
 					"has_error": callErr != nil,
+					"input":     tc.Arguments,
+					"output":    service.TruncateForAudit(result),
 				}
 				if auditErr := reg.RecordAudit(ctx, service.AuditEntry{
 					ActorType:    "agent",

@@ -387,6 +387,9 @@
                   status - Check task status<br>
                   result - Get task output and video<br>
                   pick - Select task to chat about<br>
+                  run - Run a follow-up subtask on active task<br>
+                  revise - Re-run active task with changes applied<br>
+                  cancel - Cancel a running task<br>
                   current - Show active task<br>
                   reset - Clear conversation<br>
                   agents - List available agents<br>
@@ -404,6 +407,9 @@
                   <div><code class="font-mono font-medium">/status [id]</code> — Check task status. No ID = active task</div>
                   <div><code class="font-mono font-medium">/result [id]</code> — Get task output + sends video/images as raw files</div>
                   <div><code class="font-mono font-medium">/pick &lt;id&gt;</code> — Select a task to chat about. Messages include task context. Use <code>/pick</code> alone to deselect</div>
+                  <div><code class="font-mono font-medium">/run &lt;instruction&gt;</code> — Run a follow-up subtask under the active task (e.g. <code>/run upload to youtube</code>). Carries the original brief + previous result forward.</div>
+                  <div><code class="font-mono font-medium">/revise &lt;changes&gt;</code> — Re-run the active (finished) task as a new sibling task with the original brief PLUS the requested changes applied. Use this for "make it 30 min instead of 25" / "swap ambient to rain" instead of touching the finished task.</div>
+                  <div><code class="font-mono font-medium">/cancel [id]</code> — Cancel a running task and stop its delegation chain. No ID = cancel the active task.</div>
                   <div><code class="font-mono font-medium">/current</code> — Show which task is currently active</div>
                   <div><code class="font-mono font-medium">/reset</code> — Clears conversation history for normal chat</div>
                   <div><code class="font-mono font-medium">/agents</code> — Lists all agents the user can switch to</div>

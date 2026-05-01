@@ -211,24 +211,37 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	opts := buildChatOptions(&req)
 
 	if req.Stream {
-		s.handleStreamingChat(w, r, auth, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
+		s.handleStreamingChat(w, r, auth, info.provider, info.RetryAfterCap(), providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
 		return
 	}
 
-	// Call the provider (non-streaming)
+	// Call the provider (non-streaming) with bounded retry on
+	// transient upstream errors (429/529). Without this, a single
+	// rate-limit blip from upstream Anthropic was returned to the
+	// gateway client immediately as a 502 — opencode and other
+	// SDKs couldn't distinguish a real outage from a transient
+	// rate limit and couldn't honour Retry-After.
+	//
+	// retryAfterCap reuses the per-provider RetryAfterCap config (the
+	// same knob the agent loop uses), so a single setting governs both
+	// internal AT chat and the public gateway. Default 60s.
 	callStart := time.Now()
-	resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
+	resp, err := callWithGatewayRetry(r.Context(), providerKey, actualModel,
+		info.RetryAfterCap(),
+		func(ctx context.Context) (*service.LLMResponse, error) {
+			return provider.Chat(ctx, actualModel, messages, tools, opts)
+		})
 	latencyMs := time.Since(callStart).Milliseconds()
 	if err != nil {
 		slog.Error("provider chat failed", "provider", providerKey, "error", err)
 		// Record the failed call for the usage dashboard.
 		s.recordUsageAsync(r.Context(), auth, req.Model, service.Usage{}, latencyMs, "error", classifyHTTPError(err), err.Error())
-		httpResponseJSON(w, map[string]any{
-			"error": map[string]any{
-				"message": fmt.Sprintf("provider error: %v", err),
-				"type":    "server_error",
-			},
-		}, http.StatusBadGateway)
+
+		// Map the error to an upstream-faithful status (e.g. 429 stays
+		// 429, 529 stays 529) and an OpenAI-shaped error body.
+		status, body := classifyGatewayError(err)
+		addGatewayRateLimitHeaders(w, err)
+		httpResponseJSON(w, body, status)
 		return
 	}
 
@@ -500,6 +513,7 @@ func (s *Server) handleStreamingChat(
 	r *http.Request,
 	auth *authResult,
 	provider service.LLMProvider,
+	retryAfterCap time.Duration,
 	providerKey, actualModel, fullModel string,
 	messages []service.Message,
 	tools []service.Tool,
@@ -532,18 +546,38 @@ func (s *Server) handleStreamingChat(
 	if sp, ok := provider.(service.LLMStreamProvider); ok {
 		slog.Debug("streaming via provider", "provider", providerKey, "model", actualModel)
 
+		// Retry the upstream connect on 429/529. The retry only applies
+		// to the initial open — once we start streaming chunks back to
+		// the client, we can't restart without resending headers, so a
+		// mid-stream rate-limit just surfaces as a chunk error. (In
+		// practice, upstream returns 429/529 on the initial response,
+		// not in the middle of a token stream.)
 		streamStart := time.Now()
-		chunks, headers, err := sp.ChatStream(r.Context(), actualModel, messages, tools, opts)
+		type streamOpenResult struct {
+			chunks  <-chan service.StreamChunk
+			headers http.Header
+		}
+		opened, err := callWithGatewayRetry(r.Context(), providerKey, actualModel,
+			retryAfterCap,
+			func(ctx context.Context) (streamOpenResult, error) {
+				ch, h, e := sp.ChatStream(ctx, actualModel, messages, tools, opts)
+				return streamOpenResult{chunks: ch, headers: h}, e
+			})
 		if err != nil {
 			// Record the failed call for the usage dashboard.
 			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{},
 				time.Since(streamStart).Milliseconds(), "error", classifyHTTPError(err), err.Error())
-			// Can't send JSON error after SSE headers are set in some cases,
-			// but we haven't written anything yet, so we can still respond.
 			slog.Error("provider stream failed", "provider", providerKey, "error", err)
-			writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("provider error: %v", err))
+			// SSE headers haven't been committed yet (only set on the
+			// ResponseWriter, not flushed), so we can still emit a
+			// JSON error with an upstream-faithful status code.
+			status, body := classifyGatewayError(err)
+			addGatewayRateLimitHeaders(w, err)
+			httpResponseJSON(w, body, status)
 			return
 		}
+		chunks := opened.chunks
+		headers := opened.headers
 
 		// Forward provider headers (e.g. rate limits)
 		for k, v := range headers {
@@ -673,16 +707,24 @@ func (s *Server) handleStreamingChat(
 			}, time.Since(streamStart).Milliseconds(), "ok", "", "")
 		}
 	} else {
-		// Fallback: fake streaming via non-streaming Chat call.
+		// Fallback: fake streaming via non-streaming Chat call. Same
+		// retry semantics as the non-streaming path above — bounded
+		// retry on 429/529.
 		slog.Debug("fake streaming (provider doesn't support streaming)", "provider", providerKey, "model", actualModel)
 
 		callStart := time.Now()
-		resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
+		resp, err := callWithGatewayRetry(r.Context(), providerKey, actualModel,
+			retryAfterCap,
+			func(ctx context.Context) (*service.LLMResponse, error) {
+				return provider.Chat(ctx, actualModel, messages, tools, opts)
+			})
 		fakeLatencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
 			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{}, fakeLatencyMs, "error", classifyHTTPError(err), err.Error())
 			slog.Error("provider chat failed", "provider", providerKey, "error", err)
-			writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("provider error: %v", err))
+			status, body := classifyGatewayError(err)
+			addGatewayRateLimitHeaders(w, err)
+			httpResponseJSON(w, body, status)
 			return
 		}
 

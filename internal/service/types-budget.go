@@ -80,6 +80,25 @@ type AuditStorer interface {
 	GetAuditTrail(ctx context.Context, resourceType, resourceID string) ([]AuditEntry, error)
 }
 
+// AuditPayloadMaxBytes is the per-side cap (input or output) we apply when
+// folding I/O into an audit entry's Details JSON. Audit rows are stored in
+// SQLite/Postgres TEXT columns and read back wholesale on the Audit page —
+// a runaway tool result would otherwise turn one row into a megabyte-class
+// blob. This cap is independent of the loop governor's tool-result cap;
+// the governor controls what the LLM sees, this controls what we persist
+// for human review.
+const AuditPayloadMaxBytes = 4096
+
+// TruncateForAudit returns s clamped to AuditPayloadMaxBytes with a clear
+// "...[truncated]" suffix when it had to cut. Intended for tool inputs and
+// outputs being attached to AuditEntry.Details; not for general logging.
+func TruncateForAudit(s string) string {
+	if len(s) <= AuditPayloadMaxBytes {
+		return s
+	}
+	return s[:AuditPayloadMaxBytes] + "...[truncated]"
+}
+
 // ─── Cost Events ───
 
 // CostEvent records a single LLM call cost with full attribution.

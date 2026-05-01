@@ -600,7 +600,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 		}
 
-		// Audit: LLM call completed.
+		// Audit: LLM call completed. We attach a truncated assistant
+		// content preview and a compact summary of any tool calls
+		// (name + arguments) so the Audit page can show what the model
+		// actually did on this iteration without us re-shipping the
+		// entire prompt history.
 		if recordAudit := s.recordAuditFunc(); recordAudit != nil {
 			llmDetails := map[string]any{
 				"task_id":      task.ID,
@@ -611,6 +615,20 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				"tool_calls":   len(resp.ToolCalls),
 				"has_content":  resp.Content != "",
 				"total_tokens": resp.Usage.TotalTokens,
+			}
+			if resp.Content != "" {
+				llmDetails["content_preview"] = service.TruncateForAudit(resp.Content)
+			}
+			if len(resp.ToolCalls) > 0 {
+				summaries := make([]map[string]any, 0, len(resp.ToolCalls))
+				for _, tc := range resp.ToolCalls {
+					summaries = append(summaries, map[string]any{
+						"id":        tc.ID,
+						"name":      tc.Name,
+						"arguments": tc.Arguments,
+					})
+				}
+				llmDetails["tool_calls_detail"] = summaries
 			}
 			_ = recordAudit(ctx, service.AuditEntry{
 				ActorType:      "agent",
@@ -729,7 +747,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					}
 					resultMu.Unlock()
 
-					// Record audit entry for delegation tool call.
+					// Record audit entry for delegation tool call. We attach
+					// the tool input (delegation arguments) and the truncated
+					// child-task result so the Audit page can show what was
+					// actually delegated and what came back, not just a count.
 					recordAudit := s.recordAuditFunc()
 					if recordAudit != nil {
 						auditDetails := map[string]any{
@@ -737,6 +758,8 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 							"task_id":   task.ID,
 							"iteration": iteration,
 							"has_error": false,
+							"input":     toolCall.Arguments,
+							"output":    service.TruncateForAudit(result),
 						}
 						if auditErr := recordAudit(ctx, service.AuditEntry{
 							ActorType:      "agent",
@@ -809,13 +832,17 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					Content:   result,
 				}
 
-				// Record audit for skill tool call.
+				// Record audit for skill tool call. Capture the JS handler
+				// arguments and the (post-truncation) result so the Audit
+				// page can show what was passed and what came back.
 				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
 					auditDetails := map[string]any{
 						"tool_name": tc.Name,
 						"task_id":   task.ID,
 						"iteration": iteration,
 						"has_error": callErr != nil,
+						"input":     tc.Arguments,
+						"output":    service.TruncateForAudit(result),
 					}
 					if auditErr := recordAudit(ctx, service.AuditEntry{
 						ActorType:      "agent",
@@ -861,13 +888,18 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					Content:   result,
 				}
 
-				// Record audit for builtin tool call.
+				// Record audit for builtin tool call. Builtins like
+				// task_create / bash_execute / mem_save accept structured
+				// input we want to inspect later, and their (truncated)
+				// output is what got fed back into the LLM history.
 				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
 					auditDetails := map[string]any{
 						"tool_name": tc.Name,
 						"task_id":   task.ID,
 						"iteration": iteration,
 						"has_error": callErr != nil,
+						"input":     tc.Arguments,
+						"output":    service.TruncateForAudit(result),
 					}
 					if auditErr := recordAudit(ctx, service.AuditEntry{
 						ActorType:      "agent",
@@ -890,13 +922,17 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					Content:   fmt.Sprintf("Error: unknown tool %q", tc.Name),
 				}
 
-				// Record audit for unknown tool call.
+				// Record audit for unknown tool call. The "output" here is
+				// the synthetic error message we fed back to the LLM —
+				// useful for spotting agents calling tools they don't have.
 				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
 					auditDetails := map[string]any{
 						"tool_name": tc.Name,
 						"task_id":   task.ID,
 						"iteration": iteration,
 						"has_error": true,
+						"input":     tc.Arguments,
+						"output":    fmt.Sprintf("Error: unknown tool %q", tc.Name),
 					}
 					if auditErr := recordAudit(ctx, service.AuditEntry{
 						ActorType:      "agent",

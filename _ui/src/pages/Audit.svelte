@@ -256,6 +256,36 @@
     return String(value);
   }
 
+  // Keys that are surfaced via dedicated I/O blocks at the top of the
+  // expanded row. We hide them from the generic key/value table below
+  // to avoid duplicating the (often long) payload twice.
+  const IO_KEYS = new Set(['input', 'output', 'content_preview', 'tool_calls_detail', 'result_preview']);
+
+  function ioInput(entry: AuditEntry): any {
+    return entry.details?.input;
+  }
+  function ioOutput(entry: AuditEntry): any {
+    // tool_call uses `output`, llm_call uses `content_preview`,
+    // task_completed/cancelled uses `result_preview`. Pick the first hit.
+    const d = entry.details || {};
+    if ('output' in d) return d.output;
+    if ('content_preview' in d) return d.content_preview;
+    if ('result_preview' in d) return d.result_preview;
+    return undefined;
+  }
+  function ioToolCallsDetail(entry: AuditEntry): any[] | undefined {
+    const v = entry.details?.tool_calls_detail;
+    return Array.isArray(v) ? v : undefined;
+  }
+  function isObject(v: any): boolean {
+    return typeof v === 'object' && v !== null;
+  }
+  function asPretty(v: any): string {
+    if (v === null || v === undefined) return '';
+    if (typeof v === 'string') return v;
+    return JSON.stringify(v, null, 2);
+  }
+
   /**
    * Pull the most useful 1-line summary out of the details object
    * so the row gives the user real information at a glance.
@@ -269,15 +299,23 @@
       if (d.tool_name) bits.push(String(d.tool_name));
       if (d.iteration !== undefined) bits.push(`iter ${d.iteration}`);
       if (d.has_error) bits.push('error');
+      // Append a tiny preview of the first input arg if present so the
+      // row tells you not just "task_create" but "task_create(title=...)".
+      if (d.input && typeof d.input === 'object') {
+        const firstKey = Object.keys(d.input)[0];
+        if (firstKey) {
+          const raw = String((d.input as any)[firstKey] ?? '');
+          if (raw) bits.push(`${firstKey}=${raw.slice(0, 30)}${raw.length > 30 ? '…' : ''}`);
+        }
+      }
       if (bits.length) return bits.join(' · ');
     }
     if (entry.action === 'llm_call') {
       const bits: string[] = [];
       if (d.model) bits.push(String(d.model));
       if (d.provider) bits.push(String(d.provider));
-      if (d.input_tokens !== undefined || d.output_tokens !== undefined) {
-        bits.push(`${d.input_tokens ?? 0}↑ ${d.output_tokens ?? 0}↓`);
-      }
+      if (d.total_tokens !== undefined) bits.push(`${d.total_tokens} tok`);
+      if (d.tool_calls && Number(d.tool_calls) > 0) bits.push(`${d.tool_calls} tool calls`);
       if (bits.length) return bits.join(' · ');
     }
     if (entry.action === 'status_change') {
@@ -474,6 +512,10 @@
         </td>
       </tr>
       {#if isExpanded}
+        {@const inputVal = ioInput(entry)}
+        {@const outputVal = ioOutput(entry)}
+        {@const toolCallsDetail = ioToolCallsDetail(entry)}
+        {@const otherEntries = detailEntries.filter(([k]) => !IO_KEYS.has(k))}
         <tr class="bg-gray-50/50 dark:bg-dark-base/30">
           <td colspan="5" class="px-0 py-0">
             <div class="mx-4 my-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
@@ -541,7 +583,66 @@
                 </div>
               </div>
 
-              <!-- Details -->
+              <!-- I/O blocks (highlighted, monospace) — surfaced above
+                   the generic Details table so the most useful payloads
+                   for a run-style audit entry are immediately visible.
+                   Source fields are hidden from the generic table via
+                   IO_KEYS so we don't duplicate the (often long) text.
+                   inputVal / outputVal / toolCallsDetail / otherEntries
+                   are declared at the top of {#if isExpanded}. -->
+              {#if inputVal !== undefined || outputVal !== undefined || toolCallsDetail}
+                <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border space-y-3">
+                  {#if inputVal !== undefined}
+                    <div>
+                      <div class="flex items-center justify-between mb-1">
+                        <div class="text-[10px] uppercase tracking-wider text-blue-600 dark:text-blue-400">Input</div>
+                        <button
+                          class="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                          onclick={(e) => { e.stopPropagation(); copyText(asPretty(inputVal)); }}
+                          title="Copy input"
+                        >
+                          <Copy size={10} /> Copy
+                        </button>
+                      </div>
+                      <pre class="text-xs font-mono text-gray-800 dark:text-dark-text whitespace-pre-wrap break-all bg-blue-50/50 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/50 rounded p-2 max-h-64 overflow-auto">{asPretty(inputVal)}</pre>
+                    </div>
+                  {/if}
+                  {#if outputVal !== undefined}
+                    <div>
+                      <div class="flex items-center justify-between mb-1">
+                        <div class="text-[10px] uppercase tracking-wider text-green-700 dark:text-green-400">Output{entry.action === 'llm_call' ? ' (assistant content)' : ''}</div>
+                        <button
+                          class="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                          onclick={(e) => { e.stopPropagation(); copyText(asPretty(outputVal)); }}
+                          title="Copy output"
+                        >
+                          <Copy size={10} /> Copy
+                        </button>
+                      </div>
+                      <pre class="text-xs font-mono text-gray-800 dark:text-dark-text whitespace-pre-wrap break-all bg-green-50/50 dark:bg-green-950/20 border border-green-100 dark:border-green-900/50 rounded p-2 max-h-64 overflow-auto">{asPretty(outputVal)}</pre>
+                    </div>
+                  {/if}
+                  {#if toolCallsDetail && toolCallsDetail.length > 0}
+                    <div>
+                      <div class="text-[10px] uppercase tracking-wider text-indigo-600 dark:text-indigo-400 mb-1">Tool calls issued ({toolCallsDetail.length})</div>
+                      <div class="space-y-1">
+                        {#each toolCallsDetail as tc}
+                          <div class="bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 rounded p-2">
+                            <div class="text-xs font-medium text-indigo-700 dark:text-indigo-300 mb-1 font-mono">{tc.name ?? '?'}</div>
+                            {#if tc.arguments && isObject(tc.arguments) && Object.keys(tc.arguments).length > 0}
+                              <pre class="text-[11px] font-mono text-gray-700 dark:text-dark-text whitespace-pre-wrap break-all">{JSON.stringify(tc.arguments, null, 2)}</pre>
+                            {:else}
+                              <span class="text-[11px] text-gray-400 dark:text-dark-text-muted italic">no arguments</span>
+                            {/if}
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                </div>
+              {/if}
+
+              <!-- Details (everything else, with I/O keys filtered out). -->
               <div class="px-4 py-3">
                 <div class="flex items-center justify-between mb-2">
                   <div class="text-[10px] uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Details</div>
@@ -549,15 +650,15 @@
                     <button
                       class="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
                       onclick={(e) => { e.stopPropagation(); copyText(JSON.stringify(entry.details, null, 2)); }}
-                      title="Copy JSON"
+                      title="Copy full JSON (incl. I/O)"
                     >
                       <Copy size={10} /> Copy JSON
                     </button>
                   {/if}
                 </div>
-                {#if detailEntries.length > 0}
+                {#if otherEntries.length > 0}
                   <div class="divide-y divide-gray-100 dark:divide-dark-border border border-gray-100 dark:border-dark-border">
-                    {#each detailEntries as [key, value]}
+                    {#each otherEntries as [key, value]}
                       <div class="px-3 py-2 flex gap-4">
                         <span class="text-xs font-medium text-gray-500 dark:text-accent-text min-w-[140px] flex-shrink-0 font-mono">{key}</span>
                         {#if typeof value === 'object' && value !== null}
@@ -574,8 +675,10 @@
                       </div>
                     {/each}
                   </div>
-                {:else}
+                {:else if inputVal === undefined && outputVal === undefined && !toolCallsDetail}
                   <div class="text-xs text-gray-400 dark:text-dark-text-muted italic">No additional details recorded for this entry.</div>
+                {:else}
+                  <div class="text-xs text-gray-400 dark:text-dark-text-muted italic">No metadata beyond the input/output above.</div>
                 {/if}
               </div>
             </div>

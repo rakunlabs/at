@@ -1116,7 +1116,10 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 			result, _ = s.loopGov.TruncateToolResult(runID, tc.Name, result)
 
-			// Record audit entry for each tool call.
+			// Record audit entry for each tool call. Capture the input
+			// arguments and the (post-truncation) output so the Audit
+			// page can show what the chat-session agent ran without
+			// having to re-derive it from the chat-message log.
 			recordAudit := s.recordAuditFunc()
 			if recordAudit != nil {
 				auditDetails := map[string]any{
@@ -1124,6 +1127,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					"session_id": sessionID,
 					"iteration":  iteration,
 					"has_error":  callErr != nil,
+					"input":      tc.Arguments,
+					"output":     service.TruncateForAudit(result),
 				}
 				if auditErr := recordAudit(ctx, service.AuditEntry{
 					ActorType:    "agent",

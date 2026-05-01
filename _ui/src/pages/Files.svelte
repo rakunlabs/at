@@ -20,11 +20,13 @@
     mod_time: string;
   }
 
-  // Default to the task-workspace root since the file API now only serves
-  // a small allow-list of agent workspace directories (/tmp/at-tasks,
-  // /tmp/at-sandbox, /tmp/at-audio, /tmp/at-git-cache, /tmp/at-org-*).
+  // The file API operates on the daemon's full filesystem (no allow-list).
+  // We still default to /tmp/at-tasks because that's the most common
+  // browse target — agent task workspaces.
   let currentPath = $state('/tmp/at-tasks');
   let parentPath = $state('/tmp/at-tasks');
+  // Free-text path input so the user can jump anywhere on the host.
+  let pathInput = $state('/tmp/at-tasks');
   let entries = $state<FileEntry[]>([]);
   let loading = $state(false);
   let deleteConfirm = $state<string | null>(null);
@@ -93,11 +95,18 @@
       const res = await api.get('/files/browse', { params: { path } });
       currentPath = res.data.path;
       parentPath = res.data.parent;
+      pathInput = res.data.path;
       entries = res.data.entries || [];
     } catch (e: any) {
       addToast(e?.response?.data || 'Failed to browse', 'alert');
     } finally {
       loading = false;
+    }
+  }
+
+  function goToPathInput(e: KeyboardEvent) {
+    if (e.key === 'Enter' && pathInput.trim()) {
+      browse(pathInput.trim());
     }
   }
 
@@ -244,6 +253,14 @@
       </div>
 
       <div class="flex items-center gap-1">
+        <!-- Free-text path input. No allow-list — anywhere the daemon can read. -->
+        <input
+          type="text"
+          bind:value={pathInput}
+          onkeydown={goToPathInput}
+          placeholder="/path/to/dir"
+          class="w-56 px-2 py-1 text-[11px] font-mono border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted"
+        />
         <!-- Search -->
         <div class="relative">
           <Search size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted" />
@@ -254,7 +271,7 @@
             class="w-36 pl-7 pr-2 py-1 text-[11px] border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted"
           />
         </div>
-        <!-- Quick nav buttons. Only the allow-listed roots are reachable. -->
+        <!-- Quick nav shortcuts to common agent workspace roots. -->
         <button
           onclick={() => browse('/tmp/at-tasks')}
           class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
@@ -271,6 +288,10 @@
           onclick={() => browse('/tmp/at-git-cache')}
           class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
         >git-cache</button>
+        <button
+          onclick={() => browse('/')}
+          class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
+        >/</button>
         <!-- Hidden files toggle -->
         <button
           onclick={() => { showHidden = !showHidden; }}

@@ -97,7 +97,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	opts := buildChatOptions(&req)
 
 	if req.Stream {
-		s.handleStreamingChat(w, r, nil, info.provider, providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
+		s.handleStreamingChat(w, r, nil, info.provider, info.RetryAfterCap(), providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
 		return
 	}
 

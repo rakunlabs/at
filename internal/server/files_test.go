@@ -10,41 +10,6 @@ import (
 	"testing"
 )
 
-// TestIsWithinAllowedRoot pins the allow-list semantics — exact root match,
-// strict descendant, dynamic /tmp/at-org-* prefix, and the
-// /tmp/at-tasks-evil bypass we explicitly defend against.
-func TestIsWithinAllowedRoot(t *testing.T) {
-	tests := []struct {
-		name string
-		path string
-		want bool
-	}{
-		{"exact root match", "/tmp/at-tasks", true},
-		{"descendant of root", "/tmp/at-tasks/01ABC/scene.png", true},
-		{"another root", "/tmp/at-sandbox", true},
-		{"audio root", "/tmp/at-audio/123/voice.mp3", true},
-		{"git cache", "/tmp/at-git-cache/repo/file.go", true},
-		{"dynamic org prefix", "/tmp/at-org-abc123", true},
-		{"dynamic org descendant", "/tmp/at-org-abc123/sub/file.txt", true},
-		// Negative cases.
-		{"outside /tmp", "/etc/passwd", false},
-		{"home dir", "/home/ray/.aws/credentials", false},
-		{"sibling that prefix-collides", "/tmp/at-tasks-evil/x", false},
-		{"another collision", "/tmp/at-sandbox-other", false},
-		{"prefix without suffix", "/tmp/at-org-", false},
-		{"plain /tmp", "/tmp", false},
-		{"plain /tmp/something", "/tmp/something", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := isWithinAllowedRoot(tt.path)
-			if got != tt.want {
-				t.Errorf("isWithinAllowedRoot(%q) = %v, want %v", tt.path, got, tt.want)
-			}
-		})
-	}
-}
-
 // browseRequest is a tiny helper for hitting FileBrowseAPI in tests.
 func browseRequest(t *testing.T, s *Server, path string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -55,36 +20,21 @@ func browseRequest(t *testing.T, s *Server, path string) *httptest.ResponseRecor
 	return rec
 }
 
-// TestFileBrowseAPIRejectsTraversal — paths outside the allow-list must
-// return 403 even when they exist (the daemon is unprivileged but can read
-// /etc/passwd).
-func TestFileBrowseAPIRejectsTraversal(t *testing.T) {
+// TestFileBrowseAPIRejectsMissing — paths that don't exist must return 404,
+// regardless of the previous allow-list. We no longer block reads outside
+// /tmp/at-*; the only failure mode is "doesn't exist" or "not a directory".
+func TestFileBrowseAPIRejectsMissing(t *testing.T) {
 	s := &Server{}
-	for _, raw := range []string{
-		"/etc",
-		"/etc/passwd",
-		"/home",
-		"/tmp", // bare /tmp is no longer allowed; must scope to a root
-		"/tmp/at-tasks/../",
-		"/tmp/at-tasks/../etc",
-		"/tmp/at-tasks-evil",
-	} {
-		rec := browseRequest(t, s, raw)
-		if rec.Code != http.StatusForbidden && rec.Code != http.StatusNotFound {
-			t.Errorf("path %q: want 403 or 404, got %d (%s)", raw, rec.Code, strings.TrimSpace(rec.Body.String()))
-		}
+	rec := browseRequest(t, s, "/this/does/not/exist/hopefully")
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("want 404 for missing path, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
 	}
 }
 
-// TestFileBrowseAPIServesAllowedRoot writes a file in a temp at-tasks
-// subdirectory and confirms the browser returns it.
-func TestFileBrowseAPIServesAllowedRoot(t *testing.T) {
-	// Temporarily override allowed roots to the t.TempDir so we don't
-	// pollute /tmp/at-tasks on the dev box. Restore via defer.
+// TestFileBrowseAPIServesArbitraryDir confirms the browser will list any
+// directory the daemon UID can read — no allow-list anymore.
+func TestFileBrowseAPIServesArbitraryDir(t *testing.T) {
 	tmp := t.TempDir()
-	saveRoots := allowedFileBrowseRoots
-	allowedFileBrowseRoots = []string{tmp}
-	defer func() { allowedFileBrowseRoots = saveRoots }()
 
 	if err := os.WriteFile(filepath.Join(tmp, "hello.txt"), []byte("hi"), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -107,34 +57,12 @@ func TestFileBrowseAPIServesAllowedRoot(t *testing.T) {
 	}
 }
 
-// TestFileServeAPIRejectsTraversal confirms the serve endpoint refuses
-// to read files outside the allow-list. Even if the daemon UID can read
-// the file, the response must be 403.
-func TestFileServeAPIRejectsTraversal(t *testing.T) {
-	s := &Server{}
-	for _, raw := range []string{
-		"/etc/passwd",
-		"/etc/hostname",
-		"/tmp/foo.txt",
-	} {
-		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/serve?path="+raw, nil)
-		rec := httptest.NewRecorder()
-		s.FileServeAPI(rec, req)
-		if rec.Code != http.StatusForbidden && rec.Code != http.StatusNotFound {
-			t.Errorf("path %q: want 403 or 404, got %d", raw, rec.Code)
-		}
-	}
-}
-
 // TestFileServeAPIRangeSupport is the headline test for the video-scrubbing
 // fix: a Range request must return 206 Partial Content with the requested
 // bytes, and a no-Range request must return the full file with
 // Accept-Ranges: bytes set.
 func TestFileServeAPIRangeSupport(t *testing.T) {
 	tmp := t.TempDir()
-	saveRoots := allowedFileBrowseRoots
-	allowedFileBrowseRoots = []string{tmp}
-	defer func() { allowedFileBrowseRoots = saveRoots }()
 
 	body := []byte("hello world, this is a test video stream payload")
 	target := filepath.Join(tmp, "clip.mp4")
@@ -202,9 +130,6 @@ func TestFileServeAPIRangeSupport(t *testing.T) {
 // player rather than offering a download).
 func TestFileServeAPISetsContentType(t *testing.T) {
 	tmp := t.TempDir()
-	saveRoots := allowedFileBrowseRoots
-	allowedFileBrowseRoots = []string{tmp}
-	defer func() { allowedFileBrowseRoots = saveRoots }()
 
 	target := filepath.Join(tmp, "clip.mp4")
 	if err := os.WriteFile(target, []byte("dummy"), 0o644); err != nil {
@@ -224,35 +149,22 @@ func TestFileServeAPISetsContentType(t *testing.T) {
 	}
 }
 
-// TestFileDeleteAPIRejectsTraversalAndRoots — the delete endpoint is the
-// most dangerous of the three. Confirm it refuses both out-of-allow-list
-// paths and the allow-list roots themselves (so a misclick can't wipe
-// /tmp/at-tasks for everyone).
-func TestFileDeleteAPIRejectsTraversalAndRoots(t *testing.T) {
+// TestFileDeleteAPIRejectsRoot — the only thing the delete endpoint still
+// refuses is removing the filesystem root.
+func TestFileDeleteAPIRejectsRoot(t *testing.T) {
 	s := &Server{}
-	for _, raw := range []string{
-		"/etc/passwd",
-		"/tmp/foo",
-		"/tmp/at-tasks",      // allow-list root
-		"/tmp/at-sandbox",    // allow-list root
-		"/tmp/at-org-abc123", // top-level dynamic root
-	} {
-		req := httptest.NewRequest(http.MethodDelete, "/api/v1/files?path="+raw, nil)
-		rec := httptest.NewRecorder()
-		s.FileDeleteAPI(rec, req)
-		if rec.Code != http.StatusForbidden && rec.Code != http.StatusNotFound {
-			t.Errorf("path %q: want 403 or 404, got %d (%s)", raw, rec.Code, strings.TrimSpace(rec.Body.String()))
-		}
+	req := httptest.NewRequest(http.MethodDelete, "/api/v1/files?path=/", nil)
+	rec := httptest.NewRecorder()
+	s.FileDeleteAPI(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("want 403 for delete /, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
 	}
 }
 
-// TestFileDeleteAPIDeletesAllowedFile — happy path, file inside an allowed
-// root is deleted and a follow-up stat fails.
-func TestFileDeleteAPIDeletesAllowedFile(t *testing.T) {
+// TestFileDeleteAPIDeletesArbitraryFile — happy path, any file the daemon
+// can write to is now deletable.
+func TestFileDeleteAPIDeletesArbitraryFile(t *testing.T) {
 	tmp := t.TempDir()
-	saveRoots := allowedFileBrowseRoots
-	allowedFileBrowseRoots = []string{tmp}
-	defer func() { allowedFileBrowseRoots = saveRoots }()
 
 	target := filepath.Join(tmp, "scratch.png")
 	if err := os.WriteFile(target, []byte("x"), 0o644); err != nil {

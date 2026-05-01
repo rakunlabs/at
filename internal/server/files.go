@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 )
 
 type fileEntry struct {
@@ -19,85 +18,45 @@ type fileEntry struct {
 	ModTime string `json:"mod_time"`
 }
 
-// allowedFileBrowseRoots restricts the file browser / server / delete handlers
-// to a small set of well-known agent workspace directories.
+// File browse / serve / delete handlers operate on the daemon's filesystem
+// directly with no allow-list. Earlier versions restricted reads to a small
+// set of /tmp/at-* roots; that was removed at the operator's request so the
+// UI can navigate the full host filesystem (debugging, log inspection,
+// arbitrary workspace browsing).
 //
-// Without this, the handlers will happily serve any path the daemon's UID can
-// read (e.g. /etc/passwd, ~/.aws/credentials, the binary itself). This is
-// fine on a developer laptop with the UI on localhost, but the server is
-// designed to be exposed behind reverse proxies, and the file browser must
-// not become an arbitrary-file-read primitive.
+// Safety still in place:
+//   - Paths are cleaned with filepath.Abs+Clean before use, so traversal
+//     segments are normalised away.
+//   - Symlinks are resolved with EvalSymlinks where possible; the resolved
+//     path is what we open / stat / delete.
+//   - Delete refuses to remove the filesystem root ("/").
 //
-// Each path is symlink-resolved (EvalSymlinks) at startup if possible; the
-// fallback uses Clean() so we still have a baseline. A request is allowed
-// only if the resolved request path is the root itself OR a descendant
-// (HasPrefix on the cleaned path with a trailing separator to prevent the
-// classic /tmp/at-tasks-evil bypass).
-//
-// The list mirrors the constants spread across the codebase:
-//   - /tmp/at-tasks      — task workspaces (org-delegation.go)
-//   - /tmp/at-sandbox    — exec node sandbox root (nodes/exec.go)
-//   - /tmp/at-audio      — TTS staging (audio.go)
-//   - /tmp/at-git-cache  — RAG / git-fetch cache (rag/sync.go, gateway-rag-mcp.go)
-//   - /tmp/at-org-*      — per-org container workspaces (container/manager.go)
-//     handled separately because the suffix is dynamic.
-var allowedFileBrowseRoots = []string{
-	"/tmp/at-tasks",
-	"/tmp/at-sandbox",
-	"/tmp/at-audio",
-	"/tmp/at-git-cache",
-}
+// All file I/O is still bounded by the daemon's UID — running this as an
+// unprivileged user remains the operator's responsibility.
 
-// allowedFileBrowsePrefixes are root prefixes (without exact match) that
-// permit any descendant. Used for /tmp/at-org-<id>/... where the suffix is
-// dynamic per-organization.
-var allowedFileBrowsePrefixes = []string{
-	"/tmp/at-org-",
-}
-
-// resolveAndCheckPath cleans the requested path, resolves symlinks where
-// possible, and returns the canonical absolute path along with the file
-// info. Errors with http.Error already and returns (_, _, false) when the
-// path is outside the allow-list, missing, or otherwise invalid.
-//
-// requireDir flips the not-a-dir / is-a-dir error.
-func resolveAndCheckPath(w http.ResponseWriter, raw string, requireDir bool) (string, os.FileInfo, bool) {
+// resolvePath cleans the requested path and resolves symlinks. Returns the
+// canonical absolute path and stat info, or writes an http.Error and
+// returns ok=false. requireDir flips the not-a-dir / is-a-dir error.
+func resolvePath(w http.ResponseWriter, raw string, requireDir bool) (string, os.FileInfo, bool) {
 	if raw == "" {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return "", nil, false
 	}
 
 	// 1) Make absolute and clean. filepath.Clean removes "." and ".." segments.
-	// Abs ensures relative paths don't escape via the daemon's CWD.
 	cleaned, err := filepath.Abs(filepath.Clean(raw))
 	if err != nil {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return "", nil, false
 	}
 
-	// 2) Allow-list check on the LEXICAL path first. We check this before
-	// EvalSymlinks so that a missing path (which can't be resolved) still
-	// gets a clean 404 within an allowed root rather than a confusing
-	// "outside allowed roots" message.
-	if !isWithinAllowedRoot(cleaned) {
-		http.Error(w, "path is outside the allowed file roots", http.StatusForbidden)
-		return "", nil, false
-	}
-
-	// 3) Resolve symlinks. If the path exists but the resolved target
-	// escapes the allow-list, reject. EvalSymlinks fails on non-existent
-	// paths — for those we fall through to the os.Stat below for a 404.
+	// 2) Resolve symlinks where possible. EvalSymlinks fails on non-existent
+	// paths, in which case we fall through to os.Stat for a clean 404.
 	resolved := cleaned
 	if real, err := filepath.EvalSymlinks(cleaned); err == nil {
 		resolved = real
-		if !isWithinAllowedRoot(resolved) {
-			http.Error(w, "resolved path escapes the allowed file roots", http.StatusForbidden)
-			return "", nil, false
-		}
 	}
 
-	// 4) Stat the resolved path (Lstat would give us symlink-on-symlink,
-	// which we don't want; we already followed via EvalSymlinks).
 	info, err := os.Stat(resolved)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -120,42 +79,17 @@ func resolveAndCheckPath(w http.ResponseWriter, raw string, requireDir bool) (st
 	return resolved, info, true
 }
 
-// isWithinAllowedRoot returns true when path is one of the allow-listed
-// roots OR a strict descendant of one. Strict-descendant means we require
-// a trailing separator so /tmp/at-tasks-evil cannot piggy-back on
-// /tmp/at-tasks.
-func isWithinAllowedRoot(path string) bool {
-	clean := filepath.Clean(path)
-	for _, root := range allowedFileBrowseRoots {
-		if clean == root {
-			return true
-		}
-		if strings.HasPrefix(clean, root+string(filepath.Separator)) {
-			return true
-		}
-	}
-	for _, prefix := range allowedFileBrowsePrefixes {
-		// Prefix-style roots have no exact-match form (the suffix is dynamic),
-		// so we always require at least one character past the prefix.
-		if strings.HasPrefix(clean, prefix) && len(clean) > len(prefix) {
-			return true
-		}
-	}
-	return false
-}
-
 // FileBrowseAPI lists the contents of a directory.
 // GET /api/v1/files/browse?path=/tmp/at-tasks
 func (s *Server) FileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 	dirPath := r.URL.Query().Get("path")
 	if dirPath == "" {
 		// Default to the task-workspace root since that's the most common
-		// browse target. The previous default was bare /tmp, which exposed
-		// every cache under there to the browser.
+		// browse target. The user can navigate elsewhere from there.
 		dirPath = "/tmp/at-tasks"
 	}
 
-	resolved, _, ok := resolveAndCheckPath(w, dirPath, true)
+	resolved, _, ok := resolvePath(w, dirPath, true)
 	if !ok {
 		return
 	}
@@ -190,14 +124,7 @@ func (s *Server) FileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 		return files[i].Name < files[j].Name
 	})
 
-	// Compute the parent only when it's still inside an allowed root,
-	// otherwise the UI's "go up" button would offer a destination that
-	// the next browse call would reject. When parent escapes, surface
-	// the same root as the parent so /up navigates to itself (no-op).
 	parent := filepath.Dir(resolved)
-	if !isWithinAllowedRoot(parent) {
-		parent = resolved
-	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
@@ -216,7 +143,7 @@ func (s *Server) FileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 //
 // GET /api/v1/files/serve?path=/tmp/at-tasks/<id>/video.mp4
 func (s *Server) FileServeAPI(w http.ResponseWriter, r *http.Request) {
-	resolved, info, ok := resolveAndCheckPath(w, r.URL.Query().Get("path"), false)
+	resolved, info, ok := resolvePath(w, r.URL.Query().Get("path"), false)
 	if !ok {
 		return
 	}
@@ -246,7 +173,7 @@ func (s *Server) FileServeAPI(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, filepath.Base(resolved), info.ModTime(), f)
 }
 
-// FileDeleteAPI deletes a file or empty directory.
+// FileDeleteAPI deletes a file or directory.
 // DELETE /api/v1/files?path=/tmp/at-tasks/<id>/scratch.png
 func (s *Server) FileDeleteAPI(w http.ResponseWriter, r *http.Request) {
 	rawPath := r.URL.Query().Get("path")
@@ -261,41 +188,17 @@ func (s *Server) FileDeleteAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !isWithinAllowedRoot(cleaned) {
-		http.Error(w, "path is outside the allowed file roots", http.StatusForbidden)
-		return
-	}
-
-	// Don't allow deleting an allowed-root itself or a top-level
-	// /tmp/at-org-<id> root — those are managed by the platform and
-	// removing them would break in-flight org delegations.
-	for _, root := range allowedFileBrowseRoots {
-		if cleaned == root {
-			http.Error(w, "cannot delete an allowed-root directory", http.StatusForbidden)
-			return
-		}
-	}
-	for _, prefix := range allowedFileBrowsePrefixes {
-		// A path is a top-level prefix root if it equals prefix+<segment>
-		// with no further separators (e.g. /tmp/at-org-abc but not
-		// /tmp/at-org-abc/sub).
-		if strings.HasPrefix(cleaned, prefix) {
-			rest := cleaned[len(prefix):]
-			if rest != "" && !strings.Contains(rest, string(filepath.Separator)) {
-				http.Error(w, "cannot delete an allowed-root directory", http.StatusForbidden)
-				return
-			}
-		}
-	}
-
 	// Resolve symlinks before deletion so we don't follow a malicious
-	// link out of the allowed roots.
+	// link to delete an unintended target.
 	if real, err := filepath.EvalSymlinks(cleaned); err == nil {
-		if !isWithinAllowedRoot(real) {
-			http.Error(w, "resolved path escapes the allowed file roots", http.StatusForbidden)
-			return
-		}
 		cleaned = real
+	}
+
+	// Refuse to delete the filesystem root. Everything else is fair game
+	// for the daemon's UID.
+	if cleaned == "/" || cleaned == "." {
+		http.Error(w, "cannot delete filesystem root", http.StatusForbidden)
+		return
 	}
 
 	info, err := os.Stat(cleaned)

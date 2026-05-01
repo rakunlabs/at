@@ -129,6 +129,14 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 	case "approval_decide":
 		return s.execApprovalDecide(ctx, args)
 
+	// Bot config management tools.
+	case "bot_list":
+		return s.execBotList(ctx, args)
+	case "bot_get":
+		return s.execBotGet(ctx, args)
+	case "bot_update":
+		return s.execBotUpdate(ctx, args)
+
 	default:
 		return "", nil
 	}
