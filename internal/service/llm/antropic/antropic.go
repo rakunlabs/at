@@ -800,6 +800,49 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		filteredMessages[i].Content = convertContent(filteredMessages[i].Content)
 	}
 
+	// Re-run the orphan + adjacency repair AFTER the merge+convert
+	// step. The loop governor already calls loopgov.RepairToolPairs
+	// on the windowed slice, but mergeConsecutiveMessages can
+	// re-introduce adjacency orphans: if loopgov dropped a user
+	// tool_result that sat between two assistant messages, those
+	// assistants now collapse into one — leaving the kept tool_use
+	// blocks no longer immediately followed by their matching
+	// tool_result. Anthropic rejects the request with "tool_use ids
+	// were found without tool_result blocks immediately after... must
+	// have a corresponding tool_result block in the next message".
+	// Trailing assistant tool_use messages with no following user
+	// message at all (e.g. interrupted resumed conversations) hit the
+	// same error. We coerce the post-merge slice into the []any shape
+	// repairToolPairsAny operates on so this protection runs on every
+	// path, not just OAuth (transformAnthropicSystem also calls the
+	// same function later for OAuth-specific reasons; the second pass
+	// is idempotent).
+	msgsAnyForRepair := make([]any, 0, len(filteredMessages))
+	for _, m := range filteredMessages {
+		msgsAnyForRepair = append(msgsAnyForRepair, map[string]any{
+			"role":    m.Role,
+			"content": m.Content,
+		})
+	}
+	repaired := repairToolPairsAny(msgsAnyForRepair)
+	// Rebuild filteredMessages from the repaired any-shape so
+	// downstream logic (system relocation for OAuth, tool name
+	// prefixing) sees the cleaned slice. The rebuild is unconditional
+	// because repairToolPairsAny may mutate content blocks in place
+	// even when len() is unchanged.
+	filteredMessages = filteredMessages[:0]
+	for _, m := range repaired {
+		mm, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := mm["role"].(string)
+		filteredMessages = append(filteredMessages, service.Message{
+			Role:    role,
+			Content: mm["content"],
+		})
+	}
+
 	// Determine max_tokens: client override > provider default.
 	maxTokens := p.MaxTokens
 	if opts != nil {

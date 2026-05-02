@@ -252,27 +252,44 @@ func renameToolUseBlocksInContent(content any) {
 	}
 }
 
-// repairToolPairsAny drops tool_use blocks whose tool_use_id has no
-// matching tool_result and tool_result blocks whose tool_use_id has no
-// matching tool_use. Anthropic rejects half-paired requests with a
-// 400 "tool_result block ... does not refer to a preceding tool_use",
-// commonly hit when message-window truncation drops one half of a
-// pair. Mirrors the plugin's repairToolPairs.
+// repairToolPairsAny enforces Anthropic's tool-pairing invariants on
+// a wire-shape ([]any of map[string]any) message slice. Two rules are
+// applied:
 //
-// Also drops messages whose content is reduced to an empty array.
+//  1. Global ID pairing — every tool_use must have a matching
+//     tool_result somewhere in the slice, and vice versa. Without
+//     this Anthropic returns 400 "tool_result block ... does not
+//     refer to a preceding tool_use".
+//
+//  2. Adjacency — every assistant tool_use block must be in a
+//     message whose IMMEDIATE successor is a user message carrying
+//     a matching tool_result. Symmetrically, every user tool_result
+//     block's IMMEDIATE predecessor must be the matching assistant
+//     tool_use. Without this Anthropic returns 400 "tool_use ids
+//     were found without tool_result blocks immediately after...
+//     tool_use block must have a corresponding tool_result block in
+//     the next message" — typically caused by mergeConsecutiveMessages
+//     collapsing two adjacent assistant turns after the loop governor
+//     dropped the user tool_result that sat between them, or by a
+//     trailing assistant tool_use with no user message after it
+//     (interrupted/resumed conversations).
+//
+// Also drops messages whose content collapses to zero blocks. The
+// pass is idempotent — running it twice yields the same result.
 func repairToolPairsAny(msgs []any) []any {
+	if len(msgs) == 0 {
+		return msgs
+	}
+
+	// Pass 1: collect all tool_use IDs and tool_result IDs.
 	useIDs := make(map[string]struct{})
 	resultIDs := make(map[string]struct{})
-
 	for _, m := range msgs {
 		mm, ok := m.(map[string]any)
 		if !ok {
 			continue
 		}
-		blocks, ok := mm["content"].([]any)
-		if !ok {
-			continue
-		}
+		blocks := contentToAnySlice(mm["content"])
 		for _, b := range blocks {
 			blk, ok := b.(map[string]any)
 			if !ok {
@@ -280,26 +297,123 @@ func repairToolPairsAny(msgs []any) []any {
 			}
 			switch blk["type"] {
 			case "tool_use":
-				if id, ok := blk["id"].(string); ok {
+				if id, ok := blk["id"].(string); ok && id != "" {
 					useIDs[id] = struct{}{}
 				}
 			case "tool_result":
-				if id, ok := blk["tool_use_id"].(string); ok {
+				if id, ok := blk["tool_use_id"].(string); ok && id != "" {
 					resultIDs[id] = struct{}{}
 				}
 			}
 		}
 	}
 
+	// Pass 2: collect adjacency-paired IDs. A tool_use ID is
+	// adjacency-paired iff the next message is a user message that
+	// contains a tool_result with the same id.
+	adjacentResultIDs := make(map[string]struct{}) // tool_use IDs whose result is in the next msg
+	adjacentUseIDs := make(map[string]struct{})    // tool_result IDs whose use is in the prev msg
+	for i, m := range msgs {
+		mm, ok := m.(map[string]any)
+		if !ok {
+			continue
+		}
+		role, _ := mm["role"].(string)
+		blocks := contentToAnySlice(mm["content"])
+		switch role {
+		case "assistant":
+			if i+1 >= len(msgs) {
+				continue
+			}
+			nextMM, ok := msgs[i+1].(map[string]any)
+			if !ok {
+				continue
+			}
+			if r, _ := nextMM["role"].(string); r != "user" {
+				continue
+			}
+			nextBlocks := contentToAnySlice(nextMM["content"])
+			nextResultIDs := make(map[string]struct{})
+			for _, nb := range nextBlocks {
+				nbm, ok := nb.(map[string]any)
+				if !ok {
+					continue
+				}
+				if nbm["type"] == "tool_result" {
+					if id, ok := nbm["tool_use_id"].(string); ok && id != "" {
+						nextResultIDs[id] = struct{}{}
+					}
+				}
+			}
+			for _, b := range blocks {
+				blk, ok := b.(map[string]any)
+				if !ok {
+					continue
+				}
+				if blk["type"] == "tool_use" {
+					if id, ok := blk["id"].(string); ok && id != "" {
+						if _, present := nextResultIDs[id]; present {
+							adjacentResultIDs[id] = struct{}{}
+						}
+					}
+				}
+			}
+		case "user":
+			if i == 0 {
+				continue
+			}
+			prevMM, ok := msgs[i-1].(map[string]any)
+			if !ok {
+				continue
+			}
+			if r, _ := prevMM["role"].(string); r != "assistant" {
+				continue
+			}
+			prevBlocks := contentToAnySlice(prevMM["content"])
+			prevUseIDs := make(map[string]struct{})
+			for _, pb := range prevBlocks {
+				pbm, ok := pb.(map[string]any)
+				if !ok {
+					continue
+				}
+				if pbm["type"] == "tool_use" {
+					if id, ok := pbm["id"].(string); ok && id != "" {
+						prevUseIDs[id] = struct{}{}
+					}
+				}
+			}
+			for _, b := range blocks {
+				blk, ok := b.(map[string]any)
+				if !ok {
+					continue
+				}
+				if blk["type"] == "tool_result" {
+					if id, ok := blk["tool_use_id"].(string); ok && id != "" {
+						if _, present := prevUseIDs[id]; present {
+							adjacentUseIDs[id] = struct{}{}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Identify orphans: a tool_use is orphan if it lacks a global
+	// match OR it lacks adjacency. Same for tool_result. Both rules
+	// must hold; otherwise Anthropic rejects the request.
 	orphanedUses := make(map[string]struct{})
 	for id := range useIDs {
-		if _, ok := resultIDs[id]; !ok {
+		_, globalOK := resultIDs[id]
+		_, adjOK := adjacentResultIDs[id]
+		if !globalOK || !adjOK {
 			orphanedUses[id] = struct{}{}
 		}
 	}
 	orphanedResults := make(map[string]struct{})
 	for id := range resultIDs {
-		if _, ok := useIDs[id]; !ok {
+		_, globalOK := useIDs[id]
+		_, adjOK := adjacentUseIDs[id]
+		if !globalOK || !adjOK {
 			orphanedResults[id] = struct{}{}
 		}
 	}
@@ -307,6 +421,9 @@ func repairToolPairsAny(msgs []any) []any {
 		return msgs
 	}
 
+	// Pass 3: rebuild the slice, pruning orphan blocks and dropping
+	// messages whose content collapses to empty. Preserve the
+	// content shape (slice vs string) where possible.
 	out := make([]any, 0, len(msgs))
 	for _, m := range msgs {
 		mm, ok := m.(map[string]any)
@@ -314,12 +431,19 @@ func repairToolPairsAny(msgs []any) []any {
 			out = append(out, m)
 			continue
 		}
-		blocks, ok := mm["content"].([]any)
-		if !ok {
-			out = append(out, m)
+		raw, hasContent := mm["content"]
+		if !hasContent {
+			out = append(out, mm)
 			continue
 		}
-		filtered := blocks[:0]
+		// Only []any / []map[string]any content can carry tool
+		// blocks; strings pass through unchanged.
+		blocks := contentToAnySlice(raw)
+		if blocks == nil {
+			out = append(out, mm)
+			continue
+		}
+		filtered := make([]any, 0, len(blocks))
 		for _, b := range blocks {
 			blk, ok := b.(map[string]any)
 			if !ok {
@@ -351,6 +475,27 @@ func repairToolPairsAny(msgs []any) []any {
 		out = append(out, mm)
 	}
 	return out
+}
+
+// contentToAnySlice normalises a message's content field into a []any
+// of block maps. Returns nil for string content (which doesn't carry
+// tool blocks). Used by repairToolPairsAny so it can accept either
+// the []any shape produced by transformAnthropicSystem or the
+// []map[string]any shape produced by convertContent on the static-key
+// path.
+func contentToAnySlice(c any) []any {
+	switch v := c.(type) {
+	case []any:
+		return v
+	case []map[string]any:
+		out := make([]any, len(v))
+		for i, b := range v {
+			out[i] = b
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 // normalizeSystemToArray accepts the various shapes the system prompt

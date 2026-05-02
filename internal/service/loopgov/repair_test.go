@@ -225,3 +225,145 @@ func collectIDs(msgs []service.Message) (uses, results map[string]struct{}) {
 	}
 	return
 }
+
+// TestRepairToolPairs_DropsTrailingToolUse covers the case where the
+// LAST message in the slice is an assistant message containing a
+// tool_use block (no following user message at all). Anthropic
+// rejects this with "tool_use ids were found without tool_result
+// blocks immediately after". The repair must drop the orphan use.
+func TestRepairToolPairs_DropsTrailingToolUse(t *testing.T) {
+	msgs := []service.Message{
+		{Role: "user", Content: "hi"},
+		{
+			Role: "assistant",
+			Content: []service.ContentBlock{
+				{Type: "text", Text: "calling..."},
+				{Type: "tool_use", ID: "call_dangling", Name: "x", Input: map[string]any{}},
+			},
+		},
+	}
+	got := RepairToolPairs(msgs)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(got))
+	}
+	blocks, ok := got[1].Content.([]service.ContentBlock)
+	if !ok {
+		t.Fatalf("assistant content is not []ContentBlock")
+	}
+	for _, b := range blocks {
+		if b.Type == "tool_use" {
+			t.Fatalf("trailing orphan tool_use was not dropped: %+v", b)
+		}
+	}
+}
+
+// TestRepairToolPairs_DropsToolUseWhenNextMessageIsNotToolResult
+// covers the adjacency rule: the matching tool_result exists later
+// in the slice, but is NOT in the immediately next message. Anthropic
+// requires tool_result to be in the "next message". This typically
+// happens when mergeConsecutiveMessages collapses two assistant turns
+// after the loop governor dropped the user tool_result that was
+// between them.
+func TestRepairToolPairs_DropsToolUseWhenNextMessageIsNotToolResult(t *testing.T) {
+	msgs := []service.Message{
+		{Role: "user", Content: "hi"},
+		// Assistant tool_use followed by ANOTHER assistant message
+		// (not a user tool_result). The matching tool_result lives
+		// further down the slice — global pairing is satisfied but
+		// adjacency is not.
+		{
+			Role: "assistant",
+			Content: []service.ContentBlock{
+				{Type: "tool_use", ID: "call_orphan", Name: "x", Input: map[string]any{}},
+			},
+		},
+		{Role: "assistant", Content: "I changed my mind"},
+		userToolResult("call_orphan", "ok"), // late, not adjacent
+	}
+	got := RepairToolPairs(msgs)
+	// Both the adjacency-orphan tool_use and its now-also-orphan
+	// tool_result must be dropped. The "I changed my mind" assistant
+	// and the original user message survive.
+	for _, m := range got {
+		blocks, ok := m.Content.([]service.ContentBlock)
+		if !ok {
+			continue
+		}
+		for _, b := range blocks {
+			if b.Type == "tool_use" || b.Type == "tool_result" {
+				t.Fatalf("orphan block survived adjacency repair: %+v", b)
+			}
+		}
+	}
+}
+
+// TestRepairToolPairs_DropsToolResultWhenPrevMessageIsNotToolUse
+// covers the symmetric case: a user tool_result whose immediate
+// predecessor is not the matching assistant tool_use.
+func TestRepairToolPairs_DropsToolResultWhenPrevMessageIsNotToolUse(t *testing.T) {
+	msgs := []service.Message{
+		asstToolUse("call_x", "x"),
+		{Role: "assistant", Content: "thinking aloud"}, // breaks adjacency
+		userToolResult("call_x", "ok"),
+	}
+	got := RepairToolPairs(msgs)
+	// Both the adjacency-orphan tool_use and its now-orphan
+	// tool_result must be dropped.
+	for _, m := range got {
+		blocks, ok := m.Content.([]service.ContentBlock)
+		if !ok {
+			continue
+		}
+		for _, b := range blocks {
+			if b.Type == "tool_use" || b.Type == "tool_result" {
+				t.Fatalf("orphan block survived adjacency repair: %+v", b)
+			}
+		}
+	}
+}
+
+// TestRepairToolPairs_KeepsAdjacentToolPair confirms the happy path
+// (assistant tool_use immediately followed by user tool_result)
+// passes through unchanged.
+func TestRepairToolPairs_KeepsAdjacentToolPair(t *testing.T) {
+	msgs := []service.Message{
+		{Role: "user", Content: "hi"},
+		asstToolUse("call_a", "x"),
+		userToolResult("call_a", "ok"),
+		{Role: "assistant", Content: "done"},
+	}
+	got := RepairToolPairs(msgs)
+	if len(got) != len(msgs) {
+		t.Fatalf("happy path should pass through, got %d want %d", len(got), len(msgs))
+	}
+	uses, results := collectIDs(got)
+	if _, ok := uses["call_a"]; !ok {
+		t.Fatal("paired tool_use was wrongly dropped")
+	}
+	if _, ok := results["call_a"]; !ok {
+		t.Fatal("paired tool_result was wrongly dropped")
+	}
+}
+
+// TestRepairToolPairs_Idempotent verifies that running the repair
+// twice yields the same output as running it once. The Anthropic
+// adapter calls it a second time after merging consecutive messages,
+// so idempotence is required.
+func TestRepairToolPairs_Idempotent(t *testing.T) {
+	msgs := []service.Message{
+		{Role: "user", Content: "hi"},
+		{
+			Role: "assistant",
+			Content: []service.ContentBlock{
+				{Type: "tool_use", ID: "call_orphan", Name: "x", Input: map[string]any{}},
+			},
+		},
+		{Role: "assistant", Content: "actually nevermind"},
+		userToolResult("call_orphan", "late"),
+	}
+	once := RepairToolPairs(msgs)
+	twice := RepairToolPairs(once)
+	if len(once) != len(twice) {
+		t.Fatalf("repair is not idempotent: %d vs %d messages", len(once), len(twice))
+	}
+}
