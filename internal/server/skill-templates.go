@@ -91,8 +91,14 @@ func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 			continue // not installed — skip
 		}
 
-		// Check if any tool handler differs.
+		// Check if any tool handler differs, or the system prompt drifted.
+		// (SystemPrompt sync was added so the ffmpeg-guide skill — which is
+		// almost entirely system-prompt hints to the model — picks up the
+		// CPU-discipline addendum baked into newer template versions.)
 		needsUpdate := false
+		if installed.SystemPrompt != tmpl.Skill.SystemPrompt {
+			needsUpdate = true
+		}
 		if len(installed.Tools) != len(tmpl.Skill.Tools) {
 			needsUpdate = true
 		} else {
@@ -112,12 +118,12 @@ func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 			continue
 		}
 
-		// Update the installed skill with the template's tools.
-		// Keep all existing fields (name, description, etc.) — only replace tools.
+		// Update the installed skill with the template's tools and prompt.
+		// Keep all other existing fields (name, description, etc.).
 		_, err = s.skillStore.UpdateSkill(ctx, installed.ID, service.Skill{
 			Name:         installed.Name,
 			Description:  installed.Description,
-			SystemPrompt: installed.SystemPrompt,
+			SystemPrompt: tmpl.Skill.SystemPrompt,
 			Tools:        tmpl.Skill.Tools,
 			UpdatedBy:    "system",
 		})

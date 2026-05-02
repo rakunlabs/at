@@ -454,6 +454,12 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		}
 	}()
 
+	// Start the workspace janitor (loopgov.WorkspaceRoot/<task-id> +
+	// .at-tool-output/<run-id>). On a long-running deployment, the
+	// video pipeline + tool-output dumps would otherwise fill /tmp.
+	// TTL is loopgov.Config.WorkspaceTTL (default 24h, < 0 disables).
+	s.startWorkspaceJanitor(ctx)
+
 	// Initialize RAG service if collection store is available.
 	{
 		providerLookupForRAG := func(ctx context.Context, key string) (*config.LLMConfig, error) {

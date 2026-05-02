@@ -75,6 +75,14 @@ type Config struct {
 	// the server package) so dumps land alongside per-task workspaces
 	// and agents can file_read them without extra plumbing.
 	WorkspaceRoot string
+
+	// WorkspaceTTL controls how long task workspaces under WorkspaceRoot
+	// are kept after the owning task reaches a terminal state. The
+	// workspace janitor (internal/server/workspace-janitor.go) sweeps
+	// <WorkspaceRoot>/<task-id>/ and <WorkspaceRoot>/.at-tool-output/
+	// <run-id>/ dirs older than this. 0 = use default. A negative
+	// value disables the janitor (workspaces are kept forever).
+	WorkspaceTTL time.Duration
 }
 
 // Built-in defaults.
@@ -93,6 +101,7 @@ const (
 	DefaultToolResultMaxBytes = 64 * 1024
 	DefaultChatHistoryLimit   = 200
 	DefaultWorkspaceRoot      = "/tmp/at-tasks"
+	DefaultWorkspaceTTL       = 24 * time.Hour
 )
 
 // fillDefaults rewrites a zero value to the built-in default. It is
@@ -118,5 +127,10 @@ func (c *Config) fillDefaults() {
 	}
 	if c.WorkspaceRoot == "" {
 		c.WorkspaceRoot = DefaultWorkspaceRoot
+	}
+	// WorkspaceTTL: 0 means "use default", a negative value is the
+	// explicit "disable janitor" sentinel — leave it as-is.
+	if c.WorkspaceTTL == 0 {
+		c.WorkspaceTTL = DefaultWorkspaceTTL
 	}
 }

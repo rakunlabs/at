@@ -5,13 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/dop251/goja"
 	"github.com/rakunlabs/logi"
+	"golang.org/x/sync/semaphore"
 )
 
 // ExecuteJSHandler runs a JS function body with the tool arguments as input.
@@ -78,6 +81,43 @@ func ExecuteJSHandlerWithOptions(handler string, args map[string]any, opts JSHan
 
 // defaultBashTimeout is the default execution timeout for bash handlers.
 const defaultBashTimeout = 60 * time.Second
+
+// ffmpegSem caps the number of bash handlers that may invoke ffmpeg /
+// ffprobe concurrently across the entire process. Without this cap, an
+// agent that issues N parallel video-tool calls (or two delegating
+// agents that each spawn one) saturates a small VM's CPU instantly:
+// the built-in libx264 encoder is single-stream-but-many-thread, and
+// `compose_short_v2` itself spawns 3 internal ffmpeg workers in
+// parallel (Phase 1 of video-composer.json).
+//
+// The weight is auto-tuned to half the host's vCPU count (minimum 1).
+// On a 4 vCPU GCE box that's 2 concurrent encodes; the rest queue.
+// Acquire honours ctx cancellation so a Stop click never deadlocks.
+var ffmpegSem = semaphore.NewWeighted(maxFFmpegConcurrency())
+
+// maxFFmpegConcurrency returns the auto-tuned concurrency cap. We
+// expose it as a function (not a const) so tests can swap in
+// runtime.GOMAXPROCS for deterministic timing.
+func maxFFmpegConcurrency() int64 {
+	n := runtime.NumCPU() / 2
+	if n < 1 {
+		n = 1
+	}
+	return int64(n)
+}
+
+// handlerNeedsFFmpegSlot reports whether a bash handler script body
+// invokes ffmpeg or ffprobe and should therefore queue on ffmpegSem.
+// We match on the script source (not the tool name) so user-installed
+// skills get the same treatment as the built-in video templates.
+//
+// The check is intentionally substring — comments, quoted strings, and
+// indirect invocations (e.g. through xargs) all count. False positives
+// just queue an extra unrelated handler; false negatives would let a
+// runaway encode escape the cap.
+func handlerNeedsFFmpegSlot(handler string) bool {
+	return strings.Contains(handler, "ffmpeg") || strings.Contains(handler, "ffprobe")
+}
 
 // ctxKeyContainerScope is a context key for routing execution to a Docker container.
 type ctxKeyContainerScope struct{}
@@ -205,14 +245,60 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
+	// Run bash + every child it spawns (ffmpeg, python, curl, ...) in
+	// their own process group. This is what makes the
+	// kill-on-context-cancel pattern below actually terminate ffmpeg —
+	// without Setpgid, ctx cancellation kills only `bash`, leaving the
+	// encoder running in the background and burning CPU long after the
+	// task was supposed to be over.
+	setProcessGroup(cmd)
+
 	logi.Ctx(ctx).Debug("bash handler: executing", "handler_length", len(handler), "arg_count", len(args), "work_dir", cmd.Dir)
 
-	if err := cmd.Run(); err != nil {
+	// Bound concurrent invocations of ffmpeg/ffprobe-bearing handlers
+	// against the process-wide semaphore. The acquire honours ctx, so
+	// a cancelled task waiting for a slot exits cleanly.
+	throttled := handlerNeedsFFmpegSlot(handler)
+	if throttled {
+		acquireStart := time.Now()
+		if err := ffmpegSem.Acquire(ctx, 1); err != nil {
+			return "", fmt.Errorf("bash handler: failed to acquire ffmpeg slot: %w", err)
+		}
+		defer ffmpegSem.Release(1)
+		if waited := time.Since(acquireStart); waited > 100*time.Millisecond {
+			slog.Debug("bash handler: throttled on ffmpeg slot",
+				"waited_ms", waited.Milliseconds(),
+				"max_concurrency", maxFFmpegConcurrency())
+		}
+	}
+
+	if err := cmd.Start(); err != nil {
+		return "", fmt.Errorf("bash handler: failed to start: %w", err)
+	}
+
+	// Watch ctx and SIGKILL the entire process group on cancel /
+	// timeout. We use SIGKILL (not SIGTERM) on purpose: ffmpeg ignores
+	// SIGTERM mid-encode in some configurations, and the user-visible
+	// promise is "Stop means stop". The done channel keeps the watcher
+	// from leaking after the command exits normally.
+	watcherDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			killProcessGroup(cmd)
+		case <-watcherDone:
+		}
+	}()
+
+	waitErr := cmd.Wait()
+	close(watcherDone)
+
+	if waitErr != nil {
 		stderrStr := strings.TrimSpace(stderr.String())
 		if stderrStr != "" {
 			logi.Ctx(ctx).Warn("bash handler: stderr", "stderr", stderrStr)
 		}
-		return "", fmt.Errorf("bash handler failed: %w: %s", err, stderrStr)
+		return "", fmt.Errorf("bash handler failed: %w: %s", waitErr, stderrStr)
 	}
 
 	if stderrStr := strings.TrimSpace(stderr.String()); stderrStr != "" {
