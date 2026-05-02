@@ -61,14 +61,14 @@ func (s *Server) maybeSpillBrief(
 	if workDir == "" && parentID != "" && s.taskStore != nil {
 		if parent, err := s.taskStore.GetTask(ctx, parentID); err == nil && parent != nil {
 			rootID := s.resolveRootTaskID(ctx, parent)
-			workDir = filepath.Join(defaultTaskWorkspaceBase, rootID)
+			workDir = filepath.Join(s.taskWorkspaceBase(), rootID)
 		}
 	}
 	if workDir == "" {
 		if currentID := taskIDFromContext(ctx); currentID != "" && s.taskStore != nil {
 			if current, err := s.taskStore.GetTask(ctx, currentID); err == nil && current != nil {
 				rootID := s.resolveRootTaskID(ctx, current)
-				workDir = filepath.Join(defaultTaskWorkspaceBase, rootID)
+				workDir = filepath.Join(s.taskWorkspaceBase(), rootID)
 			}
 		}
 	}

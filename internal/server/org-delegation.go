@@ -19,8 +19,34 @@ import (
 
 const conversationStatePrefix = "[CONVERSATION_STATE]"
 
-// defaultTaskWorkspaceBase is the base directory under which task workspaces are created.
+// defaultTaskWorkspaceBase is the fallback base directory under which
+// per-task workspaces are created when no other configuration applies.
+// In production the actual base comes from
+// `loopgov.Config.WorkspaceRoot` via `(*Server).taskWorkspaceBase()`,
+// which itself reads the bootstrap-time `server.workspace.root` block
+// in at.yaml. This constant exists only so legacy tests and the
+// startup self-check have a deterministic value to point at.
 const defaultTaskWorkspaceBase = "/tmp/at-tasks"
+
+// taskWorkspaceBase returns the configured base directory for per-task
+// workspaces. Resolution order:
+//
+//  1. `loopgov.Config.WorkspaceRoot` (set from at.yaml's
+//     `server.workspace.root` field by `loopgovConfigFromYAML`)
+//  2. `defaultTaskWorkspaceBase` constant (`/tmp/at-tasks`)
+//
+// Production deployments on small VMs (e.g. GCE with a 10 GB boot
+// disk) should set `server.workspace.root: /mnt/disk/at-tasks` in
+// at.yaml so the video pipeline writes to a mounted data disk
+// instead of the root filesystem.
+func (s *Server) taskWorkspaceBase() string {
+	if s.loopGov != nil {
+		if root := s.loopGov.Config().WorkspaceRoot; root != "" {
+			return root
+		}
+	}
+	return defaultTaskWorkspaceBase
+}
 
 // runOrgDelegation is the core recursive delegation function. It takes a Task
 // assigned to an agent in an organization and runs an LLM-driven agentic loop
@@ -52,7 +78,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	taskWorkDir := workflow.WorkDirFromContext(ctx)
 	if taskWorkDir == "" {
 		rootID := s.resolveRootTaskID(ctx, task)
-		taskWorkDir = filepath.Join(defaultTaskWorkspaceBase, rootID)
+		taskWorkDir = filepath.Join(s.taskWorkspaceBase(), rootID)
 		if err := os.MkdirAll(taskWorkDir, 0o755); err != nil {
 			slog.Warn("org-delegation: failed to create task workspace",
 				"task_id", task.ID, "root_id", rootID, "path", taskWorkDir, "error", err)

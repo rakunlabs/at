@@ -1558,7 +1558,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			// can find files created by the task's delegation chain.
 			if s.taskStore != nil {
 				rootID := s.resolveRootTaskID(ctx, task)
-				taskWorkDir := filepath.Join(defaultTaskWorkspaceBase, rootID)
+				taskWorkDir := filepath.Join(s.taskWorkspaceBase(), rootID)
 				if _, statErr := os.Stat(taskWorkDir); statErr == nil {
 					ctx = workflow.ContextWithWorkDir(ctx, taskWorkDir)
 				}

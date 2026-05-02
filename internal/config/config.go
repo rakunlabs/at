@@ -98,6 +98,34 @@ type Server struct {
 	// This allows multiple AT instances to coordinate encryption key rotation
 	// and other admin operations across the cluster.
 	Alan *alan.Config `cfg:"alan"`
+
+	// Workspace controls where per-task working directories and
+	// truncated tool-output dumps are written. Defaults baked into
+	// `internal/service/loopgov` (`/tmp/at-tasks`, 24h TTL) apply when
+	// the block is omitted.
+	//
+	// On a small VM with a tiny boot disk, point `root` at a mounted
+	// data disk (e.g. `/mnt/disk/at-tasks`) so the video pipeline
+	// doesn't fill the root filesystem.
+	Workspace *Workspace `cfg:"workspace"`
+}
+
+// Workspace bundles the bootstrap-time workspace knobs. They are passed
+// straight through to `loopgov.Config` at server start; runtime
+// reconfiguration is not supported (the dump/janitor paths are sampled
+// once when the loop governor is constructed).
+type Workspace struct {
+	// Root is the directory under which `<task-id>/` workspaces and
+	// `.at-tool-output/<run-id>/` dump dirs live. Empty = use the
+	// loopgov default (`/tmp/at-tasks`).
+	Root string `cfg:"root"`
+
+	// TTLHours is how many hours a terminal-status task workspace is
+	// kept before the janitor sweeps it. Tool-output dumps are swept
+	// by mtime under the same TTL. 0 = use loopgov default (24h).
+	// A negative value disables the janitor entirely (workspaces and
+	// dumps are kept forever; useful for debugging).
+	TTLHours int `cfg:"ttl_hours"`
 }
 
 type Store struct {

@@ -339,12 +339,36 @@ func (s *Server) sweepThoughtSigCache() {
 	})
 }
 
+// loopgovConfigFromYAML maps the optional bootstrap-time
+// `server.workspace` block onto a loopgov.Config. When the block is
+// nil (most deployments) the resulting Config has the zero value and
+// loopgov.fillDefaults applies its built-in defaults.
+//
+// We only override the workspace fields here. Other governor knobs
+// (window sizes, iteration ceiling, byte caps) continue to come from
+// loopgov defaults. Once they need per-deployment tuning we'll add a
+// dedicated `loopgov:` YAML block; for now keeping the surface tight
+// avoids accidentally exposing knobs we'd rather see managed from the
+// database.
+func loopgovConfigFromYAML(ws *config.Workspace) loopgov.Config {
+	if ws == nil {
+		return loopgov.Config{}
+	}
+	return loopgov.Config{
+		WorkspaceRoot: ws.Root,
+		WorkspaceTTL:  time.Duration(ws.TTLHours) * time.Hour,
+	}
+}
+
 // New creates a new server instance.
 //
 // LLM providers, gateway auth tokens, bot adapters, and the loop
 // governor are all configured at runtime through the UI / database;
 // they are no longer accepted as YAML / env. The loop governor uses
-// the defaults baked into `internal/service/loopgov`.
+// the defaults baked into `internal/service/loopgov`. The single
+// exception is `server.workspace` in at.yaml — see
+// loopgovConfigFromYAML — which lets operators point per-task workdirs
+// at a mounted data disk so the boot disk doesn't fill up.
 func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
@@ -405,10 +429,12 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
 		storeType:         storeType,
-		// Loop governor uses package defaults (loopgov.fillDefaults).
-		// Per-deployment tuning, when needed, lives in the database
-		// and is applied through the UI in a follow-up change.
-		loopGov:          loopgov.New(loopgov.Config{}, nil),
+		// Loop governor: bootstrap-time `server.workspace` block in
+		// at.yaml (if present) overrides the package defaults for the
+		// workspace root and TTL. Other governor knobs still come from
+		// loopgov.fillDefaults; per-deployment tuning of those will
+		// move to the database in a follow-up change.
+		loopGov:          loopgov.New(loopgovConfigFromYAML(cfg.Workspace), nil),
 		cluster:          cl,
 		version:          version,
 		todos:            newTodoStore(),
@@ -1071,7 +1097,7 @@ func (s *Server) Start(ctx context.Context) error {
 	// every subsequent task delegation logs a per-task warning and every
 	// bash_execute fails with `chdir: no such file or directory` until the LLM
 	// burns its iteration budget. Catch that here, loudly, at startup.
-	ensureTaskWorkspaceBase(defaultTaskWorkspaceBase)
+	ensureTaskWorkspaceBase(s.taskWorkspaceBase())
 
 	return s.server.StartWithContext(ctx, net.JoinHostPort(s.config.Host, s.config.Port))
 }
