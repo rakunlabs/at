@@ -32,7 +32,7 @@ func (s *Server) migrateAgentCallMaxIterations(ctx context.Context) {
 	// editors and the UI see a sane default after the migration.
 	target := s.loopGov.Config().MaxIterCeiling
 	if target <= 0 {
-		target = 30
+		target = 60
 	}
 
 	list, err := s.workflowStore.ListWorkflows(ctx, nil)

@@ -64,7 +64,7 @@ Defaults are baked into `loopgov.fillDefaults` (no YAML / env knobs):
 | `WindowTokens` | 32768 | Input-token budget per Chat call |
 | `SummaryTokens` | 2000 | Cap on rolling-summary message |
 | `SummaryTimeout` | 10s | Bound on summarisation call |
-| `MaxIterCeiling` | 30 | Platform iteration ceiling |
+| `MaxIterCeiling` | 60 | Platform iteration ceiling |
 | `MaxOutputTokens` | 4096 | `max_tokens` for every Chat |
 | `ToolResultMaxBytes` | 8192 | Default tool-result cap (executable class) |
 | `ToolCapClassDefaults["structured"]` | 32768 | Cap for `task_get` / `task_list` etc. |

@@ -83,7 +83,7 @@ const (
 	DefaultWindowTokens       = 32 * 1024
 	DefaultSummaryTokens      = 2000
 	DefaultSummaryTimeout     = 10 * time.Second
-	DefaultMaxIterCeiling     = 30
+	DefaultMaxIterCeiling     = 60
 	DefaultMaxOutputTokens    = 4096
 	DefaultToolResultMaxBytes = 8 * 1024
 	DefaultChatHistoryLimit   = 200

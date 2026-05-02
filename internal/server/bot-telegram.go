@@ -802,7 +802,24 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				switch status {
 				case "done", "completed":
 					sendTelegramText(bot, chatID, fmt.Sprintf("Task %s completed!\nUse /result %s to get the output.", sanitizeUTF8(ident), sanitizeUTF8(ident)))
-				case "failed", "cancelled", "blocked":
+				case "blocked":
+					// Iteration-limit pause is recoverable via /resume. Other
+					// blocked reasons (review, manual block) just need the user
+					// to inspect the partial output.
+					if strings.HasPrefix(result, "[ITERATION_LIMIT]") {
+						sendTelegramText(bot, chatID, fmt.Sprintf(
+							"Task %s paused at the iteration limit. Partial progress saved.\n\n/resume %s to continue from where it left off, or /result %s to see partial output.",
+							sanitizeUTF8(ident), sanitizeUTF8(ident), sanitizeUTF8(ident)))
+					} else {
+						errMsg := sanitizeUTF8(result)
+						if len(errMsg) > 500 {
+							errMsg = errMsg[:500] + "..."
+						}
+						sendTelegramText(bot, chatID, fmt.Sprintf(
+							"Task %s blocked.\n\n%s\n\n/resume %s to retry, or /new %s to start over.",
+							sanitizeUTF8(ident), errMsg, sanitizeUTF8(ident), sanitizeUTF8(topic)))
+					}
+				case "failed", "cancelled":
 					errMsg := sanitizeUTF8(result)
 					if len(errMsg) > 500 {
 						errMsg = errMsg[:500] + "..."
@@ -1115,6 +1132,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				"/run <instruction> - Run a background subtask on active task\n" +
 				"/revise <changes> - Re-run the active (finished) task with changes applied to its original brief\n" +
 				"/cancel [id] - Cancel a running task (uses active task if no id)\n" +
+				"/resume [id] - Continue a task that hit the iteration limit (uses active task if no id)\n" +
 				"/current - Show active task\n" +
 				"/reset - Clear conversation history\n" +
 				"/login - Connect your Google account (usage: /login or /login google)\n" +
@@ -1202,7 +1220,19 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 						summary = summary[:500] + "..."
 					}
 					sendTelegramText(bot, chatID, fmt.Sprintf("Done: %s\n\nResult:\n%s\n\n/result %s for full output", sanitizeUTF8(ident), summary, sanitizeUTF8(taskRef)))
-				case "failed", "cancelled", "blocked":
+				case "blocked":
+					if strings.HasPrefix(result, "[ITERATION_LIMIT]") {
+						sendTelegramText(bot, chatID, fmt.Sprintf(
+							"Subtask %s paused at the iteration limit.\n/resume %s to continue.",
+							sanitizeUTF8(ident), sanitizeUTF8(ident)))
+					} else {
+						errMsg := sanitizeUTF8(result)
+						if len(errMsg) > 300 {
+							errMsg = errMsg[:300] + "..."
+						}
+						sendTelegramText(bot, chatID, fmt.Sprintf("Blocked: %s\n%s", sanitizeUTF8(ident), errMsg))
+					}
+				case "failed", "cancelled":
 					errMsg := sanitizeUTF8(result)
 					if len(errMsg) > 300 {
 						errMsg = errMsg[:300] + "..."
@@ -1292,7 +1322,19 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				switch status {
 				case "done", "completed":
 					sendTelegramText(bot, chatID, fmt.Sprintf("Revision %s completed.\nUse /result %s to get the output.", sanitizeUTF8(ident), sanitizeUTF8(ident)))
-				case "failed", "cancelled", "blocked":
+				case "blocked":
+					if strings.HasPrefix(result, "[ITERATION_LIMIT]") {
+						sendTelegramText(bot, chatID, fmt.Sprintf(
+							"Revision %s paused at the iteration limit. Partial progress saved.\n/resume %s to continue.",
+							sanitizeUTF8(ident), sanitizeUTF8(ident)))
+					} else {
+						errMsg := sanitizeUTF8(result)
+						if len(errMsg) > 500 {
+							errMsg = errMsg[:500] + "..."
+						}
+						sendTelegramText(bot, chatID, fmt.Sprintf("Revision %s blocked.\n\n%s", sanitizeUTF8(ident), errMsg))
+					}
+				case "failed", "cancelled":
 					errMsg := sanitizeUTF8(result)
 					if len(errMsg) > 500 {
 						errMsg = errMsg[:500] + "..."
@@ -1348,6 +1390,98 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			}
 
 			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Cancel signal sent for %s. The task will stop at the next iteration.", sanitizeUTF8(identifier)))
+			return
+		case "resume":
+			// /resume [id] — re-process a task that was paused at the iteration
+			// limit (or any blocked / cancelled task). Conversation state saved
+			// by org-delegation as a [CONVERSATION_STATE] system comment is
+			// restored automatically inside runOrgDelegation, so the agent
+			// picks up exactly where it left off with a fresh iteration budget.
+			//
+			// Defaults to the chat's active task when no id is supplied.
+			identifier := strings.TrimSpace(msg.CommandArguments())
+			if identifier == "" {
+				if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok {
+					identifier, _ = activeID.(string)
+				}
+			}
+			if identifier == "" {
+				sendTelegramText(bot, msg.Chat.ID, "Usage: /resume [id]\nNo active task. Use /tasks to find one, or /pick <id> first.")
+				return
+			}
+
+			task, err := s.findTaskByIdentifier(ctx, agentID, identifier)
+			if err != nil || task == nil {
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Task %s not found.", sanitizeUTF8(identifier)))
+				return
+			}
+
+			// Refuse to resume a run that's still in motion — it would race
+			// the existing goroutine and corrupt the [CONVERSATION_STATE]
+			// comment lifecycle (the live run consumes the comment on load).
+			if s.isDelegationActive(task.ID) {
+				sendTelegramText(bot, msg.Chat.ID,
+					fmt.Sprintf("Task %s is already running. /status %s to check progress.",
+						sanitizeUTF8(identifier), sanitizeUTF8(identifier)))
+				return
+			}
+
+			// Only terminal states make sense to resume. Open / in-progress
+			// tasks that aren't actively running indicate a server restart;
+			// allow resume in that case too by also accepting Open.
+			if !isFinishedTaskStatus(task.Status) && task.Status != service.TaskStatusOpen {
+				sendTelegramText(bot, msg.Chat.ID,
+					fmt.Sprintf("Task %s status is %s — nothing to resume.",
+						sanitizeUTF8(identifier), sanitizeUTF8(task.Status)))
+				return
+			}
+
+			typingCancel()
+
+			// Make the resumed task active so /status / /result / /run default to it.
+			tgCtx.activeTask.Store(chatIDStr, identifier)
+
+			chatID := msg.Chat.ID
+			onResumeDone := func(ident, status, result string) {
+				switch status {
+				case "done", "completed":
+					sendTelegramText(bot, chatID,
+						fmt.Sprintf("Task %s resumed and completed.\nUse /result %s to get the output.",
+							sanitizeUTF8(ident), sanitizeUTF8(ident)))
+				case "blocked":
+					// Hit the iteration limit a second time — tell the user
+					// they can call /resume again.
+					if strings.HasPrefix(result, "[ITERATION_LIMIT]") {
+						sendTelegramText(bot, chatID,
+							fmt.Sprintf("Task %s hit the iteration limit again.\n/resume %s to continue, or /result %s to see partial output.",
+								sanitizeUTF8(ident), sanitizeUTF8(ident), sanitizeUTF8(ident)))
+					} else {
+						errMsg := sanitizeUTF8(result)
+						if len(errMsg) > 500 {
+							errMsg = errMsg[:500] + "..."
+						}
+						sendTelegramText(bot, chatID,
+							fmt.Sprintf("Task %s blocked.\n\n%s", sanitizeUTF8(ident), errMsg))
+					}
+				case "failed", "cancelled":
+					errMsg := sanitizeUTF8(result)
+					if len(errMsg) > 500 {
+						errMsg = errMsg[:500] + "..."
+					}
+					sendTelegramText(bot, chatID,
+						fmt.Sprintf("Task %s resume failed.\n\n%s", sanitizeUTF8(ident), errMsg))
+				}
+			}
+
+			if err := s.resumeBotTask(ctx, task, onResumeDone); err != nil {
+				sendTelegramText(bot, msg.Chat.ID,
+					fmt.Sprintf("Failed to resume %s: %v", sanitizeUTF8(identifier), err))
+				return
+			}
+
+			sendTelegramText(bot, msg.Chat.ID,
+				fmt.Sprintf("Resuming task %s from saved state. I'll notify you when it's done.\n/status to check.",
+					sanitizeUTF8(identifier)))
 			return
 		default:
 			// Check for user-configured custom commands stored on the bot config.

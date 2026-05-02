@@ -117,7 +117,22 @@ func (s *Server) handleTelegramCustomCommand(
 		switch status {
 		case "done", "completed":
 			sendTelegramText(bot, chatID, fmt.Sprintf("Task %s completed.\nUse /result %s to get the output.", sanitizeUTF8(ident), sanitizeUTF8(ident)))
-		case "failed", "cancelled", "blocked":
+		case "blocked":
+			// Iteration-limit pause is recoverable via /resume — surface that
+			// to the user instead of presenting the task as a hard failure.
+			if strings.HasPrefix(result, "[ITERATION_LIMIT]") {
+				sendTelegramText(bot, chatID, fmt.Sprintf(
+					"Task %s paused at the iteration limit. Partial progress saved.\n/resume %s to continue, or /result %s to see partial output.",
+					sanitizeUTF8(ident), sanitizeUTF8(ident), sanitizeUTF8(ident)))
+			} else {
+				errMsg := sanitizeUTF8(result)
+				if len(errMsg) > 500 {
+					errMsg = errMsg[:500] + "..."
+				}
+				sendTelegramText(bot, chatID, fmt.Sprintf("Task %s blocked.\n\n%s\n\n/resume %s to retry.",
+					sanitizeUTF8(ident), errMsg, sanitizeUTF8(ident)))
+			}
+		case "failed", "cancelled":
 			errMsg := sanitizeUTF8(result)
 			if len(errMsg) > 500 {
 				errMsg = errMsg[:500] + "..."

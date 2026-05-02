@@ -526,6 +526,96 @@ func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task,
 	return record.ID, identifier, nil
 }
 
+// resumeBotTask re-runs org delegation on an existing task — typically one
+// that hit the iteration limit and was marked TaskStatusBlocked with a
+// `[CONVERSATION_STATE]` system comment. The conversation state is restored
+// automatically inside runOrgDelegation (see internal/server/org-delegation.go
+// where it scans comments for the conversationStatePrefix and replays them).
+//
+// The optional onDone callbacks are invoked when the resumed run finishes, so
+// the bot can notify the user the same way it does for /new.
+//
+// Status is reset to TaskStatusOpen before the goroutine starts so any UI /
+// status query sees that the task is back in motion.
+func (s *Server) resumeBotTask(ctx context.Context, task *service.Task, onDone ...TaskDoneCallback) error {
+	if s.taskStore == nil || s.organizationStore == nil {
+		return fmt.Errorf("stores not configured")
+	}
+	if task == nil {
+		return fmt.Errorf("task is nil")
+	}
+	if task.OrganizationID == "" {
+		return fmt.Errorf("task %s has no organization", task.Identifier)
+	}
+
+	org, err := s.organizationStore.GetOrganization(ctx, task.OrganizationID)
+	if err != nil {
+		return fmt.Errorf("get organization: %w", err)
+	}
+	if org == nil || org.HeadAgentID == "" {
+		return fmt.Errorf("organization or head agent missing")
+	}
+
+	// Reset to open so the resumed run is reflected in status views and the
+	// next blocking iteration can write a fresh [CONVERSATION_STATE] comment.
+	if _, err := s.taskStore.UpdateTask(ctx, task.ID, service.Task{
+		Status: service.TaskStatusOpen,
+	}); err != nil {
+		return fmt.Errorf("reset task status: %w", err)
+	}
+
+	identifier := task.Identifier
+	taskID := task.ID
+	headAgentID := org.HeadAgentID
+	orgCopy := *org
+
+	go func() {
+		delegCtx, cleanup := s.registerDelegation(context.Background(), taskID, headAgentID, orgCopy.ID)
+		defer cleanup()
+
+		// Re-fetch so we hand the loop the live task row (UpdateTask above
+		// changed status; the receiver expects current state).
+		fresh, getErr := s.taskStore.GetTask(delegCtx, taskID)
+		if getErr != nil || fresh == nil {
+			errResult := fmt.Sprintf("resume: failed to load task: %v", getErr)
+			for _, cb := range onDone {
+				cb(identifier, "failed", errResult)
+			}
+			return
+		}
+
+		if err := s.runOrgDelegation(delegCtx, &orgCopy, fresh, headAgentID, fresh.RequestDepth); err != nil {
+			slog.Error("bot-resume: delegation failed",
+				"org_id", orgCopy.ID,
+				"task_id", taskID,
+				"error", err,
+			)
+			errResult := fmt.Sprintf("delegation failed: %v", err)
+			_, _ = s.taskStore.UpdateTask(context.Background(), taskID, service.Task{
+				Status: service.TaskStatusCancelled,
+				Result: errResult,
+			})
+			for _, cb := range onDone {
+				cb(identifier, "failed", errResult)
+			}
+			return
+		}
+
+		if updated, err := s.taskStore.GetTask(delegCtx, taskID); err == nil && updated != nil {
+			for _, cb := range onDone {
+				cb(identifier, updated.Status, updated.Result)
+			}
+			return
+		}
+
+		for _, cb := range onDone {
+			cb(identifier, "done", "")
+		}
+	}()
+
+	return nil
+}
+
 // agentOrgIDs returns all organization IDs this agent belongs to (via membership or as head agent).
 func (s *Server) agentOrgIDs(ctx context.Context, agentID string) []string {
 	orgIDs := make(map[string]bool)
