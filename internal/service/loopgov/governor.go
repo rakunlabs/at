@@ -152,7 +152,12 @@ func (g *Governor) Limit(ctx context.Context, agentID, taskID string, messages [
 
 	totalEst := estimateMessages(messages)
 	if totalEst <= g.cfg.WindowTokens {
-		return messages, nil
+		// Even when no windowing is needed, the caller's slice may
+		// already contain orphan tool_use / tool_result blocks (e.g.
+		// from an interrupted previous run, manual edit, or a bug
+		// upstream). Repairing here protects every provider with one
+		// pass instead of relying on per-provider wire-level repair.
+		return RepairToolPairs(messages), nil
 	}
 
 	// Always preserve the system prompt at index 0 if present. We treat
@@ -247,7 +252,16 @@ func (g *Governor) Limit(ctx context.Context, agentID, taskID string, messages [
 			"kept", len(tail))
 	}
 	out = append(out, tail...)
-	return out, nil
+
+	// CRITICAL: the contiguous middle-drop above is unaware of the
+	// tool_use ↔ tool_result pairing constraint. The cut can land
+	// between an assistant tool_use message and its matching
+	// tool_result, leaving an orphan on either side. Every LLM
+	// provider rejects that ("tool id (call_xxxx) not found" on
+	// OpenAI; "tool_result block ... does not refer to a preceding
+	// tool_use" on Anthropic). Repair the kept slice here so the
+	// invariant holds regardless of which provider receives it.
+	return RepairToolPairs(out), nil
 }
 
 // stringContent returns the textual content of a message for

@@ -505,9 +505,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 			errStr := chatErr.Error()
 			// Recover from corrupted tool call history — sanitize messages and retry once.
-			if attempt == 0 && (strings.Contains(errStr, "tool call result does not follow") ||
-				strings.Contains(errStr, "tool_use content block") ||
-				strings.Contains(errStr, "tool_result") && strings.Contains(errStr, "not follow")) {
+			if attempt == 0 && isToolPairingError(chatErr) {
 				slog.Warn("org-delegation: tool call history error, sanitizing and retrying",
 					"agent_id", agentID, "task_id", task.ID, "error", chatErr)
 				messages = sanitizeLLMMessages(messages)

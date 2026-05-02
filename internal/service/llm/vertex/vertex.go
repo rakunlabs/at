@@ -513,6 +513,12 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 	}
 
+	// Defense-in-depth: drop any orphan tool_call / tool_result pairs
+	// before they hit the wire. Vertex speaks the OpenAI-compatible
+	// dialect and rejects unmatched tool_call_ids the same way OpenAI
+	// does ("tool id (call_xxxx) not found").
+	reqMessages = common.RepairOpenAIToolPairs(reqMessages)
+
 	reqBody := map[string]any{
 		"model":    model,
 		"messages": reqMessages,

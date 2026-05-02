@@ -617,6 +617,12 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 	}
 
+	// Defense-in-depth: drop any orphan tool_call / tool_result pairs
+	// before they hit the wire. Loop governor windowing or a manually
+	// edited message history can otherwise produce a body that OpenAI
+	// rejects with "tool id (call_xxxx) not found".
+	reqMessages = common.RepairOpenAIToolPairs(reqMessages)
+
 	reqBody := map[string]any{
 		"model":    model,
 		"messages": reqMessages,

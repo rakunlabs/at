@@ -825,10 +825,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		latencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
 			// Recover from corrupted tool call history — sanitize and retry once.
-			errStr := err.Error()
-			if strings.Contains(errStr, "tool call result does not follow") ||
-				strings.Contains(errStr, "tool_use content block") ||
-				(strings.Contains(errStr, "tool_result") && strings.Contains(errStr, "not follow")) {
+			if isToolPairingError(err) {
 				slog.Warn("agentic loop: tool call history error, sanitizing and retrying",
 					"iteration", iteration, "error", err)
 				llmMessages = sanitizeLLMMessages(llmMessages)
@@ -1336,6 +1333,48 @@ func getToolCallIDs(toolCalls any) []string {
 		}
 	}
 	return ids
+}
+
+// isToolPairingError reports whether err looks like a provider rejection
+// caused by an orphan tool_call / tool_use / tool_result pair in the
+// outgoing request. Each provider phrases this differently:
+//
+//   - Anthropic: "tool_result block ... does not refer to a preceding
+//     tool_use" / "tool call result does not follow"
+//   - OpenAI:    "tool id (call_xxxx) not found" /
+//     "Invalid parameter: messages with role 'tool' must be a response
+//     to a preceding message with 'tool_calls'"
+//   - Vertex:    same wording as OpenAI (OpenAI-compat dialect)
+//
+// Callers use this to trigger a one-shot sanitize-and-retry path on
+// the conversation. New error wordings can be added here as we
+// observe them in the wild.
+func isToolPairingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	// Anthropic.
+	if strings.Contains(s, "tool call result does not follow") ||
+		strings.Contains(s, "tool_use content block") ||
+		(strings.Contains(s, "tool_result") && strings.Contains(s, "not follow")) {
+		return true
+	}
+	// OpenAI / Vertex.
+	if strings.Contains(s, "tool id") && strings.Contains(s, "not found") {
+		return true
+	}
+	if strings.Contains(s, "tool_call_id") && strings.Contains(s, "not found") {
+		return true
+	}
+	if strings.Contains(s, "messages with role 'tool'") &&
+		strings.Contains(s, "tool_calls") {
+		return true
+	}
+	if strings.Contains(s, "tool_calls") && strings.Contains(s, "must be followed by") {
+		return true
+	}
+	return false
 }
 
 // sanitizeMessageHistory removes corrupted tool call/result sequences from message history.
