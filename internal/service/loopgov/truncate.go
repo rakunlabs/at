@@ -79,16 +79,19 @@ func (g *Governor) TruncateToolResult(runID, toolName, body string) (kept string
 	return head + marker, true
 }
 
-// toolCap resolves the byte cap for a given tool name, applying the
-// override → class default → global cascade.
-func (g *Governor) toolCap(toolName string) int {
-	if v, ok := g.cfg.ToolCapOverrides[toolName]; ok && v > 0 {
-		return v
-	}
-	class := classify(toolName)
-	if v, ok := g.cfg.ToolCapClassDefaults[class]; ok && v > 0 {
-		return v
-	}
+// toolCap returns the byte cap for a tool result. Earlier revisions of
+// this package supported per-tool and per-class overrides; those were
+// removed because they over-truncated structured outputs from tools
+// like the video-generation suite (FAL Veo / Sora / Runway) and the
+// `delegate_to_*` channel. We now use a single generous global cap
+// combined with the workspace dump (see TruncateToolResult), which
+// gives the LLM ample inline context AND preserves the full payload
+// on disk for follow-up reads.
+//
+// toolName is retained in the signature so callers (and the dump file
+// naming logic) keep their per-tool granularity even though the cap is
+// uniform.
+func (g *Governor) toolCap(_ string) int {
 	return g.cfg.ToolResultMaxBytes
 }
 

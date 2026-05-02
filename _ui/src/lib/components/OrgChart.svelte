@@ -292,14 +292,30 @@
       style="top: 0; left: 0; width: 1px; height: 1px;"
     >
       {#each layout.connections as conn (conn.id)}
-        {@const isHighlighted =
-          selectedAgentId === conn.id.split('-')[0] ||
-          selectedAgentId === conn.id.split('-')[1]}
+        {@const parts = conn.id.split('-')}
+        {@const parentId = parts[0]}
+        {@const childId = parts[1]}
+        {@const isHighlighted = selectedAgentId === parentId || selectedAgentId === childId}
+        <!--
+          A delegation chain in flight always shows up as: parent agent
+          has an active delegation AND child agent has an active
+          delegation (the parent's goroutine is blocked in wg.Wait
+          while the child runs). Highlight that edge in green so the
+          user can trace the live path through the org chart.
+        -->
+        {@const isLive =
+          (agents.find((a) => a.agent_id === parentId)?.active_count ?? 0) > 0 &&
+          (agents.find((a) => a.agent_id === childId)?.active_count ?? 0) > 0}
         <path
           d={stepPath(conn)}
           fill="none"
-          stroke={isHighlighted ? 'var(--color-accent, #00d926)' : 'var(--conn-color)'}
-          stroke-width={isHighlighted ? 2 : 1}
+          stroke={isLive
+            ? '#22c55e'
+            : isHighlighted
+              ? 'var(--color-accent, #00d926)'
+              : 'var(--conn-color)'}
+          stroke-width={isLive ? 2.5 : isHighlighted ? 2 : 1}
+          class={isLive ? 'org-edge-live' : ''}
         />
       {/each}
     </svg>
@@ -436,5 +452,16 @@
   :global(.dark) .org-chart-container {
     --conn-color: #3a3836;
     background-color: #161618;
+  }
+
+  /* Live edge: an in-flight delegation chain runs through this edge.
+     Use a soft pulse so the user can trace the active path in a busy
+     chart without the animation getting in the way. */
+  :global(.org-edge-live) {
+    animation: org-edge-pulse 1.6s ease-in-out infinite;
+  }
+  @keyframes org-edge-pulse {
+    0%, 100% { stroke-opacity: 1; }
+    50%      { stroke-opacity: 0.55; }
   }
 </style>

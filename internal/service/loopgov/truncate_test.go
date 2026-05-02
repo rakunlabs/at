@@ -24,7 +24,6 @@ func TestTruncateOverCapEmitsMarker(t *testing.T) {
 	g := New(Config{
 		ToolResultMaxBytes: 100,
 		WorkspaceRoot:      tmp,
-		ToolCapOverrides:   map[string]int{"bash_execute": 100},
 	}, nil)
 	body := strings.Repeat("a", 1000)
 	got, did := g.TruncateToolResult("run-XYZ", "bash_execute", body)
@@ -53,14 +52,13 @@ func TestTruncateOverCapEmitsMarker(t *testing.T) {
 
 func TestTruncateRespectsUTF8Boundary(t *testing.T) {
 	tmp := t.TempDir()
-	// Cap at 100 — but place a multi-byte rune so we'd split it if naive.
+	// Cap at 99 — but place a multi-byte rune so we'd split it if naive.
 	// "a"*98 + "ñ" (2 bytes) + "a"*100 — cap would otherwise fall on the
 	// second byte of "ñ" which is invalid UTF-8.
 	body := strings.Repeat("a", 98) + "ñ" + strings.Repeat("a", 100)
 	g := New(Config{
 		ToolResultMaxBytes: 99,
 		WorkspaceRoot:      tmp,
-		ToolCapOverrides:   map[string]int{"bash_execute": 99},
 	}, nil)
 	got, did := g.TruncateToolResult("r", "bash_execute", body)
 	if !did {
@@ -78,64 +76,49 @@ func TestTruncateRespectsUTF8Boundary(t *testing.T) {
 	}
 }
 
-func TestTruncatePerToolOverride(t *testing.T) {
+// TestTruncateUnifiedCap pins the post-2026-05 behaviour: every tool
+// shares the same `ToolResultMaxBytes` cap. Earlier revisions had
+// per-tool / per-class caps which over-truncated structured tool
+// outputs (notably the video-generation suite). We now keep one cap
+// and rely on the workspace dump to preserve the full payload.
+func TestTruncateUnifiedCap(t *testing.T) {
 	tmp := t.TempDir()
 	g := New(Config{
-		ToolResultMaxBytes: 100,
-		WorkspaceRoot:      tmp,
-		ToolCapOverrides:   map[string]int{"task_get": 100_000},
-	}, nil)
-	body := strings.Repeat("b", 5_000)
-	_, did := g.TruncateToolResult("r", "task_get", body)
-	if did {
-		t.Fatal("override should keep body under cap")
-	}
-}
-
-func TestTruncateClassDefaultStructured(t *testing.T) {
-	tmp := t.TempDir()
-	g := New(Config{
-		ToolResultMaxBytes: 100, // would normally truncate
+		ToolResultMaxBytes: 16 * 1024,
 		WorkspaceRoot:      tmp,
 	}, nil)
-	// agent_list classifies as "structured" (32 KB default cap) and has
-	// no per-tool override, so a 5_000-byte body should pass through.
-	// (task_get / task_list now have a 4 KB per-tool cap by default — see
-	// defaultPerToolCaps in config.go — and are exercised separately
-	// in TestTruncateTaskGetDefaultPerToolCap.)
-	body := strings.Repeat("c", 5_000)
-	_, did := g.TruncateToolResult("r", "agent_list", body)
-	if did {
-		t.Fatal("structured class default should keep this body")
-	}
-}
+	body := strings.Repeat("x", 8*1024) // 8 KB body, well under 16 KB cap
 
-// TestTruncateTaskGetDefaultPerToolCap pins the new built-in 4 KB cap
-// for task_get / task_list. These tools are the dominant input-cost
-// driver in head-agent polling loops and must be capped tightly.
-func TestTruncateTaskGetDefaultPerToolCap(t *testing.T) {
-	tmp := t.TempDir()
-	g := New(Config{
-		WorkspaceRoot: tmp,
-	}, nil)
-	for _, tool := range []string{"task_get", "task_list"} {
-		body := strings.Repeat("x", 5_000)
+	// Tools that used to fall under different classes (executable,
+	// structured, freeform) all behave identically now.
+	for _, tool := range []string{
+		"bash_execute", // was executable (8 KB)
+		"task_get",     // was per-tool override (4 KB)
+		"agent_list",   // was structured (32 KB)
+		"image_to_video",
+		"generate_video",
+		"delegate_to_script_writer",
+	} {
 		_, did := g.TruncateToolResult("r", tool, body)
-		if !did {
-			t.Fatalf("%s default cap should truncate at 4KB; 5000-byte body was kept", tool)
+		if did {
+			t.Fatalf("%s: 8 KB body should fit under unified 16 KB cap", tool)
 		}
 	}
 }
 
 func TestTruncateWorkspaceUnavailable(t *testing.T) {
+	// fillDefaults supplies DefaultWorkspaceRoot when WorkspaceRoot is
+	// empty, so we have to point WorkspaceRoot at a non-writable path
+	// to exercise the "dump failed, marker degrades gracefully" branch.
+	// /dev/null is a non-directory; MkdirAll under it returns ENOTDIR.
 	g := New(Config{
 		ToolResultMaxBytes: 50,
-		ToolCapOverrides:   map[string]int{"bash_execute": 50},
-	}, nil) // no WorkspaceRoot
+		WorkspaceRoot:      "/dev/null/never-writable",
+	}, nil)
 	body := strings.Repeat("d", 1000)
 	got, did := g.TruncateToolResult("r", "bash_execute", body)
 	if !did {
-		t.Fatal("should still truncate even with no workspace")
+		t.Fatal("should still truncate even when workspace dump fails")
 	}
 	if !strings.Contains(got, "full output unavailable") {
 		t.Fatalf("marker should signal the dump failure: %s", got)
@@ -147,7 +130,6 @@ func TestTruncateMonotonicSeq(t *testing.T) {
 	g := New(Config{
 		ToolResultMaxBytes: 50,
 		WorkspaceRoot:      tmp,
-		ToolCapOverrides:   map[string]int{"bash_execute": 50},
 	}, nil)
 	body := strings.Repeat("e", 1000)
 	out1, _ := g.TruncateToolResult("R", "bash_execute", body)

@@ -13,12 +13,13 @@ import (
 // into the window. It is provided externally so loopgov stays free of
 // provider dependencies — the summarisation call is just another LLM
 // chat completion using whatever provider/model the caller chose.
+//
+// In practice we ship with summarizer = nil and let `Limit` drop the
+// oldest messages when the window overflows. Summarisation is an extra
+// LLM round-trip that costs more than it saves for the agentic-loop
+// access patterns we see in production (single-task videos, chat turns).
+// It is wired up as an opt-in for callers that want it.
 type Summarizer interface {
-	// Summarize is invoked when the window budget is exceeded. It
-	// receives the system prompt (for context) and the messages that
-	// would otherwise be dropped, and returns a single short string
-	// that replaces them in the message slice. The implementation is
-	// expected to honour ctx cancellation and the configured timeout.
 	Summarize(ctx context.Context, system string, dropped []service.Message, maxTokens int) (string, error)
 }
 
@@ -39,7 +40,7 @@ type Governor struct {
 
 // New constructs a Governor. summarizer may be nil; when nil and the
 // window budget is exceeded the governor falls back to dropping oldest
-// messages without producing a summary (still safe; just less useful).
+// messages without producing a summary (the common case in production).
 func New(cfg Config, summarizer Summarizer) *Governor {
 	cfg.fillDefaults()
 	g := &Governor{
@@ -60,28 +61,13 @@ func (g *Governor) Disabled() bool { return g.cfg.Disabled }
 // Useful for tests and for callers that need the chat history limit.
 func (g *Governor) Config() Config { return g.cfg }
 
-// MaxOutputTokens returns the value to populate ChatOptions.MaxTokens
-// with. Returns 0 when the governor is disabled — callers MUST treat 0
-// as "do not set MaxTokens", preserving the legacy "no cap" behaviour.
-func (g *Governor) MaxOutputTokens() int {
-	if g.cfg.Disabled {
-		return 0
-	}
-	return g.cfg.MaxOutputTokens
-}
-
-// ChatOptions returns a *service.ChatOptions populated with the
-// governor's per-call output cap, suitable for passing as the opts
-// argument to provider.Chat. Returns nil when the governor is disabled
-// (no cap, preserving legacy behaviour). Callers that want to extend
-// the options struct should copy the returned value.
-func (g *Governor) ChatOptions() *service.ChatOptions {
-	if g.cfg.Disabled {
-		return nil
-	}
-	max := g.cfg.MaxOutputTokens
-	return &service.ChatOptions{MaxTokens: &max}
-}
+// ChatOptions used to return a per-call MaxTokens cap. We removed the
+// platform-wide output-token cap because it broke structured outputs
+// (e.g. multi-scene Script Writer JSON for video shorts). Per-model
+// limits already live in the provider/agent config; the governor stays
+// out of the way. Returning nil is the documented "no cap" sentinel
+// for every provider adapter.
+func (g *Governor) ChatOptions() *service.ChatOptions { return nil }
 
 // ChatHistoryLimit returns the row cap for ListChatMessages. Returns 0
 // when disabled, meaning "no limit" — callers should pass 0 through to
@@ -98,7 +84,7 @@ func (g *Governor) ChatHistoryLimit() int {
 // MaxIterations (per-task override). Either or both may be ≤ 0 meaning
 // "use the next-tier default". The result is always > 0.
 //
-// Resolution order (preserved from the existing loops):
+// Resolution order:
 //  1. taskMax > 0 wins
 //  2. agentMax > 0 falls back
 //  3. legacy fallback of 10

@@ -108,8 +108,8 @@ func TestLimitDisabledModeIsPassThrough(t *testing.T) {
 	if sum.called != 0 {
 		t.Fatal("summarizer should not run when disabled")
 	}
-	if g.MaxOutputTokens() != 0 {
-		t.Fatal("disabled MaxOutputTokens should be 0")
+	if g.ChatOptions() != nil {
+		t.Fatal("ChatOptions should always return nil; output-token cap was removed")
 	}
 	if g.ChatHistoryLimit() != 0 {
 		t.Fatal("disabled ChatHistoryLimit should be 0")

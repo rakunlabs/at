@@ -47,6 +47,7 @@
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { getCostByTask, type CostByTaskResult } from '@/lib/api/cost-events';
+  import { listAuditEntries, type AuditEntry } from '@/lib/api/audit';
 
   interface Props {
     params: { id: string };
@@ -126,7 +127,96 @@
   });
 
   // Active tab
-  let activeTab = $state<'comments' | 'subtasks' | 'labels' | 'activity'>('activity');
+  let activeTab = $state<'comments' | 'subtasks' | 'labels' | 'activity' | 'events'>('activity');
+
+  // ─── Events feed (audit-driven live timeline) ───
+  // Pulls audit entries for this task and every descendant task in the
+  // delegation tree. Refreshed on subtask reload (which already happens
+  // every 12s while a delegation is running) and on demand. This is the
+  // "show me what's happening" view that lets the user follow Content
+  // Director → Script Writer → Video Producer in real time.
+  let events = $state<AuditEntry[]>([]);
+  let eventsLoading = $state(false);
+
+  async function loadEvents() {
+    if (!task) return;
+    eventsLoading = true;
+    try {
+      const ids = collectTreeTaskIds(taskTree);
+      if (!ids.includes(task.id)) ids.push(task.id);
+      // Fetch the most recent N entries for the whole tree. The store
+      // accepts `resource_id[in]=A,B,C` via the query.Parse filter syntax.
+      const params: Record<string, string | number> = {
+        _limit: 200,
+        _order: 'created_at',
+        _orderdir: 'desc',
+        'resource_id[in]': ids.join(','),
+        'resource_type[in]': 'task,tool',
+      };
+      const res = await listAuditEntries(params as any);
+      events = res.data || [];
+    } catch {
+      events = [];
+    } finally {
+      eventsLoading = false;
+    }
+  }
+
+  // Refresh events when the events tab is opened, when the subtask
+  // tree changes, and when a delegation finishes.
+  $effect(() => {
+    if (activeTab === 'events' && task) {
+      loadEvents();
+    }
+  });
+
+  // Render-friendly view of an audit entry. Maps action codes to short
+  // human-readable strings and surfaces the actor agent name.
+  function eventLabel(e: AuditEntry): string {
+    switch (e.action) {
+      case 'task_started':   return 'started task';
+      case 'task_completed': return 'completed task';
+      case 'task_delegated': return 'delegated to subtask';
+      case 'task_failed':    return 'task failed';
+      case 'task_cancelled': return 'task cancelled';
+      case 'tool_call': {
+        const tool = e.details?.tool_name || 'tool';
+        // Pretty-print delegate_to_<agent> as "delegated to <Agent>".
+        if (typeof tool === 'string' && tool.startsWith('delegate_to_')) {
+          const target = tool.slice('delegate_to_'.length).replace(/_/g, ' ');
+          return `delegated to ${target}`;
+        }
+        return `called ${tool}`;
+      }
+      case 'llm_call': {
+        const model = e.details?.model;
+        return model ? `LLM call (${model})` : 'LLM call';
+      }
+      default: return e.action;
+    }
+  }
+
+  function eventActor(e: AuditEntry): string {
+    if (e.actor_type === 'agent') return agentDisplayName(e.actor_id);
+    if (e.actor_type === 'user') return e.actor_id || 'user';
+    return e.actor_id || e.actor_type;
+  }
+
+  function eventTaskTitle(e: AuditEntry): string {
+    if (e.resource_type !== 'task') return '';
+    // Find the matching node in the tree.
+    function find(n: TaskWithSubtasks | null): TaskWithSubtasks | null {
+      if (!n) return null;
+      if (n.id === e.resource_id) return n;
+      for (const c of n.sub_tasks ?? []) {
+        const f = find(c);
+        if (f) return f;
+      }
+      return null;
+    }
+    const node = find(taskTree);
+    return node?.title || '';
+  }
 
   // ─── Activity / Chat state ───
   let chatSessionId = $state<string | null>(null);
@@ -142,8 +232,15 @@
   let chatInputEl = $state<HTMLTextAreaElement | undefined>(undefined);
 
   // ─── Active delegation tracking ───
-  let delegationActive = $state(false);
-  let delegationDuration = $state('');
+  // Active delegations include the root task AND any in-flight descendant
+  // task (delegated child / grandchild / ...). We use this to highlight
+  // the in-flight node in the subtask tree and to show the user *which*
+  // agent is currently working — not just "an agent is working".
+  let delegationActive = $state(false);            // any descendant active
+  let delegationRootActive = $state(false);        // *this* task active
+  let delegationDuration = $state('');             // duration of deepest active
+  let activeTaskIds = $state<Set<string>>(new Set()); // all active task_ids in this tree
+  let activeDeepest = $state<ActiveDelegation | null>(null); // deepest in-flight delegation (for "which agent is working")
   let cancelling = $state(false);
   let delegationPollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -448,29 +545,109 @@
 
   // ─── Active delegation poll ───
   // Polls /api/v1/active-delegations every 3s while the task is in_progress
-  // to show whether an agent goroutine is actually running, and its duration.
+  // and intersects the result with the subtask tree, so we know not just
+  // "an agent is running" but *which* agent at *which* depth. Used by the
+  // "Agent working" pill (sidebar) and the live-highlight in the subtask
+  // tree.
+
+  // Collect every task id in the loaded tree (including the root). When a
+  // tree node hasn't been loaded yet we fall back to just `task.id`.
+  function collectTreeTaskIds(node: TaskWithSubtasks | null): string[] {
+    if (!node) return [];
+    const out: string[] = [node.id];
+    if (node.sub_tasks?.length) {
+      for (const child of node.sub_tasks) {
+        out.push(...collectTreeTaskIds(child));
+      }
+    }
+    return out;
+  }
+
+  // Depth-of-task within the loaded tree, root = 0. Used to surface the
+  // *deepest* in-flight delegation as "this agent is working right now",
+  // since delegation chains run parent goroutines that block on child
+  // goroutines — the leaf is what the user wants to see.
+  function depthInTree(node: TaskWithSubtasks | null, taskId: string, depth = 0): number {
+    if (!node) return -1;
+    if (node.id === taskId) return depth;
+    if (!node.sub_tasks?.length) return -1;
+    for (const child of node.sub_tasks) {
+      const d = depthInTree(child, taskId, depth + 1);
+      if (d >= 0) return d;
+    }
+    return -1;
+  }
 
   async function checkDelegation() {
     if (!task) return;
     try {
       const res = await listActiveDelegations();
-      const match = res.delegations.find((d: ActiveDelegation) => d.task_id === task!.id);
+      // Collect every task id we know about in this delegation tree.
+      const treeIds = new Set<string>(collectTreeTaskIds(taskTree));
+      treeIds.add(task.id);
+
+      // Find every active delegation that belongs to this tree.
+      const matches = res.delegations.filter((d: ActiveDelegation) =>
+        treeIds.has(d.task_id),
+      );
+
+      // Pick the deepest one (most recent in the delegation chain) for
+      // the "which agent is working" pill. When the tree isn't loaded
+      // we fall back to the entry that matches `task.id`.
+      let deepest: ActiveDelegation | null = null;
+      let deepestDepth = -1;
+      for (const m of matches) {
+        const depth = depthInTree(taskTree, m.task_id);
+        if (depth > deepestDepth) {
+          deepestDepth = depth;
+          deepest = m;
+        }
+      }
+      // If nothing was depth-resolvable (tree not loaded yet), use the
+      // root entry if present.
+      if (!deepest && matches.length > 0) {
+        deepest = matches.find((m) => m.task_id === task!.id) ?? matches[0];
+      }
+
       const wasActive = delegationActive;
-      const nowActive = !!match;
+      const nowActive = matches.length > 0;
       delegationActive = nowActive;
-      delegationDuration = match?.duration ?? '';
-      // Only refresh on the edge: a delegation that *was* running just finished.
-      // Without this guard, a task stuck in `in_progress` with no live goroutine
-      // (crashed agent, stale status, etc.) would refetch every 3s forever and
-      // visibly re-render the page on every tick.
+      delegationRootActive = !!matches.find((m) => m.task_id === task!.id);
+      delegationDuration = deepest?.duration ?? '';
+      activeDeepest = deepest;
+      activeTaskIds = new Set(matches.map((m) => m.task_id));
+
+      // Refresh on the falling edge: a delegation that *was* running
+      // just finished. Without this guard, a task stuck in
+      // `in_progress` with no live goroutine would refetch every 3s
+      // forever and visibly re-render on every tick.
       if (wasActive && !nowActive && task?.status === 'in_progress') {
         await loadTask();
         await loadSubTasks();
       }
+      // Live tree refresh: while a delegation is running, the subtask
+      // tree may grow (Content Director just spawned Script Writer).
+      // Refresh at a slow cadence (every 4th poll = 12s) so the user
+      // sees new nodes appear without spamming the server. Cheap because
+      // getTaskWithSubtasks returns the whole tree in one query.
+      else if (nowActive) {
+        subtaskRefreshTick++;
+        if (subtaskRefreshTick % 4 === 0) {
+          loadSubTasks();
+          // If the user is staring at the Events tab, refresh that too
+          // so they see new tool calls / delegations as they happen.
+          if (activeTab === 'events') loadEvents();
+        }
+      }
     } catch {
       delegationActive = false;
+      delegationRootActive = false;
+      activeDeepest = null;
+      activeTaskIds = new Set();
     }
   }
+
+  let subtaskRefreshTick = 0;
 
   function startDelegationPoll() {
     stopDelegationPoll();
@@ -673,7 +850,8 @@
 </svelte:head>
 
 {#snippet delegationNode(node: TaskWithSubtasks, depth: number)}
-  <div class="subtask-row" style="padding-left: {depth * 20}px">
+  {@const isLive = activeTaskIds.has(node.id)}
+  <div class="subtask-row {isLive ? 'subtask-row-live' : ''}" style="padding-left: {depth * 20}px">
     <div class="subtask-inner flex items-center gap-2 px-3 py-2 transition-colors">
       <!-- Expand/collapse toggle -->
       {#if node.sub_tasks?.length}
@@ -691,6 +869,14 @@
         <span class="w-4 shrink-0"></span>
       {/if}
 
+      <!-- Live pulse: this subtask currently has a running delegation goroutine. -->
+      {#if isLive}
+        <span class="relative flex w-2 h-2 shrink-0" title="Agent is working on this subtask right now">
+          <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+          <span class="relative inline-flex w-2 h-2 rounded-full bg-green-500"></span>
+        </span>
+      {/if}
+
       <!-- Status badge -->
       <span class="inline-block px-2 py-0.5 text-[10px] font-medium capitalize shrink-0 {statusClasses(node.status)}">
         {TASK_STATUS_LABELS[node.status] || node.status}
@@ -704,14 +890,14 @@
       <!-- Title (clickable link) -->
       <a
         href="#/tasks/{node.id}"
-        class="text-sm text-gray-900 dark:text-dark-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate flex-1"
+        class="text-sm text-gray-900 dark:text-dark-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate flex-1 {isLive ? 'font-medium' : ''}"
       >
         {node.title}
       </a>
 
       <!-- Assigned agent -->
       {#if node.assigned_agent_id}
-        <span class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-dark-text-muted shrink-0" title="Assigned to {agentDisplayName(node.assigned_agent_id)}">
+        <span class="flex items-center gap-1 text-[10px] {isLive ? 'text-green-700 dark:text-green-400 font-medium' : 'text-gray-400 dark:text-dark-text-muted'} shrink-0" title="{isLive ? 'Currently working: ' : 'Assigned to '}{agentDisplayName(node.assigned_agent_id)}">
           <User size={10} />
           <span class="max-w-[100px] truncate">{agentDisplayName(node.assigned_agent_id)}</span>
         </span>
@@ -889,6 +1075,26 @@
                 Sub-tasks
                 {#if taskTree?.sub_tasks?.length}
                   <span class="ml-1 px-1.5 py-0 text-[10px] bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted">{taskTree.sub_tasks.length}</span>
+                {/if}
+                {#if delegationActive}
+                  <span class="relative flex w-1.5 h-1.5 ml-0.5" title="Live delegation in this tree">
+                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  </span>
+                {/if}
+              </button>
+              <button
+                onclick={() => (activeTab = 'events')}
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'events' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                title="Live audit timeline for this task and its delegation tree"
+              >
+                <Clock size={13} />
+                Events
+                {#if delegationActive}
+                  <span class="relative flex w-1.5 h-1.5 ml-0.5">
+                    <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                    <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                  </span>
                 {/if}
               </button>
               <button
@@ -1098,6 +1304,64 @@
                   {/each}
                 </div>
               {/if}
+            {:else if activeTab === 'events'}
+              <!-- ─── Live audit timeline for the whole delegation tree ─── -->
+              <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+                <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border flex items-center justify-between">
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Audit Timeline</span>
+                  <button
+                    onclick={loadEvents}
+                    class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                    title="Refresh"
+                  >
+                    <RefreshCw size={11} class={eventsLoading ? 'animate-spin' : ''} />
+                    Refresh
+                  </button>
+                </div>
+                {#if eventsLoading && events.length === 0}
+                  <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center">Loading events...</div>
+                {:else if events.length === 0}
+                  <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center flex flex-col items-center gap-2">
+                    <Clock size={18} class="text-gray-300 dark:text-dark-text-faint" />
+                    <span>No events yet</span>
+                    <span class="text-[10px]">Tool calls, delegations, and status changes will appear here as the agent works</span>
+                  </div>
+                {:else}
+                  <div class="max-h-[550px] overflow-y-auto">
+                    {#each events as e (e.id)}
+                      {@const isLive = activeTaskIds.has(e.resource_id)}
+                      <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border-subtle flex items-start gap-2 text-xs {isLive ? 'bg-green-50/50 dark:bg-green-900/10' : ''}">
+                        <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono shrink-0 w-[140px]" title={e.created_at}>
+                          {formatDateTime(e.created_at)}
+                        </span>
+                        <span class="font-medium text-gray-700 dark:text-dark-text-secondary shrink-0 max-w-[140px] truncate">
+                          {eventActor(e)}
+                        </span>
+                        <span class="text-gray-500 dark:text-dark-text-muted shrink-0">{eventLabel(e)}</span>
+                        {#if e.resource_type === 'task' && e.resource_id !== task.id}
+                          <a
+                            href="#/tasks/{e.resource_id}"
+                            class="text-blue-600 dark:text-blue-400 hover:underline truncate flex-1 min-w-0"
+                            title={eventTaskTitle(e) || e.resource_id}
+                          >
+                            {eventTaskTitle(e) || e.resource_id.slice(0, 12)}
+                          </a>
+                        {/if}
+                        {#if isLive}
+                          <span class="ml-auto relative flex w-1.5 h-1.5 shrink-0" title="In flight">
+                            <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                            <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                          </span>
+                        {/if}
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+              <p class="text-[10px] text-gray-400 dark:text-dark-text-muted mt-2 italic">
+                Showing the most recent {events.length} audit entries across this task and its sub-tasks.
+                The list refreshes when you switch back to this tab; sub-tasks themselves auto-refresh while a delegation is running.
+              </p>
             {:else if activeTab === 'labels'}
               {#if labelsLoading}
                 <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center">Loading labels...</div>
@@ -1454,19 +1718,39 @@
               </div>
               <div class="px-3 py-2 space-y-2">
                 {#if delegationActive}
+                  {@const activeAgent = activeDeepest ? agentDisplayName(activeDeepest.agent_id) : ''}
+                  {@const isDescendant = !!activeDeepest && activeDeepest.task_id !== task.id}
                   <div class="flex items-center gap-2 px-2 py-1.5 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-900/40 text-yellow-800 dark:text-yellow-400 text-[11px]">
                     <Loader2 size={12} class="animate-spin shrink-0" />
                     <div class="flex-1 min-w-0">
-                      <div class="font-medium">Agent working</div>
-                      {#if delegationDuration}
-                        <div class="text-[10px] text-yellow-600 dark:text-yellow-500">{delegationDuration} elapsed</div>
-                      {/if}
+                      <div class="font-medium truncate" title={activeAgent}>
+                        {#if activeAgent}
+                          {activeAgent} working
+                        {:else}
+                          Agent working
+                        {/if}
+                      </div>
+                      <div class="text-[10px] text-yellow-600 dark:text-yellow-500 flex items-center gap-1.5">
+                        {#if delegationDuration}
+                          <span>{delegationDuration} elapsed</span>
+                        {/if}
+                        {#if isDescendant && activeDeepest}
+                          <span class="opacity-60">·</span>
+                          <a
+                            href="#/tasks/{activeDeepest.task_id}"
+                            class="underline-offset-2 hover:underline truncate"
+                            title="Jump to in-flight subtask"
+                          >
+                            in subtask
+                          </a>
+                        {/if}
+                      </div>
                     </div>
                     <button
                       onclick={handleCancelDelegation}
-                      disabled={cancelling}
+                      disabled={cancelling || !delegationRootActive}
                       class="px-2 py-1 text-[10px] font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 shrink-0"
-                      title="Cancel delegation"
+                      title={delegationRootActive ? 'Cancel delegation' : 'Cancellation must be initiated on the root task'}
                     >
                       {cancelling ? '...' : 'Stop'}
                     </button>
@@ -1643,5 +1927,17 @@
   }
   :global(.subtask-row > .subtask-inner:hover) {
     @apply bg-gray-100 dark:bg-dark-elevated/70;
+  }
+  /* Live row: subtask has a running delegation goroutine right now.
+     The pulse + bg tint flag the in-flight node in a multi-level tree
+     so the user can tell at a glance which agent is actually working. */
+  :global(.subtask-row-live > .subtask-inner),
+  :global(.subtask-row-live:nth-child(odd) > .subtask-inner),
+  :global(.subtask-row-live:nth-child(even) > .subtask-inner) {
+    @apply bg-green-50 dark:bg-green-900/20;
+    border-left: 2px solid rgb(34 197 94);
+  }
+  :global(.subtask-row-live > .subtask-inner:hover) {
+    @apply bg-green-100 dark:bg-green-900/30;
   }
 </style>

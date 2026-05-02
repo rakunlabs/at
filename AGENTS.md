@@ -51,10 +51,9 @@ make env-down           # docker compose down --volumes
 
 The agentic loops (`internal/server/org-delegation.go`, `internal/server/chat-sessions.go`, `internal/service/workflow/nodes/agent-call.go`) are governed by `internal/service/loopgov`, which enforces:
 
-- A sliding-window message budget on every `provider.Chat` call (rolling-summary fallback)
+- A sliding-window message budget on every `provider.Chat` call (optional rolling-summary fallback; default is "drop oldest")
 - A platform ceiling on iteration counts (clamps per-agent / per-task `max_iterations`)
-- A per-tool byte cap on tool results before they enter the LLM message history
-- An explicit `max_tokens` cap on every provider call
+- A single global byte cap on tool results before they enter the LLM message history; the full payload is dumped to the workspace as `.at-tool-output/<run-id>/<tool>-<seq>.txt` so the agent can read it on demand
 - A `LIMIT` on `ListChatMessages` reads in the chat-session loop
 
 Defaults are baked into `loopgov.fillDefaults` (no YAML / env knobs):
@@ -62,13 +61,16 @@ Defaults are baked into `loopgov.fillDefaults` (no YAML / env knobs):
 | Default | Value | Purpose |
 |---|---|---|
 | `WindowTokens` | 32768 | Input-token budget per Chat call |
-| `SummaryTokens` | 2000 | Cap on rolling-summary message |
+| `SummaryTokens` | 2000 | Cap on rolling-summary message (when summarizer is wired) |
 | `SummaryTimeout` | 10s | Bound on summarisation call |
 | `MaxIterCeiling` | 60 | Platform iteration ceiling |
-| `MaxOutputTokens` | 4096 | `max_tokens` for every Chat |
-| `ToolResultMaxBytes` | 8192 | Default tool-result cap (executable class) |
-| `ToolCapClassDefaults["structured"]` | 32768 | Cap for `task_get` / `task_list` etc. |
+| `ToolResultMaxBytes` | 65536 | Inline cap on every tool result; full payload spilled to dump file |
 | `ChatHistoryLimit` | 200 | Messages reloaded per chat turn |
+| `WorkspaceRoot` | `/tmp/at-tasks` | Where `.at-tool-output/<run-id>/...` dumps land |
+
+**No output-token cap.** Providers and agent configs already define per-model `max_tokens`. An earlier revision shipped a 4096-token platform cap; it broke structured outputs (e.g. multi-scene Script Writer JSON for video shorts) and was removed. `Governor.ChatOptions()` now always returns `nil`, the documented "no cap" sentinel for every provider adapter.
+
+**No per-tool / per-class byte caps.** Earlier revisions classified tools (`executable`, `structured`, `freeform`) and applied per-class caps with overrides for `task_get` / `task_list`. Those over-truncated structured tool outputs (notably the video-generation suite — FAL Veo, Sora, Runway — and the `delegate_to_*` channel that carries full script JSON between agents). We now use a single generous global cap and rely on the workspace dump file to preserve the original payload, which the agent can read via `file_read` or `bash_execute cat`.
 
 To override, edit the constants in `internal/service/loopgov/config.go` or add UI-driven configuration in a follow-up change. The `Disabled` field exists in `loopgov.Config` as an in-code rollback switch but is not exposed via YAML.
 
