@@ -644,14 +644,23 @@ func (s *Server) ClaudeAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	// Clean up the flow state.
 	claudeAuthFlows.remove(req.Key)
 
+	// Compute the absolute expiry from the OAuth response so the gateway
+	// can refresh proactively. ExpiresIn is in seconds; an empty / zero
+	// value means "unknown" — saveClaudeAuthTokens will store an empty
+	// string and the token source will refresh on first use.
+	expiresAt := ""
+	if tokenResp.ExpiresIn > 0 {
+		expiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second).UTC().Format(time.RFC3339)
+	}
+
 	// Save the tokens to the provider config.
-	if err := s.saveClaudeAuthTokens(req.Key, tokenResp.AccessToken, tokenResp.RefreshToken); err != nil {
+	if err := s.saveClaudeAuthTokens(req.Key, tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt); err != nil {
 		slog.Error("claude auth callback: failed to save tokens", "key", req.Key, "error", err)
 		httpResponse(w, fmt.Sprintf("authorized but failed to save tokens: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	slog.Info("claude auth: authorized", "key", req.Key)
+	slog.Info("claude auth: authorized", "key", req.Key, "expires_at", expiresAt)
 
 	httpResponseJSON(w, claudeAuthCallbackResponse{
 		Status: "authorized",
@@ -702,8 +711,11 @@ func (s *Server) ClaudeAuthTokenAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save the tokens and hot-reload the provider.
-	if err := s.saveClaudeAuthTokens(req.Key, req.AccessToken, req.RefreshToken); err != nil {
+	// Save the tokens and hot-reload the provider. The paste flow doesn't
+	// know the expiry, so pass an empty string — the OAuth token source
+	// will treat the token as expired and refresh on first use, learning
+	// the real expiry from the refresh response.
+	if err := s.saveClaudeAuthTokens(req.Key, req.AccessToken, req.RefreshToken, ""); err != nil {
 		slog.Error("claude auth token: failed to save tokens", "key", req.Key, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to save tokens: %v", err), http.StatusInternalServerError)
 		return
@@ -772,8 +784,9 @@ func (s *Server) ClaudeAuthSyncAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save the tokens and hot-reload the provider.
-	if err := s.saveClaudeAuthTokens(req.Key, accessToken, refreshToken); err != nil {
+	// Save the tokens and hot-reload the provider. expiresAt is RFC3339
+	// (or empty if the CLI credentials didn't carry an expiry).
+	if err := s.saveClaudeAuthTokens(req.Key, accessToken, refreshToken, expiresAt); err != nil {
 		slog.Error("claude auth sync: failed to save tokens", "key", req.Key, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to save tokens: %v", err), http.StatusInternalServerError)
 		return
@@ -935,7 +948,8 @@ func execCommand(name string, args ...string) (string, error) {
 }
 
 // saveClaudeAuthTokens updates the provider's tokens and hot-reloads.
-func (s *Server) saveClaudeAuthTokens(providerKey, accessToken, refreshToken string) error {
+// expiresAt is the access-token expiry as RFC3339 (empty = unknown).
+func (s *Server) saveClaudeAuthTokens(providerKey, accessToken, refreshToken, expiresAt string) error {
 	if s.store == nil {
 		return fmt.Errorf("store not configured")
 	}
@@ -951,6 +965,7 @@ func (s *Server) saveClaudeAuthTokens(providerKey, accessToken, refreshToken str
 	cfg := record.Config
 	cfg.APIKey = accessToken
 	cfg.RefreshToken = refreshToken
+	cfg.TokenExpiresAt = expiresAt
 
 	if _, err := s.store.UpdateProvider(context.Background(), providerKey, service.ProviderRecord{
 		Key:       providerKey,
@@ -965,4 +980,65 @@ func (s *Server) saveClaudeAuthTokens(providerKey, accessToken, refreshToken str
 	}
 
 	return nil
+}
+
+// claudeOAuthRefreshCallback returns a TokenRefreshCallback that persists
+// rotated access/refresh tokens (and the new expiry) for the given provider
+// key. The callback runs in the background — if persistence fails, the
+// in-memory token source still has the rotated values and inference will
+// keep working until the next process restart, so we log the error but do
+// not propagate it.
+func (s *Server) claudeOAuthRefreshCallback(providerKey string) antropic.TokenRefreshCallback {
+	return func(_ context.Context, accessToken, refreshToken string, expiresAt time.Time) {
+		if s.store == nil {
+			return
+		}
+
+		// Use a background context with a bounded timeout — the calling
+		// context may be a per-request one that's about to be cancelled.
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		record, err := s.store.GetProvider(ctx, providerKey)
+		if err != nil {
+			slog.Error("claude oauth refresh: failed to read provider for persistence",
+				"key", providerKey, "error", err)
+			return
+		}
+		if record == nil {
+			slog.Warn("claude oauth refresh: provider disappeared during refresh", "key", providerKey)
+			return
+		}
+
+		cfg := record.Config
+		cfg.APIKey = accessToken
+		cfg.RefreshToken = refreshToken
+		if !expiresAt.IsZero() {
+			cfg.TokenExpiresAt = expiresAt.UTC().Format(time.RFC3339)
+		}
+
+		if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
+			Key:       providerKey,
+			Config:    cfg,
+			UpdatedBy: "system:oauth-refresh",
+		}); err != nil {
+			slog.Error("claude oauth refresh: failed to persist rotated tokens",
+				"key", providerKey, "error", err)
+			return
+		}
+
+		slog.Info("claude oauth: tokens rotated and persisted",
+			"key", providerKey, "expires_at", cfg.TokenExpiresAt)
+	}
+}
+
+// wireClaudeOAuthCallback installs the persistence callback on the provider's
+// OAuth token source if it is using one. Safe to call on any provider type;
+// it is a no-op for non-OAuth providers.
+func (s *Server) wireClaudeOAuthCallback(providerKey string, p service.LLMProvider) {
+	ap, ok := p.(*antropic.Provider)
+	if !ok {
+		return
+	}
+	ap.SetTokenRefreshCallback(s.claudeOAuthRefreshCallback(providerKey))
 }

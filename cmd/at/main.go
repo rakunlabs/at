@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"time"
 
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
@@ -66,13 +67,43 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		switch cfg.AuthType {
 		case "claude-code":
 			if cfg.APIKey != "" {
-				// Use a static token source — no auto-refresh.
-				// Anthropic's token refresh endpoint behaves differently
-				// depending on Content-Type and may produce tokens that
-				// don't work with tools+thinking. The synced CLI token
-				// is valid for 8 hours. Users can re-sync when it expires.
-				ts := antropic.NewStaticTokenSource(cfg.APIKey)
-				opts = append(opts, antropic.WithTokenSource(ts))
+				// When a refresh token is present, use the auto-refreshing
+				// OAuth token source so the access token is rotated before
+				// it expires (Claude Pro/Max access tokens are valid for
+				// ~8 hours). If only an access token is set (no refresh
+				// token), fall back to a static source — the user will
+				// have to re-sync from the UI when it expires.
+				if cfg.RefreshToken != "" {
+					// Build a proxy-aware HTTP client so refresh requests
+					// to platform.claude.com go through the same proxy as
+					// the inference traffic.
+					httpClient, err := openai.ProxyHTTPClient(cfg.Proxy, cfg.InsecureSkipVerify)
+					if err != nil {
+						return nil, fmt.Errorf("failed to create proxy client for claude oauth: %w", err)
+					}
+
+					// Parse the persisted expiry. An empty / unparseable
+					// value yields a zero time, which OAuthTokenSource
+					// treats as "expired" — it will refresh on first use.
+					var expiresAt time.Time
+					if cfg.TokenExpiresAt != "" {
+						if t, perr := time.Parse(time.RFC3339, cfg.TokenExpiresAt); perr == nil {
+							expiresAt = t
+						} else {
+							slog.Warn("anthropic provider: ignoring unparseable token_expires_at",
+								"value", cfg.TokenExpiresAt, "error", perr.Error())
+						}
+					}
+
+					// Persistence callback is wired by the server after
+					// the provider is constructed (see Server.wireClaudeOAuthCallback);
+					// passing nil here keeps cmd/at decoupled from the store.
+					ts := antropic.NewOAuthTokenSource(cfg.APIKey, cfg.RefreshToken, expiresAt, httpClient, nil)
+					opts = append(opts, antropic.WithTokenSource(ts))
+				} else {
+					ts := antropic.NewStaticTokenSource(cfg.APIKey)
+					opts = append(opts, antropic.WithTokenSource(ts))
+				}
 			}
 			// If no APIKey yet, create the provider without a token source.
 			// The user will need to complete the OAuth flow via the UI.

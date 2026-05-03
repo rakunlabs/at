@@ -221,6 +221,14 @@ type LLMConfig struct {
 	// This field is managed automatically by the OAuth flow and should not be set manually.
 	RefreshToken string `cfg:"refresh_token" json:"refresh_token" log:"-"`
 
+	// TokenExpiresAt stores the access-token expiry time as RFC3339.
+	// Used by OAuth-based auth (auth_type="claude-code") so the provider
+	// can refresh proactively before the token expires instead of waiting
+	// for an upstream 401. Managed automatically by the OAuth flow; an
+	// empty value means "expiry unknown" — the token source will refresh
+	// on first use.
+	TokenExpiresAt string `cfg:"token_expires_at" json:"token_expires_at"`
+
 	// Proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL to route all requests
 	// through before reaching the provider. For example:
 	//   - "http://proxy.example.com:8080"

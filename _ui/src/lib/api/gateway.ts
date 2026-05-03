@@ -19,6 +19,9 @@ export interface InfoResponse {
   name?: string;
   version?: string;
   user?: string;
+  // Effective task workspace base directory on the server filesystem.
+  // Equals loopgov.Config.WorkspaceRoot, falling back to /tmp/at-tasks.
+  workspace_root?: string;
 }
 
 export async function getInfo(): Promise<InfoResponse> {

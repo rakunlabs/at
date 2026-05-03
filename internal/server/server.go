@@ -442,6 +442,14 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		containerManager: container.New(),
 	}
 
+	// Wire the OAuth refresh persistence callback on every initially-loaded
+	// provider. This is a no-op for providers that don't use an OAuth
+	// token source. Done here (rather than in cmd/at/main.go) so the
+	// callback can close over *Server and write back to the store.
+	for key, info := range s.providers {
+		s.wireClaudeOAuthCallback(key, info.provider)
+	}
+
 	// Load predefined skill templates from embedded JSON files.
 	s.loadSkillTemplates()
 	// Sync installed skill handlers with current templates (applies handler bug fixes).
@@ -1141,6 +1149,10 @@ func (s *Server) reloadProvider(key string, cfg config.LLMConfig) error {
 	if err != nil {
 		return fmt.Errorf("create provider %q: %w", key, err)
 	}
+
+	// Wire the OAuth refresh persistence callback so rotated tokens are
+	// saved back to the store. No-op for non-OAuth providers.
+	s.wireClaudeOAuthCallback(key, provider)
 
 	info := NewProviderInfo(provider, cfg)
 

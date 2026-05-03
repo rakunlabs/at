@@ -7,6 +7,7 @@
     FileCode, FileAudio, Download, X, ChevronRight, Home, Search,
   } from 'lucide-svelte';
   import axios from 'axios';
+  import { getInfo } from '@/lib/api/gateway';
 
   storeNavbar.title = 'Files';
 
@@ -21,12 +22,18 @@
   }
 
   // The file API operates on the daemon's full filesystem (no allow-list).
-  // We still default to /tmp/at-tasks because that's the most common
-  // browse target — agent task workspaces.
-  let currentPath = $state('/tmp/at-tasks');
-  let parentPath = $state('/tmp/at-tasks');
+  // The backend defaults `GET /files/browse` (no path) to the configured
+  // task-workspace root (loopgov.WorkspaceRoot), so we start with empty
+  // strings and let the server tell us where we landed. The actual path
+  // is filled in by the first `browse('')` call below.
+  let currentPath = $state('');
+  let parentPath = $state('');
   // Free-text path input so the user can jump anywhere on the host.
-  let pathInput = $state('/tmp/at-tasks');
+  let pathInput = $state('');
+  // Effective workspace root reported by the server (GET /api/v1/info).
+  // Used for the "tasks" quick-nav button. Falls back to /tmp/at-tasks
+  // until the info request returns.
+  let workspaceRoot = $state('/tmp/at-tasks');
   let entries = $state<FileEntry[]>([]);
   let loading = $state(false);
   let deleteConfirm = $state<string | null>(null);
@@ -212,8 +219,23 @@
     return crumbs;
   });
 
+  // On mount: fetch the effective workspace root from the server, then
+  // browse it. We only run once — `untrack` keeps this from re-firing on
+  // every state change.
   $effect(() => {
-    untrack(() => browse(currentPath));
+    untrack(async () => {
+      try {
+        const info = await getInfo();
+        if (info.workspace_root) {
+          workspaceRoot = info.workspace_root;
+        }
+      } catch {
+        // Non-fatal: keep the /tmp/at-tasks fallback.
+      }
+      // browse('') asks the backend for its configured default; the
+      // server will resolve and return the actual path in `res.data.path`.
+      browse(currentPath);
+    });
   });
 </script>
 
@@ -271,10 +293,13 @@
             class="w-36 pl-7 pr-2 py-1 text-[11px] border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted"
           />
         </div>
-        <!-- Quick nav shortcuts to common agent workspace roots. -->
+        <!-- Quick nav shortcuts to common agent workspace roots.
+             "tasks" jumps to the configured loopgov.WorkspaceRoot
+             (defaults to /tmp/at-tasks). -->
         <button
-          onclick={() => browse('/tmp/at-tasks')}
+          onclick={() => browse(workspaceRoot)}
           class="px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors rounded"
+          title={workspaceRoot}
         >tasks</button>
         <button
           onclick={() => browse('/tmp/at-sandbox')}

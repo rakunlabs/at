@@ -15,11 +15,12 @@ import (
 
 // infoResponse is returned by GET /api/v1/info.
 type infoResponse struct {
-	Providers []infoProvider `json:"providers"`
-	StoreType string         `json:"store_type"` // "postgres", "sqlite", or "none"
-	Name      string         `json:"name"`       // Server name from config
-	User      string         `json:"user,omitempty"`
-	Version   string         `json:"version"`
+	Providers     []infoProvider `json:"providers"`
+	StoreType     string         `json:"store_type"` // "postgres", "sqlite", or "none"
+	Name          string         `json:"name"`       // Server name from config
+	User          string         `json:"user,omitempty"`
+	Version       string         `json:"version"`
+	WorkspaceRoot string         `json:"workspace_root"` // Effective task workspace base dir (loopgov.WorkspaceRoot, falls back to /tmp/at-tasks)
 }
 
 type infoProvider struct {
@@ -51,11 +52,12 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 	storeType := s.storeType
 
 	httpResponseJSON(w, infoResponse{
-		Providers: providerList,
-		StoreType: storeType,
-		Name:      s.config.Name,
-		User:      s.getUserEmail(r),
-		Version:   s.version,
+		Providers:     providerList,
+		StoreType:     storeType,
+		Name:          s.config.Name,
+		User:          s.getUserEmail(r),
+		Version:       s.version,
+		WorkspaceRoot: s.taskWorkspaceBase(),
 	}, http.StatusOK)
 }
 

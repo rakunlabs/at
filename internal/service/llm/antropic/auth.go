@@ -65,8 +65,13 @@ func (s *StaticTokenSource) Token(_ context.Context) (string, error) {
 // ─── OAuthTokenSource ───
 
 // TokenRefreshCallback is called after a successful token refresh.
-// The server uses this to persist the new tokens to the store.
-type TokenRefreshCallback func(ctx context.Context, accessToken, refreshToken string)
+// The server uses this to persist the new tokens (and expiry) to the store
+// so that subsequent restarts have a fresh access token and don't have to
+// burn an extra refresh round trip on boot.
+//
+// expiresAt is the absolute expiry time of the new access token. A zero
+// value means "unknown" (e.g. the upstream did not return expires_in).
+type TokenRefreshCallback func(ctx context.Context, accessToken, refreshToken string, expiresAt time.Time)
 
 // OAuthTokenSource manages Claude OAuth tokens with automatic refresh.
 // It caches the access token and refreshes it using the refresh token
@@ -108,10 +113,11 @@ func (ts *OAuthTokenSource) SetRefreshCallback(fn TokenRefreshCallback) {
 // Token returns a valid access token, refreshing if necessary.
 func (ts *OAuthTokenSource) Token(ctx context.Context) (string, error) {
 	ts.mu.Lock()
-	defer ts.mu.Unlock()
 
-	if ts.accessToken != "" && time.Now().Before(ts.expiresAt.Add(-oauthTokenExpiryBuffer)) {
-		return ts.accessToken, nil
+	if ts.accessToken != "" && !ts.expiresAt.IsZero() && time.Now().Before(ts.expiresAt.Add(-oauthTokenExpiryBuffer)) {
+		token := ts.accessToken
+		ts.mu.Unlock()
+		return token, nil
 	}
 
 	if ts.refreshToken == "" {
@@ -121,17 +127,24 @@ func (ts *OAuthTokenSource) Token(ctx context.Context) (string, error) {
 			// fallback. This is better than a hard error because short-lived
 			// clock skew or server-side grace periods may still accept the token.
 			slog.Warn("anthropic oauth: access token expired and no refresh token available, using stale token")
-			return ts.accessToken, nil
+			token := ts.accessToken
+			ts.mu.Unlock()
+			return token, nil
 		}
 
+		ts.mu.Unlock()
 		return "", fmt.Errorf("no access token or refresh token available (authorize via Claude OAuth)")
 	}
 
+	// refreshLocked unlocks ts.mu before invoking the persistence callback
+	// so that other Token() callers don't block on a slow DB write.
 	return ts.refreshLocked(ctx)
 }
 
 // refreshLocked exchanges the refresh token for new tokens.
-// Caller must hold ts.mu.
+// Caller must hold ts.mu; this function unlocks the mutex before
+// invoking the persistence callback so that concurrent Token() callers
+// don't block on a slow DB write.
 func (ts *OAuthTokenSource) refreshLocked(ctx context.Context) (string, error) {
 	// Use form-encoded body matching the OpenCode anthropic-oauth plugin.
 	// IMPORTANT: Anthropic's token endpoint returns different token capabilities
@@ -159,19 +172,23 @@ func (ts *OAuthTokenSource) refreshLocked(ctx context.Context) (string, error) {
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
+		ts.mu.Unlock()
 		return "", fmt.Errorf("read refresh response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
+		ts.mu.Unlock()
 		return "", fmt.Errorf("token refresh returned %d: %s", resp.StatusCode, truncate(string(respBody), 300))
 	}
 
 	var tokenResp oauthTokenResponse
 	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
+		ts.mu.Unlock()
 		return "", fmt.Errorf("parse refresh response: %w", err)
 	}
 
 	if tokenResp.AccessToken == "" {
+		ts.mu.Unlock()
 		return "", fmt.Errorf("token refresh returned empty access token")
 	}
 
@@ -183,14 +200,23 @@ func (ts *OAuthTokenSource) refreshLocked(ctx context.Context) (string, error) {
 		ts.expiresAt = time.Now().Add(time.Duration(tokenResp.ExpiresIn) * time.Second)
 	}
 
+	// Snapshot the values we need outside the lock so we can release the
+	// mutex before doing the (potentially slow) persistence callback.
+	accessToken := ts.accessToken
+	refreshToken := ts.refreshToken
+	expiresAt := ts.expiresAt
+	cb := ts.onRefresh
+	ts.mu.Unlock()
+
 	slog.Debug("claude oauth token refreshed", "expires_in", tokenResp.ExpiresIn)
 
-	// Notify the server to persist the new tokens.
-	if ts.onRefresh != nil {
-		ts.onRefresh(ctx, ts.accessToken, ts.refreshToken)
+	// Notify the server to persist the new tokens. Run outside the
+	// mutex so concurrent Token() callers don't block on the DB write.
+	if cb != nil {
+		cb(ctx, accessToken, refreshToken, expiresAt)
 	}
 
-	return ts.accessToken, nil
+	return accessToken, nil
 }
 
 // ─── Token types ───

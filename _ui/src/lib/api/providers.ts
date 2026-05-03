@@ -27,6 +27,12 @@ export interface LLMConfig {
   models?: string[];
   extra_headers?: Record<string, string>;
   auth_type?: string;
+  // OAuth refresh token (managed by the claude-auth flow; redacted by the
+  // server when present).
+  refresh_token?: string;
+  // Absolute access-token expiry (RFC3339). Managed by the OAuth flow; lets
+  // the gateway refresh proactively across restarts.
+  token_expires_at?: string;
   proxy?: string;
   insecure_skip_verify?: boolean;
   rate_limit?: RateLimitConfig;

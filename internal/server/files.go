@@ -84,9 +84,10 @@ func resolvePath(w http.ResponseWriter, raw string, requireDir bool) (string, os
 func (s *Server) FileBrowseAPI(w http.ResponseWriter, r *http.Request) {
 	dirPath := r.URL.Query().Get("path")
 	if dirPath == "" {
-		// Default to the task-workspace root since that's the most common
-		// browse target. The user can navigate elsewhere from there.
-		dirPath = "/tmp/at-tasks"
+		// Default to the configured task-workspace root since that's the
+		// most common browse target. Resolves the same way as
+		// org-delegation: loopgov.Config.WorkspaceRoot → /tmp/at-tasks.
+		dirPath = s.taskWorkspaceBase()
 	}
 
 	resolved, _, ok := resolvePath(w, dirPath, true)
