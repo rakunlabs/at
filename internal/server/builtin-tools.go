@@ -157,7 +157,164 @@ var builtinTools = []builtinToolDef{
 
 	// ─── Skill Management Tools ───
 	{Name: "skill_list", Description: "List installed skills and available skill templates. Shows both what's already installed and what templates can be installed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"category": map[string]any{"type": "string", "description": "Filter templates by category (e.g. 'Content Creation', 'Development', 'Utilities')"}}}},
+	{Name: "skill_get", Description: "Get a skill's full details by ID, including its system prompt and the complete list of tool definitions (with handlers).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The skill ID"}}, "required": []string{"id"}}},
 	{Name: "skill_install_template", Description: "Install a skill from a built-in template. After installation, the skill can be assigned to agents. Check required variables in the response.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"slug": map[string]any{"type": "string", "description": "Template slug identifier (use skill_list to see available templates)"}}, "required": []string{"slug"}}},
+	{Name: "skill_create", Description: "Create a new custom skill with a system prompt fragment and a list of tools. Each tool has a name, description, JSON-schema input_schema, and a handler (JavaScript code by default, or bash if handler_type='bash'). Skills are reusable: once created, they can be assigned to any agent. Useful when an agent needs to author a domain-specific capability set rather than a single tool.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":          map[string]any{"type": "string", "description": "Skill name (unique). Lowercase letters, numbers, underscores recommended."},
+			"description":   map[string]any{"type": "string", "description": "Short description shown in skill listings"},
+			"category":      map[string]any{"type": "string", "description": "Optional category (e.g. 'Content Creation', 'Development', 'Utilities')"},
+			"tags":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional tags for grouping/filtering"},
+			"system_prompt": map[string]any{"type": "string", "description": "Prompt fragment appended to the agent's system prompt when this skill is loaded"},
+			"tools": map[string]any{
+				"type":        "array",
+				"description": "Tool definitions exposed by this skill. Each tool may include a JS or bash handler that runs when an agent calls it.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":         map[string]any{"type": "string", "description": "Tool name (unique within the skill)"},
+						"description":  map[string]any{"type": "string", "description": "Description shown to the LLM when picking tools"},
+						"input_schema": map[string]any{"type": "object", "description": "JSON Schema describing the tool's arguments"},
+						"handler":      map[string]any{"type": "string", "description": "Handler source. JS by default: write a function body; arguments are available as the `args` object; return a string. Bash: write a shell script; arguments are exposed as ARG_<UPPER_KEY> env vars; stdout becomes the result."},
+						"handler_type": map[string]any{"type": "string", "description": "'js' (default) or 'bash'", "enum": []string{"js", "bash"}},
+					},
+					"required": []string{"name", "description"},
+				},
+			},
+		},
+		"required": []string{"name"},
+	}},
+	{Name: "skill_update", Description: "Update an existing skill. The full skill (name, description, system_prompt, tools) is replaced; pass the complete intended state. To make a small edit, fetch with skill_get first, modify the returned object, and pass the result back.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":            map[string]any{"type": "string", "description": "The skill ID to update"},
+			"name":          map[string]any{"type": "string", "description": "Skill name"},
+			"description":   map[string]any{"type": "string", "description": "Short description"},
+			"category":      map[string]any{"type": "string", "description": "Category"},
+			"tags":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Tags"},
+			"system_prompt": map[string]any{"type": "string", "description": "Prompt fragment appended to the agent's system prompt"},
+			"tools": map[string]any{
+				"type":        "array",
+				"description": "Full replacement of the tool list. Same shape as skill_create.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"name":         map[string]any{"type": "string"},
+						"description":  map[string]any{"type": "string"},
+						"input_schema": map[string]any{"type": "object"},
+						"handler":      map[string]any{"type": "string"},
+						"handler_type": map[string]any{"type": "string", "enum": []string{"js", "bash"}},
+					},
+					"required": []string{"name", "description"},
+				},
+			},
+		},
+		"required": []string{"id", "name"},
+	}},
+	{Name: "skill_delete", Description: "Delete a skill by ID. Agents using this skill will lose access to its tools and system-prompt fragment on their next run.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The skill ID to delete"}}, "required": []string{"id"}}},
+	{Name: "skill_test_handler", Description: "Test-execute a single tool handler (JS or bash) with sample arguments without persisting it. Useful for iterating on a handler before saving the skill. Returns the handler's stdout/return value plus duration.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"handler":      map[string]any{"type": "string", "description": "Handler source code (JS body or bash script)"},
+			"handler_type": map[string]any{"type": "string", "description": "'js' (default) or 'bash'", "enum": []string{"js", "bash"}},
+			"arguments":    map[string]any{"type": "object", "description": "Sample arguments object to pass to the handler"},
+		},
+		"required": []string{"handler"},
+	}},
+	{Name: "skill_export", Description: "Export a skill as a portable JSON document (no IDs/timestamps). Use the result as input to skill_import on another instance, or to back up a skill before editing.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The skill ID to export"}}, "required": []string{"id"}}},
+	{Name: "skill_import", Description: "Import a skill from a portable JSON document (the shape produced by skill_export). Creates a new skill with a fresh ID. Pass the export object directly.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":          map[string]any{"type": "string", "description": "Skill name"},
+			"description":   map[string]any{"type": "string", "description": "Description"},
+			"system_prompt": map[string]any{"type": "string", "description": "System prompt fragment"},
+			"tools":         map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Tool definitions (same shape as skill_create.tools)"},
+		},
+		"required": []string{"name"},
+	}},
+	{Name: "skill_import_url", Description: "Fetch a skill from a URL and install it. Auto-detects JSON (skill_export format) and Anthropic SKILL.md (markdown with frontmatter) formats. Useful for installing skills from a Git raw URL or a marketplace.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"url": map[string]any{"type": "string", "description": "URL to a skill JSON or SKILL.md file"}}, "required": []string{"url"}}},
+	{Name: "skill_import_skillmd", Description: "Import a skill by parsing raw Anthropic SKILL.md content. Frontmatter must contain at least `name` and `description`; the body becomes the skill's system_prompt.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"content": map[string]any{"type": "string", "description": "Raw SKILL.md content"}}, "required": []string{"content"}}},
+
+	// ─── MCP Server / MCP Set Management Tools ───
+	{Name: "mcp_server_list", Description: "List all general (gateway-facing) MCP servers. These expose composed tool sets (HTTP tools, upstream MCPs, RAG, skills, builtins, workflows) over a public MCP endpoint.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "mcp_server_get", Description: "Get full details of a gateway-facing MCP server, including its config (HTTP tools, upstream MCPs, enabled skills/builtins, RAG settings).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP server ID"}}, "required": []string{"id"}}},
+	{Name: "mcp_server_create", Description: "Create a new gateway-facing MCP server. The `config` object can declare HTTP tools, upstream MCP servers (HTTP or stdio), enabled skill names, enabled builtin tool names, RAG collections, and workflow IDs. Once created, agents and external MCP clients can call its tools.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":        map[string]any{"type": "string", "description": "MCP server name (unique, used in the public URL)"},
+			"description": map[string]any{"type": "string", "description": "Description"},
+			"config": map[string]any{
+				"type":        "object",
+				"description": "MCP server configuration",
+				"properties": map[string]any{
+					"description":           map[string]any{"type": "string"},
+					"http_tools":            map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Custom HTTP tools: [{name, description, method, url, headers?, body_template?, input_schema}]"},
+					"mcp_upstreams":         map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Upstream MCP servers to proxy: [{url, headers?} or {command, args?, env?}]"},
+					"enabled_skills":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Skill names whose tools should be exposed"},
+					"enabled_builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Builtin tool names to expose (e.g. 'http_request', 'task_create')"},
+					"workflow_ids":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workflow IDs to expose as named tools"},
+					"enabled_rag_tools":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "RAG tool names to expose (e.g. 'rag_search', 'rag_list_collections')"},
+					"collection_ids":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "RAG collection IDs scoped to this server"},
+					"fetch_mode":            map[string]any{"type": "string"},
+					"default_num_results":   map[string]any{"type": "integer"},
+					"token_variable":        map[string]any{"type": "string"},
+					"token_user":            map[string]any{"type": "string"},
+					"ssh_key_variable":      map[string]any{"type": "string"},
+				},
+			},
+			"servers": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional list of upstream server names referenced by config"},
+			"urls":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional list of public URLs"},
+		},
+		"required": []string{"name"},
+	}},
+	{Name: "mcp_server_update", Description: "Update a gateway-facing MCP server. Full replacement: pass the complete intended state. Fetch with mcp_server_get first, mutate, then submit.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":          map[string]any{"type": "string", "description": "The MCP server ID to update"},
+			"name":        map[string]any{"type": "string", "description": "MCP server name"},
+			"description": map[string]any{"type": "string"},
+			"config":      map[string]any{"type": "object", "description": "Same shape as mcp_server_create.config"},
+			"servers":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"urls":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required": []string{"id", "name"},
+	}},
+	{Name: "mcp_server_delete", Description: "Delete a gateway-facing MCP server by ID. Existing MCP clients pointed at its URL will start receiving 404 on their next request.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP server ID to delete"}}, "required": []string{"id"}}},
+
+	{Name: "mcp_set_list", Description: "List all MCP Sets — internal MCP configurations agents can be assigned via the `mcp_sets` field on agent_create/agent_update. Each set composes builtins, skills, HTTP tools, upstream MCPs, RAG, and workflows.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "mcp_set_get", Description: "Get full details of an MCP Set by ID, including its config.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP Set ID"}}, "required": []string{"id"}}},
+	{Name: "mcp_set_create", Description: "Create a new MCP Set. Same config shape as mcp_server_create — the difference is that MCP Sets are consumed internally by agents (referenced by name in agent.mcp_sets) rather than exposed as a public gateway endpoint.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":        map[string]any{"type": "string", "description": "MCP Set name (unique; agents reference it by this name)"},
+			"description": map[string]any{"type": "string"},
+			"category":    map[string]any{"type": "string"},
+			"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"config": map[string]any{
+				"type":        "object",
+				"description": "Same shape as mcp_server_create.config — see that tool's docs for fields.",
+			},
+			"servers": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"urls":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required": []string{"name"},
+	}},
+	{Name: "mcp_set_update", Description: "Update an MCP Set. Full replacement; fetch with mcp_set_get first, mutate, then submit.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":          map[string]any{"type": "string", "description": "The MCP Set ID to update"},
+			"name":        map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"category":    map[string]any{"type": "string"},
+			"tags":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"config":      map[string]any{"type": "object"},
+			"servers":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"urls":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+		},
+		"required": []string{"id", "name"},
+	}},
+	{Name: "mcp_set_delete", Description: "Delete an MCP Set by ID. Agents currently referencing it by name will lose its tools on their next run.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP Set ID to delete"}}, "required": []string{"id"}}},
 
 	// ─── Provider Tools ───
 	{Name: "provider_list", Description: "List all configured LLM providers with their available models. Use this to discover which providers and models are available when creating or updating agents. API keys are redacted.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
@@ -218,6 +375,384 @@ var builtinTools = []builtinToolDef{
 		},
 		"required": []string{"id"},
 	}},
+
+	// ─── Bot Lifecycle Tools (Phase 2) ───
+	// These complement bot_list/get/update with the lifecycle ops the UI
+	// exposes: create a brand-new bot from an external token, delete one,
+	// and explicitly start/stop the polling goroutine. The token field is
+	// REQUIRED on create — the caller must source a real Telegram/Discord
+	// token from outside the system. Every response that echoes a bot
+	// record redacts the token field via redactBotToken (same behaviour as
+	// bot_get).
+	{Name: "bot_create", Description: "Create a new bot configuration. Requires `platform` ('telegram' or 'discord') and `token`. If `enabled=true` (default) and a token is present, the polling goroutine is started immediately. Returns the created record with the token redacted.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"platform":          map[string]any{"type": "string", "description": "'telegram' or 'discord'", "enum": []string{"telegram", "discord"}},
+			"name":              map[string]any{"type": "string", "description": "Display name for the bot"},
+			"token":             map[string]any{"type": "string", "description": "Bot token from Telegram BotFather or Discord developer portal. Required."},
+			"default_agent_id":  map[string]any{"type": "string", "description": "Agent that handles unknown commands and chat messages"},
+			"allowed_agent_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Agents the user can /switch to"},
+			"channel_agents":    map[string]any{"type": "object", "description": "chat_id → agent_id overrides (object with string values)"},
+			"custom_commands":   map[string]any{"type": "array", "items": map[string]any{"type": "object"}, "description": "Slash command list, same shape as bot_update.custom_commands"},
+			"access_mode":       map[string]any{"type": "string", "description": "'public', 'allowlist', or 'pending'"},
+			"pending_approval":  map[string]any{"type": "boolean"},
+			"allowed_users":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"enabled":           map[string]any{"type": "boolean", "description": "Whether the bot polls. Defaults to true; if false, the bot is stored but not started."},
+			"user_containers":   map[string]any{"type": "boolean"},
+			"container_image":   map[string]any{"type": "string"},
+			"container_cpu":     map[string]any{"type": "string"},
+			"container_memory":  map[string]any{"type": "string"},
+			"speech_to_text":    map[string]any{"type": "string"},
+			"whisper_model":     map[string]any{"type": "string"},
+		},
+		"required": []string{"platform", "token"},
+	}},
+	{Name: "bot_delete", Description: "Delete a bot configuration by ID. Stops the polling goroutine first if running. Use this to permanently remove a bot — for a temporary stop without losing config, use bot_stop.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "Bot config ID"}}, "required": []string{"id"}}},
+	{Name: "bot_start", Description: "Start the polling goroutine for a bot. Returns 409-equivalent error if already running. Sets enabled=true on the stored record so the bot auto-starts on the next AT restart.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "Bot config ID"}}, "required": []string{"id"}}},
+	{Name: "bot_stop", Description: "Stop the polling goroutine for a bot. Returns 409-equivalent error if not running. Sets enabled=false on the stored record so the bot does NOT auto-start on the next AT restart.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "Bot config ID"}}, "required": []string{"id"}}},
+	{Name: "bot_status", Description: "Get the live runtime status of a bot. Returns {running, platform, started_at} when running, or {running:false} otherwise. This reflects the in-memory polling state, not the `enabled` flag in the DB.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "Bot config ID"}}, "required": []string{"id"}}},
+
+	// ─── Provider Write Tools (Phase 2) ───
+	// Read-only provider_list / provider_get were already exposed; these
+	// add full create/update/delete plus model discovery. Provider records
+	// are keyed by `key` (string), NOT by ULID — the UI uses keys like
+	// "openai-prod" or "anthropic-main". `api_key` and `refresh_token`
+	// are auto-redacted to "***" in any response that echoes the config,
+	// matching the HTTP API behaviour. On Update, empty `api_key` /
+	// `refresh_token` preserve the existing stored secrets so a fetch +
+	// edit + write round-trip can't accidentally clobber them.
+	{Name: "provider_create", Description: "Register a new LLM provider. The provider is hot-reloaded into the live registry on success — no restart needed. The `config.type` field selects the adapter (openai, anthropic, gemini, minimax, vertex). API keys are encrypted at rest. Returns the created record with secrets redacted.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key": map[string]any{"type": "string", "description": "Provider key (unique). Used in agent.provider and the public /gateway/v1 routing."},
+			"config": map[string]any{
+				"type":        "object",
+				"description": "LLMConfig",
+				"properties": map[string]any{
+					"type":          map[string]any{"type": "string", "description": "Adapter type", "enum": []string{"openai", "anthropic", "gemini", "minimax", "vertex"}},
+					"api_key":       map[string]any{"type": "string", "description": "Provider API key (stored encrypted)"},
+					"base_url":      map[string]any{"type": "string", "description": "Override base URL (e.g. for OpenAI-compatible self-hosted endpoints)"},
+					"model":         map[string]any{"type": "string", "description": "Default model ID (returned as 'default_model' in read responses)"},
+					"models":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Allowlist of model IDs"},
+					"auth_type":     map[string]any{"type": "string", "description": "For Anthropic-style providers: e.g. 'oauth' or empty"},
+					"extra_headers": map[string]any{"type": "object", "description": "Extra HTTP headers added on every request"},
+					"proxy":         map[string]any{"type": "string", "description": "HTTP/HTTPS proxy URL"},
+					"refresh_token": map[string]any{"type": "string", "description": "Refresh token (stored encrypted) for OAuth-based providers"},
+					"rate_limit": map[string]any{
+						"type":        "object",
+						"description": "Per-provider rate limits (all >= 0; retry_after_cap_ms may be -1 = no cap)",
+						"properties": map[string]any{
+							"requests_per_minute":     map[string]any{"type": "integer"},
+							"input_tokens_per_minute": map[string]any{"type": "integer"},
+							"max_concurrent":          map[string]any{"type": "integer"},
+							"wait_timeout_ms":         map[string]any{"type": "integer"},
+							"retry_after_cap_ms":      map[string]any{"type": "integer", "description": "-1 = no cap, 0 = default, > 0 = explicit cap"},
+						},
+					},
+					"insecure_skip_verify": map[string]any{"type": "boolean"},
+				},
+				"required": []string{"type"},
+			},
+		},
+		"required": []string{"key", "config"},
+	}},
+	{Name: "provider_update", Description: "Update an existing LLM provider config. Empty `api_key` or `refresh_token` preserve the current stored secrets (so callers can edit other fields without re-supplying tokens). The provider is hot-reloaded on success.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key":    map[string]any{"type": "string", "description": "Provider key to update"},
+			"config": map[string]any{"type": "object", "description": "Same shape as provider_create.config. config.type is required."},
+		},
+		"required": []string{"key", "config"},
+	}},
+	{Name: "provider_delete", Description: "Delete an LLM provider by key. The provider is also removed from the in-memory registry; agents referencing it will fail until they're updated.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"key": map[string]any{"type": "string", "description": "Provider key to delete"}}, "required": []string{"key"}}},
+	{Name: "provider_discover_models", Description: "Discover available model IDs for a provider config by calling its model-listing API. Supported types: openai, anthropic, gemini, minimax. Pass an existing `key` to fall back to the stored API key if `config.api_key` is empty (useful when editing a provider whose key is redacted). Returns {models: [...]}.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"config": map[string]any{
+				"type":        "object",
+				"description": "LLMConfig — `type` is required, plus `api_key` / `auth_type` / `base_url` as needed",
+				"properties": map[string]any{
+					"type":          map[string]any{"type": "string"},
+					"api_key":       map[string]any{"type": "string"},
+					"base_url":      map[string]any{"type": "string"},
+					"auth_type":     map[string]any{"type": "string"},
+					"extra_headers": map[string]any{"type": "object"},
+					"proxy":         map[string]any{"type": "string"},
+				},
+				"required": []string{"type"},
+			},
+			"key": map[string]any{"type": "string", "description": "Optional existing provider key to fall back to its stored api_key/auth_type"},
+		},
+		"required": []string{"config"},
+	}},
+
+	// ─── API Token Tools (Phase 2) ───
+	// Gateway API tokens authenticate inbound `/gateway/v1/*` calls. The
+	// raw token value is returned ONLY ONCE on create — subsequent reads
+	// only show `token_prefix` (first 8 chars). Generation, hashing, and
+	// validation mirror the HTTP handler at api-tokens.go:113-125.
+	{Name: "apitoken_list", Description: "List all gateway API tokens. The raw token values are NEVER returned — only `token_prefix` (first 8 chars, e.g. 'at_xxxxx') and metadata. Use the prefix for display; the prefix alone cannot authenticate.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "apitoken_create", Description: "Create a new gateway API token. The raw token (`at_<64hex>`, 67 chars total) is returned ONCE in the response — store it immediately, it cannot be recovered later. The token is hashed (SHA-256) before storage; the plaintext never touches the DB. Allow-list modes: 'all' (default), 'none', 'list' (use the corresponding `allowed_*` array).", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":                   map[string]any{"type": "string", "description": "Human-readable name"},
+			"allowed_providers_mode": map[string]any{"type": "string", "enum": []string{"all", "none", "list"}, "description": "default: all"},
+			"allowed_providers":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Provider keys allowed when mode=list"},
+			"allowed_models_mode":    map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_models":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_webhooks_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_webhooks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_rag_mcps_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_rag_mcps":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"expires_at":             map[string]any{"type": "string", "description": "RFC3339 timestamp; omit for no expiry"},
+			"total_token_limit":      map[string]any{"type": "integer", "description": "Max total LLM tokens; omit for unlimited"},
+			"limit_reset_interval":   map[string]any{"type": "string", "description": "Duration string ('24h', '7d', '30d') or omit for manual reset"},
+		},
+		"required": []string{"name"},
+	}},
+	{Name: "apitoken_update", Description: "Update an existing gateway API token's metadata (name, allow lists, expiry, limits). The raw token value cannot be changed — to rotate, delete and create a new one.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":                     map[string]any{"type": "string", "description": "Token ID"},
+			"name":                   map[string]any{"type": "string"},
+			"allowed_providers_mode": map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_providers":      map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_models_mode":    map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_models":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_webhooks_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_webhooks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_rag_mcps_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_rag_mcps":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"expires_at":             map[string]any{"type": "string"},
+			"total_token_limit":      map[string]any{"type": "integer"},
+			"limit_reset_interval":   map[string]any{"type": "string"},
+		},
+		"required": []string{"id", "name"},
+	}},
+	{Name: "apitoken_delete", Description: "Delete a gateway API token. Inbound calls using this token start failing with 401 immediately.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+	{Name: "apitoken_get_usage", Description: "Get token usage records (requests, input/output tokens, costs) for an API token. Useful for auditing.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+	{Name: "apitoken_reset_usage", Description: "Reset usage counters for an API token (zero out the rolling counters used by `total_token_limit`). Used to manually reopen a token that hit its limit.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+
+	// ─── Variable Management Tools (Phase 2) ───
+	// Variables are the key-value store backing skill/workflow handlers.
+	// Secret variables are encrypted at rest and redacted to "***" in
+	// list responses (Get returns the unredacted value, matching the UI
+	// behaviour). Create is an upsert by key — if a variable with the
+	// same key exists, it's updated instead of erroring (mirrors HTTP).
+	{Name: "variable_list", Description: "List all variables. Secret variable values are redacted to '***' in this response; use variable_get to retrieve a specific secret unredacted.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "variable_get", Description: "Get a single variable by ID, INCLUDING its full unredacted value (even for secrets). Use this when a skill/workflow handler needs the live value — it's the same code path the UI's edit form uses.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "Variable ID"}}, "required": []string{"id"}}},
+	{Name: "variable_create", Description: "Create or upsert a variable. If a variable with the same `key` already exists, it's UPDATED instead of erroring (the value/description/secret flag are replaced). Use `secret: true` for tokens/passwords — these are encrypted at rest and redacted in list responses.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"key":         map[string]any{"type": "string", "description": "Variable key. Skills reference variables by key (case-sensitive)."},
+			"value":       map[string]any{"type": "string", "description": "Variable value"},
+			"description": map[string]any{"type": "string", "description": "Optional description"},
+			"secret":      map[string]any{"type": "boolean", "description": "If true, value is encrypted at rest and redacted in list responses"},
+		},
+		"required": []string{"key", "value"},
+	}},
+	{Name: "variable_update", Description: "Update a variable by ID. Pass the full intended state (key + value at minimum). Use variable_create to upsert by key without knowing the ID.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":          map[string]any{"type": "string", "description": "Variable ID"},
+			"key":         map[string]any{"type": "string"},
+			"value":       map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"secret":      map[string]any{"type": "boolean"},
+		},
+		"required": []string{"id", "key"},
+	}},
+	{Name: "variable_delete", Description: "Delete a variable by ID. Skills/workflows referencing the key will start failing on next access.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+
+	// ─── Connection Management Tools (Phase 2) ───
+	// Connections are named credential bundles for external services
+	// (YouTube, Twitter, OpenRouter, etc.). Credentials are AES-256-GCM
+	// encrypted at rest. Secret fields (client_secret, refresh_token,
+	// api_key, extra) are redacted to "*_set: true" booleans in every
+	// response by default; pass `reveal: true` to connection_get to
+	// receive the actual values (use sparingly — they're returned in
+	// plaintext to the agent's tool-result history). On Update, empty
+	// secret fields preserve the existing stored secret so renames
+	// don't clobber tokens.
+	{Name: "connection_list", Description: "List all connections (or filter by `provider`). Secret fields are always redacted in this response (returned as `*_set: true` booleans). Use connection_get with reveal=true to get actual values.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"provider": map[string]any{"type": "string", "description": "Filter by provider (e.g. 'youtube', 'twitter', 'openrouter')"},
+		},
+	}},
+	{Name: "connection_get", Description: "Get a connection by ID. By default secrets are redacted (only `*_set` booleans returned). Pass `reveal: true` to receive the actual `client_secret`, `refresh_token`, `api_key`, and `extra` values — use this only when the agent genuinely needs them, since the response is logged in tool history.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":     map[string]any{"type": "string", "description": "Connection ID"},
+			"reveal": map[string]any{"type": "boolean", "description": "If true, return secret values unredacted. Default: false."},
+		},
+		"required": []string{"id"},
+	}},
+	{Name: "connection_create", Description: "Create a new connection (named credential bundle for an external service). Required: `provider` and `name` (unique within provider). Credentials are encrypted at rest. Use `metadata` for non-secret context like scopes or expires_at.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"provider":      map[string]any{"type": "string", "description": "Provider key (e.g. 'youtube', 'twitter', or a skill slug)"},
+			"name":          map[string]any{"type": "string", "description": "Connection name (unique within provider, e.g. 'Main Channel')"},
+			"account_label": map[string]any{"type": "string", "description": "Human-readable identity (channel title, email, etc.)"},
+			"description":   map[string]any{"type": "string"},
+			"credentials": map[string]any{
+				"type":        "object",
+				"description": "Secret bundle. All fields optional; populate the subset relevant to the provider.",
+				"properties": map[string]any{
+					"client_id":     map[string]any{"type": "string"},
+					"client_secret": map[string]any{"type": "string"},
+					"refresh_token": map[string]any{"type": "string"},
+					"api_key":       map[string]any{"type": "string"},
+					"extra":         map[string]any{"type": "object", "description": "Free-form bag for additional secrets, keyed by original variable names"},
+				},
+			},
+			"metadata": map[string]any{"type": "object", "description": "Non-secret metadata (scopes, expires_at, etc.)"},
+		},
+		"required": []string{"provider", "name"},
+	}},
+	{Name: "connection_update", Description: "Update a connection by ID. Secret fields with empty/missing values PRESERVE the existing stored secret — so callers can rename or relabel without re-supplying tokens. Pass non-empty secret fields to overwrite them.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":            map[string]any{"type": "string", "description": "Connection ID"},
+			"provider":      map[string]any{"type": "string"},
+			"name":          map[string]any{"type": "string"},
+			"account_label": map[string]any{"type": "string"},
+			"description":   map[string]any{"type": "string"},
+			"credentials":   map[string]any{"type": "object", "description": "Same shape as connection_create.credentials. Empty values preserve existing."},
+			"metadata":      map[string]any{"type": "object"},
+		},
+		"required": []string{"id"},
+	}},
+	{Name: "connection_delete", Description: "Delete a connection by ID. By default fails (returns an error) if any agent references it; pass `force: true` to delete and atomically strip references from affected agents.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":    map[string]any{"type": "string", "description": "Connection ID"},
+			"force": map[string]any{"type": "boolean", "description": "If true, strip references from agents and delete. Default: false."},
+		},
+		"required": []string{"id"},
+	}},
+	{Name: "connection_import_from_variables", Description: "Scan the variables table for known OAuth provider key triples (e.g. `youtube_client_id` + `youtube_client_secret` + `youtube_refresh_token`) and create a Connection named 'Imported' for each complete set. The original variables are left in place. Useful for migrating from variables-based credentials to the connections model.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+
+	// ─── Node Config Tools (Phase 2) ───
+	// Node configs hold reusable per-node-type configuration (e.g. SMTP
+	// settings for the email workflow node). The `data` field is a JSON
+	// blob whose schema depends on `type`. Sensitive fields inside `data`
+	// (currently: email→password) are redacted in list responses; Get
+	// returns the full data for editing.
+	{Name: "node_config_list", Description: "List node configs. Optional `type` filter (e.g. 'email'). Sensitive fields inside the `data` JSON blob (e.g. email passwords) are redacted to '***' in this response.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"type": map[string]any{"type": "string", "description": "Filter by config type (e.g. 'email')"},
+		},
+	}},
+	{Name: "node_config_get", Description: "Get a node config by ID, including its full `data` blob with sensitive fields unredacted. Used for editing.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+	{Name: "node_config_create", Description: "Create a new node config. The `data` field is a JSON-encoded string (NOT an object) whose internal schema depends on `type`. For email: `{\"host\":\"smtp.example.com\",\"port\":587,\"username\":\"...\",\"password\":\"...\",\"from\":\"...\"}`.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name": map[string]any{"type": "string", "description": "Node config name"},
+			"type": map[string]any{"type": "string", "description": "Config type (e.g. 'email'). Selects which schema applies to `data`."},
+			"data": map[string]any{"type": "string", "description": "JSON-encoded config data (a string containing JSON, not an object)"},
+		},
+		"required": []string{"name", "type"},
+	}},
+	{Name: "node_config_update", Description: "Update a node config by ID. Pass the full intended state (name + type required).", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":   map[string]any{"type": "string"},
+			"name": map[string]any{"type": "string"},
+			"type": map[string]any{"type": "string"},
+			"data": map[string]any{"type": "string", "description": "JSON-encoded config data"},
+		},
+		"required": []string{"id", "name", "type"},
+	}},
+	{Name: "node_config_delete", Description: "Delete a node config by ID. Workflow nodes referencing it (by config_id) will fail at run time.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+
+	// ─── Guide Tools (Phase 2) ───
+	// User-authored markdown documentation surfaced inside the AT UI. No
+	// sensitive fields, no redaction.
+	{Name: "guide_list", Description: "List user-authored markdown guides shown in the AT UI's docs section.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "guide_get", Description: "Get a guide by ID, including its full markdown content.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+	{Name: "guide_create", Description: "Create a new user-authored guide. `content` is raw markdown (rendered client-side). `icon` is a lucide-svelte icon name (e.g. 'BookOpen', 'Hammer', 'Sparkles').", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"title":       map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"icon":        map[string]any{"type": "string", "description": "lucide-svelte icon name"},
+			"content":     map[string]any{"type": "string", "description": "Raw markdown body"},
+		},
+		"required": []string{"title"},
+	}},
+	{Name: "guide_update", Description: "Update a guide by ID. Pass the full intended state.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":          map[string]any{"type": "string"},
+			"title":       map[string]any{"type": "string"},
+			"description": map[string]any{"type": "string"},
+			"icon":        map[string]any{"type": "string"},
+			"content":     map[string]any{"type": "string"},
+		},
+		"required": []string{"id", "title"},
+	}},
+	{Name: "guide_delete", Description: "Delete a guide by ID.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+
+	// ─── Agent / Org / Task Destructive + Lifecycle Tools (Phase 2) ───
+	{Name: "agent_delete", Description: "Delete an agent by ID. WARNING: no cascade — referencing org memberships, connections, and chat sessions are NOT cleaned up by this tool. Use org_remove_agent first if the agent is in any organization.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+
+	{Name: "org_update", Description: "Update an organization. Partial update — empty `name`, `head_agent_id`, `max_delegation_depth`, and `canvas_layout` fall back to existing values. Setting a new `head_agent_id` is validated: the agent must already be an active member of the org.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"id":                                    map[string]any{"type": "string", "description": "Organization ID"},
+			"name":                                  map[string]any{"type": "string"},
+			"description":                           map[string]any{"type": "string"},
+			"issue_prefix":                          map[string]any{"type": "string"},
+			"head_agent_id":                         map[string]any{"type": "string", "description": "Must be an active member of the org"},
+			"budget_monthly_cents":                  map[string]any{"type": "number"},
+			"max_delegation_depth":                  map[string]any{"type": "integer"},
+			"require_board_approval_for_new_agents": map[string]any{"type": "boolean"},
+			"container_config": map[string]any{
+				"type":        "object",
+				"description": "Optional Docker container config for isolated agent execution",
+				"properties": map[string]any{
+					"enabled": map[string]any{"type": "boolean"},
+					"image":   map[string]any{"type": "string"},
+					"cpu":     map[string]any{"type": "string"},
+					"memory":  map[string]any{"type": "string"},
+					"network": map[string]any{"type": "boolean"},
+				},
+			},
+		},
+		"required": []string{"id"},
+	}},
+	{Name: "org_delete", Description: "Delete an organization by ID. WARNING: no cascade by default — child tasks, agent memberships, and goals/projects are NOT removed by this call.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+	{Name: "org_list_agents", Description: "List the agent memberships of an organization (the join-table records, including role, title, parent_agent_id, status, etc.).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"organization_id": map[string]any{"type": "string"}}, "required": []string{"organization_id"}}},
+	{Name: "org_update_agent", Description: "Update an agent's membership in an organization (role, title, parent_agent_id, status, heartbeat_schedule, memory settings). If `parent_agent_id` changes, the new hierarchy is cycle-checked; setting it to a non-member or creating a cycle returns an error. Empty `status` preserves existing.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"organization_id":    map[string]any{"type": "string"},
+			"agent_id":           map[string]any{"type": "string"},
+			"role":               map[string]any{"type": "string"},
+			"title":              map[string]any{"type": "string"},
+			"parent_agent_id":    map[string]any{"type": "string", "description": "Empty string = root node. Non-empty must be an existing member of the org and must not create a cycle."},
+			"status":             map[string]any{"type": "string", "description": "e.g. 'active'. Empty preserves existing."},
+			"heartbeat_schedule": map[string]any{"type": "string"},
+			"memory_model":       map[string]any{"type": "string"},
+			"memory_provider":    map[string]any{"type": "string"},
+			"memory_method":      map[string]any{"type": "string"},
+		},
+		"required": []string{"organization_id", "agent_id"},
+	}},
+	{Name: "org_remove_agent", Description: "Remove an agent from an organization (delete the org-agent membership record). The agent itself is not deleted; it just leaves the org.", InputSchema: map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"organization_id": map[string]any{"type": "string"},
+			"agent_id":        map[string]any{"type": "string"},
+		},
+		"required": []string{"organization_id", "agent_id"},
+	}},
+
+	{Name: "task_delete", Description: "Delete a task by ID. WARNING: no cascade — comments, labels, child tasks, and cost events tied to this task are NOT removed by this call.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
+	{Name: "task_cancel", Description: "Cancel a running task delegation. Sends a context-cancellation signal to the in-flight delegation goroutine for this task. Returns an error if no active delegation is running for the task.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "Task ID"}}, "required": []string{"id"}}},
+	{Name: "active_delegation_list", Description: "List all currently-running task delegations across the platform. Each entry has task_id, agent_id, org_id, started_at, and human-readable duration. Used for monitoring and debugging.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
 }
 
 // ─── Core Tool Executors ───

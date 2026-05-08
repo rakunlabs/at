@@ -114,8 +114,48 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 	// Skill tools.
 	case "skill_list":
 		return s.execSkillList(ctx, args)
+	case "skill_get":
+		return s.execSkillGet(ctx, args)
 	case "skill_install_template":
 		return s.execSkillInstallTemplate(ctx, args)
+	case "skill_create":
+		return s.execSkillCreate(ctx, args)
+	case "skill_update":
+		return s.execSkillUpdate(ctx, args)
+	case "skill_delete":
+		return s.execSkillDelete(ctx, args)
+	case "skill_test_handler":
+		return s.execSkillTestHandler(ctx, args)
+	case "skill_export":
+		return s.execSkillExport(ctx, args)
+	case "skill_import":
+		return s.execSkillImport(ctx, args)
+	case "skill_import_url":
+		return s.execSkillImportURL(ctx, args)
+	case "skill_import_skillmd":
+		return s.execSkillImportSkillMD(ctx, args)
+
+	// MCP server / set tools.
+	case "mcp_server_list":
+		return s.execMCPServerList(ctx, args)
+	case "mcp_server_get":
+		return s.execMCPServerGet(ctx, args)
+	case "mcp_server_create":
+		return s.execMCPServerCreate(ctx, args)
+	case "mcp_server_update":
+		return s.execMCPServerUpdate(ctx, args)
+	case "mcp_server_delete":
+		return s.execMCPServerDelete(ctx, args)
+	case "mcp_set_list":
+		return s.execMCPSetList(ctx, args)
+	case "mcp_set_get":
+		return s.execMCPSetGet(ctx, args)
+	case "mcp_set_create":
+		return s.execMCPSetCreate(ctx, args)
+	case "mcp_set_update":
+		return s.execMCPSetUpdate(ctx, args)
+	case "mcp_set_delete":
+		return s.execMCPSetDelete(ctx, args)
 
 	// Provider tools.
 	case "provider_list":
@@ -136,6 +176,110 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execBotGet(ctx, args)
 	case "bot_update":
 		return s.execBotUpdate(ctx, args)
+	case "bot_create":
+		return s.execBotCreate(ctx, args)
+	case "bot_delete":
+		return s.execBotDelete(ctx, args)
+	case "bot_start":
+		return s.execBotStart(ctx, args)
+	case "bot_stop":
+		return s.execBotStop(ctx, args)
+	case "bot_status":
+		return s.execBotStatus(ctx, args)
+
+	// Provider write tools.
+	case "provider_create":
+		return s.execProviderCreate(ctx, args)
+	case "provider_update":
+		return s.execProviderUpdate(ctx, args)
+	case "provider_delete":
+		return s.execProviderDelete(ctx, args)
+	case "provider_discover_models":
+		return s.execProviderDiscoverModels(ctx, args)
+
+	// API token tools.
+	case "apitoken_list":
+		return s.execAPITokenList(ctx, args)
+	case "apitoken_create":
+		return s.execAPITokenCreate(ctx, args)
+	case "apitoken_update":
+		return s.execAPITokenUpdate(ctx, args)
+	case "apitoken_delete":
+		return s.execAPITokenDelete(ctx, args)
+	case "apitoken_get_usage":
+		return s.execAPITokenGetUsage(ctx, args)
+	case "apitoken_reset_usage":
+		return s.execAPITokenResetUsage(ctx, args)
+
+	// Variable tools.
+	case "variable_list":
+		return s.execVariableList(ctx, args)
+	case "variable_get":
+		return s.execVariableGet(ctx, args)
+	case "variable_create":
+		return s.execVariableCreate(ctx, args)
+	case "variable_update":
+		return s.execVariableUpdate(ctx, args)
+	case "variable_delete":
+		return s.execVariableDelete(ctx, args)
+
+	// Connection tools.
+	case "connection_list":
+		return s.execConnectionList(ctx, args)
+	case "connection_get":
+		return s.execConnectionGet(ctx, args)
+	case "connection_create":
+		return s.execConnectionCreate(ctx, args)
+	case "connection_update":
+		return s.execConnectionUpdate(ctx, args)
+	case "connection_delete":
+		return s.execConnectionDelete(ctx, args)
+	case "connection_import_from_variables":
+		return s.execConnectionImportFromVariables(ctx, args)
+
+	// Node config tools.
+	case "node_config_list":
+		return s.execNodeConfigList(ctx, args)
+	case "node_config_get":
+		return s.execNodeConfigGet(ctx, args)
+	case "node_config_create":
+		return s.execNodeConfigCreate(ctx, args)
+	case "node_config_update":
+		return s.execNodeConfigUpdate(ctx, args)
+	case "node_config_delete":
+		return s.execNodeConfigDelete(ctx, args)
+
+	// Guide tools.
+	case "guide_list":
+		return s.execGuideList(ctx, args)
+	case "guide_get":
+		return s.execGuideGet(ctx, args)
+	case "guide_create":
+		return s.execGuideCreate(ctx, args)
+	case "guide_update":
+		return s.execGuideUpdate(ctx, args)
+	case "guide_delete":
+		return s.execGuideDelete(ctx, args)
+
+	// Destructive / lifecycle tools.
+	case "agent_delete":
+		return s.execAgentDelete(ctx, args)
+	case "org_update":
+		return s.execOrgUpdate(ctx, args)
+	case "org_delete":
+		return s.execOrgDelete(ctx, args)
+	case "org_list_agents":
+		return s.execOrgListAgents(ctx, args)
+	case "org_update_agent":
+		return s.execOrgUpdateAgent(ctx, args)
+	case "org_remove_agent":
+		return s.execOrgRemoveAgent(ctx, args)
+	case "task_delete":
+		return s.execTaskDelete(ctx, args)
+	case "task_cancel":
+		return s.execTaskCancel(ctx, args)
+	case "active_delegation_list":
+		return s.execActiveDelegationList(ctx, args)
 
 	default:
 		return "", nil

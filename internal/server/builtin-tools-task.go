@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -635,4 +636,61 @@ func (s *Server) execTaskProcess(ctx context.Context, args map[string]any) (stri
 
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return string(data), nil
+}
+
+// ─── Task Lifecycle Tool Executors (Phase 2) ───
+
+func (s *Server) execTaskDelete(ctx context.Context, args map[string]any) (string, error) {
+	if s.taskStore == nil {
+		return "", fmt.Errorf("task store not configured")
+	}
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+	if err := s.taskStore.DeleteTask(ctx, id); err != nil {
+		return "", fmt.Errorf("delete task %q: %w", id, err)
+	}
+	return fmt.Sprintf(`{"status":"deleted","id":%q}`, id), nil
+}
+
+// execTaskCancel sends a context-cancellation signal to the in-flight
+// delegation goroutine for the given task. Mirrors CancelTaskDelegationAPI:
+// returns an error when no active delegation is running so callers
+// can distinguish "cancelled" from "nothing to cancel".
+func (s *Server) execTaskCancel(_ context.Context, args map[string]any) (string, error) {
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+	if !s.cancelDelegation(id) {
+		return "", fmt.Errorf("no active delegation found for task %q", id)
+	}
+	return fmt.Sprintf(`{"status":"cancel_signal_sent","task_id":%q}`, id), nil
+}
+
+// execActiveDelegationList enumerates the in-memory activeDelegations
+// sync.Map. The shape matches ListActiveDelegationsAPI.
+func (s *Server) execActiveDelegationList(_ context.Context, _ map[string]any) (string, error) {
+	now := time.Now()
+	var delegations []activeDelegationResponse
+	s.activeDelegations.Range(func(_, value any) bool {
+		d := value.(*activeDelegation)
+		delegations = append(delegations, activeDelegationResponse{
+			TaskID:    d.TaskID,
+			AgentID:   d.AgentID,
+			OrgID:     d.OrgID,
+			StartedAt: d.StartedAt.UTC().Format(time.RFC3339),
+			Duration:  now.Sub(d.StartedAt).Truncate(time.Second).String(),
+		})
+		return true
+	})
+	if delegations == nil {
+		delegations = []activeDelegationResponse{}
+	}
+	out, err := json.MarshalIndent(map[string]any{"delegations": delegations}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal delegations: %w", err)
+	}
+	return string(out), nil
 }

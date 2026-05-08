@@ -316,3 +316,220 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return string(data), nil
 }
+
+// ─── Organization Destructive + Membership Tool Executors (Phase 2) ───
+//
+// execOrgUpdate mirrors UpdateOrganizationAPI's PARTIAL update
+// semantics: empty `name`, `head_agent_id`, `max_delegation_depth`,
+// and `canvas_layout` fall back to the existing record. Setting a
+// new head_agent_id is validated against the org-agent join table
+// (the head must be an active member) — same path the HTTP handler
+// uses, exposed here so the agent gets the same error if it picks
+// a non-member.
+func (s *Server) execOrgUpdate(ctx context.Context, args map[string]any) (string, error) {
+	if s.organizationStore == nil {
+		return "", fmt.Errorf("organization store not configured")
+	}
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	existing, err := s.organizationStore.GetOrganization(ctx, id)
+	if err != nil {
+		return "", fmt.Errorf("get organization %q: %w", id, err)
+	}
+	if existing == nil {
+		return "", fmt.Errorf("organization %q not found", id)
+	}
+
+	// Build the update record from existing + provided overrides.
+	updated := *existing
+	if v := stringArg(args, "name"); v != "" {
+		updated.Name = v
+	}
+	if v, ok := args["description"].(string); ok {
+		updated.Description = v
+	}
+	if v, ok := args["issue_prefix"].(string); ok {
+		updated.IssuePrefix = v
+	}
+	if v := stringArg(args, "head_agent_id"); v != "" {
+		updated.HeadAgentID = v
+	}
+	if v := optionalInt64(args, "budget_monthly_cents"); v != nil {
+		updated.BudgetMonthlyCents = *v
+	}
+	if v, ok := args["max_delegation_depth"]; ok {
+		switch n := v.(type) {
+		case float64:
+			if int(n) > 0 {
+				updated.MaxDelegationDepth = int(n)
+			}
+		case int:
+			if n > 0 {
+				updated.MaxDelegationDepth = n
+			}
+		}
+	}
+	if v, ok := args["require_board_approval_for_new_agents"].(bool); ok {
+		updated.RequireBoardApproval = v
+	}
+	if raw, ok := args["container_config"]; ok && raw != nil {
+		data, _ := json.Marshal(raw)
+		var cc service.ContainerConfig
+		if err := json.Unmarshal(data, &cc); err != nil {
+			return "", fmt.Errorf("container_config: %w", err)
+		}
+		updated.ContainerConfig = &cc
+	}
+
+	// Validate new head_agent_id against membership/status.
+	if updated.HeadAgentID != existing.HeadAgentID && s.orgAgentStore != nil {
+		member, err := s.orgAgentStore.GetOrganizationAgentByPair(ctx, id, updated.HeadAgentID)
+		if err != nil {
+			return "", fmt.Errorf("validate head agent: %w", err)
+		}
+		if member == nil {
+			return "", fmt.Errorf("head agent %q is not a member of this organization", updated.HeadAgentID)
+		}
+		if member.Status != "active" {
+			return "", fmt.Errorf("head agent %q is not active", updated.HeadAgentID)
+		}
+	}
+
+	updated.UpdatedBy = "mcp"
+	record, err := s.organizationStore.UpdateOrganization(ctx, id, updated)
+	if err != nil {
+		return "", fmt.Errorf("update organization %q: %w", id, err)
+	}
+	if record == nil {
+		return "", fmt.Errorf("organization %q not found", id)
+	}
+	out, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal org: %w", err)
+	}
+	return string(out), nil
+}
+
+func (s *Server) execOrgDelete(ctx context.Context, args map[string]any) (string, error) {
+	if s.organizationStore == nil {
+		return "", fmt.Errorf("organization store not configured")
+	}
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+	if err := s.organizationStore.DeleteOrganization(ctx, id); err != nil {
+		return "", fmt.Errorf("delete organization %q: %w", id, err)
+	}
+	return fmt.Sprintf(`{"status":"deleted","id":%q}`, id), nil
+}
+
+func (s *Server) execOrgListAgents(ctx context.Context, args map[string]any) (string, error) {
+	if s.orgAgentStore == nil {
+		return "", fmt.Errorf("organization agent store not configured")
+	}
+	orgID, _ := args["organization_id"].(string)
+	if orgID == "" {
+		return "", fmt.Errorf("organization_id is required")
+	}
+	records, err := s.orgAgentStore.ListOrganizationAgents(ctx, orgID)
+	if err != nil {
+		return "", fmt.Errorf("list organization agents: %w", err)
+	}
+	if records == nil {
+		records = []service.OrganizationAgent{}
+	}
+	out, err := json.MarshalIndent(records, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal org agents: %w", err)
+	}
+	return string(out), nil
+}
+
+// execOrgUpdateAgent reuses validateHierarchy to keep the same
+// cycle-protection guarantees as the HTTP handler.
+func (s *Server) execOrgUpdateAgent(ctx context.Context, args map[string]any) (string, error) {
+	if s.orgAgentStore == nil {
+		return "", fmt.Errorf("organization agent store not configured")
+	}
+	orgID, _ := args["organization_id"].(string)
+	agentID, _ := args["agent_id"].(string)
+	if orgID == "" || agentID == "" {
+		return "", fmt.Errorf("organization_id and agent_id are required")
+	}
+
+	existing, err := s.orgAgentStore.GetOrganizationAgentByPair(ctx, orgID, agentID)
+	if err != nil {
+		return "", fmt.Errorf("get org-agent membership: %w", err)
+	}
+	if existing == nil {
+		return "", fmt.Errorf("agent %q is not a member of organization %q", agentID, orgID)
+	}
+
+	// Decide what fields to overwrite. We treat the absence of a key as
+	// "preserve existing"; explicit empty string IS meaningful for some
+	// fields (e.g. parent_agent_id="" = make root). We can't distinguish
+	// those two states for raw map[string]any, so the policy is:
+	//   - Required identifiers (orgID, agentID): from path/args.
+	//   - Status: empty preserves (matches HTTP).
+	//   - parent_agent_id: pass-through (empty → root; only validate
+	//     hierarchy when changed).
+	//   - Other fields: pass-through, with empty meaning "clear".
+	updated := service.OrganizationAgent{
+		OrganizationID:    orgID,
+		AgentID:           agentID,
+		Role:              stringArg(args, "role"),
+		Title:             stringArg(args, "title"),
+		ParentAgentID:     stringArg(args, "parent_agent_id"),
+		Status:            stringArg(args, "status"),
+		HeartbeatSchedule: stringArg(args, "heartbeat_schedule"),
+		MemoryModel:       stringArg(args, "memory_model"),
+		MemoryProvider:    stringArg(args, "memory_provider"),
+		MemoryMethod:      stringArg(args, "memory_method"),
+	}
+
+	// Hierarchy validation: only when parent is being CHANGED to a
+	// non-empty value. Setting parent="" (becoming root) skips the
+	// member existence check but is still cycle-safe by definition.
+	if updated.ParentAgentID != "" && updated.ParentAgentID != existing.ParentAgentID {
+		if err := s.validateHierarchy(ctx, orgID, agentID, updated.ParentAgentID); err != nil {
+			return "", fmt.Errorf("hierarchy validation failed: %w", err)
+		}
+	}
+
+	if updated.Status == "" {
+		updated.Status = existing.Status
+	}
+
+	record, err := s.orgAgentStore.UpdateOrganizationAgent(ctx, existing.ID, updated)
+	if err != nil {
+		slog.Error("update organization agent failed", "id", existing.ID, "error", err)
+		return "", fmt.Errorf("update org-agent membership: %w", err)
+	}
+	if record == nil {
+		return "", fmt.Errorf("membership not found")
+	}
+	out, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal membership: %w", err)
+	}
+	return string(out), nil
+}
+
+func (s *Server) execOrgRemoveAgent(ctx context.Context, args map[string]any) (string, error) {
+	if s.orgAgentStore == nil {
+		return "", fmt.Errorf("organization agent store not configured")
+	}
+	orgID, _ := args["organization_id"].(string)
+	agentID, _ := args["agent_id"].(string)
+	if orgID == "" || agentID == "" {
+		return "", fmt.Errorf("organization_id and agent_id are required")
+	}
+	if err := s.orgAgentStore.DeleteOrganizationAgentByPair(ctx, orgID, agentID); err != nil {
+		return "", fmt.Errorf("remove agent from org: %w", err)
+	}
+	return fmt.Sprintf(`{"status":"removed","organization_id":%q,"agent_id":%q}`, orgID, agentID), nil
+}

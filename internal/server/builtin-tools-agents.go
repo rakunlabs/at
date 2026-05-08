@@ -254,3 +254,23 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 	data, _ := json.MarshalIndent(record, "", "  ")
 	return string(data), nil
 }
+
+// ─── Agent Destructive Tool Executors (Phase 2) ───
+
+// execAgentDelete deletes an agent. The HTTP handler does not perform
+// any cascade either — referencing org memberships and connections
+// are left as-is. Callers are expected to call org_remove_agent
+// first if the agent is in any organization.
+func (s *Server) execAgentDelete(ctx context.Context, args map[string]any) (string, error) {
+	if s.agentStore == nil {
+		return "", fmt.Errorf("agent store not configured")
+	}
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+	if err := s.agentStore.DeleteAgent(ctx, id); err != nil {
+		return "", fmt.Errorf("delete agent %q: %w", id, err)
+	}
+	return fmt.Sprintf(`{"status":"deleted","id":%q}`, id), nil
+}
