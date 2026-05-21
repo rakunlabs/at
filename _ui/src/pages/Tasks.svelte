@@ -296,9 +296,13 @@
     showForm = true;
   }
 
-  async function handleSubmit() {
+  async function handleSubmit(processAfter = false) {
     if (!formTitle.trim()) {
       addToast('Task title is required', 'warn');
+      return;
+    }
+    if (processAfter && !formOrganizationId) {
+      addToast('Select an organization before processing a task', 'warn');
       return;
     }
 
@@ -319,11 +323,21 @@
       };
 
       if (editingId) {
-        await updateTask(editingId, payload);
-        addToast(`Task "${formTitle}" updated`);
+        const updated = await updateTask(editingId, payload);
+        if (processAfter) {
+          await processTask(updated.id);
+          addToast(`Task "${formTitle}" updated and sent for processing`);
+        } else {
+          addToast(`Task "${formTitle}" updated`);
+        }
       } else {
-        await createTask(payload);
-        addToast(`Task "${formTitle}" created`);
+        const created = await createTask(payload);
+        if (processAfter) {
+          await processTask(created.id);
+          addToast(`Task "${formTitle}" created and sent for processing`);
+        } else {
+          addToast(`Task "${formTitle}" created`);
+        }
       }
       resetForm();
       await refresh();
@@ -599,6 +613,12 @@
             class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
             <Save size={14} />
             {#if saving}Saving...{:else}{editingId ? 'Update' : 'Create'}{/if}
+          </button>
+          <button type="button" onclick={() => handleSubmit(true)} disabled={saving || !formOrganizationId}
+            title={!formOrganizationId ? 'Select an organization first' : 'Create the task and immediately send it to the organization head agent'}
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-700 text-white hover:bg-green-800 dark:bg-green-700 dark:hover:bg-green-600 transition-colors disabled:opacity-50">
+            <Play size={14} />
+            {#if saving}Saving...{:else}{editingId ? 'Update & Process' : 'Create & Process'}{/if}
           </button>
         </div>
       </form>

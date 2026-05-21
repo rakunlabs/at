@@ -412,6 +412,10 @@ func (s *SQLite) ListChildTasks(ctx context.Context, parentID string) ([]service
 
 func (s *SQLite) UpdateTaskStatus(ctx context.Context, id string, status string, result string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
+	current, err := s.GetTask(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get task for status update %q: %w", id, err)
+	}
 
 	record := goqu.Record{
 		"status":     status,
@@ -419,6 +423,21 @@ func (s *SQLite) UpdateTaskStatus(ctx context.Context, id string, status string,
 	}
 	if result != "" {
 		record["result"] = result
+	}
+	if current == nil || current.StartedAt == "" {
+		if status == service.TaskStatusInProgress {
+			record["started_at"] = now
+		}
+	}
+	if current == nil || current.CompletedAt == "" {
+		if status == service.TaskStatusCompleted || status == service.TaskStatusDone {
+			record["completed_at"] = now
+		}
+	}
+	if current == nil || current.CancelledAt == "" {
+		if status == service.TaskStatusCancelled {
+			record["cancelled_at"] = now
+		}
 	}
 
 	query, _, err := s.goqu.Update(s.tableTasks).Set(record).

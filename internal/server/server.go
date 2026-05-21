@@ -100,6 +100,9 @@ type Server struct {
 	// skillStore is the persistent store for skill definitions.
 	skillStore service.SkillStorer
 
+	// skillServerStore is the persistent store for curated skill server definitions.
+	skillServerStore service.SkillServerStorer
+
 	// variableStore is the persistent store for variables (secret and non-secret).
 	variableStore service.VariableStorer
 
@@ -392,6 +395,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		workflowVersionStore:     store,
 		triggerStore:             store,
 		skillStore:               store,
+		skillServerStore:         store,
 		variableStore:            store,
 		nodeConfigStore:          store,
 		agentStore:               store,
@@ -615,6 +619,12 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.GET("/v1/mcp/{name}", s.GatewayMCPSSEHandler)
 	gatewayGroup.GET("/v1/mcp/{name}/mcp", s.GatewayMCPSSEHandler)
 
+	// Curated Skill Server endpoint (auth-gated, external MCP transport)
+	gatewayGroup.POST("/v1/skill-servers/{name}", s.SkillServerMCPHandler)
+	gatewayGroup.POST("/v1/skill-servers/{name}/mcp", s.SkillServerMCPHandler)
+	gatewayGroup.GET("/v1/skill-servers/{name}", s.SkillServerMCPSSEHandler)
+	gatewayGroup.GET("/v1/skill-servers/{name}/mcp", s.SkillServerMCPSSEHandler)
+
 	// Internal MCP endpoint — no auth, for agent-to-server tool resolution.
 	// Serves tools from MCP Sets (RAG/skills/HTTP/builtins). Not under /gateway/
 	// so it's not exposed through any external reverse proxy.
@@ -694,6 +704,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.DELETE("/v1/skills/{id}", s.DeleteSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export", s.ExportSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export-md", s.ExportSkillMDAPI)
+
+	// Skill server management (curated skill publishing over MCP)
+	apiGroup.GET("/v1/skill-servers", s.ListSkillServersAPI)
+	apiGroup.POST("/v1/skill-servers", s.CreateSkillServerAPI)
+	apiGroup.GET("/v1/skill-servers/{id}", s.GetSkillServerAPI)
+	apiGroup.PUT("/v1/skill-servers/{id}", s.UpdateSkillServerAPI)
+	apiGroup.DELETE("/v1/skill-servers/{id}", s.DeleteSkillServerAPI)
 
 	// Skill templates (predefined / store)
 	apiGroup.GET("/v1/skill-templates", s.ListSkillTemplatesAPI)

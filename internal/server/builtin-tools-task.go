@@ -272,13 +272,96 @@ func (s *Server) execBatchExecute(ctx context.Context, args map[string]any) (str
 
 // ─── Persistent Task (Issue Tracker) Tool Executors ───
 
+var taskContextToolNames = []string{
+	"task_current",
+	"task_children",
+	"task_create_child",
+	"task_update_current",
+	"task_comment_current",
+	"task_complete",
+	"task_block",
+}
+
+func builtinToolByName(name string) (builtinToolDef, bool) {
+	for _, bt := range builtinTools {
+		if bt.Name == name {
+			return bt, true
+		}
+	}
+	return builtinToolDef{}, false
+}
+
+func taskContextToolDefs() []service.Tool {
+	tools := make([]service.Tool, 0, len(taskContextToolNames))
+	for _, name := range taskContextToolNames {
+		bt, ok := builtinToolByName(name)
+		if !ok {
+			continue
+		}
+		tools = append(tools, service.Tool{
+			Name:        bt.Name,
+			Description: bt.Description,
+			InputSchema: bt.InputSchema,
+		})
+	}
+	return tools
+}
+
+func taskOperatingProtocolPrompt(task *service.Task) string {
+	if task == nil {
+		return ""
+	}
+	label := task.ID
+	if task.Identifier != "" {
+		label = task.Identifier + " (" + task.ID + ")"
+	}
+	return fmt.Sprintf(`
+
+## Task Operating Protocol
+You are operating inside task %s: %s.
+- Treat follow-up work derived from this task as child work. Use task_create_child, or task_create without root=true, for derived work items.
+- Do not create unrelated root tasks while answering questions or continuing this task. Only use task_create with root=true when the user explicitly asks for an independent task, and include a reason.
+- Before creating a child task, prefer task_current or task_children when you need to check existing subtasks and avoid duplicates.
+- Keep updates scoped to the current task with task_update_current, task_comment_current, task_complete, or task_block whenever possible.
+`, label, task.Title)
+}
+
+func boolValue(v any) bool {
+	switch b := v.(type) {
+	case bool:
+		return b
+	case string:
+		return b == "true" || b == "1" || b == "yes"
+	default:
+		return false
+	}
+}
+
+func (s *Server) currentTaskFromContext(ctx context.Context) (*service.Task, error) {
+	if s.taskStore == nil {
+		return nil, fmt.Errorf("task store not configured")
+	}
+	currentTaskID := taskIDFromContext(ctx)
+	if currentTaskID == "" {
+		return nil, fmt.Errorf("no active task in context")
+	}
+
+	task, err := s.taskStore.GetTask(ctx, currentTaskID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get current task: %w", err)
+	}
+	if task == nil {
+		return nil, fmt.Errorf("current task %q not found", currentTaskID)
+	}
+
+	return task, nil
+}
+
 // execTaskCreate creates a persistent task in the database.
 //
 // When called from inside a delegation loop (i.e. the executing agent is
-// already working on a task), missing parent_id and organization_id fields
-// are auto-inherited from the current task. This prevents agents from
-// accidentally creating orphaned, unscoped tasks when they forget to pass
-// these fields explicitly.
+// already working on a task), it creates a child task by default. Creating
+// an unrelated root task from task context requires root=true and reason.
 func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (string, error) {
 	if s.taskStore == nil {
 		return "", fmt.Errorf("task store not configured")
@@ -312,28 +395,62 @@ func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (strin
 	if v, ok := args["status"].(string); ok && v != "" {
 		task.Status = v
 	}
+	if v, ok := args["priority"].(float64); ok {
+		task.Priority = int(v)
+	} else if v, ok := args["priority"].(int); ok {
+		task.Priority = v
+	}
 
-	// Auto-inherit parent_id and organization_id from the current task in
-	// context when the caller (agent) didn't supply them. This keeps
-	// agent-created subtasks correctly linked instead of orphaned.
+	// In task context, derived work should be a child task by default. Agents
+	// can still create an unrelated root task, but only via an explicit escape
+	// hatch so accidental root tasks are easy to prevent and audit.
 	if currentTaskID := taskIDFromContext(ctx); currentTaskID != "" {
-		needParent := task.ParentID == ""
-		needOrg := task.OrganizationID == ""
-		if needParent || needOrg {
-			if currentTask, err := s.taskStore.GetTask(ctx, currentTaskID); err == nil && currentTask != nil {
-				if needParent {
-					task.ParentID = currentTask.ID
-					slog.Debug("task_create: inherited parent_id from current task",
-						"parent_id", currentTask.ID, "title", title)
-				}
-				if needOrg {
-					task.OrganizationID = currentTask.OrganizationID
-					slog.Debug("task_create: inherited organization_id from current task",
-						"organization_id", currentTask.OrganizationID, "title", title)
-				}
-			} else if err != nil {
-				slog.Warn("task_create: failed to look up current task for inheritance",
-					"current_task_id", currentTaskID, "error", err)
+		currentTask, err := s.taskStore.GetTask(ctx, currentTaskID)
+		if err != nil {
+			return "", fmt.Errorf("failed to get current task for task_create: %w", err)
+		}
+		if currentTask == nil {
+			return "", fmt.Errorf("current task %q not found", currentTaskID)
+		}
+
+		if boolValue(args["root"]) {
+			reason, _ := args["reason"].(string)
+			if reason == "" {
+				return "", fmt.Errorf("reason is required when root=true is used from task context")
+			}
+			if task.ParentID != "" {
+				return "", fmt.Errorf("parent_id cannot be used with root=true")
+			}
+			if task.OrganizationID == "" {
+				task.OrganizationID = currentTask.OrganizationID
+			}
+			if task.ProjectID == "" {
+				task.ProjectID = currentTask.ProjectID
+			}
+			if task.GoalID == "" {
+				task.GoalID = currentTask.GoalID
+			}
+			slog.Info("task_create: creating explicit root task from task context",
+				"current_task_id", currentTask.ID, "title", title, "reason", reason)
+		} else {
+			if task.ParentID != "" && task.ParentID != currentTask.ID {
+				return "", fmt.Errorf("task_create in task context creates a child of the current task; omit parent_id or use root=true with reason for an unrelated root task")
+			}
+			task.ParentID = currentTask.ID
+			if task.OrganizationID == "" {
+				task.OrganizationID = currentTask.OrganizationID
+			}
+			if task.ProjectID == "" {
+				task.ProjectID = currentTask.ProjectID
+			}
+			if task.GoalID == "" {
+				task.GoalID = currentTask.GoalID
+			}
+			if task.PriorityLevel == "" {
+				task.PriorityLevel = currentTask.PriorityLevel
+			}
+			if task.Priority == 0 {
+				task.Priority = currentTask.Priority
 			}
 		}
 	}
@@ -358,6 +475,105 @@ func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (strin
 
 	data, _ := json.MarshalIndent(record, "", "  ")
 	return string(data), nil
+}
+
+func (s *Server) execTaskCurrent(ctx context.Context, _ map[string]any) (string, error) {
+	currentTask, err := s.currentTaskFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	return s.execTaskGet(ctx, map[string]any{"id": currentTask.ID})
+}
+
+func (s *Server) execTaskChildren(ctx context.Context, _ map[string]any) (string, error) {
+	currentTask, err := s.currentTaskFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	children, err := s.taskStore.ListChildTasks(ctx, currentTask.ID)
+	if err != nil {
+		return "", fmt.Errorf("failed to list child tasks: %w", err)
+	}
+	if children == nil {
+		children = []service.Task{}
+	}
+	data, _ := json.MarshalIndent(map[string]any{"task_id": currentTask.ID, "children": children, "total": len(children)}, "", "  ")
+	return string(data), nil
+}
+
+func (s *Server) execTaskCreateChild(ctx context.Context, args map[string]any) (string, error) {
+	if _, err := s.currentTaskFromContext(ctx); err != nil {
+		return "", err
+	}
+	if boolValue(args["root"]) {
+		return "", fmt.Errorf("task_create_child cannot create root tasks")
+	}
+	return s.execTaskCreate(ctx, args)
+}
+
+func (s *Server) execTaskUpdateCurrent(ctx context.Context, args map[string]any) (string, error) {
+	if args == nil {
+		args = map[string]any{}
+	}
+	currentTask, err := s.currentTaskFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	if id, _ := args["id"].(string); id != "" && id != currentTask.ID {
+		return "", fmt.Errorf("task_update_current can only update current task %q", currentTask.ID)
+	}
+	args["id"] = currentTask.ID
+	return s.execTaskUpdate(ctx, args)
+}
+
+func (s *Server) execTaskCommentCurrent(ctx context.Context, args map[string]any) (string, error) {
+	if args == nil {
+		args = map[string]any{}
+	}
+	currentTask, err := s.currentTaskFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	if id, _ := args["task_id"].(string); id != "" && id != currentTask.ID {
+		return "", fmt.Errorf("task_comment_current can only comment on current task %q", currentTask.ID)
+	}
+	args["task_id"] = currentTask.ID
+	if _, ok := args["author_name"].(string); !ok || args["author_name"] == "" {
+		if agentID := agentIDFromContext(ctx); agentID != "" {
+			args["author_name"] = agentID
+		}
+	}
+	return s.execTaskAddComment(ctx, args)
+}
+
+func (s *Server) execTaskComplete(ctx context.Context, args map[string]any) (string, error) {
+	currentTask, err := s.currentTaskFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	result, _ := args["result"].(string)
+	if result == "" {
+		return "", fmt.Errorf("result is required")
+	}
+	if err := s.completeTaskWithStatus(ctx, currentTask, service.TaskStatusCompleted, result); err != nil {
+		return "", fmt.Errorf("failed to complete current task: %w", err)
+	}
+	return fmt.Sprintf(`{"status":"completed","task_id":%q}`, currentTask.ID), nil
+}
+
+func (s *Server) execTaskBlock(ctx context.Context, args map[string]any) (string, error) {
+	currentTask, err := s.currentTaskFromContext(ctx)
+	if err != nil {
+		return "", err
+	}
+	reason, _ := args["reason"].(string)
+	if reason == "" {
+		return "", fmt.Errorf("reason is required")
+	}
+	if err := s.completeTaskWithStatus(ctx, currentTask, service.TaskStatusBlocked, reason); err != nil {
+		return "", fmt.Errorf("failed to block current task: %w", err)
+	}
+	return fmt.Sprintf(`{"status":"blocked","task_id":%q}`, currentTask.ID), nil
 }
 
 // execTaskList lists tasks with optional filtering.

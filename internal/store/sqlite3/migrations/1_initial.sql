@@ -123,6 +123,21 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}skills (
 );
 
 -- ============================================================================
+-- Skill Servers
+-- ============================================================================
+CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}skill_servers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT 'package',
+    skills TEXT NOT NULL DEFAULT '[]',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by TEXT NOT NULL DEFAULT '',
+    updated_by TEXT NOT NULL DEFAULT ''
+);
+
+-- ============================================================================
 -- Variables (originally "secrets", renamed)
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}variables (

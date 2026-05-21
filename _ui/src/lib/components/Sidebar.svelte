@@ -160,6 +160,19 @@
       <span>Skills</span>
     </a>
     <a
+      href="#/skill-servers"
+      onclick={(e) => navigate(e, "/skill-servers")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/skill-servers"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Server size={14} />
+      <span>Skill Servers</span>
+    </a>
+    <a
       href="#/integrations"
       onclick={(e) => navigate(e, "/integrations")}
       class={[

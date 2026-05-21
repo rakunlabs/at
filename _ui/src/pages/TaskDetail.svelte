@@ -176,6 +176,7 @@
     switch (e.action) {
       case 'task_started':   return 'started task';
       case 'task_completed': return 'completed task';
+      case 'task_blocked':   return 'blocked task';
       case 'task_delegated': return 'delegated to subtask';
       case 'task_failed':    return 'task failed';
       case 'task_cancelled': return 'task cancelled';

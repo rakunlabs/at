@@ -78,15 +78,14 @@ func TestExecTaskCreate_InheritsParentAndOrgFromContext(t *testing.T) {
 	}
 }
 
-// TestExecTaskCreate_ExplicitArgsBeatInheritance verifies that explicit
-// parent_id / organization_id passed by the caller are NOT overwritten by
-// the inheritance logic.
-func TestExecTaskCreate_ExplicitArgsBeatInheritance(t *testing.T) {
+// TestExecTaskCreate_RejectsDifferentParentInTaskContext verifies that a
+// task-context task_create cannot silently create work under another parent.
+func TestExecTaskCreate_RejectsDifferentParentInTaskContext(t *testing.T) {
 	parent := &service.Task{
 		ID:             "parent-1",
 		OrganizationID: "org-yts",
 	}
-	s, store := newTaskInheritServer(parent)
+	s, _ := newTaskInheritServer(parent)
 
 	ctx := contextWithTaskID(context.Background(), parent.ID)
 	_, err := s.execTaskCreate(ctx, map[string]any{
@@ -94,18 +93,8 @@ func TestExecTaskCreate_ExplicitArgsBeatInheritance(t *testing.T) {
 		"parent_id":       "other-parent",
 		"organization_id": "other-org",
 	})
-	if err != nil {
-		t.Fatalf("execTaskCreate returned error: %v", err)
-	}
-	if len(store.created) != 1 {
-		t.Fatalf("expected 1 created task, got %d", len(store.created))
-	}
-	got := store.created[0]
-	if got.ParentID != "other-parent" {
-		t.Errorf("explicit parent_id overwritten: got %q", got.ParentID)
-	}
-	if got.OrganizationID != "other-org" {
-		t.Errorf("explicit organization_id overwritten: got %q", got.OrganizationID)
+	if err == nil {
+		t.Fatal("expected error for different parent_id in task context")
 	}
 }
 
@@ -131,31 +120,58 @@ func TestExecTaskCreate_NoCurrentTaskNoInheritance(t *testing.T) {
 	}
 }
 
-// TestExecTaskCreate_PartialInheritance verifies that supplying only one of
-// parent_id / organization_id still inherits the other from context.
-func TestExecTaskCreate_PartialInheritance(t *testing.T) {
+func TestExecTaskCreate_AllowsExplicitRootWithReason(t *testing.T) {
 	parent := &service.Task{
 		ID:             "parent-1",
 		OrganizationID: "org-yts",
+		ProjectID:      "project-1",
 	}
 	s, store := newTaskInheritServer(parent)
 
 	ctx := contextWithTaskID(context.Background(), parent.ID)
 	_, err := s.execTaskCreate(ctx, map[string]any{
-		"title":     "Partial inherit",
-		"parent_id": "different-parent",
-		// organization_id missing — should inherit
+		"title":  "Independent follow-up",
+		"root":   true,
+		"reason": "User explicitly asked for a separate task",
 	})
 	if err != nil {
 		t.Fatalf("execTaskCreate returned error: %v", err)
 	}
 	got := store.created[0]
-	if got.ParentID != "different-parent" {
-		t.Errorf("explicit parent_id overwritten: got %q", got.ParentID)
+	if got.ParentID != "" {
+		t.Errorf("root task should not have parent_id, got %q", got.ParentID)
 	}
 	if got.OrganizationID != parent.OrganizationID {
-		t.Errorf("organization_id should have been inherited: got %q want %q",
+		t.Errorf("organization_id should have been inherited for root task: got %q want %q",
 			got.OrganizationID, parent.OrganizationID)
+	}
+	if got.ProjectID != parent.ProjectID {
+		t.Errorf("project_id should have been inherited for root task: got %q want %q", got.ProjectID, parent.ProjectID)
+	}
+}
+
+func TestExecTaskCreate_RootRequiresReasonInTaskContext(t *testing.T) {
+	parent := &service.Task{ID: "parent-1"}
+	s, _ := newTaskInheritServer(parent)
+
+	ctx := contextWithTaskID(context.Background(), parent.ID)
+	_, err := s.execTaskCreate(ctx, map[string]any{
+		"title": "Independent follow-up",
+		"root":  true,
+	})
+	if err == nil {
+		t.Fatal("expected root=true without reason to fail")
+	}
+}
+
+func TestExecTaskCreateChild_RequiresTaskContext(t *testing.T) {
+	s, _ := newTaskInheritServer(nil)
+
+	_, err := s.execTaskCreateChild(context.Background(), map[string]any{
+		"title": "Child work",
+	})
+	if err == nil {
+		t.Fatal("expected task_create_child outside task context to fail")
 	}
 }
 

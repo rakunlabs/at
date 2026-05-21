@@ -503,19 +503,18 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			slog.Warn("agentic loop: unknown builtin tool in agent config", "tool", toolName, "agent", agent.ID)
 			continue
 		}
-		for _, bt := range builtinTools {
-			if bt.Name == toolName {
-				allTools = append(allTools, service.Tool{
-					Name:        bt.Name,
-					Description: bt.Description,
-					InputSchema: bt.InputSchema,
-				})
-				toolHandlers[bt.Name] = toolHandlerInfo{
-					handler:     bt.Name,
-					handlerType: "builtin",
-				}
-				break
-			}
+		bt, ok := builtinToolByName(toolName)
+		if !ok {
+			continue
+		}
+		allTools = append(allTools, service.Tool{
+			Name:        bt.Name,
+			Description: bt.Description,
+			InputSchema: bt.InputSchema,
+		})
+		toolHandlers[bt.Name] = toolHandlerInfo{
+			handler:     bt.Name,
+			handlerType: "builtin",
 		}
 	}
 
@@ -523,6 +522,26 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	var taskLinked *service.Task
 	if session.TaskID != "" && s.taskStore != nil {
 		taskLinked, _ = s.taskStore.GetTask(ctx, session.TaskID)
+	}
+	if taskLinked != nil {
+		hasTool := func(name string) bool {
+			for _, t := range allTools {
+				if t.Name == name {
+					return true
+				}
+			}
+			return false
+		}
+		for _, t := range taskContextToolDefs() {
+			if hasTool(t.Name) {
+				continue
+			}
+			allTools = append(allTools, t)
+			toolHandlers[t.Name] = toolHandlerInfo{
+				handler:     t.Name,
+				handlerType: "builtin",
+			}
+		}
 	}
 
 	// If this session is linked to a task in an organization, load delegation tools.
@@ -597,6 +616,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			taskContext.WriteString(fmt.Sprintf("\n**Previous Result**:\n%s\n", resultPreview))
 		}
 		taskContext.WriteString("\nYou are continuing work on this task interactively. Complete the remaining work and report your results.")
+		taskContext.WriteString(taskOperatingProtocolPrompt(taskLinked))
 		systemPrompt += taskContext.String()
 	}
 

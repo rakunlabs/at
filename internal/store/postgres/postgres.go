@@ -42,6 +42,7 @@ type Postgres struct {
 	tableWorkflowVersions     exp.IdentifierExpression
 	tableTriggers             exp.IdentifierExpression
 	tableSkills               exp.IdentifierExpression
+	tableSkillServers         exp.IdentifierExpression
 	tableVariables            exp.IdentifierExpression
 	tableNodeConfigs          exp.IdentifierExpression
 	tableAgents               exp.IdentifierExpression
@@ -184,6 +185,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableWorkflowVersions:     goqu.T(tablePrefix + "workflow_versions"),
 		tableTriggers:             goqu.T(tablePrefix + "triggers"),
 		tableSkills:               goqu.T(tablePrefix + "skills"),
+		tableSkillServers:         goqu.T(tablePrefix + "skill_servers"),
 		tableVariables:            goqu.T(tablePrefix + "variables"),
 		tableNodeConfigs:          goqu.T(tablePrefix + "node_configs"),
 		tableAgents:               goqu.T(tablePrefix + "agents"),

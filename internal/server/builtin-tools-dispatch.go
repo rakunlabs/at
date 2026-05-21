@@ -88,6 +88,20 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execTaskAddComment(ctx, args)
 	case "task_process":
 		return s.execTaskProcess(ctx, args)
+	case "task_current":
+		return s.execTaskCurrent(ctx, args)
+	case "task_children":
+		return s.execTaskChildren(ctx, args)
+	case "task_create_child":
+		return s.execTaskCreateChild(ctx, args)
+	case "task_update_current":
+		return s.execTaskUpdateCurrent(ctx, args)
+	case "task_comment_current":
+		return s.execTaskCommentCurrent(ctx, args)
+	case "task_complete":
+		return s.execTaskComplete(ctx, args)
+	case "task_block":
+		return s.execTaskBlock(ctx, args)
 
 	// Organization tools.
 	case "org_create":

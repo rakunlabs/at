@@ -413,6 +413,10 @@ func (p *Postgres) ListChildTasks(ctx context.Context, parentID string) ([]servi
 
 func (p *Postgres) UpdateTaskStatus(ctx context.Context, id string, status string, result string) error {
 	now := time.Now().UTC()
+	current, err := p.GetTask(ctx, id)
+	if err != nil {
+		return fmt.Errorf("get task for status update %q: %w", id, err)
+	}
 
 	record := goqu.Record{
 		"status":     status,
@@ -420,6 +424,21 @@ func (p *Postgres) UpdateTaskStatus(ctx context.Context, id string, status strin
 	}
 	if result != "" {
 		record["result"] = result
+	}
+	if current == nil || current.StartedAt == "" {
+		if status == service.TaskStatusInProgress {
+			record["started_at"] = now
+		}
+	}
+	if current == nil || current.CompletedAt == "" {
+		if status == service.TaskStatusCompleted || status == service.TaskStatusDone {
+			record["completed_at"] = now
+		}
+	}
+	if current == nil || current.CancelledAt == "" {
+		if status == service.TaskStatusCancelled {
+			record["cancelled_at"] = now
+		}
 	}
 
 	query, _, err := p.goqu.Update(p.tableTasks).Set(record).

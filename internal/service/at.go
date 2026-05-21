@@ -45,6 +45,7 @@ type Storer interface {
 	WorkflowVersionStorer
 	TriggerStorer
 	SkillStorer
+	SkillServerStorer
 	VariableStorer
 	NodeConfigStorer
 	AgentStorer
@@ -107,6 +108,36 @@ type SkillStorer interface {
 	CreateSkill(ctx context.Context, s Skill) (*Skill, error)
 	UpdateSkill(ctx context.Context, id string, s Skill) (*Skill, error)
 	DeleteSkill(ctx context.Context, id string) error
+}
+
+const (
+	SkillServerModePackage = "package"
+	SkillServerModeTools   = "tools"
+	SkillServerModeBoth    = "both"
+)
+
+// SkillServer publishes a curated set of skills over an MCP-compatible endpoint.
+// Skills may contain skill names or IDs; they are resolved at call time.
+type SkillServer struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Mode        string   `json:"mode"`
+	Skills      []string `json:"skills"`
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at"`
+	CreatedBy   string   `json:"created_by"`
+	UpdatedBy   string   `json:"updated_by"`
+}
+
+// SkillServerStorer defines CRUD operations for curated skill server configs.
+type SkillServerStorer interface {
+	ListSkillServers(ctx context.Context, q *query.Query) (*ListResult[SkillServer], error)
+	GetSkillServer(ctx context.Context, id string) (*SkillServer, error)
+	GetSkillServerByName(ctx context.Context, name string) (*SkillServer, error)
+	CreateSkillServer(ctx context.Context, s SkillServer) (*SkillServer, error)
+	UpdateSkillServer(ctx context.Context, id string, s SkillServer) (*SkillServer, error)
+	DeleteSkillServer(ctx context.Context, id string) error
 }
 
 // ─── Pack Source Management ───

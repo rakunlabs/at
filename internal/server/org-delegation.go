@@ -72,6 +72,17 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		return nil
 	}
 
+	// Track every in-flight task, including child delegations. Most entry
+	// points already register the root task before calling runOrgDelegation;
+	// child tasks do not, so register them here when absent. The derived context
+	// stays tied to the parent context, so cancelling the root still cancels the
+	// whole delegation tree.
+	if !s.isDelegationActive(task.ID) {
+		var cleanup func()
+		ctx, cleanup = s.registerDelegation(ctx, task.ID, agentID, org.ID)
+		defer cleanup()
+	}
+
 	// a2) Ensure a shared workspace directory exists for the entire delegation chain.
 	// If the context already carries a workspace (set by a parent delegation), reuse it.
 	// Otherwise, resolve the root task ID and create a workspace directory.
@@ -260,17 +271,28 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			slog.Warn("org-delegation: unknown builtin tool in agent config", "tool", toolName, "agent", agentID)
 			continue
 		}
-		for _, bt := range builtinTools {
-			if bt.Name == toolName {
-				builtinToolDefs = append(builtinToolDefs, service.Tool{
-					Name:        bt.Name,
-					Description: bt.Description,
-					InputSchema: bt.InputSchema,
-				})
-				builtinToolMap[bt.Name] = builtinToolHandler{name: bt.Name}
-				break
-			}
+		bt, ok := builtinToolByName(toolName)
+		if !ok {
+			continue
 		}
+		builtinToolDefs = append(builtinToolDefs, service.Tool{
+			Name:        bt.Name,
+			Description: bt.Description,
+			InputSchema: bt.InputSchema,
+		})
+		builtinToolMap[bt.Name] = builtinToolHandler{name: bt.Name}
+	}
+
+	// Task-processing agents always receive a small, scoped task tool surface.
+	// This is intentionally independent of agent config: while inside a task,
+	// derived work should be created/updated through the current task context,
+	// not as unrelated root tasks.
+	for _, t := range taskContextToolDefs() {
+		if _, ok := builtinToolMap[t.Name]; ok {
+			continue
+		}
+		builtinToolDefs = append(builtinToolDefs, t)
+		builtinToolMap[t.Name] = builtinToolHandler{name: t.Name}
 	}
 
 	// Build variable lookup/lister for skill tool execution.
@@ -314,6 +336,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if len(skillPromptFragments) > 0 {
 		systemPrompt += "\n\n" + strings.Join(skillPromptFragments, "\n\n")
 	}
+	systemPrompt += taskOperatingProtocolPrompt(task)
 
 	if len(reportInfos) > 0 {
 		var teamSection strings.Builder
@@ -1090,6 +1113,8 @@ func (s *Server) completeTaskWithStatus(ctx context.Context, task *service.Task,
 		action := "task_completed"
 		if status == service.TaskStatusCancelled {
 			action = "task_cancelled"
+		} else if status == service.TaskStatusBlocked {
+			action = "task_blocked"
 		}
 
 		details := map[string]any{
