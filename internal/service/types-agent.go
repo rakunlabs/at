@@ -319,36 +319,3 @@ type AgentConfigRevisionStorer interface {
 	GetRevision(ctx context.Context, id string) (*AgentConfigRevision, error)
 	GetLatestRevision(ctx context.Context, agentID string) (*AgentConfigRevision, error)
 }
-
-// ─── Agent Memory ───
-
-// AgentMemory represents a persistent memory entry for an agent within an organization.
-type AgentMemory struct {
-	ID             string   `json:"id"`
-	AgentID        string   `json:"agent_id"`
-	OrganizationID string   `json:"organization_id"`
-	TaskID         string   `json:"task_id"`
-	TaskIdentifier string   `json:"task_identifier,omitempty"`
-	SummaryL0      string   `json:"summary_l0"`
-	SummaryL1      string   `json:"summary_l1"`
-	Tags           []string `json:"tags,omitempty"`
-	CreatedAt      string   `json:"created_at"`
-}
-
-// AgentMemoryMessages stores the full L2 conversation for a memory entry.
-type AgentMemoryMessages struct {
-	MemoryID string    `json:"memory_id"`
-	Messages []Message `json:"messages"`
-}
-
-// AgentMemoryStorer defines operations for persistent agent memory.
-type AgentMemoryStorer interface {
-	CreateAgentMemory(ctx context.Context, mem AgentMemory) (*AgentMemory, error)
-	GetAgentMemory(ctx context.Context, id string) (*AgentMemory, error)
-	ListAgentMemories(ctx context.Context, agentID, orgID string) ([]AgentMemory, error)
-	ListOrgMemories(ctx context.Context, orgID string) ([]AgentMemory, error)
-	SearchAgentMemories(ctx context.Context, agentID, orgID, query string) ([]AgentMemory, error)
-	DeleteAgentMemory(ctx context.Context, id string) error
-	GetAgentMemoryMessages(ctx context.Context, memoryID string) (*AgentMemoryMessages, error)
-	CreateAgentMemoryMessages(ctx context.Context, msgs AgentMemoryMessages) error
-}

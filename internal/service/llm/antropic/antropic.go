@@ -33,6 +33,7 @@ const DefaultMaxTokens = 4096
 type Provider struct {
 	APIKey    string
 	Model     string
+	BaseURL   string
 	MaxTokens int
 
 	Client      *klient.Client
@@ -123,20 +124,39 @@ type ContentBlock struct {
 }
 
 type Usage struct {
-	InputTokens  int `json:"input_tokens"`
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+func anthropicServiceUsage(u Usage) service.Usage {
+	total := u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+	return service.Usage{
+		PromptTokens:     u.InputTokens,
+		CompletionTokens: u.OutputTokens,
+		CacheReadTokens:  u.CacheReadInputTokens,
+		CacheWriteTokens: u.CacheCreationInputTokens,
+		TotalTokens:      total,
+	}
+}
+
+func usagePtr(u service.Usage) *service.Usage {
+	return &u
 }
 
 func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...Option) (*Provider, error) {
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
+	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	// Apply options early so we know whether a tokenSource is configured
 	// before building the klient default headers.
 	p := &Provider{
 		APIKey:    apiKey,
 		Model:     model,
+		BaseURL:   baseURL,
 		MaxTokens: DefaultMaxTokens,
 	}
 
@@ -298,11 +318,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	// Map upstream usage to the internal Usage struct.
-	llmResp.Usage = service.Usage{
-		PromptTokens:     result.Usage.InputTokens,
-		CompletionTokens: result.Usage.OutputTokens,
-		TotalTokens:      result.Usage.InputTokens + result.Usage.OutputTokens,
-	}
+	llmResp.Usage = anthropicServiceUsage(result.Usage)
 
 	for _, block := range result.Content {
 		switch block.Type {
@@ -493,8 +509,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		var inThinkingBlock bool
 
 		// Accumulate token usage from message_start and message_delta events.
-		var usageInputTokens int
-		var usageOutputTokens int
+		var usage Usage
 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
@@ -524,7 +539,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				// message_start contains initial usage (input_tokens).
 				var msb messageStartBody
 				if err := json.Unmarshal([]byte(data), &msb); err == nil && msb.Message != nil && msb.Message.Usage != nil {
-					usageInputTokens = msb.Message.Usage.InputTokens
+					usage.InputTokens = msb.Message.Usage.InputTokens
+					usage.CacheCreationInputTokens = msb.Message.Usage.CacheCreationInputTokens
+					usage.CacheReadInputTokens = msb.Message.Usage.CacheReadInputTokens
 				}
 
 			case "content_block_start":
@@ -603,7 +620,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				var md messageDelta
 				if err := json.Unmarshal(event.Delta, &md); err == nil {
 					if md.Usage != nil {
-						usageOutputTokens = md.Usage.OutputTokens
+						usage.OutputTokens = md.Usage.OutputTokens
 					}
 					if md.StopReason != "" {
 						finishReason := "stop"
@@ -616,13 +633,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			case "message_stop":
 				// Emit accumulated usage on the final event.
-				total := usageInputTokens + usageOutputTokens
 				ch <- service.StreamChunk{
-					Usage: &service.Usage{
-						PromptTokens:     usageInputTokens,
-						CompletionTokens: usageOutputTokens,
-						TotalTokens:      total,
-					},
+					Usage: usagePtr(anthropicServiceUsage(usage)),
 				}
 				return
 
@@ -652,17 +664,38 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 }
 
 func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {
-	// Anthropic base URL is default "https://api.anthropic.com".
-	baseURL := DefaultBaseURL
-
 	if !strings.HasPrefix(path, "/") {
 		path = "/" + path
+	}
+	baseURL := p.BaseURL
+	if baseURL == "" {
+		baseURL = DefaultBaseURL
 	}
 
 	targetURL, err := url.Parse(baseURL + path)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
+	if r.URL.RawQuery != "" {
+		if targetURL.RawQuery == "" {
+			targetURL.RawQuery = r.URL.RawQuery
+		} else {
+			targetURL.RawQuery += "&" + r.URL.RawQuery
+		}
+	}
+	if p.tokenSource != nil && targetURL.Path == "/v1/messages" {
+		q := targetURL.Query()
+		if q.Get("beta") == "" {
+			q.Set("beta", "true")
+			targetURL.RawQuery = q.Encode()
+		}
+	}
+
+	release, err := p.limiter.Acquire(r.Context(), 0)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {

@@ -19,6 +19,7 @@ type mcpServerRow struct {
 	ID          string         `db:"id"`
 	Name        string         `db:"name"`
 	Description string         `db:"description"`
+	Public      bool           `db:"public"`
 	Config      types.RawJSON  `db:"config"`
 	Servers     types.RawJSON  `db:"servers"`
 	URLs        types.RawJSON  `db:"urls"`
@@ -29,7 +30,7 @@ type mcpServerRow struct {
 }
 
 func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service.ListResult[service.MCPServer], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableMCPServers, q, "id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableMCPServers, q, "id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list mcp servers query: %w", err)
 	}
@@ -43,7 +44,7 @@ func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service
 	var items []service.MCPServer
 	for rows.Next() {
 		var row mcpServerRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan mcp server row: %w", err)
 		}
 
@@ -68,7 +69,7 @@ func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service
 
 func (p *Postgres) GetMCPServer(ctx context.Context, id string) (*service.MCPServer, error) {
 	query, _, err := p.goqu.From(p.tableMCPServers).
-		Select("id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -76,7 +77,7 @@ func (p *Postgres) GetMCPServer(ctx context.Context, id string) (*service.MCPSer
 	}
 
 	var row mcpServerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -89,7 +90,7 @@ func (p *Postgres) GetMCPServer(ctx context.Context, id string) (*service.MCPSer
 
 func (p *Postgres) GetMCPServerByName(ctx context.Context, name string) (*service.MCPServer, error) {
 	query, _, err := p.goqu.From(p.tableMCPServers).
-		Select("id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -97,7 +98,7 @@ func (p *Postgres) GetMCPServerByName(ctx context.Context, name string) (*servic
 	}
 
 	var row mcpServerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -130,6 +131,7 @@ func (p *Postgres) CreateMCPServer(ctx context.Context, s service.MCPServer) (*s
 			"id":          id,
 			"name":        s.Name,
 			"description": s.Description,
+			"public":      s.Public,
 			"config":      types.RawJSON(configJSON),
 			"servers":     types.RawJSON(serversJSON),
 			"urls":        types.RawJSON(urlsJSON),
@@ -151,6 +153,7 @@ func (p *Postgres) CreateMCPServer(ctx context.Context, s service.MCPServer) (*s
 		ID:          id,
 		Name:        s.Name,
 		Description: s.Description,
+		Public:      s.Public,
 		Config:      s.Config,
 		Servers:     s.Servers,
 		URLs:        s.URLs,
@@ -181,6 +184,7 @@ func (p *Postgres) UpdateMCPServer(ctx context.Context, id string, s service.MCP
 		goqu.Record{
 			"name":        s.Name,
 			"description": s.Description,
+			"public":      s.Public,
 			"config":      types.RawJSON(configJSON),
 			"servers":     types.RawJSON(serversJSON),
 			"urls":        types.RawJSON(urlsJSON),
@@ -250,6 +254,7 @@ func mcpServerRowToRecord(row mcpServerRow) (*service.MCPServer, error) {
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: row.Description,
+		Public:      row.Public,
 		Config:      cfg,
 		Servers:     servers,
 		URLs:        urls,

@@ -46,9 +46,6 @@ type bundleRelationship struct {
 	ParentAgentName   string `json:"parent_agent_name,omitempty"`
 	Status            string `json:"status,omitempty"`
 	HeartbeatSchedule string `json:"heartbeat_schedule,omitempty"`
-	MemoryModel       string `json:"memory_model,omitempty"`
-	MemoryProvider    string `json:"memory_provider,omitempty"`
-	MemoryMethod      string `json:"memory_method,omitempty"`
 	IsHead            bool   `json:"is_head,omitempty"`
 }
 
@@ -292,9 +289,6 @@ func (s *Server) ExportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 			Title:             oa.Title,
 			Status:            oa.Status,
 			HeartbeatSchedule: oa.HeartbeatSchedule,
-			MemoryModel:       oa.MemoryModel,
-			MemoryProvider:    oa.MemoryProvider,
-			MemoryMethod:      oa.MemoryMethod,
 			IsHead:            org.HeadAgentID == agent.ID,
 		}
 		// Resolve parent agent name.
@@ -706,9 +700,6 @@ func (s *Server) ImportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 				Title:             rel.Title,
 				Status:            rel.Status,
 				HeartbeatSchedule: rel.HeartbeatSchedule,
-				MemoryModel:       rel.MemoryModel,
-				MemoryProvider:    rel.MemoryProvider,
-				MemoryMethod:      rel.MemoryMethod,
 			}
 
 			// Resolve parent agent ID.
@@ -879,6 +870,7 @@ func (s *Server) parseBundle(r *http.Request) (*parsedBundle, error) {
 			bundle.mcpServers = append(bundle.mcpServers, service.MCPServer{
 				Name:        export.Name,
 				Description: export.Description,
+				Public:      export.Public,
 				Config:      export.Config,
 				Servers:     export.Servers,
 				URLs:        export.URLs,

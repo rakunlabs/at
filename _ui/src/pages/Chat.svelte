@@ -15,7 +15,7 @@
   import { listMCPTools, callMCPTool, callSkillTool, listBuiltinTools, callBuiltinTool, listRAGTools, callRAGTool, type MCPToolInfo, type BuiltinToolDef, type RAGToolDef, type RAGAuthConfig } from '@/lib/api/mcp';
   import { listCollections, type RAGCollection } from '@/lib/api/rag';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { listAgents, type Agent } from '@/lib/api/agents';
+  import { listAgents, type Agent, type SkillRef } from '@/lib/api/agents';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
   import { listVariables, type Variable } from '@/lib/api/secrets';
   import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, Mic, MicOff } from 'lucide-svelte';
@@ -499,6 +499,10 @@
     refreshTools();
   }
 
+  function skillRefId(skill: string | SkillRef): string {
+    return typeof skill === 'string' ? skill : skill.id;
+  }
+
   function onAgentSelected() {
     if (!selectedAgentId) return;
     const agent = agents.find(a => a.id === selectedAgentId);
@@ -517,7 +521,7 @@
     }
 
     // Merge agent's skills (avoid duplicates)
-    const newSkills = agent.config.skills?.filter(s => !selectedSkillNames.includes(s)) || [];
+    const newSkills = agent.config.skills?.map(skillRefId).filter(s => s && !selectedSkillNames.includes(s)) || [];
     if (newSkills.length > 0) {
       selectedSkillNames = [...selectedSkillNames, ...newSkills];
     }

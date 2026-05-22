@@ -15,7 +15,6 @@
 //   - agent_call     — agentic loop with MCP, skill, and inline tool execution
 //   - skill_config   — resource node: outputs skill names for agent_call
 //   - mcp_config     — resource node: outputs MCP server URLs for agent_call
-//   - memory_config  — resource node: passes memory/context data to agent_call
 //   - conditional    — if/branch via JavaScript expression (Goja)
 //   - loop           — for-each fan-out via JavaScript expression (Goja)
 //   - script         — arbitrary JavaScript execution with 3-port routing (Goja)

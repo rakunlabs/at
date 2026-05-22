@@ -14,6 +14,7 @@ import (
 type mcpServerExportData struct {
 	Name        string                  `json:"name"`
 	Description string                  `json:"description"`
+	Public      bool                    `json:"public"`
 	Config      service.MCPServerConfig `json:"config"`
 	Servers     []string                `json:"servers,omitempty"`
 	URLs        []string                `json:"urls,omitempty"`
@@ -201,6 +202,7 @@ func (s *Server) ExportMCPServerAPI(w http.ResponseWriter, r *http.Request) {
 	export := mcpServerExportData{
 		Name:        record.Name,
 		Description: record.Description,
+		Public:      record.Public,
 		Config:      record.Config,
 		Servers:     record.Servers,
 		URLs:        record.URLs,
@@ -230,6 +232,7 @@ func (s *Server) ImportMCPServerAPI(w http.ResponseWriter, r *http.Request) {
 	server := service.MCPServer{
 		Name:        req.Name,
 		Description: req.Description,
+		Public:      req.Public,
 		Config:      req.Config,
 		Servers:     req.Servers,
 		URLs:        req.URLs,

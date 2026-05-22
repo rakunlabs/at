@@ -107,9 +107,14 @@ type ChatCompletionMessage struct {
 }
 
 type ChatCompletionUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens         int                                `json:"prompt_tokens"`
+	CompletionTokens     int                                `json:"completion_tokens"`
+	TotalTokens          int                                `json:"total_tokens"`
+	PromptTokensDetails *ChatCompletionPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type ChatCompletionPromptTokensDetails struct {
+	CachedTokens int `json:"cached_tokens,omitempty"`
 }
 
 // OpenAI /v1/models response types.
@@ -471,12 +476,27 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 				FinishReason: finishReason,
 			},
 		},
-		Usage: ChatCompletionUsage{
-			PromptTokens:     resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
-		},
+		Usage: chatCompletionUsageFromService(resp.Usage),
 	}
+}
+
+func chatCompletionUsageFromService(usage service.Usage) ChatCompletionUsage {
+	out := ChatCompletionUsage{
+		PromptTokens:     usage.TotalInputTokens(),
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokenCount(),
+	}
+	if usage.CacheReadTokens > 0 {
+		out.PromptTokensDetails = &ChatCompletionPromptTokensDetails{
+			CachedTokens: usage.CacheReadTokens,
+		}
+	}
+	return out
+}
+
+func chatCompletionUsagePtrFromService(usage service.Usage) *ChatCompletionUsage {
+	out := chatCompletionUsageFromService(usage)
+	return &out
 }
 
 // ─── Helpers ───

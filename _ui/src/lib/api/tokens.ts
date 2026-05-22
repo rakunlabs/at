@@ -19,6 +19,7 @@ export interface APIToken {
   allowed_rag_mcps: string[] | null;
   expires_at: string | null;
   total_token_limit: number | null;
+  spend_limit_cents: number | null;
   limit_reset_interval: string | null;
   last_reset_at: string | null;
   created_at: string;
@@ -31,6 +32,8 @@ export interface TokenUsage {
   model: string;
   prompt_tokens: number;
   completion_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   total_tokens: number;
   request_count: number;
   last_request_at: string;
@@ -48,6 +51,7 @@ export interface CreateTokenRequest {
   allowed_rag_mcps?: string[];
   expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
   total_token_limit?: number;
+  spend_limit_cents?: number;
   limit_reset_interval?: string; // "daily", "weekly", "monthly"
 }
 
@@ -63,6 +67,7 @@ export interface UpdateTokenRequest {
   allowed_rag_mcps?: string[];
   expires_at?: string; // RFC3339 timestamp, empty/omitted = no expiry
   total_token_limit?: number;
+  spend_limit_cents?: number;
   limit_reset_interval?: string; // "daily", "weekly", "monthly"
 }
 

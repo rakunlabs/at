@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -129,14 +131,14 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Token usage limit check (DB tokens only).
-	if exceeded, resetErr := s.checkTokenLimit(r.Context(), auth); resetErr != nil {
+	// Token budget checks (DB tokens only).
+	if limitMessage, resetErr := s.checkTokenLimits(r.Context(), auth); resetErr != nil {
 		slog.Error("token limit check failed", "error", resetErr)
 		// Non-fatal: allow the request through on check failure.
-	} else if exceeded {
+	} else if limitMessage != "" {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": "token usage limit exceeded",
+				"message": limitMessage,
 				"type":    "tokens",
 				"code":    "rate_limit_exceeded",
 			},
@@ -256,6 +258,9 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Cache thought_signatures before sending the response to the client.
 	s.cacheThoughtSignatures(resp.ToolCalls)
 	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
+	if costCents := s.estimateGatewayUsageCostCents(r.Context(), providerKey, actualModel, req.Model, resp.Usage); costCents > 0 {
+		w.Header().Set("x-at-response-cost-cents", fmt.Sprintf("%.6f", costCents))
+	}
 
 	// Fire-and-forget usage recording for DB tokens.
 	s.recordUsageAsync(r.Context(), auth, req.Model, resp.Usage, latencyMs, "ok", "", "")
@@ -263,8 +268,10 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, chatResp, http.StatusOK)
 }
 
-// ProxyRequest handles generic requests to provider endpoints.
-// Path: /gateway/proxy/{provider}/*
+// ProxyRequest handles generic requests to provider-native endpoints.
+// Paths:
+//   - /gateway/v1/providers/{provider}/*
+//   - /gateway/proxy/{provider}/* (legacy)
 func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 	// Auth check
 	auth, authErr := s.authenticateRequest(r)
@@ -276,6 +283,19 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 				"code":    "invalid_api_key",
 			},
 		}, http.StatusUnauthorized)
+		return
+	}
+
+	if limitMessage, limitErr := s.checkTokenLimits(r.Context(), auth); limitErr != nil {
+		slog.Error("token limit check failed", "error", limitErr)
+	} else if limitMessage != "" {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": limitMessage,
+				"type":    "tokens",
+				"code":    "rate_limit_exceeded",
+			},
+		}, http.StatusTooManyRequests)
 		return
 	}
 
@@ -294,19 +314,44 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Token-level access check.
-	// Since this is a proxy request, we check if the token has access to the provider.
-	// We pass a dummy model ID like "providerKey/*" to reuse isModelAllowed logic
-	// or just check provider access directly.
-	// Let's check provider access.
-	if !auth.isModelAllowed(providerKey, providerKey+"/*") {
+	proxyModel, hasProxyModel, err := extractProxyBodyModel(r)
+	if err != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("token does not have access to provider %q", providerKey),
+				"message": fmt.Sprintf("failed to read request body: %v", err),
 				"type":    "invalid_request_error",
-				"code":    "provider_not_allowed",
+			},
+		}, http.StatusBadRequest)
+		return
+	}
+
+	// Token-level access check.
+	// Native provider calls keep the provider's wire format. When the JSON body
+	// exposes a top-level model field, still enforce the same token/model policy
+	// used by the OpenAI-compatible gateway; otherwise fall back to provider-level
+	// access because endpoints like files/models may not name a model at all.
+	accessModel := providerKey + "/*"
+	if hasProxyModel {
+		accessModel = providerKey + "/" + proxyModel
+	}
+	if !auth.isModelAllowed(providerKey, accessModel) {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": fmt.Sprintf("token does not have access to %q", accessModel),
+				"type":    "invalid_request_error",
+				"code":    "model_not_found",
 			},
 		}, http.StatusForbidden)
+		return
+	}
+	if hasProxyModel && len(info.models) > 0 && !info.hasModel(proxyModel) {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": fmt.Sprintf("model %q is not available for provider %q; available models: %v", proxyModel, providerKey, info.models),
+				"type":    "invalid_request_error",
+				"code":    "model_not_found",
+			},
+		}, http.StatusNotFound)
 		return
 	}
 
@@ -413,6 +458,36 @@ func parseModelID(model string) (providerKey, actualModel string, err error) {
 	return providerKey, actualModel, nil
 }
 
+func extractProxyBodyModel(r *http.Request) (string, bool, error) {
+	if r.Body == nil || r.Body == http.NoBody || !isJSONContentType(r.Header.Get("Content-Type")) {
+		return "", false, nil
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", false, err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", false, nil
+	}
+
+	var payload struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil || payload.Model == "" {
+		return "", false, nil
+	}
+
+	return payload.Model, true, nil
+}
+
+func isJSONContentType(contentType string) bool {
+	contentType = strings.ToLower(contentType)
+	return strings.Contains(contentType, "json")
+}
+
 // authenticateRequest validates the Authorization header.
 // Returns an authResult on success, or an error message string on failure.
 // When no token store is configured, all requests are rejected — at
@@ -420,14 +495,18 @@ func parseModelID(model string) (providerKey, actualModel string, err error) {
 func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 	auth := r.Header.Get("Authorization")
 	bearerToken := strings.TrimPrefix(auth, "Bearer ")
+	apiKeyToken := firstNonEmptyHeader(r.Header, "x-api-key", "x-goog-api-key", "api-key")
+	if bearerToken == "" && apiKeyToken != "" {
+		bearerToken = apiKeyToken
+	}
 
 	// If no auth is configured at all, reject everything.
 	if s.tokenStore == nil {
 		return nil, "no authentication configured; add a token via the UI"
 	}
 
-	if auth == "" || bearerToken == "" {
-		return nil, "missing Authorization header"
+	if bearerToken == "" {
+		return nil, "missing Authorization Bearer or provider-native API key header"
 	}
 
 	// Check DB token.
@@ -467,11 +546,23 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 			}
 
 			r.Header.Del("Authorization")
+			r.Header.Del("x-api-key")
+			r.Header.Del("x-goog-api-key")
+			r.Header.Del("api-key")
 			return &authResult{token: token}, ""
 		}
 	}
 
-	return nil, "invalid or missing Authorization header"
+	return nil, "invalid or missing gateway token"
+}
+
+func firstNonEmptyHeader(h http.Header, keys ...string) string {
+	for _, key := range keys {
+		if v := strings.TrimSpace(h.Get(key)); v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // getProviderInfo looks up a provider by key, returning the full ProviderInfo.
@@ -599,7 +690,7 @@ func (s *Server) handleStreamingChat(
 
 		// Accumulate usage from stream chunks (providers emit it on the
 		// final chunk or as a separate usage-only chunk).
-		var streamUsage *ChatCompletionUsage
+		var streamUsage *service.Usage
 
 		for chunk := range chunks {
 			if chunk.Error != nil {
@@ -610,11 +701,8 @@ func (s *Server) handleStreamingChat(
 
 			// Capture usage if present (don't emit it yet).
 			if chunk.Usage != nil {
-				streamUsage = &ChatCompletionUsage{
-					PromptTokens:     chunk.Usage.PromptTokens,
-					CompletionTokens: chunk.Usage.CompletionTokens,
-					TotalTokens:      chunk.Usage.TotalTokens,
-				}
+				usage := *chunk.Usage
+				streamUsage = &usage
 			}
 
 			// Usage-only chunks (no content, no tool calls, no finish reason)
@@ -694,17 +782,13 @@ func (s *Server) handleStreamingChat(
 				Object:  "chat.completion.chunk",
 				Model:   fullModel,
 				Choices: []ChunkChoice{},
-				Usage:   streamUsage,
+				Usage:   chatCompletionUsagePtrFromService(*streamUsage),
 			})
 		}
 
 		// Fire-and-forget usage recording for DB tokens (true streaming).
 		if streamUsage != nil {
-			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{
-				PromptTokens:     streamUsage.PromptTokens,
-				CompletionTokens: streamUsage.CompletionTokens,
-				TotalTokens:      streamUsage.TotalTokens,
-			}, time.Since(streamStart).Milliseconds(), "ok", "", "")
+			s.recordUsageAsync(r.Context(), auth, fullModel, *streamUsage, time.Since(streamStart).Milliseconds(), "ok", "", "")
 		}
 	} else {
 		// Fallback: fake streaming via non-streaming Chat call. Same
@@ -820,11 +904,7 @@ func (s *Server) handleStreamingChat(
 				Object:  "chat.completion.chunk",
 				Model:   fullModel,
 				Choices: []ChunkChoice{},
-				Usage: &ChatCompletionUsage{
-					PromptTokens:     resp.Usage.PromptTokens,
-					CompletionTokens: resp.Usage.CompletionTokens,
-					TotalTokens:      resp.Usage.TotalTokens,
-				},
+				Usage:   chatCompletionUsagePtrFromService(resp.Usage),
 			})
 		}
 
@@ -905,42 +985,69 @@ func writeSSEError(w http.ResponseWriter, flusher http.Flusher, chatID, model, e
 
 // ─── Token Usage Helpers ───
 
-// checkTokenLimit checks whether a DB token has exceeded its total token budget.
+// checkTokenLimits checks whether a DB token has exceeded its token or spend budget.
 // If the token has a configured limit_reset_interval, a lazy reset is performed
-// when the reset period has elapsed.
-// Returns (exceeded bool, err error). On error the caller should log and allow
-// the request through (non-fatal).
-func (s *Server) checkTokenLimit(ctx context.Context, auth *authResult) (bool, error) {
+// when the reset period has elapsed. Returns an empty message when allowed.
+// On error the caller should log and allow the request through (non-fatal).
+func (s *Server) checkTokenLimits(ctx context.Context, auth *authResult) (string, error) {
 	if auth == nil || auth.token == nil || auth.token.ID == "" {
-		return false, nil // config token or unrestricted — no limit
-	}
-	if s.tokenUsageStore == nil {
-		return false, nil
+		return "", nil // config token or unrestricted — no limit
 	}
 
 	token := auth.token
-	if !token.TotalTokenLimit.Valid || token.TotalTokenLimit.V <= 0 {
-		return false, nil // no limit configured
+	hasTokenLimit := token.TotalTokenLimit.Valid && token.TotalTokenLimit.V > 0
+	hasSpendLimit := token.SpendLimitCents.Valid && token.SpendLimitCents.V > 0
+	if !hasTokenLimit && !hasSpendLimit {
+		return "", nil // no limit configured
 	}
 
 	// Lazy periodic reset: if a reset interval is configured and enough time
 	// has passed since the last reset, reset the counters now.
 	if token.LimitResetInterval.Valid && token.LimitResetInterval.V != "" {
-		if s.shouldResetUsage(token) {
+		if s.shouldResetUsage(token) && s.tokenUsageStore != nil {
 			if err := s.tokenUsageStore.ResetTokenUsage(ctx, token.ID); err != nil {
-				return false, fmt.Errorf("lazy reset usage: %w", err)
+				return "", fmt.Errorf("lazy reset usage: %w", err)
 			}
-			// After reset, usage is 0 — no need to check.
-			return false, nil
+			// After reset, both token_usage and spend windows start from now.
+			return "", nil
 		}
 	}
 
-	total, err := s.tokenUsageStore.GetTokenTotalUsage(ctx, token.ID)
-	if err != nil {
-		return false, fmt.Errorf("get total usage: %w", err)
+	if hasTokenLimit && s.tokenUsageStore != nil {
+		total, err := s.tokenUsageStore.GetTokenTotalUsage(ctx, token.ID)
+		if err != nil {
+			return "", fmt.Errorf("get total usage: %w", err)
+		}
+		if total >= token.TotalTokenLimit.V {
+			return "token usage limit exceeded", nil
+		}
 	}
 
-	return total >= token.TotalTokenLimit.V, nil
+	if hasSpendLimit && s.costEventStore != nil {
+		spend, err := s.costEventStore.GetCostByAgentSince(ctx, "gateway:"+token.ID, tokenBudgetWindowStart(token))
+		if err != nil {
+			return "", fmt.Errorf("get token spend: %w", err)
+		}
+		if spend >= token.SpendLimitCents.V {
+			return "token spend limit exceeded", nil
+		}
+	}
+
+	return "", nil
+}
+
+func tokenBudgetWindowStart(token *service.APIToken) string {
+	if token == nil {
+		return ""
+	}
+	anchor := token.CreatedAt.Time
+	if token.LastResetAt.Valid {
+		anchor = token.LastResetAt.V.Time
+	}
+	if anchor.IsZero() {
+		return ""
+	}
+	return anchor.UTC().Format(time.RFC3339)
 }
 
 // shouldResetUsage determines whether a token's usage counters should be
@@ -986,7 +1093,7 @@ func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullMod
 		status = "ok"
 	}
 	// Skip entirely if we have nothing to record.
-	hasUsage := usage.TotalTokens > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0
+	hasUsage := usage.TotalTokenCount() > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0
 	if !hasUsage && status == "ok" {
 		return
 	}
@@ -1004,19 +1111,9 @@ func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullMod
 	if s.costEventStore != nil {
 		providerKey, actualModel := splitProviderModel(fullModel)
 
-		// Best-effort cost estimation via model_pricing.
 		var costCents float64
-		if s.agentBudgetStore != nil && hasUsage {
-			if pricingList, err := s.agentBudgetStore.ListModelPricing(context.WithoutCancel(ctx)); err == nil {
-				for _, p := range pricingList {
-					if p.Model == actualModel || p.Model == fullModel {
-						dollars := (float64(usage.PromptTokens) * p.PromptPricePer1M / 1_000_000) +
-							(float64(usage.CompletionTokens) * p.CompletionPricePer1M / 1_000_000)
-						costCents = dollars * 100
-						break
-					}
-				}
-			}
+		if hasUsage {
+			costCents = s.estimateGatewayUsageCostCents(context.WithoutCancel(ctx), providerKey, actualModel, fullModel, usage)
 		}
 
 		// There is no billing_code on APIToken today; use the token Name as a
@@ -1028,17 +1125,19 @@ func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullMod
 
 		go func() {
 			if err := s.costEventStore.RecordCostEvent(context.WithoutCancel(ctx), service.CostEvent{
-				AgentID:      "gateway:" + tokenID, // gateway calls have no agent; tag with token ID
-				Provider:     providerKey,
-				Model:        actualModel,
-				BillingCode:  billingCode,
-				InputTokens:  int64(usage.PromptTokens),
-				OutputTokens: int64(usage.CompletionTokens),
-				CostCents:    costCents,
-				LatencyMs:    latencyMs,
-				Status:       status,
-				ErrorCode:    errCode,
-				ErrorMessage: errMsg,
+				AgentID:          "gateway:" + tokenID, // gateway calls have no agent; tag with token ID
+				Provider:         providerKey,
+				Model:            actualModel,
+				BillingCode:      billingCode,
+				InputTokens:      int64(usage.PromptTokens),
+				OutputTokens:     int64(usage.CompletionTokens),
+				CacheReadTokens:  int64(usage.CacheReadTokens),
+				CacheWriteTokens: int64(usage.CacheWriteTokens),
+				CostCents:        costCents,
+				LatencyMs:        latencyMs,
+				Status:           status,
+				ErrorCode:        errCode,
+				ErrorMessage:     errMsg,
 			}); err != nil {
 				slog.Error("failed to record cost event", "token_id", tokenID, "model", fullModel, "error", err)
 			}

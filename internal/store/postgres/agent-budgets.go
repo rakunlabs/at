@@ -41,13 +41,25 @@ type agentUsageRow struct {
 }
 
 type modelPricingRow struct {
-	ID                   string    `db:"id"`
-	ProviderKey          string    `db:"provider_key"`
-	Model                string    `db:"model"`
-	PromptPricePer1M     float64   `db:"prompt_price_per_1m"`
-	CompletionPricePer1M float64   `db:"completion_price_per_1m"`
-	CreatedAt            time.Time `db:"created_at"`
-	UpdatedAt            time.Time `db:"updated_at"`
+	ID                         string       `db:"id"`
+	ProviderKey                string       `db:"provider_key"`
+	Model                      string       `db:"model"`
+	PromptPricePer1M           float64      `db:"prompt_price_per_1m"`
+	CompletionPricePer1M       float64      `db:"completion_price_per_1m"`
+	CacheReadPricePer1M        float64      `db:"cache_read_price_per_1m"`
+	CacheWritePricePer1M       float64      `db:"cache_write_price_per_1m"`
+	Source                     string       `db:"source"`
+	SourceProvider             string       `db:"source_provider"`
+	SourceModel                string       `db:"source_model"`
+	SourceURL                  string       `db:"source_url"`
+	SourcePromptPricePer1M     float64      `db:"source_prompt_price_per_1m"`
+	SourceCompletionPricePer1M float64      `db:"source_completion_price_per_1m"`
+	SourceCacheReadPricePer1M  float64      `db:"source_cache_read_price_per_1m"`
+	SourceCacheWritePricePer1M float64      `db:"source_cache_write_price_per_1m"`
+	ManualOverride             bool         `db:"manual_override"`
+	LastSyncedAt               sql.NullTime `db:"last_synced_at"`
+	CreatedAt                  time.Time    `db:"created_at"`
+	UpdatedAt                  time.Time    `db:"updated_at"`
 }
 
 func (p *Postgres) GetAgentBudget(ctx context.Context, agentID string) (*service.AgentBudget, error) {
@@ -250,7 +262,7 @@ func (p *Postgres) GetAgentTotalSpend(ctx context.Context, agentID string) (floa
 
 func (p *Postgres) ListModelPricing(ctx context.Context) ([]service.ModelPricing, error) {
 	query, _, err := p.goqu.From(p.tableModelPricing).
-		Select("id", "provider_key", "model", "prompt_price_per_1m", "completion_price_per_1m", "created_at", "updated_at").
+		Select("id", "provider_key", "model", "prompt_price_per_1m", "completion_price_per_1m", "cache_read_price_per_1m", "cache_write_price_per_1m", "source", "source_provider", "source_model", "source_url", "source_prompt_price_per_1m", "source_completion_price_per_1m", "source_cache_read_price_per_1m", "source_cache_write_price_per_1m", "manual_override", "last_synced_at", "created_at", "updated_at").
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list model pricing query: %w", err)
@@ -267,7 +279,11 @@ func (p *Postgres) ListModelPricing(ctx context.Context) ([]service.ModelPricing
 		var row modelPricingRow
 		if err := rows.Scan(
 			&row.ID, &row.ProviderKey, &row.Model, &row.PromptPricePer1M,
-			&row.CompletionPricePer1M, &row.CreatedAt, &row.UpdatedAt,
+			&row.CompletionPricePer1M, &row.CacheReadPricePer1M, &row.CacheWritePricePer1M,
+			&row.Source, &row.SourceProvider, &row.SourceModel, &row.SourceURL,
+			&row.SourcePromptPricePer1M, &row.SourceCompletionPricePer1M,
+			&row.SourceCacheReadPricePer1M, &row.SourceCacheWritePricePer1M,
+			&row.ManualOverride, &row.LastSyncedAt, &row.CreatedAt, &row.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan model pricing row: %w", err)
 		}
@@ -284,24 +300,78 @@ func (p *Postgres) SetModelPricing(ctx context.Context, pricing service.ModelPri
 
 	// Use raw SQL for ON CONFLICT upsert by (provider_key, model).
 	rawSQL := fmt.Sprintf(
-		`INSERT INTO %s (id, provider_key, model, prompt_price_per_1m, completion_price_per_1m, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`INSERT INTO %s (id, provider_key, model, prompt_price_per_1m, completion_price_per_1m, cache_read_price_per_1m, cache_write_price_per_1m, source, source_provider, source_model, source_url, source_prompt_price_per_1m, source_completion_price_per_1m, source_cache_read_price_per_1m, source_cache_write_price_per_1m, manual_override, last_synced_at, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
 		ON CONFLICT (provider_key, model) DO UPDATE SET
 			prompt_price_per_1m = EXCLUDED.prompt_price_per_1m,
 			completion_price_per_1m = EXCLUDED.completion_price_per_1m,
+			cache_read_price_per_1m = EXCLUDED.cache_read_price_per_1m,
+			cache_write_price_per_1m = EXCLUDED.cache_write_price_per_1m,
+			source = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source ELSE %[1]s.source END,
+			source_provider = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source_provider ELSE %[1]s.source_provider END,
+			source_model = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source_model ELSE %[1]s.source_model END,
+			source_url = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source_url ELSE %[1]s.source_url END,
+			source_prompt_price_per_1m = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source_prompt_price_per_1m ELSE %[1]s.source_prompt_price_per_1m END,
+			source_completion_price_per_1m = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source_completion_price_per_1m ELSE %[1]s.source_completion_price_per_1m END,
+			source_cache_read_price_per_1m = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source_cache_read_price_per_1m ELSE %[1]s.source_cache_read_price_per_1m END,
+			source_cache_write_price_per_1m = CASE WHEN EXCLUDED.source <> '' THEN EXCLUDED.source_cache_write_price_per_1m ELSE %[1]s.source_cache_write_price_per_1m END,
+			manual_override = EXCLUDED.manual_override,
+			last_synced_at = CASE WHEN EXCLUDED.last_synced_at IS NOT NULL THEN EXCLUDED.last_synced_at ELSE %[1]s.last_synced_at END,
 			updated_at = EXCLUDED.updated_at`,
 		p.tableModelPricing.GetTable(),
 	)
 
+	lastSyncedAt := any(nil)
+	if pricing.LastSyncedAt != "" {
+		if parsed, err := time.Parse(time.RFC3339, pricing.LastSyncedAt); err == nil {
+			lastSyncedAt = parsed
+		}
+	}
+
 	_, err := p.db.ExecContext(ctx, rawSQL,
 		id, pricing.ProviderKey, pricing.Model,
 		pricing.PromptPricePer1M, pricing.CompletionPricePer1M,
+		pricing.CacheReadPricePer1M, pricing.CacheWritePricePer1M,
+		pricing.Source, pricing.SourceProvider, pricing.SourceModel, pricing.SourceURL,
+		pricing.SourcePromptPricePer1M, pricing.SourceCompletionPricePer1M,
+		pricing.SourceCacheReadPricePer1M, pricing.SourceCacheWritePricePer1M,
+		pricing.ManualOverride, lastSyncedAt,
 		now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("set model pricing for %q/%q: %w", pricing.ProviderKey, pricing.Model, err)
 	}
 
+	return nil
+}
+
+func (p *Postgres) DeleteModelPricing(ctx context.Context, id string) error {
+	query, _, err := p.goqu.Delete(p.tableModelPricing).Where(goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build delete model pricing query: %w", err)
+	}
+	if _, err := p.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("delete model pricing %q: %w", id, err)
+	}
+	return nil
+}
+
+func (p *Postgres) ResetModelPricingOverride(ctx context.Context, id string) error {
+	now := time.Now().UTC()
+	query, _, err := p.goqu.Update(p.tableModelPricing).Set(goqu.Record{
+		"prompt_price_per_1m":      goqu.I("source_prompt_price_per_1m"),
+		"completion_price_per_1m":  goqu.I("source_completion_price_per_1m"),
+		"cache_read_price_per_1m":  goqu.I("source_cache_read_price_per_1m"),
+		"cache_write_price_per_1m": goqu.I("source_cache_write_price_per_1m"),
+		"manual_override":          false,
+		"updated_at":               now,
+	}).Where(goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build reset model pricing query: %w", err)
+	}
+	if _, err := p.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("reset model pricing %q: %w", id, err)
+	}
 	return nil
 }
 
@@ -337,13 +407,29 @@ func agentUsageRowToRecord(row agentUsageRow) *service.AgentUsageRecord {
 }
 
 func modelPricingRowToRecord(row modelPricingRow) *service.ModelPricing {
+	lastSyncedAt := ""
+	if row.LastSyncedAt.Valid {
+		lastSyncedAt = row.LastSyncedAt.Time.Format(time.RFC3339)
+	}
 	return &service.ModelPricing{
-		ID:                   row.ID,
-		ProviderKey:          row.ProviderKey,
-		Model:                row.Model,
-		PromptPricePer1M:     row.PromptPricePer1M,
-		CompletionPricePer1M: row.CompletionPricePer1M,
-		CreatedAt:            row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:            row.UpdatedAt.Format(time.RFC3339),
+		ID:                         row.ID,
+		ProviderKey:                row.ProviderKey,
+		Model:                      row.Model,
+		PromptPricePer1M:           row.PromptPricePer1M,
+		CompletionPricePer1M:       row.CompletionPricePer1M,
+		CacheReadPricePer1M:        row.CacheReadPricePer1M,
+		CacheWritePricePer1M:       row.CacheWritePricePer1M,
+		Source:                     row.Source,
+		SourceProvider:             row.SourceProvider,
+		SourceModel:                row.SourceModel,
+		SourceURL:                  row.SourceURL,
+		SourcePromptPricePer1M:     row.SourcePromptPricePer1M,
+		SourceCompletionPricePer1M: row.SourceCompletionPricePer1M,
+		SourceCacheReadPricePer1M:  row.SourceCacheReadPricePer1M,
+		SourceCacheWritePricePer1M: row.SourceCacheWritePricePer1M,
+		ManualOverride:             row.ManualOverride,
+		LastSyncedAt:               lastSyncedAt,
+		CreatedAt:                  row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:                  row.UpdatedAt.Format(time.RFC3339),
 	}
 }

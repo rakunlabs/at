@@ -353,12 +353,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		systemPrompt += teamSection.String()
 	}
 
-	// f2) Recall relevant past memories and inject into system prompt.
-	if memorySection := s.recallAgentMemories(ctx, org, task, agent, agentID); memorySection != "" {
-		systemPrompt += memorySection
-	}
-
-	// f3) Inject shared workspace directory into system prompt.
+	// f2) Inject shared workspace directory into system prompt.
 	if taskWorkDir != "" {
 		systemPrompt += fmt.Sprintf("\n\n## Workspace\nAll agents in this task chain share the workspace directory: `%s`\n"+
 			"Use this directory for all file operations (reading, writing, temporary files). "+
@@ -629,7 +624,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		// breakdown collapses every OpenAI-compatible config to "openai" and
 		// every Anthropic-shaped one to "anthropic", hiding which named
 		// provider account actually drove the spend.
-		if resp.Usage.TotalTokens > 0 {
+		if resp.Usage.TotalTokenCount() > 0 {
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
 				if usageErr := recordUsage(ctx, workflow.UsageEvent{
@@ -661,7 +656,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				"finished":     resp.Finished,
 				"tool_calls":   len(resp.ToolCalls),
 				"has_content":  resp.Content != "",
-				"total_tokens": resp.Usage.TotalTokens,
+				"total_tokens": resp.Usage.TotalTokenCount(),
 			}
 			if resp.Content != "" {
 				llmDetails["content_preview"] = service.TruncateForAudit(resp.Content)
@@ -1073,9 +1068,6 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			"task_id", task.ID, "agent_id", agentID, "depth", depth)
 		return nil
 	}
-
-	// Extract and persist memory from the conversation (non-fatal on error).
-	s.extractAndPersistMemory(ctx, org, task, agent, agentID, messages)
 
 	if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, finalContent); err != nil {
 		return fmt.Errorf("org-delegation: update task to completed: %w", err)

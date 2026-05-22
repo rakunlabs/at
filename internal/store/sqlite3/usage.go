@@ -61,7 +61,9 @@ func applyUsageFilter(filter service.UsageFilter) (string, []interface{}) {
 const usageAggregateSelect = `
     COALESCE(SUM(input_tokens), 0)  AS input_tokens,
     COALESCE(SUM(output_tokens), 0) AS output_tokens,
-    COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) AS total_tokens,
+    COALESCE(SUM(cache_read_tokens), 0) AS cache_read_tokens,
+    COALESCE(SUM(cache_write_tokens), 0) AS cache_write_tokens,
+    COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) + COALESCE(SUM(cache_read_tokens), 0) + COALESCE(SUM(cache_write_tokens), 0) AS total_tokens,
     COUNT(*)                         AS request_count,
     COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0) AS error_count,
     COALESCE(SUM(cost_cents), 0)    AS cost_cents,
@@ -79,7 +81,7 @@ func (s *SQLite) GetUsageSummary(ctx context.Context, filter service.UsageFilter
 	var sum service.UsageSummary
 	var first, last sql.NullString
 	err := s.db.QueryRowContext(ctx, q, args...).Scan(
-		&sum.InputTokens, &sum.OutputTokens, &sum.TotalTokens,
+		&sum.InputTokens, &sum.OutputTokens, &sum.CacheReadTokens, &sum.CacheWriteTokens, &sum.TotalTokens,
 		&sum.RequestCount, &sum.ErrorCount, &sum.CostCents,
 		&sum.AvgLatencyMs, &sum.MaxLatencyMs, &sum.TotalLatencyMs,
 		&first, &last,
@@ -147,7 +149,7 @@ func (s *SQLite) GetUsageGrouped(ctx context.Context, filter service.UsageFilter
 		var first, last sql.NullString
 		if err := rows.Scan(
 			&key,
-			&row.InputTokens, &row.OutputTokens, &row.TotalTokens,
+			&row.InputTokens, &row.OutputTokens, &row.CacheReadTokens, &row.CacheWriteTokens, &row.TotalTokens,
 			&row.RequestCount, &row.ErrorCount, &row.CostCents,
 			&row.AvgLatencyMs, &row.MaxLatencyMs, &row.TotalLatencyMs,
 			&first, &last,
@@ -178,7 +180,9 @@ func (s *SQLite) GetUsageTimeSeries(ctx context.Context, filter service.UsageFil
 		`SELECT %s AS bucket,
             COALESCE(SUM(input_tokens), 0),
             COALESCE(SUM(output_tokens), 0),
-            COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0),
+            COALESCE(SUM(cache_read_tokens), 0),
+            COALESCE(SUM(cache_write_tokens), 0),
+            COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) + COALESCE(SUM(cache_read_tokens), 0) + COALESCE(SUM(cache_write_tokens), 0),
             COUNT(*),
             COALESCE(SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END), 0),
             COALESCE(SUM(cost_cents), 0),
@@ -200,7 +204,7 @@ func (s *SQLite) GetUsageTimeSeries(ctx context.Context, filter service.UsageFil
 		var p service.UsageTimeSeriesPoint
 		if err := rows.Scan(
 			&p.Bucket,
-			&p.InputTokens, &p.OutputTokens, &p.TotalTokens,
+			&p.InputTokens, &p.OutputTokens, &p.CacheReadTokens, &p.CacheWriteTokens, &p.TotalTokens,
 			&p.RequestCount, &p.ErrorCount, &p.CostCents, &p.AvgLatencyMs,
 		); err != nil {
 			return nil, fmt.Errorf("scan timeseries row: %w", err)

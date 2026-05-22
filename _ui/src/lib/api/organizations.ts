@@ -94,9 +94,6 @@ export interface BundleRelationship {
   parent_agent_name?: string;
   status?: string;
   heartbeat_schedule?: string;
-  memory_model?: string;
-  memory_provider?: string;
-  memory_method?: string;
   is_head?: boolean;
 }
 
@@ -174,9 +171,6 @@ export interface OrganizationAgent {
   parent_agent_id?: string;
   status?: string;
   heartbeat_schedule?: string;
-  memory_model?: string;
-  memory_provider?: string;
-  memory_method?: string;
   created_at: string;
   updated_at: string;
 }
@@ -197,7 +191,7 @@ export async function addAgentToOrg(
 export async function updateOrgAgent(
   orgId: string,
   agentId: string,
-  data: { role?: string; title?: string; parent_agent_id?: string; status?: string; heartbeat_schedule?: string; memory_model?: string; memory_provider?: string; memory_method?: string },
+  data: { role?: string; title?: string; parent_agent_id?: string; status?: string; heartbeat_schedule?: string },
 ): Promise<OrganizationAgent> {
   const res = await api.put<OrganizationAgent>(`/organizations/${orgId}/agents/${agentId}`, data);
   return res.data;

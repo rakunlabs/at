@@ -194,15 +194,17 @@ func (s *Server) GetCostByTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, map[string]any{
-		"task_id":          id,
-		"task_count":       len(taskIDs),
-		"task_ids":         taskIDs,
-		"cost_cents":       rollup.CostCents,
-		"input_tokens":     rollup.InputTokens,
-		"output_tokens":    rollup.OutputTokens,
-		"total_tokens":     rollup.TotalTokens,
-		"event_count":      rollup.EventCount,
-		"total_cost_cents": rollup.CostCents, // alias for the older naming
+		"task_id":            id,
+		"task_count":         len(taskIDs),
+		"task_ids":           taskIDs,
+		"cost_cents":         rollup.CostCents,
+		"input_tokens":       rollup.InputTokens,
+		"output_tokens":      rollup.OutputTokens,
+		"cache_read_tokens":  rollup.CacheReadTokens,
+		"cache_write_tokens": rollup.CacheWriteTokens,
+		"total_tokens":       rollup.TotalTokens,
+		"event_count":        rollup.EventCount,
+		"total_cost_cents":   rollup.CostCents, // alias for the older naming
 	}, http.StatusOK)
 }
 

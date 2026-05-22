@@ -44,6 +44,7 @@
   // Form fields
   let formName = $state('');
   let formDescription = $state('');
+  let formPublic = $state(false);
   let formMCPSets = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formWorkflowIds = $state<string[]>([]);
@@ -101,6 +102,7 @@
   function resetForm() {
     formName = '';
     formDescription = '';
+    formPublic = false;
     formMCPSets = [];
     formBuiltinTools = [];
     formWorkflowIds = [];
@@ -118,6 +120,7 @@
     editingId = s.id;
     formName = s.name;
     formDescription = s.config.description || '';
+    formPublic = Boolean(s.public);
     formMCPSets = [...(s.servers || [])];
     formBuiltinTools = s.config.enabled_builtin_tools ?? [];
     formWorkflowIds = s.config.workflow_ids ?? [];
@@ -134,6 +137,7 @@
     try {
       const payload = {
         name: formName.trim(),
+        public: formPublic,
         servers: formMCPSets,
         config: {
           description: formDescription.trim(),
@@ -224,7 +228,7 @@
       <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">MCP Servers</h1>
       <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
         Gateway endpoints that serve tools to external agents.
-        Connect via <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">POST /gateway/v1/mcp/&#123;name&#125;</code> with Bearer token auth.
+        Connect via <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">POST /gateway/v1/mcp/&#123;name&#125;</code>; Bearer token auth is required unless Public mode is enabled.
       </p>
     </div>
     <div class="flex items-center gap-2">
@@ -295,6 +299,22 @@
             placeholder="What this MCP server provides (optional)"
             class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
           />
+        </div>
+
+        <!-- Public Access -->
+        <div class="grid grid-cols-4 gap-3 items-start">
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Access</span>
+          <label class="col-span-3 flex items-start gap-2 cursor-pointer border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/30 p-3">
+            <input
+              type="checkbox"
+              bind:checked={formPublic}
+              class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+            />
+            <span class="text-xs text-gray-600 dark:text-dark-text-secondary leading-relaxed">
+              <span class="font-medium text-gray-800 dark:text-dark-text">Public endpoint</span>
+              <span class="block text-gray-400 dark:text-dark-text-muted mt-0.5">Allow unauthenticated MCP clients to list and call this server's tools. Only enable this for tools safe to expose without an AT token.</span>
+            </span>
+          </label>
         </div>
 
         <!-- Internal MCPs -->
@@ -469,7 +489,12 @@
           {#each servers as s}
             <tr class="border-t border-gray-100 dark:border-dark-border hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
               <td class="px-4 py-2.5">
-                <div class="font-medium text-gray-900 dark:text-dark-text text-sm">{s.name}</div>
+                <div class="flex items-center gap-2">
+                  <div class="font-medium text-gray-900 dark:text-dark-text text-sm">{s.name}</div>
+                  {#if s.public}
+                    <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900">Public</span>
+                  {/if}
+                </div>
                 {#if s.config.description}
                   <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-64">{s.config.description}</div>
                 {/if}

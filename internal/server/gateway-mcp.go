@@ -21,10 +21,12 @@ import (
 // It opens a Server-Sent Events stream, sends the POST endpoint URL, then keeps alive.
 // MCP clients that use SSE transport (e.g. OpenCode) connect via GET first.
 func (s *Server) GatewayMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
-	// Authenticate.
-	auth, errMsg := s.authenticateRequest(r)
-	if auth == nil {
-		httpResponse(w, errMsg, http.StatusUnauthorized)
+	if s.mcpServerStore == nil {
+		httpResponse(w, "mcp server store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	if _, ok := s.authorizeGatewayMCPServer(w, r); !ok {
 		return
 	}
 
@@ -66,7 +68,7 @@ func (s *Server) GatewayMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
 
 // GatewayMCPHandler handles MCP protocol requests at /gateway/v1/mcp/{name}.
 // Each named endpoint can expose RAG tools, custom HTTP tools, or both.
-// Auth uses the same Bearer token mechanism as the gateway chat completions endpoint.
+// Auth uses the same Bearer token mechanism as the gateway chat completions endpoint unless the named server is public.
 func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 	if s.mcpServerStore == nil {
 		httpResponse(w, "mcp server store not configured", http.StatusServiceUnavailable)
@@ -78,43 +80,8 @@ func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authenticate.
-	auth, errMsg := s.authenticateRequest(r)
-	if auth == nil {
-		httpResponse(w, errMsg, http.StatusUnauthorized)
-		return
-	}
-
-	// Look up the named MCP server config.
-	name := r.PathValue("name")
-	if name == "" {
-		httpResponse(w, "mcp server name is required", http.StatusBadRequest)
-		return
-	}
-
-	// Check token scoping for MCP servers.
-	if auth.token != nil {
-		mcpMode := service.ResolveAccessMode(auth.token.AllowedRAGMCPsMode, auth.token.AllowedRAGMCPs)
-		if mcpMode == service.AccessModeNone {
-			httpResponse(w, "token does not have access to any MCP servers", http.StatusForbidden)
-			return
-		}
-		if mcpMode == service.AccessModeList {
-			if !slices.Contains(auth.token.AllowedRAGMCPs, name) {
-				httpResponse(w, fmt.Sprintf("token does not have access to MCP server %q", name), http.StatusForbidden)
-				return
-			}
-		}
-	}
-
-	mcpSrv, err := s.mcpServerStore.GetMCPServerByName(r.Context(), name)
-	if err != nil {
-		slog.Error("get mcp server failed", "name", name, "error", err)
-		httpResponse(w, "internal error looking up MCP server", http.StatusInternalServerError)
-		return
-	}
-	if mcpSrv == nil {
-		httpResponse(w, fmt.Sprintf("MCP server %q not found", name), http.StatusNotFound)
+	mcpSrv, ok := s.authorizeGatewayMCPServer(w, r)
+	if !ok {
 		return
 	}
 
@@ -138,6 +105,53 @@ func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		mcpError(w, req.ID, -32601, fmt.Sprintf("method not found: %s", req.Method))
 	}
+}
+
+func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Request) (*service.MCPServer, bool) {
+	name := r.PathValue("name")
+	if name == "" {
+		httpResponse(w, "mcp server name is required", http.StatusBadRequest)
+		return nil, false
+	}
+
+	auth, errMsg := s.authenticateRequest(r)
+
+	mcpSrv, err := s.mcpServerStore.GetMCPServerByName(r.Context(), name)
+	if err != nil {
+		slog.Error("get mcp server failed", "name", name, "error", err)
+		httpResponse(w, "internal error looking up MCP server", http.StatusInternalServerError)
+		return nil, false
+	}
+
+	if auth == nil {
+		if mcpSrv == nil || !mcpSrv.Public {
+			httpResponse(w, errMsg, http.StatusUnauthorized)
+			return nil, false
+		}
+		return mcpSrv, true
+	}
+
+	if mcpSrv == nil {
+		httpResponse(w, fmt.Sprintf("MCP server %q not found", name), http.StatusNotFound)
+		return nil, false
+	}
+	if mcpSrv.Public {
+		return mcpSrv, true
+	}
+
+	if auth.token != nil {
+		mcpMode := service.ResolveAccessMode(auth.token.AllowedRAGMCPsMode, auth.token.AllowedRAGMCPs)
+		if mcpMode == service.AccessModeNone {
+			httpResponse(w, "token does not have access to any MCP servers", http.StatusForbidden)
+			return nil, false
+		}
+		if mcpMode == service.AccessModeList && !slices.Contains(auth.token.AllowedRAGMCPs, name) {
+			httpResponse(w, fmt.Sprintf("token does not have access to MCP server %q", name), http.StatusForbidden)
+			return nil, false
+		}
+	}
+
+	return mcpSrv, true
 }
 
 // ─── Initialize ───

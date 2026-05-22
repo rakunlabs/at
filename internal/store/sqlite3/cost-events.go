@@ -13,30 +13,32 @@ import (
 )
 
 type costEventRow struct {
-	ID             string         `db:"id"`
-	OrganizationID sql.NullString `db:"organization_id"`
-	AgentID        string         `db:"agent_id"`
-	TaskID         sql.NullString `db:"task_id"`
-	ProjectID      sql.NullString `db:"project_id"`
-	GoalID         sql.NullString `db:"goal_id"`
-	BillingCode    sql.NullString `db:"billing_code"`
-	RunID          sql.NullString `db:"run_id"`
-	Provider       string         `db:"provider"`
-	Model          string         `db:"model"`
-	InputTokens    int64          `db:"input_tokens"`
-	OutputTokens   int64          `db:"output_tokens"`
-	CostCents      float64        `db:"cost_cents"`
-	LatencyMs      int64          `db:"latency_ms"`
-	Status         string         `db:"status"`
-	ErrorCode      sql.NullString `db:"error_code"`
-	ErrorMessage   sql.NullString `db:"error_message"`
-	CreatedAt      string         `db:"created_at"`
+	ID               string         `db:"id"`
+	OrganizationID   sql.NullString `db:"organization_id"`
+	AgentID          string         `db:"agent_id"`
+	TaskID           sql.NullString `db:"task_id"`
+	ProjectID        sql.NullString `db:"project_id"`
+	GoalID           sql.NullString `db:"goal_id"`
+	BillingCode      sql.NullString `db:"billing_code"`
+	RunID            sql.NullString `db:"run_id"`
+	Provider         string         `db:"provider"`
+	Model            string         `db:"model"`
+	InputTokens      int64          `db:"input_tokens"`
+	OutputTokens     int64          `db:"output_tokens"`
+	CacheReadTokens  int64          `db:"cache_read_tokens"`
+	CacheWriteTokens int64          `db:"cache_write_tokens"`
+	CostCents        float64        `db:"cost_cents"`
+	LatencyMs        int64          `db:"latency_ms"`
+	Status           string         `db:"status"`
+	ErrorCode        sql.NullString `db:"error_code"`
+	ErrorMessage     sql.NullString `db:"error_message"`
+	CreatedAt        string         `db:"created_at"`
 }
 
 var costEventColumns = []interface{}{
 	"id", "organization_id", "agent_id", "task_id", "project_id", "goal_id",
 	"billing_code", "run_id", "provider", "model",
-	"input_tokens", "output_tokens", "cost_cents",
+	"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_cents",
 	"latency_ms", "status", "error_code", "error_message",
 	"created_at",
 }
@@ -46,7 +48,7 @@ func scanCostEventRow(scanner interface{ Scan(dest ...any) error }) (costEventRo
 	err := scanner.Scan(
 		&row.ID, &row.OrganizationID, &row.AgentID, &row.TaskID, &row.ProjectID, &row.GoalID,
 		&row.BillingCode, &row.RunID, &row.Provider, &row.Model,
-		&row.InputTokens, &row.OutputTokens, &row.CostCents,
+		&row.InputTokens, &row.OutputTokens, &row.CacheReadTokens, &row.CacheWriteTokens, &row.CostCents,
 		&row.LatencyMs, &row.Status, &row.ErrorCode, &row.ErrorMessage,
 		&row.CreatedAt,
 	)
@@ -65,24 +67,26 @@ func (s *SQLite) RecordCostEvent(ctx context.Context, event service.CostEvent) e
 
 	query, _, err := s.goqu.Insert(s.tableCostEvents).Rows(
 		goqu.Record{
-			"id":              id,
-			"organization_id": event.OrganizationID,
-			"agent_id":        event.AgentID,
-			"task_id":         event.TaskID,
-			"project_id":      event.ProjectID,
-			"goal_id":         event.GoalID,
-			"billing_code":    event.BillingCode,
-			"run_id":          event.RunID,
-			"provider":        event.Provider,
-			"model":           event.Model,
-			"input_tokens":    event.InputTokens,
-			"output_tokens":   event.OutputTokens,
-			"cost_cents":      event.CostCents,
-			"latency_ms":      event.LatencyMs,
-			"status":          status,
-			"error_code":      event.ErrorCode,
-			"error_message":   truncateString(event.ErrorMessage, 500),
-			"created_at":      now.Format(time.RFC3339),
+			"id":                 id,
+			"organization_id":    event.OrganizationID,
+			"agent_id":           event.AgentID,
+			"task_id":            event.TaskID,
+			"project_id":         event.ProjectID,
+			"goal_id":            event.GoalID,
+			"billing_code":       event.BillingCode,
+			"run_id":             event.RunID,
+			"provider":           event.Provider,
+			"model":              event.Model,
+			"input_tokens":       event.InputTokens,
+			"output_tokens":      event.OutputTokens,
+			"cache_read_tokens":  event.CacheReadTokens,
+			"cache_write_tokens": event.CacheWriteTokens,
+			"cost_cents":         event.CostCents,
+			"latency_ms":         event.LatencyMs,
+			"status":             status,
+			"error_code":         event.ErrorCode,
+			"error_message":      truncateString(event.ErrorMessage, 500),
+			"created_at":         now.Format(time.RFC3339),
 		},
 	).ToSQL()
 	if err != nil {
@@ -147,6 +151,26 @@ func (s *SQLite) GetCostByAgent(ctx context.Context, agentID string) (float64, e
 	return total, nil
 }
 
+func (s *SQLite) GetCostByAgentSince(ctx context.Context, agentID, since string) (float64, error) {
+	ds := s.goqu.From(s.tableCostEvents).
+		Select(goqu.COALESCE(goqu.SUM("cost_cents"), 0)).
+		Where(goqu.I("agent_id").Eq(agentID))
+	if since != "" {
+		ds = ds.Where(goqu.I("created_at").Gte(since))
+	}
+	query, _, err := ds.ToSQL()
+	if err != nil {
+		return 0, fmt.Errorf("build get cost by agent since query: %w", err)
+	}
+
+	var total float64
+	if err := s.db.QueryRowContext(ctx, query).Scan(&total); err != nil {
+		return 0, fmt.Errorf("get cost by agent %q since %q: %w", agentID, since, err)
+	}
+
+	return total, nil
+}
+
 func (s *SQLite) GetCostByProject(ctx context.Context, projectID string) (float64, error) {
 	query, _, err := s.goqu.From(s.tableCostEvents).
 		Select(goqu.COALESCE(goqu.SUM("cost_cents"), 0)).
@@ -200,6 +224,8 @@ func (s *SQLite) GetCostByTasks(ctx context.Context, taskIDs []string) (service.
 			goqu.COALESCE(goqu.SUM("cost_cents"), 0),
 			goqu.COALESCE(goqu.SUM("input_tokens"), 0),
 			goqu.COALESCE(goqu.SUM("output_tokens"), 0),
+			goqu.COALESCE(goqu.SUM("cache_read_tokens"), 0),
+			goqu.COALESCE(goqu.SUM("cache_write_tokens"), 0),
 			goqu.COUNT("*"),
 		).
 		Where(goqu.I("task_id").In(ids...)).
@@ -209,11 +235,11 @@ func (s *SQLite) GetCostByTasks(ctx context.Context, taskIDs []string) (service.
 	}
 	var out service.CostByTasksResult
 	if err := s.db.QueryRowContext(ctx, q).Scan(
-		&out.CostCents, &out.InputTokens, &out.OutputTokens, &out.EventCount,
+		&out.CostCents, &out.InputTokens, &out.OutputTokens, &out.CacheReadTokens, &out.CacheWriteTokens, &out.EventCount,
 	); err != nil {
 		return service.CostByTasksResult{}, fmt.Errorf("get cost by tasks: %w", err)
 	}
-	out.TotalTokens = out.InputTokens + out.OutputTokens
+	out.TotalTokens = out.InputTokens + out.OutputTokens + out.CacheReadTokens + out.CacheWriteTokens
 	return out, nil
 }
 
@@ -236,24 +262,26 @@ func (s *SQLite) GetCostByBillingCode(ctx context.Context, billingCode string) (
 
 func costEventRowToRecord(row costEventRow) service.CostEvent {
 	return service.CostEvent{
-		ID:             row.ID,
-		OrganizationID: row.OrganizationID.String,
-		AgentID:        row.AgentID,
-		TaskID:         row.TaskID.String,
-		ProjectID:      row.ProjectID.String,
-		GoalID:         row.GoalID.String,
-		BillingCode:    row.BillingCode.String,
-		RunID:          row.RunID.String,
-		Provider:       row.Provider,
-		Model:          row.Model,
-		InputTokens:    row.InputTokens,
-		OutputTokens:   row.OutputTokens,
-		CostCents:      row.CostCents,
-		LatencyMs:      row.LatencyMs,
-		Status:         row.Status,
-		ErrorCode:      row.ErrorCode.String,
-		ErrorMessage:   row.ErrorMessage.String,
-		CreatedAt:      row.CreatedAt,
+		ID:               row.ID,
+		OrganizationID:   row.OrganizationID.String,
+		AgentID:          row.AgentID,
+		TaskID:           row.TaskID.String,
+		ProjectID:        row.ProjectID.String,
+		GoalID:           row.GoalID.String,
+		BillingCode:      row.BillingCode.String,
+		RunID:            row.RunID.String,
+		Provider:         row.Provider,
+		Model:            row.Model,
+		InputTokens:      row.InputTokens,
+		OutputTokens:     row.OutputTokens,
+		CacheReadTokens:  row.CacheReadTokens,
+		CacheWriteTokens: row.CacheWriteTokens,
+		CostCents:        row.CostCents,
+		LatencyMs:        row.LatencyMs,
+		Status:           row.Status,
+		ErrorCode:        row.ErrorCode.String,
+		ErrorMessage:     row.ErrorMessage.String,
+		CreatedAt:        row.CreatedAt,
 	}
 }
 

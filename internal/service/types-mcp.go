@@ -63,6 +63,7 @@ type MCPServer struct {
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
+	Public      bool            `json:"public"`
 	Config      MCPServerConfig `json:"config"`
 	Servers     []string        `json:"servers,omitempty"`
 	URLs        []string        `json:"urls,omitempty"`

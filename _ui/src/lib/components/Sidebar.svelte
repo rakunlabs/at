@@ -27,6 +27,7 @@
     ScrollText,
     Receipt,
     BarChart3,
+    CircleDollarSign,
     Plug,
     FolderOpen,
     Package,
@@ -314,6 +315,19 @@
     >
       <BarChart3 size={14} />
       <span>Usage</span>
+    </a>
+    <a
+      href="#/pricing"
+      onclick={(e) => navigate(e, "/pricing")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/pricing"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <CircleDollarSign size={14} />
+      <span>Pricing</span>
     </a>
     <a
       href="#/settings"

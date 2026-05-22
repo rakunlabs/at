@@ -70,8 +70,6 @@ type SQLite struct {
 	tableAgentConfigRevisions exp.IdentifierExpression
 	tableCostEvents           exp.IdentifierExpression
 	tableOrganizationAgents   exp.IdentifierExpression
-	tableAgentMemory          exp.IdentifierExpression
-	tableAgentMemoryMessages  exp.IdentifierExpression
 	tablePackSources          exp.IdentifierExpression
 	tableGuides               exp.IdentifierExpression
 	tableConnections          exp.IdentifierExpression
@@ -195,8 +193,6 @@ func New(ctx context.Context, cfg *config.StoreSQLite, encKey []byte) (*SQLite, 
 		tableAgentConfigRevisions: goqu.T(tablePrefix + "agent_config_revisions"),
 		tableCostEvents:           goqu.T(tablePrefix + "cost_events"),
 		tableOrganizationAgents:   goqu.T(tablePrefix + "organization_agents"),
-		tableAgentMemory:          goqu.T(tablePrefix + "agent_memory"),
-		tableAgentMemoryMessages:  goqu.T(tablePrefix + "agent_memory_messages"),
 		tablePackSources:          goqu.T(tablePrefix + "pack_sources"),
 		tableGuides:               goqu.T(tablePrefix + "guides"),
 		tableConnections:          goqu.T(tablePrefix + "connections"),

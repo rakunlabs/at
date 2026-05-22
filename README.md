@@ -57,6 +57,17 @@ providers:
 | `vertex`    | Google Vertex AI via OpenAI-compatible endpoint with automatic ADC authentication                               |
 | `gemini`    | Google AI (Gemini) via generativelanguage.googleapis.com with API key                                           |
 
+#### Native provider gateway
+
+The OpenAI-compatible gateway remains available at `/gateway/v1/chat/completions`. Provider-native APIs are also proxied at `/gateway/v1/providers/{provider}/*`, so clients can use provider-specific endpoints such as embeddings without OpenAI-format conversion. AT still applies gateway token auth, provider/model restrictions, and provider credential injection.
+
+For example, a Claude Code compatible Anthropic provider can be exposed with:
+
+```sh
+ANTHROPIC_BASE_URL=https://at.example.com/gateway/v1/providers/anthropic
+ANTHROPIC_API_KEY=<AT gateway token>
+```
+
 #### Proxy support
 
 All provider types support routing requests through an HTTP, HTTPS, or SOCKS5 proxy:

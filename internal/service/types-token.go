@@ -33,6 +33,7 @@ type APIToken struct {
 	AllowedRAGMCPs       types.Slice[string]    `json:"allowed_rag_mcps"`       // used when mode = "list" (server names)
 	ExpiresAt            types.Null[types.Time] `json:"expires_at"`             // zero value = no expiry
 	TotalTokenLimit      types.Null[int64]      `json:"total_token_limit"`      // max total tokens allowed (across all models); nil = unlimited
+	SpendLimitCents      types.Null[float64]    `json:"spend_limit_cents"`      // max spend in cents for the current reset window; nil = unlimited
 	LimitResetInterval   types.Null[string]     `json:"limit_reset_interval"`   // "daily", "weekly", "monthly", or nil = manual only
 	LastResetAt          types.Null[types.Time] `json:"last_reset_at"`          // last time usage counters were reset
 	CreatedAt            types.Time             `json:"created_at"`
@@ -73,6 +74,8 @@ type TokenUsage struct {
 	Model            string     `json:"model"`
 	PromptTokens     int64      `json:"prompt_tokens"`
 	CompletionTokens int64      `json:"completion_tokens"`
+	CacheReadTokens  int64      `json:"cache_read_tokens"`
+	CacheWriteTokens int64      `json:"cache_write_tokens"`
 	TotalTokens      int64      `json:"total_tokens"`
 	RequestCount     int64      `json:"request_count"`
 	LastRequestAt    types.Time `json:"last_request_at"`

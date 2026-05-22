@@ -33,6 +33,7 @@ type createTokenRequest struct {
 	AllowedRAGMCPs       []string `json:"allowed_rag_mcps,omitempty"`       // used when mode = "list"
 	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
 	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
+	SpendLimitCents      *float64 `json:"spend_limit_cents,omitempty"`      // max spend in cents; nil = unlimited
 	LimitResetInterval   *string  `json:"limit_reset_interval,omitempty"`   // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
@@ -49,6 +50,7 @@ type updateTokenRequest struct {
 	AllowedRAGMCPs       []string `json:"allowed_rag_mcps,omitempty"`       // used when mode = "list"
 	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
 	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
+	SpendLimitCents      *float64 `json:"spend_limit_cents,omitempty"`      // max spend in cents; nil = unlimited
 	LimitResetInterval   *string  `json:"limit_reset_interval,omitempty"`   // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
@@ -157,6 +159,7 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		AllowedRAGMCPs:       req.AllowedRAGMCPs,
 		ExpiresAt:            expiresAt,
 		TotalTokenLimit:      toNullInt64(req.TotalTokenLimit),
+		SpendLimitCents:      toNullFloat64(req.SpendLimitCents),
 		LimitResetInterval:   toNullString(req.LimitResetInterval),
 		CreatedBy:            userEmail,
 		UpdatedBy:            userEmail,
@@ -252,6 +255,7 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		AllowedRAGMCPs:       req.AllowedRAGMCPs,
 		ExpiresAt:            expiresAt,
 		TotalTokenLimit:      toNullInt64(req.TotalTokenLimit),
+		SpendLimitCents:      toNullFloat64(req.SpendLimitCents),
 		LimitResetInterval:   toNullString(req.LimitResetInterval),
 		UpdatedBy:            userEmail,
 	}
@@ -323,6 +327,13 @@ func (s *Server) ResetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
 func toNullInt64(v *int64) types.Null[int64] {
 	if v == nil {
 		return types.Null[int64]{}
+	}
+	return types.NewNull(*v)
+}
+
+func toNullFloat64(v *float64) types.Null[float64] {
+	if v == nil {
+		return types.Null[float64]{}
 	}
 	return types.NewNull(*v)
 }

@@ -147,7 +147,6 @@ func (n *agentCallNode) Meta() workflow.NodeMeta {
 			{Name: "context", Type: workflow.PortTypeData, Label: "Context", Position: "left"},
 			{Name: "skills", Type: workflow.PortTypeConfig, Label: "Skills", Position: "bottom"},
 			{Name: "mcp", Type: workflow.PortTypeConfig, Label: "MCP", Position: "bottom"},
-			{Name: "memory", Type: workflow.PortTypeConfig, Label: "Memory", Position: "bottom"},
 			{Name: "agents", Type: workflow.PortTypeConfig, Label: "Agents", Position: "bottom"},
 		},
 		Outputs: []workflow.PortMeta{
@@ -547,16 +546,6 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		prompt = prompt + "\n\nContext:\n" + ctxStr
 	}
 
-	// ─── Memory Input ───
-	// Memory data from an edge-connected memory_config node is appended
-	// as additional context to the prompt.
-	if memData := inputs["memory"]; memData != nil {
-		memStr := toString(memData)
-		if memStr != "" {
-			prompt = prompt + "\n\nMemory:\n" + memStr
-		}
-	}
-
 	// ─── Build Messages ───
 
 	var messages []service.Message
@@ -677,7 +666,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 
 		// Record token usage for cost tracking.
-		if n.agentID != "" && reg.RecordUsage != nil && resp.Usage.TotalTokens > 0 {
+		if n.agentID != "" && reg.RecordUsage != nil && resp.Usage.TotalTokenCount() > 0 {
 			if usageErr := reg.RecordUsage(ctx, workflow.UsageEvent{
 				AgentID:   n.agentID,
 				Model:     model,
@@ -818,7 +807,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 						subInputs := map[string]any{
 							"prompt": task,
 						}
-						// Pass through mcp/skills/memory if we wanted to inherit context,
+						// Pass through mcp/skills if we wanted to inherit context,
 						// but for now let's keep it isolated to the task.
 
 						subResult, err := subNode.Run(ctx, reg, subInputs)

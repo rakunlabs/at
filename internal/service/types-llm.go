@@ -126,7 +126,25 @@ type MediaSource struct {
 type Usage struct {
 	PromptTokens     int
 	CompletionTokens int
+	CacheReadTokens  int
+	CacheWriteTokens int
 	TotalTokens      int
+}
+
+// TotalInputTokens returns all input-side tokens, including prompt-cache reads
+// and writes. PromptTokens is normalized to non-cache input tokens by provider
+// adapters so cost math can price each bucket independently.
+func (u Usage) TotalInputTokens() int {
+	return u.PromptTokens + u.CacheReadTokens + u.CacheWriteTokens
+}
+
+// TotalTokenCount returns a populated provider total when available, otherwise
+// derives the total from the normalized usage buckets.
+func (u Usage) TotalTokenCount() int {
+	if u.TotalTokens > 0 {
+		return u.TotalTokens
+	}
+	return u.TotalInputTokens() + u.CompletionTokens
 }
 
 // InlineImage represents a base64-encoded image returned by a provider (e.g. Gemini).

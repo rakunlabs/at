@@ -16,30 +16,32 @@ import (
 // ─── Cost Events ───
 
 type costEventRow struct {
-	ID             string         `db:"id"`
-	OrganizationID sql.NullString `db:"organization_id"`
-	AgentID        string         `db:"agent_id"`
-	TaskID         sql.NullString `db:"task_id"`
-	ProjectID      sql.NullString `db:"project_id"`
-	GoalID         sql.NullString `db:"goal_id"`
-	BillingCode    sql.NullString `db:"billing_code"`
-	RunID          sql.NullString `db:"run_id"`
-	Provider       string         `db:"provider"`
-	Model          string         `db:"model"`
-	InputTokens    int64          `db:"input_tokens"`
-	OutputTokens   int64          `db:"output_tokens"`
-	CostCents      float64        `db:"cost_cents"`
-	LatencyMs      int64          `db:"latency_ms"`
-	Status         string         `db:"status"`
-	ErrorCode      sql.NullString `db:"error_code"`
-	ErrorMessage   sql.NullString `db:"error_message"`
-	CreatedAt      time.Time      `db:"created_at"`
+	ID               string         `db:"id"`
+	OrganizationID   sql.NullString `db:"organization_id"`
+	AgentID          string         `db:"agent_id"`
+	TaskID           sql.NullString `db:"task_id"`
+	ProjectID        sql.NullString `db:"project_id"`
+	GoalID           sql.NullString `db:"goal_id"`
+	BillingCode      sql.NullString `db:"billing_code"`
+	RunID            sql.NullString `db:"run_id"`
+	Provider         string         `db:"provider"`
+	Model            string         `db:"model"`
+	InputTokens      int64          `db:"input_tokens"`
+	OutputTokens     int64          `db:"output_tokens"`
+	CacheReadTokens  int64          `db:"cache_read_tokens"`
+	CacheWriteTokens int64          `db:"cache_write_tokens"`
+	CostCents        float64        `db:"cost_cents"`
+	LatencyMs        int64          `db:"latency_ms"`
+	Status           string         `db:"status"`
+	ErrorCode        sql.NullString `db:"error_code"`
+	ErrorMessage     sql.NullString `db:"error_message"`
+	CreatedAt        time.Time      `db:"created_at"`
 }
 
 var costEventColumns = []interface{}{
 	"id", "organization_id", "agent_id", "task_id", "project_id", "goal_id",
 	"billing_code", "run_id", "provider", "model",
-	"input_tokens", "output_tokens", "cost_cents",
+	"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_cents",
 	"latency_ms", "status", "error_code", "error_message",
 	"created_at",
 }
@@ -51,7 +53,7 @@ func scanCostEventRow(scanner interface {
 		&row.ID, &row.OrganizationID, &row.AgentID, &row.TaskID,
 		&row.ProjectID, &row.GoalID, &row.BillingCode, &row.RunID,
 		&row.Provider, &row.Model, &row.InputTokens, &row.OutputTokens,
-		&row.CostCents,
+		&row.CacheReadTokens, &row.CacheWriteTokens, &row.CostCents,
 		&row.LatencyMs, &row.Status, &row.ErrorCode, &row.ErrorMessage,
 		&row.CreatedAt,
 	)
@@ -68,24 +70,26 @@ func (p *Postgres) RecordCostEvent(ctx context.Context, event service.CostEvent)
 
 	query, _, err := p.goqu.Insert(p.tableCostEvents).Rows(
 		goqu.Record{
-			"id":              id,
-			"organization_id": nullString(event.OrganizationID),
-			"agent_id":        event.AgentID,
-			"task_id":         nullString(event.TaskID),
-			"project_id":      nullString(event.ProjectID),
-			"goal_id":         nullString(event.GoalID),
-			"billing_code":    nullString(event.BillingCode),
-			"run_id":          nullString(event.RunID),
-			"provider":        event.Provider,
-			"model":           event.Model,
-			"input_tokens":    event.InputTokens,
-			"output_tokens":   event.OutputTokens,
-			"cost_cents":      event.CostCents,
-			"latency_ms":      event.LatencyMs,
-			"status":          status,
-			"error_code":      event.ErrorCode,
-			"error_message":   truncatePGString(event.ErrorMessage, 500),
-			"created_at":      now,
+			"id":                 id,
+			"organization_id":    nullString(event.OrganizationID),
+			"agent_id":           event.AgentID,
+			"task_id":            nullString(event.TaskID),
+			"project_id":         nullString(event.ProjectID),
+			"goal_id":            nullString(event.GoalID),
+			"billing_code":       nullString(event.BillingCode),
+			"run_id":             nullString(event.RunID),
+			"provider":           event.Provider,
+			"model":              event.Model,
+			"input_tokens":       event.InputTokens,
+			"output_tokens":      event.OutputTokens,
+			"cache_read_tokens":  event.CacheReadTokens,
+			"cache_write_tokens": event.CacheWriteTokens,
+			"cost_cents":         event.CostCents,
+			"latency_ms":         event.LatencyMs,
+			"status":             status,
+			"error_code":         event.ErrorCode,
+			"error_message":      truncatePGString(event.ErrorMessage, 500),
+			"created_at":         now,
 		},
 	).ToSQL()
 	if err != nil {
@@ -137,6 +141,10 @@ func (p *Postgres) GetCostByAgent(ctx context.Context, agentID string) (float64,
 	return p.sumCostCents(ctx, "agent_id", agentID)
 }
 
+func (p *Postgres) GetCostByAgentSince(ctx context.Context, agentID, since string) (float64, error) {
+	return p.sumCostCentsSince(ctx, "agent_id", agentID, since)
+}
+
 func (p *Postgres) GetCostByProject(ctx context.Context, projectID string) (float64, error) {
 	return p.sumCostCents(ctx, "project_id", projectID)
 }
@@ -164,6 +172,8 @@ func (p *Postgres) GetCostByTasks(ctx context.Context, taskIDs []string) (servic
 			goqu.COALESCE(goqu.SUM("cost_cents"), 0),
 			goqu.COALESCE(goqu.SUM("input_tokens"), 0),
 			goqu.COALESCE(goqu.SUM("output_tokens"), 0),
+			goqu.COALESCE(goqu.SUM("cache_read_tokens"), 0),
+			goqu.COALESCE(goqu.SUM("cache_write_tokens"), 0),
 			goqu.COUNT("*"),
 		).
 		Where(goqu.I("task_id").In(ids...)).
@@ -173,11 +183,11 @@ func (p *Postgres) GetCostByTasks(ctx context.Context, taskIDs []string) (servic
 	}
 	var out service.CostByTasksResult
 	if err := p.db.QueryRowContext(ctx, q).Scan(
-		&out.CostCents, &out.InputTokens, &out.OutputTokens, &out.EventCount,
+		&out.CostCents, &out.InputTokens, &out.OutputTokens, &out.CacheReadTokens, &out.CacheWriteTokens, &out.EventCount,
 	); err != nil {
 		return service.CostByTasksResult{}, fmt.Errorf("get cost by tasks: %w", err)
 	}
-	out.TotalTokens = out.InputTokens + out.OutputTokens
+	out.TotalTokens = out.InputTokens + out.OutputTokens + out.CacheReadTokens + out.CacheWriteTokens
 	return out, nil
 }
 
@@ -202,26 +212,54 @@ func (p *Postgres) sumCostCents(ctx context.Context, column, value string) (floa
 	return total, nil
 }
 
+func (p *Postgres) sumCostCentsSince(ctx context.Context, column, value, since string) (float64, error) {
+	ds := p.goqu.From(p.tableCostEvents).
+		Select(goqu.COALESCE(goqu.SUM("cost_cents"), 0)).
+		Where(goqu.I(column).Eq(value))
+	if since != "" {
+		if t, err := time.Parse(time.RFC3339, since); err == nil {
+			ds = ds.Where(goqu.I("created_at").Gte(t))
+		}
+	}
+	query, _, err := ds.ToSQL()
+	if err != nil {
+		return 0, fmt.Errorf("build sum cost since query for %s=%q: %w", column, value, err)
+	}
+
+	var total float64
+	err = p.db.QueryRowContext(ctx, query).Scan(&total)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("sum cost since for %s=%q: %w", column, value, err)
+	}
+
+	return total, nil
+}
+
 func costEventRowToRecord(row costEventRow) *service.CostEvent {
 	return &service.CostEvent{
-		ID:             row.ID,
-		OrganizationID: row.OrganizationID.String,
-		AgentID:        row.AgentID,
-		TaskID:         row.TaskID.String,
-		ProjectID:      row.ProjectID.String,
-		GoalID:         row.GoalID.String,
-		BillingCode:    row.BillingCode.String,
-		RunID:          row.RunID.String,
-		Provider:       row.Provider,
-		Model:          row.Model,
-		InputTokens:    row.InputTokens,
-		OutputTokens:   row.OutputTokens,
-		CostCents:      row.CostCents,
-		LatencyMs:      row.LatencyMs,
-		Status:         row.Status,
-		ErrorCode:      row.ErrorCode.String,
-		ErrorMessage:   row.ErrorMessage.String,
-		CreatedAt:      row.CreatedAt.Format(time.RFC3339),
+		ID:               row.ID,
+		OrganizationID:   row.OrganizationID.String,
+		AgentID:          row.AgentID,
+		TaskID:           row.TaskID.String,
+		ProjectID:        row.ProjectID.String,
+		GoalID:           row.GoalID.String,
+		BillingCode:      row.BillingCode.String,
+		RunID:            row.RunID.String,
+		Provider:         row.Provider,
+		Model:            row.Model,
+		InputTokens:      row.InputTokens,
+		OutputTokens:     row.OutputTokens,
+		CacheReadTokens:  row.CacheReadTokens,
+		CacheWriteTokens: row.CacheWriteTokens,
+		CostCents:        row.CostCents,
+		LatencyMs:        row.LatencyMs,
+		Status:           row.Status,
+		ErrorCode:        row.ErrorCode.String,
+		ErrorMessage:     row.ErrorMessage.String,
+		CreatedAt:        row.CreatedAt.Format(time.RFC3339),
 	}
 }
 

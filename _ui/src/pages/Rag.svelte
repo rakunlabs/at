@@ -74,7 +74,7 @@
   let formEmbeddingProvider = $state('');
   let formEmbeddingModel = $state('');
   let formEmbeddingURL = $state('');
-  let formEmbeddingAPIType = $state('openai');
+  let formEmbeddingAPIType = $state('auto');
   let formEmbeddingBearerAuth = $state(false);
   let formChunkSize = $state(512);
   let formChunkOverlap = $state(100);
@@ -197,7 +197,7 @@
     formEmbeddingProvider = '';
     formEmbeddingModel = '';
     formEmbeddingURL = '';
-    formEmbeddingAPIType = 'openai';
+    formEmbeddingAPIType = 'auto';
     formEmbeddingBearerAuth = false;
     formChunkSize = 512;
     formChunkOverlap = 100;
@@ -231,7 +231,7 @@
     formEmbeddingProvider = c.config.embedding_provider || '';
     formEmbeddingModel = c.config.embedding_model || '';
     formEmbeddingURL = c.config.embedding_url || '';
-    formEmbeddingAPIType = c.config.embedding_api_type || 'openai';
+    formEmbeddingAPIType = c.config.embedding_api_type || 'auto';
     formEmbeddingBearerAuth = c.config.embedding_bearer_auth || false;
     formChunkSize = c.config.chunk_size || 512;
     formChunkOverlap = c.config.chunk_overlap || 100;
@@ -286,7 +286,7 @@
           embedding_provider: formEmbeddingProvider.trim(),
           embedding_model: formEmbeddingModel.trim(),
           embedding_url: formEmbeddingURL.trim(),
-          embedding_api_type: formEmbeddingAPIType,
+          embedding_api_type: formEmbeddingAPIType === 'auto' ? '' : formEmbeddingAPIType,
           embedding_bearer_auth: formEmbeddingBearerAuth,
           chunk_size: chunkSize,
           chunk_overlap: chunkOverlap,
@@ -469,7 +469,7 @@
     try {
       const models = await discoverEmbeddingModels({
         embedding_provider: formEmbeddingProvider.trim(),
-        embedding_api_type: formEmbeddingAPIType || undefined,
+        embedding_api_type: formEmbeddingAPIType === 'auto' ? undefined : formEmbeddingAPIType,
         embedding_url: formEmbeddingURL.trim() || undefined,
         embedding_bearer_auth: formEmbeddingBearerAuth || undefined,
       });
@@ -508,7 +508,7 @@
         embedding_provider: formEmbeddingProvider.trim(),
         embedding_model: formEmbeddingModel.trim() || undefined,
         embedding_url: formEmbeddingURL.trim() || undefined,
-        embedding_api_type: formEmbeddingAPIType || undefined,
+        embedding_api_type: formEmbeddingAPIType === 'auto' ? undefined : formEmbeddingAPIType,
         embedding_bearer_auth: formEmbeddingBearerAuth || undefined,
       });
       testResult = { success: true, dimensions: result.dimensions };
@@ -520,6 +520,18 @@
     } finally {
       testingEmbedding = false;
     }
+  }
+
+  function selectedEmbeddingProviderType() {
+    return providers.find((p) => p.key === formEmbeddingProvider)?.config.type || '';
+  }
+
+  function inferredEmbeddingAPIType() {
+    return selectedEmbeddingProviderType() === 'gemini' ? 'gemini' : 'openai';
+  }
+
+  function effectiveEmbeddingAPIType() {
+    return formEmbeddingAPIType === 'auto' ? inferredEmbeddingAPIType() : formEmbeddingAPIType;
   }
 
 </script>
@@ -790,9 +802,13 @@
             bind:value={formEmbeddingAPIType}
             class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors"
           >
+            <option value="auto">auto ({inferredEmbeddingAPIType()})</option>
             <option value="openai">openai (OpenAI-compatible)</option>
             <option value="gemini">gemini (Google Generative Language)</option>
           </select>
+          <div class="col-start-2 col-span-3 text-xs text-gray-400 dark:text-dark-text-muted -mt-2">
+            Auto uses the selected provider's native embedding API. Override only for custom/provider-compatible endpoints.
+          </div>
         </div>
 
         <!-- Embedding URL (optional) -->
@@ -802,11 +818,11 @@
             id="form-emb-url"
             type="text"
             bind:value={formEmbeddingURL}
-            placeholder={formEmbeddingAPIType === 'gemini' ? 'Leave empty to auto-derive, or e.g. https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents' : 'Leave empty to auto-derive from provider base URL'}
+            placeholder={effectiveEmbeddingAPIType() === 'gemini' ? 'Leave empty to auto-derive, or e.g. https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents' : 'Leave empty to auto-derive from provider base URL'}
             class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
           />
           <div class="col-start-2 col-span-3 text-xs text-gray-400 dark:text-dark-text-muted -mt-2">
-            Optional. If empty, the URL is derived automatically from the provider's base URL.
+            Optional. If empty, AT derives the embedding endpoint from the selected provider.
           </div>
         </div>
 
@@ -824,7 +840,7 @@
               <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-900/10 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:after:border-dark-border-subtle peer-checked:bg-gray-900 dark:peer-checked:bg-accent"></div>
             </label>
             <span class="text-xs text-gray-400 dark:text-dark-text-muted">
-              Send provider API key as Bearer token (for gateway proxy endpoints)
+              Advanced override for explicit URLs that expect Bearer auth, such as another AT gateway.
             </span>
           </div>
         </div>

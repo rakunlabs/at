@@ -62,9 +62,6 @@ type OrganizationAgent struct {
 	ParentAgentID     string `json:"parent_agent_id,omitempty"`
 	Status            string `json:"status,omitempty"`
 	HeartbeatSchedule string `json:"heartbeat_schedule,omitempty"`
-	MemoryModel       string `json:"memory_model,omitempty"`
-	MemoryProvider    string `json:"memory_provider,omitempty"`
-	MemoryMethod      string `json:"memory_method,omitempty"`
 	CreatedAt         string `json:"created_at"`
 	UpdatedAt         string `json:"updated_at"`
 }

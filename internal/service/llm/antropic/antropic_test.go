@@ -2,6 +2,10 @@ package antropic
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -79,6 +83,44 @@ func TestToolUseBlocksAfterMergeKeepInput(t *testing.T) {
 		if _, has := b["input"]; !has {
 			t.Errorf("tool_use block %v is missing required \"input\" field", b)
 		}
+	}
+}
+
+func TestProxyOAuthPreservesQueryAndAddsBeta(t *testing.T) {
+	var gotQuery string
+	var gotAuth string
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.RawQuery
+		gotAuth = r.Header.Get("Authorization")
+		_, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"type":"message","content":[],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	p, err := New("", "claude-3-5-sonnet", srv.URL, "", false, WithTokenSource(NewStaticTokenSource("oauth-token")))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/gateway/v1/providers/anthropic/v1/messages?foo=bar", strings.NewReader(`{"model":"claude-3-5-sonnet","messages":[]}`))
+	rec := httptest.NewRecorder()
+
+	if err := p.Proxy(rec, req, "/v1/messages"); err != nil {
+		t.Fatalf("Proxy() error = %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if !strings.Contains(gotQuery, "foo=bar") {
+		t.Fatalf("query = %q, want foo=bar", gotQuery)
+	}
+	if !strings.Contains(gotQuery, "beta=true") {
+		t.Fatalf("query = %q, want beta=true", gotQuery)
+	}
+	if gotAuth != "Bearer oauth-token" {
+		t.Fatalf("Authorization = %q, want Bearer oauth-token", gotAuth)
 	}
 }
 

@@ -63,26 +63,26 @@ func TestReachableNodes_MultipleResourceConfigs(t *testing.T) {
 	//   input ──► agent_call ──► output
 	//   skill_config ──► agent_call (bottom)
 	//   mcp_config ──► agent_call (bottom)
-	//   memory_config ──► agent_call (bottom)
+	//   agent_config ──► agent_call (bottom)
 	nodes := []service.WorkflowNode{
 		{ID: "input1", Type: "input"},
 		{ID: "agent1", Type: "agent_call"},
 		{ID: "output1", Type: "output"},
 		{ID: "skill1", Type: "skill_config"},
 		{ID: "mcp1", Type: "mcp_config"},
-		{ID: "mem1", Type: "memory_config"},
+		{ID: "subagent1", Type: "agent_config"},
 	}
 	edges := []service.WorkflowEdge{
 		{ID: "e1", Source: "input1", Target: "agent1"},
 		{ID: "e2", Source: "agent1", Target: "output1"},
 		{ID: "e3", Source: "skill1", Target: "agent1", SourceHandle: "skills", TargetHandle: "skills"},
 		{ID: "e4", Source: "mcp1", Target: "agent1", SourceHandle: "mcp_urls", TargetHandle: "mcp"},
-		{ID: "e5", Source: "mem1", Target: "agent1", SourceHandle: "memory", TargetHandle: "memory"},
+		{ID: "e5", Source: "subagent1", Target: "agent1", SourceHandle: "agent", TargetHandle: "agents"},
 	}
 
 	got := reachableNodes(nil, nodes, edges)
 
-	for _, id := range []string{"input1", "agent1", "output1", "skill1", "mcp1", "mem1"} {
+	for _, id := range []string{"input1", "agent1", "output1", "skill1", "mcp1", "subagent1"} {
 		if !got[id] {
 			t.Errorf("expected node %q to be reachable", id)
 		}
@@ -92,26 +92,26 @@ func TestReachableNodes_MultipleResourceConfigs(t *testing.T) {
 func TestReachableNodes_TransitiveDependency(t *testing.T) {
 	// Graph:
 	//   input ──► agent_call ──► output
-	//   upstream_data ──► memory_config ──► agent_call (bottom)
+	//   upstream_data ──► mcp_config ──► agent_call (bottom)
 	//
-	// Both memory_config AND upstream_data should be included.
+	// Both mcp_config AND upstream_data should be included.
 	nodes := []service.WorkflowNode{
 		{ID: "input1", Type: "input"},
 		{ID: "agent1", Type: "agent_call"},
 		{ID: "output1", Type: "output"},
-		{ID: "mem1", Type: "memory_config"},
+		{ID: "mcp1", Type: "mcp_config"},
 		{ID: "data1", Type: "template"},
 	}
 	edges := []service.WorkflowEdge{
 		{ID: "e1", Source: "input1", Target: "agent1"},
 		{ID: "e2", Source: "agent1", Target: "output1"},
-		{ID: "e3", Source: "mem1", Target: "agent1", SourceHandle: "memory", TargetHandle: "memory"},
-		{ID: "e4", Source: "data1", Target: "mem1", SourceHandle: "output", TargetHandle: "data"},
+		{ID: "e3", Source: "mcp1", Target: "agent1", SourceHandle: "mcp_urls", TargetHandle: "mcp"},
+		{ID: "e4", Source: "data1", Target: "mcp1", SourceHandle: "output", TargetHandle: "data"},
 	}
 
 	got := reachableNodes(nil, nodes, edges)
 
-	for _, id := range []string{"input1", "agent1", "output1", "mem1", "data1"} {
+	for _, id := range []string{"input1", "agent1", "output1", "mcp1", "data1"} {
 		if !got[id] {
 			t.Errorf("expected node %q to be reachable", id)
 		}

@@ -7,7 +7,7 @@
 //   - types_provider.go — Provider record, storer, key rotation interfaces
 //   - types_token.go   — API token and token usage types
 //   - types_workflow.go — Workflow, trigger, and node config types
-//   - types_agent.go   — Agent, heartbeat, runtime state, memory types
+//   - types_agent.go   — Agent, heartbeat, runtime state, config revision types
 //   - types_org.go     — Organization, org-agent membership, goal, project types
 //   - types_task.go    — Task, issue comment, label, approval types
 //   - types_budget.go  — Agent budget, cost event, audit types
@@ -75,7 +75,6 @@ type Storer interface {
 	AgentConfigRevisionStorer
 	CostEventStorer
 	OrganizationAgentStorer
-	AgentMemoryStorer
 	PackSourceStorer
 	GuideStorer
 	ConnectionStorer
@@ -122,6 +121,7 @@ type SkillServer struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description"`
+	Public      bool     `json:"public"`
 	Mode        string   `json:"mode"`
 	Skills      []string `json:"skills"`
 	CreatedAt   string   `json:"created_at"`

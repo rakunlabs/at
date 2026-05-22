@@ -11,6 +11,7 @@ export interface SkillServer {
   id: string;
   name: string;
   description: string;
+  public?: boolean;
   mode: SkillServerMode;
   skills: string[];
   created_at: string;

@@ -17,11 +17,13 @@ func (p *Postgres) RecordUsage(ctx context.Context, tokenID, model string, usage
 
 	// Postgres INSERT ... ON CONFLICT DO UPDATE (upsert).
 	query := fmt.Sprintf(
-		`INSERT INTO %s (token_id, model, prompt_tokens, completion_tokens, total_tokens, request_count, last_request_at)
-		 VALUES ($1, $2, $3, $4, $5, 1, $6)
+		`INSERT INTO %s (token_id, model, prompt_tokens, completion_tokens, cache_read_tokens, cache_write_tokens, total_tokens, request_count, last_request_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8)
 		 ON CONFLICT(token_id, model) DO UPDATE SET
 		     prompt_tokens = %[1]s.prompt_tokens + EXCLUDED.prompt_tokens,
 		     completion_tokens = %[1]s.completion_tokens + EXCLUDED.completion_tokens,
+		     cache_read_tokens = %[1]s.cache_read_tokens + EXCLUDED.cache_read_tokens,
+		     cache_write_tokens = %[1]s.cache_write_tokens + EXCLUDED.cache_write_tokens,
 		     total_tokens = %[1]s.total_tokens + EXCLUDED.total_tokens,
 		     request_count = %[1]s.request_count + 1,
 		     last_request_at = EXCLUDED.last_request_at`,
@@ -30,7 +32,7 @@ func (p *Postgres) RecordUsage(ctx context.Context, tokenID, model string, usage
 
 	_, err := p.db.ExecContext(ctx, query,
 		tokenID, model,
-		int64(usage.PromptTokens), int64(usage.CompletionTokens), int64(usage.TotalTokens),
+		int64(usage.PromptTokens), int64(usage.CompletionTokens), int64(usage.CacheReadTokens), int64(usage.CacheWriteTokens), int64(usage.TotalTokenCount()),
 		now,
 	)
 	if err != nil {
@@ -42,7 +44,7 @@ func (p *Postgres) RecordUsage(ctx context.Context, tokenID, model string, usage
 
 func (p *Postgres) GetTokenUsage(ctx context.Context, tokenID string) ([]service.TokenUsage, error) {
 	query, _, err := p.goqu.From(p.tableTokenUsage).
-		Select("token_id", "model", "prompt_tokens", "completion_tokens", "total_tokens", "request_count", "last_request_at").
+		Select("token_id", "model", "prompt_tokens", "completion_tokens", "cache_read_tokens", "cache_write_tokens", "total_tokens", "request_count", "last_request_at").
 		Where(goqu.I("token_id").Eq(tokenID)).
 		Order(goqu.I("total_tokens").Desc()).
 		ToSQL()
@@ -61,7 +63,7 @@ func (p *Postgres) GetTokenUsage(ctx context.Context, tokenID string) ([]service
 		var u service.TokenUsage
 		if err := rows.Scan(
 			&u.TokenID, &u.Model,
-			&u.PromptTokens, &u.CompletionTokens, &u.TotalTokens,
+			&u.PromptTokens, &u.CompletionTokens, &u.CacheReadTokens, &u.CacheWriteTokens, &u.TotalTokens,
 			&u.RequestCount, &u.LastRequestAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan token usage row: %w", err)

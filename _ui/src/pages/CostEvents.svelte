@@ -110,7 +110,7 @@
     costEvents.reduce((acc, e) => acc + (e.cost_cents || 0), 0),
   );
   let pageTotalTokens = $derived(
-    costEvents.reduce((acc, e) => acc + (e.input_tokens || 0) + (e.output_tokens || 0), 0),
+    costEvents.reduce((acc, e) => acc + (e.input_tokens || 0) + (e.output_tokens || 0) + (e.cache_read_tokens || 0) + (e.cache_write_tokens || 0), 0),
   );
 </script>
 
@@ -181,6 +181,7 @@
       <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Task</th>
       <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Input</th>
       <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Output</th>
+      <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Cache</th>
       <SortableHeader field="cost_cents" label="Cost" {sorts} onsort={handleSort} />
     {/snippet}
 
@@ -202,6 +203,9 @@
         </td>
         <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatTokens(event.input_tokens)}</td>
         <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatTokens(event.output_tokens)}</td>
+        <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right" title="read / write">
+          {formatTokens(event.cache_read_tokens || 0)} / {formatTokens(event.cache_write_tokens || 0)}
+        </td>
         <td class="px-4 py-2.5 text-xs font-medium text-gray-900 dark:text-dark-text text-right">{formatCost(event.cost_cents)}</td>
       </tr>
     {/snippet}

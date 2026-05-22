@@ -21,9 +21,6 @@ type orgAgentRow struct {
 	ParentAgentID     sql.NullString `db:"parent_agent_id"`
 	Status            string         `db:"status"`
 	HeartbeatSchedule string         `db:"heartbeat_schedule"`
-	MemoryModel       string         `db:"memory_model"`
-	MemoryProvider    string         `db:"memory_provider"`
-	MemoryMethod      string         `db:"memory_method"`
 	CreatedAt         string         `db:"created_at"`
 	UpdatedAt         string         `db:"updated_at"`
 }
@@ -38,9 +35,6 @@ func orgAgentRowToRecord(row orgAgentRow) service.OrganizationAgent {
 		ParentAgentID:     row.ParentAgentID.String,
 		Status:            row.Status,
 		HeartbeatSchedule: row.HeartbeatSchedule,
-		MemoryModel:       row.MemoryModel,
-		MemoryProvider:    row.MemoryProvider,
-		MemoryMethod:      row.MemoryMethod,
 		CreatedAt:         row.CreatedAt,
 		UpdatedAt:         row.UpdatedAt,
 	}
@@ -52,15 +46,13 @@ func (s *SQLite) scanOrgAgentRow(scanner interface{ Scan(...any) error }) (orgAg
 		&row.ID, &row.OrganizationID, &row.AgentID,
 		&row.Role, &row.Title, &row.ParentAgentID,
 		&row.Status, &row.HeartbeatSchedule,
-		&row.MemoryModel, &row.MemoryProvider,
-		&row.MemoryMethod,
 		&row.CreatedAt, &row.UpdatedAt,
 	)
 
 	return row, err
 }
 
-var orgAgentCols = []any{"id", "organization_id", "agent_id", "role", "title", "parent_agent_id", "status", "heartbeat_schedule", "memory_model", "memory_provider", "memory_method", "created_at", "updated_at"}
+var orgAgentCols = []any{"id", "organization_id", "agent_id", "role", "title", "parent_agent_id", "status", "heartbeat_schedule", "created_at", "updated_at"}
 
 func (s *SQLite) ListOrganizationAgents(ctx context.Context, orgID string) ([]service.OrganizationAgent, error) {
 	q, _, err := s.goqu.From(s.tableOrganizationAgents).
@@ -183,9 +175,6 @@ func (s *SQLite) CreateOrganizationAgent(ctx context.Context, oa service.Organiz
 			"parent_agent_id":    oa.ParentAgentID,
 			"status":             status,
 			"heartbeat_schedule": oa.HeartbeatSchedule,
-			"memory_model":       oa.MemoryModel,
-			"memory_provider":    oa.MemoryProvider,
-			"memory_method":      oa.MemoryMethod,
 			"created_at":         now,
 			"updated_at":         now,
 		},
@@ -207,9 +196,6 @@ func (s *SQLite) CreateOrganizationAgent(ctx context.Context, oa service.Organiz
 		ParentAgentID:     oa.ParentAgentID,
 		Status:            status,
 		HeartbeatSchedule: oa.HeartbeatSchedule,
-		MemoryModel:       oa.MemoryModel,
-		MemoryProvider:    oa.MemoryProvider,
-		MemoryMethod:      oa.MemoryMethod,
 		CreatedAt:         now,
 		UpdatedAt:         now,
 	}, nil
@@ -225,9 +211,6 @@ func (s *SQLite) UpdateOrganizationAgent(ctx context.Context, id string, oa serv
 			"parent_agent_id":    oa.ParentAgentID,
 			"status":             oa.Status,
 			"heartbeat_schedule": oa.HeartbeatSchedule,
-			"memory_model":       oa.MemoryModel,
-			"memory_provider":    oa.MemoryProvider,
-			"memory_method":      oa.MemoryMethod,
 			"updated_at":         now,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()

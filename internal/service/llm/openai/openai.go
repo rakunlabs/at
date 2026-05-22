@@ -121,9 +121,50 @@ type OpenAIError struct {
 }
 
 type OpenAIUsage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	PromptTokens        int                        `json:"prompt_tokens"`
+	CompletionTokens    int                        `json:"completion_tokens"`
+	TotalTokens         int                        `json:"total_tokens"`
+	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+}
+
+type OpenAIPromptTokensDetails struct {
+	CachedTokens        int `json:"cached_tokens"`
+	CacheCreationTokens int `json:"cache_creation_tokens"`
+	CacheWriteTokens    int `json:"cache_write_tokens"`
+}
+
+func openAIServiceUsage(u *OpenAIUsage) service.Usage {
+	if u == nil {
+		return service.Usage{}
+	}
+	cacheRead := 0
+	cacheWrite := 0
+	if u.PromptTokensDetails != nil {
+		cacheRead = u.PromptTokensDetails.CachedTokens
+		cacheWrite = u.PromptTokensDetails.CacheWriteTokens
+		if cacheWrite == 0 {
+			cacheWrite = u.PromptTokensDetails.CacheCreationTokens
+		}
+	}
+	promptTokens := u.PromptTokens - cacheRead - cacheWrite
+	if promptTokens < 0 {
+		promptTokens = 0
+	}
+	totalTokens := u.TotalTokens
+	if totalTokens <= 0 {
+		totalTokens = promptTokens + u.CompletionTokens + cacheRead + cacheWrite
+	}
+	return service.Usage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: u.CompletionTokens,
+		CacheReadTokens:  cacheRead,
+		CacheWriteTokens: cacheWrite,
+		TotalTokens:      totalTokens,
+	}
+}
+
+func usagePtr(u service.Usage) *service.Usage {
+	return &u
 }
 
 type Choice struct {
@@ -244,11 +285,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	if result.Usage != nil {
-		llmResp.Usage = service.Usage{
-			PromptTokens:     result.Usage.PromptTokens,
-			CompletionTokens: result.Usage.CompletionTokens,
-			TotalTokens:      result.Usage.TotalTokens,
-		}
+		llmResp.Usage = openAIServiceUsage(result.Usage)
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
@@ -443,11 +480,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			if len(sr.Choices) == 0 {
 				if sr.Usage != nil {
 					ch <- service.StreamChunk{
-						Usage: &service.Usage{
-							PromptTokens:     sr.Usage.PromptTokens,
-							CompletionTokens: sr.Usage.CompletionTokens,
-							TotalTokens:      sr.Usage.TotalTokens,
-						},
+						Usage: usagePtr(openAIServiceUsage(sr.Usage)),
 					}
 				}
 				continue
@@ -545,6 +578,19 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
+	if r.URL.RawQuery != "" {
+		if targetURL.RawQuery == "" {
+			targetURL.RawQuery = r.URL.RawQuery
+		} else {
+			targetURL.RawQuery += "&" + r.URL.RawQuery
+		}
+	}
+
+	release, err := p.limiter.Acquire(r.Context(), 0)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {

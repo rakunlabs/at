@@ -421,7 +421,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
 - Place nodes with ~200px horizontal spacing and ~150px vertical spacing
 - Keep related nodes close together
 - Flow generally goes left-to-right or top-to-bottom
-- Resource config nodes (skill_config, mcp_config, memory_config) should be placed BELOW the agent_call node they connect to
+- Resource config nodes (skill_config, mcp_config) should be placed BELOW the agent_call node they connect to
 
 ## Important
 - Always use get_flow first to understand the current state before making changes

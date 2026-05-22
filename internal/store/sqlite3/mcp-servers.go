@@ -18,6 +18,7 @@ type mcpServerRow struct {
 	ID          string         `db:"id"`
 	Name        string         `db:"name"`
 	Description string         `db:"description"`
+	Public      bool           `db:"public"`
 	Config      sql.NullString `db:"config"`
 	Servers     sql.NullString `db:"servers"`
 	URLs        sql.NullString `db:"urls"`
@@ -28,7 +29,7 @@ type mcpServerRow struct {
 }
 
 func (s *SQLite) ListMCPServers(ctx context.Context, q *query.Query) (*service.ListResult[service.MCPServer], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableMCPServers, q, "id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := s.buildListQuery(ctx, s.tableMCPServers, q, "id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list mcp servers query: %w", err)
 	}
@@ -42,7 +43,7 @@ func (s *SQLite) ListMCPServers(ctx context.Context, q *query.Query) (*service.L
 	var items []service.MCPServer
 	for rows.Next() {
 		var row mcpServerRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan mcp server row: %w", err)
 		}
 
@@ -67,7 +68,7 @@ func (s *SQLite) ListMCPServers(ctx context.Context, q *query.Query) (*service.L
 
 func (s *SQLite) GetMCPServer(ctx context.Context, id string) (*service.MCPServer, error) {
 	query, _, err := s.goqu.From(s.tableMCPServers).
-		Select("id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -75,7 +76,7 @@ func (s *SQLite) GetMCPServer(ctx context.Context, id string) (*service.MCPServe
 	}
 
 	var row mcpServerRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -88,7 +89,7 @@ func (s *SQLite) GetMCPServer(ctx context.Context, id string) (*service.MCPServe
 
 func (s *SQLite) GetMCPServerByName(ctx context.Context, name string) (*service.MCPServer, error) {
 	query, _, err := s.goqu.From(s.tableMCPServers).
-		Select("id", "name", "description", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -96,7 +97,7 @@ func (s *SQLite) GetMCPServerByName(ctx context.Context, name string) (*service.
 	}
 
 	var row mcpServerRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -129,6 +130,7 @@ func (s *SQLite) CreateMCPServer(ctx context.Context, srv service.MCPServer) (*s
 			"id":          id,
 			"name":        srv.Name,
 			"description": srv.Description,
+			"public":      srv.Public,
 			"config":      string(configJSON),
 			"servers":     string(serversJSON),
 			"urls":        string(urlsJSON),
@@ -150,6 +152,7 @@ func (s *SQLite) CreateMCPServer(ctx context.Context, srv service.MCPServer) (*s
 		ID:          id,
 		Name:        srv.Name,
 		Description: srv.Description,
+		Public:      srv.Public,
 		Config:      srv.Config,
 		Servers:     srv.Servers,
 		URLs:        srv.URLs,
@@ -180,6 +183,7 @@ func (s *SQLite) UpdateMCPServer(ctx context.Context, id string, srv service.MCP
 		goqu.Record{
 			"name":        srv.Name,
 			"description": srv.Description,
+			"public":      srv.Public,
 			"config":      string(configJSON),
 			"servers":     string(serversJSON),
 			"urls":        string(urlsJSON),
@@ -249,6 +253,7 @@ func mcpServerRowToRecord(row mcpServerRow) (*service.MCPServer, error) {
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: row.Description,
+		Public:      row.Public,
 		Config:      cfg,
 		Servers:     servers,
 		URLs:        urls,

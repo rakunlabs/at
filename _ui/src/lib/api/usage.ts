@@ -19,6 +19,8 @@ export interface UsageSummary {
   key?: string;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   total_tokens: number;
   request_count: number;
   error_count: number;
@@ -34,6 +36,8 @@ export interface UsageTimeSeriesPoint {
   bucket: string;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   total_tokens: number;
   request_count: number;
   error_count: number;

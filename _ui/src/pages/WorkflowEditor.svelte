@@ -26,7 +26,6 @@
   import SkillConfigNode from '@/lib/components/workflow/SkillConfigNode.svelte';
   import AgentConfigNode from '@/lib/components/workflow/AgentConfigNode.svelte';
   import MCPConfigNode from '@/lib/components/workflow/MCPConfigNode.svelte';
-  import MemoryConfigNode from '@/lib/components/workflow/MemoryConfigNode.svelte';
   import EmailNode from '@/lib/components/workflow/EmailNode.svelte';
   import LogNode from '@/lib/components/workflow/LogNode.svelte';
   import WorkflowCallNode from '@/lib/components/workflow/WorkflowCallNode.svelte';
@@ -57,7 +56,6 @@
   import SkillConfigProps from '@/lib/components/workflow/SkillConfigProps.svelte';
   import AgentConfigProps from '@/lib/components/workflow/AgentConfigProps.svelte';
   import MCPConfigProps from '@/lib/components/workflow/MCPConfigProps.svelte';
-  import MemoryConfigProps from '@/lib/components/workflow/MemoryConfigProps.svelte';
   import EmailProps from '@/lib/components/workflow/EmailProps.svelte';
   import LogProps from '@/lib/components/workflow/LogProps.svelte';
   import WorkflowCallProps from '@/lib/components/workflow/WorkflowCallProps.svelte';
@@ -90,7 +88,6 @@
     skill_config: SkillConfigProps,
     agent_config: AgentConfigProps,
     mcp_config: MCPConfigProps,
-    memory_config: MemoryConfigProps,
     email: EmailProps,
     log: LogProps,
     workflow_call: WorkflowCallProps,
@@ -129,7 +126,6 @@
     skill_config: SkillConfigNode,
     agent_config: AgentConfigNode,
     mcp_config: MCPConfigNode,
-    memory_config: MemoryConfigNode,
     email: EmailNode,
     log: LogNode,
     workflow_call: WorkflowCallNode,
@@ -199,7 +195,6 @@
         { type: 'skill_config', label: 'Skill Config', description: 'Skills for agent nodes' },
         { type: 'agent_config', label: 'Agent Config', description: 'Sub-agent delegate' },
         { type: 'mcp_config', label: 'MCP Config', description: 'MCP servers for agents' },
-        { type: 'memory_config', label: 'Memory', description: 'Memory/context for agents' },
       ],
     },
     {
@@ -368,9 +363,6 @@
     }
     if (type === 'mcp_config') {
       return { label: 'MCP Config', mcp_urls: [] };
-    }
-    if (type === 'memory_config') {
-      return { label: 'Memory' };
     }
     if (type === 'template') {
       return { label: 'Template', template: '', variables: [] };
@@ -682,8 +674,6 @@
     } else if (type === 'mcp_config') {
       defaultData.label = 'MCP Config';
       defaultData.mcp_urls = [];
-    } else if (type === 'memory_config') {
-      defaultData.label = 'Memory';
     } else if (type === 'template') {
       defaultData.label = 'Template';
       defaultData.template = '';
@@ -1473,4 +1463,3 @@
     display: none !important;
   }
 </style>
-

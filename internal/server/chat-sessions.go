@@ -887,7 +887,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		// Record token usage for cost tracking.
 		// Same rule as the error path above: store the provider KEY, not the
 		// generic API family.
-		if resp.Usage.TotalTokens > 0 {
+		if resp.Usage.TotalTokenCount() > 0 {
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
 				if usageErr := recordUsage(ctx, workflow.UsageEvent{

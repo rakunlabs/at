@@ -190,9 +190,6 @@ type Server struct {
 	// orgAgentStore is the persistent store for organization-agent memberships (join table).
 	orgAgentStore service.OrganizationAgentStorer
 
-	// agentMemoryStore is the persistent store for agent memory (L0/L1 summaries and L2 messages).
-	agentMemoryStore service.AgentMemoryStorer
-
 	// marketplaceClient is used for outbound HTTP requests to marketplace APIs.
 	marketplaceClient *http.Client
 
@@ -425,7 +422,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		agentConfigRevisionStore: store,
 		costEventStore:           store,
 		orgAgentStore:            store,
-		agentMemoryStore:         store,
 		packSourceStore:          store,
 		guideStore:               store,
 		connectionStore:          store,
@@ -582,7 +578,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		s.scheduler.SetRAGSync(s.ragSyncFunc())
 		s.scheduler.SetRAGPageUpsert(s.ragPageUpsertFunc())
-		s.scheduler.SetMemoryRecall(s.memoryRecallFunc())
 		s.scheduler.SetConnectionLookup(s.connectionLookupFunc())
 		s.scheduler.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
@@ -605,25 +600,30 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
+	gatewayGroup.Handle("/v1/providers/{provider}/*", http.HandlerFunc(s.ProxyRequest))
 
-	// Proxy endpoint
+	// Legacy unversioned proxy endpoint.
 	gatewayGroup.Handle("/proxy/{provider}/*", http.HandlerFunc(s.ProxyRequest))
 
 	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
 	webhookGroup.POST("/{id}", s.WebhookAPI)
 
-	// General MCP gateway endpoint (auth-gated, external)
+	// General MCP gateway endpoint (external; auth-gated unless server public mode is enabled)
 	gatewayGroup.POST("/v1/mcp/{name}", s.GatewayMCPHandler)
 	gatewayGroup.POST("/v1/mcp/{name}/mcp", s.GatewayMCPHandler) // MCP clients append /mcp per spec
 	gatewayGroup.GET("/v1/mcp/{name}", s.GatewayMCPSSEHandler)
 	gatewayGroup.GET("/v1/mcp/{name}/mcp", s.GatewayMCPSSEHandler)
 
-	// Curated Skill Server endpoint (auth-gated, external MCP transport)
+	// Curated Skill Server endpoint (external MCP transport; auth-gated unless public mode is enabled)
 	gatewayGroup.POST("/v1/skill-servers/{name}", s.SkillServerMCPHandler)
 	gatewayGroup.POST("/v1/skill-servers/{name}/mcp", s.SkillServerMCPHandler)
 	gatewayGroup.GET("/v1/skill-servers/{name}", s.SkillServerMCPSSEHandler)
 	gatewayGroup.GET("/v1/skill-servers/{name}/mcp", s.SkillServerMCPSSEHandler)
+	gatewayGroup.GET("/v1/public/skill_hub", s.PublicSkillHubAPI)
+	gatewayGroup.GET("/v1/claude-code/marketplace.json", s.ClaudeCodeMarketplaceAPI)
+	gatewayGroup.GET("/v1/claude-code/marketplace.zip", s.ClaudeCodeMarketplaceZipAPI)
+	gatewayGroup.GET("/v1/claude-code/plugins/{name}/plugin.zip", s.ClaudeCodePluginZipAPI)
 
 	// Internal MCP endpoint — no auth, for agent-to-server tool resolution.
 	// Serves tools from MCP Sets (RAG/skills/HTTP/builtins). Not under /gateway/
@@ -791,15 +791,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/organizations/{id}/agents/{agent_id}", s.UpdateOrganizationAgentAPI)
 	apiGroup.DELETE("/v1/organizations/{id}/agents/{agent_id}", s.RemoveAgentFromOrganizationAPI)
 
-	// Agent memories (org-scoped)
-	apiGroup.GET("/v1/organizations/{id}/memories", s.ListOrgMemoriesAPI)
-	apiGroup.POST("/v1/organizations/{id}/memories/search", s.SearchOrgMemoriesAPI)
-
-	// Agent memories (direct)
-	apiGroup.GET("/v1/agent-memories/{id}", s.GetAgentMemoryAPI)
-	apiGroup.GET("/v1/agent-memories/{id}/messages", s.GetAgentMemoryMessagesAPI)
-	apiGroup.DELETE("/v1/agent-memories/{id}", s.DeleteAgentMemoryAPI)
-
 	// Organization task intake (async)
 	apiGroup.POST("/v1/organizations/{id}/tasks", s.IntakeTaskAPI)
 
@@ -828,6 +819,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Model pricing
 	apiGroup.GET("/v1/model-pricing", s.ListModelPricingAPI)
 	apiGroup.POST("/v1/model-pricing", s.SetModelPricingAPI)
+	apiGroup.GET("/v1/model-pricing/catalog", s.ExportModelPricingCatalogAPI)
+	apiGroup.POST("/v1/model-pricing/catalog/import", s.ImportModelPricingCatalogAPI)
+	apiGroup.POST("/v1/model-pricing/agent/preview", s.PreviewModelPricingAgentAPI)
+	apiGroup.POST("/v1/model-pricing/sync/preview", s.PreviewModelPricingSyncAPI)
+	apiGroup.POST("/v1/model-pricing/sync/apply", s.ApplyModelPricingSyncAPI)
+	apiGroup.DELETE("/v1/model-pricing/{id}", s.DeleteModelPricingAPI)
+	apiGroup.POST("/v1/model-pricing/{id}/reset", s.ResetModelPricingAPI)
 
 	// Audit log
 	apiGroup.GET("/v1/audit", s.ListAuditEntriesAPI)
@@ -1371,22 +1369,20 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 	}
 	return func(ctx context.Context, event workflow.UsageEvent) error {
 		// Look up model pricing to estimate cost.
-		var estimatedCost float64
+		var costCents float64
 		if s.agentBudgetStore != nil {
 			pricingList, err := s.agentBudgetStore.ListModelPricing(ctx)
 			if err == nil {
-				for _, p := range pricingList {
-					if p.Model == event.Model {
-						estimatedCost = (float64(event.Usage.PromptTokens) * p.PromptPricePer1M / 1_000_000) +
-							(float64(event.Usage.CompletionTokens) * p.CompletionPricePer1M / 1_000_000)
-						break
-					}
+				fullModel := event.Model
+				if event.Provider != "" && !strings.Contains(event.Model, "/") {
+					fullModel = event.Provider + "/" + event.Model
 				}
+				costCents = estimateUsageCostCents(pricingList, event.Provider, event.Model, fullModel, event.Usage)
 			}
 		}
 
 		// Dollar-denominated for agent_usage (historic), cents for cost_events.
-		costCents := estimatedCost * 100
+		estimatedCost := costCents / 100
 
 		// 1. Legacy: agent_usage (per-agent totals, budget enforcement).
 		if s.agentBudgetStore != nil {
@@ -1397,7 +1393,7 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 				Model:            event.Model,
 				PromptTokens:     int64(event.Usage.PromptTokens),
 				CompletionTokens: int64(event.Usage.CompletionTokens),
-				TotalTokens:      int64(event.Usage.TotalTokens),
+				TotalTokens:      int64(event.Usage.TotalTokenCount()),
 				EstimatedCost:    estimatedCost,
 			}); err != nil {
 				return err
@@ -1411,22 +1407,24 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 				status = "ok"
 			}
 			if err := s.costEventStore.RecordCostEvent(ctx, service.CostEvent{
-				OrganizationID: event.OrganizationID,
-				AgentID:        event.AgentID,
-				TaskID:         event.TaskID,
-				ProjectID:      event.ProjectID,
-				GoalID:         event.GoalID,
-				BillingCode:    event.BillingCode,
-				RunID:          event.RunID,
-				Provider:       event.Provider,
-				Model:          event.Model,
-				InputTokens:    int64(event.Usage.PromptTokens),
-				OutputTokens:   int64(event.Usage.CompletionTokens),
-				CostCents:      costCents,
-				LatencyMs:      event.LatencyMs,
-				Status:         status,
-				ErrorCode:      event.ErrorCode,
-				ErrorMessage:   event.ErrorMessage,
+				OrganizationID:   event.OrganizationID,
+				AgentID:          event.AgentID,
+				TaskID:           event.TaskID,
+				ProjectID:        event.ProjectID,
+				GoalID:           event.GoalID,
+				BillingCode:      event.BillingCode,
+				RunID:            event.RunID,
+				Provider:         event.Provider,
+				Model:            event.Model,
+				InputTokens:      int64(event.Usage.PromptTokens),
+				OutputTokens:     int64(event.Usage.CompletionTokens),
+				CacheReadTokens:  int64(event.Usage.CacheReadTokens),
+				CacheWriteTokens: int64(event.Usage.CacheWriteTokens),
+				CostCents:        costCents,
+				LatencyMs:        event.LatencyMs,
+				Status:           status,
+				ErrorCode:        event.ErrorCode,
+				ErrorMessage:     event.ErrorMessage,
 			}); err != nil {
 				// Non-fatal: budget write already succeeded; log and continue.
 				slog.Warn("record cost event failed", "agent_id", event.AgentID, "error", err)
@@ -1565,49 +1563,5 @@ func (s *Server) versionLookupFunc() workflow.VersionLookupFunc {
 			return nil, nil
 		}
 		return &ver.Graph, nil
-	}
-}
-
-func (s *Server) memoryRecallFunc() workflow.MemoryRecallFunc {
-	if s.agentMemoryStore == nil {
-		return nil
-	}
-	return func(ctx context.Context, agentID, orgID string, maxTokens int) (string, error) {
-		memories, err := s.agentMemoryStore.ListOrgMemories(ctx, orgID)
-		if err != nil {
-			return "", fmt.Errorf("list org memories for recall: %w", err)
-		}
-		if len(memories) == 0 {
-			return "", nil
-		}
-
-		// Use token budget as char limit (roughly 4 chars per token).
-		maxChars := maxTokens * 4
-		var buf strings.Builder
-		buf.WriteString("## Relevant Past Work\n\n")
-
-		for _, mem := range memories {
-			var entry strings.Builder
-			agentLabel := agentID
-			if mem.AgentID != agentID {
-				agentLabel = fmt.Sprintf("agent %s", mem.AgentID)
-			} else {
-				agentLabel = "you"
-			}
-			entry.WriteString(fmt.Sprintf("### %s (by %s)\n", mem.TaskIdentifier, agentLabel))
-			entry.WriteString(fmt.Sprintf("**Summary**: %s\n", mem.SummaryL0))
-			if mem.SummaryL1 != "" {
-				entry.WriteString(mem.SummaryL1 + "\n")
-			}
-			entry.WriteString("\n")
-
-			entryStr := entry.String()
-			if buf.Len()+len(entryStr) > maxChars {
-				break
-			}
-			buf.WriteString(entryStr)
-		}
-
-		return buf.String(), nil
 	}
 }

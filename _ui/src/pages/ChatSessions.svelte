@@ -184,7 +184,7 @@
       const res = await listChatSessions({ _sort: '-updated_at' });
       sessions = (res.data || []).slice().sort((a, b) => sessionActivityTime(b) - sessionActivityTime(a));
     } catch (e: any) {
-      addToast(e.message || 'Failed to load sessions', 'error');
+      addToast(e.message || 'Failed to load sessions', 'alert');
     } finally {
       loading = false;
     }
@@ -224,7 +224,7 @@
     try {
       messages = await listChatMessages(sessionId);
     } catch (e: any) {
-      addToast(e.message || 'Failed to load messages', 'error');
+      addToast(e.message || 'Failed to load messages', 'alert');
     }
   }
 
@@ -256,7 +256,7 @@
   async function quickCreateSession(agentId?: string) {
     const aid = agentId || (agents.length > 0 ? agents[0].id : '');
     if (!aid) {
-      addToast('No agents configured. Create an agent first.', 'error');
+      addToast('No agents configured. Create an agent first.', 'alert');
       return;
     }
     try {
@@ -267,7 +267,7 @@
       sessions = [session, ...sessions];
       await selectSession(session.id);
     } catch (e: any) {
-      addToast(e.message || 'Failed to create session', 'error');
+      addToast(e.message || 'Failed to create session', 'alert');
     }
   }
 
@@ -280,7 +280,7 @@
         messages = [];
       }
     } catch (e: any) {
-      addToast(e.message || 'Failed to delete session', 'error');
+      addToast(e.message || 'Failed to delete session', 'alert');
     }
   }
 
@@ -291,9 +291,9 @@
     try {
       const updated = await updateChatSession(selectedSessionId, { agent_id: agentId } as any);
       sessions = sessions.map(s => s.id === updated.id ? updated : s);
-      addToast(`Switched to ${agents.find(a => a.id === agentId)?.name || 'agent'}`, 'success');
+      addToast(`Switched to ${agents.find(a => a.id === agentId)?.name || 'agent'}`);
     } catch (e: any) {
-      addToast(e.message || 'Failed to switch agent', 'error');
+      addToast(e.message || 'Failed to switch agent', 'alert');
     }
 
     inputEl?.focus();
@@ -315,7 +315,7 @@
           clearChatMessages(selectedSessionId).then(() => {
             messages = [];
             addToast('Messages cleared');
-          }).catch(() => addToast('Failed to clear messages', 'error'));
+          }).catch(() => addToast('Failed to clear messages', 'alert'));
         }
         break;
       case '/sessions':
@@ -402,7 +402,7 @@
         }
       },
       (error) => {
-        addToast(error, 'error');
+        addToast(error, 'alert');
         sending = false;
         abortController = null;
         pendingConfirmation = null;
@@ -484,7 +484,7 @@
         }
       },
       (error) => {
-        addToast(error, 'error');
+        addToast(error, 'alert');
         sending = false;
         abortController = null;
         pendingConfirmation = null;
@@ -510,7 +510,7 @@
     try {
       await confirmToolCall(selectedSessionId, toolId, approved);
     } catch (err: any) {
-      addToast(err.message || 'Failed to send confirmation', 'error');
+      addToast(err.message || 'Failed to send confirmation', 'alert');
     }
   }
 
@@ -716,7 +716,7 @@
               </div>
             </div>
             <button
-              onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'error')); }}
+              onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'alert')); }}
               class="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-orange-400 transition-opacity"
               title="Clear messages"
             >

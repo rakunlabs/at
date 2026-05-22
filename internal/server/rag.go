@@ -468,8 +468,8 @@ type discoverEmbeddingModelsRequest struct {
 	// base URL are used to list available embedding models.
 	EmbeddingProvider string `json:"embedding_provider"`
 
-	// EmbeddingAPIType selects the embedding API format: "openai" or "gemini".
-	// When empty, defaults to the provider's type.
+	// EmbeddingAPIType selects the embedding API format: "auto", "openai", or "gemini".
+	// Empty/"auto" defaults to the selected provider's native embedding API.
 	EmbeddingAPIType string `json:"embedding_api_type,omitempty"`
 
 	// EmbeddingURL is an optional explicit embedding endpoint URL. When set,
@@ -524,11 +524,7 @@ func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 		}
 	}
 
-	// Determine the effective API type.
-	apiType := strings.ToLower(req.EmbeddingAPIType)
-	if apiType == "" {
-		apiType = strings.ToLower(cfg.Type)
-	}
+	apiType := rag.NormalizeEmbeddingAPIType(req.EmbeddingAPIType, cfg.Type)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
@@ -616,7 +612,7 @@ func (s *Server) TestEmbeddingAPI(w http.ResponseWriter, r *http.Request) {
 	client, err := rag.NewATEmbedderClient(rag.ATEmbedderConfig{
 		BaseURL:            cfg.BaseURL,
 		EmbeddingURL:       req.EmbeddingURL,
-		APIType:            req.EmbeddingAPIType,
+		APIType:            rag.NormalizeEmbeddingAPIType(req.EmbeddingAPIType, cfg.Type),
 		Model:              req.EmbeddingModel,
 		APIKey:             cfg.APIKey,
 		BearerAuth:         req.EmbeddingBearerAuth,
@@ -660,8 +656,8 @@ func (s *Server) TestEmbeddingAPI(w http.ResponseWriter, r *http.Request) {
 //	"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents"
 //	  → "https://generativelanguage.googleapis.com"
 //
-//	"https://proxy.example.com/at/gateway/proxy/google-ai/v1beta/models/text-embedding-005:batchEmbedContents"
-//	  → "https://proxy.example.com/at/gateway/proxy/google-ai"
+//	"https://proxy.example.com/at/gateway/v1/providers/google-ai/v1beta/models/text-embedding-005:batchEmbedContents"
+//	  → "https://proxy.example.com/at/gateway/v1/providers/google-ai"
 //
 //	"https://api.openai.com/v1/embeddings"
 //	  → "https://api.openai.com/v1/embeddings"  (returned as-is, discoverOpenAIModels handles derivation)

@@ -106,11 +106,6 @@
         <span class="text-[10px] text-gray-400 ml-1">— Skill names from skill_config node (optional)</span>
         <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">string[]</div>
       </div>
-      <div title="Memory/context data appended to the prompt as 'Memory:' block. Connect from a memory_config node.">
-        <span class="text-[11px] font-mono font-medium text-gray-700">memory</span>
-        <span class="text-[10px] text-gray-400 ml-1">— Memory data from memory_config node (optional)</span>
-        <div class="text-[10px] font-mono text-gray-400 ml-2 mt-0.5">any</div>
-      </div>
     </div>
   </div>
   <div>

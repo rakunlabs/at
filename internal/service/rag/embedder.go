@@ -97,16 +97,29 @@ type ATEmbedderConfig struct {
 	InsecureSkipVerify bool
 }
 
+// NormalizeEmbeddingAPIType resolves an explicit embedding API type or derives
+// one from the selected AT provider type. Empty and "auto" mean provider default.
+func NormalizeEmbeddingAPIType(apiType, providerType string) string {
+	apiType = strings.ToLower(strings.TrimSpace(apiType))
+	if apiType != "" && apiType != "auto" {
+		return apiType
+	}
+
+	switch strings.ToLower(strings.TrimSpace(providerType)) {
+	case "gemini":
+		return "gemini"
+	default:
+		return "openai"
+	}
+}
+
 // NewATEmbedderClient creates a new ATEmbedderClient from provider configuration.
 func NewATEmbedderClient(cfg ATEmbedderConfig) (*ATEmbedderClient, error) {
 	if cfg.BaseURL == "" && cfg.EmbeddingURL == "" {
 		return nil, fmt.Errorf("embedding base URL or embedding URL is required")
 	}
 
-	apiType := strings.ToLower(cfg.APIType)
-	if apiType == "" {
-		apiType = "openai"
-	}
+	apiType := NormalizeEmbeddingAPIType(cfg.APIType, "")
 
 	// When no explicit EmbeddingURL is set, Model is required to derive the URL.
 	if cfg.EmbeddingURL == "" && cfg.Model == "" {

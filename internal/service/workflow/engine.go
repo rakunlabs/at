@@ -72,7 +72,6 @@ type Engine struct {
 	recordAudit           RecordAuditFunc
 	goalAncestry          GoalAncestryFunc
 	versionLookup         VersionLookupFunc
-	memoryRecall          MemoryRecallFunc
 	connectionLookup      ConnectionLookup
 	workflowByNameLookup  WorkflowByNameLookupFunc
 	workflowExecutor      WorkflowExecutorFunc
@@ -125,12 +124,6 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 // in rag_pages. Optional — if not set, pages are not stored.
 func (e *Engine) SetRAGPageUpsert(f RAGPageUpsertFunc) {
 	e.ragPageUpsert = f
-}
-
-// SetMemoryRecall sets the callback used by memory_config nodes in "recall"
-// mode. Optional — if not set, recall mode falls back to static pass-through.
-func (e *Engine) SetMemoryRecall(f MemoryRecallFunc) {
-	e.memoryRecall = f
 }
 
 // SetConnectionLookup sets the callback used by agent_call nodes to resolve
@@ -397,7 +390,6 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 
 	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordAudit, e.goalAncestry, e.versionLookup, inputs)
 	reg.RAGPageUpsert = e.ragPageUpsert
-	reg.MemoryRecall = e.memoryRecall
 	reg.ConnectionLookup = e.connectionLookup
 	reg.WorkflowByNameLookup = e.workflowByNameLookup
 	reg.WorkflowExecutor = e.workflowExecutor
@@ -694,8 +686,8 @@ func (e *Engine) findDownstream(sourceNodeID string, states map[string]*nodeStat
 //     all downstream nodes.
 //  2. Reverse BFS — walk edges target→source from every reachable node to
 //     include upstream dependencies (e.g. resource config nodes like
-//     skill_config, mcp_config, memory_config that feed into agent_call
-//     via bottom-handle edges but have no incoming edges themselves).
+//     skill_config and mcp_config that feed into agent_call via
+//     bottom-handle edges but have no incoming edges themselves).
 //
 // This ensures that resource config nodes attached to reachable nodes are
 // included in the execution set even though no entry node feeds into them.

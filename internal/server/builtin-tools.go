@@ -244,13 +244,14 @@ var builtinTools = []builtinToolDef{
 	{Name: "skill_import_skillmd", Description: "Import a skill by parsing raw Anthropic SKILL.md content. Frontmatter must contain at least `name` and `description`; the body becomes the skill's system_prompt.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"content": map[string]any{"type": "string", "description": "Raw SKILL.md content"}}, "required": []string{"content"}}},
 
 	// ─── MCP Server / MCP Set Management Tools ───
-	{Name: "mcp_server_list", Description: "List all general (gateway-facing) MCP servers. These expose composed tool sets (HTTP tools, upstream MCPs, RAG, skills, builtins, workflows) over a public MCP endpoint.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "mcp_server_list", Description: "List all general (gateway-facing) MCP servers. These expose composed tool sets (HTTP tools, upstream MCPs, RAG, skills, builtins, workflows) over a gateway MCP endpoint. Endpoints require bearer auth unless public is true.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
 	{Name: "mcp_server_get", Description: "Get full details of a gateway-facing MCP server, including its config (HTTP tools, upstream MCPs, enabled skills/builtins, RAG settings).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP server ID"}}, "required": []string{"id"}}},
 	{Name: "mcp_server_create", Description: "Create a new gateway-facing MCP server. The `config` object can declare HTTP tools, upstream MCP servers (HTTP or stdio), enabled skill names, enabled builtin tool names, RAG collections, and workflow IDs. Once created, agents and external MCP clients can call its tools.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"name":        map[string]any{"type": "string", "description": "MCP server name (unique, used in the public URL)"},
 			"description": map[string]any{"type": "string", "description": "Description"},
+			"public":      map[string]any{"type": "boolean", "description": "Allow unauthenticated MCP clients to access this server"},
 			"config": map[string]any{
 				"type":        "object",
 				"description": "MCP server configuration",
@@ -281,6 +282,7 @@ var builtinTools = []builtinToolDef{
 			"id":          map[string]any{"type": "string", "description": "The MCP server ID to update"},
 			"name":        map[string]any{"type": "string", "description": "MCP server name"},
 			"description": map[string]any{"type": "string"},
+			"public":      map[string]any{"type": "boolean", "description": "Allow unauthenticated MCP clients to access this server"},
 			"config":      map[string]any{"type": "object", "description": "Same shape as mcp_server_create.config"},
 			"servers":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"urls":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
@@ -732,7 +734,7 @@ var builtinTools = []builtinToolDef{
 	}},
 	{Name: "org_delete", Description: "Delete an organization by ID. WARNING: no cascade by default — child tasks, agent memberships, and goals/projects are NOT removed by this call.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []string{"id"}}},
 	{Name: "org_list_agents", Description: "List the agent memberships of an organization (the join-table records, including role, title, parent_agent_id, status, etc.).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"organization_id": map[string]any{"type": "string"}}, "required": []string{"organization_id"}}},
-	{Name: "org_update_agent", Description: "Update an agent's membership in an organization (role, title, parent_agent_id, status, heartbeat_schedule, memory settings). If `parent_agent_id` changes, the new hierarchy is cycle-checked; setting it to a non-member or creating a cycle returns an error. Empty `status` preserves existing.", InputSchema: map[string]any{
+	{Name: "org_update_agent", Description: "Update an agent's membership in an organization (role, title, parent_agent_id, status, heartbeat_schedule). If `parent_agent_id` changes, the new hierarchy is cycle-checked; setting it to a non-member or creating a cycle returns an error. Empty `status` preserves existing.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"organization_id":    map[string]any{"type": "string"},
@@ -742,9 +744,6 @@ var builtinTools = []builtinToolDef{
 			"parent_agent_id":    map[string]any{"type": "string", "description": "Empty string = root node. Non-empty must be an existing member of the org and must not create a cycle."},
 			"status":             map[string]any{"type": "string", "description": "e.g. 'active'. Empty preserves existing."},
 			"heartbeat_schedule": map[string]any{"type": "string"},
-			"memory_model":       map[string]any{"type": "string"},
-			"memory_provider":    map[string]any{"type": "string"},
-			"memory_method":      map[string]any{"type": "string"},
 		},
 		"required": []string{"organization_id", "agent_id"},
 	}},

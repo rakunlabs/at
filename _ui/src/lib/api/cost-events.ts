@@ -16,6 +16,8 @@ export interface CostEvent {
   model: string;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   cost_cents: number;
   created_at: string;
 }
@@ -63,6 +65,8 @@ export interface CostByTaskResult {
   cost_cents: number;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   total_tokens: number;
   event_count: number;
 }

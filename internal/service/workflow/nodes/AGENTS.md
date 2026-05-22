@@ -2,7 +2,7 @@
 
 ## Purpose
 
-21 built-in node types. Each file defines one node type and registers it via `init()` → `workflow.RegisterNodeType(typeName, factory)`.
+Built-in node types. Each file defines one node type and registers it via `init()` → `workflow.RegisterNodeType(typeName, factory)`.
 
 ## Adding a New Node Type
 
@@ -31,7 +31,6 @@
 | `log.go` | `log` | Log data at configurable level, pass through unchanged |
 | `skill-config.go` | `skill_config` | Resource node: outputs skill names for agent_call |
 | `mcp-config.go` | `mcp_config` | Resource node: outputs MCP server URLs for agent_call |
-| `memory-config.go` | `memory_config` | Resource node: passes memory/context data to agent_call |
 | `git-fetch.go` | `git_fetch` | Clone/pull git repo, output repo path + HEAD SHA |
 | `git-diff.go` | `git_diff` | Detect changed files since last sync, read contents |
 | `rag-ingest.go` | `rag_ingest` | Ingest files into RAG collection, update sync state |

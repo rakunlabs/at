@@ -17,7 +17,7 @@ import (
 // ─── API Token CRUD ───
 
 func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.ListResult[service.APIToken], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableAPITokens, q, "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "expires_at", "total_token_limit", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableAPITokens, q, "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list tokens query: %w", err)
 	}
@@ -36,7 +36,7 @@ func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.
 			&t.AllowedProvidersMode, &t.AllowedProviders,
 			&t.AllowedModelsMode, &t.AllowedModels,
 			&t.AllowedWebhooksMode, &t.AllowedWebhooks,
-			&t.ExpiresAt, &t.TotalTokenLimit, &t.LimitResetInterval, &t.LastResetAt,
+			&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 			&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan api_token row: %w", err)
@@ -58,7 +58,7 @@ func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.
 
 func (p *Postgres) GetAPITokenByHash(ctx context.Context, hash string) (*service.APIToken, error) {
 	query, _, err := p.goqu.From(p.tableAPITokens).
-		Select("id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "expires_at", "total_token_limit", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by").
+		Select("id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by").
 		Where(goqu.I("token_hash").Eq(hash)).
 		ToSQL()
 	if err != nil {
@@ -71,7 +71,7 @@ func (p *Postgres) GetAPITokenByHash(ctx context.Context, hash string) (*service
 		&t.AllowedProvidersMode, &t.AllowedProviders,
 		&t.AllowedModelsMode, &t.AllowedModels,
 		&t.AllowedWebhooksMode, &t.AllowedWebhooks,
-		&t.ExpiresAt, &t.TotalTokenLimit, &t.LimitResetInterval, &t.LastResetAt,
+		&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 		&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -101,6 +101,7 @@ func (p *Postgres) CreateAPIToken(ctx context.Context, token service.APIToken, t
 		"allowed_webhooks":       token.AllowedWebhooks,
 		"expires_at":             token.ExpiresAt,
 		"total_token_limit":      token.TotalTokenLimit,
+		"spend_limit_cents":      token.SpendLimitCents,
 		"limit_reset_interval":   token.LimitResetInterval,
 		"last_reset_at":          token.LastResetAt,
 		"created_at":             now,
@@ -149,6 +150,7 @@ func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.
 		"allowed_webhooks":       token.AllowedWebhooks,
 		"expires_at":             token.ExpiresAt,
 		"total_token_limit":      token.TotalTokenLimit,
+		"spend_limit_cents":      token.SpendLimitCents,
 		"limit_reset_interval":   token.LimitResetInterval,
 		"updated_by":             token.UpdatedBy,
 	}
@@ -172,7 +174,7 @@ func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.
 
 	// Re-fetch the updated token.
 	fetchQuery, _, err := p.goqu.From(p.tableAPITokens).
-		Select("id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "expires_at", "total_token_limit", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by").
+		Select("id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -185,7 +187,7 @@ func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.
 		&t.AllowedProvidersMode, &t.AllowedProviders,
 		&t.AllowedModelsMode, &t.AllowedModels,
 		&t.AllowedWebhooksMode, &t.AllowedWebhooks,
-		&t.ExpiresAt, &t.TotalTokenLimit, &t.LimitResetInterval, &t.LastResetAt,
+		&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 		&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
 	)
 	if err != nil {

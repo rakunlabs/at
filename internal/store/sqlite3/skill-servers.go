@@ -18,6 +18,7 @@ type skillServerRow struct {
 	ID          string         `db:"id"`
 	Name        string         `db:"name"`
 	Description string         `db:"description"`
+	Public      bool           `db:"public"`
 	Mode        string         `db:"mode"`
 	Skills      string         `db:"skills"`
 	CreatedAt   string         `db:"created_at"`
@@ -27,7 +28,7 @@ type skillServerRow struct {
 }
 
 func (s *SQLite) ListSkillServers(ctx context.Context, q *query.Query) (*service.ListResult[service.SkillServer], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableSkillServers, q, "id", "name", "description", "mode", "skills", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := s.buildListQuery(ctx, s.tableSkillServers, q, "id", "name", "description", "public", "mode", "skills", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list skill servers query: %w", err)
 	}
@@ -41,7 +42,7 @@ func (s *SQLite) ListSkillServers(ctx context.Context, q *query.Query) (*service
 	var items []service.SkillServer
 	for rows.Next() {
 		var row skillServerRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Mode, &row.Skills, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Mode, &row.Skills, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan skill server row: %w", err)
 		}
 
@@ -66,7 +67,7 @@ func (s *SQLite) ListSkillServers(ctx context.Context, q *query.Query) (*service
 
 func (s *SQLite) GetSkillServer(ctx context.Context, id string) (*service.SkillServer, error) {
 	query, _, err := s.goqu.From(s.tableSkillServers).
-		Select("id", "name", "description", "mode", "skills", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "public", "mode", "skills", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -74,7 +75,7 @@ func (s *SQLite) GetSkillServer(ctx context.Context, id string) (*service.SkillS
 	}
 
 	var row skillServerRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Mode, &row.Skills, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Mode, &row.Skills, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -87,7 +88,7 @@ func (s *SQLite) GetSkillServer(ctx context.Context, id string) (*service.SkillS
 
 func (s *SQLite) GetSkillServerByName(ctx context.Context, name string) (*service.SkillServer, error) {
 	query, _, err := s.goqu.From(s.tableSkillServers).
-		Select("id", "name", "description", "mode", "skills", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "public", "mode", "skills", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -95,7 +96,7 @@ func (s *SQLite) GetSkillServerByName(ctx context.Context, name string) (*servic
 	}
 
 	var row skillServerRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Mode, &row.Skills, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Mode, &row.Skills, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -124,6 +125,7 @@ func (s *SQLite) CreateSkillServer(ctx context.Context, srv service.SkillServer)
 			"id":          id,
 			"name":        srv.Name,
 			"description": srv.Description,
+			"public":      srv.Public,
 			"mode":        mode,
 			"skills":      string(skillsJSON),
 			"created_at":  now.Format(time.RFC3339),
@@ -144,6 +146,7 @@ func (s *SQLite) CreateSkillServer(ctx context.Context, srv service.SkillServer)
 		ID:          id,
 		Name:        srv.Name,
 		Description: srv.Description,
+		Public:      srv.Public,
 		Mode:        mode,
 		Skills:      srv.Skills,
 		CreatedAt:   now.Format(time.RFC3339),
@@ -169,6 +172,7 @@ func (s *SQLite) UpdateSkillServer(ctx context.Context, id string, srv service.S
 		goqu.Record{
 			"name":        srv.Name,
 			"description": srv.Description,
+			"public":      srv.Public,
 			"mode":        mode,
 			"skills":      string(skillsJSON),
 			"updated_at":  now.Format(time.RFC3339),
@@ -223,6 +227,7 @@ func skillServerRowToRecord(row skillServerRow) (*service.SkillServer, error) {
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: row.Description,
+		Public:      row.Public,
 		Mode:        row.Mode,
 		Skills:      skills,
 		CreatedAt:   row.CreatedAt,

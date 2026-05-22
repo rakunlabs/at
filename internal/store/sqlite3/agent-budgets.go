@@ -227,18 +227,30 @@ func (s *SQLite) GetAgentTotalSpend(ctx context.Context, agentID string) (float6
 // ─── Model Pricing ───
 
 type modelPricingRow struct {
-	ID                   string  `db:"id"`
-	ProviderKey          string  `db:"provider_key"`
-	Model                string  `db:"model"`
-	PromptPricePer1M     float64 `db:"prompt_price_per_1m"`
-	CompletionPricePer1M float64 `db:"completion_price_per_1m"`
-	CreatedAt            string  `db:"created_at"`
-	UpdatedAt            string  `db:"updated_at"`
+	ID                         string  `db:"id"`
+	ProviderKey                string  `db:"provider_key"`
+	Model                      string  `db:"model"`
+	PromptPricePer1M           float64 `db:"prompt_price_per_1m"`
+	CompletionPricePer1M       float64 `db:"completion_price_per_1m"`
+	CacheReadPricePer1M        float64 `db:"cache_read_price_per_1m"`
+	CacheWritePricePer1M       float64 `db:"cache_write_price_per_1m"`
+	Source                     string  `db:"source"`
+	SourceProvider             string  `db:"source_provider"`
+	SourceModel                string  `db:"source_model"`
+	SourceURL                  string  `db:"source_url"`
+	SourcePromptPricePer1M     float64 `db:"source_prompt_price_per_1m"`
+	SourceCompletionPricePer1M float64 `db:"source_completion_price_per_1m"`
+	SourceCacheReadPricePer1M  float64 `db:"source_cache_read_price_per_1m"`
+	SourceCacheWritePricePer1M float64 `db:"source_cache_write_price_per_1m"`
+	ManualOverride             bool    `db:"manual_override"`
+	LastSyncedAt               string  `db:"last_synced_at"`
+	CreatedAt                  string  `db:"created_at"`
+	UpdatedAt                  string  `db:"updated_at"`
 }
 
 func (s *SQLite) ListModelPricing(ctx context.Context) ([]service.ModelPricing, error) {
 	query, _, err := s.goqu.From(s.tableModelPricing).
-		Select("id", "provider_key", "model", "prompt_price_per_1m", "completion_price_per_1m", "created_at", "updated_at").
+		Select("id", "provider_key", "model", "prompt_price_per_1m", "completion_price_per_1m", "cache_read_price_per_1m", "cache_write_price_per_1m", "source", "source_provider", "source_model", "source_url", "source_prompt_price_per_1m", "source_completion_price_per_1m", "source_cache_read_price_per_1m", "source_cache_write_price_per_1m", "manual_override", "last_synced_at", "created_at", "updated_at").
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list model pricing query: %w", err)
@@ -253,18 +265,30 @@ func (s *SQLite) ListModelPricing(ctx context.Context) ([]service.ModelPricing, 
 	var items []service.ModelPricing
 	for rows.Next() {
 		var row modelPricingRow
-		if err := rows.Scan(&row.ID, &row.ProviderKey, &row.Model, &row.PromptPricePer1M, &row.CompletionPricePer1M, &row.CreatedAt, &row.UpdatedAt); err != nil {
+		if err := rows.Scan(&row.ID, &row.ProviderKey, &row.Model, &row.PromptPricePer1M, &row.CompletionPricePer1M, &row.CacheReadPricePer1M, &row.CacheWritePricePer1M, &row.Source, &row.SourceProvider, &row.SourceModel, &row.SourceURL, &row.SourcePromptPricePer1M, &row.SourceCompletionPricePer1M, &row.SourceCacheReadPricePer1M, &row.SourceCacheWritePricePer1M, &row.ManualOverride, &row.LastSyncedAt, &row.CreatedAt, &row.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan model pricing row: %w", err)
 		}
 
 		items = append(items, service.ModelPricing{
-			ID:                   row.ID,
-			ProviderKey:          row.ProviderKey,
-			Model:                row.Model,
-			PromptPricePer1M:     row.PromptPricePer1M,
-			CompletionPricePer1M: row.CompletionPricePer1M,
-			CreatedAt:            row.CreatedAt,
-			UpdatedAt:            row.UpdatedAt,
+			ID:                         row.ID,
+			ProviderKey:                row.ProviderKey,
+			Model:                      row.Model,
+			PromptPricePer1M:           row.PromptPricePer1M,
+			CompletionPricePer1M:       row.CompletionPricePer1M,
+			CacheReadPricePer1M:        row.CacheReadPricePer1M,
+			CacheWritePricePer1M:       row.CacheWritePricePer1M,
+			Source:                     row.Source,
+			SourceProvider:             row.SourceProvider,
+			SourceModel:                row.SourceModel,
+			SourceURL:                  row.SourceURL,
+			SourcePromptPricePer1M:     row.SourcePromptPricePer1M,
+			SourceCompletionPricePer1M: row.SourceCompletionPricePer1M,
+			SourceCacheReadPricePer1M:  row.SourceCacheReadPricePer1M,
+			SourceCacheWritePricePer1M: row.SourceCacheWritePricePer1M,
+			ManualOverride:             row.ManualOverride,
+			LastSyncedAt:               row.LastSyncedAt,
+			CreatedAt:                  row.CreatedAt,
+			UpdatedAt:                  row.UpdatedAt,
 		})
 	}
 
@@ -276,7 +300,24 @@ func (s *SQLite) SetModelPricing(ctx context.Context, pricing service.ModelPrici
 	id := ulid.Make().String()
 
 	rawSQL := fmt.Sprintf(
-		`INSERT OR REPLACE INTO %s (id, provider_key, model, prompt_price_per_1m, completion_price_per_1m, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO %s (id, provider_key, model, prompt_price_per_1m, completion_price_per_1m, cache_read_price_per_1m, cache_write_price_per_1m, source, source_provider, source_model, source_url, source_prompt_price_per_1m, source_completion_price_per_1m, source_cache_read_price_per_1m, source_cache_write_price_per_1m, manual_override, last_synced_at, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(provider_key, model) DO UPDATE SET
+		   prompt_price_per_1m = excluded.prompt_price_per_1m,
+		   completion_price_per_1m = excluded.completion_price_per_1m,
+		   cache_read_price_per_1m = excluded.cache_read_price_per_1m,
+		   cache_write_price_per_1m = excluded.cache_write_price_per_1m,
+		   source = CASE WHEN excluded.source <> '' THEN excluded.source ELSE source END,
+		   source_provider = CASE WHEN excluded.source <> '' THEN excluded.source_provider ELSE source_provider END,
+		   source_model = CASE WHEN excluded.source <> '' THEN excluded.source_model ELSE source_model END,
+		   source_url = CASE WHEN excluded.source <> '' THEN excluded.source_url ELSE source_url END,
+		   source_prompt_price_per_1m = CASE WHEN excluded.source <> '' THEN excluded.source_prompt_price_per_1m ELSE source_prompt_price_per_1m END,
+		   source_completion_price_per_1m = CASE WHEN excluded.source <> '' THEN excluded.source_completion_price_per_1m ELSE source_completion_price_per_1m END,
+		   source_cache_read_price_per_1m = CASE WHEN excluded.source <> '' THEN excluded.source_cache_read_price_per_1m ELSE source_cache_read_price_per_1m END,
+		   source_cache_write_price_per_1m = CASE WHEN excluded.source <> '' THEN excluded.source_cache_write_price_per_1m ELSE source_cache_write_price_per_1m END,
+		   manual_override = excluded.manual_override,
+		   last_synced_at = CASE WHEN excluded.last_synced_at <> '' THEN excluded.last_synced_at ELSE last_synced_at END,
+		   updated_at = excluded.updated_at`,
 		s.tableModelPricing.GetTable(),
 	)
 
@@ -286,6 +327,18 @@ func (s *SQLite) SetModelPricing(ctx context.Context, pricing service.ModelPrici
 		pricing.Model,
 		pricing.PromptPricePer1M,
 		pricing.CompletionPricePer1M,
+		pricing.CacheReadPricePer1M,
+		pricing.CacheWritePricePer1M,
+		pricing.Source,
+		pricing.SourceProvider,
+		pricing.SourceModel,
+		pricing.SourceURL,
+		pricing.SourcePromptPricePer1M,
+		pricing.SourceCompletionPricePer1M,
+		pricing.SourceCacheReadPricePer1M,
+		pricing.SourceCacheWritePricePer1M,
+		pricing.ManualOverride,
+		pricing.LastSyncedAt,
 		now.Format(time.RFC3339),
 		now.Format(time.RFC3339),
 	)
@@ -293,6 +346,36 @@ func (s *SQLite) SetModelPricing(ctx context.Context, pricing service.ModelPrici
 		return fmt.Errorf("set model pricing for %q/%q: %w", pricing.ProviderKey, pricing.Model, err)
 	}
 
+	return nil
+}
+
+func (s *SQLite) DeleteModelPricing(ctx context.Context, id string) error {
+	query, _, err := s.goqu.Delete(s.tableModelPricing).Where(goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build delete model pricing query: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("delete model pricing %q: %w", id, err)
+	}
+	return nil
+}
+
+func (s *SQLite) ResetModelPricingOverride(ctx context.Context, id string) error {
+	now := time.Now().UTC().Format(time.RFC3339)
+	query, _, err := s.goqu.Update(s.tableModelPricing).Set(goqu.Record{
+		"prompt_price_per_1m":      goqu.I("source_prompt_price_per_1m"),
+		"completion_price_per_1m":  goqu.I("source_completion_price_per_1m"),
+		"cache_read_price_per_1m":  goqu.I("source_cache_read_price_per_1m"),
+		"cache_write_price_per_1m": goqu.I("source_cache_write_price_per_1m"),
+		"manual_override":          false,
+		"updated_at":               now,
+	}).Where(goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build reset model pricing query: %w", err)
+	}
+	if _, err := s.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("reset model pricing %q: %w", id, err)
+	}
 	return nil
 }
 

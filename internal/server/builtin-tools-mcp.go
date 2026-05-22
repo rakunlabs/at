@@ -114,6 +114,7 @@ func (s *Server) execMCPServerCreate(ctx context.Context, args map[string]any) (
 	server := service.MCPServer{
 		Name:        name,
 		Description: stringArg(args, "description"),
+		Public:      boolArg(args, "public"),
 		Config:      cfg,
 		Servers:     servers,
 		URLs:        urls,
@@ -160,6 +161,7 @@ func (s *Server) execMCPServerUpdate(ctx context.Context, args map[string]any) (
 	server := service.MCPServer{
 		Name:        name,
 		Description: stringArg(args, "description"),
+		Public:      boolArg(args, "public"),
 		Config:      cfg,
 		Servers:     servers,
 		URLs:        urls,

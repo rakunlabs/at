@@ -37,13 +37,25 @@ type AgentUsageRecord struct {
 
 // ModelPricing defines the cost per token for a specific provider/model combination.
 type ModelPricing struct {
-	ID                   string  `json:"id"`
-	ProviderKey          string  `json:"provider_key"`
-	Model                string  `json:"model"`
-	PromptPricePer1M     float64 `json:"prompt_price_per_1m"`
-	CompletionPricePer1M float64 `json:"completion_price_per_1m"`
-	CreatedAt            string  `json:"created_at"`
-	UpdatedAt            string  `json:"updated_at"`
+	ID                         string  `json:"id"`
+	ProviderKey                string  `json:"provider_key"`
+	Model                      string  `json:"model"`
+	PromptPricePer1M           float64 `json:"prompt_price_per_1m"`
+	CompletionPricePer1M       float64 `json:"completion_price_per_1m"`
+	CacheReadPricePer1M        float64 `json:"cache_read_price_per_1m"`
+	CacheWritePricePer1M       float64 `json:"cache_write_price_per_1m"`
+	Source                     string  `json:"source,omitempty"`
+	SourceProvider             string  `json:"source_provider,omitempty"`
+	SourceModel                string  `json:"source_model,omitempty"`
+	SourceURL                  string  `json:"source_url,omitempty"`
+	SourcePromptPricePer1M     float64 `json:"source_prompt_price_per_1m"`
+	SourceCompletionPricePer1M float64 `json:"source_completion_price_per_1m"`
+	SourceCacheReadPricePer1M  float64 `json:"source_cache_read_price_per_1m"`
+	SourceCacheWritePricePer1M float64 `json:"source_cache_write_price_per_1m"`
+	ManualOverride             bool    `json:"manual_override"`
+	LastSyncedAt               string  `json:"last_synced_at,omitempty"`
+	CreatedAt                  string  `json:"created_at"`
+	UpdatedAt                  string  `json:"updated_at"`
 }
 
 // AgentBudgetStorer defines operations for agent budgets and cost tracking.
@@ -56,6 +68,8 @@ type AgentBudgetStorer interface {
 	GetAgentTotalSpend(ctx context.Context, agentID string) (float64, error)
 	ListModelPricing(ctx context.Context) ([]ModelPricing, error)
 	SetModelPricing(ctx context.Context, pricing ModelPricing) error
+	DeleteModelPricing(ctx context.Context, id string) error
+	ResetModelPricingOverride(ctx context.Context, id string) error
 }
 
 // ─── Audit Trail ───
@@ -103,19 +117,21 @@ func TruncateForAudit(s string) string {
 
 // CostEvent records a single LLM call cost with full attribution.
 type CostEvent struct {
-	ID             string  `json:"id"`
-	OrganizationID string  `json:"organization_id,omitempty"`
-	AgentID        string  `json:"agent_id"`
-	TaskID         string  `json:"task_id,omitempty"`
-	ProjectID      string  `json:"project_id,omitempty"`
-	GoalID         string  `json:"goal_id,omitempty"`
-	BillingCode    string  `json:"billing_code,omitempty"`
-	RunID          string  `json:"run_id,omitempty"`
-	Provider       string  `json:"provider"`
-	Model          string  `json:"model"`
-	InputTokens    int64   `json:"input_tokens"`
-	OutputTokens   int64   `json:"output_tokens"`
-	CostCents      float64 `json:"cost_cents"`
+	ID               string  `json:"id"`
+	OrganizationID   string  `json:"organization_id,omitempty"`
+	AgentID          string  `json:"agent_id"`
+	TaskID           string  `json:"task_id,omitempty"`
+	ProjectID        string  `json:"project_id,omitempty"`
+	GoalID           string  `json:"goal_id,omitempty"`
+	BillingCode      string  `json:"billing_code,omitempty"`
+	RunID            string  `json:"run_id,omitempty"`
+	Provider         string  `json:"provider"`
+	Model            string  `json:"model"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	CostCents        float64 `json:"cost_cents"`
 	// LatencyMs is the wall-clock duration of the LLM call, in milliseconds.
 	// Zero for externally-ingested events that don't report latency.
 	LatencyMs int64 `json:"latency_ms"`
@@ -151,30 +167,34 @@ type UsageFilter struct {
 // Used both for the /usage/summary endpoint (single row) and as the row shape
 // returned by /usage/grouped (keyed by the requested GroupBy dimension).
 type UsageSummary struct {
-	Key            string  `json:"key,omitempty"`
-	InputTokens    int64   `json:"input_tokens"`
-	OutputTokens   int64   `json:"output_tokens"`
-	TotalTokens    int64   `json:"total_tokens"`
-	RequestCount   int64   `json:"request_count"`
-	ErrorCount     int64   `json:"error_count"`
-	CostCents      float64 `json:"cost_cents"`
-	AvgLatencyMs   float64 `json:"avg_latency_ms"`
-	MaxLatencyMs   int64   `json:"max_latency_ms"`
-	TotalLatencyMs int64   `json:"total_latency_ms"`
-	FirstEventAt   string  `json:"first_event_at,omitempty"`
-	LastEventAt    string  `json:"last_event_at,omitempty"`
+	Key              string  `json:"key,omitempty"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	TotalTokens      int64   `json:"total_tokens"`
+	RequestCount     int64   `json:"request_count"`
+	ErrorCount       int64   `json:"error_count"`
+	CostCents        float64 `json:"cost_cents"`
+	AvgLatencyMs     float64 `json:"avg_latency_ms"`
+	MaxLatencyMs     int64   `json:"max_latency_ms"`
+	TotalLatencyMs   int64   `json:"total_latency_ms"`
+	FirstEventAt     string  `json:"first_event_at,omitempty"`
+	LastEventAt      string  `json:"last_event_at,omitempty"`
 }
 
 // UsageTimeSeriesPoint is one bucket in a time series.
 type UsageTimeSeriesPoint struct {
-	Bucket       string  `json:"bucket"` // RFC3339 timestamp at bucket start
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	TotalTokens  int64   `json:"total_tokens"`
-	RequestCount int64   `json:"request_count"`
-	ErrorCount   int64   `json:"error_count"`
-	CostCents    float64 `json:"cost_cents"`
-	AvgLatencyMs float64 `json:"avg_latency_ms"`
+	Bucket           string  `json:"bucket"` // RFC3339 timestamp at bucket start
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	TotalTokens      int64   `json:"total_tokens"`
+	RequestCount     int64   `json:"request_count"`
+	ErrorCount       int64   `json:"error_count"`
+	CostCents        float64 `json:"cost_cents"`
+	AvgLatencyMs     float64 `json:"avg_latency_ms"`
 }
 
 // BudgetUtilization combines an agent's budget with its current spend.
@@ -193,11 +213,13 @@ type BudgetUtilization struct {
 // the TaskDetail page to show "this pipeline cost X" without forcing the
 // caller to fetch every cost_event individually.
 type CostByTasksResult struct {
-	CostCents    float64 `json:"cost_cents"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	TotalTokens  int64   `json:"total_tokens"`
-	EventCount   int64   `json:"event_count"`
+	CostCents        float64 `json:"cost_cents"`
+	InputTokens      int64   `json:"input_tokens"`
+	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
+	TotalTokens      int64   `json:"total_tokens"`
+	EventCount       int64   `json:"event_count"`
 }
 
 // CostEventStorer defines operations for per-call cost tracking.
@@ -205,6 +227,7 @@ type CostEventStorer interface {
 	RecordCostEvent(ctx context.Context, event CostEvent) error
 	ListCostEvents(ctx context.Context, q *query.Query) (*ListResult[CostEvent], error)
 	GetCostByAgent(ctx context.Context, agentID string) (float64, error)
+	GetCostByAgentSince(ctx context.Context, agentID, since string) (float64, error)
 	GetCostByProject(ctx context.Context, projectID string) (float64, error)
 	GetCostByGoal(ctx context.Context, goalID string) (float64, error)
 	GetCostByBillingCode(ctx context.Context, billingCode string) (float64, error)

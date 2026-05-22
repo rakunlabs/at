@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 
 	"github.com/tmc/langchaingo/embeddings"
@@ -356,7 +355,7 @@ func (s *Service) createEmbedder(ctx context.Context, collection *service.RAGCol
 	client, err := NewATEmbedderClient(ATEmbedderConfig{
 		BaseURL:            cfg.BaseURL,
 		EmbeddingURL:       collection.Config.EmbeddingURL,
-		APIType:            collection.Config.EmbeddingAPIType,
+		APIType:            NormalizeEmbeddingAPIType(collection.Config.EmbeddingAPIType, cfg.Type),
 		Model:              collection.Config.EmbeddingModel,
 		APIKey:             cfg.APIKey,
 		BearerAuth:         collection.Config.EmbeddingBearerAuth,
@@ -370,7 +369,7 @@ func (s *Service) createEmbedder(ctx context.Context, collection *service.RAGCol
 	// Gemini batchEmbedContents allows at most 100 requests per batch.
 	// The langchaingo default batch size is 512, which would exceed the limit.
 	var embOpts []embeddings.Option
-	apiType := strings.ToLower(collection.Config.EmbeddingAPIType)
+	apiType := NormalizeEmbeddingAPIType(collection.Config.EmbeddingAPIType, cfg.Type)
 	if apiType == "gemini" {
 		embOpts = append(embOpts, embeddings.WithBatchSize(geminiBatchLimit))
 	}

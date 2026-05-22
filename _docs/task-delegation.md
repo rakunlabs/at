@@ -124,7 +124,7 @@ input ──prompt──> agent_call_1 ──response──> template ──text
 
 - Agent 1's response flows through a template node that formats it as a prompt for Agent 2
 - Each agent can have its own provider, model, system prompt, and skills
-- Resource config nodes (`skill_config`, `mcp_config`, `memory_config`) connect via bottom-handle ports
+- Resource config nodes (`skill_config`, `mcp_config`) connect via bottom-handle ports
 
 ### Sub-Agent Delegation via Tools
 

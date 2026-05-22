@@ -50,6 +50,7 @@
   let formMcpServersMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedMcpServers = $state<string[]>([]);
   let formTotalTokenLimit = $state('');
+  let formSpendLimitCents = $state('');
   let formLimitResetInterval = $state('');
   let formResetPreset = $state('');
   let creating = $state(false);
@@ -74,6 +75,7 @@
   let editMcpServersMode = $state<'all' | 'none' | 'list'>('all');
   let editSelectedMcpServers = $state<string[]>([]);
   let editTotalTokenLimit = $state('');
+  let editSpendLimitCents = $state('');
   let editLimitResetInterval = $state('');
   let editResetPreset = $state('');
   let saving = $state(false);
@@ -188,6 +190,7 @@
     formMcpServersMode = 'all';
     formSelectedMcpServers = [];
     formTotalTokenLimit = '';
+    formSpendLimitCents = '';
     formLimitResetInterval = '';
     formResetPreset = '';
   }
@@ -232,6 +235,10 @@
       if (formTotalTokenLimit) {
         const limit = parseInt(formTotalTokenLimit, 10);
         if (!isNaN(limit) && limit > 0) req.total_token_limit = limit;
+      }
+      if (formSpendLimitCents) {
+        const limit = parseFloat(formSpendLimitCents);
+        if (!isNaN(limit) && limit > 0) req.spend_limit_cents = limit;
       }
       if (formLimitResetInterval) {
         req.limit_reset_interval = formLimitResetInterval;
@@ -328,6 +335,7 @@
     editMcpServersMode = resolveMode(token.allowed_rag_mcps_mode, token.allowed_rag_mcps);
     editSelectedMcpServers = token.allowed_rag_mcps ? [...token.allowed_rag_mcps] : [];
     editTotalTokenLimit = token.total_token_limit != null ? String(token.total_token_limit) : '';
+    editSpendLimitCents = token.spend_limit_cents != null ? String(token.spend_limit_cents) : '';
     editLimitResetInterval = token.limit_reset_interval || '';
     // Determine if the interval matches a preset or is custom.
     const presets = ['', '1h', '12h', '24h', '7d', '30d'];
@@ -354,6 +362,7 @@
     editMcpServersMode = 'all';
     editSelectedMcpServers = [];
     editTotalTokenLimit = '';
+    editSpendLimitCents = '';
     editLimitResetInterval = '';
     editResetPreset = '';
   }
@@ -431,6 +440,10 @@
       if (editTotalTokenLimit) {
         const limit = parseInt(editTotalTokenLimit, 10);
         if (!isNaN(limit) && limit > 0) req.total_token_limit = limit;
+      }
+      if (editSpendLimitCents) {
+        const limit = parseFloat(editSpendLimitCents);
+        if (!isNaN(limit) && limit > 0) req.spend_limit_cents = limit;
       }
       if (editLimitResetInterval) {
         req.limit_reset_interval = editLimitResetInterval;
@@ -835,6 +848,23 @@
         </div>
       </div>
 
+      <!-- Spend limit -->
+      <div class="grid grid-cols-4 gap-3 mb-3">
+        <label for="create-spend-limit" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Spend Limit</label>
+        <div class="col-span-3 flex items-center gap-2">
+          <input
+            id="create-spend-limit"
+            type="number"
+            bind:value={formSpendLimitCents}
+            placeholder="e.g. 500"
+            min="0"
+            step="0.000001"
+            class="w-40 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+          />
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">Cents in the current reset window. Empty = unlimited</span>
+        </div>
+      </div>
+
       <!-- Limit reset interval -->
       <div class="grid grid-cols-4 gap-3 mb-4">
         <label for="create-reset-interval" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Auto Reset</label>
@@ -1137,6 +1167,22 @@
             </div>
           </div>
 
+          <div class="grid grid-cols-4 gap-3">
+            <label for="edit-spend-limit" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Spend Limit</label>
+            <div class="col-span-3 flex items-center gap-2">
+              <input
+                id="edit-spend-limit"
+                type="number"
+                bind:value={editSpendLimitCents}
+                placeholder="e.g. 500"
+                min="0"
+                step="0.000001"
+                class="w-40 border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 dark:focus:border-dark-border-subtle"
+              />
+              <span class="text-xs text-gray-400 dark:text-dark-text-muted">Cents. Empty = unlimited</span>
+            </div>
+          </div>
+
           <!-- Limit reset interval -->
           <div class="grid grid-cols-4 gap-3">
             <label for="edit-reset-interval" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Auto Reset</label>
@@ -1366,6 +1412,11 @@
                       resets {token.limit_reset_interval}
                     </span>
                   {/if}
+                  {#if token.spend_limit_cents}
+                    <span class="text-xs text-gray-400 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border px-1.5 py-0.5 rounded">
+                      spend cap ${(token.spend_limit_cents / 100).toFixed(4)}
+                    </span>
+                  {/if}
                 </div>
                 <button
                   onclick={() => handleResetUsage(token.id)}
@@ -1389,6 +1440,8 @@
                         <th class="text-left px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Model</th>
                         <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Prompt</th>
                         <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Completion</th>
+                        <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Cache Read</th>
+                        <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Cache Write</th>
                         <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Total</th>
                         <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Requests</th>
                         <th class="text-right px-3 py-1.5 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Last Used</th>
@@ -1400,6 +1453,8 @@
                           <td class="px-3 py-1.5 text-xs font-mono text-gray-700 dark:text-dark-text-secondary">{usage.model}</td>
                           <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatNumber(usage.prompt_tokens)}</td>
                           <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatNumber(usage.completion_tokens)}</td>
+                          <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatNumber(usage.cache_read_tokens || 0)}</td>
+                          <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatNumber(usage.cache_write_tokens || 0)}</td>
                           <td class="px-3 py-1.5 text-xs text-gray-700 dark:text-dark-text-secondary text-right font-medium">{formatNumber(usage.total_tokens)}</td>
                           <td class="px-3 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{usage.request_count}</td>
                           <td class="px-3 py-1.5 text-xs text-gray-400 dark:text-dark-text-muted text-right">{formatDateTime(usage.last_request_at)}</td>

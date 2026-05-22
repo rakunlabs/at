@@ -194,8 +194,12 @@ func normalizeSkillServer(srv *service.SkillServer) error {
 // ─── Skill Server MCP Endpoint ───
 
 func (s *Server) SkillServerMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
-	if auth, errMsg := s.authenticateRequest(r); auth == nil {
-		httpResponse(w, errMsg, http.StatusUnauthorized)
+	if s.skillServerStore == nil {
+		httpResponse(w, "skill server store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	if _, ok := s.authorizeSkillServer(w, r); !ok {
 		return
 	}
 
@@ -236,37 +240,8 @@ func (s *Server) SkillServerMCPHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auth, errMsg := s.authenticateRequest(r)
-	if auth == nil {
-		httpResponse(w, errMsg, http.StatusUnauthorized)
-		return
-	}
-
-	name := r.PathValue("name")
-	if name == "" {
-		httpResponse(w, "skill server name is required", http.StatusBadRequest)
-		return
-	}
-	if auth.token != nil {
-		mcpMode := service.ResolveAccessMode(auth.token.AllowedRAGMCPsMode, auth.token.AllowedRAGMCPs)
-		if mcpMode == service.AccessModeNone {
-			httpResponse(w, "token does not have access to any skill servers", http.StatusForbidden)
-			return
-		}
-		if mcpMode == service.AccessModeList && !slices.Contains(auth.token.AllowedRAGMCPs, name) {
-			httpResponse(w, fmt.Sprintf("token does not have access to skill server %q", name), http.StatusForbidden)
-			return
-		}
-	}
-
-	srv, err := s.skillServerStore.GetSkillServerByName(r.Context(), name)
-	if err != nil {
-		slog.Error("get skill server failed", "name", name, "error", err)
-		httpResponse(w, "internal error looking up skill server", http.StatusInternalServerError)
-		return
-	}
-	if srv == nil {
-		httpResponse(w, fmt.Sprintf("skill server %q not found", name), http.StatusNotFound)
+	srv, ok := s.authorizeSkillServer(w, r)
+	if !ok {
 		return
 	}
 
@@ -288,6 +263,53 @@ func (s *Server) SkillServerMCPHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		mcpError(w, req.ID, -32601, fmt.Sprintf("method not found: %s", req.Method))
 	}
+}
+
+func (s *Server) authorizeSkillServer(w http.ResponseWriter, r *http.Request) (*service.SkillServer, bool) {
+	name := r.PathValue("name")
+	if name == "" {
+		httpResponse(w, "skill server name is required", http.StatusBadRequest)
+		return nil, false
+	}
+
+	auth, errMsg := s.authenticateRequest(r)
+
+	srv, err := s.skillServerStore.GetSkillServerByName(r.Context(), name)
+	if err != nil {
+		slog.Error("get skill server failed", "name", name, "error", err)
+		httpResponse(w, "internal error looking up skill server", http.StatusInternalServerError)
+		return nil, false
+	}
+
+	if auth == nil {
+		if srv == nil || !srv.Public {
+			httpResponse(w, errMsg, http.StatusUnauthorized)
+			return nil, false
+		}
+		return srv, true
+	}
+
+	if srv == nil {
+		httpResponse(w, fmt.Sprintf("skill server %q not found", name), http.StatusNotFound)
+		return nil, false
+	}
+	if srv.Public {
+		return srv, true
+	}
+
+	if auth.token != nil {
+		mcpMode := service.ResolveAccessMode(auth.token.AllowedRAGMCPsMode, auth.token.AllowedRAGMCPs)
+		if mcpMode == service.AccessModeNone {
+			httpResponse(w, "token does not have access to any skill servers", http.StatusForbidden)
+			return nil, false
+		}
+		if mcpMode == service.AccessModeList && !slices.Contains(auth.token.AllowedRAGMCPs, name) {
+			httpResponse(w, fmt.Sprintf("token does not have access to skill server %q", name), http.StatusForbidden)
+			return nil, false
+		}
+	}
+
+	return srv, true
 }
 
 func (s *Server) skillServerMCPInitialize(w http.ResponseWriter, req service.MCPRequest, srv *service.SkillServer) {

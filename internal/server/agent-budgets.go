@@ -157,6 +157,15 @@ func (s *Server) SetModelPricingAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
+	if req.ProviderKey == "" {
+		httpResponse(w, "provider_key is required", http.StatusBadRequest)
+		return
+	}
+	if req.Model == "" {
+		httpResponse(w, "model is required", http.StatusBadRequest)
+		return
+	}
+	req.ManualOverride = true
 
 	if err := s.agentBudgetStore.SetModelPricing(r.Context(), req); err != nil {
 		slog.Error("set model pricing failed", "error", err)
@@ -165,4 +174,42 @@ func (s *Server) SetModelPricingAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponse(w, "pricing updated", http.StatusOK)
+}
+
+// DeleteModelPricingAPI handles DELETE /api/v1/model-pricing/{id}.
+func (s *Server) DeleteModelPricingAPI(w http.ResponseWriter, r *http.Request) {
+	if s.agentBudgetStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "pricing id is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.agentBudgetStore.DeleteModelPricing(r.Context(), id); err != nil {
+		slog.Error("delete model pricing failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to delete model pricing: %v", err), http.StatusInternalServerError)
+		return
+	}
+	httpResponse(w, "pricing deleted", http.StatusOK)
+}
+
+// ResetModelPricingAPI handles POST /api/v1/model-pricing/{id}/reset.
+func (s *Server) ResetModelPricingAPI(w http.ResponseWriter, r *http.Request) {
+	if s.agentBudgetStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "pricing id is required", http.StatusBadRequest)
+		return
+	}
+	if err := s.agentBudgetStore.ResetModelPricingOverride(r.Context(), id); err != nil {
+		slog.Error("reset model pricing failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to reset model pricing: %v", err), http.StatusInternalServerError)
+		return
+	}
+	httpResponse(w, "pricing reset", http.StatusOK)
 }

@@ -1,0 +1,88 @@
+{
+  "slug": "elevenlabs-music",
+  "name": "ElevenLabs Music Generation",
+  "description": "Generate instrumental music tracks via the ElevenLabs Music API (POST /v1/music). Supports simple prompt mode or structured composition_plan. Max 10 minutes per track; for longer pieces, generate multiple tracks and stitch with ffmpeg acrossfade.",
+  "category": "Content Creation",
+  "tags": [
+    "audio",
+    "music",
+    "elevenlabs",
+    "lofi",
+    "instrumental",
+    "generation"
+  ],
+  "required_variables": [
+    {
+      "key": "elevenlabs_api_key",
+      "description": "ElevenLabs API key (get from https://elevenlabs.io/app/settings/api-keys)",
+      "secret": true
+    }
+  ],
+  "skill": {
+    "name": "elevenlabs_music",
+    "description": "Generate instrumental music tracks using the ElevenLabs Music API",
+    "system_prompt": "You have access to ElevenLabs Music generation.\n\n## Tools\n\n- `compose_music` — generate ONE track (max 10 minutes / 600000 ms) from a text prompt. Returns local mp3 path.\n- `loop_music_chain` — stitch multiple mp3 tracks into a single seamlessly-looped long track via ffmpeg acrossfade. Use this to turn 2–4 short tracks into a 30–60 minute master.\n\n## Strategy for long-form lofi (60 min)\n\n1. Call `compose_music` 3–4 times with the SAME genre/mood but slight prompt variations (e.g. add 'with subtle rain sounds', 'with distant flute', 'with warm strings swell'). Each call returns ~5–8 minute tracks (set `music_length_ms` to 480000 = 8 min for fewer API calls).\n2. Call `loop_music_chain` with the resulting paths and `target_seconds: 3600` to chain them into a 60-min master with 5s crossfades between tracks.\n3. Normalize loudness separately with ffmpeg loudnorm (target -14 LUFS for music).\n\n## Cost notes\n\n- ElevenLabs Music ~2k credits per minute generated. Creator plan gives ~5 hours/month, Pro plan ~25 hours/month.\n- 60-min final video typically needs ~15–20 min of unique generation (looped 3–4x) → ~$2–3 cost equivalent.\n- ALWAYS prefer `force_instrumental: true` (vocals break the loop and add unwanted lyrics).\n\n## Prompt tips\n\nGood prompts are specific about genre + mood + instrumentation + tempo:\n- 'medieval fantasy lofi, peaceful and hopeful, slow 70 bpm, soft harp, warm strings, gentle flute, distant choir pad, no drums, in A minor'\n- 'cozy ghibli-inspired lofi, warm and nostalgic, 75 bpm, soft piano, mellow electric piano, gentle vinyl crackle, light brush percussion, no vocals'\n- 'rainy day jazz lofi, melancholic but warm, 80 bpm, muted trumpet, soft upright bass, brushed drums, vinyl crackle, soft rain background'\n\nAvoid mentioning vocals, lyrics, rap, EDM, dubstep, hard rock — these break the lofi aesthetic.",
+    "tools": [
+      {
+        "name": "compose_music",
+        "description": "Generate a single instrumental music track via ElevenLabs Music API. Max length 10 minutes (600000ms). Returns the local mp3 file path.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Text description of the music to generate (genre, mood, tempo, instruments, key). Example: 'medieval fantasy lofi, peaceful, 70 bpm, soft harp and warm strings, gentle flute, no vocals, in A minor'."
+            },
+            "music_length_ms": {
+              "type": "integer",
+              "description": "Length of the track in milliseconds. Between 3000 (3s) and 600000 (10 min). Default: 480000 (8 min)."
+            },
+            "force_instrumental": {
+              "type": "boolean",
+              "description": "Guarantee no vocals/lyrics. Default: true (strongly recommended for lofi)."
+            },
+            "seed": {
+              "type": "integer",
+              "description": "Optional random seed for reproducibility."
+            },
+            "output_format": {
+              "type": "string",
+              "description": "Audio format. Default: mp3_44100_128 (44.1kHz, 128kbps mp3). Options: mp3_44100_192 (Creator+), mp3_44100_64."
+            }
+          },
+          "required": ["prompt"]
+        },
+        "handler": "#!/bin/bash\nset -e\n\nAPI_KEY=\"$VAR_ELEVENLABS_API_KEY\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\": \"ElevenLabs API key not configured. Set the elevenlabs_api_key variable.\"}'\n  exit 0\nfi\n\nPROMPT=\"$ARG_PROMPT\"\nLENGTH_MS=\"${ARG_MUSIC_LENGTH_MS:-480000}\"\nFORCE_INSTRUMENTAL=\"${ARG_FORCE_INSTRUMENTAL:-true}\"\nSEED=\"${ARG_SEED:-}\"\nFORMAT=\"${ARG_OUTPUT_FORMAT:-mp3_44100_128}\"\n\nif [ -z \"$PROMPT\" ]; then\n  echo '{\"error\": \"prompt is required\"}'\n  exit 0\nfi\n\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nmkdir -p \"$WORK_DIR\"\nUID_HEX=$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')\nOUTPUT_FILE=\"${WORK_DIR}/elevenlabs-music-${UID_HEX}.mp3\"\n\n# Build JSON payload\nPAYLOAD=$(python3 -c \"\nimport json, sys, os\np = {\n    'prompt': sys.argv[1],\n    'music_length_ms': int(sys.argv[2]),\n    'force_instrumental': sys.argv[3].lower() == 'true',\n    'model_id': 'music_v1'\n}\nseed = sys.argv[4]\nif seed:\n    p['seed'] = int(seed)\nprint(json.dumps(p))\n\" \"$PROMPT\" \"$LENGTH_MS\" \"$FORCE_INSTRUMENTAL\" \"$SEED\")\n\n# Music compose can take 30-120s; allow long timeout\nHTTP_CODE=$(curl -sS --max-time 600 -w '%{http_code}' -o \"$OUTPUT_FILE\" \\\n  -X POST \"https://api.elevenlabs.io/v1/music?output_format=${FORMAT}\" \\\n  -H \"xi-api-key: $API_KEY\" \\\n  -H \"Content-Type: application/json\" \\\n  -d \"$PAYLOAD\")\n\nif [ \"$HTTP_CODE\" != \"200\" ]; then\n  ERROR_BODY=$(cat \"$OUTPUT_FILE\" 2>/dev/null | head -c 2000)\n  rm -f \"$OUTPUT_FILE\"\n  echo \"{\\\"error\\\": \\\"ElevenLabs Music API error (HTTP $HTTP_CODE)\\\", \\\"details\\\": $(echo \"$ERROR_BODY\" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))' 2>/dev/null || echo '\\\"unknown\\\"')}\"\n  exit 0\nfi\n\nSIZE=$(stat -c%s \"$OUTPUT_FILE\" 2>/dev/null || stat -f%z \"$OUTPUT_FILE\" 2>/dev/null || echo 0)\nif [ \"$SIZE\" -lt 5000 ]; then\n  echo \"{\\\"error\\\": \\\"ElevenLabs returned suspiciously small file ($SIZE bytes)\\\", \\\"file\\\": \\\"$OUTPUT_FILE\\\"}\"\n  exit 0\nfi\n\nDURATION=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$OUTPUT_FILE\" 2>/dev/null || echo \"unknown\")\n\npython3 -c \"\nimport json\nprint(json.dumps({\n    'file': '$OUTPUT_FILE',\n    'size_bytes': $SIZE,\n    'duration_seconds': '$DURATION',\n    'prompt_used': '''$PROMPT'''[:500],\n    'music_length_ms_requested': $LENGTH_MS,\n    'force_instrumental': '$FORCE_INSTRUMENTAL'.lower() == 'true',\n    'format': '$FORMAT'\n}))\n\"\n",
+        "handler_type": "bash"
+      },
+      {
+        "name": "loop_music_chain",
+        "description": "Stitch multiple mp3 tracks into a single seamlessly-looped long track using ffmpeg acrossfade. Tracks are chained in order with N-second crossfades between them; the full chain is then repeated (stream_loop) until target_seconds is reached. Returns the final master mp3 path.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "input_files": {
+              "type": "string",
+              "description": "Comma-separated list of input mp3 file paths to chain. Order matters. Minimum 1, recommended 3-4 for variety."
+            },
+            "target_seconds": {
+              "type": "number",
+              "description": "Target total duration in seconds (e.g. 3600 for 60 min). Default: 3600."
+            },
+            "crossfade_seconds": {
+              "type": "number",
+              "description": "Crossfade duration between adjacent tracks in the chain. Default: 5.0. Recommended 3-8."
+            },
+            "loudnorm_lufs": {
+              "type": "number",
+              "description": "Target integrated loudness (LUFS). Default: -14 (music standard). For ASMR-adjacent backing tracks try -18."
+            }
+          },
+          "required": ["input_files"]
+        },
+        "handler": "#!/bin/bash\nset -e\n\nINPUTS=\"$ARG_INPUT_FILES\"\nTARGET=\"${ARG_TARGET_SECONDS:-3600}\"\nXFADE=\"${ARG_CROSSFADE_SECONDS:-5.0}\"\nLUFS=\"${ARG_LOUDNORM_LUFS:--14}\"\n\nif [ -z \"$INPUTS\" ]; then\n  echo '{\"error\": \"input_files is required\"}'\n  exit 0\nfi\n\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nmkdir -p \"$WORK_DIR\"\nUID_HEX=$(python3 -c 'import uuid; print(uuid.uuid4().hex[:12])')\nCHAIN_FILE=\"${WORK_DIR}/music-chain-${UID_HEX}.mp3\"\nLOOPED_FILE=\"${WORK_DIR}/music-looped-${UID_HEX}.mp3\"\nFINAL_FILE=\"${WORK_DIR}/music-master-${UID_HEX}.mp3\"\n\n# Split comma-separated paths into array\nIFS=',' read -ra FILES <<< \"$INPUTS\"\nNUM_FILES=${#FILES[@]}\n\n# Validate all files exist\nfor f in \"${FILES[@]}\"; do\n  f=$(echo \"$f\" | xargs)  # trim whitespace\n  if [ ! -f \"$f\" ]; then\n    echo \"{\\\"error\\\": \\\"input file not found: $f\\\"}\"\n    exit 0\n  fi\ndone\n\n# Build the chain. If only 1 input, skip acrossfade and just copy it.\nif [ \"$NUM_FILES\" -eq 1 ]; then\n  cp \"${FILES[0]}\" \"$CHAIN_FILE\"\nelse\n  # Build ffmpeg acrossfade filter chain: -i a -i b -i c -filter_complex \"[0][1]acrossfade=d=X[a01];[a01][2]acrossfade=d=X[out]\" -map [out]\n  INPUT_ARGS=\"\"\n  for f in \"${FILES[@]}\"; do\n    f=$(echo \"$f\" | xargs)\n    INPUT_ARGS=\"$INPUT_ARGS -i \\\"$f\\\"\"\n  done\n\n  FILTER=\"\"\n  PREV_LABEL=\"[0:a]\"\n  for ((i=1; i<NUM_FILES; i++)); do\n    OUT_LABEL=\"[a${i}]\"\n    if [ \"$i\" -eq $((NUM_FILES - 1)) ]; then\n      OUT_LABEL=\"[chain]\"\n    fi\n    FILTER=\"${FILTER}${PREV_LABEL}[${i}:a]acrossfade=d=${XFADE}:c1=tri:c2=tri${OUT_LABEL};\"\n    PREV_LABEL=\"${OUT_LABEL}\"\n  done\n  FILTER=\"${FILTER%;}\"  # strip trailing ;\n\n  eval ffmpeg -y -loglevel error $INPUT_ARGS -filter_complex \\\"$FILTER\\\" -map \\\"[chain]\\\" -c:a libmp3lame -b:a 192k -ar 44100 -ac 2 \\\"$CHAIN_FILE\\\"\nfi\n\nCHAIN_DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$CHAIN_FILE\")\n\n# If chain is already >= target, trim it. Otherwise stream_loop.\nNEED_LOOP=$(python3 -c \"print(1 if float('$CHAIN_DUR') < float('$TARGET') else 0)\")\nif [ \"$NEED_LOOP\" = \"1\" ]; then\n  REPEATS=$(python3 -c \"import math; print(int(math.ceil(float('$TARGET') / float('$CHAIN_DUR'))))\")\n  ffmpeg -y -loglevel error -stream_loop $((REPEATS - 1)) -i \"$CHAIN_FILE\" -t \"$TARGET\" -c:a libmp3lame -b:a 192k -ar 44100 -ac 2 \"$LOOPED_FILE\"\nelse\n  ffmpeg -y -loglevel error -i \"$CHAIN_FILE\" -t \"$TARGET\" -c:a libmp3lame -b:a 192k -ar 44100 -ac 2 \"$LOOPED_FILE\"\nfi\n\n# Loudness normalize\nffmpeg -y -loglevel error -i \"$LOOPED_FILE\" -af \"loudnorm=I=${LUFS}:TP=-1.0:LRA=7\" -ar 44100 -ac 2 -c:a libmp3lame -b:a 192k \"$FINAL_FILE\"\n\nrm -f \"$CHAIN_FILE\" \"$LOOPED_FILE\"\n\nFINAL_DUR=$(ffprobe -v error -show_entries format=duration -of csv=p=0 \"$FINAL_FILE\")\nFINAL_SIZE=$(stat -c%s \"$FINAL_FILE\" 2>/dev/null || stat -f%z \"$FINAL_FILE\" 2>/dev/null || echo 0)\n\npython3 -c \"\nimport json\nprint(json.dumps({\n    'file': '$FINAL_FILE',\n    'duration_seconds': float('$FINAL_DUR'),\n    'size_bytes': int('$FINAL_SIZE'),\n    'input_count': $NUM_FILES,\n    'chain_duration_seconds': float('$CHAIN_DUR'),\n    'crossfade_seconds': float('$XFADE'),\n    'loudnorm_lufs': float('$LUFS'),\n    'target_seconds': float('$TARGET')\n}))\n\"\n",
+        "handler_type": "bash"
+      }
+    ]
+  }
+}

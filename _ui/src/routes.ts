@@ -26,8 +26,7 @@ import Crons from '@/pages/Crons.svelte';
 import Audit from '@/pages/Audit.svelte';
 import CostEvents from '@/pages/CostEvents.svelte';
 import Usage from '@/pages/Usage.svelte';
-import AgentMemories from '@/pages/AgentMemories.svelte';
-import AgentMemoryDetail from '@/pages/AgentMemoryDetail.svelte';
+import Pricing from '@/pages/Pricing.svelte';
 import Connections from '@/pages/Connections.svelte';
 import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
 import Files from '@/pages/Files.svelte';
@@ -65,9 +64,8 @@ export default {
   '/audit': Audit,
   '/cost-events': CostEvents,
   '/usage': Usage,
+  '/pricing': Pricing,
   '/files': Files,
   '/guides': Guides,
-  '/organizations/:id/memories': AgentMemories,
-  '/agent-memories/:id': AgentMemoryDetail,
   '*': NotFound
 };

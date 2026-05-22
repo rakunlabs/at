@@ -185,9 +185,31 @@ type candidate struct {
 }
 
 type usageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+}
+
+func geminiServiceUsage(u *usageMetadata) service.Usage {
+	if u == nil {
+		return service.Usage{}
+	}
+	cacheRead := u.CachedContentTokenCount
+	promptTokens := u.PromptTokenCount - cacheRead
+	if promptTokens < 0 {
+		promptTokens = 0
+	}
+	totalTokens := u.TotalTokenCount
+	if totalTokens <= 0 {
+		totalTokens = promptTokens + u.CandidatesTokenCount + cacheRead
+	}
+	return service.Usage{
+		PromptTokens:     promptTokens,
+		CompletionTokens: u.CandidatesTokenCount,
+		CacheReadTokens:  cacheRead,
+		TotalTokens:      totalTokens,
+	}
 }
 
 type googleError struct {
@@ -386,11 +408,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			// Capture usage metadata from each chunk; the last one has final totals.
 			if sr.UsageMetadata != nil {
-				lastUsage = &service.Usage{
-					PromptTokens:     sr.UsageMetadata.PromptTokenCount,
-					CompletionTokens: sr.UsageMetadata.CandidatesTokenCount,
-					TotalTokens:      sr.UsageMetadata.TotalTokenCount,
-				}
+				usage := geminiServiceUsage(sr.UsageMetadata)
+				lastUsage = &usage
 			}
 
 			if len(sr.Candidates) == 0 {
@@ -459,6 +478,19 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
 	}
+	if r.URL.RawQuery != "" {
+		if targetURL.RawQuery == "" {
+			targetURL.RawQuery = r.URL.RawQuery
+		} else {
+			targetURL.RawQuery += "&" + r.URL.RawQuery
+		}
+	}
+
+	release, err := p.limiter.Acquire(r.Context(), 0)
+	if err != nil {
+		return err
+	}
+	defer release()
 
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
@@ -1062,11 +1094,7 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 
 	// Map upstream usage metadata to the internal Usage struct.
 	if resp.UsageMetadata != nil {
-		llmResp.Usage = service.Usage{
-			PromptTokens:     resp.UsageMetadata.PromptTokenCount,
-			CompletionTokens: resp.UsageMetadata.CandidatesTokenCount,
-			TotalTokens:      resp.UsageMetadata.TotalTokenCount,
-		}
+		llmResp.Usage = geminiServiceUsage(resp.UsageMetadata)
 	}
 
 	if cand.Content != nil {

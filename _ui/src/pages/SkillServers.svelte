@@ -24,6 +24,7 @@
     Copy,
     Check,
     Search,
+    Download,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Skill Servers';
@@ -55,17 +56,20 @@
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
   let copiedName = $state<string | null>(null);
+  let copiedMarketplace = $state<string | null>(null);
 
   let searchQuery = $state('');
   let skillQuery = $state('');
 
   let formName = $state('');
   let formDescription = $state('');
+  let formPublic = $state(false);
   let formMode = $state<SkillServerMode>('package');
   let formSkills = $state<string[]>([]);
 
   let filteredServers = $derived(filterServers(servers, searchQuery));
   let filteredSkills = $derived(filterSkills(skills, skillQuery));
+  let publicServers = $derived(servers.filter((server) => server.public));
   let missingSkillRefs = $derived(formSkills.filter((ref) => !findSkill(ref)));
 
   async function loadServers() {
@@ -122,6 +126,7 @@
   function resetForm() {
     formName = '';
     formDescription = '';
+    formPublic = false;
     formMode = 'package';
     formSkills = [];
     skillQuery = '';
@@ -139,6 +144,7 @@
     editingId = server.id;
     formName = server.name;
     formDescription = server.description || '';
+    formPublic = Boolean(server.public);
     formMode = server.mode || 'package';
     formSkills = [...(server.skills || [])];
     showForm = true;
@@ -160,6 +166,7 @@
       const payload: Partial<SkillServer> = {
         name,
         description: formDescription.trim(),
+        public: formPublic,
         mode: formMode,
         skills: formSkills,
       };
@@ -232,6 +239,18 @@
     return `${window.location.origin}/gateway/v1/skill-servers/${encodeURIComponent(name)}/mcp`;
   }
 
+  function marketplaceJSONURL(): string {
+    return `${window.location.origin}/gateway/v1/claude-code/marketplace.json`;
+  }
+
+  function marketplaceZipURL(): string {
+    return `${window.location.origin}/gateway/v1/claude-code/marketplace.zip`;
+  }
+
+  function pluginZipFor(name: string): string {
+    return `${window.location.origin}/gateway/v1/claude-code/plugins/${encodeURIComponent(name)}/plugin.zip`;
+  }
+
   async function copyEndpoint(server: SkillServer) {
     try {
       await navigator.clipboard.writeText(endpointFor(server.name));
@@ -242,6 +261,20 @@
       }, 2000);
     } catch {
       addToast('Failed to copy endpoint', 'alert');
+    }
+  }
+
+  async function copyMarketplace(kind: 'json' | 'zip') {
+    const url = kind === 'json' ? marketplaceJSONURL() : marketplaceZipURL();
+    try {
+      await navigator.clipboard.writeText(url);
+      copiedMarketplace = kind;
+      addToast(`Copied Claude marketplace ${kind.toUpperCase()} URL`);
+      setTimeout(() => {
+        if (copiedMarketplace === kind) copiedMarketplace = null;
+      }, 2000);
+    } catch {
+      addToast('Failed to copy marketplace URL', 'alert');
     }
   }
 </script>
@@ -260,7 +293,7 @@
             <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Skill Servers</h1>
           </div>
           <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1 max-w-2xl">
-            Publish a curated set of skills through an MCP-compatible gateway endpoint. Use package mode for install/export workflows, tools mode for direct tool calls, or both.
+            Publish a curated set of skills through an MCP-compatible gateway endpoint. Endpoints require Bearer token auth unless Public mode is enabled.
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -313,6 +346,21 @@
                 placeholder="What this server publishes"
                 class="md:col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
               />
+            </div>
+
+            <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-start">
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1">Access</span>
+              <label class="md:col-span-3 flex items-start gap-2 cursor-pointer border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/30 p-3">
+                <input
+                  type="checkbox"
+                  bind:checked={formPublic}
+                  class="mt-0.5 w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
+                />
+                <span class="text-xs text-gray-600 dark:text-dark-text-secondary leading-relaxed">
+                  <span class="font-medium text-gray-800 dark:text-dark-text">Public endpoint</span>
+                  <span class="block text-gray-400 dark:text-dark-text-muted mt-0.5">Allow unauthenticated agents to discover, export, and call this skill server. Only publish skills that are safe for public use.</span>
+                </span>
+              </label>
             </div>
 
             <div class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-start">
@@ -443,6 +491,49 @@
         </div>
       </div>
 
+      {#if publicServers.length > 0}
+        <div class="border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/20 p-4 space-y-3">
+          <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div class="flex items-center gap-2">
+                <Package size={15} class="text-blue-600 dark:text-blue-400" />
+                <h2 class="text-sm font-semibold text-blue-950 dark:text-blue-100">Claude Code marketplace export</h2>
+                <span class="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5">{publicServers.length} public</span>
+              </div>
+              <p class="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1 max-w-3xl leading-relaxed">
+                Public Skill Servers can be packaged as Claude Code plugins. Download the marketplace ZIP, unzip it, then add that directory locally with
+                <code class="font-mono bg-white/70 dark:bg-blue-950 px-1 py-0.5">/plugin marketplace add ./at-claude-marketplace</code>
+                or commit it to a Git repo for team distribution. Direct MCP endpoints still work separately for opencode, Claude MCP, Cursor, and other MCP clients.
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                onclick={() => copyMarketplace('json')}
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-200 hover:bg-white/70 dark:hover:bg-blue-950 transition-colors"
+              >
+                {#if copiedMarketplace === 'json'}<Check size={12} />{:else}<Copy size={12} />{/if}
+                Copy JSON
+              </button>
+              <button
+                onclick={() => copyMarketplace('zip')}
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-200 hover:bg-white/70 dark:hover:bg-blue-950 transition-colors"
+              >
+                {#if copiedMarketplace === 'zip'}<Check size={12} />{:else}<Copy size={12} />{/if}
+                Copy ZIP URL
+              </button>
+              <a
+                href={marketplaceZipURL()}
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors"
+              >
+                <Download size={12} />
+                Download ZIP
+              </a>
+            </div>
+          </div>
+          <code class="block text-[11px] text-blue-700 dark:text-blue-200 truncate bg-white/70 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900 px-2 py-1.5">{marketplaceJSONURL()}</code>
+        </div>
+      {/if}
+
       {#if loading}
         <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-8 text-center text-sm text-gray-400 dark:text-dark-text-muted">
           Loading skill servers...
@@ -476,6 +567,11 @@
                       {/if}
                       {modeLabel(server.mode)}
                     </span>
+                    {#if server.public}
+                      <span class="inline-flex items-center px-2 py-0.5 text-[10px] uppercase tracking-wide bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900">
+                        Public
+                      </span>
+                    {/if}
                   </div>
                   {#if server.description}
                     <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-1">{server.description}</p>
@@ -491,6 +587,11 @@
                       <Copy size={14} />
                     {/if}
                   </button>
+                  {#if server.public}
+                    <a href={pluginZipFor(server.name)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Download Claude plugin ZIP">
+                      <Download size={14} />
+                    </a>
+                  {/if}
                   <button onclick={() => openEdit(server)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Edit">
                     <Pencil size={14} />
                   </button>
@@ -514,6 +615,17 @@
                   <Copy size={13} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
                   <code class="text-xs text-gray-600 dark:text-dark-text-secondary truncate">{endpointFor(server.name)}</code>
                 </button>
+
+                {#if server.public}
+                  <a
+                    href={pluginZipFor(server.name)}
+                    class="w-full flex items-center gap-2 text-left border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+                    title="Download Claude plugin ZIP"
+                  >
+                    <Download size={13} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
+                    <code class="text-xs text-gray-600 dark:text-dark-text-secondary truncate">Claude plugin ZIP: {pluginZipFor(server.name)}</code>
+                  </a>
+                {/if}
 
                 <div>
                   <div class="text-xs font-medium text-gray-500 dark:text-dark-text-secondary mb-2">Published skills ({(server.skills || []).length})</div>

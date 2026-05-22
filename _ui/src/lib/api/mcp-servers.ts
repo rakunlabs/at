@@ -52,6 +52,7 @@ export interface MCPServer {
   id: string;
   name: string;
   description?: string;
+  public?: boolean;
   servers?: string[];
   urls?: string[];
   config: MCPServerConfig;

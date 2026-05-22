@@ -486,9 +486,6 @@ func (s *Server) execOrgUpdateAgent(ctx context.Context, args map[string]any) (s
 		ParentAgentID:     stringArg(args, "parent_agent_id"),
 		Status:            stringArg(args, "status"),
 		HeartbeatSchedule: stringArg(args, "heartbeat_schedule"),
-		MemoryModel:       stringArg(args, "memory_model"),
-		MemoryProvider:    stringArg(args, "memory_provider"),
-		MemoryMethod:      stringArg(args, "memory_method"),
 	}
 
 	// Hierarchy validation: only when parent is being CHANGED to a
