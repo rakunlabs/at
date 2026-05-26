@@ -56,6 +56,7 @@ type Storer interface {
 	MCPServerStorer
 	MCPSetStorer
 	BotConfigStorer
+	MarketplaceStorer
 	MarketplaceSourceStorer
 	UserPreferenceStorer
 	OrganizationStorer
@@ -78,6 +79,45 @@ type Storer interface {
 	PackSourceStorer
 	GuideStorer
 	ConnectionStorer
+}
+
+// Marketplace groups public Skill Servers and MCP Servers into one Claude Code
+// plugin marketplace export.
+type Marketplace struct {
+	ID               string                 `json:"id"`
+	Name             string                 `json:"name"`
+	Description      string                 `json:"description"`
+	Skills           []string               `json:"skills"`
+	SkillServers     []string               `json:"skill_servers,omitempty"`
+	MCPServers       []string               `json:"mcp_servers"`
+	DirectMCPServers []MarketplaceMCPServer `json:"direct_mcp_servers"`
+	CreatedAt        string                 `json:"created_at"`
+	UpdatedAt        string                 `json:"updated_at"`
+	CreatedBy        string                 `json:"created_by"`
+	UpdatedBy        string                 `json:"updated_by"`
+}
+
+// MarketplaceMCPServer is an MCP server config embedded directly in a Claude
+// marketplace plugin so the client runs/connects it without going through AT.
+type MarketplaceMCPServer struct {
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	Type        string            `json:"type,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Command     string            `json:"command,omitempty"`
+	Args        []string          `json:"args,omitempty"`
+	Env         map[string]string `json:"env,omitempty"`
+}
+
+// MarketplaceStorer defines CRUD operations for Claude marketplace exports.
+type MarketplaceStorer interface {
+	ListMarketplaces(ctx context.Context, q *query.Query) (*ListResult[Marketplace], error)
+	GetMarketplace(ctx context.Context, id string) (*Marketplace, error)
+	GetMarketplaceByName(ctx context.Context, name string) (*Marketplace, error)
+	CreateMarketplace(ctx context.Context, m Marketplace) (*Marketplace, error)
+	UpdateMarketplace(ctx context.Context, id string, m Marketplace) (*Marketplace, error)
+	DeleteMarketplace(ctx context.Context, id string) error
 }
 
 // ─── Skill Management ───

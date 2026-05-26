@@ -54,6 +54,7 @@ type Postgres struct {
 	tableMCPServers           exp.IdentifierExpression
 	tableMCPSets              exp.IdentifierExpression
 	tableBotConfigs           exp.IdentifierExpression
+	tableMarketplaces         exp.IdentifierExpression
 	tableMarketplaceSources   exp.IdentifierExpression
 	tableTokenUsage           exp.IdentifierExpression
 	tableUserPreferences      exp.IdentifierExpression
@@ -195,6 +196,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableMCPServers:           goqu.T(tablePrefix + "mcp_servers"),
 		tableMCPSets:              goqu.T(tablePrefix + "mcp_sets"),
 		tableBotConfigs:           goqu.T(tablePrefix + "bot_configs"),
+		tableMarketplaces:         goqu.T(tablePrefix + "marketplaces"),
 		tableMarketplaceSources:   goqu.T(tablePrefix + "marketplace_sources"),
 		tableTokenUsage:           goqu.T(tablePrefix + "token_usage"),
 		tableUserPreferences:      goqu.T(tablePrefix + "user_preferences"),

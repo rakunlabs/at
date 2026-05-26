@@ -24,7 +24,6 @@
     Copy,
     Check,
     Search,
-    Download,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Skill Servers';
@@ -56,7 +55,6 @@
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
   let copiedName = $state<string | null>(null);
-  let copiedMarketplace = $state<string | null>(null);
 
   let searchQuery = $state('');
   let skillQuery = $state('');
@@ -239,18 +237,6 @@
     return `${window.location.origin}/gateway/v1/skill-servers/${encodeURIComponent(name)}/mcp`;
   }
 
-  function marketplaceJSONURL(): string {
-    return `${window.location.origin}/gateway/v1/claude-code/marketplace.json`;
-  }
-
-  function marketplaceZipURL(): string {
-    return `${window.location.origin}/gateway/v1/claude-code/marketplace.zip`;
-  }
-
-  function pluginZipFor(name: string): string {
-    return `${window.location.origin}/gateway/v1/claude-code/plugins/${encodeURIComponent(name)}/plugin.zip`;
-  }
-
   async function copyEndpoint(server: SkillServer) {
     try {
       await navigator.clipboard.writeText(endpointFor(server.name));
@@ -264,19 +250,6 @@
     }
   }
 
-  async function copyMarketplace(kind: 'json' | 'zip') {
-    const url = kind === 'json' ? marketplaceJSONURL() : marketplaceZipURL();
-    try {
-      await navigator.clipboard.writeText(url);
-      copiedMarketplace = kind;
-      addToast(`Copied Claude marketplace ${kind.toUpperCase()} URL`);
-      setTimeout(() => {
-        if (copiedMarketplace === kind) copiedMarketplace = null;
-      }, 2000);
-    } catch {
-      addToast('Failed to copy marketplace URL', 'alert');
-    }
-  }
 </script>
 
 <svelte:head>
@@ -492,45 +465,28 @@
       </div>
 
       {#if publicServers.length > 0}
-        <div class="border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/20 p-4 space-y-3">
+        <div class="border border-blue-200 dark:border-blue-900 bg-blue-50/70 dark:bg-blue-950/20 p-4">
           <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <div class="flex items-center gap-2">
                 <Package size={15} class="text-blue-600 dark:text-blue-400" />
-                <h2 class="text-sm font-semibold text-blue-950 dark:text-blue-100">Claude Code marketplace export</h2>
+                <h2 class="text-sm font-semibold text-blue-950 dark:text-blue-100">Add to a Claude marketplace</h2>
                 <span class="text-[10px] uppercase tracking-wide text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800 px-1.5 py-0.5">{publicServers.length} public</span>
               </div>
               <p class="text-xs text-blue-800/80 dark:text-blue-200/80 mt-1 max-w-3xl leading-relaxed">
-                Public Skill Servers can be packaged as Claude Code plugins. Download the marketplace ZIP, unzip it, then add that directory locally with
-                <code class="font-mono bg-white/70 dark:bg-blue-950 px-1 py-0.5">/plugin marketplace add ./at-claude-marketplace</code>
-                or commit it to a Git repo for team distribution. Direct MCP endpoints still work separately for opencode, Claude MCP, Cursor, and other MCP clients.
+                Named Claude Code marketplaces now publish Skills directly and can also include AT-hosted MCP Servers. Use this page only when you need the older curated Skill Server MCP endpoint.
               </p>
             </div>
             <div class="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                onclick={() => copyMarketplace('json')}
-                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-200 hover:bg-white/70 dark:hover:bg-blue-950 transition-colors"
-              >
-                {#if copiedMarketplace === 'json'}<Check size={12} />{:else}<Copy size={12} />{/if}
-                Copy JSON
-              </button>
-              <button
-                onclick={() => copyMarketplace('zip')}
-                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-200 hover:bg-white/70 dark:hover:bg-blue-950 transition-colors"
-              >
-                {#if copiedMarketplace === 'zip'}<Check size={12} />{:else}<Copy size={12} />{/if}
-                Copy ZIP URL
-              </button>
               <a
-                href={marketplaceZipURL()}
+                href="#/marketplaces"
                 class="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs bg-blue-700 text-white hover:bg-blue-800 dark:bg-blue-500 dark:hover:bg-blue-600 transition-colors"
               >
-                <Download size={12} />
-                Download ZIP
+                <Package size={12} />
+                Open Marketplaces
               </a>
             </div>
           </div>
-          <code class="block text-[11px] text-blue-700 dark:text-blue-200 truncate bg-white/70 dark:bg-blue-950/50 border border-blue-100 dark:border-blue-900 px-2 py-1.5">{marketplaceJSONURL()}</code>
         </div>
       {/if}
 
@@ -587,11 +543,6 @@
                       <Copy size={14} />
                     {/if}
                   </button>
-                  {#if server.public}
-                    <a href={pluginZipFor(server.name)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Download Claude plugin ZIP">
-                      <Download size={14} />
-                    </a>
-                  {/if}
                   <button onclick={() => openEdit(server)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Edit">
                     <Pencil size={14} />
                   </button>
@@ -615,17 +566,6 @@
                   <Copy size={13} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
                   <code class="text-xs text-gray-600 dark:text-dark-text-secondary truncate">{endpointFor(server.name)}</code>
                 </button>
-
-                {#if server.public}
-                  <a
-                    href={pluginZipFor(server.name)}
-                    class="w-full flex items-center gap-2 text-left border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
-                    title="Download Claude plugin ZIP"
-                  >
-                    <Download size={13} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
-                    <code class="text-xs text-gray-600 dark:text-dark-text-secondary truncate">Claude plugin ZIP: {pluginZipFor(server.name)}</code>
-                  </a>
-                {/if}
 
                 <div>
                   <div class="text-xs font-medium text-gray-500 dark:text-dark-text-secondary mb-2">Published skills ({(server.skills || []).length})</div>

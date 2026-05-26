@@ -133,6 +133,9 @@ type Server struct {
 	// botConfigStore is the persistent store for bot configurations.
 	botConfigStore service.BotConfigStorer
 
+	// marketplaceStore is the persistent store for Claude marketplace exports.
+	marketplaceStore service.MarketplaceStorer
+
 	// marketplaceSourceStore is the persistent store for marketplace source configurations.
 	marketplaceSourceStore service.MarketplaceSourceStorer
 
@@ -403,6 +406,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		mcpServerStore:           store,
 		mcpSetStore:              store,
 		botConfigStore:           store,
+		marketplaceStore:         store,
 		marketplaceSourceStore:   store,
 		userPrefStore:            store,
 		organizationStore:        store,
@@ -962,6 +966,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/bots/{id}/status", s.GetBotStatusAPI)
 
 	// Marketplace management
+	apiGroup.GET("/v1/marketplaces", s.ListMarketplacesAPI)
+	apiGroup.POST("/v1/marketplaces", s.CreateMarketplaceAPI)
+	apiGroup.GET("/v1/marketplaces/{id}", s.GetMarketplaceAPI)
+	apiGroup.PUT("/v1/marketplaces/{id}", s.UpdateMarketplaceAPI)
+	apiGroup.DELETE("/v1/marketplaces/{id}", s.DeleteMarketplaceAPI)
 	apiGroup.GET("/v1/marketplace/sources", s.ListMarketplaceSourcesAPI)
 	apiGroup.POST("/v1/marketplace/sources", s.CreateMarketplaceSourceAPI)
 	apiGroup.PUT("/v1/marketplace/sources/{id}", s.UpdateMarketplaceSourceAPI)

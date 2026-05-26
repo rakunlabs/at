@@ -2,6 +2,7 @@ import Home from '@/pages/Home.svelte';
 import Providers from '@/pages/Providers.svelte';
 import Skills from '@/pages/Skills.svelte';
 import SkillServers from '@/pages/SkillServers.svelte';
+import Marketplaces from '@/pages/Marketplaces.svelte';
 import Agents from '@/pages/Agents.svelte';
 import Secrets from '@/pages/Secrets.svelte';
 import Chat from '@/pages/Chat.svelte';
@@ -38,6 +39,7 @@ export default {
   '/providers': Providers,
   '/skills': Skills,
   '/skill-servers': SkillServers,
+  '/marketplaces': Marketplaces,
   '/agents': Agents,
   '/variables': Secrets,
   '/chat': Chat,

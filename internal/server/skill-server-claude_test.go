@@ -3,6 +3,7 @@ package server
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/query"
 )
 
 func TestClaudeCodeMarketplaceAPI_PublicServersOnly(t *testing.T) {
@@ -60,10 +62,57 @@ func TestClaudeCodeMarketplaceAPI_PublicServersOnly(t *testing.T) {
 		t.Fatalf("plugin name = %q, want %q", plugin.Name, "public-tools")
 	}
 	if plugin.Source != "./plugins/public-tools" {
-		t.Fatalf("plugin source = %q, want %q", plugin.Source, "./plugins/public-tools")
+		t.Fatalf("plugin source = %q, want ./plugins/public-tools", plugin.Source)
 	}
 	if strings.Contains(rr.Body.String(), "Private Tools") {
 		t.Fatalf("private skill server leaked into marketplace: %s", rr.Body.String())
+	}
+}
+
+func TestClaudeCodeMarketplaceAPI_MarketFilterIncludesSelectedPublicServers(t *testing.T) {
+	skillServers := newFakeSkillServerStore()
+	skillServers.servers["skill-other"] = &service.SkillServer{ID: "skill-other", Name: "Other Skills", Public: true, Skills: []string{"other"}}
+	skills := newFakeSkillStore()
+	skills.skills["writer-id"] = &service.Skill{ID: "writer-id", Name: "writer", Description: "Write better copy"}
+	mcpServers := newFakeMCPServerStore()
+	mcpServers.servers["mcp-public"] = &service.MCPServer{ID: "mcp-public", Name: "Public MCP", Public: true, Description: "Shared MCP tools"}
+	mcpServers.servers["mcp-private"] = &service.MCPServer{ID: "mcp-private", Name: "Private MCP", Public: false}
+	markets := newFakeMarketplaceStore()
+	markets.markets["market"] = &service.Marketplace{
+		ID:          "market",
+		Name:        "my-market",
+		Description: "Selected tools",
+		Skills:      []string{"writer-id"},
+		MCPServers:  []string{"mcp-public", "mcp-private"},
+	}
+	s := &Server{skillServerStore: skillServers, skillStore: skills, mcpServerStore: mcpServers, marketplaceStore: markets}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/marketplace.json?market=my-market", nil)
+	s.ClaudeCodeMarketplaceAPI(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var got claudeMarketplaceFile
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	if got.Name != "my-market" {
+		t.Fatalf("marketplace name = %q, want my-market", got.Name)
+	}
+	if len(got.Plugins) != 1 {
+		t.Fatalf("plugins len = %d, want 1: %#v", len(got.Plugins), got.Plugins)
+	}
+	if got.Plugins[0].Name != "my-market" {
+		t.Fatalf("plugin name = %q, want my-market", got.Plugins[0].Name)
+	}
+	if strings.Contains(rr.Body.String(), "Private MCP") || strings.Contains(rr.Body.String(), "other-skills") {
+		t.Fatalf("marketplace leaked unselected/private plugins: %s", rr.Body.String())
+	}
+	if got.Plugins[0].Source != "./plugins/my-market" {
+		t.Fatalf("plugin source = %q, want ./plugins/my-market", got.Plugins[0].Source)
 	}
 }
 
@@ -207,4 +256,55 @@ func assertZipContains(t *testing.T, files map[string][]byte, name string) {
 	if _, ok := files[name]; !ok {
 		t.Fatalf("zip missing %s; files: %#v", name, files)
 	}
+}
+
+type fakeMarketplaceStore struct {
+	markets map[string]*service.Marketplace
+}
+
+func newFakeMarketplaceStore() *fakeMarketplaceStore {
+	return &fakeMarketplaceStore{markets: map[string]*service.Marketplace{}}
+}
+
+func (f *fakeMarketplaceStore) ListMarketplaces(_ context.Context, _ *query.Query) (*service.ListResult[service.Marketplace], error) {
+	out := make([]service.Marketplace, 0, len(f.markets))
+	for _, market := range f.markets {
+		out = append(out, *market)
+	}
+	return &service.ListResult[service.Marketplace]{Data: out}, nil
+}
+
+func (f *fakeMarketplaceStore) GetMarketplace(_ context.Context, id string) (*service.Marketplace, error) {
+	return f.markets[id], nil
+}
+
+func (f *fakeMarketplaceStore) GetMarketplaceByName(_ context.Context, name string) (*service.Marketplace, error) {
+	for _, market := range f.markets {
+		if market.Name == name {
+			return market, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeMarketplaceStore) CreateMarketplace(_ context.Context, market service.Marketplace) (*service.Marketplace, error) {
+	if market.ID == "" {
+		market.ID = market.Name
+	}
+	f.markets[market.ID] = &market
+	return &market, nil
+}
+
+func (f *fakeMarketplaceStore) UpdateMarketplace(_ context.Context, id string, market service.Marketplace) (*service.Marketplace, error) {
+	if _, ok := f.markets[id]; !ok {
+		return nil, nil
+	}
+	market.ID = id
+	f.markets[id] = &market
+	return &market, nil
+}
+
+func (f *fakeMarketplaceStore) DeleteMarketplace(_ context.Context, id string) error {
+	delete(f.markets, id)
+	return nil
 }

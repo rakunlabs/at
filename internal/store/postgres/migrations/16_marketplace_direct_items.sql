@@ -1,0 +1,2 @@
+ALTER TABLE ${TABLE_PREFIX}marketplaces ADD COLUMN skills JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE ${TABLE_PREFIX}marketplaces ADD COLUMN direct_mcp_servers JSONB NOT NULL DEFAULT '[]';
