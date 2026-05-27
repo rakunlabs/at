@@ -355,6 +355,34 @@ func TestCreateDelegationTask(t *testing.T) {
 	}
 }
 
+func TestCreateDelegationTask_MaxDepthPreventsChild(t *testing.T) {
+	orgStore := &mockOrgStoreForDelegation{
+		orgs: map[string]*service.Organization{
+			"org1": {ID: "org1", IssuePrefix: "ENG", MaxDelegationDepth: 2},
+		},
+	}
+	taskStore := &mockTaskStoreForDelegation{}
+	s := testServerWithStores(nil, taskStore, orgStore, nil)
+
+	_, err := s.createDelegationTask(
+		context.Background(),
+		&service.Organization{ID: "org1", IssuePrefix: "ENG", MaxDelegationDepth: 2},
+		&service.Task{ID: "parent-1", OrganizationID: "org1", Title: "Build"},
+		"agent-bob",
+		"Implement",
+		1,
+	)
+	if err == nil {
+		t.Fatal("expected max delegation depth error")
+	}
+	if !strings.Contains(err.Error(), "max delegation depth") {
+		t.Fatalf("expected max delegation depth error, got %v", err)
+	}
+	if len(taskStore.tasks) != 0 {
+		t.Fatalf("expected no child tasks, got %+v", taskStore.tasks)
+	}
+}
+
 // --- Test: delegate tool name sanitization ---
 
 func TestDelegateToolNameSanitization(t *testing.T) {
@@ -387,19 +415,29 @@ func TestDelegateToolNameSanitization(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Test the sanitization logic directly — same algorithm as in org-delegation.go
-			safeName := strings.Map(func(r rune) rune {
-				if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-					return r
-				}
-				return '_'
-			}, tt.agentName)
-			toolName := "delegate_to_" + strings.ToLower(safeName)
+			toolName := uniqueDelegateToolName(tt.agentName, "agent-1", map[string]string{})
 
 			if toolName != tt.wantTool {
 				t.Errorf("expected tool name %q, got %q", tt.wantTool, toolName)
 			}
 		})
+	}
+}
+
+func TestDelegateToolNameCollisionUsesAgentIDSuffix(t *testing.T) {
+	existing := map[string]string{
+		"delegate_to_video_producer": "agent-a",
+	}
+
+	got := uniqueDelegateToolName("Video Producer", "agent-b-123456789", existing)
+	if got != "delegate_to_video_producer_agent_b" {
+		t.Fatalf("tool name = %q, want %q", got, "delegate_to_video_producer_agent_b")
+	}
+	existing[got] = "agent-b-123456789"
+
+	got = uniqueDelegateToolName("Video Producer", "agent-b-123456789", existing)
+	if got != "delegate_to_video_producer_agent_b_2" {
+		t.Fatalf("second collision tool name = %q, want %q", got, "delegate_to_video_producer_agent_b_2")
 	}
 }
 

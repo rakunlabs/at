@@ -36,6 +36,46 @@ func TestParsePiDevModelPricing(t *testing.T) {
 	}
 }
 
+func TestParseLLMPricesModelPricing(t *testing.T) {
+	json := `{"updated_at":"2026-05-19","prices":[
+{"id":"gpt-4o","vendor":"openai","name":"GPT-4o","input":2.5,"output":10,"input_cached":1.25},
+{"id":"claude-sonnet-4.5","vendor":"anthropic","name":"Claude Sonnet 4.5","input":3,"output":15,"input_cached":null}
+]}`
+
+	items, err := parseLLMPricesModelPricing(strings.NewReader(json))
+	if err != nil {
+		t.Fatalf("parseLLMPricesModelPricing: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("len(items) = %d, want 2", len(items))
+	}
+	got := items[0]
+	if got.Provider != "openai" || got.Model != "gpt-4o" || got.URL != llmPricesCurrentURL {
+		t.Fatalf("item = %+v", got)
+	}
+	if got.PromptPricePer1M != 2.5 || got.CompletionPricePer1M != 10 || got.CacheReadPricePer1M != 1.25 || got.CacheWritePricePer1M != 0 {
+		t.Fatalf("prices = %+v", got)
+	}
+	if items[1].CacheReadPricePer1M != 0 {
+		t.Fatalf("null cached price = %v, want 0", items[1].CacheReadPricePer1M)
+	}
+}
+
+func TestModelPricingSyncSourceRegistry(t *testing.T) {
+	source, ok := modelPricingSyncSourceByName(" LLM-PRICES ")
+	if !ok {
+		t.Fatal("expected llm-prices source")
+	}
+	if source.Source != llmPricesPricingSource || source.URL != llmPricesCurrentURL || source.buildPreview == nil {
+		t.Fatalf("source = %+v", source)
+	}
+
+	infos := listModelPricingSyncSourceInfos()
+	if len(infos) < 2 {
+		t.Fatalf("len(infos) = %d, want at least 2", len(infos))
+	}
+}
+
 func TestMatchPiDevPricingProviderAlias(t *testing.T) {
 	catalog := []piDevModelPricing{
 		{Provider: "google", Model: "gemini-2.5-pro"},
@@ -43,6 +83,20 @@ func TestMatchPiDevPricingProviderAlias(t *testing.T) {
 	}
 
 	got, matchType, confidence, ok := matchPiDevPricing(catalog, "gemini", "gemini-2.5-pro")
+	if !ok {
+		t.Fatal("expected match")
+	}
+	if got.Provider != "google" || matchType != "provider_model" || confidence != 1 {
+		t.Fatalf("match = %+v %s %f", got, matchType, confidence)
+	}
+}
+
+func TestMatchModelPricingSourceVertexGoogleAlias(t *testing.T) {
+	catalog := []modelPricingSourceItem{
+		{Provider: "google", Model: "gemini-2.5-pro", PromptPricePer1M: 1.25, CompletionPricePer1M: 10},
+	}
+
+	got, matchType, confidence, ok := matchModelPricingSource(catalog, "vertex-gemini", "gemini-2.5-pro")
 	if !ok {
 		t.Fatal("expected match")
 	}

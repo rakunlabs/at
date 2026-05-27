@@ -175,6 +175,14 @@ export interface OrganizationAgent {
   updated_at: string;
 }
 
+export interface OrganizationAgentApproval {
+  id: string;
+  organization_id?: string;
+  type: string;
+  status: string;
+  request_details?: Record<string, unknown>;
+}
+
 export async function listOrgAgents(orgId: string): Promise<OrganizationAgent[]> {
   const res = await api.get<OrganizationAgent[]>(`/organizations/${orgId}/agents`);
   return res.data;
@@ -183,8 +191,8 @@ export async function listOrgAgents(orgId: string): Promise<OrganizationAgent[]>
 export async function addAgentToOrg(
   orgId: string,
   data: { agent_id: string; role?: string; title?: string; parent_agent_id?: string; status?: string; heartbeat_schedule?: string },
-): Promise<OrganizationAgent> {
-  const res = await api.post<OrganizationAgent>(`/organizations/${orgId}/agents`, data);
+): Promise<OrganizationAgent | OrganizationAgentApproval> {
+  const res = await api.post<OrganizationAgent | OrganizationAgentApproval>(`/organizations/${orgId}/agents`, data);
   return res.data;
 }
 

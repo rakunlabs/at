@@ -78,10 +78,18 @@ func (s *Server) execApprovalDecide(ctx context.Context, args map[string]any) (s
 	existing.Status = status
 	existing.DecisionNote = decisionNote
 	existing.DecidedAt = now
+	if decider := sessionUserIDFromContext(ctx); decider != "" {
+		existing.DecidedByUserID = decider
+	} else if decider := agentIDFromContext(ctx); decider != "" {
+		existing.DecidedByUserID = decider
+	}
 
 	record, err := s.approvalStore.UpdateApproval(ctx, id, *existing)
 	if err != nil {
 		return "", fmt.Errorf("failed to update approval: %w", err)
+	}
+	if err := s.applyApprovedApproval(ctx, record); err != nil {
+		return "", fmt.Errorf("failed to apply approval: %w", err)
 	}
 
 	data, _ := json.MarshalIndent(record, "", "  ")

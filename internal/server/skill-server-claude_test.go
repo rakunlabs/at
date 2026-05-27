@@ -61,8 +61,9 @@ func TestClaudeCodeMarketplaceAPI_PublicServersOnly(t *testing.T) {
 	if plugin.Name != "public-tools" {
 		t.Fatalf("plugin name = %q, want %q", plugin.Name, "public-tools")
 	}
-	if plugin.Source != "./plugins/public-tools" {
-		t.Fatalf("plugin source = %q, want ./plugins/public-tools", plugin.Source)
+	wantSource := "https://at.example/gateway/v1/claude-code/plugins/Public%20Tools/plugin.zip"
+	if plugin.Source != wantSource {
+		t.Fatalf("plugin source = %q, want %q", plugin.Source, wantSource)
 	}
 	if strings.Contains(rr.Body.String(), "Private Tools") {
 		t.Fatalf("private skill server leaked into marketplace: %s", rr.Body.String())
@@ -111,8 +112,65 @@ func TestClaudeCodeMarketplaceAPI_MarketFilterIncludesSelectedPublicServers(t *t
 	if strings.Contains(rr.Body.String(), "Private MCP") || strings.Contains(rr.Body.String(), "other-skills") {
 		t.Fatalf("marketplace leaked unselected/private plugins: %s", rr.Body.String())
 	}
-	if got.Plugins[0].Source != "./plugins/my-market" {
-		t.Fatalf("plugin source = %q, want ./plugins/my-market", got.Plugins[0].Source)
+	wantSource := "https://at.example/gateway/v1/claude-code/marketplaces/my-market/plugin.zip"
+	if got.Plugins[0].Source != wantSource {
+		t.Fatalf("plugin source = %q, want %q", got.Plugins[0].Source, wantSource)
+	}
+}
+
+func TestClaudeCodeMarketplacePluginZip_ContainsSkillsAndMCPConfigs(t *testing.T) {
+	skills := newFakeSkillStore()
+	skills.skills["writer-id"] = &service.Skill{ID: "writer-id", Name: "writer", Description: "Write better copy", SystemPrompt: "Improve writing."}
+	mcpServers := newFakeMCPServerStore()
+	mcpServers.servers["mcp-public"] = &service.MCPServer{ID: "mcp-public", Name: "Public MCP", Public: true}
+	mcpServers.servers["mcp-private"] = &service.MCPServer{ID: "mcp-private", Name: "Private MCP", Public: false}
+	markets := newFakeMarketplaceStore()
+	markets.markets["market"] = &service.Marketplace{
+		ID:          "market",
+		Name:        "my-market",
+		Description: "Selected tools",
+		Skills:      []string{"writer-id"},
+		MCPServers:  []string{"mcp-public", "mcp-private"},
+		DirectMCPServers: []service.MarketplaceMCPServer{
+			{Name: "upstream-docs", Type: "http", URL: "https://docs.example/mcp"},
+			{Name: "local-search", Type: "stdio", Command: "npx", Args: []string{"-y", "local-search"}},
+		},
+	}
+	s := &Server{skillStore: skills, mcpServerStore: mcpServers, marketplaceStore: markets}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/marketplaces/my-market/plugin.zip", nil)
+	req.SetPathValue("name", "my-market")
+	s.ClaudeCodeMarketplacePluginZipAPI(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	files := readZipEntries(t, rr.Body.Bytes())
+	assertZipContains(t, files, ".claude-plugin/plugin.json")
+	assertZipContains(t, files, "skills/writer/SKILL.md")
+
+	var manifest claudePluginManifest
+	if err := json.Unmarshal(files[".claude-plugin/plugin.json"], &manifest); err != nil {
+		t.Fatalf("unmarshal plugin manifest: %v", err)
+	}
+	if _, ok := manifest.MCPServers["at-public-mcp"]; !ok {
+		t.Fatalf("missing public AT MCP server in manifest: %#v", manifest.MCPServers)
+	}
+	if _, ok := manifest.MCPServers["private-mcp"]; ok {
+		t.Fatalf("private MCP server leaked into manifest: %#v", manifest.MCPServers)
+	}
+	if got := manifest.MCPServers["upstream-docs"]; got.URL != "https://docs.example/mcp" || got.Type != "http" {
+		t.Fatalf("direct http MCP config = %#v", got)
+	}
+	if got := manifest.MCPServers["local-search"]; got.Command != "npx" || strings.Join(got.Args, " ") != "-y local-search" || got.Type != "stdio" {
+		t.Fatalf("direct stdio MCP config = %#v", got)
+	}
+
+	skillMD := string(files["skills/writer/SKILL.md"])
+	if !strings.Contains(skillMD, "Improve writing.") {
+		t.Fatalf("skill md missing system prompt: %s", skillMD)
 	}
 }
 

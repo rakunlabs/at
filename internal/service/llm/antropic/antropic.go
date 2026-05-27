@@ -57,6 +57,13 @@ type Provider struct {
 	// treating each call as fresh untrusted traffic.
 	sessionMu   sync.Mutex
 	sessionUUID string
+
+	// promptCachingDisabled, when true, opts the provider out of the
+	// default ephemeral cache_control markers that AT installs on the
+	// system block and the last few message turns. Default OFF means
+	// caching IS applied (best-effort, no behaviour change if the model
+	// doesn't support it — the field is ignored).
+	promptCachingDisabled bool
 }
 
 // Option configures the Provider.
@@ -85,6 +92,15 @@ func WithMaxTokens(n int) Option {
 func WithRateLimiter(l *ratelimit.Limiter) Option {
 	return func(p *Provider) {
 		p.limiter = l
+	}
+}
+
+// WithPromptCachingDisabled turns off the automatic ephemeral cache_control
+// markers that AT installs on the system block + last message turns.
+// Default behaviour is ON.
+func WithPromptCachingDisabled(disabled bool) Option {
+	return func(p *Provider) {
+		p.promptCachingDisabled = disabled
 	}
 }
 
@@ -281,8 +297,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	llmResp := &service.LLMResponse{
-		Finished: result.StopReason != "tool_use",
-		Header:   headers,
+		Finished:     result.StopReason != "tool_use",
+		FinishReason: result.StopReason,
+		Header:       headers,
 	}
 
 	if result.Type == "error" {
@@ -623,11 +640,11 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 						usage.OutputTokens = md.Usage.OutputTokens
 					}
 					if md.StopReason != "" {
-						finishReason := "stop"
-						if md.StopReason == "tool_use" {
-							finishReason = "tool_calls"
-						}
-						ch <- service.StreamChunk{FinishReason: finishReason}
+						// Pass the raw Anthropic stop_reason through; the gateway
+						// will map it onto OpenAI's vocabulary (end_turn → stop,
+						// max_tokens → length, tool_use → tool_calls,
+						// stop_sequence → stop).
+						ch <- service.StreamChunk{FinishReason: md.StopReason}
 					}
 				}
 
@@ -913,6 +930,37 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 			reqBody["stop_sequences"] = opts.Stop
 		}
 
+		// Translate tool_choice to Anthropic's shape.
+		// OpenAI accepts: "none" | "auto" | "required" | {type:"function",function:{name:...}}
+		// Anthropic accepts: {type:"auto"} | {type:"any"} | {type:"tool", name:"..."} | {type:"none"}
+		if opts.ToolChoice != nil && len(tools) > 0 {
+			if tc := translateAnthropicToolChoice(opts.ToolChoice); tc != nil {
+				reqBody["tool_choice"] = tc
+			}
+		}
+		// Anthropic uses the inverse: disable_parallel_tool_use
+		if opts.ParallelToolCalls != nil {
+			tc, _ := reqBody["tool_choice"].(map[string]any)
+			if tc == nil {
+				tc = map[string]any{"type": "auto"}
+			}
+			tc["disable_parallel_tool_use"] = !*opts.ParallelToolCalls
+			reqBody["tool_choice"] = tc
+		}
+
+		// response_format → best-effort: when JSON mode is requested we
+		// instruct the model via a system suffix because Anthropic does
+		// not natively support response_format. JSON-schema mode falls
+		// back to the same instruction with the schema embedded.
+		if jsonInstr := anthropicResponseFormatInstruction(opts.ResponseFormat); jsonInstr != "" {
+			existing, _ := reqBody["system"].(string)
+			if existing != "" {
+				reqBody["system"] = existing + "\n\n" + jsonInstr
+			} else {
+				reqBody["system"] = jsonInstr
+			}
+		}
+
 		// Thinking / extended thinking support.
 		// Direct thinking config takes precedence over reasoning_effort mapping.
 		if opts.Thinking != nil && opts.Thinking.Type == "enabled" {
@@ -1007,7 +1055,111 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		transformAnthropicSystem(reqBody, claudeCodeCLIVersion, entrypoint)
 	}
 
+	// Default-on prompt caching: install ephemeral cache_control markers
+	// on the system block, all tools (single marker on the last one), and
+	// the last few message turns. This is a no-op on models that don't
+	// support caching, and reduces cost ~90% on repeated system prompts /
+	// tool definitions for models that do.
+	//
+	// Skip when:
+	//  - the operator explicitly disabled it,
+	//  - the OAuth path already manages cache_control itself, or
+	//  - the caller passed cache_control overrides via extra_body / system.
+	if !p.promptCachingDisabled && p.tokenSource == nil {
+		installPromptCacheMarkers(reqBody)
+	}
+
+	// extra_body is merged last so callers can override our keys. This is
+	// the litellm-style escape hatch for Anthropic-native fields we don't
+	// surface (cache_control on tools, beta toggles, citations, …).
+	if opts != nil {
+		for k, v := range opts.ExtraBody {
+			reqBody[k] = v
+		}
+	}
+
 	return reqBody
+}
+
+// installPromptCacheMarkers attaches `cache_control: {type: "ephemeral"}`
+// to the system block, the last tool, and the last message content block.
+// Idempotent — re-running does nothing if a marker is already present.
+func installPromptCacheMarkers(reqBody map[string]any) {
+	cacheMark := map[string]any{"type": "ephemeral"}
+
+	// System: convert string to [{type:"text", text:"...", cache_control: ...}]
+	switch sys := reqBody["system"].(type) {
+	case string:
+		if sys != "" {
+			reqBody["system"] = []any{map[string]any{
+				"type":          "text",
+				"text":          sys,
+				"cache_control": cacheMark,
+			}}
+		}
+	case []any:
+		// Already an array — mark the last block if no marker present.
+		if n := len(sys); n > 0 {
+			if last, ok := sys[n-1].(map[string]any); ok {
+				if _, has := last["cache_control"]; !has {
+					last["cache_control"] = cacheMark
+				}
+			}
+		}
+	}
+
+	// Tools: mark the last tool to cache the whole tool definition block.
+	if tools, ok := reqBody["tools"].([]map[string]any); ok && len(tools) > 0 {
+		last := tools[len(tools)-1]
+		if _, has := last["cache_control"]; !has {
+			last["cache_control"] = cacheMark
+		}
+	} else if toolsAny, ok := reqBody["tools"].([]any); ok && len(toolsAny) > 0 {
+		if last, ok := toolsAny[len(toolsAny)-1].(map[string]any); ok {
+			if _, has := last["cache_control"]; !has {
+				last["cache_control"] = cacheMark
+			}
+		}
+	}
+
+	// Messages: mark the LAST content block on the LAST message.
+	// Anthropic's prompt cache breakpoint hashes everything up to and
+	// including the marked block, so putting it on the last message
+	// caches the full conversation prefix for the next turn.
+	var msgs []service.Message
+	switch m := reqBody["messages"].(type) {
+	case []service.Message:
+		msgs = m
+	case []any:
+		// Already coerced (OAuth path); skip — that path manages caching itself.
+		_ = m
+		return
+	default:
+		return
+	}
+	if len(msgs) == 0 {
+		return
+	}
+	lastIdx := len(msgs) - 1
+	switch c := msgs[lastIdx].Content.(type) {
+	case string:
+		if c != "" {
+			msgs[lastIdx].Content = []any{map[string]any{
+				"type":          "text",
+				"text":          c,
+				"cache_control": cacheMark,
+			}}
+		}
+	case []any:
+		if n := len(c); n > 0 {
+			if last, ok := c[n-1].(map[string]any); ok {
+				if _, has := last["cache_control"]; !has {
+					last["cache_control"] = cacheMark
+				}
+			}
+		}
+	}
+	reqBody["messages"] = msgs
 }
 
 // mergeConsecutiveMessages merges adjacent messages that share the same role.

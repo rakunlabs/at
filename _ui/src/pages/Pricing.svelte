@@ -7,6 +7,7 @@
     exportModelPricingCatalog,
     importModelPricingCatalog,
     listModelPricing,
+    listModelPricingSyncSources,
     previewModelPricingAgent,
     previewModelPricingSync,
     resetModelPricing,
@@ -14,6 +15,7 @@
     type ModelPricing,
     type ModelPricingCatalog,
     type ModelPricingSyncPreviewItem,
+    type ModelPricingSyncSource,
   } from '@/lib/api/agent-budgets';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { Bot, Check, CircleDollarSign, Download, RefreshCw, RotateCcw, Trash2, Upload, X } from 'lucide-svelte';
@@ -22,9 +24,14 @@
 
   let pricing = $state<ModelPricing[]>([]);
   let providers = $state<ProviderRecord[]>([]);
+  let pricingSources = $state<ModelPricingSyncSource[]>([
+    { source: 'pi.dev', label: 'pi.dev' },
+    { source: 'llm-prices', label: 'llm-prices' },
+  ]);
   let preview = $state<ModelPricingSyncPreviewItem[]>([]);
   let selectedPreview = $state<string[]>([]);
   let previewSource = $state('pi.dev');
+  let selectedSyncSource = $state('pi.dev');
   let loading = $state(true);
   let previewLoading = $state(false);
   let applying = $state(false);
@@ -89,6 +96,20 @@
       }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load providers', 'alert');
+    }
+  }
+
+  async function loadPricingSources() {
+    try {
+      const res = await listModelPricingSyncSources();
+      if (res.length > 0) {
+        pricingSources = res;
+        if (!pricingSources.some((source) => source.source === selectedSyncSource)) {
+          selectedSyncSource = pricingSources[0].source;
+        }
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load pricing sources', 'alert');
     }
   }
 
@@ -172,16 +193,25 @@
     }
   }
 
-  async function runPreview() {
+  function sourceLabel(source: string): string {
+    return pricingSources.find((item) => item.source === source)?.label || source;
+  }
+
+  function isSyncSource(source: string): boolean {
+    return pricingSources.some((item) => item.source === source);
+  }
+
+  async function runPreview(source = selectedSyncSource) {
     previewLoading = true;
     try {
-      const res = await previewModelPricingSync('pi.dev');
-      previewSource = res.source || 'pi.dev';
+      const res = await previewModelPricingSync(source);
+      previewSource = res.source || source;
+      selectedSyncSource = previewSource;
       preview = res.items || [];
       selectedPreview = preview
         .filter((item) => item.matched && ['missing', 'update'].includes(item.status))
         .map(previewKey);
-      addToast(`Loaded ${preview.length} pricing candidates`, 'info');
+      addToast(`Loaded ${preview.length} ${sourceLabel(previewSource)} pricing candidates`, 'info');
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to preview pricing sync', 'alert');
     } finally {
@@ -227,11 +257,12 @@
     }
     applying = true;
     try {
-      const res = await applyModelPricingSync(items, overwriteOverrides, previewSource, previewSource === 'pi.dev' ? undefined : preview);
+      const replayableSource = isSyncSource(previewSource);
+      const res = await applyModelPricingSync(items, overwriteOverrides, previewSource, replayableSource ? undefined : preview);
       addToast(`Applied ${res.applied}, skipped ${res.skipped}`, res.errors?.length ? 'warn' : 'info');
       await loadPricing();
-      if (previewSource === 'pi.dev') {
-        await runPreview();
+      if (replayableSource) {
+        await runPreview(previewSource);
       }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to apply pricing sync', 'alert');
@@ -321,6 +352,7 @@
     }
   }
 
+  loadPricingSources();
   loadPricing();
   loadProviders();
 </script>
@@ -356,13 +388,22 @@
         {importingCatalog ? 'Importing...' : 'Upload Catalog'}
       </button>
       <input bind:this={catalogImportFileInput} type="file" accept=".json,application/json" onchange={handleImportCatalogFile} class="hidden" />
+      <select
+        bind:value={selectedSyncSource}
+        disabled={previewLoading}
+        class="border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-xs focus:outline-none disabled:opacity-50"
+      >
+        {#each pricingSources as source}
+          <option value={source.source}>{source.label}</option>
+        {/each}
+      </select>
       <button
-        onclick={runPreview}
+        onclick={() => runPreview()}
         disabled={previewLoading}
         class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
       >
         <RefreshCw size={12} class={previewLoading ? 'animate-spin' : ''} />
-        {previewLoading ? 'Loading...' : 'Fetch pi.dev'}
+        {previewLoading ? 'Loading...' : `Fetch ${sourceLabel(selectedSyncSource)}`}
       </button>
     </div>
   </div>
@@ -533,7 +574,7 @@
   <section class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
     <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">{previewSource === 'pi.dev' ? 'pi.dev Sync Preview' : 'AI Pricing Preview'}</h3>
+        <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">{previewSource === 'agent' ? 'AI Pricing Preview' : `${sourceLabel(previewSource)} Sync Preview`}</h3>
         <p class="text-xs text-gray-400 dark:text-dark-text-muted">Preview compares configured AT provider models with source prices. Override rows are skipped unless explicitly overwritten.</p>
       </div>
       <div class="flex items-center gap-2">
@@ -554,7 +595,7 @@
     </div>
 
     {#if preview.length === 0}
-      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Fetch from pi.dev or run the AI pricing agent to preview model prices.</div>
+      <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Fetch from a pricing source or run the AI pricing agent to preview model prices.</div>
     {:else}
       <div class="overflow-x-auto">
         <table class="w-full text-sm">

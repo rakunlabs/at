@@ -5,6 +5,8 @@
   import { listSkillServers, type SkillServer } from '@/lib/api/skill-servers';
   import { addToast } from '@/lib/store/toast.svelte';
   import { Copy, BookOpen, RefreshCw, Check, CheckSquare, Square } from 'lucide-svelte';
+  import { push, querystring } from 'svelte-spa-router';
+  import Guides from '@/pages/Guides.svelte';
 
   storeNavbar.title = 'Documentation';
 
@@ -14,6 +16,7 @@
   let loading = $state(true);
   let copiedId = $state<string | null>(null);
   let activeTab = $state('python');
+  let docsSection = $state<'reference' | 'guides'>('reference');
   // Currently selected MCP server name for the example snippet. Defaults
   // to the first server returned by the API; falls back to "management"
   // when none are configured so the snippet still demonstrates the
@@ -28,6 +31,16 @@
     { id: 'go', label: 'Go' },
     { id: 'curl', label: 'curl' },
   ];
+
+  $effect(() => {
+    const qs = new URLSearchParams($querystring || '');
+    docsSection = qs.get('section') === 'guides' || qs.has('g') ? 'guides' : 'reference';
+  });
+
+  function setDocsSection(section: 'reference' | 'guides') {
+    docsSection = section;
+    push(section === 'guides' ? '/docs?section=guides' : '/docs');
+  }
 
   async function load() {
     loading = true;
@@ -227,13 +240,15 @@
     return JSON.stringify({ mcp: { [`at-skills-${exampleSkillServerName}`]: server } }, null, 2);
   });
 
-  let claudeMarketplaceCommands = $derived(`curl -L ${claudeMarketplaceZipURL} -o at-claude-marketplace.zip
-unzip at-claude-marketplace.zip -d at-claude-marketplace
-
-# Inside Claude Code:
-/plugin marketplace add ./at-claude-marketplace
+  let claudeMarketplaceCommands = $derived(`# Inside Claude Code:
+/plugin marketplace add ${claudeMarketplaceJSONURL}
 /plugin install <plugin-name>@at-skill-servers
-/reload-plugins`);
+/reload-plugins
+
+# Optional offline export:
+curl -L ${claudeMarketplaceZipURL} -o at-claude-marketplace.zip
+unzip at-claude-marketplace.zip -d at-claude-marketplace
+/plugin marketplace add ./at-claude-marketplace`);
 
   function pythonExample(model: string, url: string): string {
     return `from openai import OpenAI
@@ -341,21 +356,57 @@ func main() {
   <title>AT | Documentation</title>
 </svelte:head>
 
-<div class="p-6 max-w-5xl mx-auto">
+<div class="h-full flex flex-col min-h-0">
   <!-- Header -->
-  <div class="flex items-center justify-between mb-6">
-    <div class="flex items-center gap-2">
-      <BookOpen size={16} class="text-gray-500 dark:text-dark-text-muted" />
-      <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">API Documentation</h2>
+  <div class="px-6 pt-6 pb-4 max-w-5xl w-full mx-auto shrink-0">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-2">
+        <BookOpen size={16} class="text-gray-500 dark:text-dark-text-muted" />
+        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Docs</h2>
+      </div>
+      <button
+        onclick={load}
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+        title="Refresh"
+      >
+        <RefreshCw size={14} />
+      </button>
     </div>
-    <button
-      onclick={load}
-      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
-      title="Refresh"
-    >
-      <RefreshCw size={14} />
-    </button>
+
+    <div class="flex items-center gap-2 border-b border-gray-200 dark:border-dark-border">
+      <button
+        onclick={() => setDocsSection('reference')}
+        class={[
+          'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
+          docsSection === 'reference'
+            ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text'
+            : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary',
+        ]}
+      >
+        API Docs
+      </button>
+      <button
+        onclick={() => setDocsSection('guides')}
+        class={[
+          'px-3 py-2 text-xs font-medium border-b-2 transition-colors',
+          docsSection === 'guides'
+            ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text'
+            : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary',
+        ]}
+      >
+        Guides
+      </button>
+    </div>
   </div>
+
+  {#if docsSection === 'guides'}
+    <div class="flex-1 min-h-0 px-6 pb-6">
+      <div class="h-full border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+        <Guides embedded routeBase="/docs" routeQueryPrefix="section=guides&" setNavbar={false} />
+      </div>
+    </div>
+  {:else}
+    <div class="flex-1 min-h-0 px-6 pb-6 max-w-5xl w-full mx-auto overflow-y-auto">
 
   <!-- Overview -->
   <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 mb-4">
@@ -786,7 +837,8 @@ func main() {
       </summary>
       <div class="p-4 space-y-3">
         <p class="text-xs text-gray-600 dark:text-dark-text-secondary leading-relaxed">
-          Public Skill Servers are exported as Claude Code plugin packages. The ZIP export is the safest Claude-compatible path because
+          Public Skill Servers are exported as Claude Code plugin packages. The marketplace JSON points plugin sources at AT-hosted ZIP downloads, so
+          Claude Code can install plugins directly from this AT instance. The ZIP export remains available for offline/local marketplaces because its
           <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-[11px]">marketplace.json</code>
           uses relative plugin sources. Unzip it, add the directory locally, or commit the generated directory to a Git repo and share that repo as your team marketplace.
         </p>
@@ -871,4 +923,6 @@ func main() {
       {/if}
     </details>
   </div>
+    </div>
+  {/if}
 </div>

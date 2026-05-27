@@ -291,24 +291,11 @@
       <span>Audit</span>
     </a>
     <a
-      href="#/guides"
-      onclick={(e) => navigate(e, "/guides")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/guides"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <BookOpen size={14} />
-      <span>Guides</span>
-    </a>
-    <a
       href="#/docs"
       onclick={(e) => navigate(e, "/docs")}
       class={[
         "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/docs"
+        $location === "/docs" || $location === "/guides"
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}

@@ -238,6 +238,10 @@ type Server struct {
 
 	version string
 
+	// idempotency caches responses for requests that carry an
+	// Idempotency-Key header (5-minute TTL). Per-token scoped.
+	idempotency *idempotencyCache
+
 	// skillTemplates holds predefined skill templates loaded from embedded JSON.
 	skillTemplates []SkillTemplate
 
@@ -388,6 +392,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		ctx:                      ctx,
 		server:                   mux,
 		providers:                providers,
+		idempotency:              newIdempotencyCache(),
 		store:                    store,
 		tokenStore:               store,
 		tokenUsageStore:          store,
@@ -604,6 +609,15 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
+	gatewayGroup.POST("/v1/embeddings", s.Embeddings)
+	gatewayGroup.POST("/v1/responses", s.Responses)
+	gatewayGroup.POST("/v1/images/generations", s.Images)
+	gatewayGroup.POST("/v1/audio/speech", s.AudioSpeech)
+	gatewayGroup.POST("/v1/audio/transcriptions", s.AudioTranscriptions)
+	gatewayGroup.POST("/v1/moderations", s.Moderations)
+	gatewayGroup.POST("/v1/rerank", s.Rerank)
+	gatewayGroup.GET("/v1/health", s.HealthOverall)
+	gatewayGroup.GET("/v1/health/{provider}", s.HealthProvider)
 	gatewayGroup.Handle("/v1/providers/{provider}/*", http.HandlerFunc(s.ProxyRequest))
 
 	// Legacy unversioned proxy endpoint.
@@ -627,6 +641,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.GET("/v1/public/skill_hub", s.PublicSkillHubAPI)
 	gatewayGroup.GET("/v1/claude-code/marketplace.json", s.ClaudeCodeMarketplaceAPI)
 	gatewayGroup.GET("/v1/claude-code/marketplace.zip", s.ClaudeCodeMarketplaceZipAPI)
+	gatewayGroup.GET("/v1/claude-code/marketplaces/{name}/plugin.zip", s.ClaudeCodeMarketplacePluginZipAPI)
 	gatewayGroup.GET("/v1/claude-code/plugins/{name}/plugin.zip", s.ClaudeCodePluginZipAPI)
 
 	// Internal MCP endpoint — no auth, for agent-to-server tool resolution.
@@ -826,6 +841,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/model-pricing/catalog", s.ExportModelPricingCatalogAPI)
 	apiGroup.POST("/v1/model-pricing/catalog/import", s.ImportModelPricingCatalogAPI)
 	apiGroup.POST("/v1/model-pricing/agent/preview", s.PreviewModelPricingAgentAPI)
+	apiGroup.GET("/v1/model-pricing/sync/sources", s.ListModelPricingSyncSourcesAPI)
 	apiGroup.POST("/v1/model-pricing/sync/preview", s.PreviewModelPricingSyncAPI)
 	apiGroup.POST("/v1/model-pricing/sync/apply", s.ApplyModelPricingSyncAPI)
 	apiGroup.DELETE("/v1/model-pricing/{id}", s.DeleteModelPricingAPI)

@@ -24,6 +24,19 @@ type EmbeddingProvider interface {
 	CreateEmbedding(ctx context.Context, req EmbeddingRequest) (*EmbeddingResponse, error)
 }
 
+// ModerationProvider classifies text against a safety policy.
+// Providers that implement this surface OpenAI-shaped moderation results.
+type ModerationProvider interface {
+	Moderate(ctx context.Context, req ModerationRequest) (*ModerationResponse, error)
+}
+
+// RerankProvider re-orders a list of documents by relevance to a query.
+// First-party support exists on Cohere; other providers can implement it
+// against their own rerank endpoint.
+type RerankProvider interface {
+	Rerank(ctx context.Context, req RerankRequest) (*RerankResponse, error)
+}
+
 // ─── Media Request/Response Types ───
 
 // ImageGenerateRequest describes a text-to-image generation request.
@@ -101,4 +114,51 @@ type EmbeddingResponse struct {
 	Embeddings [][]float64 `json:"embeddings"`
 	Model      string      `json:"model"`
 	Usage      Usage       `json:"usage,omitempty"`
+}
+
+// ModerationRequest describes a content-moderation request.
+type ModerationRequest struct {
+	Input []string `json:"input"`           // one or more strings to classify
+	Model string   `json:"model,omitempty"` // e.g. "omni-moderation-latest"
+}
+
+// ModerationResponse is the result of a moderation call. Mirrors OpenAI's
+// shape: each input yields one result with per-category flags + scores.
+type ModerationResponse struct {
+	ID      string             `json:"id"`
+	Model   string             `json:"model"`
+	Results []ModerationResult `json:"results"`
+}
+
+// ModerationResult is a single moderation verdict for one input.
+type ModerationResult struct {
+	Flagged        bool               `json:"flagged"`
+	Categories     map[string]bool    `json:"categories"`
+	CategoryScores map[string]float64 `json:"category_scores"`
+}
+
+// RerankRequest describes a re-ranking request.
+type RerankRequest struct {
+	Model           string   `json:"model,omitempty"`
+	Query           string   `json:"query"`
+	Documents       []string `json:"documents"`
+	TopN            int      `json:"top_n,omitempty"`
+	ReturnDocuments *bool    `json:"return_documents,omitempty"`
+}
+
+// RerankResponse is a re-ranked subset of the input documents, sorted by
+// relevance score (highest first). When ReturnDocuments=false the
+// document text is omitted and only indices/scores are returned.
+type RerankResponse struct {
+	ID      string         `json:"id"`
+	Model   string         `json:"model"`
+	Results []RerankResult `json:"results"`
+	Usage   Usage          `json:"usage,omitempty"`
+}
+
+// RerankResult is a single re-ranked document entry.
+type RerankResult struct {
+	Index          int     `json:"index"` // original index in input documents
+	Document       string  `json:"document,omitempty"`
+	RelevanceScore float64 `json:"relevance_score"`
 }

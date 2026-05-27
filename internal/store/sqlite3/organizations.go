@@ -27,6 +27,7 @@ type orgRow struct {
 	HeadAgentID          sql.NullString `db:"head_agent_id"`
 	MaxDelegationDepth   int            `db:"max_delegation_depth"`
 	CanvasLayout         sql.NullString `db:"canvas_layout"`
+	ContainerConfig      sql.NullString `db:"container_config"`
 	CreatedAt            string         `db:"created_at"`
 	UpdatedAt            string         `db:"updated_at"`
 	CreatedBy            sql.NullString `db:"created_by"`
@@ -40,7 +41,7 @@ func (s *SQLite) ListOrganizations(ctx context.Context, q *query.Query) (*servic
 		"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
 		"require_board_approval_for_new_agents",
 		"head_agent_id", "max_delegation_depth",
-		"canvas_layout", "created_at", "updated_at", "created_by", "updated_by",
+		"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build list organizations query: %w", err)
@@ -61,7 +62,7 @@ func (s *SQLite) ListOrganizations(ctx context.Context, q *query.Query) (*servic
 			&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
 			&row.RequireBoardApproval,
 			&row.HeadAgentID, &row.MaxDelegationDepth,
-			&row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+			&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan organization row: %w", err)
 		}
@@ -89,7 +90,7 @@ func (s *SQLite) GetOrganization(ctx context.Context, id string) (*service.Organ
 			"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
 			"require_board_approval_for_new_agents",
 			"head_agent_id", "max_delegation_depth",
-			"canvas_layout", "created_at", "updated_at", "created_by", "updated_by",
+			"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
 		).
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
@@ -104,7 +105,7 @@ func (s *SQLite) GetOrganization(ctx context.Context, id string) (*service.Organ
 		&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
 		&row.RequireBoardApproval,
 		&row.HeadAgentID, &row.MaxDelegationDepth,
-		&row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -146,6 +147,7 @@ func (s *SQLite) CreateOrganization(ctx context.Context, org service.Organizatio
 			"head_agent_id":                         org.HeadAgentID,
 			"max_delegation_depth":                  maxDepth,
 			"canvas_layout":                         canvasLayout,
+			"container_config":                      marshalContainerConfig(org.ContainerConfig),
 			"created_at":                            now.Format(time.RFC3339),
 			"updated_at":                            now.Format(time.RFC3339),
 			"created_by":                            org.CreatedBy,
@@ -173,6 +175,7 @@ func (s *SQLite) CreateOrganization(ctx context.Context, org service.Organizatio
 		HeadAgentID:          org.HeadAgentID,
 		MaxDelegationDepth:   maxDepth,
 		CanvasLayout:         org.CanvasLayout,
+		ContainerConfig:      org.ContainerConfig,
 		CreatedAt:            now.Format(time.RFC3339),
 		UpdatedAt:            now.Format(time.RFC3339),
 		CreatedBy:            org.CreatedBy,
@@ -196,9 +199,8 @@ func (s *SQLite) UpdateOrganization(ctx context.Context, id string, org service.
 	if len(org.CanvasLayout) > 0 {
 		rec["canvas_layout"] = string(org.CanvasLayout)
 	}
-	if org.IssuePrefix != "" {
-		rec["issue_prefix"] = org.IssuePrefix
-	}
+	rec["container_config"] = marshalContainerConfig(org.ContainerConfig)
+	rec["issue_prefix"] = org.IssuePrefix
 	if org.MaxDelegationDepth > 0 {
 		rec["max_delegation_depth"] = org.MaxDelegationDepth
 	}
@@ -280,9 +282,32 @@ func orgRowToRecord(row orgRow) service.Organization {
 		HeadAgentID:          row.HeadAgentID.String,
 		MaxDelegationDepth:   row.MaxDelegationDepth,
 		CanvasLayout:         canvasLayout,
+		ContainerConfig:      containerConfigFromJSON(row.ContainerConfig.String),
 		CreatedAt:            row.CreatedAt,
 		UpdatedAt:            row.UpdatedAt,
 		CreatedBy:            row.CreatedBy.String,
 		UpdatedBy:            row.UpdatedBy.String,
 	}
+}
+
+func marshalContainerConfig(cfg *service.ContainerConfig) any {
+	if cfg == nil {
+		return nil
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil
+	}
+	return string(data)
+}
+
+func containerConfigFromJSON(raw string) *service.ContainerConfig {
+	if raw == "" || raw == "null" || raw == "{}" {
+		return nil
+	}
+	var cfg service.ContainerConfig
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil
+	}
+	return &cfg
 }

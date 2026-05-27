@@ -83,6 +83,17 @@ func (s *Server) AddAgentToOrganizationAPI(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	approval, requested, err := s.requestOrgAgentApprovalIfRequired(r.Context(), orgID, req, "user", s.getUserEmail(r))
+	if err != nil {
+		slog.Error("request organization agent approval failed", "org_id", orgID, "agent_id", req.AgentID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to request approval: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if requested {
+		httpResponseJSON(w, approval, http.StatusAccepted)
+		return
+	}
+
 	record, err := s.orgAgentStore.CreateOrganizationAgent(r.Context(), req)
 	if err != nil {
 		slog.Error("add agent to organization failed", "org_id", orgID, "agent_id", req.AgentID, "error", err)
@@ -119,26 +130,69 @@ func (s *Server) UpdateOrganizationAgentAPI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	var req service.OrganizationAgent
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
+	updated := *existing
+	updated.OrganizationID = orgID
+	updated.AgentID = agentID
+	parentChanged := false
+	if raw, ok := fields["role"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid role: %v", err), http.StatusBadRequest)
+			return
+		}
+		updated.Role = v
+	}
+	if raw, ok := fields["title"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid title: %v", err), http.StatusBadRequest)
+			return
+		}
+		updated.Title = v
+	}
+	if raw, ok := fields["parent_agent_id"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid parent_agent_id: %v", err), http.StatusBadRequest)
+			return
+		}
+		updated.ParentAgentID = v
+		parentChanged = true
+	}
+	if raw, ok := fields["status"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid status: %v", err), http.StatusBadRequest)
+			return
+		}
+		if v != "" {
+			updated.Status = v
+		}
+	}
+	if raw, ok := fields["heartbeat_schedule"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid heartbeat_schedule: %v", err), http.StatusBadRequest)
+			return
+		}
+		updated.HeartbeatSchedule = v
+	}
+
 	// Validate hierarchy if parent is being changed.
-	if req.ParentAgentID != "" && req.ParentAgentID != existing.ParentAgentID {
-		if err := s.validateHierarchy(r.Context(), orgID, agentID, req.ParentAgentID); err != nil {
+	if parentChanged && updated.ParentAgentID != "" && updated.ParentAgentID != existing.ParentAgentID {
+		if err := s.validateHierarchy(r.Context(), orgID, agentID, updated.ParentAgentID); err != nil {
 			httpResponse(w, fmt.Sprintf("hierarchy validation failed: %v", err), http.StatusBadRequest)
 			return
 		}
 	}
 
-	// Preserve status if not provided.
-	if req.Status == "" {
-		req.Status = existing.Status
-	}
-
-	record, err := s.orgAgentStore.UpdateOrganizationAgent(r.Context(), existing.ID, req)
+	record, err := s.orgAgentStore.UpdateOrganizationAgent(r.Context(), existing.ID, updated)
 	if err != nil {
 		slog.Error("update organization agent failed", "id", existing.ID, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update membership: %v", err), http.StatusInternalServerError)
@@ -213,11 +267,74 @@ func (s *Server) RemoveAgentFromOrganizationAPI(w http.ResponseWriter, r *http.R
 		return
 	}
 
+	var clearHead bool
+	var org *service.Organization
+	if s.organizationStore != nil {
+		var err error
+		org, err = s.organizationStore.GetOrganization(r.Context(), orgID)
+		if err != nil {
+			slog.Error("get organization before removing agent failed", "org_id", orgID, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to get organization: %v", err), http.StatusInternalServerError)
+			return
+		}
+		clearHead = org != nil && org.HeadAgentID == agentID
+	}
+
 	if err := s.orgAgentStore.DeleteOrganizationAgentByPair(r.Context(), orgID, agentID); err != nil {
 		slog.Error("remove agent from organization failed", "org_id", orgID, "agent_id", agentID, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to remove agent from organization: %v", err), http.StatusInternalServerError)
 		return
 	}
 
+	if clearHead {
+		org.HeadAgentID = ""
+		org.UpdatedBy = s.getUserEmail(r)
+		if _, err := s.organizationStore.UpdateOrganization(r.Context(), orgID, *org); err != nil {
+			slog.Error("clear head agent after removal failed", "org_id", orgID, "agent_id", agentID, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to clear head agent: %v", err), http.StatusInternalServerError)
+			return
+		}
+	}
+
 	httpResponse(w, "removed", http.StatusOK)
+}
+
+func (s *Server) requestOrgAgentApprovalIfRequired(ctx context.Context, orgID string, oa service.OrganizationAgent, requestedByType, requestedByID string) (*service.Approval, bool, error) {
+	if s.organizationStore == nil {
+		return nil, false, nil
+	}
+	org, err := s.organizationStore.GetOrganization(ctx, orgID)
+	if err != nil {
+		return nil, false, fmt.Errorf("get organization %q: %w", orgID, err)
+	}
+	if org == nil || !org.RequireBoardApproval {
+		return nil, false, nil
+	}
+	if s.approvalStore == nil {
+		return nil, true, fmt.Errorf("approval store not configured")
+	}
+	status := oa.Status
+	if status == "" {
+		status = "active"
+	}
+	approval, err := s.approvalStore.CreateApproval(ctx, service.Approval{
+		OrganizationID:  orgID,
+		Type:            service.ApprovalTypeHireAgent,
+		Status:          service.ApprovalStatusPending,
+		RequestedByType: requestedByType,
+		RequestedByID:   requestedByID,
+		RequestDetails: map[string]any{
+			"organization_id":    orgID,
+			"agent_id":           oa.AgentID,
+			"role":               oa.Role,
+			"title":              oa.Title,
+			"parent_agent_id":    oa.ParentAgentID,
+			"status":             status,
+			"heartbeat_schedule": oa.HeartbeatSchedule,
+		},
+	})
+	if err != nil {
+		return nil, true, fmt.Errorf("create hire-agent approval: %w", err)
+	}
+	return approval, true, nil
 }

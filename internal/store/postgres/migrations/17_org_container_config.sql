@@ -1,0 +1,1 @@
+ALTER TABLE ${TABLE_PREFIX}organizations ADD COLUMN container_config JSONB DEFAULT NULL;

@@ -211,14 +211,14 @@ func (p *Postgres) UpdateApproval(ctx context.Context, id string, approval servi
 }
 
 func (p *Postgres) ListPendingApprovals(ctx context.Context, orgID string) ([]service.Approval, error) {
-	query, _, err := p.goqu.From(p.tableApprovals).
+	ds := p.goqu.From(p.tableApprovals).
 		Select(approvalColumns...).
-		Where(
-			goqu.I("organization_id").Eq(orgID),
-			goqu.I("status").Eq("pending"),
-		).
-		Order(goqu.I("created_at").Asc()).
-		ToSQL()
+		Where(goqu.I("status").Eq("pending")).
+		Order(goqu.I("created_at").Asc())
+	if orgID != "" {
+		ds = ds.Where(goqu.I("organization_id").Eq(orgID))
+	}
+	query, _, err := ds.ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list pending approvals query: %w", err)
 	}

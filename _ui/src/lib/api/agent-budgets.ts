@@ -79,6 +79,13 @@ export interface ModelPricingSyncPreviewResponse {
   items: ModelPricingSyncPreviewItem[];
 }
 
+export interface ModelPricingSyncSource {
+  source: string;
+  label: string;
+  url?: string;
+  description?: string;
+}
+
 export interface ModelPricingSyncApplyResponse {
   applied: number;
   skipped: number;
@@ -158,6 +165,11 @@ export async function resetModelPricing(id: string): Promise<void> {
 
 export async function previewModelPricingSync(source = 'pi.dev'): Promise<ModelPricingSyncPreviewResponse> {
   const res = await api.post<ModelPricingSyncPreviewResponse>('/model-pricing/sync/preview', { source });
+  return res.data;
+}
+
+export async function listModelPricingSyncSources(): Promise<ModelPricingSyncSource[]> {
+  const res = await api.get<ModelPricingSyncSource[]>('/model-pricing/sync/sources');
   return res.data;
 }
 

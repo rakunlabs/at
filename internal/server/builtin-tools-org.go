@@ -189,6 +189,16 @@ func (s *Server) execOrgAddAgent(ctx context.Context, args map[string]any) (stri
 		}
 	}
 
+	requestedBy := agentIDFromContext(ctx)
+	approval, requested, err := s.requestOrgAgentApprovalIfRequired(ctx, orgID, oa, "agent", requestedBy)
+	if err != nil {
+		return "", fmt.Errorf("request approval: %w", err)
+	}
+	if requested {
+		data, _ := json.MarshalIndent(approval, "", "  ")
+		return string(data), nil
+	}
+
 	record, err := s.orgAgentStore.CreateOrganizationAgent(ctx, oa)
 	if err != nil {
 		return "", fmt.Errorf("failed to add agent to organization: %w", err)
@@ -354,8 +364,8 @@ func (s *Server) execOrgUpdate(ctx context.Context, args map[string]any) (string
 	if v, ok := args["issue_prefix"].(string); ok {
 		updated.IssuePrefix = v
 	}
-	if v := stringArg(args, "head_agent_id"); v != "" {
-		updated.HeadAgentID = v
+	if _, ok := args["head_agent_id"]; ok {
+		updated.HeadAgentID = stringArg(args, "head_agent_id")
 	}
 	if v := optionalInt64(args, "budget_monthly_cents"); v != nil {
 		updated.BudgetMonthlyCents = *v
@@ -375,17 +385,21 @@ func (s *Server) execOrgUpdate(ctx context.Context, args map[string]any) (string
 	if v, ok := args["require_board_approval_for_new_agents"].(bool); ok {
 		updated.RequireBoardApproval = v
 	}
-	if raw, ok := args["container_config"]; ok && raw != nil {
-		data, _ := json.Marshal(raw)
-		var cc service.ContainerConfig
-		if err := json.Unmarshal(data, &cc); err != nil {
-			return "", fmt.Errorf("container_config: %w", err)
+	if raw, ok := args["container_config"]; ok {
+		if raw == nil {
+			updated.ContainerConfig = nil
+		} else {
+			data, _ := json.Marshal(raw)
+			var cc service.ContainerConfig
+			if err := json.Unmarshal(data, &cc); err != nil {
+				return "", fmt.Errorf("container_config: %w", err)
+			}
+			updated.ContainerConfig = &cc
 		}
-		updated.ContainerConfig = &cc
 	}
 
 	// Validate new head_agent_id against membership/status.
-	if updated.HeadAgentID != existing.HeadAgentID && s.orgAgentStore != nil {
+	if updated.HeadAgentID != "" && updated.HeadAgentID != existing.HeadAgentID && s.orgAgentStore != nil {
 		member, err := s.orgAgentStore.GetOrganizationAgentByPair(ctx, id, updated.HeadAgentID)
 		if err != nil {
 			return "", fmt.Errorf("validate head agent: %w", err)
@@ -469,36 +483,36 @@ func (s *Server) execOrgUpdateAgent(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("agent %q is not a member of organization %q", agentID, orgID)
 	}
 
-	// Decide what fields to overwrite. We treat the absence of a key as
-	// "preserve existing"; explicit empty string IS meaningful for some
-	// fields (e.g. parent_agent_id="" = make root). We can't distinguish
-	// those two states for raw map[string]any, so the policy is:
-	//   - Required identifiers (orgID, agentID): from path/args.
-	//   - Status: empty preserves (matches HTTP).
-	//   - parent_agent_id: pass-through (empty → root; only validate
-	//     hierarchy when changed).
-	//   - Other fields: pass-through, with empty meaning "clear".
-	updated := service.OrganizationAgent{
-		OrganizationID:    orgID,
-		AgentID:           agentID,
-		Role:              stringArg(args, "role"),
-		Title:             stringArg(args, "title"),
-		ParentAgentID:     stringArg(args, "parent_agent_id"),
-		Status:            stringArg(args, "status"),
-		HeartbeatSchedule: stringArg(args, "heartbeat_schedule"),
+	updated := *existing
+	updated.OrganizationID = orgID
+	updated.AgentID = agentID
+	if _, ok := args["role"]; ok {
+		updated.Role = stringArg(args, "role")
+	}
+	if _, ok := args["title"]; ok {
+		updated.Title = stringArg(args, "title")
+	}
+	parentChanged := false
+	if _, ok := args["parent_agent_id"]; ok {
+		updated.ParentAgentID = stringArg(args, "parent_agent_id")
+		parentChanged = true
+	}
+	if _, ok := args["status"]; ok {
+		if status := stringArg(args, "status"); status != "" {
+			updated.Status = status
+		}
+	}
+	if _, ok := args["heartbeat_schedule"]; ok {
+		updated.HeartbeatSchedule = stringArg(args, "heartbeat_schedule")
 	}
 
 	// Hierarchy validation: only when parent is being CHANGED to a
 	// non-empty value. Setting parent="" (becoming root) skips the
 	// member existence check but is still cycle-safe by definition.
-	if updated.ParentAgentID != "" && updated.ParentAgentID != existing.ParentAgentID {
+	if parentChanged && updated.ParentAgentID != "" && updated.ParentAgentID != existing.ParentAgentID {
 		if err := s.validateHierarchy(ctx, orgID, agentID, updated.ParentAgentID); err != nil {
 			return "", fmt.Errorf("hierarchy validation failed: %w", err)
 		}
-	}
-
-	if updated.Status == "" {
-		updated.Status = existing.Status
 	}
 
 	record, err := s.orgAgentStore.UpdateOrganizationAgent(ctx, existing.ID, updated)
@@ -525,8 +539,25 @@ func (s *Server) execOrgRemoveAgent(ctx context.Context, args map[string]any) (s
 	if orgID == "" || agentID == "" {
 		return "", fmt.Errorf("organization_id and agent_id are required")
 	}
+	var clearHead bool
+	var org *service.Organization
+	if s.organizationStore != nil {
+		var err error
+		org, err = s.organizationStore.GetOrganization(ctx, orgID)
+		if err != nil {
+			return "", fmt.Errorf("get organization %q: %w", orgID, err)
+		}
+		clearHead = org != nil && org.HeadAgentID == agentID
+	}
 	if err := s.orgAgentStore.DeleteOrganizationAgentByPair(ctx, orgID, agentID); err != nil {
 		return "", fmt.Errorf("remove agent from org: %w", err)
+	}
+	if clearHead {
+		org.HeadAgentID = ""
+		org.UpdatedBy = "mcp"
+		if _, err := s.organizationStore.UpdateOrganization(ctx, orgID, *org); err != nil {
+			return "", fmt.Errorf("clear head agent: %w", err)
+		}
 	}
 	return fmt.Sprintf(`{"status":"removed","organization_id":%q,"agent_id":%q}`, orgID, agentID), nil
 }

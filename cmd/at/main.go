@@ -5,16 +5,21 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
 
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/server"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
+	"github.com/rakunlabs/at/internal/service/llm/bedrock"
+	"github.com/rakunlabs/at/internal/service/llm/cohere"
 	"github.com/rakunlabs/at/internal/service/llm/gemini"
 	"github.com/rakunlabs/at/internal/service/llm/minimax"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
@@ -22,6 +27,41 @@ import (
 	"github.com/rakunlabs/at/internal/service/ratelimit"
 	"github.com/rakunlabs/at/internal/store"
 )
+
+// googleADCTokenSource resolves Google Application Default Credentials
+// for the cloud-platform scope and adapts the resulting oauth2.TokenSource
+// to the gemini package's GoogleTokenSource interface.
+//
+// The underlying oauth2.TokenSource caches and auto-refreshes tokens
+// internally, so calling Token() on every request is cheap.
+func googleADCTokenSource(ctx context.Context) (gemini.GoogleTokenSource, error) {
+	ts, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	if err != nil {
+		return nil, err
+	}
+	return &googleADCSource{inner: ts}, nil
+}
+
+// googleADCSource adapts oauth2.TokenSource → gemini.GoogleTokenSource.
+type googleADCSource struct {
+	inner oauth2TokenSource
+}
+
+// oauth2TokenSource is the minimum interface from golang.org/x/oauth2.
+// We avoid importing oauth2 in this struct's type signature to keep the
+// dependency surface small.
+type oauth2TokenSource interface {
+	Token() (*oauth2.Token, error)
+}
+
+// Token implements gemini.GoogleTokenSource.
+func (g *googleADCSource) Token() (string, error) {
+	tok, err := g.inner.Token()
+	if err != nil {
+		return "", err
+	}
+	return tok.AccessToken, nil
+}
 
 // buildLimiter constructs a rate limiter from the provider config, or
 // returns nil when no limits are configured.
@@ -119,6 +159,13 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			opts = append(opts, antropic.WithRateLimiter(limiter))
 		}
 
+		// Prompt caching is ON by default; operators can disable via
+		// ExtraHeaders["at-prompt-caching"]="off" when they need byte-
+		// identical wire output for compliance / replay scenarios.
+		if v, ok := cfg.ExtraHeaders["at-prompt-caching"]; ok && strings.EqualFold(v, "off") {
+			opts = append(opts, antropic.WithPromptCachingDisabled(true))
+		}
+
 		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
 	case "openai":
 		var opts []openai.Option
@@ -192,8 +239,80 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			anthropicOpts = append(anthropicOpts, antropic.WithRateLimiter(limiter))
 		}
 		return minimax.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers, anthropicOpts...)
+	case "bedrock":
+		var opts []bedrock.Option
+		if limiter != nil {
+			opts = append(opts, bedrock.WithRateLimiter(limiter))
+		}
+		return bedrock.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
+	case "azure":
+		// Azure OpenAI uses an OpenAI-compatible wire format with a few
+		// differences (api-version query param, api-key header, resource-
+		// scoped URLs). We funnel it through the openai adapter with an
+		// extra-headers tweak that injects `api-key` rather than Bearer.
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("azure provider requires an api_key (Azure OpenAI resource key)")
+		}
+		if cfg.BaseURL == "" {
+			return nil, fmt.Errorf("azure provider requires a base_url like https://<resource>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-10-21")
+		}
+		headers := make(map[string]string, len(cfg.ExtraHeaders)+1)
+		maps.Copy(headers, cfg.ExtraHeaders)
+		// Azure auth is `api-key: <key>` rather than `Authorization: Bearer`.
+		headers["api-key"] = cfg.APIKey
+		var azOpts []openai.Option
+		if limiter != nil {
+			azOpts = append(azOpts, openai.WithRateLimiter(limiter))
+		}
+		// Pass apiKey="" so the OpenAI adapter doesn't also set
+		// `Authorization: Bearer <key>`, which Azure rejects.
+		return openai.New("", cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers, azOpts...)
+	case "vertex-gemini":
+		// Native Gemini API via Vertex AI. Unlike "vertex" (which uses
+		// the OpenAI-compatible adapter on Vertex), this routes through
+		// the gemini provider so we keep features like thinkingConfig,
+		// safetySettings, grounding, and cachedContent.
+		//
+		// Required cfg.BaseURL format:
+		//   https://{REGION}-aiplatform.googleapis.com
+		// We auto-append /v1/projects/{PROJECT}/locations/{REGION}/publishers/google
+		// when the URL stops at the regional host.
+		if cfg.BaseURL == "" {
+			return nil, fmt.Errorf("vertex-gemini provider requires base_url (e.g. https://us-central1-aiplatform.googleapis.com) and AT_VERTEX_PROJECT env")
+		}
+		project := cfg.ExtraHeaders["vertex_project"]
+		region := cfg.ExtraHeaders["vertex_region"]
+		if project == "" {
+			return nil, fmt.Errorf("vertex-gemini provider requires extra_headers.vertex_project")
+		}
+		if region == "" {
+			region = "us-central1"
+		}
+		pathPrefix := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/google", project, region)
+
+		ts, err := googleADCTokenSource(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("vertex-gemini ADC: %w", err)
+		}
+
+		var gopts []gemini.Option
+		gopts = append(gopts, gemini.WithGoogleTokenSource(ts))
+		gopts = append(gopts, gemini.WithPathPrefix(pathPrefix))
+		if limiter != nil {
+			gopts = append(gopts, gemini.WithRateLimiter(limiter))
+		}
+		return gemini.New("", cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, gopts...)
+	case "cohere":
+		if cfg.APIKey == "" {
+			return nil, fmt.Errorf("cohere provider requires an api_key (get one from https://dashboard.cohere.com)")
+		}
+		var copts []cohere.Option
+		if limiter != nil {
+			copts = append(copts, cohere.WithRateLimiter(limiter))
+		}
+		return cohere.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, copts...)
 	default:
-		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex, gemini, minimax)", cfg.Type)
+		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex, gemini, minimax, bedrock, azure, cohere)", cfg.Type)
 	}
 }
 

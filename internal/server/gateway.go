@@ -80,6 +80,9 @@ func (a *authResult) isModelAllowed(providerKey, fullModelID string) bool {
 // It accepts an OpenAI-compatible request, routes it to the correct backend
 // provider based on the model prefix (e.g., "anthropic/claude-haiku-4-5"),
 // and returns an OpenAI-compatible response.
+//
+// Supports AT extensions: at_fallbacks, extra_body, mock_response, timeout_ms,
+// and the Idempotency-Key header (litellm-style ergonomics).
 func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Auth check
 	auth, authErr := s.authenticateRequest(r)
@@ -94,178 +97,249 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// B4: idempotency-key replay BEFORE we read the body. Replays the
+	// stored response verbatim.
+	idempKey := idempotencyKey(r, auth)
+	if idempKey != "" {
+		if e, ok := s.idempotency.get(idempKey); ok {
+			for k, vals := range e.headers {
+				for _, v := range vals {
+					w.Header().Add(k, v)
+				}
+			}
+			w.Header().Set("x-at-idempotent-replay", "true")
+			w.WriteHeader(e.statusCode)
+			_, _ = w.Write(e.body)
+			return
+		}
+	}
+
+	// Wrap the real writer so we can capture for idempotency caching.
+	var cap *captureResponseWriter
+	respW := w
+	if idempKey != "" {
+		cap = newCaptureWriter()
+		respW = cap
+	}
+
 	// Parse request
 	var req ChatCompletionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpResponseJSON(w, map[string]any{
+		httpResponseJSON(respW, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("invalid request body: %v", err),
 				"type":    "invalid_request_error",
 			},
 		}, http.StatusBadRequest)
+		s.maybeStoreIdempotent(idempKey, cap, w)
 		return
 	}
 
-	// Parse model: "provider_key/actual_model"
-	providerKey, actualModel, err := parseModelID(req.Model)
-	if err != nil {
-		httpResponseJSON(w, map[string]any{
+	// B3: mock_response short-circuit. No provider lookup, no auth model
+	// access checks beyond the basic token guard — the whole point of
+	// mock mode is to be free.
+	if req.MockResponse != "" {
+		if req.Stream {
+			writeMockChatStream(respW, req.Model, req.MockResponse, req.StreamOptions != nil && req.StreamOptions.IncludeUsage)
+			s.maybeStoreIdempotent(idempKey, cap, w)
+			return
+		}
+		respW.Header().Set("x-at-mock-response", "true")
+		httpResponseJSON(respW, buildMockChatResponse(req.Model, req.MockResponse), http.StatusOK)
+		s.maybeStoreIdempotent(idempKey, cap, w)
+		return
+	}
+
+	// Resolve the call chain: primary + at_fallbacks.
+	chain := s.chatCallChain(auth, req.Model, req.AtFallbacks)
+	if len(chain) == 0 {
+		httpResponseJSON(respW, map[string]any{
 			"error": map[string]any{
-				"message": err.Error(),
+				"message": "model field is required",
 				"type":    "invalid_request_error",
+				"param":   "model",
 				"code":    "model_not_found",
 			},
 		}, http.StatusBadRequest)
+		s.maybeStoreIdempotent(idempKey, cap, w)
 		return
 	}
 
-	// Token-level access check.
-	if !auth.isModelAllowed(providerKey, req.Model) {
-		httpResponseJSON(w, map[string]any{
+	// If the primary failed validation (provider missing, model not
+	// allowed, …), surface that immediately — fallbacks don't rescue an
+	// invalid primary request.
+	if first := chain[0]; first.err != nil {
+		status := http.StatusBadRequest
+		code := "model_not_found"
+		if strings.Contains(first.err.Error(), "not have access") {
+			status = http.StatusForbidden
+		} else if strings.Contains(first.err.Error(), "not found") || strings.Contains(first.err.Error(), "not available") {
+			status = http.StatusNotFound
+		}
+		httpResponseJSON(respW, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("token does not have access to model %q", req.Model),
+				"message": first.err.Error(),
 				"type":    "invalid_request_error",
-				"code":    "model_not_found",
+				"param":   "model",
+				"code":    code,
 			},
-		}, http.StatusForbidden)
+		}, status)
+		s.maybeStoreIdempotent(idempKey, cap, w)
 		return
 	}
 
-	// Token budget checks (DB tokens only).
+	// Token budget checks once (DB tokens only).
 	if limitMessage, resetErr := s.checkTokenLimits(r.Context(), auth); resetErr != nil {
 		slog.Error("token limit check failed", "error", resetErr)
-		// Non-fatal: allow the request through on check failure.
 	} else if limitMessage != "" {
-		httpResponseJSON(w, map[string]any{
+		httpResponseJSON(respW, map[string]any{
 			"error": map[string]any{
 				"message": limitMessage,
 				"type":    "tokens",
 				"code":    "rate_limit_exceeded",
 			},
 		}, http.StatusTooManyRequests)
+		s.maybeStoreIdempotent(idempKey, cap, w)
 		return
 	}
 
-	// Look up provider
-	info, ok := s.getProviderInfo(providerKey)
-	if !ok {
-		available := s.availableProviderKeys()
-		httpResponseJSON(w, map[string]any{
-			"error": map[string]any{
-				"message": fmt.Sprintf("provider %q not found; available: %v", providerKey, available),
-				"type":    "invalid_request_error",
-				"code":    "model_not_found",
-			},
-		}, http.StatusNotFound)
-		return
-	}
+	// B6: timeout — applied uniformly across all fallback attempts.
+	callCtx, cancel := withRequestTimeout(r.Context(), req.TimeoutMs)
+	defer cancel()
 
-	// Strict model validation: if the provider has a models list,
-	// reject requests for models not in the list.
-	if len(info.models) > 0 && !info.hasModel(actualModel) {
-		httpResponseJSON(w, map[string]any{
-			"error": map[string]any{
-				"message": fmt.Sprintf("model %q is not available for provider %q; available models: %v", actualModel, providerKey, info.models),
-				"type":    "invalid_request_error",
-				"code":    "model_not_found",
-			},
-		}, http.StatusNotFound)
-		return
-	}
-
-	provider := info.provider
-	providerType := info.providerType
-
-	slog.Debug("gateway request",
-		"provider", providerKey,
-		"model", actualModel,
-		"provider_type", providerType,
-		"messages", len(req.Messages),
-	)
-
-	// Translate tools
-	tools := translateOpenAITools(req.Tools)
-
-	// Translate messages based on provider type
-	var messages []service.Message
-
-	switch providerType {
-	case "anthropic", "minimax":
-		// Translate OpenAI format → Anthropic format.
-		// System prompt is extracted separately because Anthropic uses
-		// a top-level "system" parameter instead of a system message.
-		// We pass it as a role="system" service.Message; the Anthropic
-		// provider extracts it when building the request body.
-		// MiniMax uses the Anthropic Messages API, so it needs the same translation.
-		var systemPrompt string
-		systemPrompt, messages = translateOpenAIToAnthropic(req.Messages)
-		if systemPrompt != "" {
-			// Prepend system message — the Anthropic provider will extract it.
-			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
-		}
-	default:
-		// OpenAI-compatible providers (openai, vertex) and gemini: pass through.
-		// The gemini provider handles its own format translation internally.
-		messages = translateOpenAIMessages(req.Messages, s.lookupThoughtSignature)
-	}
-
-	// Build per-request generation options from the client request.
-	opts := buildChatOptions(&req)
+	// Build per-request generation options once. extra_body is cloned per
+	// attempt to avoid cross-attempt mutation.
+	baseOpts := buildChatOptions(&req)
 
 	if req.Stream {
-		s.handleStreamingChat(w, r, auth, info.provider, info.RetryAfterCap(), providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
+		// Streaming path: no fallback. Use the primary only.
+		target := chain[0]
+		messages, tools := s.buildProviderMessages(target.info.providerType, req.Messages, req.Tools)
+		opts := cloneChatOptions(baseOpts)
+		s.handleStreamingChat(w, r.WithContext(callCtx), auth, target.info.provider, target.info.RetryAfterCap(),
+			target.providerKey, target.actualModel, target.fullModel, messages, tools, req.StreamOptions, opts)
 		return
 	}
 
-	// Call the provider (non-streaming) with bounded retry on
-	// transient upstream errors (429/529). Without this, a single
-	// rate-limit blip from upstream Anthropic was returned to the
-	// gateway client immediately as a 502 — opencode and other
-	// SDKs couldn't distinguish a real outage from a transient
-	// rate limit and couldn't honour Retry-After.
-	//
-	// retryAfterCap reuses the per-provider RetryAfterCap config (the
-	// same knob the agent loop uses), so a single setting governs both
-	// internal AT chat and the public gateway. Default 60s.
-	callStart := time.Now()
-	resp, err := callWithGatewayRetry(r.Context(), providerKey, actualModel,
-		info.RetryAfterCap(),
-		func(ctx context.Context) (*service.LLMResponse, error) {
-			return provider.Chat(ctx, actualModel, messages, tools, opts)
-		})
-	latencyMs := time.Since(callStart).Milliseconds()
-	if err != nil {
-		slog.Error("provider chat failed", "provider", providerKey, "error", err)
-		// Record the failed call for the usage dashboard.
-		s.recordUsageAsync(r.Context(), auth, req.Model, service.Usage{}, latencyMs, "error", classifyHTTPError(err), err.Error())
+	// Non-streaming with fallback chain.
+	var (
+		lastErr      error
+		used         chatCallTarget
+		resp         *service.LLMResponse
+		totalLatency int64
+	)
+	for i, target := range chain {
+		if target.err != nil {
+			continue
+		}
+		messages, tools := s.buildProviderMessages(target.info.providerType, req.Messages, req.Tools)
+		opts := cloneChatOptions(baseOpts)
 
-		// Map the error to an upstream-faithful status (e.g. 429 stays
-		// 429, 529 stays 529) and an OpenAI-shaped error body.
-		status, body := classifyGatewayError(err)
-		addGatewayRateLimitHeaders(w, err)
-		httpResponseJSON(w, body, status)
-		return
-	}
-
-	// Forward provider headers (e.g. rate limits)
-	for k, v := range resp.Header {
-		for _, val := range v {
-			w.Header().Add(k, val)
+		callStart := time.Now()
+		r2, err := callWithGatewayRetry(callCtx, target.providerKey, target.actualModel,
+			target.info.RetryAfterCap(),
+			func(ctx context.Context) (*service.LLMResponse, error) {
+				return target.info.provider.Chat(ctx, target.actualModel, messages, tools, opts)
+			})
+		totalLatency += time.Since(callStart).Milliseconds()
+		if err == nil {
+			resp = r2
+			used = target
+			break
+		}
+		lastErr = err
+		slog.Warn("provider chat failed",
+			"attempt", i, "provider", target.providerKey, "model", target.actualModel, "error", err)
+		s.recordUsageAsync(r.Context(), auth, target.fullModel, service.Usage{}, totalLatency, "error", classifyHTTPError(err), err.Error())
+		if !shouldFallback(err) {
+			break
 		}
 	}
 
-	// Build OpenAI-compatible response
-	// Cache thought_signatures before sending the response to the client.
-	s.cacheThoughtSignatures(resp.ToolCalls)
-	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
-	if costCents := s.estimateGatewayUsageCostCents(r.Context(), providerKey, actualModel, req.Model, resp.Usage); costCents > 0 {
-		w.Header().Set("x-at-response-cost-cents", fmt.Sprintf("%.6f", costCents))
+	if resp == nil {
+		// All attempts exhausted (or non-retryable error on the primary).
+		status, body := classifyGatewayError(lastErr)
+		addGatewayRateLimitHeaders(respW, lastErr)
+		httpResponseJSON(respW, body, status)
+		s.maybeStoreIdempotent(idempKey, cap, w)
+		return
 	}
 
-	// Fire-and-forget usage recording for DB tokens.
-	s.recordUsageAsync(r.Context(), auth, req.Model, resp.Usage, latencyMs, "ok", "", "")
+	// Forward provider headers (e.g. rate limits).
+	for k, v := range resp.Header {
+		for _, val := range v {
+			respW.Header().Add(k, val)
+		}
+	}
+	if used.fullModel != req.Model {
+		respW.Header().Set("x-at-model-used", used.fullModel)
+	}
 
-	httpResponseJSON(w, chatResp, http.StatusOK)
+	s.cacheThoughtSignatures(resp.ToolCalls)
+	chatResp := buildOpenAIResponse(generateChatID(), used.fullModel, resp)
+	if costCents := s.estimateGatewayUsageCostCents(r.Context(), used.providerKey, used.actualModel, used.fullModel, resp.Usage); costCents > 0 {
+		respW.Header().Set("x-at-response-cost-cents", fmt.Sprintf("%.6f", costCents))
+	}
+
+	s.recordUsageAsync(r.Context(), auth, used.fullModel, resp.Usage, totalLatency, "ok", "", "")
+	httpResponseJSON(respW, chatResp, http.StatusOK)
+	s.maybeStoreIdempotent(idempKey, cap, w)
+}
+
+// buildProviderMessages translates the OpenAI-shape messages + tools into
+// the provider-flavoured service.Message and service.Tool slices.
+func (s *Server) buildProviderMessages(providerType string, msgs []OpenAIMessage, tools []OpenAITool) ([]service.Message, []service.Tool) {
+	tt := translateOpenAITools(tools)
+	switch providerType {
+	case "anthropic", "minimax", "bedrock":
+		// Bedrock's Converse API uses an Anthropic-style content-block
+		// shape, so we reuse the same translator. The bedrock adapter
+		// converts service.ContentBlock to Converse blocks internally.
+		systemPrompt, messages := translateOpenAIToAnthropic(msgs)
+		if systemPrompt != "" {
+			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
+		}
+		return messages, tt
+	default:
+		return translateOpenAIMessages(msgs, s.lookupThoughtSignature), tt
+	}
+}
+
+// cloneChatOptions shallow-clones a ChatOptions value so concurrent /
+// sequential fallback attempts don't mutate one another's extra_body etc.
+// Pointer fields and maps are independently cloned.
+func cloneChatOptions(in *service.ChatOptions) *service.ChatOptions {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	if len(in.ExtraBody) > 0 {
+		out.ExtraBody = jsonClone(in.ExtraBody)
+	}
+	if len(in.Metadata) > 0 {
+		out.Metadata = jsonClone(in.Metadata)
+	}
+	return &out
+}
+
+// maybeStoreIdempotent flushes the captured response into the real writer
+// and stores it in the idempotency cache when key != "" and the captured
+// status code is one we want to dedup (2xx + 4xx; we explicitly skip 5xx
+// so transient upstream failures don't get pinned to the key).
+func (s *Server) maybeStoreIdempotent(key string, capW *captureResponseWriter, real http.ResponseWriter) {
+	if key == "" || capW == nil {
+		return
+	}
+	defer capW.flushTo(real)
+	if capW.statusCode >= 500 {
+		return
+	}
+	s.idempotency.put(key, idempotencyEntry{
+		statusCode: capW.statusCode,
+		headers:    capW.hdr.Clone(),
+		body:       append([]byte(nil), capW.body...),
+		expiresAt:  time.Now().Add(5 * time.Minute),
+	})
 }
 
 // ProxyRequest handles generic requests to provider-native endpoints.
@@ -753,8 +827,9 @@ func (s *Server) handleStreamingChat(
 			if chunk.FinishReason != "" && hasData {
 				// Send the data chunk first (without finish_reason).
 				writeSSEChunk(w, flusher, cc)
-				// Then send a separate chunk with just the finish_reason.
-				fr := chunk.FinishReason
+				// Then send a separate chunk with just the finish_reason
+				// (normalized to OpenAI's vocabulary).
+				fr := mapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
 				writeSSEChunk(w, flusher, ChatCompletionChunk{
 					ID:     chatID,
 					Object: "chat.completion.chunk",
@@ -767,7 +842,7 @@ func (s *Server) handleStreamingChat(
 				})
 			} else {
 				if chunk.FinishReason != "" {
-					fr := chunk.FinishReason
+					fr := mapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
 					cc.Choices[0].FinishReason = &fr
 				}
 				writeSSEChunk(w, flusher, cc)
@@ -881,11 +956,8 @@ func (s *Server) handleStreamingChat(
 			})
 		}
 
-		// Final chunk: finish reason
-		finishReason := "stop"
-		if !resp.Finished {
-			finishReason = "tool_calls"
-		}
+		// Final chunk: finish reason (normalized to OpenAI's vocabulary).
+		finishReason := normalizeFinishReason(resp)
 		writeSSEChunk(w, flusher, ChatCompletionChunk{
 			ID:     chatID,
 			Object: "chat.completion.chunk",
@@ -959,7 +1031,12 @@ func buildReasoningContent(text string) any {
 }
 
 // writeSSEChunk writes a single SSE data line with the JSON-encoded chunk.
+// It auto-stamps the Created timestamp when callers leave it unset so every
+// chunk carries a unix-second value as OpenAI clients expect.
 func writeSSEChunk(w http.ResponseWriter, flusher http.Flusher, chunk ChatCompletionChunk) {
+	if chunk.Created == 0 {
+		chunk.Created = time.Now().Unix()
+	}
 	data, _ := json.Marshal(chunk)
 	fmt.Fprintf(w, "data: %s\n\n", data)
 	flusher.Flush()

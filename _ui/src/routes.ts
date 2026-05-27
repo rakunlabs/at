@@ -31,7 +31,6 @@ import Pricing from '@/pages/Pricing.svelte';
 import Connections from '@/pages/Connections.svelte';
 import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
 import Files from '@/pages/Files.svelte';
-import Guides from '@/pages/Guides.svelte';
 import NotFound from '@/pages/NotFound.svelte';
 
 export default {
@@ -68,6 +67,5 @@ export default {
   '/usage': Usage,
   '/pricing': Pricing,
   '/files': Files,
-  '/guides': Guides,
   '*': NotFound
 };

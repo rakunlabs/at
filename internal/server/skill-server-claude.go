@@ -168,7 +168,7 @@ func (s *Server) ClaudeCodeMarketplaceAPI(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	opts := claudeMarketplaceOptions{}
+	opts := claudeMarketplaceOptions{DirectSources: true}
 	if market != nil {
 		opts.Name = market.Name
 		opts.Description = market.Description
@@ -210,6 +210,54 @@ func (s *Server) ClaudeCodeMarketplaceZipAPI(w http.ResponseWriter, r *http.Requ
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="at-claude-marketplace.zip"`)
+	w.WriteHeader(http.StatusOK)
+	w.Write(buf.Bytes())
+}
+
+func (s *Server) ClaudeCodeMarketplacePluginZipAPI(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.PathValue("name"))
+	if name == "" {
+		httpResponse(w, "marketplace name is required", http.StatusBadRequest)
+		return
+	}
+	if s.marketplaceStore == nil {
+		httpResponse(w, "marketplace store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	market, err := s.marketplaceStore.GetMarketplaceByName(r.Context(), name)
+	if err != nil {
+		slog.Error("claude marketplace plugin zip: get marketplace failed", "name", name, "error", err)
+		httpResponse(w, "internal error looking up marketplace", http.StatusInternalServerError)
+		return
+	}
+	if market == nil {
+		httpResponse(w, fmt.Sprintf("marketplace %q not found", name), http.StatusNotFound)
+		return
+	}
+
+	item, err := s.claudeMarketplacePluginItem(r.Context(), r, market)
+	if err != nil {
+		slog.Error("claude marketplace plugin zip: build plugin failed", "marketplace", market.Name, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create marketplace plugin: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	if err := writeClaudePluginZipEntries(zw, "", item); err != nil {
+		slog.Error("claude marketplace plugin zip: write failed", "marketplace", market.Name, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create marketplace plugin zip: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := zw.Close(); err != nil {
+		slog.Error("claude marketplace plugin zip: close failed", "marketplace", market.Name, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create marketplace plugin zip: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, item.PluginSlug))
 	w.WriteHeader(http.StatusOK)
 	w.Write(buf.Bytes())
 }
@@ -349,6 +397,7 @@ func (s *Server) claudeMarketplacePluginItem(ctx context.Context, r *http.Reques
 		Kind:       claudePluginKindMarketplace,
 		Skills:     skills,
 		PluginSlug: pluginSlug,
+		PluginURL:  s.publicClaudeMarketplacePluginURL(r, market.Name),
 		MCPConfigs: mcpConfigs,
 	}, nil
 }
@@ -568,17 +617,22 @@ func (item claudePluginItem) category() string {
 }
 
 type claudeMarketplaceOptions struct {
-	Name        string
-	Description string
+	Name          string
+	Description   string
+	DirectSources bool
 }
 
 func claudeMarketplaceFromItems(items []claudePluginItem, opts claudeMarketplaceOptions) claudeMarketplaceFile {
 	plugins := make([]claudeMarketplacePlugin, 0, len(items))
 	for _, item := range items {
+		source := "./plugins/" + item.PluginSlug
+		if opts.DirectSources && item.PluginURL != "" {
+			source = item.PluginURL
+		}
 		plugins = append(plugins, claudeMarketplacePlugin{
 			Name:        item.PluginSlug,
 			DisplayName: item.displayName(),
-			Source:      "./plugins/" + item.PluginSlug,
+			Source:      source,
 			Description: item.description(),
 			Version:     claudeMarketplaceVersion,
 			Author:      claudeMarketplaceOwner{Name: "AT"},
@@ -787,6 +841,10 @@ func (s *Server) publicMCPServerMCPURL(r *http.Request, name string) string {
 
 func (s *Server) publicClaudePluginURL(r *http.Request, name string) string {
 	return s.publicBaseURL(r) + "/gateway/v1/claude-code/plugins/" + url.PathEscape(name) + "/plugin.zip"
+}
+
+func (s *Server) publicClaudeMarketplacePluginURL(r *http.Request, name string) string {
+	return s.publicBaseURL(r) + "/gateway/v1/claude-code/marketplaces/" + url.PathEscape(name) + "/plugin.zip"
 }
 
 func (s *Server) publicBaseURL(r *http.Request) string {

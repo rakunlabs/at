@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/oklog/ulid/v2"
 
@@ -17,6 +18,7 @@ type ChatCompletionRequest struct {
 	Model         string          `json:"model"`
 	Messages      []OpenAIMessage `json:"messages"`
 	Tools         []OpenAITool    `json:"tools,omitempty"`
+	ToolChoice    json.RawMessage `json:"tool_choice,omitempty"` // string or object
 	Stream        bool            `json:"stream,omitempty"`
 	StreamOptions *StreamOptions  `json:"stream_options,omitempty"`
 
@@ -25,9 +27,20 @@ type ChatCompletionRequest struct {
 	MaxCompletionTokens *int            `json:"max_completion_tokens,omitempty"`
 	Temperature         *float64        `json:"temperature,omitempty"`
 	TopP                *float64        `json:"top_p,omitempty"`
+	N                   *int            `json:"n,omitempty"`
 	Stop                json.RawMessage `json:"stop,omitempty"` // string or []string
 	Seed                *int            `json:"seed,omitempty"`
 	ResponseFormat      map[string]any  `json:"response_format,omitempty"`
+	PresencePenalty     *float64        `json:"presence_penalty,omitempty"`
+	FrequencyPenalty    *float64        `json:"frequency_penalty,omitempty"`
+	LogitBias           map[string]int  `json:"logit_bias,omitempty"`
+	User                string          `json:"user,omitempty"`
+	Logprobs            *bool           `json:"logprobs,omitempty"`
+	TopLogprobs         *int            `json:"top_logprobs,omitempty"`
+	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
+	ServiceTier         string          `json:"service_tier,omitempty"`
+	Store               *bool           `json:"store,omitempty"`
+	Metadata            map[string]any  `json:"metadata,omitempty"`
 
 	// Reasoning / thinking parameters
 	ReasoningEffort string       `json:"reasoning_effort,omitempty"` // "low", "medium", "high"
@@ -35,6 +48,32 @@ type ChatCompletionRequest struct {
 
 	// Web search (OpenAI search models)
 	WebSearchOptions map[string]any `json:"web_search_options,omitempty"`
+
+	// ─── AT extensions (litellm-inspired ergonomics) ───
+
+	// AtFallbacks lists alternative "provider/model" IDs to try when the
+	// primary fails with a retryable upstream error (429/529/5xx). Each
+	// fallback gets one attempt in declared order. The actual model used
+	// is reflected in the `x-at-model-used` response header.
+	AtFallbacks []string `json:"at_fallbacks,omitempty"`
+
+	// ExtraBody is merged into the upstream provider request body AFTER
+	// our own field mapping. Use it to forward provider-native parameters
+	// we don't surface as first-class fields (e.g. Anthropic
+	// `cache_control`, Gemini `safetySettings`, OpenAI experimental flags).
+	// Keys collide-overwrite our own keys.
+	ExtraBody map[string]any `json:"extra_body,omitempty"`
+
+	// MockResponse, when non-empty, short-circuits the upstream call and
+	// returns a synthesized response immediately. Intended for SDK
+	// integration tests so CI doesn't burn tokens. Streaming requests
+	// emit a single content chunk followed by finish_reason=stop.
+	MockResponse string `json:"mock_response,omitempty"`
+
+	// TimeoutMs bounds the upstream call. When set, the gateway derives a
+	// `context.WithTimeout(ctx, d)` before issuing the provider request.
+	// 0 means use the inherited request context (no extra cap).
+	TimeoutMs int `json:"timeout_ms,omitempty"`
 }
 
 // ThinkingReq is the client-facing thinking configuration.
@@ -86,17 +125,21 @@ type OpenAIFunction struct {
 
 // ChatCompletionResponse is the OpenAI-compatible response body.
 type ChatCompletionResponse struct {
-	ID      string                 `json:"id"`
-	Object  string                 `json:"object"`
-	Model   string                 `json:"model"`
-	Choices []ChatCompletionChoice `json:"choices"`
-	Usage   ChatCompletionUsage    `json:"usage"`
+	ID                string                 `json:"id"`
+	Object            string                 `json:"object"`
+	Created           int64                  `json:"created"`
+	Model             string                 `json:"model"`
+	Choices           []ChatCompletionChoice `json:"choices"`
+	Usage             ChatCompletionUsage    `json:"usage"`
+	SystemFingerprint string                 `json:"system_fingerprint,omitempty"`
+	ServiceTier       string                 `json:"service_tier,omitempty"`
 }
 
 type ChatCompletionChoice struct {
 	Index        int                   `json:"index"`
 	Message      ChatCompletionMessage `json:"message"`
 	FinishReason string                `json:"finish_reason"`
+	Logprobs     any                   `json:"logprobs,omitempty"`
 }
 
 type ChatCompletionMessage struct {
@@ -104,17 +147,27 @@ type ChatCompletionMessage struct {
 	Content          *string          `json:"content"`
 	ReasoningContent *string          `json:"reasoning_content,omitempty"`
 	ToolCalls        []OpenAIToolCall `json:"tool_calls,omitempty"`
+	Refusal          *string          `json:"refusal,omitempty"`
 }
 
 type ChatCompletionUsage struct {
-	PromptTokens         int                                `json:"prompt_tokens"`
-	CompletionTokens     int                                `json:"completion_tokens"`
-	TotalTokens          int                                `json:"total_tokens"`
-	PromptTokensDetails *ChatCompletionPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	PromptTokens            int                                    `json:"prompt_tokens"`
+	CompletionTokens        int                                    `json:"completion_tokens"`
+	TotalTokens             int                                    `json:"total_tokens"`
+	PromptTokensDetails     *ChatCompletionPromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *ChatCompletionCompletionTokensDetails `json:"completion_tokens_details,omitempty"`
 }
 
 type ChatCompletionPromptTokensDetails struct {
 	CachedTokens int `json:"cached_tokens,omitempty"`
+	AudioTokens  int `json:"audio_tokens,omitempty"`
+}
+
+type ChatCompletionCompletionTokensDetails struct {
+	ReasoningTokens          int `json:"reasoning_tokens,omitempty"`
+	AudioTokens              int `json:"audio_tokens,omitempty"`
+	AcceptedPredictionTokens int `json:"accepted_prediction_tokens,omitempty"`
+	RejectedPredictionTokens int `json:"rejected_prediction_tokens,omitempty"`
 }
 
 // OpenAI /v1/models response types.
@@ -134,11 +187,14 @@ type ModelData struct {
 
 // ChatCompletionChunk is the OpenAI-compatible streaming chunk response.
 type ChatCompletionChunk struct {
-	ID      string               `json:"id"`
-	Object  string               `json:"object"` // "chat.completion.chunk"
-	Model   string               `json:"model"`
-	Choices []ChunkChoice        `json:"choices"`
-	Usage   *ChatCompletionUsage `json:"usage,omitempty"`
+	ID                string               `json:"id"`
+	Object            string               `json:"object"` // "chat.completion.chunk"
+	Created           int64                `json:"created"`
+	Model             string               `json:"model"`
+	Choices           []ChunkChoice        `json:"choices"`
+	Usage             *ChatCompletionUsage `json:"usage,omitempty"`
+	SystemFingerprint string               `json:"system_fingerprint,omitempty"`
+	ServiceTier       string               `json:"service_tier,omitempty"`
 }
 
 // ChunkChoice represents a single choice in a streaming chunk.
@@ -422,20 +478,92 @@ func buildChatOptions(req *ChatCompletionRequest) *service.ChatOptions {
 		any = true
 	}
 
+	if tc := parseToolChoice(req.ToolChoice); tc != nil {
+		opts.ToolChoice = tc
+		any = true
+	}
+
+	if req.ParallelToolCalls != nil {
+		opts.ParallelToolCalls = req.ParallelToolCalls
+		any = true
+	}
+
+	if req.N != nil {
+		opts.N = req.N
+		any = true
+	}
+	if req.PresencePenalty != nil {
+		opts.PresencePenalty = req.PresencePenalty
+		any = true
+	}
+	if req.FrequencyPenalty != nil {
+		opts.FrequencyPenalty = req.FrequencyPenalty
+		any = true
+	}
+	if len(req.LogitBias) > 0 {
+		opts.LogitBias = req.LogitBias
+		any = true
+	}
+	if req.User != "" {
+		opts.User = req.User
+		any = true
+	}
+	if req.Logprobs != nil {
+		opts.Logprobs = req.Logprobs
+		any = true
+	}
+	if req.TopLogprobs != nil {
+		opts.TopLogprobs = req.TopLogprobs
+		any = true
+	}
+	if req.Store != nil {
+		opts.Store = req.Store
+		any = true
+	}
+	if len(req.Metadata) > 0 {
+		opts.Metadata = req.Metadata
+		any = true
+	}
+	if req.ServiceTier != "" {
+		opts.ServiceTier = req.ServiceTier
+		any = true
+	}
+	if len(req.ExtraBody) > 0 {
+		opts.ExtraBody = req.ExtraBody
+		any = true
+	}
+
 	if !any {
 		return nil
 	}
 	return opts
 }
 
+// parseToolChoice accepts the OpenAI tool_choice shape: either a string
+// ("none" | "auto" | "required") or a {"type":"function","function":{"name":...}}
+// object. Returns nil when unset.
+func parseToolChoice(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return nil
+		}
+		return s
+	}
+	var obj map[string]any
+	if err := json.Unmarshal(raw, &obj); err == nil && len(obj) > 0 {
+		return obj
+	}
+	return nil
+}
+
 // ─── Translation: service.LLMResponse → OpenAI response ───
 
 func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompletionResponse {
-	finishReason := "stop"
-	if !resp.Finished {
-		finishReason = "tool_calls"
-	}
-
 	msg := ChatCompletionMessage{
 		Role: "assistant",
 	}
@@ -466,18 +594,85 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 	}
 
 	return &ChatCompletionResponse{
-		ID:     id,
-		Object: "chat.completion",
-		Model:  model,
+		ID:      id,
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   model,
 		Choices: []ChatCompletionChoice{
 			{
 				Index:        0,
 				Message:      msg,
-				FinishReason: finishReason,
+				FinishReason: normalizeFinishReason(resp),
+				Logprobs:     resp.Logprobs,
 			},
 		},
-		Usage: chatCompletionUsageFromService(resp.Usage),
+		Usage:             chatCompletionUsageFromService(resp.Usage),
+		SystemFingerprint: resp.SystemFingerprint,
 	}
+}
+
+// mapStreamFinishReason maps an upstream stream-chunk finish reason onto
+// OpenAI's vocabulary, falling back to "tool_calls" when tool calls are
+// present and the reason is empty/unknown.
+func mapStreamFinishReason(raw string, hasToolCalls bool) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "stop", "end_turn", "stop_sequence", "endofturn":
+		return "stop"
+	case "length", "max_tokens", "max_output_tokens":
+		return "length"
+	case "content_filter", "safety", "blocklist", "prohibited_content", "spii", "recitation":
+		return "content_filter"
+	case "tool_calls", "tool_use":
+		return "tool_calls"
+	case "function_call":
+		return "function_call"
+	case "":
+		if hasToolCalls {
+			return "tool_calls"
+		}
+		return "stop"
+	default:
+		if hasToolCalls {
+			return "tool_calls"
+		}
+		return "stop"
+	}
+}
+
+// normalizeFinishReason maps an upstream finish reason onto OpenAI's
+// vocabulary. Falls back to deriving from resp.Finished + tool calls when
+// the provider didn't report one.
+func normalizeFinishReason(resp *service.LLMResponse) string {
+	if resp == nil {
+		return "stop"
+	}
+	switch strings.ToLower(strings.TrimSpace(resp.FinishReason)) {
+	case "stop", "end_turn", "stop_sequence", "endofturn":
+		return "stop"
+	case "length", "max_tokens", "max_output_tokens":
+		return "length"
+	case "content_filter", "safety", "blocklist", "prohibited_content", "spii", "recitation":
+		return "content_filter"
+	case "tool_calls", "tool_use":
+		return "tool_calls"
+	case "function_call":
+		return "function_call"
+	case "":
+		// Fall through to derivation below.
+	default:
+		// Unknown upstream value — best-effort: if tool calls are present,
+		// treat as tool_calls; otherwise stop.
+		if len(resp.ToolCalls) > 0 {
+			return "tool_calls"
+		}
+		return "stop"
+	}
+
+	// Derivation when the provider did not surface a reason.
+	if len(resp.ToolCalls) > 0 || !resp.Finished {
+		return "tool_calls"
+	}
+	return "stop"
 }
 
 func chatCompletionUsageFromService(usage service.Usage) ChatCompletionUsage {
@@ -486,9 +681,16 @@ func chatCompletionUsageFromService(usage service.Usage) ChatCompletionUsage {
 		CompletionTokens: usage.CompletionTokens,
 		TotalTokens:      usage.TotalTokenCount(),
 	}
-	if usage.CacheReadTokens > 0 {
+	if usage.CacheReadTokens > 0 || usage.AudioPromptTokens > 0 {
 		out.PromptTokensDetails = &ChatCompletionPromptTokensDetails{
 			CachedTokens: usage.CacheReadTokens,
+			AudioTokens:  usage.AudioPromptTokens,
+		}
+	}
+	if usage.ReasoningTokens > 0 || usage.AudioCompletionTokens > 0 {
+		out.CompletionTokensDetails = &ChatCompletionCompletionTokensDetails{
+			ReasoningTokens: usage.ReasoningTokens,
+			AudioTokens:     usage.AudioCompletionTokens,
 		}
 	}
 	return out

@@ -66,7 +66,8 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if depth >= maxDepth {
 		slog.Warn("org-delegation: max delegation depth reached",
 			"org_id", org.ID, "task_id", task.ID, "agent_id", agentID, "depth", depth, "max_depth", maxDepth)
-		if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, "max delegation depth reached"); err != nil {
+		result := fmt.Sprintf("[DELEGATION_DEPTH_LIMIT] Task blocked because delegation depth %d reached the configured maximum of %d.", depth, maxDepth)
+		if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusBlocked, result); err != nil {
 			return fmt.Errorf("org-delegation: update task at max depth: %w", err)
 		}
 		return nil
@@ -151,6 +152,12 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if err != nil {
 		return fmt.Errorf("org-delegation: get direct reports: %w", err)
 	}
+	delegationAllowed := depth+1 < maxDepth
+	if !delegationAllowed && len(reports) > 0 {
+		slog.Info("org-delegation: not exposing delegate tools at depth limit",
+			"org_id", org.ID, "task_id", task.ID, "agent_id", agentID, "depth", depth, "max_depth", maxDepth)
+		reports = nil
+	}
 
 	// e) Build delegate tools and dispatch map.
 	// Maps tool name → agent ID of the direct report.
@@ -179,14 +186,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 		reportInfos = append(reportInfos, reportInfo{orgAgent: oa, agent: reportAgent})
 
-		// Sanitize name for tool use (alphanumeric + underscores).
-		safeName := strings.Map(func(r rune) rune {
-			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-				return r
-			}
-			return '_'
-		}, reportAgent.Name)
-		toolName := "delegate_to_" + strings.ToLower(safeName)
+		toolName := uniqueDelegateToolName(reportAgent.Name, oa.AgentID, delegateToolMap)
 
 		toolDesc := fmt.Sprintf("Delegate a task to %s. %s", reportAgent.Name, reportAgent.Config.Description)
 		tool := service.Tool{
@@ -351,6 +351,8 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		teamSection.WriteString("3. After each delegation result comes back, review it and decide whether to delegate further, request revisions, or finalize.\n")
 		teamSection.WriteString("4. You are the decision-maker: only YOU decide when the overall task is complete. Summarize the final outcome in your last message.\n")
 		systemPrompt += teamSection.String()
+	} else if !delegationAllowed {
+		systemPrompt += fmt.Sprintf("\n\n## Delegation Limit\nYou are at the last allowed delegation level for this organization (depth %d, max %d). Complete the task yourself; no delegate_to_* tools are available at this depth.\n", depth, maxDepth)
 	}
 
 	// f2) Inject shared workspace directory into system prompt.
@@ -517,14 +519,24 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			return fmt.Errorf("org-delegation: cancelled: %w", err)
 		}
 
-		// Check agent budget before each LLM call.
+		// Check organization and agent budgets before each LLM call.
+		if budgetErr := s.checkOrganizationBudget(ctx, org); budgetErr != nil {
+			slog.Warn("org-delegation: organization budget exceeded",
+				"org_id", org.ID, "task_id", task.ID, "error", budgetErr)
+			result := fmt.Sprintf("[BUDGET_EXCEEDED] organization budget exceeded: %v", budgetErr)
+			if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusBlocked, result); updateErr != nil {
+				return fmt.Errorf("org-delegation: update task for org budget exceeded: %w", updateErr)
+			}
+			return nil
+		}
 		if s.agentBudgetStore != nil {
 			checkBudget := s.checkBudgetFunc()
 			if checkBudget != nil {
 				if budgetErr := checkBudget(ctx, agentID); budgetErr != nil {
 					slog.Warn("org-delegation: budget exceeded",
 						"agent_id", agentID, "task_id", task.ID, "error", budgetErr)
-					if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, fmt.Sprintf("budget exceeded: %v", budgetErr)); updateErr != nil {
+					result := fmt.Sprintf("[BUDGET_EXCEEDED] agent budget exceeded: %v", budgetErr)
+					if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusBlocked, result); updateErr != nil {
 						return fmt.Errorf("org-delegation: update task for budget exceeded: %w", updateErr)
 					}
 					return nil
@@ -600,14 +612,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			// groups by the user-facing provider, not by upstream API family.
 			if recordUsage := s.recordUsageFunc(); recordUsage != nil {
 				_ = recordUsage(ctx, workflow.UsageEvent{
-					AgentID:      agentID,
-					Model:        model,
-					Provider:     agent.Config.Provider,
-					TaskID:       task.ID,
-					LatencyMs:    latencyMs,
-					Status:       "error",
-					ErrorCode:    classifyHTTPError(chatErr),
-					ErrorMessage: chatErr.Error(),
+					AgentID:        agentID,
+					Model:          model,
+					Provider:       agent.Config.Provider,
+					OrganizationID: org.ID,
+					TaskID:         task.ID,
+					LatencyMs:      latencyMs,
+					Status:         "error",
+					ErrorCode:      classifyHTTPError(chatErr),
+					ErrorMessage:   chatErr.Error(),
 				})
 			}
 			slog.Error("org-delegation: chat failed",
@@ -628,13 +641,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
 				if usageErr := recordUsage(ctx, workflow.UsageEvent{
-					AgentID:   agentID,
-					Model:     model,
-					Provider:  agent.Config.Provider,
-					TaskID:    task.ID,
-					Usage:     resp.Usage,
-					LatencyMs: latencyMs,
-					Status:    "ok",
+					AgentID:        agentID,
+					Model:          model,
+					Provider:       agent.Config.Provider,
+					OrganizationID: org.ID,
+					TaskID:         task.ID,
+					Usage:          resp.Usage,
+					LatencyMs:      latencyMs,
+					Status:         "ok",
 				}); usageErr != nil {
 					slog.Warn("org-delegation: failed to record usage",
 						"agent_id", agentID, "error", usageErr)
@@ -1162,6 +1176,14 @@ func (s *Server) getDirectReports(ctx context.Context, orgID, agentID string) ([
 // createDelegationTask creates a child task linked to the parent task via ParentID.
 // It generates a human-readable identifier from the organization's issue prefix and counter.
 func (s *Server) createDelegationTask(ctx context.Context, org *service.Organization, parentTask *service.Task, assigneeAgentID, description string, depth int) (*service.Task, error) {
+	maxDepth := org.MaxDelegationDepth
+	if maxDepth == 0 {
+		maxDepth = 10
+	}
+	if depth+1 >= maxDepth {
+		return nil, fmt.Errorf("max delegation depth reached: next depth %d would meet or exceed max depth %d", depth+1, maxDepth)
+	}
+
 	// Increment issue counter.
 	counter, err := s.organizationStore.IncrementIssueCounter(ctx, org.ID)
 	if err != nil {
@@ -1256,4 +1278,80 @@ func detectUnfulfilledDelegation(content string, delegateToolMap map[string]stri
 		}
 	}
 	return false
+}
+
+func uniqueDelegateToolName(agentName, agentID string, existing map[string]string) string {
+	base := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			return r
+		}
+		return '_'
+	}, agentName)
+	base = strings.ToLower(base)
+	if base == "" {
+		base = "agent"
+	}
+	toolName := "delegate_to_" + base
+	if _, ok := existing[toolName]; !ok {
+		return toolName
+	}
+
+	suffix := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			return r
+		}
+		return '_'
+	}, agentID)
+	suffix = strings.Trim(strings.ToLower(suffix), "_")
+	if len(suffix) > 8 {
+		suffix = suffix[:8]
+	}
+	suffix = strings.Trim(suffix, "_")
+	if suffix == "" {
+		suffix = "agent"
+	}
+	for i := 1; ; i++ {
+		candidate := fmt.Sprintf("%s_%s", toolName, suffix)
+		if i > 1 {
+			candidate = fmt.Sprintf("%s_%s_%d", toolName, suffix, i)
+		}
+		if _, ok := existing[candidate]; !ok {
+			return candidate
+		}
+	}
+}
+
+func (s *Server) checkOrganizationBudget(ctx context.Context, org *service.Organization) error {
+	if org == nil || org.BudgetMonthlyCents <= 0 {
+		return nil
+	}
+
+	spendCents := float64(org.SpentMonthlyCents)
+	if s.costEventStore != nil {
+		summary, err := s.costEventStore.GetUsageSummary(ctx, service.UsageFilter{
+			From:   orgBudgetWindowStart(org),
+			OrgIDs: []string{org.ID},
+		})
+		if err != nil {
+			return fmt.Errorf("get organization spend: %w", err)
+		}
+		spendCents = summary.CostCents
+	}
+
+	limitCents := float64(org.BudgetMonthlyCents)
+	if spendCents >= limitCents {
+		return fmt.Errorf("organization %s has exceeded monthly budget (%.2f / %.2f USD)", org.ID, spendCents/100, limitCents/100)
+	}
+	return nil
+}
+
+func orgBudgetWindowStart(org *service.Organization) string {
+	if org != nil && org.BudgetResetAt != "" {
+		if t, err := time.Parse(time.RFC3339, org.BudgetResetAt); err == nil {
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	now := time.Now().UTC()
+	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+	return start.Format(time.RFC3339)
 }

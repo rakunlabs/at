@@ -110,9 +110,10 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 }
 
 type OpenAIResponse struct {
-	Error   *OpenAIError `json:"error,omitempty"`
-	Choices []Choice     `json:"choices"`
-	Usage   *OpenAIUsage `json:"usage,omitempty"`
+	Error             *OpenAIError `json:"error,omitempty"`
+	Choices           []Choice     `json:"choices"`
+	Usage             *OpenAIUsage `json:"usage,omitempty"`
+	SystemFingerprint string       `json:"system_fingerprint,omitempty"`
 }
 
 type OpenAIError struct {
@@ -121,16 +122,25 @@ type OpenAIError struct {
 }
 
 type OpenAIUsage struct {
-	PromptTokens        int                        `json:"prompt_tokens"`
-	CompletionTokens    int                        `json:"completion_tokens"`
-	TotalTokens         int                        `json:"total_tokens"`
-	PromptTokensDetails *OpenAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
+	PromptTokens            int                            `json:"prompt_tokens"`
+	CompletionTokens        int                            `json:"completion_tokens"`
+	TotalTokens             int                            `json:"total_tokens"`
+	PromptTokensDetails     *OpenAIPromptTokensDetails     `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *OpenAICompletionTokensDetails `json:"completion_tokens_details,omitempty"`
 }
 
 type OpenAIPromptTokensDetails struct {
 	CachedTokens        int `json:"cached_tokens"`
+	AudioTokens         int `json:"audio_tokens"`
 	CacheCreationTokens int `json:"cache_creation_tokens"`
 	CacheWriteTokens    int `json:"cache_write_tokens"`
+}
+
+type OpenAICompletionTokensDetails struct {
+	ReasoningTokens          int `json:"reasoning_tokens"`
+	AudioTokens              int `json:"audio_tokens"`
+	AcceptedPredictionTokens int `json:"accepted_prediction_tokens"`
+	RejectedPredictionTokens int `json:"rejected_prediction_tokens"`
 }
 
 func openAIServiceUsage(u *OpenAIUsage) service.Usage {
@@ -154,13 +164,21 @@ func openAIServiceUsage(u *OpenAIUsage) service.Usage {
 	if totalTokens <= 0 {
 		totalTokens = promptTokens + u.CompletionTokens + cacheRead + cacheWrite
 	}
-	return service.Usage{
+	out := service.Usage{
 		PromptTokens:     promptTokens,
 		CompletionTokens: u.CompletionTokens,
 		CacheReadTokens:  cacheRead,
 		CacheWriteTokens: cacheWrite,
 		TotalTokens:      totalTokens,
 	}
+	if u.PromptTokensDetails != nil {
+		out.AudioPromptTokens = u.PromptTokensDetails.AudioTokens
+	}
+	if u.CompletionTokensDetails != nil {
+		out.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens
+		out.AudioCompletionTokens = u.CompletionTokensDetails.AudioTokens
+	}
+	return out
 }
 
 func usagePtr(u service.Usage) *service.Usage {
@@ -170,6 +188,7 @@ func usagePtr(u service.Usage) *service.Usage {
 type Choice struct {
 	Message      ChoiceMessage `json:"message"`
 	FinishReason string        `json:"finish_reason"`
+	Logprobs     any           `json:"logprobs,omitempty"`
 }
 
 type ChoiceMessage struct {
@@ -278,10 +297,13 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 	choice := result.Choices[0]
 	llmResp := &service.LLMResponse{
-		Content:          choice.Message.Content,
-		ReasoningContent: choice.Message.ReasoningContent,
-		Finished:         choice.FinishReason != "tool_calls",
-		Header:           headers,
+		Content:           choice.Message.Content,
+		ReasoningContent:  choice.Message.ReasoningContent,
+		Finished:          choice.FinishReason != "tool_calls",
+		FinishReason:      choice.FinishReason,
+		Header:            headers,
+		SystemFingerprint: result.SystemFingerprint,
+		Logprobs:          choice.Logprobs,
 	}
 
 	if result.Usage != nil {
@@ -708,6 +730,46 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 		if len(opts.WebSearchOptions) > 0 {
 			reqBody["web_search_options"] = opts.WebSearchOptions
+		}
+		if opts.ToolChoice != nil && len(tools) > 0 {
+			reqBody["tool_choice"] = opts.ToolChoice
+		}
+		if opts.ParallelToolCalls != nil {
+			reqBody["parallel_tool_calls"] = *opts.ParallelToolCalls
+		}
+		if opts.N != nil {
+			reqBody["n"] = *opts.N
+		}
+		if opts.PresencePenalty != nil {
+			reqBody["presence_penalty"] = *opts.PresencePenalty
+		}
+		if opts.FrequencyPenalty != nil {
+			reqBody["frequency_penalty"] = *opts.FrequencyPenalty
+		}
+		if len(opts.LogitBias) > 0 {
+			reqBody["logit_bias"] = opts.LogitBias
+		}
+		if opts.User != "" {
+			reqBody["user"] = opts.User
+		}
+		if opts.Logprobs != nil {
+			reqBody["logprobs"] = *opts.Logprobs
+		}
+		if opts.TopLogprobs != nil {
+			reqBody["top_logprobs"] = *opts.TopLogprobs
+		}
+		if opts.Store != nil {
+			reqBody["store"] = *opts.Store
+		}
+		if len(opts.Metadata) > 0 {
+			reqBody["metadata"] = opts.Metadata
+		}
+		if opts.ServiceTier != "" {
+			reqBody["service_tier"] = opts.ServiceTier
+		}
+		// extra_body is merged last so callers can override our keys.
+		for k, v := range opts.ExtraBody {
+			reqBody[k] = v
 		}
 	}
 

@@ -122,24 +122,109 @@ func (s *Server) UpdateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req service.Organization
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	var fields map[string]json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&fields); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	// Allow partial updates: fall back to existing values when not provided.
-	if req.Name == "" {
-		req.Name = existing.Name
+	// Allow partial updates while preserving the ability to explicitly clear
+	// string fields such as head_agent_id.
+	req := *existing
+	if raw, ok := fields["name"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid name: %v", err), http.StatusBadRequest)
+			return
+		}
+		if v != "" {
+			req.Name = v
+		}
 	}
-	if len(req.CanvasLayout) == 0 {
-		req.CanvasLayout = existing.CanvasLayout
+	if raw, ok := fields["description"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid description: %v", err), http.StatusBadRequest)
+			return
+		}
+		req.Description = v
 	}
-	if req.HeadAgentID == "" {
-		req.HeadAgentID = existing.HeadAgentID
+	if raw, ok := fields["issue_prefix"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid issue_prefix: %v", err), http.StatusBadRequest)
+			return
+		}
+		req.IssuePrefix = v
 	}
-	if req.MaxDelegationDepth == 0 {
-		req.MaxDelegationDepth = existing.MaxDelegationDepth
+	if raw, ok := fields["budget_monthly_cents"]; ok {
+		var v int64
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid budget_monthly_cents: %v", err), http.StatusBadRequest)
+			return
+		}
+		req.BudgetMonthlyCents = v
+	}
+	if raw, ok := fields["spent_monthly_cents"]; ok {
+		var v int64
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid spent_monthly_cents: %v", err), http.StatusBadRequest)
+			return
+		}
+		req.SpentMonthlyCents = v
+	}
+	if raw, ok := fields["budget_reset_at"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid budget_reset_at: %v", err), http.StatusBadRequest)
+			return
+		}
+		req.BudgetResetAt = v
+	}
+	if raw, ok := fields["require_board_approval_for_new_agents"]; ok {
+		var v bool
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid require_board_approval_for_new_agents: %v", err), http.StatusBadRequest)
+			return
+		}
+		req.RequireBoardApproval = v
+	}
+	if raw, ok := fields["head_agent_id"]; ok {
+		var v string
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid head_agent_id: %v", err), http.StatusBadRequest)
+			return
+		}
+		req.HeadAgentID = v
+	}
+	if raw, ok := fields["max_delegation_depth"]; ok {
+		var v int
+		if err := json.Unmarshal(raw, &v); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid max_delegation_depth: %v", err), http.StatusBadRequest)
+			return
+		}
+		if v > 0 {
+			req.MaxDelegationDepth = v
+		}
+	}
+	if raw, ok := fields["canvas_layout"]; ok {
+		if string(raw) == "null" {
+			req.CanvasLayout = nil
+		} else {
+			req.CanvasLayout = json.RawMessage(raw)
+		}
+	}
+	if raw, ok := fields["container_config"]; ok {
+		if string(raw) == "null" {
+			req.ContainerConfig = nil
+		} else {
+			var cfg service.ContainerConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				httpResponse(w, fmt.Sprintf("invalid container_config: %v", err), http.StatusBadRequest)
+				return
+			}
+			req.ContainerConfig = &cfg
+		}
 	}
 
 	// Validate head_agent_id if being changed.

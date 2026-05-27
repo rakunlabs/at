@@ -388,3 +388,53 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		},
 	}, nil
 }
+
+// ─── Moderations ───
+
+// moderationsRequest is the OpenAI moderations API request.
+type moderationsRequest struct {
+	Input []string `json:"input"`
+	Model string   `json:"model,omitempty"`
+}
+
+// moderationsResponse is the OpenAI moderations API response.
+type moderationsResponse struct {
+	ID      string `json:"id"`
+	Model   string `json:"model"`
+	Results []struct {
+		Flagged        bool               `json:"flagged"`
+		Categories     map[string]bool    `json:"categories"`
+		CategoryScores map[string]float64 `json:"category_scores"`
+	} `json:"results"`
+}
+
+// Moderate implements service.ModerationProvider.
+func (p *Provider) Moderate(ctx context.Context, req service.ModerationRequest) (*service.ModerationResponse, error) {
+	url := p.apiBaseURL() + "/moderations"
+
+	apiReq := moderationsRequest{
+		Input: req.Input,
+		Model: req.Model,
+	}
+	if apiReq.Model == "" {
+		apiReq.Model = "omni-moderation-latest"
+	}
+
+	var apiResp moderationsResponse
+	if err := p.doJSON(ctx, "POST", url, apiReq, &apiResp); err != nil {
+		return nil, fmt.Errorf("moderation: %w", err)
+	}
+
+	out := &service.ModerationResponse{
+		ID:    apiResp.ID,
+		Model: apiResp.Model,
+	}
+	for _, r := range apiResp.Results {
+		out.Results = append(out.Results, service.ModerationResult{
+			Flagged:        r.Flagged,
+			Categories:     r.Categories,
+			CategoryScores: r.CategoryScores,
+		})
+	}
+	return out, nil
+}

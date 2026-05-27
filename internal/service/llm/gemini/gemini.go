@@ -41,10 +41,45 @@ type Provider struct {
 	// limiter is shared by all callers of this provider; nil means no
 	// rate limiting.
 	limiter *ratelimit.Limiter
+
+	// tokenSource, when non-nil, replaces the x-goog-api-key auth scheme
+	// with `Authorization: Bearer <token>` on every outgoing request.
+	// Used by the Vertex-Gemini path to authenticate via Google ADC.
+	tokenSource GoogleTokenSource
+
+	// pathPrefix is prepended to the /v1beta/... path on every call.
+	// Vertex needs a project/region prefix; the public API does not.
+	pathPrefix string
+}
+
+// GoogleTokenSource produces short-lived OAuth tokens (e.g. via Google ADC)
+// for the Vertex-Gemini auth scheme.
+type GoogleTokenSource interface {
+	Token() (string, error)
 }
 
 // Option configures the Provider.
 type Option func(*Provider)
+
+// WithGoogleTokenSource swaps the x-goog-api-key authentication for
+// `Authorization: Bearer <token>` derived from the supplied source.
+// Required when calling Vertex AI's native Gemini endpoints.
+func WithGoogleTokenSource(ts GoogleTokenSource) Option {
+	return func(p *Provider) {
+		p.tokenSource = ts
+	}
+}
+
+// WithPathPrefix prepends a path fragment to every Gemini API call. The
+// Vertex-Gemini path uses this to inject
+// `/v1/projects/{project}/locations/{region}/publishers/google` so the
+// regular /models/{model}:generateContent suffix lands on the correct
+// Vertex endpoint.
+func WithPathPrefix(prefix string) Option {
+	return func(p *Provider) {
+		p.pathPrefix = strings.TrimSuffix(prefix, "/")
+	}
+}
 
 // WithRateLimiter attaches a per-provider rate limiter. All Chat and
 // ChatStream calls will Acquire before issuing the upstream request.
@@ -62,25 +97,29 @@ func WithRateLimiter(l *ratelimit.Limiter) Option {
 // baseURL optionally overrides the default "https://generativelanguage.googleapis.com".
 // proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL. If empty, no proxy is used.
 func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...Option) (*Provider, error) {
-	if apiKey == "" {
-		return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
-	}
+	// apiKey may be empty when a GoogleTokenSource is supplied via
+	// WithGoogleTokenSource (Vertex-Gemini path); we validate that in
+	// Provider.ensureCredentials() instead so callers can mix both
+	// modes during construction.
 
 	if baseURL == "" {
 		baseURL = defaultBaseURL
 	}
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
+	headers := http.Header{
+		"Content-Type": []string{"application/json"},
+	}
+	if apiKey != "" {
+		headers.Set("x-goog-api-key", apiKey)
+	}
 	klientOpts := []klient.OptionClientFn{
 		klient.WithBaseURL(baseURL),
 		klient.WithDisableBaseURLCheck(true),
 		klient.WithLogger(slog.Default()),
 		klient.WithDisableRetry(true),
 		klient.WithDisableEnvValues(true),
-		klient.WithHeaderSet(http.Header{
-			"Content-Type":   []string{"application/json"},
-			"x-goog-api-key": []string{apiKey},
-		}),
+		klient.WithHeaderSet(headers),
 	}
 	if proxy != "" {
 		klientOpts = append(klientOpts, klient.WithProxy(proxy))
@@ -114,6 +153,40 @@ type generateContentRequest struct {
 	Tools             []googleTool      `json:"tools,omitempty"`
 	SystemInstruction *content          `json:"systemInstruction,omitempty"`
 	GenerationConfig  *generationConfig `json:"generationConfig,omitempty"`
+	ToolConfig        *toolConfig       `json:"toolConfig,omitempty"`
+	SafetySettings    []safetySetting   `json:"safetySettings,omitempty"`
+}
+
+// safetySetting controls Gemini's per-category content blocking. We default
+// to BLOCK_NONE on every category because OpenAI-compat clients don't
+// expect Gemini's stricter defaults to silently kill responses.
+type safetySetting struct {
+	Category  string `json:"category"`
+	Threshold string `json:"threshold"`
+}
+
+// defaultSafetySettings returns BLOCK_NONE on every published harm
+// category. This matches what permissive deployments (most production
+// agents) want and what the openai-python / litellm defaults imply.
+func defaultSafetySettings() []safetySetting {
+	return []safetySetting{
+		{Category: "HARM_CATEGORY_HARASSMENT", Threshold: "BLOCK_NONE"},
+		{Category: "HARM_CATEGORY_HATE_SPEECH", Threshold: "BLOCK_NONE"},
+		{Category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", Threshold: "BLOCK_NONE"},
+		{Category: "HARM_CATEGORY_DANGEROUS_CONTENT", Threshold: "BLOCK_NONE"},
+		{Category: "HARM_CATEGORY_CIVIC_INTEGRITY", Threshold: "BLOCK_NONE"},
+	}
+}
+
+// toolConfig controls Gemini's tool-call behaviour. Maps from OpenAI's
+// tool_choice values (none / auto / required / specific function).
+type toolConfig struct {
+	FunctionCallingConfig *functionCallingConfig `json:"functionCallingConfig,omitempty"`
+}
+
+type functionCallingConfig struct {
+	Mode                 string   `json:"mode,omitempty"` // AUTO | ANY | NONE
+	AllowedFunctionNames []string `json:"allowedFunctionNames,omitempty"`
 }
 
 type content struct {
@@ -151,6 +224,11 @@ type functionResponse struct {
 
 type googleTool struct {
 	FunctionDeclarations []functionDeclaration `json:"functionDeclarations,omitempty"`
+	// GoogleSearch enables Gemini's grounding tool (a built-in tool that
+	// runs Google Search before generating the reply). Set this to an
+	// empty struct to activate it; the field must be present even when
+	// empty so Gemini knows the tool is enabled.
+	GoogleSearch *struct{} `json:"googleSearch,omitempty"`
 }
 
 type functionDeclaration struct {
@@ -160,11 +238,17 @@ type functionDeclaration struct {
 }
 
 type generationConfig struct {
-	MaxOutputTokens int             `json:"maxOutputTokens,omitempty"`
-	Temperature     *float64        `json:"temperature,omitempty"`
-	TopP            *float64        `json:"topP,omitempty"`
-	StopSequences   []string        `json:"stopSequences,omitempty"`
-	ThinkingConfig  *thinkingConfig `json:"thinkingConfig,omitempty"`
+	MaxOutputTokens  int             `json:"maxOutputTokens,omitempty"`
+	Temperature      *float64        `json:"temperature,omitempty"`
+	TopP             *float64        `json:"topP,omitempty"`
+	StopSequences    []string        `json:"stopSequences,omitempty"`
+	ThinkingConfig   *thinkingConfig `json:"thinkingConfig,omitempty"`
+	Seed             *int            `json:"seed,omitempty"`
+	ResponseMimeType string          `json:"responseMimeType,omitempty"`
+	ResponseSchema   any             `json:"responseSchema,omitempty"`
+	PresencePenalty  *float64        `json:"presencePenalty,omitempty"`
+	FrequencyPenalty *float64        `json:"frequencyPenalty,omitempty"`
+	CandidateCount   int             `json:"candidateCount,omitempty"`
 }
 
 type thinkingConfig struct {
@@ -234,16 +318,32 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 
 	reqBody := p.buildRequest(ctx, messages, tools, opts)
 
-	jsonData, err := json.Marshal(reqBody)
+	var extra map[string]any
+	if opts != nil {
+		extra = opts.ExtraBody
+	}
+	jsonData, err := marshalRequestWithExtraBody(reqBody, extra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	path := fmt.Sprintf("/v1beta/models/%s:generateContent", model)
+	path := p.pathPrefix + fmt.Sprintf("/v1beta/models/%s:generateContent", model)
+	if p.pathPrefix != "" {
+		// Vertex path style: /v1/projects/.../publishers/google/models/{m}:generateContent
+		path = p.pathPrefix + fmt.Sprintf("/models/%s:generateContent", model)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, err
+	}
+	if p.tokenSource != nil {
+		tk, terr := p.tokenSource.Token()
+		if terr != nil {
+			return nil, fmt.Errorf("gemini auth: %w", terr)
+		}
+		req.Header.Set("Authorization", "Bearer "+tk)
+		req.Header.Del("x-goog-api-key")
 	}
 
 	var result generateContentResponse
@@ -325,18 +425,43 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	reqBody := p.buildRequest(ctx, messages, tools, opts)
 
-	jsonData, err := json.Marshal(reqBody)
+	var extra map[string]any
+	if opts != nil {
+		extra = opts.ExtraBody
+	}
+	jsonData, err := marshalRequestWithExtraBody(reqBody, extra)
 	if err != nil {
 		releaseOnce()
 		return nil, nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	path := fmt.Sprintf("/v1beta/models/%s:streamGenerateContent?alt=sse", model)
+	if p.pathPrefix != "" {
+		path = p.pathPrefix + fmt.Sprintf("/models/%s:streamGenerateContent?alt=sse", model)
+	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, path, bytes.NewBuffer(jsonData))
+	// When the klient base URL is configured, the streaming path is
+	// relative. Resolve to absolute before passing to http.Client.Do
+	// because the klient.HTTP wrapper doesn't auto-resolve.
+	fullURL := p.BaseURL + path
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		releaseOnce()
 		return nil, nil, err
+	}
+	// Carry the default headers + x-goog-api-key the klient would have
+	// injected, or override with Bearer when a token source is configured.
+	req.Header.Set("Content-Type", "application/json")
+	if p.tokenSource != nil {
+		tk, terr := p.tokenSource.Token()
+		if terr != nil {
+			releaseOnce()
+			return nil, nil, fmt.Errorf("gemini auth: %w", terr)
+		}
+		req.Header.Set("Authorization", "Bearer "+tk)
+	} else if p.APIKey != "" {
+		req.Header.Set("x-goog-api-key", p.APIKey)
 	}
 
 	// Use the klient's HTTP client directly for streaming.
@@ -450,11 +575,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			}
 
 			if cand.FinishReason != "" {
-				if hasToolCalls {
-					chunk.FinishReason = "tool_calls"
-				} else {
-					chunk.FinishReason = "stop"
-				}
+				chunk.FinishReason = normalizeGeminiFinishReason(cand.FinishReason, hasToolCalls)
 				// Attach accumulated usage to the final chunk.
 				chunk.Usage = lastUsage
 			}
@@ -521,7 +642,11 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 
 // buildRequest translates internal service types to Google's native API format.
 func (p *Provider) buildRequest(ctx context.Context, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) *generateContentRequest {
-	req := &generateContentRequest{}
+	req := &generateContentRequest{
+		// Permissive safety defaults — callers can override per-call via
+		// extra_body.safetySettings, or set them at the Provider level.
+		SafetySettings: defaultSafetySettings(),
+	}
 
 	// Apply per-request generation options.
 	if opts != nil {
@@ -545,6 +670,30 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 		}
 		if len(opts.Stop) > 0 {
 			genCfg.StopSequences = opts.Stop
+			hasGenCfg = true
+		}
+		if opts.Seed != nil {
+			genCfg.Seed = opts.Seed
+			hasGenCfg = true
+		}
+		if opts.PresencePenalty != nil {
+			genCfg.PresencePenalty = opts.PresencePenalty
+			hasGenCfg = true
+		}
+		if opts.FrequencyPenalty != nil {
+			genCfg.FrequencyPenalty = opts.FrequencyPenalty
+			hasGenCfg = true
+		}
+		if opts.N != nil && *opts.N > 0 {
+			genCfg.CandidateCount = *opts.N
+			hasGenCfg = true
+		}
+		// response_format → responseMimeType / responseSchema.
+		if mime, schema := geminiResponseFormat(opts.ResponseFormat); mime != "" {
+			genCfg.ResponseMimeType = mime
+			if schema != nil {
+				genCfg.ResponseSchema = schema
+			}
 			hasGenCfg = true
 		}
 
@@ -578,15 +727,23 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 	}
 
 	// Convert tools to Google's functionDeclarations format.
+	// Two synthetic tool names trigger Gemini built-ins instead of being
+	// declared as functions:
+	//   __google_search / web_search  → googleSearch grounding tool
 	if len(tools) > 0 {
-		decls := make([]functionDeclaration, len(tools))
+		var decls []functionDeclaration
+		var enableSearch bool
 		for i, tool := range tools {
+			if isGeminiBuiltinSearchName(tool.Name) {
+				enableSearch = true
+				continue
+			}
 			sanitized := service.SanitizeSchema(tool.InputSchema)
-			decls[i] = functionDeclaration{
+			decls = append(decls, functionDeclaration{
 				Name:        tool.Name,
 				Description: tool.Description,
 				Parameters:  sanitized,
-			}
+			})
 
 			if debugData, err := json.Marshal(sanitized); err == nil {
 				slog.Debug("gemini: tool declaration",
@@ -596,7 +753,24 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 				)
 			}
 		}
-		req.Tools = []googleTool{{FunctionDeclarations: decls}}
+		var googleTools []googleTool
+		if len(decls) > 0 {
+			googleTools = append(googleTools, googleTool{FunctionDeclarations: decls})
+		}
+		if enableSearch {
+			googleTools = append(googleTools, googleTool{GoogleSearch: &struct{}{}})
+		}
+		if len(googleTools) > 0 {
+			req.Tools = googleTools
+		}
+
+		// tool_choice → toolConfig.functionCallingConfig. Only meaningful
+		// when at least one function declaration is present.
+		if opts != nil && opts.ToolChoice != nil && len(decls) > 0 {
+			if cfg := translateGeminiToolChoice(opts.ToolChoice); cfg != nil {
+				req.ToolConfig = &toolConfig{FunctionCallingConfig: cfg}
+			}
+		}
 	}
 
 	// Build a mapping from tool_call_id -> function name by scanning assistant
@@ -1088,8 +1262,9 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 
 	cand := resp.Candidates[0]
 	llmResp := &service.LLMResponse{
-		Finished: true,
-		Header:   headers,
+		Finished:     true,
+		FinishReason: normalizeGeminiFinishReason(cand.FinishReason, false),
+		Header:       headers,
 	}
 
 	// Map upstream usage metadata to the internal Usage struct.
@@ -1126,9 +1301,39 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 	// If there are tool calls, the response is not finished (needs tool execution).
 	if len(llmResp.ToolCalls) > 0 {
 		llmResp.Finished = false
+		llmResp.FinishReason = "tool_calls"
 	}
 
 	return llmResp, nil
+}
+
+// normalizeGeminiFinishReason maps Gemini's finishReason vocabulary
+// onto OpenAI's. Gemini values include STOP, MAX_TOKENS, SAFETY,
+// RECITATION, OTHER, MALFORMED_FUNCTION_CALL, PROHIBITED_CONTENT, SPII.
+func normalizeGeminiFinishReason(raw string, hasToolCalls bool) string {
+	switch strings.ToUpper(strings.TrimSpace(raw)) {
+	case "STOP":
+		if hasToolCalls {
+			return "tool_calls"
+		}
+		return "stop"
+	case "MAX_TOKENS":
+		return "length"
+	case "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "SPII", "BLOCKLIST":
+		return "content_filter"
+	case "MALFORMED_FUNCTION_CALL":
+		return "tool_calls"
+	case "":
+		if hasToolCalls {
+			return "tool_calls"
+		}
+		return ""
+	default:
+		if hasToolCalls {
+			return "tool_calls"
+		}
+		return "stop"
+	}
 }
 
 // ─── Helpers ───

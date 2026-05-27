@@ -111,8 +111,15 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 			RequireBoardApproval: true,
 			HeadAgentID:          "agent-head",
 			MaxDelegationDepth:   3,
-			CreatedBy:            "tester",
-			UpdatedBy:            "tester",
+			ContainerConfig: &service.ContainerConfig{
+				Enabled: true,
+				Image:   "at-agent-runtime:test",
+				CPU:     "2",
+				Memory:  "4g",
+				Network: true,
+			},
+			CreatedBy: "tester",
+			UpdatedBy: "tester",
 		}
 
 		created, err := store.CreateOrganization(ctx, org)
@@ -150,6 +157,12 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 		if fetched.MaxDelegationDepth != 3 {
 			t.Errorf("MaxDelegationDepth: got %d, want %d", fetched.MaxDelegationDepth, 3)
 		}
+		if fetched.ContainerConfig == nil {
+			t.Fatal("ContainerConfig: got nil, want value")
+		}
+		if !fetched.ContainerConfig.Enabled || fetched.ContainerConfig.Image != "at-agent-runtime:test" || fetched.ContainerConfig.CPU != "2" || fetched.ContainerConfig.Memory != "4g" || !fetched.ContainerConfig.Network {
+			t.Errorf("ContainerConfig: got %+v", fetched.ContainerConfig)
+		}
 	})
 
 	t.Run("update copies enhanced fields", func(t *testing.T) {
@@ -176,7 +189,13 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 			SpentMonthlyCents:    1000,
 			BudgetResetAt:        "2026-04-01T00:00:00Z",
 			RequireBoardApproval: true,
-			UpdatedBy:            "updater",
+			ContainerConfig: &service.ContainerConfig{
+				Enabled: true,
+				Image:   "custom:latest",
+				CPU:     "1",
+				Memory:  "1g",
+			},
+			UpdatedBy: "updater",
 		})
 		if err != nil {
 			t.Fatalf("UpdateOrganization: %v", err)
@@ -196,6 +215,9 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 		}
 		if !updated.RequireBoardApproval {
 			t.Error("RequireBoardApproval: got false, want true")
+		}
+		if updated.ContainerConfig == nil || updated.ContainerConfig.Image != "custom:latest" || updated.ContainerConfig.CPU != "1" || updated.ContainerConfig.Memory != "1g" {
+			t.Errorf("ContainerConfig: got %+v", updated.ContainerConfig)
 		}
 	})
 

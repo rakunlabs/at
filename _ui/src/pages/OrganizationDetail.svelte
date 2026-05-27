@@ -265,9 +265,13 @@
 
   async function handleAddAgent(agent: Agent) {
     try {
-      await addAgentToOrg(params.id, { agent_id: agent.id });
-      addToast(`Agent "${agent.name}" added to organization`);
-      await loadMemberships();
+      const result = await addAgentToOrg(params.id, { agent_id: agent.id });
+      if ('type' in result && result.type === 'hire_agent' && result.status === 'pending') {
+        addToast(`Approval requested to add "${agent.name}"`);
+      } else {
+        addToast(`Agent "${agent.name}" added to organization`);
+        await loadMemberships();
+      }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to add agent', 'alert');
     }
@@ -279,7 +283,7 @@
       await removeAgentFromOrg(params.id, agentId);
       addToast(`Agent "${agent?.name || agentId}" removed from organization`);
       selectedAgentId = null;
-      await loadMemberships();
+      await Promise.all([loadOrganization(), loadMemberships()]);
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to remove agent', 'alert');
     }

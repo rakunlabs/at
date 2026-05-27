@@ -77,6 +77,57 @@ type ChatOptions struct {
 	// For OpenAI: forwarded as web_search_options in the request body.
 	// Currently supported by gpt-4o-search-preview, gpt-4o-mini-search-preview.
 	WebSearchOptions map[string]any
+
+	// ToolChoice controls which (if any) tool the model must call.
+	// Accepts the OpenAI shapes:
+	//   - string: "none" | "auto" | "required"
+	//   - object: {"type":"function","function":{"name":"my_tool"}}
+	// Providers translate to their native shape (Anthropic tool_choice,
+	// Gemini toolConfig.functionCallingConfig).
+	ToolChoice any
+
+	// ParallelToolCalls, when non-nil, controls whether the model may emit
+	// multiple tool calls in a single response. Maps to OpenAI's
+	// `parallel_tool_calls` and Anthropic's `disable_parallel_tool_use`
+	// (inverted). Gemini accepts it via toolConfig (best-effort).
+	ParallelToolCalls *bool
+
+	// N is the number of completions to generate. OpenAI/Vertex passthrough
+	// only; non-OpenAI providers always return 1.
+	N *int
+
+	// PresencePenalty (−2.0..2.0). OpenAI/Vertex passthrough.
+	PresencePenalty *float64
+
+	// FrequencyPenalty (−2.0..2.0). OpenAI/Vertex passthrough.
+	FrequencyPenalty *float64
+
+	// LogitBias maps token-id strings to bias values (−100..100).
+	// OpenAI/Vertex passthrough.
+	LogitBias map[string]int
+
+	// User is an opaque end-user identifier for abuse tracking.
+	// OpenAI/Vertex passthrough.
+	User string
+
+	// Logprobs requests that logprobs be returned. OpenAI/Vertex passthrough.
+	Logprobs *bool
+
+	// TopLogprobs (0..20) specifies how many top alternative tokens to return
+	// alongside the chosen token. Requires Logprobs=true. OpenAI/Vertex passthrough.
+	TopLogprobs *int
+
+	// Store, Metadata, ServiceTier — newer OpenAI Platform fields.
+	// Forwarded verbatim to OpenAI/Vertex; ignored elsewhere.
+	Store       *bool
+	Metadata    map[string]any
+	ServiceTier string
+
+	// ExtraBody is merged into the upstream request body by every
+	// provider adapter AFTER its own field mapping. Keys collide-overwrite
+	// the adapter's own keys, so callers can use this to override what
+	// AT would otherwise send (e.g. add Anthropic `cache_control`).
+	ExtraBody map[string]any
 }
 
 // ThinkingConfig enables extended thinking / chain-of-thought.
@@ -129,6 +180,17 @@ type Usage struct {
 	CacheReadTokens  int
 	CacheWriteTokens int
 	TotalTokens      int
+
+	// ReasoningTokens is the number of "thinking" tokens consumed
+	// (OpenAI o-series, Anthropic extended thinking, Gemini thinking).
+	// These are a subset of CompletionTokens.
+	ReasoningTokens int
+
+	// AudioTokens (input side) and AudioOutputTokens (output side) capture
+	// audio token counts on multimodal models. Subset of PromptTokens /
+	// CompletionTokens respectively.
+	AudioPromptTokens     int
+	AudioCompletionTokens int
 }
 
 // TotalInputTokens returns all input-side tokens, including prompt-cache reads
@@ -190,6 +252,20 @@ type LLMResponse struct {
 	Finished         bool
 	Usage            Usage
 	Header           http.Header
+
+	// FinishReason is the upstream finish reason normalised to OpenAI's
+	// vocabulary: "stop" | "length" | "content_filter" | "tool_calls" |
+	// "function_call". Empty string means the provider did not report one
+	// (callers fall back to deriving from Finished).
+	FinishReason string
+
+	// SystemFingerprint is the OpenAI `system_fingerprint` value when the
+	// upstream provider reports it. Forwarded verbatim to clients.
+	SystemFingerprint string
+
+	// Logprobs, when non-nil, contains the raw logprobs object from the
+	// upstream response. Forwarded verbatim to clients (OpenAI passthrough).
+	Logprobs any
 }
 
 // ToolCall represents a single tool invocation within an LLM response.

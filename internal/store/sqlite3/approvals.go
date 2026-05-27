@@ -186,14 +186,14 @@ func (s *SQLite) UpdateApproval(ctx context.Context, id string, approval service
 }
 
 func (s *SQLite) ListPendingApprovals(ctx context.Context, orgID string) ([]service.Approval, error) {
-	query, _, err := s.goqu.From(s.tableApprovals).
+	ds := s.goqu.From(s.tableApprovals).
 		Select(approvalColumns...).
-		Where(
-			goqu.I("organization_id").Eq(orgID),
-			goqu.I("status").Eq(service.ApprovalStatusPending),
-		).
-		Order(goqu.I("created_at").Asc()).
-		ToSQL()
+		Where(goqu.I("status").Eq(service.ApprovalStatusPending)).
+		Order(goqu.I("created_at").Asc())
+	if orgID != "" {
+		ds = ds.Where(goqu.I("organization_id").Eq(orgID))
+	}
+	query, _, err := ds.ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list pending approvals query: %w", err)
 	}

@@ -30,6 +30,7 @@
     Layers,
     AlertTriangle,
     ListPlus,
+    Download,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Marketplaces';
@@ -269,6 +270,10 @@
     return `${window.location.origin}/gateway/v1/claude-code/marketplace.json?market=${encodeURIComponent(market.name)}`;
   }
 
+  function marketplacePluginZipURL(market: Marketplace): string {
+    return `${window.location.origin}/gateway/v1/claude-code/marketplaces/${encodeURIComponent(market.name)}/plugin.zip`;
+  }
+
   function installCommand(market: Marketplace): string {
     return `/plugin marketplace add ${marketplaceURL(market)}`;
   }
@@ -489,7 +494,7 @@
             <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Marketplaces</h1>
           </div>
           <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1 max-w-2xl">
-            Create named Claude Code marketplace JSON feeds from Skills, AT-hosted public MCP Servers, and direct MCP configs that the client will load itself.
+            Create named Claude Code marketplace feeds from Skills, AT-hosted public MCP Servers, and direct/upstream MCP configs. JSON feeds point clients at downloadable plugin ZIPs.
           </p>
         </div>
         <div class="flex items-center gap-2">
@@ -590,7 +595,7 @@
                 <div class="text-xs font-normal text-gray-400 dark:text-dark-text-muted mt-1">{formDirectMCPServers.length} configured</div>
                 <div class="flex items-start gap-1 mt-2 p-2 border border-amber-200 dark:border-amber-900/40 bg-amber-50/60 dark:bg-amber-950/20 text-[10px] text-amber-700 dark:text-amber-300 leading-tight">
                   <AlertTriangle size={11} class="shrink-0 mt-0.5" />
-                  <span>Direct MCP config is published verbatim in the public marketplace JSON. Strip secrets from headers/env before saving.</span>
+                  <span>Direct MCP config is published verbatim in the public marketplace plugin ZIP. Strip secrets from headers/env before saving.</span>
                 </div>
               </div>
               <div class="md:col-span-3 space-y-3">
@@ -803,7 +808,7 @@
         <div class="border border-dashed border-gray-300 dark:border-dark-border bg-white dark:bg-dark-surface p-8 text-center">
           <Package size={24} class="mx-auto text-gray-300 dark:text-dark-text-muted mb-2" />
           <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">No marketplaces found</h2>
-          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Create one to expose selected Skills and MCP servers as a direct JSON marketplace.</p>
+          <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Create one to expose selected Skills and MCP servers as a direct-download marketplace.</p>
           <button onclick={openCreate} class="mt-4 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors">
             <Plus size={12} />
             New Marketplace
@@ -828,6 +833,9 @@
                 </div>
 
                 <div class="flex items-center gap-1 shrink-0">
+                  <a href={marketplacePluginZipURL(market)} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Download plugin ZIP">
+                    <Download size={14} />
+                  </a>
                   <button onclick={() => copyText(`url-${market.id}`, marketplaceURL(market))} class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Copy JSON URL">
                     {#if copiedId === `url-${market.id}`}<Check size={14} />{:else}<Copy size={14} />{/if}
                   </button>
@@ -855,6 +863,11 @@
                   {#if copiedId === `cmd-${market.id}`}<Check size={13} class="text-blue-600 dark:text-blue-300 shrink-0" />{:else}<Copy size={13} class="text-blue-600 dark:text-blue-300 shrink-0" />{/if}
                   <code class="text-xs text-blue-800 dark:text-blue-200 truncate">{installCommand(market)}</code>
                 </button>
+
+                <a href={marketplacePluginZipURL(market)} class="w-full flex items-center gap-2 text-left border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors" title="Download plugin ZIP">
+                  <Download size={13} class="text-gray-400 dark:text-dark-text-muted shrink-0" />
+                  <code class="text-xs text-gray-600 dark:text-dark-text-secondary truncate">{marketplacePluginZipURL(market)}</code>
+                </a>
 
                 <div class="grid gap-3 md:grid-cols-3">
                   <div>

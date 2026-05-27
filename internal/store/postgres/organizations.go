@@ -17,22 +17,23 @@ import (
 // ─── Organization CRUD ───
 
 type orgRow struct {
-	ID                   string       `db:"id"`
-	Name                 string       `db:"name"`
-	Description          string       `db:"description"`
-	IssuePrefix          string       `db:"issue_prefix"`
-	IssueCounter         int64        `db:"issue_counter"`
-	BudgetMonthlyCents   int64        `db:"budget_monthly_cents"`
-	SpentMonthlyCents    int64        `db:"spent_monthly_cents"`
-	BudgetResetAt        sql.NullTime `db:"budget_reset_at"`
-	RequireBoardApproval bool         `db:"require_board_approval_for_new_agents"`
-	HeadAgentID          string       `db:"head_agent_id"`
-	MaxDelegationDepth   int          `db:"max_delegation_depth"`
-	CanvasLayout         string       `db:"canvas_layout"`
-	CreatedAt            time.Time    `db:"created_at"`
-	UpdatedAt            time.Time    `db:"updated_at"`
-	CreatedBy            string       `db:"created_by"`
-	UpdatedBy            string       `db:"updated_by"`
+	ID                   string         `db:"id"`
+	Name                 string         `db:"name"`
+	Description          string         `db:"description"`
+	IssuePrefix          string         `db:"issue_prefix"`
+	IssueCounter         int64          `db:"issue_counter"`
+	BudgetMonthlyCents   int64          `db:"budget_monthly_cents"`
+	SpentMonthlyCents    int64          `db:"spent_monthly_cents"`
+	BudgetResetAt        sql.NullTime   `db:"budget_reset_at"`
+	RequireBoardApproval bool           `db:"require_board_approval_for_new_agents"`
+	HeadAgentID          string         `db:"head_agent_id"`
+	MaxDelegationDepth   int            `db:"max_delegation_depth"`
+	CanvasLayout         string         `db:"canvas_layout"`
+	ContainerConfig      sql.NullString `db:"container_config"`
+	CreatedAt            time.Time      `db:"created_at"`
+	UpdatedAt            time.Time      `db:"updated_at"`
+	CreatedBy            string         `db:"created_by"`
+	UpdatedBy            string         `db:"updated_by"`
 }
 
 func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*service.ListResult[service.Organization], error) {
@@ -42,7 +43,7 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 		"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
 		"require_board_approval_for_new_agents",
 		"head_agent_id", "max_delegation_depth",
-		"canvas_layout", "created_at", "updated_at", "created_by", "updated_by",
+		"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build list organizations query: %w", err)
@@ -63,7 +64,7 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 			&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
 			&row.RequireBoardApproval,
 			&row.HeadAgentID, &row.MaxDelegationDepth,
-			&row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+			&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan organization row: %w", err)
 		}
@@ -91,7 +92,7 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 			"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
 			"require_board_approval_for_new_agents",
 			"head_agent_id", "max_delegation_depth",
-			"canvas_layout", "created_at", "updated_at", "created_by", "updated_by",
+			"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
 		).
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
@@ -106,7 +107,7 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 		&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
 		&row.RequireBoardApproval,
 		&row.HeadAgentID, &row.MaxDelegationDepth,
-		&row.CanvasLayout, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -144,6 +145,7 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 		"head_agent_id":                         org.HeadAgentID,
 		"max_delegation_depth":                  maxDepth,
 		"canvas_layout":                         canvasLayout,
+		"container_config":                      marshalContainerConfig(org.ContainerConfig),
 		"created_at":                            now,
 		"updated_at":                            now,
 		"created_by":                            org.CreatedBy,
@@ -178,6 +180,7 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 		HeadAgentID:          org.HeadAgentID,
 		MaxDelegationDepth:   maxDepth,
 		CanvasLayout:         org.CanvasLayout,
+		ContainerConfig:      org.ContainerConfig,
 		CreatedAt:            now.Format(time.RFC3339),
 		UpdatedAt:            now.Format(time.RFC3339),
 		CreatedBy:            org.CreatedBy,
@@ -201,9 +204,8 @@ func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org servic
 	if len(org.CanvasLayout) > 0 {
 		rec["canvas_layout"] = string(org.CanvasLayout)
 	}
-	if org.IssuePrefix != "" {
-		rec["issue_prefix"] = org.IssuePrefix
-	}
+	rec["container_config"] = marshalContainerConfig(org.ContainerConfig)
+	rec["issue_prefix"] = org.IssuePrefix
 	if org.MaxDelegationDepth > 0 {
 		rec["max_delegation_depth"] = org.MaxDelegationDepth
 	}
@@ -290,9 +292,32 @@ func orgRowToRecord(row orgRow) *service.Organization {
 		HeadAgentID:          row.HeadAgentID,
 		MaxDelegationDepth:   row.MaxDelegationDepth,
 		CanvasLayout:         canvasLayout,
+		ContainerConfig:      containerConfigFromJSON(row.ContainerConfig.String),
 		CreatedAt:            row.CreatedAt.Format(time.RFC3339),
 		UpdatedAt:            row.UpdatedAt.Format(time.RFC3339),
 		CreatedBy:            row.CreatedBy,
 		UpdatedBy:            row.UpdatedBy,
 	}
+}
+
+func marshalContainerConfig(cfg *service.ContainerConfig) any {
+	if cfg == nil {
+		return nil
+	}
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil
+	}
+	return string(data)
+}
+
+func containerConfigFromJSON(raw string) *service.ContainerConfig {
+	if raw == "" || raw == "null" || raw == "{}" {
+		return nil
+	}
+	var cfg service.ContainerConfig
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		return nil
+	}
+	return &cfg
 }

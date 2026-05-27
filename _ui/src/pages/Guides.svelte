@@ -53,7 +53,25 @@
     type Guide as UserGuide,
   } from '@/lib/api/guides';
 
-  storeNavbar.title = 'Guides';
+  interface Props {
+    embedded?: boolean;
+    routeBase?: string;
+    routeQueryPrefix?: string;
+    setNavbar?: boolean;
+  }
+
+  let {
+    embedded = false,
+    routeBase = '/guides',
+    routeQueryPrefix = '',
+    setNavbar = true,
+  }: Props = $props();
+
+  $effect(() => {
+    if (setNavbar) {
+      storeNavbar.title = 'Guides';
+    }
+  });
 
   // ─── Icon map: lucide name → component ───
   // Used to render icons stored by name in the DB for user guides, and
@@ -496,6 +514,10 @@ help - Show available commands
   });
 
   // ─── Actions ───
+  function guidePath(id: string) {
+    return `${routeBase}?${routeQueryPrefix}g=${encodeURIComponent(id)}`;
+  }
+
   async function selectGuide(id: string) {
     if (id === selectedId && mode === 'view') return;
     if (mode !== 'view') {
@@ -505,7 +527,7 @@ help - Show available commands
     }
     selectedId = id;
     viewMode = 'rendered';
-    push(`/guides?g=${id}`);
+    push(guidePath(id));
     await tick();
     if (contentEl) contentEl.scrollTop = 0;
   }
@@ -561,7 +583,7 @@ help - Show available commands
         const created = await createGuide(payload);
         userGuides = [...userGuides, created];
         selectedId = created.id;
-        push(`/guides?g=${created.id}`);
+        push(guidePath(created.id));
         addToast('Guide created');
       }
       mode = 'view';
@@ -585,7 +607,7 @@ help - Show available commands
         const first = allGuides[0];
         if (first) {
           selectedId = first.id;
-          push(`/guides?g=${first.id}`);
+          push(guidePath(first.id));
         }
       }
       addToast('Guide deleted');
@@ -596,7 +618,7 @@ help - Show available commands
 
   async function copyLink() {
     if (!selectedGuide) return;
-    const url = `${window.location.origin}${window.location.pathname}#/guides?g=${selectedGuide.id}`;
+    const url = `${window.location.origin}${window.location.pathname}#${guidePath(selectedGuide.id)}`;
     try {
       await navigator.clipboard.writeText(url);
       addToast('Link copied to clipboard');
@@ -607,10 +629,10 @@ help - Show available commands
 </script>
 
 <svelte:head>
-  <title>AT | Guides</title>
+  <title>AT | {embedded ? 'Documentation' : 'Guides'}</title>
 </svelte:head>
 
-<div class="flex h-full">
+<div class={embedded ? 'flex h-full min-h-[34rem]' : 'flex h-full'}>
   <!-- Guide list (nested sidebar) -->
   <aside
     class="w-64 shrink-0 border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col min-h-0"
