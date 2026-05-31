@@ -1,0 +1,35 @@
+{
+  "slug": "youtube",
+  "name": "YouTube",
+  "description": "Upload and publish videos to YouTube",
+  "icon": "Youtube",
+  "auth_kind": "oauth2",
+  "oauth": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/youtube.upload",
+      "https://www.googleapis.com/auth/youtube"
+    ],
+    "access_type": "offline",
+    "prompt": "consent",
+    "userinfo_url": "https://youtube.googleapis.com/youtube/v3/channels?part=snippet&mine=true",
+    "account_label_path": "items.0.snippet.title"
+  },
+  "fields": [
+    {
+      "key": "youtube_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "placeholder": "Paste from Google Cloud Console"
+    },
+    {
+      "key": "youtube_client_secret",
+      "label": "Client Secret",
+      "type": "secret",
+      "required": true,
+      "placeholder": "GOCSPX-..."
+    }
+  ]
+}

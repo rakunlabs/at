@@ -13,8 +13,15 @@
     type Connection,
   } from '@/lib/api/connections';
   import {
+    listConnectors,
+    createConnector,
+    updateConnector,
+    deleteConnector,
+    type Connector,
+    type ConnectorField,
+  } from '@/lib/api/connectors';
+  import {
     Plug,
-    Unplug,
     RefreshCw,
     CheckCircle2,
     XCircle,
@@ -29,36 +36,26 @@
     EyeOff,
     Users,
     X,
+    Settings2,
+    Cable,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Connections';
 
-  // ─── Provider catalog ───
-  // Providers known to support OAuth. Other providers shown in the UI are
-  // inferred from the live list of connections.
-  const OAUTH_PROVIDERS: Record<string, { name: string; description: string }> = {
-    youtube: { name: 'YouTube', description: 'Upload and publish videos to YouTube' },
-    google: { name: 'Google', description: 'Access Gmail and Google Calendar' },
-  };
-
   // ─── State ───
+  let connectors = $state<Connector[]>([]);
   let connections = $state<Connection[]>([]);
   let loading = $state(true);
   let saving = $state(false);
 
-  // Modal state: either creating a new connection or editing an existing one.
+  // Connection editor modal: create (under a connector) or edit an existing row.
   type EditorMode =
-    | { kind: 'create'; provider: string }
-    | { kind: 'edit'; connection: Connection };
+    | { kind: 'create'; connector: Connector }
+    | { kind: 'edit'; connection: Connection; connector?: Connector };
   let editor = $state<EditorMode | null>(null);
-
-  // Form fields for the editor modal.
   let formName = $state('');
   let formDescription = $state('');
-  let formClientID = $state('');
-  let formClientSecret = $state('');
-  let formRefreshToken = $state('');
-  let formAPIKey = $state('');
+  let formFields = $state<Record<string, string>>({});
   let showSecrets = $state(false);
 
   // Manual OAuth flow state (per connection ID).
@@ -68,69 +65,167 @@
   let oauthRedirectURI = $state<Record<string, string>>({});
   let oauthCode = $state<Record<string, string>>({});
 
+  // Connector (provider type) management modal.
+  type ConnectorEditorMode = { kind: 'create' } | { kind: 'edit'; connector: Connector };
+  let connectorEditor = $state<ConnectorEditorMode | null>(null);
+  let cSlug = $state('');
+  let cName = $state('');
+  let cDescription = $state('');
+  let cIcon = $state('');
+  let cAuthKind = $state<'oauth2' | 'token' | 'custom'>('oauth2');
+  let cAuthURL = $state('');
+  let cTokenURL = $state('');
+  let cScopes = $state('');
+  let cUserinfoURL = $state('');
+  let cAccountLabelPath = $state('');
+  let cAccessType = $state('');
+  let cPrompt = $state('');
+  let cUsePKCE = $state(false);
+  let cFields = $state<ConnectorField[]>([]);
+  let cSaving = $state(false);
+
   // ─── Load ───
   async function load() {
     loading = true;
     try {
-      connections = await listConnections();
+      const [cs, conns] = await Promise.all([
+        listConnectors().catch(() => [] as Connector[]),
+        listConnections().catch(() => [] as Connection[]),
+      ]);
+      connectors = cs;
+      connections = conns;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load connections', 'alert');
     } finally {
       loading = false;
     }
   }
-
   load();
 
-  // ─── Derived: group by provider ───
-  const byProvider = $derived(() => {
-    const map = new Map<string, Connection[]>();
+  // ─── Derived: connector lookup + grouped sections ───
+  const connectorBySlug = $derived(() => {
+    const m = new Map<string, Connector>();
+    for (const c of connectors) m.set(c.slug, c);
+    return m;
+  });
+
+  const connectionsByProvider = $derived(() => {
+    const m = new Map<string, Connection[]>();
     for (const c of connections) {
-      const arr = map.get(c.provider) ?? [];
+      const arr = m.get(c.provider) ?? [];
       arr.push(c);
-      map.set(c.provider, arr);
+      m.set(c.provider, arr);
     }
-    // Ensure all OAuth providers are represented so empty providers still
-    // render an "Add account" card.
-    for (const p of Object.keys(OAUTH_PROVIDERS)) {
-      if (!map.has(p)) map.set(p, []);
+    return m;
+  });
+
+  // Sections: one per connector (sorted by name), plus orphan providers that
+  // have connections but no connector definition.
+  const sections = $derived(() => {
+    const out: { connector?: Connector; provider: string; items: Connection[] }[] = [];
+    const seen = new Set<string>();
+    for (const c of connectors) {
+      seen.add(c.slug);
+      out.push({ connector: c, provider: c.slug, items: connectionsByProvider().get(c.slug) ?? [] });
     }
-    return Array.from(map.entries()).sort(([a], [b]) => a.localeCompare(b));
+    for (const [provider, items] of connectionsByProvider()) {
+      if (!seen.has(provider)) {
+        out.push({ connector: undefined, provider, items });
+      }
+    }
+    return out;
   });
 
   function providerLabel(provider: string): string {
-    return OAUTH_PROVIDERS[provider]?.name ?? provider;
+    return connectorBySlug().get(provider)?.name ?? provider;
   }
 
-  function providerDescription(provider: string): string {
-    return OAUTH_PROVIDERS[provider]?.description ?? '';
+  function isOAuth(connector?: Connector): boolean {
+    return connector?.auth_kind === 'oauth2';
   }
 
-  function isOAuthProvider(provider: string): boolean {
-    return provider in OAUTH_PROVIDERS;
+  // ─── Field helpers ───
+  // Connector fields drive the credential form. When no connector definition
+  // exists (orphan), fall back to the legacy fixed credential shape.
+  function effectiveFields(connector: Connector | undefined, provider: string): ConnectorField[] {
+    if (connector?.fields && connector.fields.length > 0) return connector.fields;
+    return [
+      { key: `${provider}_client_id`, label: 'Client ID', type: 'text' },
+      { key: `${provider}_client_secret`, label: 'Client Secret', type: 'secret' },
+      { key: `${provider}_api_key`, label: 'API Key', type: 'secret' },
+    ];
   }
 
-  // ─── Editor modal ───
-  function openCreate(provider: string) {
-    editor = { kind: 'create', provider };
+  function fieldIsSet(conn: Connection, key: string): boolean {
+    const c = conn.credentials;
+    if (key.endsWith('_client_id')) return !!c.client_id;
+    if (key.endsWith('_client_secret')) return !!c.client_secret_set;
+    if (key.endsWith('_refresh_token')) return !!c.refresh_token_set;
+    if (key.endsWith('_api_key')) return !!c.api_key_set;
+    return (c.extra_keys_set ?? []).includes(key);
+  }
+
+  function fieldPrefill(conn: Connection, key: string): string {
+    // Only non-secret, server-revealed values can be prefilled (client_id).
+    if (key.endsWith('_client_id')) return conn.credentials.client_id ?? '';
+    return '';
+  }
+
+  function isConnected(conn: Connection, connector?: Connector): boolean {
+    if (isOAuth(connector)) {
+      if (conn.credentials.refresh_token_set) return true;
+      return (conn.credentials.extra_keys_set ?? []).some((k) => k.endsWith('_access_token'));
+    }
+    return isSetupComplete(conn, connector);
+  }
+
+  function isSetupComplete(conn: Connection, connector?: Connector): boolean {
+    const fields = effectiveFields(connector, conn.provider).filter((f) => !f.key.endsWith('_refresh_token'));
+    let required = fields.filter((f) => f.required);
+    if (required.length === 0) required = fields;
+    return required.every((f) => fieldIsSet(conn, f.key));
+  }
+
+  // ─── Connection editor ───
+  function initFormFields(fields: ConnectorField[], conn?: Connection) {
+    const map: Record<string, string> = {};
+    for (const f of fields) {
+      if (f.key.endsWith('_refresh_token')) continue; // obtained via OAuth
+      map[f.key] = conn ? fieldPrefill(conn, f.key) : '';
+    }
+    formFields = map;
+  }
+
+  function openCreate(connector: Connector) {
+    editor = { kind: 'create', connector };
     formName = '';
     formDescription = '';
-    formClientID = '';
-    formClientSecret = '';
-    formRefreshToken = '';
-    formAPIKey = '';
     showSecrets = false;
+    initFormFields(effectiveFields(connector, connector.slug));
   }
 
-  function openEdit(c: Connection) {
-    editor = { kind: 'edit', connection: c };
-    formName = c.name;
-    formDescription = c.description ?? '';
-    formClientID = c.credentials.client_id ?? '';
-    formClientSecret = '';
-    formRefreshToken = '';
-    formAPIKey = '';
+  function openEdit(conn: Connection) {
+    const connector = connectorBySlug().get(conn.provider);
+    editor = { kind: 'edit', connection: conn, connector };
+    formName = conn.name;
+    formDescription = conn.description ?? '';
     showSecrets = false;
+    initFormFields(effectiveFields(connector, conn.provider), conn);
+  }
+
+  function editorConnector(): Connector | undefined {
+    if (!editor) return undefined;
+    return editor.kind === 'create' ? editor.connector : editor.connector;
+  }
+
+  function editorProvider(): string {
+    if (!editor) return '';
+    return editor.kind === 'create' ? editor.connector.slug : editor.connection.provider;
+  }
+
+  function editorFields(): ConnectorField[] {
+    const provider = editorProvider();
+    return effectiveFields(editorConnector(), provider).filter((f) => !f.key.endsWith('_refresh_token'));
   }
 
   function closeEditor() {
@@ -139,33 +234,26 @@
 
   async function saveEditor() {
     if (!editor) return;
-    const provider = editor.kind === 'create' ? editor.provider : editor.connection.provider;
     if (!formName.trim()) {
       addToast('Name is required', 'warn');
       return;
     }
+    const provider = editorProvider();
     saving = true;
     try {
-      const credentials: Record<string, string> = {};
-      if (formClientID.trim()) credentials.client_id = formClientID.trim();
-      if (formClientSecret.trim()) credentials.client_secret = formClientSecret.trim();
-      if (formRefreshToken.trim()) credentials.refresh_token = formRefreshToken.trim();
-      if (formAPIKey.trim()) credentials.api_key = formAPIKey.trim();
-
+      const fields: Record<string, string> = {};
+      for (const [k, v] of Object.entries(formFields)) {
+        if (v && v.trim()) fields[k] = v.trim();
+      }
       if (editor.kind === 'create') {
-        await createConnection({
-          provider,
-          name: formName.trim(),
-          description: formDescription.trim(),
-          credentials,
-        });
+        await createConnection({ provider, name: formName.trim(), description: formDescription.trim(), fields });
         addToast(`${providerLabel(provider)} account "${formName.trim()}" created`, 'info');
       } else {
         await updateConnection(editor.connection.id, {
           provider,
           name: formName.trim(),
           description: formDescription.trim(),
-          credentials,
+          fields,
         });
         addToast(`${providerLabel(provider)} account "${formName.trim()}" updated`, 'info');
       }
@@ -178,7 +266,7 @@
     }
   }
 
-  // ─── Delete ───
+  // ─── Delete connection ───
   async function remove(c: Connection) {
     if (!confirm(`Delete connection "${c.name}"?`)) return;
     try {
@@ -279,7 +367,7 @@
     delete oauthCode[c.id];
   }
 
-  // ─── Import ───
+  // ─── Import from variables ───
   async function runImport() {
     try {
       const result = await importConnectionsFromVariables();
@@ -298,13 +386,124 @@
     }
   }
 
-  // ─── Status helpers ───
-  function isConnected(c: Connection): boolean {
-    return !!c.credentials.refresh_token_set;
+  // ─── Connector (provider type) management ───
+  function openConnectorCreate() {
+    connectorEditor = { kind: 'create' };
+    cSlug = '';
+    cName = '';
+    cDescription = '';
+    cIcon = '';
+    cAuthKind = 'oauth2';
+    cAuthURL = '';
+    cTokenURL = '';
+    cScopes = '';
+    cUserinfoURL = '';
+    cAccountLabelPath = '';
+    cAccessType = '';
+    cPrompt = '';
+    cUsePKCE = false;
+    cFields = [];
   }
 
-  function isSetupComplete(c: Connection): boolean {
-    return !!c.credentials.client_id && !!c.credentials.client_secret_set;
+  function openConnectorEdit(c: Connector) {
+    connectorEditor = { kind: 'edit', connector: c };
+    cSlug = c.slug;
+    cName = c.name;
+    cDescription = c.description ?? '';
+    cIcon = c.icon ?? '';
+    cAuthKind = c.auth_kind;
+    cAuthURL = c.oauth?.auth_url ?? '';
+    cTokenURL = c.oauth?.token_url ?? '';
+    cScopes = (c.oauth?.scopes ?? []).join(' ');
+    cUserinfoURL = c.oauth?.userinfo_url ?? '';
+    cAccountLabelPath = c.oauth?.account_label_path ?? '';
+    cAccessType = c.oauth?.access_type ?? '';
+    cPrompt = c.oauth?.prompt ?? '';
+    cUsePKCE = c.oauth?.use_pkce ?? false;
+    cFields = (c.fields ?? []).map((f) => ({ ...f }));
+  }
+
+  function closeConnectorEditor() {
+    connectorEditor = null;
+  }
+
+  function addConnectorField() {
+    cFields = [...cFields, { key: '', label: '', type: 'text', required: false }];
+  }
+
+  function removeConnectorField(i: number) {
+    cFields = cFields.filter((_, idx) => idx !== i);
+  }
+
+  async function saveConnector() {
+    if (!cSlug.trim()) {
+      addToast('Slug is required', 'warn');
+      return;
+    }
+    if (cAuthKind === 'oauth2' && (!cAuthURL.trim() || !cTokenURL.trim())) {
+      addToast('OAuth2 connectors require Authorize URL and Token URL', 'warn');
+      return;
+    }
+    cSaving = true;
+    try {
+      const input = {
+        slug: cSlug.trim(),
+        name: cName.trim() || cSlug.trim(),
+        description: cDescription.trim(),
+        icon: cIcon.trim(),
+        auth_kind: cAuthKind,
+        oauth:
+          cAuthKind === 'oauth2'
+            ? {
+                auth_url: cAuthURL.trim(),
+                token_url: cTokenURL.trim(),
+                scopes: cScopes.split(/[\s,]+/).filter(Boolean),
+                access_type: cAccessType.trim() || undefined,
+                prompt: cPrompt.trim() || undefined,
+                use_pkce: cUsePKCE,
+                userinfo_url: cUserinfoURL.trim() || undefined,
+                account_label_path: cAccountLabelPath.trim() || undefined,
+              }
+            : undefined,
+        fields: cFields
+          .filter((f) => f.key.trim())
+          .map((f) => ({
+            key: f.key.trim(),
+            label: f.label?.trim() || undefined,
+            type: f.type || 'text',
+            required: f.required || undefined,
+            placeholder: f.placeholder?.trim() || undefined,
+            help: f.help?.trim() || undefined,
+          })),
+      };
+      if (connectorEditor?.kind === 'edit') {
+        await updateConnector(cSlug.trim(), input);
+        addToast(`Connector "${input.name}" updated`, 'info');
+      } else {
+        await createConnector(input);
+        addToast(`Connector "${input.name}" created`, 'info');
+      }
+      closeConnectorEditor();
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to save connector', 'alert');
+    } finally {
+      cSaving = false;
+    }
+  }
+
+  async function removeConnector(c: Connector) {
+    const msg = c.builtin
+      ? `Delete connector "${c.name}"? (built-in — it cannot be removed)`
+      : `Delete connector "${c.name}"? Existing accounts under it are kept but will lose their type definition.`;
+    if (!confirm(msg)) return;
+    try {
+      await deleteConnector(c.slug);
+      addToast(`Connector "${c.name}" deleted`, 'info');
+      await load();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to delete connector', 'alert');
+    }
   }
 </script>
 
@@ -314,10 +513,18 @@
     <div>
       <h1 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Connections</h1>
       <p class="text-sm text-gray-500 dark:text-dark-text-muted mt-0.5">
-        Named external-service accounts. Multiple accounts per provider are supported — agents reference them by ID.
+        Named external-service accounts. Providers are data-driven — add your own from "Manage providers".
       </p>
     </div>
     <div class="flex items-center gap-2">
+      <button
+        onclick={openConnectorCreate}
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+        title="Add a new provider type (connector)"
+      >
+        <Cable size={14} />
+        Add provider
+      </button>
       <button
         onclick={runImport}
         class="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
@@ -339,45 +546,63 @@
   {#if loading}
     <div class="text-sm text-gray-500 dark:text-dark-text-muted p-8 text-center">Loading connections…</div>
   {:else}
-    {#each byProvider() as [provider, items] (provider)}
+    {#each sections() as section (section.provider)}
+      {@const connector = section.connector}
       <section class="mb-6">
         <div class="flex items-center justify-between mb-3">
-          <div>
-            <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">
-              {providerLabel(provider)}
-            </h2>
-            {#if providerDescription(provider)}
-              <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">
-                {providerDescription(provider)}
-              </p>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">{providerLabel(section.provider)}</h2>
+              {#if connector}
+                <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted">
+                  {connector.auth_kind}
+                </span>
+                {#if connector.builtin}
+                  <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">built-in</span>
+                {/if}
+              {:else}
+                <span class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400">no connector</span>
+              {/if}
+            </div>
+            {#if connector?.description}
+              <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{connector.description}</p>
             {/if}
           </div>
-          <button
-            onclick={() => openCreate(provider)}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
-          >
-            <Plus size={12} />
-            Add {providerLabel(provider)} account
-          </button>
+          <div class="flex items-center gap-1 shrink-0">
+            {#if connector}
+              <button
+                onclick={() => openConnectorEdit(connector)}
+                class="flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+                title="Edit provider definition"
+              >
+                <Settings2 size={13} />
+              </button>
+            {/if}
+            <button
+              onclick={() => connector ? openCreate(connector) : openCreate({ slug: section.provider, name: section.provider, auth_kind: 'custom' } as Connector)}
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
+            >
+              <Plus size={12} />
+              Add account
+            </button>
+          </div>
         </div>
 
-        {#if items.length === 0}
+        {#if section.items.length === 0}
           <div class="text-xs text-gray-500 dark:text-dark-text-muted italic px-3 py-4 border border-dashed border-gray-200 dark:border-dark-border rounded">
-            No {providerLabel(provider)} accounts yet. Click "Add" above to create one.
+            No {providerLabel(section.provider)} accounts yet. Click "Add account" above to create one.
           </div>
         {:else}
           <div class="space-y-2">
-            {#each items as c (c.id)}
+            {#each section.items as c (c.id)}
               <div class="border border-gray-200 dark:border-dark-border rounded-lg bg-white dark:bg-dark-surface">
                 <div class="flex items-start justify-between p-3">
                   <div class="flex items-start gap-3 min-w-0">
                     <div class={[
                       'mt-0.5 w-8 h-8 rounded-lg flex items-center justify-center shrink-0',
-                      isConnected(c)
-                        ? 'bg-green-50 dark:bg-green-900/20'
-                        : 'bg-gray-50 dark:bg-dark-elevated',
+                      isConnected(c, connector) ? 'bg-green-50 dark:bg-green-900/20' : 'bg-gray-50 dark:bg-dark-elevated',
                     ]}>
-                      {#if isConnected(c)}
+                      {#if isConnected(c, connector)}
                         <CheckCircle2 size={18} class="text-green-600 dark:text-green-400" />
                       {:else}
                         <XCircle size={18} class="text-gray-400 dark:text-dark-text-muted" />
@@ -386,28 +611,23 @@
                     <div class="min-w-0">
                       <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text truncate">{c.name}</h3>
                       {#if c.account_label}
-                        <p class="text-xs text-gray-600 dark:text-dark-text-secondary mt-0.5 truncate">
-                          {c.account_label}
-                        </p>
+                        <p class="text-xs text-gray-600 dark:text-dark-text-secondary mt-0.5 truncate">{c.account_label}</p>
                       {/if}
                       {#if c.description}
                         <p class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{c.description}</p>
                       {/if}
                       <div class="mt-2 flex flex-wrap items-center gap-2">
-                        {#if isConnected(c)}
+                        {#if isConnected(c, connector)}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 rounded-full">
-                            <CheckCircle2 size={10} />
-                            Connected
+                            <CheckCircle2 size={10} /> Connected
                           </span>
-                        {:else if isSetupComplete(c)}
+                        {:else if isSetupComplete(c, connector)}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-full">
-                            <AlertCircle size={10} />
-                            Ready to connect
+                            <AlertCircle size={10} /> Ready to connect
                           </span>
                         {:else}
                           <span class="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted rounded-full">
-                            <XCircle size={10} />
-                            Not configured
+                            <XCircle size={10} /> Not configured
                           </span>
                         {/if}
                         {#if c.used_by_agents && c.used_by_agents.length > 0}
@@ -423,16 +643,15 @@
                     </div>
                   </div>
                   <div class="flex items-center gap-1 shrink-0">
-                    {#if isOAuthProvider(provider) && isSetupComplete(c) && !isConnected(c)}
+                    {#if isOAuth(connector) && isSetupComplete(c, connector) && !isConnected(c, connector)}
                       <button
                         onclick={() => startPopupOAuth(c)}
                         class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
                       >
-                        <Plug size={12} />
-                        Connect
+                        <Plug size={12} /> Connect
                       </button>
                     {/if}
-                    {#if isOAuthProvider(provider) && isConnected(c)}
+                    {#if isOAuth(connector) && isConnected(c, connector)}
                       <button
                         onclick={() => startPopupOAuth(c)}
                         class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
@@ -459,7 +678,7 @@
                 </div>
 
                 <!-- Manual OAuth flow panel -->
-                {#if isOAuthProvider(provider) && oauthStep[c.id]}
+                {#if isOAuth(connector) && oauthStep[c.id]}
                   <div class="border-t border-gray-100 dark:border-dark-border p-3 bg-gray-50/50 dark:bg-dark-base/50 rounded-b-lg">
                     {#if oauthStep[c.id] === 'authorize'}
                       <div class="space-y-2">
@@ -473,15 +692,13 @@
                             rel="noopener"
                             class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors"
                           >
-                            <ExternalLink size={12} />
-                            Open authorization
+                            <ExternalLink size={12} /> Open authorization
                           </a>
                           <button
                             onclick={() => (oauthStep[c.id] = 'paste-code')}
                             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
                           >
-                            <ClipboardPaste size={12} />
-                            I have the code
+                            <ClipboardPaste size={12} /> I have the code
                           </button>
                           <button
                             onclick={() => cancelManualOAuth(c)}
@@ -507,8 +724,7 @@
                             disabled={saving}
                             class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
                           >
-                            <Plug size={12} />
-                            {saving ? 'Connecting…' : 'Connect'}
+                            <Plug size={12} /> {saving ? 'Connecting…' : 'Connect'}
                           </button>
                           <button
                             onclick={() => cancelManualOAuth(c)}
@@ -520,7 +736,7 @@
                       </div>
                     {/if}
                   </div>
-                {:else if isOAuthProvider(provider) && isSetupComplete(c)}
+                {:else if isOAuth(connector) && isSetupComplete(c, connector)}
                   <div class="border-t border-gray-100 dark:border-dark-border px-3 py-2">
                     <button
                       onclick={() => startManualOAuth(c)}
@@ -539,29 +755,23 @@
   {/if}
 </div>
 
-<!-- Editor modal -->
+<!-- Connection editor modal -->
 {#if editor}
+  {@const fields = editorFields()}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-    <div class="bg-white dark:bg-dark-surface rounded-lg shadow-lg max-w-md w-full">
+    <div class="bg-white dark:bg-dark-surface rounded-lg shadow-lg max-w-md w-full max-h-[90vh] overflow-y-auto">
       <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-dark-border">
         <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">
-          {editor.kind === 'create'
-            ? `Add ${providerLabel(editor.provider)} account`
-            : `Edit ${providerLabel(editor.connection.provider)} account`}
+          {editor.kind === 'create' ? `Add ${providerLabel(editorProvider())} account` : `Edit ${providerLabel(editorProvider())} account`}
         </h2>
-        <button
-          onclick={closeEditor}
-          class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
-        >
+        <button onclick={closeEditor} class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary">
           <X size={16} />
         </button>
       </div>
 
       <div class="p-4 space-y-3">
         <label class="block">
-          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Name <span class="text-red-500">*</span>
-          </span>
+          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Name <span class="text-red-500">*</span></span>
           <input
             type="text"
             bind:value={formName}
@@ -571,9 +781,7 @@
         </label>
 
         <label class="block">
-          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Description
-          </span>
+          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Description</span>
           <input
             type="text"
             bind:value={formDescription}
@@ -582,93 +790,187 @@
           />
         </label>
 
-        <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">OAuth2 credentials</h3>
-            <button
-              type="button"
-              onclick={() => (showSecrets = !showSecrets)}
-              class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
-              title={showSecrets ? 'Hide' : 'Show'}
-            >
-              {#if showSecrets}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
-            </button>
-          </div>
+        {#if fields.length > 0}
+          <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Credentials</h3>
+              <button
+                type="button"
+                onclick={() => (showSecrets = !showSecrets)}
+                class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary"
+                title={showSecrets ? 'Hide' : 'Show'}
+              >
+                {#if showSecrets}<EyeOff size={14} />{:else}<Eye size={14} />{/if}
+              </button>
+            </div>
 
-          <div class="space-y-2">
-            <label class="block">
-              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Client ID</span>
-              <input
-                type="text"
-                bind:value={formClientID}
-                placeholder={editor.kind === 'edit' && editor.connection.credentials.client_id
-                  ? editor.connection.credentials.client_id
-                  : 'Paste from Google Cloud Console'}
-                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
-              />
-            </label>
-            <label class="block">
-              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
-                Client Secret
-                {#if editor.kind === 'edit' && editor.connection.credentials.client_secret_set}
-                  <span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>
-                {/if}
-              </span>
-              <input
-                type={showSecrets ? 'text' : 'password'}
-                bind:value={formClientSecret}
-                placeholder={editor.kind === 'edit' && editor.connection.credentials.client_secret_set
-                  ? '(leave blank to keep stored value)'
-                  : 'GOCSPX-...'}
-                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
-              />
-            </label>
-            <label class="block">
-              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
-                Refresh Token
-                {#if editor.kind === 'edit' && editor.connection.credentials.refresh_token_set}
-                  <span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>
-                {/if}
-                <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">— leave blank to obtain via OAuth</span>
-              </span>
-              <input
-                type={showSecrets ? 'text' : 'password'}
-                bind:value={formRefreshToken}
-                placeholder={editor.kind === 'edit' && editor.connection.credentials.refresh_token_set
-                  ? '(leave blank to keep stored value)'
-                  : 'Use "Connect" after saving to get this automatically'}
-                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
-              />
-            </label>
-            <label class="block">
-              <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
-                API Key
-                <span class="text-gray-400 dark:text-dark-text-muted font-normal ml-1">— only for token-based providers</span>
-              </span>
-              <input
-                type={showSecrets ? 'text' : 'password'}
-                bind:value={formAPIKey}
-                placeholder="(optional)"
-                class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
-              />
-            </label>
+            <div class="space-y-2">
+              {#each fields as f (f.key)}
+                {@const stored = editor.kind === 'edit' && fieldIsSet(editor.connection, f.key)}
+                <label class="block">
+                  <span class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">
+                    {f.label || f.key}
+                    {#if f.required}<span class="text-red-500">*</span>{/if}
+                    {#if stored && f.type === 'secret'}<span class="text-green-600 dark:text-green-400 font-normal ml-1">(stored)</span>{/if}
+                  </span>
+                  <input
+                    type={f.type === 'secret' && !showSecrets ? 'password' : 'text'}
+                    bind:value={formFields[f.key]}
+                    placeholder={stored && f.type === 'secret' ? '(leave blank to keep stored value)' : (f.placeholder ?? '')}
+                    class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono"
+                  />
+                  {#if f.help}<span class="block text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">{f.help}</span>{/if}
+                </label>
+              {/each}
+              {#if isOAuth(editorConnector())}
+                <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                  The refresh token is obtained automatically — save, then click "Connect".
+                </p>
+              {/if}
+            </div>
           </div>
-        </div>
+        {/if}
       </div>
 
       <div class="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-dark-border">
-        <button
-          onclick={closeEditor}
-          class="px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
-        >
-          Cancel
-        </button>
+        <button onclick={closeEditor} class="px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors">Cancel</button>
         <button
           onclick={saveEditor}
           disabled={saving || !formName.trim()}
           class="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
         >
           {saving ? 'Saving…' : editor.kind === 'create' ? 'Create' : 'Save'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Connector (provider type) editor modal -->
+{#if connectorEditor}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+    <div class="bg-white dark:bg-dark-surface rounded-lg shadow-lg max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-dark-border">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">
+          {connectorEditor.kind === 'create' ? 'Add provider' : `Edit provider: ${cName || cSlug}`}
+        </h2>
+        <div class="flex items-center gap-2">
+          {#if connectorEditor.kind === 'edit'}
+            <button
+              onclick={() => removeConnector((connectorEditor as { connector: Connector }).connector)}
+              class="text-red-500 hover:text-red-700"
+              title="Delete connector"
+            >
+              <Trash2 size={15} />
+            </button>
+          {/if}
+          <button onclick={closeConnectorEditor} class="text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary">
+            <X size={16} />
+          </button>
+        </div>
+      </div>
+
+      <div class="p-4 space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <label class="block">
+            <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Slug <span class="text-red-500">*</span></span>
+            <input
+              type="text"
+              bind:value={cSlug}
+              disabled={connectorEditor.kind === 'edit'}
+              placeholder="e.g. spotify"
+              class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent font-mono disabled:opacity-60"
+            />
+          </label>
+          <label class="block">
+            <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Name</span>
+            <input
+              type="text"
+              bind:value={cName}
+              placeholder="Spotify"
+              class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent"
+            />
+          </label>
+        </div>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Description</span>
+          <input
+            type="text"
+            bind:value={cDescription}
+            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent"
+          />
+        </label>
+
+        <label class="block">
+          <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Auth kind</span>
+          <select
+            bind:value={cAuthKind}
+            class="w-full px-3 py-2 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent"
+          >
+            <option value="oauth2">OAuth2</option>
+            <option value="token">Token / API key</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+
+        {#if cAuthKind === 'oauth2'}
+          <div class="pt-2 border-t border-gray-100 dark:border-dark-border space-y-2">
+            <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">OAuth2 endpoints</h3>
+            <input bind:value={cAuthURL} placeholder="Authorize URL *" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+            <input bind:value={cTokenURL} placeholder="Token URL *" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+            <input bind:value={cScopes} placeholder="Scopes (space or comma separated)" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+            <div class="grid grid-cols-2 gap-2">
+              <input bind:value={cAccessType} placeholder="access_type (e.g. offline)" class="px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+              <input bind:value={cPrompt} placeholder="prompt (e.g. consent)" class="px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+            </div>
+            <input bind:value={cUserinfoURL} placeholder="Userinfo URL (optional, for account label)" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+            <input bind:value={cAccountLabelPath} placeholder="Account label path (e.g. email)" class="w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+            <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-dark-text-secondary">
+              <input type="checkbox" bind:checked={cUsePKCE} /> Use PKCE (for public clients / X / Twitter)
+            </label>
+          </div>
+        {/if}
+
+        <div class="pt-2 border-t border-gray-100 dark:border-dark-border">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Credential fields</h3>
+            <button onclick={addConnectorField} class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary">
+              <Plus size={12} /> Add field
+            </button>
+          </div>
+          {#if cFields.length === 0}
+            <p class="text-[11px] text-gray-400 dark:text-dark-text-muted italic">No fields yet. For OAuth2, add client_id and client_secret.</p>
+          {/if}
+          <div class="space-y-2">
+            {#each cFields as f, i (i)}
+              <div class="flex items-center gap-2">
+                <input bind:value={f.key} placeholder="key (e.g. spotify_client_id)" class="flex-1 px-2 py-1 text-xs border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+                <input bind:value={f.label} placeholder="label" class="w-24 px-2 py-1 text-xs border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent" />
+                <select bind:value={f.type} class="px-2 py-1 text-xs border border-gray-200 dark:border-dark-border rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent">
+                  <option value="text">text</option>
+                  <option value="secret">secret</option>
+                </select>
+                <label class="flex items-center gap-1 text-[11px] text-gray-500 dark:text-dark-text-muted" title="Required">
+                  <input type="checkbox" bind:checked={f.required} /> req
+                </label>
+                <button onclick={() => removeConnectorField(i)} class="text-red-500 hover:text-red-700" title="Remove field">
+                  <X size={13} />
+                </button>
+              </div>
+            {/each}
+          </div>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2 p-4 border-t border-gray-200 dark:border-dark-border">
+        <button onclick={closeConnectorEditor} class="px-3 py-1.5 text-sm text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors">Cancel</button>
+        <button
+          onclick={saveConnector}
+          disabled={cSaving || !cSlug.trim()}
+          class="flex items-center gap-1.5 px-4 py-1.5 text-sm font-medium text-white bg-gray-900 dark:bg-accent hover:bg-gray-800 dark:hover:bg-accent/90 rounded transition-colors disabled:opacity-50"
+        >
+          {cSaving ? 'Saving…' : connectorEditor.kind === 'create' ? 'Create' : 'Save'}
         </button>
       </div>
     </div>

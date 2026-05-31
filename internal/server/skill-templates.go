@@ -23,8 +23,14 @@ type SkillTemplate struct {
 	Category          string             `json:"category"`
 	Tags              []string           `json:"tags"`
 	RequiredVariables []RequiredVariable `json:"required_variables"`
-	OAuth             string             `json:"oauth,omitempty"` // OAuth provider name (e.g. "google") — signals frontend to show connect flow
-	Skill             SkillTemplateData  `json:"skill"`
+	OAuth             string             `json:"oauth,omitempty"` // connector slug (e.g. "google") — references an existing connector
+	// Connector optionally declares the external-service connection TYPE this
+	// skill brings with it. On install it is upserted into the connector
+	// registry (if a connector with that slug doesn't already exist) so a
+	// user-added skill can define and use its own connection without a code
+	// change. Use OAuth to reference an existing connector by slug instead.
+	Connector *service.Connector `json:"connector,omitempty"`
+	Skill     SkillTemplateData  `json:"skill"`
 }
 
 // SkillTemplateData holds the skill payload to be installed.
@@ -208,5 +214,33 @@ func (s *Server) InstallSkillTemplateAPI(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// If the skill declares its own connector type, register it so the user can
+	// immediately create a connection for it. Best-effort — failures here don't
+	// fail the install.
+	if tmpl.Connector != nil {
+		s.ensureConnectorFromSkill(r.Context(), *tmpl.Connector, userEmail)
+	}
+
 	httpResponseJSON(w, record, http.StatusCreated)
+}
+
+// ensureConnectorFromSkill upserts a skill-declared connector into the registry
+// when no connector with that slug already exists (built-in or DB). Best-effort.
+func (s *Server) ensureConnectorFromSkill(ctx context.Context, c service.Connector, userEmail string) {
+	if s.connectorStore == nil || strings.TrimSpace(c.Slug) == "" {
+		return
+	}
+	if existing, _ := s.resolveConnector(ctx, c.Slug); existing != nil {
+		return // already known — don't clobber a built-in or user override
+	}
+	if c.AuthKind == "" {
+		c.AuthKind = service.ConnectorAuthToken
+	}
+	c.CreatedBy = userEmail
+	c.UpdatedBy = userEmail
+	if _, err := s.connectorStore.CreateConnector(ctx, c); err != nil {
+		slog.Warn("skill-templates: failed to register skill connector", "slug", c.Slug, "error", err)
+		return
+	}
+	slog.Info("skill-templates: registered connector from skill", "slug", c.Slug)
 }

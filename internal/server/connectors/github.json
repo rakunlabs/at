@@ -1,0 +1,30 @@
+{
+  "slug": "github",
+  "name": "GitHub",
+  "description": "Act on a user's behalf against the GitHub API",
+  "icon": "Github",
+  "auth_kind": "oauth2",
+  "oauth": {
+    "auth_url": "https://github.com/login/oauth/authorize",
+    "token_url": "https://github.com/login/oauth/access_token",
+    "scopes": ["repo", "read:user"],
+    "userinfo_url": "https://api.github.com/user",
+    "account_label_path": "login"
+  },
+  "fields": [
+    {
+      "key": "github_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "placeholder": "Iv1.xxxxxxxx",
+      "help": "OAuth App client ID from GitHub Developer Settings"
+    },
+    {
+      "key": "github_client_secret",
+      "label": "Client Secret",
+      "type": "secret",
+      "required": true
+    }
+  ]
+}

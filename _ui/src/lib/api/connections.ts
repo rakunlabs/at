@@ -57,6 +57,9 @@ export interface CreateConnectionInput {
     api_key?: string;
     extra?: Record<string, string>;
   };
+  /** Connector-driven dynamic credential map keyed by full variable name
+   *  (e.g. {"spotify_client_id": "..."}). Merged into credentials server-side. */
+  fields?: Record<string, string>;
   metadata?: Record<string, unknown>;
 }
 

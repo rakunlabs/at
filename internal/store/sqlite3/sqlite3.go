@@ -74,6 +74,7 @@ type SQLite struct {
 	tablePackSources          exp.IdentifierExpression
 	tableGuides               exp.IdentifierExpression
 	tableConnections          exp.IdentifierExpression
+	tableConnectors           exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -198,6 +199,7 @@ func New(ctx context.Context, cfg *config.StoreSQLite, encKey []byte) (*SQLite, 
 		tablePackSources:          goqu.T(tablePrefix + "pack_sources"),
 		tableGuides:               goqu.T(tablePrefix + "guides"),
 		tableConnections:          goqu.T(tablePrefix + "connections"),
+		tableConnectors:           goqu.T(tablePrefix + "connectors"),
 		encKey:                    encKey,
 	}, nil
 }

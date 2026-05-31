@@ -261,6 +261,20 @@ type Server struct {
 	// (multi-instance OAuth/token credentials referenced by agents).
 	connectionStore service.ConnectionStorer
 
+	// connectorStore is the persistent store for user-defined connector
+	// definitions (external-service connection TYPES). Built-in connectors are
+	// embedded JSON, merged with DB rows at read time (DB overrides by slug).
+	connectorStore service.ConnectorStorer
+
+	// builtinConnectors holds the embedded connector definitions loaded at
+	// startup from connectors/*.json. Merged with connectorStore rows at runtime.
+	builtinConnectors []service.Connector
+
+	// oauthPKCE caches PKCE code verifiers for in-flight OAuth2 authorization
+	// flows (keyed by state for the callback flow, or by provider+connection for
+	// the manual paste-code flow). Entries are single-use and TTL-bounded.
+	oauthPKCE sync.Map
+
 	// runningBots tracks currently-running bot instances.
 	// map key: bot config ID (string), value: *runningBot
 	runningBots sync.Map
@@ -434,6 +448,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		packSourceStore:          store,
 		guideStore:               store,
 		connectionStore:          store,
+		connectorStore:           store,
 
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
@@ -461,6 +476,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	// Load predefined skill templates from embedded JSON files.
 	s.loadSkillTemplates()
+	// Load built-in connector definitions (external-service connection types).
+	s.loadConnectors()
 	// Sync installed skill handlers with current templates (applies handler bug fixes).
 	s.syncInstalledSkillHandlers(ctx)
 	s.loadMCPTemplates()
@@ -1018,6 +1035,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/connections/{id}", s.GetConnectionAPI)
 	apiGroup.PUT("/v1/connections/{id}", s.UpdateConnectionAPI)
 	apiGroup.DELETE("/v1/connections/{id}", s.DeleteConnectionAPI)
+
+	// Connectors (data-driven external-service connection types).
+	apiGroup.GET("/v1/connectors", s.ListConnectorsAPI)
+	apiGroup.POST("/v1/connectors", s.CreateConnectorAPI)
+	apiGroup.GET("/v1/connectors/{slug}", s.GetConnectorAPI)
+	apiGroup.PUT("/v1/connectors/{slug}", s.UpdateConnectorAPI)
+	apiGroup.DELETE("/v1/connectors/{slug}", s.DeleteConnectorAPI)
 
 	// General MCP server management
 	apiGroup.GET("/v1/mcp/servers", s.ListMCPServersAPI)

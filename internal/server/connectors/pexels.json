@@ -1,0 +1,16 @@
+{
+  "slug": "pexels",
+  "name": "Pexels",
+  "description": "Stock photo & video API key",
+  "icon": "Image",
+  "auth_kind": "token",
+  "fields": [
+    {
+      "key": "pexels_api_key",
+      "label": "API Key",
+      "type": "secret",
+      "required": true,
+      "help": "Create a key at https://www.pexels.com/api/"
+    }
+  ]
+}

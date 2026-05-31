@@ -8,55 +8,92 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
-// oauthProviderConfig holds the well-known OAuth2 endpoints for a provider.
-type oauthProviderConfig struct {
-	AuthURL  string
-	TokenURL string
-	// Variable keys for client credentials.
-	ClientIDVar     string
-	ClientSecretVar string
-	RefreshTokenVar string
-	// Default scopes.
-	DefaultScopes string
+// ─── Connector-driven OAuth2 ───
+//
+// OAuth providers are no longer a compiled-in map. The set of connectable
+// services lives in the data-driven Connector registry (see
+// connectors-registry.go + the connectors table). Any connector with
+// AuthKind == "oauth2" participates in the flows below; new providers are added
+// by shipping a connectors/*.json definition or creating one through the UI —
+// no code change required.
+
+// connectorVarKey returns the variable/credential key for a given suffix on a
+// connector, preferring an explicit connector field whose key ends with that
+// suffix and falling back to "<slug><suffix>". This keeps backward
+// compatibility with the legacy "<provider>_client_id" variable convention.
+func connectorVarKey(c *service.Connector, suffix string) string {
+	for _, f := range c.Fields {
+		if strings.HasSuffix(f.Key, suffix) {
+			return f.Key
+		}
+	}
+	return c.Slug + suffix
 }
 
-var oauthProviders = map[string]oauthProviderConfig{
-	"google": {
-		AuthURL:         "https://accounts.google.com/o/oauth2/v2/auth",
-		TokenURL:        "https://oauth2.googleapis.com/token",
-		ClientIDVar:     "google_client_id",
-		ClientSecretVar: "google_client_secret",
-		RefreshTokenVar: "google_refresh_token",
-		DefaultScopes:   "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/calendar",
-	},
-	"youtube": {
-		AuthURL:         "https://accounts.google.com/o/oauth2/v2/auth",
-		TokenURL:        "https://oauth2.googleapis.com/token",
-		ClientIDVar:     "youtube_client_id",
-		ClientSecretVar: "youtube_client_secret",
-		RefreshTokenVar: "youtube_refresh_token",
-		DefaultScopes:   "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube",
-	},
+// connectorScopes joins the connector's OAuth scopes into a space-delimited
+// string suitable for the authorize URL.
+func connectorScopes(c *service.Connector) string {
+	if c.OAuth == nil {
+		return ""
+	}
+	return strings.Join(c.OAuth.Scopes, " ")
 }
 
-// OAuthStartAPI returns the OAuth2 authorization URL for a provider.
+// isOAuth2Connector reports whether a connector can drive the OAuth2 flow.
+func isOAuth2Connector(c *service.Connector) bool {
+	return c != nil && c.AuthKind == service.ConnectorAuthOAuth2 && c.OAuth != nil && c.OAuth.AuthURL != "" && c.OAuth.TokenURL != ""
+}
+
+// ─── PKCE verifier cache ───
+
+type pkceEntry struct {
+	verifier string
+	expires  time.Time
+}
+
+func (s *Server) pkcePut(key, verifier string) {
+	s.oauthPKCE.Store(key, pkceEntry{verifier: verifier, expires: time.Now().Add(10 * time.Minute)})
+}
+
+// pkceTake returns and removes the verifier for a key (single use). Empty if
+// missing or expired.
+func (s *Server) pkceTake(key string) string {
+	v, ok := s.oauthPKCE.LoadAndDelete(key)
+	if !ok {
+		return ""
+	}
+	e, ok := v.(pkceEntry)
+	if !ok || time.Now().After(e.expires) {
+		return ""
+	}
+	return e.verifier
+}
+
+func manualPKCEKey(provider, connectionID string) string {
+	return "manual:" + provider + ":" + connectionID
+}
+
+// OAuthStartAPI returns the OAuth2 authorization URL for a connector.
 // GET /api/v1/oauth/start?provider=google&scopes=gmail.readonly,calendar&user_id=discord::12345
 // GET /api/v1/oauth/start?provider=youtube&connection_id=conn_01HV
 //
 // State encoding:
-//   - "provider"                       — global refresh token (legacy)
-//   - "provider::user_id"              — per-chat-user refresh token (legacy)
+//   - "provider"                        — global refresh token (legacy)
+//   - "provider::user_id"               — per-chat-user refresh token (legacy)
 //   - "provider::conn::<connection_id>" — write to a named connection row
 //
 // When connection_id is provided, the connection's own client_id/client_secret
-// are used (and the resulting refresh token is stored on the connection row).
-// Otherwise the legacy flow reads the client_id from the global variables table.
+// are used (and the resulting token is stored on the connection row). Otherwise
+// the legacy flow reads the client_id from the global variables table.
 func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	if s.variableStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -64,27 +101,27 @@ func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providerName := r.URL.Query().Get("provider")
-	provider, ok := oauthProviders[providerName]
-	if !ok {
-		httpResponse(w, fmt.Sprintf("unknown oauth provider %q (supported: google)", providerName), http.StatusBadRequest)
+	connector, err := s.resolveConnector(r.Context(), providerName)
+	if err != nil {
+		httpResponse(w, "failed to resolve connector: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !isOAuth2Connector(connector) {
+		httpResponse(w, fmt.Sprintf("unknown oauth provider %q", providerName), http.StatusBadRequest)
 		return
 	}
 
 	connectionID := r.URL.Query().Get("connection_id")
-	clientID, err := s.resolveOAuthClientID(r.Context(), provider, connectionID)
+	clientID, err := s.resolveOAuthClientID(r.Context(), connector, connectionID)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Build callback URL from the incoming request.
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	callbackURL := scheme + "://" + r.Host + strings.TrimSuffix(s.config.BasePath, "/") + "/api/v1/oauth/callback"
+	callbackURL := s.oauthCallbackURL(r)
 
-	scopes := provider.DefaultScopes
+	scopes := connectorScopes(connector)
 	if scopeParam := r.URL.Query().Get("scopes"); scopeParam != "" {
 		scopes = strings.ReplaceAll(scopeParam, ",", " ")
 	}
@@ -92,17 +129,11 @@ func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	// Encode provider + optional scope (user_id OR connection_id) in state.
 	state := buildOAuthState(providerName, r.URL.Query().Get("user_id"), connectionID)
 
-	params := url.Values{
-		"client_id":     {clientID},
-		"redirect_uri":  {callbackURL},
-		"response_type": {"code"},
-		"scope":         {scopes},
-		"access_type":   {"offline"},
-		"prompt":        {"consent"},
-		"state":         {state},
+	authURL, err := s.buildAuthorizeURL(connector, clientID, callbackURL, scopes, state, state)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-
-	authURL := provider.AuthURL + "?" + params.Encode()
 
 	// If redirect=true (used by bot login links), redirect the browser directly.
 	if r.URL.Query().Get("redirect") == "true" {
@@ -124,41 +155,37 @@ func (s *Server) OAuthManualAuthURLAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	providerName := r.URL.Query().Get("provider")
-	provider, ok := oauthProviders[providerName]
-	if !ok {
+	connector, err := s.resolveConnector(r.Context(), providerName)
+	if err != nil {
+		httpResponse(w, "failed to resolve connector: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !isOAuth2Connector(connector) {
 		httpResponse(w, fmt.Sprintf("unknown oauth provider %q", providerName), http.StatusBadRequest)
 		return
 	}
 
 	connectionID := r.URL.Query().Get("connection_id")
-	clientID, err := s.resolveOAuthClientID(r.Context(), provider, connectionID)
+	clientID, err := s.resolveOAuthClientID(r.Context(), connector, connectionID)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	scopes := provider.DefaultScopes
+	scopes := connectorScopes(connector)
 
 	// Use AT's own code-display page as the redirect URI.
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	redirectURI := scheme + "://" + r.Host + strings.TrimSuffix(s.config.BasePath, "/") + "/api/v1/oauth/code-display"
+	redirectURI := s.oauthBaseURL(r) + "/api/v1/oauth/code-display"
 
 	state := buildOAuthState(providerName, "", connectionID)
 
-	params := url.Values{
-		"client_id":     {clientID},
-		"redirect_uri":  {redirectURI},
-		"response_type": {"code"},
-		"scope":         {scopes},
-		"access_type":   {"offline"},
-		"prompt":        {"consent"},
-		"state":         {state},
+	// The manual flow has no state on the exchange call, so key the PKCE
+	// verifier by provider+connection instead.
+	authURL, err := s.buildAuthorizeURL(connector, clientID, redirectURI, scopes, state, manualPKCEKey(providerName, connectionID))
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
-
-	authURL := provider.AuthURL + "?" + params.Encode()
 
 	httpResponseJSON(w, map[string]any{
 		"url":           authURL,
@@ -166,6 +193,38 @@ func (s *Server) OAuthManualAuthURLAPI(w http.ResponseWriter, r *http.Request) {
 		"provider":      providerName,
 		"connection_id": connectionID,
 	}, http.StatusOK)
+}
+
+// buildAuthorizeURL assembles the provider authorize URL from a connector's
+// OAuth config. When the connector uses PKCE, a verifier is generated and
+// cached under pkceKey for retrieval during the token exchange.
+func (s *Server) buildAuthorizeURL(c *service.Connector, clientID, redirectURI, scopes, state, pkceKey string) (string, error) {
+	params := url.Values{
+		"client_id":     {clientID},
+		"redirect_uri":  {redirectURI},
+		"response_type": {"code"},
+		"scope":         {scopes},
+		"state":         {state},
+	}
+	if c.OAuth.AccessType != "" {
+		params.Set("access_type", c.OAuth.AccessType)
+	}
+	if c.OAuth.Prompt != "" {
+		params.Set("prompt", c.OAuth.Prompt)
+	}
+	for k, v := range c.OAuth.ExtraAuthParams {
+		params.Set(k, v)
+	}
+	if c.OAuth.UsePKCE {
+		pkce, err := antropic.GeneratePKCE()
+		if err != nil {
+			return "", fmt.Errorf("generate PKCE challenge: %w", err)
+		}
+		s.pkcePut(pkceKey, pkce.Verifier)
+		params.Set("code_challenge", pkce.Challenge)
+		params.Set("code_challenge_method", "S256")
+	}
+	return c.OAuth.AuthURL + "?" + params.Encode(), nil
 }
 
 // OAuthCodeDisplayAPI is a redirect target that shows the authorization code to the user.
@@ -218,10 +277,70 @@ body{font-family:system-ui;max-width:480px;margin:60px auto;padding:20px;text-al
 </body></html>`, code)
 }
 
+// oauthTokenResult is the normalized output of a token exchange.
+type oauthTokenResult struct {
+	AccessToken  string
+	RefreshToken string
+	ExpiresIn    int
+}
+
+// exchangeOAuthCode swaps an authorization code for tokens against a
+// connector's token endpoint. It sends a form-encoded body with an
+// Accept: application/json header (so providers like GitHub that default to
+// form-encoded responses return JSON), and includes code_verifier when PKCE
+// is in use. client_secret is omitted when empty (PKCE public clients).
+func exchangeOAuthCode(ctx context.Context, c *service.Connector, clientID, clientSecret, code, redirectURI, codeVerifier string) (*oauthTokenResult, error) {
+	form := url.Values{
+		"code":         {code},
+		"client_id":    {clientID},
+		"redirect_uri": {redirectURI},
+		"grant_type":   {"authorization_code"},
+	}
+	if clientSecret != "" {
+		form.Set("client_secret", clientSecret)
+	}
+	if codeVerifier != "" {
+		form.Set("code_verifier", codeVerifier)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.OAuth.TokenURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("build token request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("token exchange failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+
+	var tokenResp struct {
+		AccessToken  string `json:"access_token"`
+		RefreshToken string `json:"refresh_token"`
+		ExpiresIn    int    `json:"expires_in"`
+		Error        string `json:"error"`
+		ErrorDesc    string `json:"error_description"`
+	}
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return nil, fmt.Errorf("invalid token response: %w", err)
+	}
+	if tokenResp.Error != "" {
+		return nil, fmt.Errorf("%s: %s", tokenResp.Error, tokenResp.ErrorDesc)
+	}
+
+	return &oauthTokenResult{
+		AccessToken:  tokenResp.AccessToken,
+		RefreshToken: tokenResp.RefreshToken,
+		ExpiresIn:    tokenResp.ExpiresIn,
+	}, nil
+}
+
 // OAuthExchangeAPI exchanges a manually-pasted authorization code for tokens.
 // POST /api/v1/oauth/exchange {provider, code, redirect_uri, connection_id?}
-// When connection_id is set, the refresh token is stored on the connection row
-// and that connection's client_id/client_secret are used for the exchange.
 func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 	if s.variableStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -239,8 +358,12 @@ func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, ok := oauthProviders[req.Provider]
-	if !ok {
+	connector, err := s.resolveConnector(r.Context(), req.Provider)
+	if err != nil {
+		httpResponse(w, "failed to resolve connector: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !isOAuth2Connector(connector) {
 		httpResponse(w, fmt.Sprintf("unknown provider %q", req.Provider), http.StatusBadRequest)
 		return
 	}
@@ -253,83 +376,44 @@ func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientID, err := s.resolveOAuthClientID(r.Context(), provider, req.ConnectionID)
+	clientID, err := s.resolveOAuthClientID(r.Context(), connector, req.ConnectionID)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	clientSecret, err := s.resolveOAuthClientSecret(r.Context(), provider, req.ConnectionID)
+	clientSecret, err := s.resolveOAuthClientSecret(r.Context(), connector, req.ConnectionID)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// Exchange code for tokens.
-	resp, err := http.PostForm(provider.TokenURL, url.Values{
-		"code":          {req.Code},
-		"client_id":     {clientID},
-		"client_secret": {clientSecret},
-		"redirect_uri":  {req.RedirectURI},
-		"grant_type":    {"authorization_code"},
-	})
+	verifier := ""
+	if connector.OAuth.UsePKCE {
+		verifier = s.pkceTake(manualPKCEKey(req.Provider, req.ConnectionID))
+	}
+
+	tok, err := exchangeOAuthCode(r.Context(), connector, clientID, clientSecret, req.Code, req.RedirectURI, verifier)
 	if err != nil {
-		httpResponse(w, "token exchange failed: "+err.Error(), http.StatusInternalServerError)
+		httpResponse(w, "token exchange failed: "+err.Error(), http.StatusBadRequest)
 		return
 	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-		Error        string `json:"error"`
-		ErrorDesc    string `json:"error_description"`
-	}
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		httpResponse(w, "invalid token response", http.StatusInternalServerError)
-		return
-	}
-	if tokenResp.Error != "" {
-		httpResponse(w, tokenResp.Error+": "+tokenResp.ErrorDesc, http.StatusBadRequest)
-		return
-	}
-	if tokenResp.RefreshToken == "" {
-		httpResponse(w, "no refresh token received — try revoking access at https://myaccount.google.com/permissions and re-authorizing", http.StatusBadRequest)
+	if tok.RefreshToken == "" && tok.AccessToken == "" {
+		httpResponse(w, "no token received — try revoking access and re-authorizing", http.StatusBadRequest)
 		return
 	}
 
 	userEmail := s.getUserEmail(r)
 
 	if req.ConnectionID != "" {
-		if err := s.saveRefreshTokenToConnection(r.Context(), req.ConnectionID, req.Provider,
-			tokenResp.RefreshToken, tokenResp.AccessToken, userEmail); err != nil {
-			httpResponse(w, "failed to save refresh token: "+err.Error(), http.StatusInternalServerError)
+		if err := s.saveTokensToConnection(r.Context(), req.ConnectionID, connector, tok.RefreshToken, tok.AccessToken, userEmail); err != nil {
+			httpResponse(w, "failed to save token: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		slog.Info("oauth manual exchange: saved refresh token to connection",
-			"provider", req.Provider,
-			"connection_id", req.ConnectionID,
-		)
-	} else {
-		// Legacy path: save as a global variable.
-		_, err = s.variableStore.CreateVariable(r.Context(), service.Variable{
-			Key:         provider.RefreshTokenVar,
-			Value:       tokenResp.RefreshToken,
-			Description: fmt.Sprintf("OAuth2 refresh token for %s (auto-saved)", req.Provider),
-			Secret:      true,
-			CreatedBy:   userEmail,
-			UpdatedBy:   userEmail,
-		})
-		if err != nil {
-			httpResponse(w, "failed to save refresh token: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		slog.Info("oauth manual exchange: saved refresh token",
-			"provider", req.Provider,
-			"token_var", provider.RefreshTokenVar,
-		)
+		slog.Info("oauth manual exchange: saved token to connection",
+			"provider", req.Provider, "connection_id", req.ConnectionID)
+	} else if err := s.saveTokensToVariable(r.Context(), connector, tok, "", userEmail); err != nil {
+		httpResponse(w, "failed to save token: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	httpResponseJSON(w, map[string]string{
@@ -341,10 +425,6 @@ func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // OAuthCallbackAPI handles the redirect from the OAuth2 provider.
-// State encoding (see parseOAuthState):
-//   - "provider"                        — global refresh token
-//   - "provider::user_id"               — per-chat-user refresh token
-//   - "provider::conn::<connection_id>" — write to a named connection row
 func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	if s.variableStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -353,8 +433,12 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 
 	state := r.URL.Query().Get("state")
 	providerName, oauthUserID, connectionID := parseOAuthState(state)
-	provider, ok := oauthProviders[providerName]
-	if !ok {
+	connector, err := s.resolveConnector(r.Context(), providerName)
+	if err != nil {
+		renderOAuthResult(w, false, "failed to resolve connector: "+err.Error())
+		return
+	}
+	if !isOAuth2Connector(connector) {
 		renderOAuthResult(w, false, "unknown provider in state parameter")
 		return
 	}
@@ -369,95 +453,65 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientID, err := s.resolveOAuthClientID(r.Context(), provider, connectionID)
+	clientID, err := s.resolveOAuthClientID(r.Context(), connector, connectionID)
 	if err != nil {
 		renderOAuthResult(w, false, err.Error())
 		return
 	}
-	clientSecret, err := s.resolveOAuthClientSecret(r.Context(), provider, connectionID)
+	clientSecret, err := s.resolveOAuthClientSecret(r.Context(), connector, connectionID)
 	if err != nil {
 		renderOAuthResult(w, false, err.Error())
 		return
 	}
 
-	// Reconstruct callback URL (must match the one used in authorize).
-	scheme := "http"
-	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-		scheme = "https"
-	}
-	callbackURL := scheme + "://" + r.Host + strings.TrimSuffix(s.config.BasePath, "/") + "/api/v1/oauth/callback"
+	callbackURL := s.oauthCallbackURL(r)
 
-	// Exchange code for tokens.
-	resp, err := http.PostForm(provider.TokenURL, url.Values{
-		"code":          {code},
-		"client_id":     {clientID},
-		"client_secret": {clientSecret},
-		"redirect_uri":  {callbackURL},
-		"grant_type":    {"authorization_code"},
-	})
+	verifier := ""
+	if connector.OAuth.UsePKCE {
+		verifier = s.pkceTake(state)
+	}
+
+	tok, err := exchangeOAuthCode(r.Context(), connector, clientID, clientSecret, code, callbackURL, verifier)
 	if err != nil {
 		slog.Error("oauth token exchange failed", "provider", providerName, "error", err)
 		renderOAuthResult(w, false, "token exchange failed: "+err.Error())
 		return
 	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
-
-	var tokenResp struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresIn    int    `json:"expires_in"`
-		Error        string `json:"error"`
-		ErrorDesc    string `json:"error_description"`
-	}
-	if err := json.Unmarshal(body, &tokenResp); err != nil {
-		renderOAuthResult(w, false, "invalid token response")
-		return
-	}
-	if tokenResp.Error != "" {
-		renderOAuthResult(w, false, tokenResp.Error+": "+tokenResp.ErrorDesc)
-		return
-	}
-	if tokenResp.RefreshToken == "" {
-		renderOAuthResult(w, false, "no refresh token received — try revoking access and re-authorizing")
+	if tok.RefreshToken == "" && tok.AccessToken == "" {
+		renderOAuthResult(w, false, "no token received — try revoking access and re-authorizing")
 		return
 	}
 
-	// Save refresh token.
 	userEmail := s.getUserEmail(r)
 
 	switch {
 	case connectionID != "":
-		// Named-connection scope: persist the refresh token on the connection row.
-		if err := s.saveRefreshTokenToConnection(r.Context(), connectionID, providerName, tokenResp.RefreshToken, tokenResp.AccessToken, userEmail); err != nil {
-			slog.Error("failed to save refresh token to connection",
-				"provider", providerName, "connection_id", connectionID, "error", err)
-			renderOAuthResult(w, false, "failed to save refresh token: "+err.Error())
+		if err := s.saveTokensToConnection(r.Context(), connectionID, connector, tok.RefreshToken, tok.AccessToken, userEmail); err != nil {
+			slog.Error("failed to save token to connection", "provider", providerName, "connection_id", connectionID, "error", err)
+			renderOAuthResult(w, false, "failed to save token: "+err.Error())
 			return
 		}
 	case oauthUserID != "" && s.userPrefStore != nil:
 		// Per-user tokens go to user_preferences (encrypted at rest).
-		tokenJSON, _ := json.Marshal(tokenResp.RefreshToken)
+		token := tok.RefreshToken
+		if token == "" {
+			token = tok.AccessToken
+		}
+		tokenJSON, _ := json.Marshal(token)
 		if err := s.userPrefStore.SetUserPreference(r.Context(), service.UserPreference{
 			UserID: oauthUserID,
-			Key:    provider.RefreshTokenVar,
+			Key:    connector.Slug + "_refresh_token",
 			Value:  json.RawMessage(tokenJSON),
 			Secret: true,
 		}); err != nil {
-			slog.Error("failed to save refresh token to user preferences", "provider", providerName, "error", err)
-			renderOAuthResult(w, false, "failed to save refresh token: "+err.Error())
+			slog.Error("failed to save token to user preferences", "provider", providerName, "error", err)
+			renderOAuthResult(w, false, "failed to save token: "+err.Error())
 			return
 		}
 	default:
-		// Global tokens (no user scope) still go to variables.
-		varKey := provider.RefreshTokenVar
-		if oauthUserID != "" {
-			varKey = provider.RefreshTokenVar + "::" + oauthUserID
-		}
-		if err := s.oauthUpsertVar(r, varKey, tokenResp.RefreshToken, true, userEmail); err != nil {
-			slog.Error("failed to save refresh token", "provider", providerName, "error", err)
-			renderOAuthResult(w, false, "failed to save refresh token: "+err.Error())
+		if err := s.saveTokensToVariable(r.Context(), connector, tok, oauthUserID, userEmail); err != nil {
+			slog.Error("failed to save token", "provider", providerName, "error", err)
+			renderOAuthResult(w, false, "failed to save token: "+err.Error())
 			return
 		}
 	}
@@ -469,33 +523,53 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	if connectionID != "" {
 		logFields = append(logFields, "connection_id", connectionID)
 	}
-	slog.Info("oauth refresh token saved", logFields...)
+	slog.Info("oauth token saved", logFields...)
 	renderOAuthResult(w, true, "")
 }
 
 // ─── Helpers ───
 
-func (s *Server) oauthGetVar(r *http.Request, key string) (string, error) {
-	v, err := s.variableStore.GetVariableByKey(r.Context(), key)
-	if err != nil {
-		return "", err
+// oauthBaseURL returns the external base URL (scheme://host + base path) for
+// building OAuth redirect URIs from the incoming request.
+func (s *Server) oauthBaseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		scheme = "https"
 	}
-	if v == nil {
-		return "", fmt.Errorf("variable %q not found", key)
-	}
-	return v.Value, nil
+	return scheme + "://" + r.Host + strings.TrimSuffix(s.config.BasePath, "/")
 }
 
-func (s *Server) oauthUpsertVar(r *http.Request, key, value string, secret bool, userEmail string) error {
-	existing, _ := s.variableStore.GetVariableByKey(r.Context(), key)
+func (s *Server) oauthCallbackURL(r *http.Request) string {
+	return s.oauthBaseURL(r) + "/api/v1/oauth/callback"
+}
+
+// saveTokensToVariable persists tokens from a non-connection flow into the
+// global (or per-user) variables table. Refresh token is preferred; when a
+// provider returns only an access token (e.g. GitHub OAuth Apps), the access
+// token is stored under "<slug>_access_token" instead.
+func (s *Server) saveTokensToVariable(ctx context.Context, c *service.Connector, tok *oauthTokenResult, userID, userEmail string) error {
+	varKey := c.Slug + "_refresh_token"
+	value := tok.RefreshToken
+	if value == "" {
+		varKey = c.Slug + "_access_token"
+		value = tok.AccessToken
+	}
+	if userID != "" {
+		varKey += "::" + userID
+	}
+	return s.oauthUpsertVar(ctx, varKey, value, true, userEmail)
+}
+
+func (s *Server) oauthUpsertVar(ctx context.Context, key, value string, secret bool, userEmail string) error {
+	existing, _ := s.variableStore.GetVariableByKey(ctx, key)
 	if existing != nil {
 		existing.Value = value
 		existing.UpdatedBy = userEmail
-		_, err := s.variableStore.UpdateVariable(r.Context(), existing.ID, *existing)
+		_, err := s.variableStore.UpdateVariable(ctx, existing.ID, *existing)
 		return err
 	}
 
-	_, err := s.variableStore.CreateVariable(r.Context(), service.Variable{
+	_, err := s.variableStore.CreateVariable(ctx, service.Variable{
 		Key:         key,
 		Value:       value,
 		Description: "Managed by OAuth flow",
@@ -509,7 +583,7 @@ func (s *Server) oauthUpsertVar(r *http.Request, key, value string, secret bool,
 // parseOAuthState splits a state string into its components.
 // Supported formats:
 //   - "provider"
-//   - "provider::user_id"              — legacy per-chat-user scope
+//   - "provider::user_id"               — legacy per-chat-user scope
 //   - "provider::conn::<connection_id>" — named-connection scope
 func parseOAuthState(state string) (provider, userID, connectionID string) {
 	idx := strings.Index(state, "::")
@@ -536,81 +610,97 @@ func buildOAuthState(provider, userID, connectionID string) string {
 	return provider
 }
 
-// resolveOAuthClientID returns the client_id to use for a provider, preferring
+// resolveOAuthClientID returns the client_id to use for a connector, preferring
 // the connection row's credentials when connectionID is set.
-func (s *Server) resolveOAuthClientID(ctx context.Context, provider oauthProviderConfig, connectionID string) (string, error) {
+func (s *Server) resolveOAuthClientID(ctx context.Context, c *service.Connector, connectionID string) (string, error) {
 	if connectionID != "" {
-		if s.connectionStore == nil {
-			return "", fmt.Errorf("connection store not configured")
-		}
-		conn, err := s.connectionStore.GetConnection(ctx, connectionID)
+		conn, err := s.loadConnectionForOAuth(ctx, connectionID)
 		if err != nil {
-			return "", fmt.Errorf("load connection %q: %w", connectionID, err)
-		}
-		if conn == nil {
-			return "", fmt.Errorf("connection %q not found", connectionID)
+			return "", err
 		}
 		if conn.Credentials.ClientID == "" {
 			return "", fmt.Errorf("connection %q has no client_id set — update the connection first", connectionID)
 		}
 		return conn.Credentials.ClientID, nil
 	}
-	// Legacy path: read from global variables.
-	v, err := s.variableStore.GetVariableByKey(ctx, provider.ClientIDVar)
+	key := connectorVarKey(c, "_client_id")
+	v, err := s.variableStore.GetVariableByKey(ctx, key)
 	if err != nil {
-		return "", fmt.Errorf("load variable %q: %w", provider.ClientIDVar, err)
+		return "", fmt.Errorf("load variable %q: %w", key, err)
 	}
 	if v == nil {
-		return "", fmt.Errorf("variable %q not set — create it first or bind a connection", provider.ClientIDVar)
+		return "", fmt.Errorf("variable %q not set — create it first or bind a connection", key)
 	}
 	return v.Value, nil
 }
 
-// resolveOAuthClientSecret returns the client_secret to use for a provider,
-// preferring the connection row's credentials when connectionID is set.
-func (s *Server) resolveOAuthClientSecret(ctx context.Context, provider oauthProviderConfig, connectionID string) (string, error) {
+// resolveOAuthClientSecret returns the client_secret for a connector. PKCE
+// connectors may legitimately have no secret, in which case "" is returned
+// without error.
+func (s *Server) resolveOAuthClientSecret(ctx context.Context, c *service.Connector, connectionID string) (string, error) {
+	pkce := c.OAuth != nil && c.OAuth.UsePKCE
 	if connectionID != "" {
-		if s.connectionStore == nil {
-			return "", fmt.Errorf("connection store not configured")
-		}
-		conn, err := s.connectionStore.GetConnection(ctx, connectionID)
+		conn, err := s.loadConnectionForOAuth(ctx, connectionID)
 		if err != nil {
-			return "", fmt.Errorf("load connection %q: %w", connectionID, err)
-		}
-		if conn == nil {
-			return "", fmt.Errorf("connection %q not found", connectionID)
+			return "", err
 		}
 		if conn.Credentials.ClientSecret == "" {
+			if pkce {
+				return "", nil
+			}
 			return "", fmt.Errorf("connection %q has no client_secret set", connectionID)
 		}
 		return conn.Credentials.ClientSecret, nil
 	}
-	v, err := s.variableStore.GetVariableByKey(ctx, provider.ClientSecretVar)
+	key := connectorVarKey(c, "_client_secret")
+	v, err := s.variableStore.GetVariableByKey(ctx, key)
 	if err != nil {
-		return "", fmt.Errorf("load variable %q: %w", provider.ClientSecretVar, err)
+		return "", fmt.Errorf("load variable %q: %w", key, err)
 	}
 	if v == nil {
-		return "", fmt.Errorf("variable %q not set", provider.ClientSecretVar)
+		if pkce {
+			return "", nil
+		}
+		return "", fmt.Errorf("variable %q not set", key)
 	}
 	return v.Value, nil
 }
 
-// saveRefreshTokenToConnection writes a refresh token into the connection row,
-// optionally fetching the account label from the provider's userinfo endpoint.
-func (s *Server) saveRefreshTokenToConnection(ctx context.Context, connectionID, providerName, refreshToken, accessToken, userEmail string) error {
+// loadConnectionForOAuth fetches a connection row, returning a friendly error
+// when the store is unconfigured or the row is missing.
+func (s *Server) loadConnectionForOAuth(ctx context.Context, connectionID string) (*service.Connection, error) {
 	if s.connectionStore == nil {
-		return fmt.Errorf("connection store not configured")
+		return nil, fmt.Errorf("connection store not configured")
 	}
 	conn, err := s.connectionStore.GetConnection(ctx, connectionID)
 	if err != nil {
-		return fmt.Errorf("load connection %q: %w", connectionID, err)
+		return nil, fmt.Errorf("load connection %q: %w", connectionID, err)
 	}
 	if conn == nil {
-		return fmt.Errorf("connection %q not found", connectionID)
+		return nil, fmt.Errorf("connection %q not found", connectionID)
 	}
-	conn.Credentials.RefreshToken = refreshToken
+	return conn, nil
+}
+
+// saveTokensToConnection writes tokens into the connection row, optionally
+// fetching the account label from the connector's userinfo endpoint. A refresh
+// token is stored on the dedicated field; when a provider returns only an
+// access token, it is stored in Extra under "<slug>_access_token".
+func (s *Server) saveTokensToConnection(ctx context.Context, connectionID string, c *service.Connector, refreshToken, accessToken, userEmail string) error {
+	conn, err := s.loadConnectionForOAuth(ctx, connectionID)
+	if err != nil {
+		return err
+	}
+	if refreshToken != "" {
+		conn.Credentials.RefreshToken = refreshToken
+	} else if accessToken != "" {
+		if conn.Credentials.Extra == nil {
+			conn.Credentials.Extra = map[string]string{}
+		}
+		conn.Credentials.Extra[c.Slug+"_access_token"] = accessToken
+	}
 	if conn.AccountLabel == "" && accessToken != "" {
-		if label := fetchAccountLabel(ctx, providerName, accessToken); label != "" {
+		if label := fetchConnectorAccountLabel(ctx, c, accessToken); label != "" {
 			conn.AccountLabel = label
 		}
 	}
@@ -621,24 +711,20 @@ func (s *Server) saveRefreshTokenToConnection(ctx context.Context, connectionID,
 	return nil
 }
 
-// fetchAccountLabel calls the provider's userinfo endpoint to populate a
-// human-readable label (channel title, email). Best-effort — any error
-// returns "" and the caller continues without a label.
-func fetchAccountLabel(ctx context.Context, providerName, accessToken string) string {
-	var url string
-	switch providerName {
-	case "youtube":
-		url = "https://youtube.googleapis.com/youtube/v3/channels?part=snippet&mine=true"
-	case "google":
-		url = "https://openidconnect.googleapis.com/v1/userinfo"
-	default:
+// fetchConnectorAccountLabel calls the connector's userinfo endpoint and
+// extracts a human-readable label using the connector's AccountLabelPath
+// (a dot-path supporting array indices, e.g. "items.0.snippet.title").
+// Best-effort: any error yields "".
+func fetchConnectorAccountLabel(ctx context.Context, c *service.Connector, accessToken string) string {
+	if c.OAuth == nil || c.OAuth.UserinfoURL == "" || c.OAuth.AccountLabelPath == "" {
 		return ""
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.OAuth.UserinfoURL, nil)
 	if err != nil {
 		return ""
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return ""
@@ -651,36 +737,36 @@ func fetchAccountLabel(ctx context.Context, providerName, accessToken string) st
 	if err != nil {
 		return ""
 	}
-	switch providerName {
-	case "youtube":
-		var ytResp struct {
-			Items []struct {
-				Snippet struct {
-					Title     string `json:"title"`
-					CustomURL string `json:"customUrl"`
-				} `json:"snippet"`
-			} `json:"items"`
-		}
-		if err := json.Unmarshal(body, &ytResp); err != nil || len(ytResp.Items) == 0 {
+	var data any
+	if err := json.Unmarshal(body, &data); err != nil {
+		return ""
+	}
+	return jsonDotPath(data, c.OAuth.AccountLabelPath)
+}
+
+// jsonDotPath walks a decoded JSON value along a dot-delimited path, where
+// numeric segments index into arrays. Returns the string at the leaf, or "".
+func jsonDotPath(v any, path string) string {
+	cur := v
+	for _, p := range strings.Split(path, ".") {
+		switch node := cur.(type) {
+		case map[string]any:
+			cur = node[p]
+		case []any:
+			idx, err := strconv.Atoi(p)
+			if err != nil || idx < 0 || idx >= len(node) {
+				return ""
+			}
+			cur = node[idx]
+		default:
 			return ""
 		}
-		label := ytResp.Items[0].Snippet.Title
-		if ytResp.Items[0].Snippet.CustomURL != "" {
-			label = ytResp.Items[0].Snippet.CustomURL
-		}
-		return label
-	case "google":
-		var gResp struct {
-			Email string `json:"email"`
-			Name  string `json:"name"`
-		}
-		if err := json.Unmarshal(body, &gResp); err != nil {
+		if cur == nil {
 			return ""
 		}
-		if gResp.Email != "" {
-			return gResp.Email
-		}
-		return gResp.Name
+	}
+	if str, ok := cur.(string); ok {
+		return str
 	}
 	return ""
 }
@@ -735,15 +821,15 @@ func (s *Server) buildOAuthLoginURL(ctx context.Context, provider, platform, pla
 		return ""
 	}
 
-	// Verify client_id is set for this provider.
-	providerCfg, ok := oauthProviders[provider]
-	if !ok {
+	connector, err := s.resolveConnector(ctx, provider)
+	if err != nil || !isOAuth2Connector(connector) {
 		return ""
 	}
 	if s.variableStore == nil {
 		return ""
 	}
-	v, err := s.variableStore.GetVariableByKey(ctx, providerCfg.ClientIDVar)
+	// Verify client_id is set for this provider.
+	v, err := s.variableStore.GetVariableByKey(ctx, connectorVarKey(connector, "_client_id"))
 	if err != nil || v == nil {
 		return ""
 	}
@@ -782,7 +868,7 @@ if (window.opener) {
 </body></html>`, message, status)
 }
 
-// ─── Connections API ───
+// ─── Legacy flat connections view ───
 
 // connectionVarInfo describes a required variable for a connection.
 type connectionVarInfo struct {
@@ -804,68 +890,61 @@ type connectionInfo struct {
 	OAuthProvider string              `json:"oauth_provider,omitempty"`
 }
 
-// oauthProviderMeta holds display info for OAuth connection providers.
-type oauthProviderMeta struct {
-	Name        string
-	Description string
-}
-
-var oauthProvidersMeta = map[string]oauthProviderMeta{
-	"google": {
-		Name:        "Google",
-		Description: "Access Gmail and Google Calendar",
-	},
-	"youtube": {
-		Name:        "YouTube",
-		Description: "Upload and publish videos to YouTube",
-	},
-}
-
 // OAuthConnectionsAPI returns the status of all known external service connections.
 // GET /api/v1/oauth/connections
+//
+// This is the legacy flat (variable-backed) view kept for the settings import
+// flow. The OAuth providers now come from the connector registry instead of a
+// hardcoded map.
 func (s *Server) OAuthConnectionsAPI(w http.ResponseWriter, r *http.Request) {
 	connections := []connectionInfo{}
 
-	// 1. Add OAuth-based connections from oauthProviders registry.
-	for providerKey, cfg := range oauthProviders {
-		meta, ok := oauthProvidersMeta[providerKey]
-		if !ok {
-			meta = oauthProviderMeta{Name: providerKey, Description: ""}
+	connectors, err := s.listConnectors(r.Context())
+	if err != nil {
+		httpResponse(w, "failed to list connectors: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 1. OAuth-based connectors from the registry.
+	for i := range connectors {
+		c := &connectors[i]
+		if !isOAuth2Connector(c) {
+			continue
 		}
 
-		// Build required variables with status.
+		clientIDVar := connectorVarKey(c, "_client_id")
+		clientSecretVar := connectorVarKey(c, "_client_secret")
+
 		clientIDSet := false
 		clientSecretSet := false
 		if s.variableStore != nil {
-			clientIDSet = s.lookupVar(r.Context(), cfg.ClientIDVar, r) != ""
-			clientSecretSet = s.lookupVar(r.Context(), cfg.ClientSecretVar, r) != ""
+			clientIDSet = s.lookupVar(r.Context(), clientIDVar, r) != ""
+			clientSecretSet = s.lookupVar(r.Context(), clientSecretVar, r) != ""
 		}
 
 		conn := connectionInfo{
-			Provider:      providerKey,
-			Name:          meta.Name,
-			Description:   meta.Description,
+			Provider:      c.Slug,
+			Name:          c.Name,
+			Description:   c.Description,
 			Type:          "oauth",
-			OAuthProvider: providerKey,
+			OAuthProvider: c.Slug,
 			RequiredVars: []connectionVarInfo{
-				{Key: cfg.ClientIDVar, Description: "OAuth2 Client ID (from Google Cloud Console)", Secret: false, Set: clientIDSet},
-				{Key: cfg.ClientSecretVar, Description: "OAuth2 Client Secret", Secret: true, Set: clientSecretSet},
+				{Key: clientIDVar, Description: "OAuth2 Client ID", Secret: false, Set: clientIDSet},
+				{Key: clientSecretVar, Description: "OAuth2 Client Secret", Secret: true, Set: clientSecretSet},
 			},
 		}
-
 		conn.SetupComplete = clientIDSet && clientSecretSet
 
-		// Check if refresh token exists (= connected).
 		if s.variableStore != nil {
-			refreshToken := s.lookupVar(r.Context(), cfg.RefreshTokenVar, r)
+			refreshToken := s.lookupVar(r.Context(), c.Slug+"_refresh_token", r)
 			conn.Connected = refreshToken != ""
 		}
 
 		connections = append(connections, conn)
 	}
 
-	// 2. Add token-based connections from installed skill templates that
-	//    have required_variables but no oauth field.
+	// 2. Token-based connections from installed skill templates that have
+	//    required_variables but no oauth field.
 	for _, tmpl := range s.skillTemplates {
 		if tmpl.OAuth != "" {
 			continue // already covered by OAuth connections
@@ -874,7 +953,6 @@ func (s *Server) OAuthConnectionsAPI(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		// Build required variables with status.
 		var requiredVars []connectionVarInfo
 		allSet := true
 		for _, v := range tmpl.RequiredVariables {
@@ -900,7 +978,6 @@ func (s *Server) OAuthConnectionsAPI(w http.ResponseWriter, r *http.Request) {
 			Type:         "token",
 			RequiredVars: requiredVars,
 		}
-
 		conn.Connected = allSet
 		conn.SetupComplete = allSet
 
@@ -919,13 +996,18 @@ func (s *Server) OAuthDisconnectAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	provider := r.PathValue("provider")
-	cfg, ok := oauthProviders[provider]
-	if !ok {
+	connector, err := s.resolveConnector(r.Context(), provider)
+	if err != nil {
+		httpResponse(w, "failed to resolve connector: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if !isOAuth2Connector(connector) {
 		httpResponse(w, fmt.Sprintf("unknown OAuth provider: %s", provider), http.StatusBadRequest)
 		return
 	}
 
-	// Find and delete the refresh token variable.
+	refreshTokenVar := connector.Slug + "_refresh_token"
+
 	result, err := s.variableStore.ListVariables(r.Context(), nil)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to list variables: %v", err), http.StatusInternalServerError)
@@ -933,7 +1015,7 @@ func (s *Server) OAuthDisconnectAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, v := range result.Data {
-		if v.Key == cfg.RefreshTokenVar {
+		if v.Key == refreshTokenVar {
 			if err := s.variableStore.DeleteVariable(r.Context(), v.ID); err != nil {
 				httpResponse(w, fmt.Sprintf("failed to delete token: %v", err), http.StatusInternalServerError)
 				return
@@ -953,7 +1035,7 @@ func (s *Server) OAuthDisconnectAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // lookupVar is a helper to look up a variable value, returning "" if not found.
-func (s *Server) lookupVar(ctx context.Context, key string, r *http.Request) string {
+func (s *Server) lookupVar(ctx context.Context, key string, _ *http.Request) string {
 	if s.variableStore == nil {
 		return ""
 	}

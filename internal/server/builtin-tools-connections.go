@@ -341,10 +341,19 @@ func (s *Server) execConnectionImportFromVariables(ctx context.Context, _ map[st
 	created := []connectionResponse{}
 	skipped := []map[string]string{}
 
-	for providerKey, cfg := range oauthProviders {
-		clientID, _ := s.variableStore.GetVariableByKey(ctx, cfg.ClientIDVar)
-		clientSecret, _ := s.variableStore.GetVariableByKey(ctx, cfg.ClientSecretVar)
-		refreshToken, _ := s.variableStore.GetVariableByKey(ctx, cfg.RefreshTokenVar)
+	connectors, err := s.listConnectors(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list connectors: %w", err)
+	}
+	for i := range connectors {
+		c := &connectors[i]
+		if !isOAuth2Connector(c) {
+			continue
+		}
+		providerKey := c.Slug
+		clientID, _ := s.variableStore.GetVariableByKey(ctx, connectorVarKey(c, "_client_id"))
+		clientSecret, _ := s.variableStore.GetVariableByKey(ctx, connectorVarKey(c, "_client_secret"))
+		refreshToken, _ := s.variableStore.GetVariableByKey(ctx, c.Slug+"_refresh_token")
 
 		if clientID == nil || clientSecret == nil {
 			continue

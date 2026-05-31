@@ -79,6 +79,7 @@ type Storer interface {
 	PackSourceStorer
 	GuideStorer
 	ConnectionStorer
+	ConnectorStorer
 }
 
 // Marketplace groups public Skill Servers and MCP Servers into one Claude Code

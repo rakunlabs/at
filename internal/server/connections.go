@@ -197,7 +197,45 @@ type connectionRequest struct {
 	AccountLabel string                        `json:"account_label"`
 	Description  string                        `json:"description"`
 	Credentials  service.ConnectionCredentials `json:"credentials"`
-	Metadata     map[string]any                `json:"metadata"`
+	// Fields is the connector-driven, dynamic credential map keyed by the full
+	// variable name (e.g. {"spotify_client_id": "..."}). Values are folded into
+	// Credentials via connectorCredentialsFromValues — well-known suffixes land
+	// on the struct fields, the rest in Extra. Lets the UI submit arbitrary
+	// connector field schemas without a fixed credential shape.
+	Fields   map[string]string `json:"fields"`
+	Metadata map[string]any    `json:"metadata"`
+}
+
+// mergeFieldsIntoCredentials overlays a dynamic field-value map onto a
+// ConnectionCredentials. Non-empty values win; empty values are ignored so the
+// update preserve-secrets logic still applies.
+func mergeFieldsIntoCredentials(creds service.ConnectionCredentials, fields map[string]string) service.ConnectionCredentials {
+	if len(fields) == 0 {
+		return creds
+	}
+	fc := connectorCredentialsFromValues(fields)
+	if fc.ClientID != "" {
+		creds.ClientID = fc.ClientID
+	}
+	if fc.ClientSecret != "" {
+		creds.ClientSecret = fc.ClientSecret
+	}
+	if fc.RefreshToken != "" {
+		creds.RefreshToken = fc.RefreshToken
+	}
+	if fc.APIKey != "" {
+		creds.APIKey = fc.APIKey
+	}
+	for k, v := range fc.Extra {
+		if v == "" {
+			continue
+		}
+		if creds.Extra == nil {
+			creds.Extra = map[string]string{}
+		}
+		creds.Extra[k] = v
+	}
+	return creds
 }
 
 // CreateConnectionAPI handles POST /api/v1/connections.
@@ -225,6 +263,8 @@ func (s *Server) CreateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
 	}
+
+	req.Credentials = mergeFieldsIntoCredentials(req.Credentials, req.Fields)
 
 	userEmail := s.getUserEmail(r)
 	rec, err := s.connectionStore.CreateConnection(r.Context(), service.Connection{
@@ -282,6 +322,8 @@ func (s *Server) UpdateConnectionAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
+
+	req.Credentials = mergeFieldsIntoCredentials(req.Credentials, req.Fields)
 
 	// Preserve existing values when the caller sends empty strings for secrets.
 	newCreds := existing.Credentials
@@ -429,11 +471,21 @@ func (s *Server) ImportConnectionsFromVariablesAPI(w http.ResponseWriter, r *htt
 	created := []connectionResponse{}
 	skipped := []map[string]string{}
 
-	// Iterate all OAuth provider configs.
-	for providerKey, cfg := range oauthProviders {
-		clientID, _ := s.variableStore.GetVariableByKey(ctx, cfg.ClientIDVar)
-		clientSecret, _ := s.variableStore.GetVariableByKey(ctx, cfg.ClientSecretVar)
-		refreshToken, _ := s.variableStore.GetVariableByKey(ctx, cfg.RefreshTokenVar)
+	// Iterate all OAuth connectors from the registry.
+	connectors, err := s.listConnectors(ctx)
+	if err != nil {
+		httpResponse(w, "failed to list connectors: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	for i := range connectors {
+		c := &connectors[i]
+		if !isOAuth2Connector(c) {
+			continue
+		}
+		providerKey := c.Slug
+		clientID, _ := s.variableStore.GetVariableByKey(ctx, connectorVarKey(c, "_client_id"))
+		clientSecret, _ := s.variableStore.GetVariableByKey(ctx, connectorVarKey(c, "_client_secret"))
+		refreshToken, _ := s.variableStore.GetVariableByKey(ctx, c.Slug+"_refresh_token")
 
 		if clientID == nil || clientSecret == nil {
 			continue

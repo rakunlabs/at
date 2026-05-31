@@ -1,0 +1,30 @@
+{
+  "slug": "spotify",
+  "name": "Spotify",
+  "description": "Access a user's Spotify playlists and library (PKCE)",
+  "icon": "Music",
+  "auth_kind": "oauth2",
+  "oauth": {
+    "auth_url": "https://accounts.spotify.com/authorize",
+    "token_url": "https://accounts.spotify.com/api/token",
+    "scopes": ["user-read-email", "playlist-read-private"],
+    "use_pkce": true,
+    "userinfo_url": "https://api.spotify.com/v1/me",
+    "account_label_path": "email"
+  },
+  "fields": [
+    {
+      "key": "spotify_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true
+    },
+    {
+      "key": "spotify_client_secret",
+      "label": "Client Secret",
+      "type": "secret",
+      "required": false,
+      "help": "Optional when the app uses PKCE"
+    }
+  ]
+}

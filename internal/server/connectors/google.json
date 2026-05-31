@@ -1,0 +1,36 @@
+{
+  "slug": "google",
+  "name": "Google",
+  "description": "Access Gmail and Google Calendar",
+  "icon": "Mail",
+  "auth_kind": "oauth2",
+  "oauth": {
+    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+    "token_url": "https://oauth2.googleapis.com/token",
+    "scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/calendar"
+    ],
+    "access_type": "offline",
+    "prompt": "consent",
+    "userinfo_url": "https://openidconnect.googleapis.com/v1/userinfo",
+    "account_label_path": "email"
+  },
+  "fields": [
+    {
+      "key": "google_client_id",
+      "label": "Client ID",
+      "type": "text",
+      "required": true,
+      "placeholder": "xxxx.apps.googleusercontent.com",
+      "help": "OAuth2 Client ID from the Google Cloud Console"
+    },
+    {
+      "key": "google_client_secret",
+      "label": "Client Secret",
+      "type": "secret",
+      "required": true,
+      "placeholder": "GOCSPX-..."
+    }
+  ]
+}
