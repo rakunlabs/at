@@ -17,21 +17,26 @@ import (
 // ─── Skill CRUD ───
 
 type skillRow struct {
-	ID           string `db:"id"`
-	Name         string `db:"name"`
-	Description  string `db:"description"`
-	Category     string `db:"category"`
-	Tags         string `db:"tags"`
-	SystemPrompt string `db:"system_prompt"`
-	Tools        string `db:"tools"`
-	CreatedAt    string `db:"created_at"`
-	UpdatedAt    string `db:"updated_at"`
-	CreatedBy    string `db:"created_by"`
-	UpdatedBy    string `db:"updated_by"`
+	ID             string `db:"id"`
+	Name           string `db:"name"`
+	Description    string `db:"description"`
+	Category       string `db:"category"`
+	Tags           string `db:"tags"`
+	SystemPrompt   string `db:"system_prompt"`
+	Tools          string `db:"tools"`
+	Version        string `db:"version"`
+	Author         string `db:"author"`
+	License        string `db:"license"`
+	SourceURL      string `db:"source_url"`
+	SourceChecksum string `db:"source_checksum"`
+	CreatedAt      string `db:"created_at"`
+	UpdatedAt      string `db:"updated_at"`
+	CreatedBy      string `db:"created_by"`
+	UpdatedBy      string `db:"updated_by"`
 }
 
 func (s *SQLite) ListSkills(ctx context.Context, q *query.Query) (*service.ListResult[service.Skill], error) {
-	sql, total, err := s.buildListQuery(ctx, s.tableSkills, q, "id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := s.buildListQuery(ctx, s.tableSkills, q, "id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by")
 	if err != nil {
 		return nil, fmt.Errorf("build list skills query: %w", err)
 	}
@@ -45,7 +50,7 @@ func (s *SQLite) ListSkills(ctx context.Context, q *query.Query) (*service.ListR
 	var items []service.Skill
 	for rows.Next() {
 		var row skillRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan skill row: %w", err)
 		}
 
@@ -70,7 +75,7 @@ func (s *SQLite) ListSkills(ctx context.Context, q *query.Query) (*service.ListR
 
 func (s *SQLite) GetSkill(ctx context.Context, id string) (*service.Skill, error) {
 	query, _, err := s.goqu.From(s.tableSkills).
-		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -78,7 +83,7 @@ func (s *SQLite) GetSkill(ctx context.Context, id string) (*service.Skill, error
 	}
 
 	var row skillRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -91,7 +96,7 @@ func (s *SQLite) GetSkill(ctx context.Context, id string) (*service.Skill, error
 
 func (s *SQLite) GetSkillByName(ctx context.Context, name string) (*service.Skill, error) {
 	query, _, err := s.goqu.From(s.tableSkills).
-		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by").
 		Where(goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
@@ -99,7 +104,7 @@ func (s *SQLite) GetSkillByName(ctx context.Context, name string) (*service.Skil
 	}
 
 	var row skillRow
-	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = s.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -125,17 +130,22 @@ func (s *SQLite) CreateSkill(ctx context.Context, sk service.Skill) (*service.Sk
 
 	query, _, err := s.goqu.Insert(s.tableSkills).Rows(
 		goqu.Record{
-			"id":            id,
-			"name":          sk.Name,
-			"description":   sk.Description,
-			"category":      sk.Category,
-			"tags":          string(tagsJSON),
-			"system_prompt": sk.SystemPrompt,
-			"tools":         string(toolsJSON),
-			"created_at":    now.Format(time.RFC3339),
-			"updated_at":    now.Format(time.RFC3339),
-			"created_by":    sk.CreatedBy,
-			"updated_by":    sk.UpdatedBy,
+			"id":              id,
+			"name":            sk.Name,
+			"description":     sk.Description,
+			"category":        sk.Category,
+			"tags":            string(tagsJSON),
+			"system_prompt":   sk.SystemPrompt,
+			"tools":           string(toolsJSON),
+			"version":         sk.Version,
+			"author":          sk.Author,
+			"license":         sk.License,
+			"source_url":      sk.SourceURL,
+			"source_checksum": sk.SourceChecksum,
+			"created_at":      now.Format(time.RFC3339),
+			"updated_at":      now.Format(time.RFC3339),
+			"created_by":      sk.CreatedBy,
+			"updated_by":      sk.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
@@ -147,17 +157,22 @@ func (s *SQLite) CreateSkill(ctx context.Context, sk service.Skill) (*service.Sk
 	}
 
 	return &service.Skill{
-		ID:           id,
-		Name:         sk.Name,
-		Description:  sk.Description,
-		Category:     sk.Category,
-		Tags:         sk.Tags,
-		SystemPrompt: sk.SystemPrompt,
-		Tools:        sk.Tools,
-		CreatedAt:    now.Format(time.RFC3339),
-		UpdatedAt:    now.Format(time.RFC3339),
-		CreatedBy:    sk.CreatedBy,
-		UpdatedBy:    sk.UpdatedBy,
+		ID:             id,
+		Name:           sk.Name,
+		Description:    sk.Description,
+		Category:       sk.Category,
+		Tags:           sk.Tags,
+		SystemPrompt:   sk.SystemPrompt,
+		Tools:          sk.Tools,
+		Version:        sk.Version,
+		Author:         sk.Author,
+		License:        sk.License,
+		SourceURL:      sk.SourceURL,
+		SourceChecksum: sk.SourceChecksum,
+		CreatedAt:      now.Format(time.RFC3339),
+		UpdatedAt:      now.Format(time.RFC3339),
+		CreatedBy:      sk.CreatedBy,
+		UpdatedBy:      sk.UpdatedBy,
 	}, nil
 }
 
@@ -175,14 +190,19 @@ func (s *SQLite) UpdateSkill(ctx context.Context, id string, sk service.Skill) (
 
 	query, _, err := s.goqu.Update(s.tableSkills).Set(
 		goqu.Record{
-			"name":          sk.Name,
-			"description":   sk.Description,
-			"category":      sk.Category,
-			"tags":          string(tagsJSON),
-			"system_prompt": sk.SystemPrompt,
-			"tools":         string(toolsJSON),
-			"updated_at":    now.Format(time.RFC3339),
-			"updated_by":    sk.UpdatedBy,
+			"name":            sk.Name,
+			"description":     sk.Description,
+			"category":        sk.Category,
+			"tags":            string(tagsJSON),
+			"system_prompt":   sk.SystemPrompt,
+			"tools":           string(toolsJSON),
+			"version":         sk.Version,
+			"author":          sk.Author,
+			"license":         sk.License,
+			"source_url":      sk.SourceURL,
+			"source_checksum": sk.SourceChecksum,
+			"updated_at":      now.Format(time.RFC3339),
+			"updated_by":      sk.UpdatedBy,
 		},
 	).Where(goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
@@ -236,16 +256,21 @@ func skillRowToRecord(row skillRow) (*service.Skill, error) {
 	}
 
 	return &service.Skill{
-		ID:           row.ID,
-		Name:         row.Name,
-		Description:  row.Description,
-		Category:     row.Category,
-		Tags:         tags,
-		SystemPrompt: row.SystemPrompt,
-		Tools:        tools,
-		CreatedAt:    row.CreatedAt,
-		UpdatedAt:    row.UpdatedAt,
-		CreatedBy:    row.CreatedBy,
-		UpdatedBy:    row.UpdatedBy,
+		ID:             row.ID,
+		Name:           row.Name,
+		Description:    row.Description,
+		Category:       row.Category,
+		Tags:           tags,
+		SystemPrompt:   row.SystemPrompt,
+		Tools:          tools,
+		Version:        row.Version,
+		Author:         row.Author,
+		License:        row.License,
+		SourceURL:      row.SourceURL,
+		SourceChecksum: row.SourceChecksum,
+		CreatedAt:      row.CreatedAt,
+		UpdatedAt:      row.UpdatedAt,
+		CreatedBy:      row.CreatedBy,
+		UpdatedBy:      row.UpdatedBy,
 	}, nil
 }

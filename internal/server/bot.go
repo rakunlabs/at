@@ -89,6 +89,13 @@ func (s *Server) startBotsFromDB(ctx context.Context) {
 	if s.botConfigStore == nil {
 		return
 	}
+	enabled, err := s.isFeatureEnabled(ctx, service.FeatureChatWorkbench)
+	if err != nil {
+		slog.Error("failed to check chat feature before starting bots", "error", err)
+	} else if !enabled {
+		slog.Info("bots not started because chat workbench feature is disabled")
+		return
+	}
 
 	result, err := s.botConfigStore.ListBotConfigs(ctx, nil)
 	if err != nil {
@@ -121,6 +128,15 @@ func (s *Server) stopBot(botID string) bool {
 		return true
 	}
 	return false
+}
+
+func (s *Server) stopAllBots() {
+	s.runningBots.Range(func(key, _ any) bool {
+		if id, ok := key.(string); ok {
+			s.stopBot(id)
+		}
+		return true
+	})
 }
 
 // isBotRunning checks if a bot is currently running.

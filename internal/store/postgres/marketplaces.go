@@ -20,7 +20,6 @@ type marketplaceRow struct {
 	Name             string        `db:"name"`
 	Description      string        `db:"description"`
 	Skills           types.RawJSON `db:"skills"`
-	SkillServers     types.RawJSON `db:"skill_servers"`
 	MCPServers       types.RawJSON `db:"mcp_servers"`
 	DirectMCPServers types.RawJSON `db:"direct_mcp_servers"`
 	CreatedAt        time.Time     `db:"created_at"`
@@ -29,7 +28,7 @@ type marketplaceRow struct {
 	UpdatedBy        string        `db:"updated_by"`
 }
 
-var marketplaceCols = []any{"id", "name", "description", "skills", "skill_servers", "mcp_servers", "direct_mcp_servers", "created_at", "updated_at", "created_by", "updated_by"}
+var marketplaceCols = []any{"id", "name", "description", "skills", "mcp_servers", "direct_mcp_servers", "created_at", "updated_at", "created_by", "updated_by"}
 
 func (p *Postgres) ListMarketplaces(ctx context.Context, q *query.Query) (*service.ListResult[service.Marketplace], error) {
 	sql, total, err := p.buildListQuery(ctx, p.tableMarketplaces, q, marketplaceCols...)
@@ -46,7 +45,7 @@ func (p *Postgres) ListMarketplaces(ctx context.Context, q *query.Query) (*servi
 	var items []service.Marketplace
 	for rows.Next() {
 		var row marketplaceRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Skills, &row.SkillServers, &row.MCPServers, &row.DirectMCPServers, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Skills, &row.MCPServers, &row.DirectMCPServers, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
 			return nil, fmt.Errorf("scan marketplace row: %w", err)
 		}
 
@@ -90,7 +89,7 @@ func (p *Postgres) GetMarketplaceByName(ctx context.Context, name string) (*serv
 }
 
 func (p *Postgres) CreateMarketplace(ctx context.Context, m service.Marketplace) (*service.Marketplace, error) {
-	skillsJSON, skillServersJSON, mcpServersJSON, directMCPServersJSON, err := marshalMarketplaceRefs(m)
+	skillsJSON, mcpServersJSON, directMCPServersJSON, err := marshalMarketplaceRefs(m)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +102,6 @@ func (p *Postgres) CreateMarketplace(ctx context.Context, m service.Marketplace)
 			"name":               m.Name,
 			"description":        m.Description,
 			"skills":             types.RawJSON(skillsJSON),
-			"skill_servers":      types.RawJSON(skillServersJSON),
 			"mcp_servers":        types.RawJSON(mcpServersJSON),
 			"direct_mcp_servers": types.RawJSON(directMCPServersJSON),
 			"created_at":         now,
@@ -127,7 +125,7 @@ func (p *Postgres) CreateMarketplace(ctx context.Context, m service.Marketplace)
 }
 
 func (p *Postgres) UpdateMarketplace(ctx context.Context, id string, m service.Marketplace) (*service.Marketplace, error) {
-	skillsJSON, skillServersJSON, mcpServersJSON, directMCPServersJSON, err := marshalMarketplaceRefs(m)
+	skillsJSON, mcpServersJSON, directMCPServersJSON, err := marshalMarketplaceRefs(m)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +136,6 @@ func (p *Postgres) UpdateMarketplace(ctx context.Context, id string, m service.M
 			"name":               m.Name,
 			"description":        m.Description,
 			"skills":             types.RawJSON(skillsJSON),
-			"skill_servers":      types.RawJSON(skillServersJSON),
 			"mcp_servers":        types.RawJSON(mcpServersJSON),
 			"direct_mcp_servers": types.RawJSON(directMCPServersJSON),
 			"updated_at":         now,
@@ -182,7 +179,7 @@ func (p *Postgres) DeleteMarketplace(ctx context.Context, id string) error {
 
 func (p *Postgres) getMarketplaceByQuery(ctx context.Context, query, key string) (*service.Marketplace, error) {
 	var row marketplaceRow
-	err := p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Skills, &row.SkillServers, &row.MCPServers, &row.DirectMCPServers, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err := p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Skills, &row.MCPServers, &row.DirectMCPServers, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -198,13 +195,6 @@ func marketplaceRowToRecord(row marketplaceRow) (*service.Marketplace, error) {
 	if len(row.Skills) > 0 {
 		if err := json.Unmarshal(row.Skills, &skills); err != nil {
 			return nil, fmt.Errorf("unmarshal marketplace skills for %q: %w", row.ID, err)
-		}
-	}
-
-	var skillServers []string
-	if len(row.SkillServers) > 0 {
-		if err := json.Unmarshal(row.SkillServers, &skillServers); err != nil {
-			return nil, fmt.Errorf("unmarshal marketplace skill servers for %q: %w", row.ID, err)
 		}
 	}
 
@@ -227,7 +217,6 @@ func marketplaceRowToRecord(row marketplaceRow) (*service.Marketplace, error) {
 		Name:             row.Name,
 		Description:      row.Description,
 		Skills:           skills,
-		SkillServers:     skillServers,
 		MCPServers:       mcpServers,
 		DirectMCPServers: directMCPServers,
 		CreatedAt:        row.CreatedAt.Format(time.RFC3339),
@@ -237,22 +226,18 @@ func marketplaceRowToRecord(row marketplaceRow) (*service.Marketplace, error) {
 	}, nil
 }
 
-func marshalMarketplaceRefs(m service.Marketplace) ([]byte, []byte, []byte, []byte, error) {
+func marshalMarketplaceRefs(m service.Marketplace) ([]byte, []byte, []byte, error) {
 	skillsJSON, err := json.Marshal(m.Skills)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("marshal marketplace skills: %w", err)
-	}
-	skillServersJSON, err := json.Marshal(m.SkillServers)
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("marshal marketplace skill servers: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal marketplace skills: %w", err)
 	}
 	mcpServersJSON, err := json.Marshal(m.MCPServers)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("marshal marketplace mcp servers: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal marketplace mcp servers: %w", err)
 	}
 	directMCPServersJSON, err := json.Marshal(m.DirectMCPServers)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("marshal marketplace direct mcp servers: %w", err)
+		return nil, nil, nil, fmt.Errorf("marshal marketplace direct mcp servers: %w", err)
 	}
-	return skillsJSON, skillServersJSON, mcpServersJSON, directMCPServersJSON, nil
+	return skillsJSON, mcpServersJSON, directMCPServersJSON, nil
 }

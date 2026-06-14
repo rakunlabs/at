@@ -16,24 +16,16 @@ import (
 	"unicode"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/skillmd"
 )
 
 const claudeMarketplaceVersion = "1.0.0"
 
 const (
-	claudePluginKindSkillServer = "skill_server"
 	claudePluginKindMCPServer   = "mcp_server"
 	claudePluginKindMarketplace = "marketplace"
 )
 
 var errMarketplaceNotFound = errors.New("marketplace not found")
-
-type publicSkillServerBundle struct {
-	Server  service.SkillServer
-	Skills  []service.Skill
-	Missing []string
-}
 
 type claudeMarketplaceFile struct {
 	Name        string                    `json:"name"`
@@ -80,7 +72,6 @@ type claudeMCPServer struct {
 }
 
 type claudePluginItem struct {
-	Server     service.SkillServer
 	MCPServer  service.MCPServer
 	Market     service.Marketplace
 	Kind       string
@@ -90,70 +81,6 @@ type claudePluginItem struct {
 	MCPURL     string
 	PluginURL  string
 	MCPConfigs map[string]claudeMCPServer
-}
-
-type publicSkillHubResponse struct {
-	Servers []publicSkillHubServer `json:"servers"`
-	Skills  []publicSkillHubSkill  `json:"skills"`
-}
-
-type publicSkillHubServer struct {
-	Name        string `json:"name"`
-	Slug        string `json:"slug"`
-	Description string `json:"description,omitempty"`
-	Mode        string `json:"mode"`
-	SkillCount  int    `json:"skill_count"`
-	MCPURL      string `json:"mcp_url"`
-	PluginURL   string `json:"plugin_url"`
-}
-
-type publicSkillHubSkill struct {
-	Name        string   `json:"name"`
-	Slug        string   `json:"slug"`
-	Description string   `json:"description,omitempty"`
-	Category    string   `json:"category,omitempty"`
-	Tags        []string `json:"tags,omitempty"`
-	Server      string   `json:"server"`
-	MCPURL      string   `json:"mcp_url"`
-	PluginURL   string   `json:"plugin_url"`
-}
-
-func (s *Server) PublicSkillHubAPI(w http.ResponseWriter, r *http.Request) {
-	items, err := s.claudePluginItems(r.Context(), r, true)
-	if err != nil {
-		httpResponse(w, err.Error(), http.StatusServiceUnavailable)
-		return
-	}
-
-	resp := publicSkillHubResponse{
-		Servers: make([]publicSkillHubServer, 0, len(items)),
-		Skills:  []publicSkillHubSkill{},
-	}
-	for _, item := range items {
-		resp.Servers = append(resp.Servers, publicSkillHubServer{
-			Name:        item.Server.Name,
-			Slug:        item.PluginSlug,
-			Description: item.Server.Description,
-			Mode:        item.Server.Mode,
-			SkillCount:  len(item.Skills),
-			MCPURL:      item.MCPURL,
-			PluginURL:   item.PluginURL,
-		})
-		for _, skill := range item.Skills {
-			resp.Skills = append(resp.Skills, publicSkillHubSkill{
-				Name:        skill.Name,
-				Slug:        slugifyClaudeName(skill.Name, "skill"),
-				Description: skill.Description,
-				Category:    skill.Category,
-				Tags:        skill.Tags,
-				Server:      item.Server.Name,
-				MCPURL:      item.MCPURL,
-				PluginURL:   item.PluginURL,
-			})
-		}
-	}
-
-	httpResponseJSON(w, resp, http.StatusOK)
 }
 
 func (s *Server) ClaudeCodeMarketplaceAPI(w http.ResponseWriter, r *http.Request) {
@@ -197,8 +124,8 @@ func (s *Server) ClaudeCodeMarketplaceZipAPI(w http.ResponseWriter, r *http.Requ
 	}
 	for _, item := range items {
 		if err := writeClaudePluginZipEntries(zw, path.Join("plugins", item.PluginSlug), item); err != nil {
-			slog.Error("claude marketplace zip: write plugin failed", "server", item.Server.Name, "error", err)
-			httpResponse(w, fmt.Sprintf("failed to create plugin %q: %v", item.Server.Name, err), http.StatusInternalServerError)
+			slog.Error("claude marketplace zip: write plugin failed", "plugin", item.displayName(), "error", err)
+			httpResponse(w, fmt.Sprintf("failed to create plugin %q: %v", item.displayName(), err), http.StatusInternalServerError)
 			return
 		}
 	}
@@ -265,46 +192,41 @@ func (s *Server) ClaudeCodeMarketplacePluginZipAPI(w http.ResponseWriter, r *htt
 func (s *Server) ClaudeCodePluginZipAPI(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.PathValue("name"))
 	if name == "" {
-		httpResponse(w, "skill server name is required", http.StatusBadRequest)
+		httpResponse(w, "mcp server name is required", http.StatusBadRequest)
 		return
 	}
-	if s.skillServerStore == nil {
-		httpResponse(w, "skill server store not configured", http.StatusServiceUnavailable)
+	if s.mcpServerStore == nil {
+		httpResponse(w, "mcp server store not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	srv, err := s.skillServerStore.GetSkillServerByName(r.Context(), name)
+	srv, err := s.mcpServerStore.GetMCPServerByName(r.Context(), name)
 	if err != nil {
-		slog.Error("claude plugin zip: get skill server failed", "name", name, "error", err)
-		httpResponse(w, "internal error looking up skill server", http.StatusInternalServerError)
+		slog.Error("claude plugin zip: get mcp server failed", "name", name, "error", err)
+		httpResponse(w, "internal error looking up mcp server", http.StatusInternalServerError)
 		return
 	}
 	if srv == nil || !srv.Public {
-		httpResponse(w, fmt.Sprintf("public skill server %q not found", name), http.StatusNotFound)
+		httpResponse(w, fmt.Sprintf("public mcp server %q not found", name), http.StatusNotFound)
 		return
 	}
 
-	skills, _ := s.resolveSkillServerSkills(r.Context(), srv)
-	sortSkills(skills)
-	item := claudePluginItem{
-		Server:     *srv,
-		Kind:       claudePluginKindSkillServer,
-		Skills:     skills,
-		PluginSlug: slugifyClaudeName(srv.Name, "at-skill-server"),
+	item, err := s.claudeMCPServerPluginItem(r.Context(), r, *srv, slugifyClaudeName(srv.Name, "mcp-server"))
+	if err != nil {
+		slog.Error("claude plugin zip: build mcp server plugin failed", "name", name, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to create plugin zip: %v", err), http.StatusInternalServerError)
+		return
 	}
-	item.MCPName = "at-" + item.PluginSlug
-	item.MCPURL = s.publicSkillServerMCPURL(r, srv.Name)
-	item.PluginURL = s.publicClaudePluginURL(r, srv.Name)
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	if err := writeClaudePluginZipEntries(zw, "", item); err != nil {
-		slog.Error("claude plugin zip: write failed", "server", srv.Name, "error", err)
+		slog.Error("claude plugin zip: write failed", "mcp_server", srv.Name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create plugin zip: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if err := zw.Close(); err != nil {
-		slog.Error("claude plugin zip: close failed", "server", srv.Name, "error", err)
+		slog.Error("claude plugin zip: close failed", "mcp_server", srv.Name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create plugin zip: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -316,26 +238,38 @@ func (s *Server) ClaudeCodePluginZipAPI(w http.ResponseWriter, r *http.Request) 
 }
 
 func (s *Server) claudePluginItems(ctx context.Context, r *http.Request, uniqueSlugs bool) ([]claudePluginItem, error) {
-	bundles, err := s.publicSkillServerBundles(ctx)
-	if err != nil {
-		return nil, err
+	if s.mcpServerStore == nil {
+		return nil, fmt.Errorf("mcp server store not configured")
 	}
 
+	records, err := s.mcpServerStore.ListMCPServers(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list mcp servers: %w", err)
+	}
+	if records == nil {
+		return nil, nil
+	}
+
+	servers := make([]service.MCPServer, 0, len(records.Data))
+	for _, srv := range records.Data {
+		if srv.Public {
+			servers = append(servers, srv)
+		}
+	}
+	sort.SliceStable(servers, func(i, j int) bool {
+		return strings.ToLower(servers[i].Name) < strings.ToLower(servers[j].Name)
+	})
+
 	seen := map[string]int{}
-	items := make([]claudePluginItem, 0, len(bundles))
-	for _, bundle := range bundles {
-		pluginSlug := slugifyClaudeName(bundle.Server.Name, "at-skill-server")
+	items := make([]claudePluginItem, 0, len(servers))
+	for _, srv := range servers {
+		pluginSlug := slugifyClaudeName(srv.Name, "mcp-server")
 		if uniqueSlugs {
 			pluginSlug = uniqueSlug(pluginSlug, seen)
 		}
-		item := claudePluginItem{
-			Server:     bundle.Server,
-			Kind:       claudePluginKindSkillServer,
-			Skills:     bundle.Skills,
-			PluginSlug: pluginSlug,
-			MCPName:    "at-" + pluginSlug,
-			MCPURL:     s.publicSkillServerMCPURL(r, bundle.Server.Name),
-			PluginURL:  s.publicClaudePluginURL(r, bundle.Server.Name),
+		item, err := s.claudeMCPServerPluginItem(ctx, r, srv, pluginSlug)
+		if err != nil {
+			return nil, err
 		}
 		items = append(items, item)
 	}
@@ -367,18 +301,6 @@ func (s *Server) claudeMarketplaceItems(ctx context.Context, r *http.Request, ma
 	return []claudePluginItem{item}, market, nil
 }
 
-func (s *Server) claudeSkillServerPluginItem(r *http.Request, srv service.SkillServer, skills []service.Skill, pluginSlug string) claudePluginItem {
-	return claudePluginItem{
-		Server:     srv,
-		Kind:       claudePluginKindSkillServer,
-		Skills:     skills,
-		PluginSlug: pluginSlug,
-		MCPName:    "at-" + pluginSlug,
-		MCPURL:     s.publicSkillServerMCPURL(r, srv.Name),
-		PluginURL:  s.publicClaudePluginURL(r, srv.Name),
-	}
-}
-
 func (s *Server) claudeMarketplacePluginItem(ctx context.Context, r *http.Request, market *service.Marketplace) (claudePluginItem, error) {
 	skills, err := s.resolveMarketplaceSkills(ctx, market)
 	if err != nil {
@@ -402,28 +324,26 @@ func (s *Server) claudeMarketplacePluginItem(ctx context.Context, r *http.Reques
 	}, nil
 }
 
-func (s *Server) resolveMarketplaceSkillServer(ctx context.Context, ref string) (*service.SkillServer, error) {
-	if s.skillServerStore == nil {
-		return nil, fmt.Errorf("skill server store not configured")
-	}
-
-	srv, err := s.skillServerStore.GetSkillServer(ctx, ref)
+func (s *Server) claudeMCPServerPluginItem(ctx context.Context, r *http.Request, srv service.MCPServer, pluginSlug string) (claudePluginItem, error) {
+	skills, err := s.resolveMCPServerSkills(ctx, &srv)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get skill server %q: %w", ref, err)
+		return claudePluginItem{}, err
 	}
-	if srv != nil {
-		return srv, nil
-	}
+	sortSkills(skills)
 
-	srv, err = s.skillServerStore.GetSkillServerByName(ctx, ref)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get skill server by name %q: %w", ref, err)
-	}
-	return srv, nil
+	return claudePluginItem{
+		MCPServer:  srv,
+		Kind:       claudePluginKindMCPServer,
+		Skills:     skills,
+		PluginSlug: pluginSlug,
+		MCPName:    "at-" + pluginSlug,
+		MCPURL:     s.publicMCPServerMCPURL(r, srv.Name),
+		PluginURL:  s.publicClaudePluginURL(r, srv.Name),
+	}, nil
 }
 
 func (s *Server) resolveMarketplaceSkills(ctx context.Context, market *service.Marketplace) ([]service.Skill, error) {
-	if s.skillStore == nil && (len(market.Skills) > 0 || len(market.SkillServers) > 0) {
+	if s.skillStore == nil && len(market.Skills) > 0 {
 		return nil, fmt.Errorf("skill store not configured")
 	}
 
@@ -453,27 +373,38 @@ func (s *Server) resolveMarketplaceSkills(ctx context.Context, market *service.M
 		skills = append(skills, *skill)
 	}
 
-	// Legacy compatibility for marketplaces created before direct skill refs.
-	for _, ref := range market.SkillServers {
-		srv, err := s.resolveMarketplaceSkillServer(ctx, ref)
-		if err != nil {
-			return nil, err
-		}
-		if srv == nil || !srv.Public {
+	return skills, nil
+}
+
+func (s *Server) resolveMCPServerSkills(ctx context.Context, srv *service.MCPServer) ([]service.Skill, error) {
+	if srv == nil || len(srv.Config.EnabledSkills) == 0 || s.skillStore == nil {
+		return nil, nil
+	}
+
+	seen := map[string]bool{}
+	skills := make([]service.Skill, 0, len(srv.Config.EnabledSkills))
+	for _, ref := range srv.Config.EnabledSkills {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
 			continue
 		}
-		serverSkills, _ := s.resolveSkillServerSkills(ctx, srv)
-		for _, skill := range serverSkills {
-			key := skill.ID
-			if key == "" {
-				key = skill.Name
-			}
-			if key == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			skills = append(skills, skill)
+		skill, err := s.getSkillByIDOrName(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get mcp server skill %q: %w", ref, err)
 		}
+		if skill == nil {
+			continue
+		}
+
+		key := skill.ID
+		if key == "" {
+			key = skill.Name
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		skills = append(skills, *skill)
 	}
 
 	return skills, nil
@@ -543,77 +474,35 @@ func (s *Server) resolveMarketplaceMCPConfigs(ctx context.Context, r *http.Reque
 	return configs, nil
 }
 
-func (s *Server) publicSkillServerBundles(ctx context.Context) ([]publicSkillServerBundle, error) {
-	if s.skillServerStore == nil {
-		return nil, fmt.Errorf("skill server store not configured")
-	}
-
-	records, err := s.skillServerStore.ListSkillServers(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to list skill servers: %w", err)
-	}
-	if records == nil {
-		return nil, nil
-	}
-
-	var bundles []publicSkillServerBundle
-	for _, srv := range records.Data {
-		if !srv.Public {
-			continue
-		}
-		srvCopy := srv
-		skills, missing := s.resolveSkillServerSkills(ctx, &srvCopy)
-		sortSkills(skills)
-		bundles = append(bundles, publicSkillServerBundle{Server: srv, Skills: skills, Missing: missing})
-	}
-	sort.SliceStable(bundles, func(i, j int) bool {
-		return strings.ToLower(bundles[i].Server.Name) < strings.ToLower(bundles[j].Server.Name)
-	})
-
-	return bundles, nil
-}
-
 func (item claudePluginItem) displayName() string {
 	if item.Kind == claudePluginKindMarketplace {
 		return item.Market.Name
 	}
-	if item.Kind == claudePluginKindMCPServer {
-		return item.MCPServer.Name
-	}
-	return item.Server.Name
+	return item.MCPServer.Name
 }
 
 func (item claudePluginItem) description() string {
 	if item.Kind == claudePluginKindMarketplace {
 		return item.Market.Description
 	}
-	if item.Kind == claudePluginKindMCPServer {
-		if item.MCPServer.Description != "" {
-			return item.MCPServer.Description
-		}
-		return item.MCPServer.Config.Description
+	if item.MCPServer.Description != "" {
+		return item.MCPServer.Description
 	}
-	return item.Server.Description
+	return item.MCPServer.Config.Description
 }
 
 func (item claudePluginItem) keywords() []string {
 	if item.Kind == claudePluginKindMarketplace {
 		return []string{"at", "marketplace", "skills", "mcp"}
 	}
-	if item.Kind == claudePluginKindMCPServer {
-		return []string{"at", "mcp-server", "mcp"}
-	}
-	return []string{"at", "skill-server", "mcp"}
+	return []string{"at", "mcp-server", "mcp"}
 }
 
 func (item claudePluginItem) category() string {
 	if item.Kind == claudePluginKindMarketplace {
 		return "AT Marketplaces"
 	}
-	if item.Kind == claudePluginKindMCPServer {
-		return "AT MCP Servers"
-	}
-	return "AT Skill Servers"
+	return "AT MCP Servers"
 }
 
 type claudeMarketplaceOptions struct {
@@ -647,11 +536,11 @@ func claudeMarketplaceFromItems(items []claudePluginItem, opts claudeMarketplace
 
 	name := opts.Name
 	if name == "" {
-		name = "at-skill-servers"
+		name = "at-mcp-servers"
 	}
 	description := opts.Description
 	if description == "" {
-		description = "Public Skill Servers exported from AT as Claude Code plugins."
+		description = "Public MCP Servers exported from AT as Claude Code plugins."
 	}
 
 	return claudeMarketplaceFile{
@@ -713,7 +602,7 @@ func claudePluginFiles(item claudePluginItem) (map[string][]byte, error) {
 	seenSkills := map[string]int{}
 	for _, skill := range item.Skills {
 		skillSlug := uniqueSlug(slugifyClaudeName(skill.Name, "skill"), seenSkills)
-		data, err := claudeSkillMarkdown(item, skill, skillSlug)
+		data, err := skillToMarkdown(&skill)
 		if err != nil {
 			return nil, fmt.Errorf("generate skill %q: %w", skill.Name, err)
 		}
@@ -721,35 +610,6 @@ func claudePluginFiles(item claudePluginItem) (map[string][]byte, error) {
 	}
 
 	return files, nil
-}
-
-func claudeSkillMarkdown(item claudePluginItem, skill service.Skill, skillSlug string) ([]byte, error) {
-	if item.Kind == claudePluginKindMarketplace {
-		return skillToMarkdown(&skill)
-	}
-
-	body := claudeSkillBody(item, skill)
-	return skillmd.Generate(&skillmd.SkillMD{
-		Name:        skillSlug,
-		Description: skill.Description,
-		Category:    skill.Category,
-		Tags:        skill.Tags,
-		Body:        body,
-	}, nil)
-}
-
-func claudeSkillBody(item claudePluginItem, skill service.Skill) string {
-	var b strings.Builder
-	if strings.TrimSpace(skill.SystemPrompt) != "" {
-		b.WriteString(strings.TrimSpace(skill.SystemPrompt))
-		b.WriteString("\n\n")
-	}
-	b.WriteString("## AT Skill Server\n\n")
-	b.WriteString(fmt.Sprintf("This skill is published from AT Skill Server `%s`. ", item.Server.Name))
-	b.WriteString(fmt.Sprintf("The plugin also registers remote MCP server `%s` at `%s`. ", item.MCPName, item.MCPURL))
-	b.WriteString("Use that MCP server when executable AT-hosted tools or package export tools are needed.\n")
-
-	return b.String()
 }
 
 func claudePluginReadme(item claudePluginItem) string {
@@ -767,29 +627,20 @@ func claudePluginReadme(item claudePluginItem) string {
 			"Generated from AT MCP Server `%s`.\n\n"+
 			"- MCP endpoint: `%s`\n"+
 			"- Claude MCP server name: `%s`\n\n"+
+			"- Included skill docs: %d\n\n"+
 			"Install this ZIP for a single Claude Code session with:\n\n"+
 			"```sh\n"+
 			"claude --plugin-url %s\n"+
 			"```\n",
-			item.displayName(), item.MCPServer.Name, item.MCPURL, item.MCPName, item.PluginURL)
+			item.displayName(), item.MCPServer.Name, item.MCPURL, item.MCPName, len(item.Skills), item.PluginURL)
 	}
 
-	return fmt.Sprintf("# %s\n\n"+
-		"Generated from AT Skill Server `%s`.\n\n"+
-		"- MCP endpoint: `%s`\n"+
-		"- Claude MCP server name: `%s`\n"+
-		"- Published skills: %d\n\n"+
-		"Install this ZIP for a single Claude Code session with:\n\n"+
-		"```sh\n"+
-		"claude --plugin-url %s\n"+
-		"```\n\n"+
-		"For persistent marketplace installation, use the `at-claude-marketplace.zip` export, unzip it, host the directory in a Git repository, then add it with `/plugin marketplace add <repo-or-path>`.\n",
-		item.Server.Name, item.Server.Name, item.MCPURL, item.MCPName, len(item.Skills), item.PluginURL)
+	return fmt.Sprintf("# %s\n\nGenerated from AT plugin item.\n", item.displayName())
 }
 
 func claudeMarketplaceReadme() string {
 	return "# AT Claude Code Marketplace\n\n" +
-		"This directory is generated by AT from public Skill Servers.\n\n" +
+		"This directory is generated by AT from public MCP Servers.\n\n" +
 		"To test locally:\n\n" +
 		"```sh\n" +
 		"unzip at-claude-marketplace.zip -d at-claude-marketplace\n" +
@@ -797,7 +648,7 @@ func claudeMarketplaceReadme() string {
 		"Then in Claude Code:\n\n" +
 		"```text\n" +
 		"/plugin marketplace add ./at-claude-marketplace\n" +
-		"/plugin install <plugin-name>@at-skill-servers\n" +
+		"/plugin install <plugin-name>@at-mcp-servers\n" +
 		"/reload-plugins\n" +
 		"```\n\n" +
 		"To share it with a team, commit this directory to a Git repository and ask users to add that repository as a Claude Code plugin marketplace.\n"
@@ -829,10 +680,6 @@ func writeBytesZip(zw *zip.Writer, name string, data []byte) error {
 		return fmt.Errorf("write zip entry %s: %w", name, err)
 	}
 	return nil
-}
-
-func (s *Server) publicSkillServerMCPURL(r *http.Request, name string) string {
-	return s.publicBaseURL(r) + "/gateway/v1/skill-servers/" + url.PathEscape(name) + "/mcp"
 }
 
 func (s *Server) publicMCPServerMCPURL(r *http.Request, name string) string {

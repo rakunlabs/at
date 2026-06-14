@@ -14,21 +14,21 @@ import (
 	"github.com/rakunlabs/query"
 )
 
-func TestClaudeCodeMarketplaceAPI_PublicServersOnly(t *testing.T) {
-	skillServers := newFakeSkillServerStore()
-	skillServers.servers["public"] = &service.SkillServer{
+func TestClaudeCodeMarketplaceAPI_PublicMCPServersOnly(t *testing.T) {
+	mcpServers := newFakeMCPServerStore()
+	mcpServers.servers["public"] = &service.MCPServer{
 		ID:          "public",
 		Name:        "Public Tools",
 		Description: "Shared writing tools",
 		Public:      true,
-		Mode:        service.SkillServerModeBoth,
-		Skills:      []string{"writer"},
+		Config: service.MCPServerConfig{
+			EnabledSkills: []string{"writer"},
+		},
 	}
-	skillServers.servers["private"] = &service.SkillServer{
+	mcpServers.servers["private"] = &service.MCPServer{
 		ID:     "private",
 		Name:   "Private Tools",
 		Public: false,
-		Skills: []string{"secret"},
 	}
 	skills := newFakeSkillStore()
 	skills.skills["writer-id"] = &service.Skill{
@@ -37,7 +37,7 @@ func TestClaudeCodeMarketplaceAPI_PublicServersOnly(t *testing.T) {
 		Description:  "Write better copy",
 		SystemPrompt: "Improve writing.",
 	}
-	s := &Server{skillServerStore: skillServers, skillStore: skills}
+	s := &Server{mcpServerStore: mcpServers, skillStore: skills}
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/marketplace.json", nil)
@@ -51,8 +51,8 @@ func TestClaudeCodeMarketplaceAPI_PublicServersOnly(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
 		t.Fatalf("unmarshal response: %v", err)
 	}
-	if got.Name != "at-skill-servers" {
-		t.Fatalf("marketplace name = %q, want %q", got.Name, "at-skill-servers")
+	if got.Name != "at-mcp-servers" {
+		t.Fatalf("marketplace name = %q, want %q", got.Name, "at-mcp-servers")
 	}
 	if len(got.Plugins) != 1 {
 		t.Fatalf("plugins len = %d, want 1: %#v", len(got.Plugins), got.Plugins)
@@ -66,18 +66,17 @@ func TestClaudeCodeMarketplaceAPI_PublicServersOnly(t *testing.T) {
 		t.Fatalf("plugin source = %q, want %q", plugin.Source, wantSource)
 	}
 	if strings.Contains(rr.Body.String(), "Private Tools") {
-		t.Fatalf("private skill server leaked into marketplace: %s", rr.Body.String())
+		t.Fatalf("private mcp server leaked into marketplace: %s", rr.Body.String())
 	}
 }
 
-func TestClaudeCodeMarketplaceAPI_MarketFilterIncludesSelectedPublicServers(t *testing.T) {
-	skillServers := newFakeSkillServerStore()
-	skillServers.servers["skill-other"] = &service.SkillServer{ID: "skill-other", Name: "Other Skills", Public: true, Skills: []string{"other"}}
+func TestClaudeCodeMarketplaceAPI_MarketFilterIncludesSelectedPublicMCPServers(t *testing.T) {
 	skills := newFakeSkillStore()
 	skills.skills["writer-id"] = &service.Skill{ID: "writer-id", Name: "writer", Description: "Write better copy"}
 	mcpServers := newFakeMCPServerStore()
 	mcpServers.servers["mcp-public"] = &service.MCPServer{ID: "mcp-public", Name: "Public MCP", Public: true, Description: "Shared MCP tools"}
 	mcpServers.servers["mcp-private"] = &service.MCPServer{ID: "mcp-private", Name: "Private MCP", Public: false}
+	mcpServers.servers["mcp-other"] = &service.MCPServer{ID: "mcp-other", Name: "Other MCP", Public: true}
 	markets := newFakeMarketplaceStore()
 	markets.markets["market"] = &service.Marketplace{
 		ID:          "market",
@@ -86,7 +85,7 @@ func TestClaudeCodeMarketplaceAPI_MarketFilterIncludesSelectedPublicServers(t *t
 		Skills:      []string{"writer-id"},
 		MCPServers:  []string{"mcp-public", "mcp-private"},
 	}
-	s := &Server{skillServerStore: skillServers, skillStore: skills, mcpServerStore: mcpServers, marketplaceStore: markets}
+	s := &Server{skillStore: skills, mcpServerStore: mcpServers, marketplaceStore: markets}
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/marketplace.json?market=my-market", nil)
@@ -109,7 +108,7 @@ func TestClaudeCodeMarketplaceAPI_MarketFilterIncludesSelectedPublicServers(t *t
 	if got.Plugins[0].Name != "my-market" {
 		t.Fatalf("plugin name = %q, want my-market", got.Plugins[0].Name)
 	}
-	if strings.Contains(rr.Body.String(), "Private MCP") || strings.Contains(rr.Body.String(), "other-skills") {
+	if strings.Contains(rr.Body.String(), "Private MCP") || strings.Contains(rr.Body.String(), "Other MCP") {
 		t.Fatalf("marketplace leaked unselected/private plugins: %s", rr.Body.String())
 	}
 	wantSource := "https://at.example/gateway/v1/claude-code/marketplaces/my-market/plugin.zip"
@@ -175,14 +174,15 @@ func TestClaudeCodeMarketplacePluginZip_ContainsSkillsAndMCPConfigs(t *testing.T
 }
 
 func TestClaudeCodeMarketplaceZip_ContainsPluginSkillAndMCP(t *testing.T) {
-	skillServers := newFakeSkillServerStore()
-	skillServers.servers["public"] = &service.SkillServer{
+	mcpServers := newFakeMCPServerStore()
+	mcpServers.servers["public"] = &service.MCPServer{
 		ID:          "public",
 		Name:        "Public Tools",
 		Description: "Shared writing tools",
 		Public:      true,
-		Mode:        service.SkillServerModeBoth,
-		Skills:      []string{"writer"},
+		Config: service.MCPServerConfig{
+			EnabledSkills: []string{"writer"},
+		},
 	}
 	skills := newFakeSkillStore()
 	skills.skills["writer-id"] = &service.Skill{
@@ -191,7 +191,7 @@ func TestClaudeCodeMarketplaceZip_ContainsPluginSkillAndMCP(t *testing.T) {
 		Description:  "Write better copy",
 		SystemPrompt: "Improve writing.",
 	}
-	s := &Server{skillServerStore: skillServers, skillStore: skills}
+	s := &Server{mcpServerStore: mcpServers, skillStore: skills}
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/marketplace.zip", nil)
@@ -217,7 +217,7 @@ func TestClaudeCodeMarketplaceZip_ContainsPluginSkillAndMCP(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing MCP server at-public-tools in manifest: %#v", manifest.MCPServers)
 	}
-	if mcp.URL != "https://at.example/gateway/v1/skill-servers/Public%20Tools/mcp" {
+	if mcp.URL != "https://at.example/gateway/v1/mcp/Public%20Tools" {
 		t.Fatalf("mcp url = %q", mcp.URL)
 	}
 
@@ -225,15 +225,12 @@ func TestClaudeCodeMarketplaceZip_ContainsPluginSkillAndMCP(t *testing.T) {
 	if !strings.Contains(skillMD, "Improve writing.") {
 		t.Fatalf("skill md missing system prompt: %s", skillMD)
 	}
-	if !strings.Contains(skillMD, "at-public-tools") {
-		t.Fatalf("skill md missing MCP server name: %s", skillMD)
-	}
 }
 
-func TestClaudeCodePluginZip_PrivateServerNotFound(t *testing.T) {
-	skillServers := newFakeSkillServerStore()
-	skillServers.servers["private"] = &service.SkillServer{ID: "private", Name: "private", Public: false}
-	s := &Server{skillServerStore: skillServers}
+func TestClaudeCodePluginZip_PrivateMCPServerNotFound(t *testing.T) {
+	mcpServers := newFakeMCPServerStore()
+	mcpServers.servers["private"] = &service.MCPServer{ID: "private", Name: "private", Public: false}
+	s := &Server{mcpServerStore: mcpServers}
 
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/claude-code/plugins/private/plugin.zip", nil)
@@ -242,45 +239,6 @@ func TestClaudeCodePluginZip_PrivateServerNotFound(t *testing.T) {
 
 	if rr.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusNotFound, rr.Body.String())
-	}
-}
-
-func TestPublicSkillHubAPI_ReturnsPublicSkillMetadata(t *testing.T) {
-	skillServers := newFakeSkillServerStore()
-	skillServers.servers["public"] = &service.SkillServer{
-		ID:     "public",
-		Name:   "public",
-		Public: true,
-		Mode:   service.SkillServerModePackage,
-		Skills: []string{"writer"},
-	}
-	skillServers.servers["private"] = &service.SkillServer{ID: "private", Name: "private", Public: false}
-	skills := newFakeSkillStore()
-	skills.skills["writer-id"] = &service.Skill{ID: "writer-id", Name: "writer", Description: "Write better copy"}
-	s := &Server{skillServerStore: skillServers, skillStore: skills}
-
-	rr := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "https://at.example/gateway/v1/public/skill_hub", nil)
-	s.PublicSkillHubAPI(rr, req)
-
-	if rr.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
-	}
-	var got publicSkillHubResponse
-	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
-		t.Fatalf("unmarshal response: %v", err)
-	}
-	if len(got.Servers) != 1 || got.Servers[0].Name != "public" {
-		t.Fatalf("servers = %#v, want only public", got.Servers)
-	}
-	if len(got.Skills) != 1 || got.Skills[0].Name != "writer" {
-		t.Fatalf("skills = %#v, want writer", got.Skills)
-	}
-	if got.Servers[0].PluginURL != "https://at.example/gateway/v1/claude-code/plugins/public/plugin.zip" {
-		t.Fatalf("plugin url = %q", got.Servers[0].PluginURL)
-	}
-	if strings.Contains(rr.Body.String(), "private") {
-		t.Fatalf("private skill server leaked into hub: %s", rr.Body.String())
 	}
 }
 

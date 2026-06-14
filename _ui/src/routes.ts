@@ -1,7 +1,8 @@
+import { push } from 'svelte-spa-router';
+import { wrap } from 'svelte-spa-router/wrap';
 import Home from '@/pages/Home.svelte';
 import Providers from '@/pages/Providers.svelte';
 import Skills from '@/pages/Skills.svelte';
-import SkillServers from '@/pages/SkillServers.svelte';
 import Marketplaces from '@/pages/Marketplaces.svelte';
 import Agents from '@/pages/Agents.svelte';
 import Secrets from '@/pages/Secrets.svelte';
@@ -31,41 +32,81 @@ import Pricing from '@/pages/Pricing.svelte';
 import Connections from '@/pages/Connections.svelte';
 import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
 import Files from '@/pages/Files.svelte';
+import Features from '@/pages/Features.svelte';
 import NotFound from '@/pages/NotFound.svelte';
+import { isFeatureEnabled, loadFeatures } from '@/lib/store/features.svelte';
+import {
+  FEATURE_AGENTS,
+  FEATURE_AUTOMATION,
+  FEATURE_CHAT_WORKBENCH,
+  FEATURE_CONNECTIONS,
+  FEATURE_FILES,
+  FEATURE_ORGANIZATION_WORKFLOWS,
+  FEATURE_PROVIDER_SETUP,
+  FEATURE_RAG,
+} from '@/lib/api/features';
+
+function guarded(component: any, feature: string) {
+  return wrap({
+    component,
+    conditions: [async () => {
+      try {
+        await loadFeatures();
+      } catch {
+        return true;
+      }
+      if (isFeatureEnabled(feature)) return true;
+      push('/');
+      return false;
+    }],
+  });
+}
+
+function redirect(to: string) {
+  return wrap({
+    component: Home as any,
+    conditions: [() => {
+      push(to);
+      return false;
+    }],
+  });
+}
 
 export default {
   '/': Home,
-  '/providers': Providers,
+  '/providers': guarded(Providers, FEATURE_PROVIDER_SETUP),
   '/skills': Skills,
-  '/skill-servers': SkillServers,
   '/marketplaces': Marketplaces,
-  '/agents': Agents,
+  '/agents': guarded(Agents, FEATURE_AGENTS),
   '/variables': Secrets,
-  '/chat': Chat,
-  '/sessions': ChatSessions,
-  '/tokens': Tokens,
-  '/node-configs': NodeConfigs,
-  '/workflows': Workflows,
-  '/workflows/:id': WorkflowEditor,
-  '/runs': Runs,
-  '/webhooks': Webhooks,
-  '/crons': Crons,
-  '/rag': Rag,
-  '/connections': Connections,
-  '/integrations': IntegrationPacks,
+  '/chat': guarded(Chat, FEATURE_CHAT_WORKBENCH),
+  '/sessions': guarded(ChatSessions, FEATURE_CHAT_WORKBENCH),
+  '/tokens': redirect('/settings/tokens'),
+  '/node-configs': guarded(NodeConfigs, FEATURE_AUTOMATION),
+  '/workflows': guarded(Workflows, FEATURE_AUTOMATION),
+  '/workflows/:id': guarded(WorkflowEditor, FEATURE_AUTOMATION),
+  '/runs': guarded(Runs, FEATURE_AUTOMATION),
+  '/webhooks': guarded(Webhooks, FEATURE_AUTOMATION),
+  '/crons': guarded(Crons, FEATURE_AUTOMATION),
+  '/rag': guarded(Rag, FEATURE_RAG),
+  '/connections': guarded(Connections, FEATURE_CONNECTIONS),
+  '/integrations': guarded(IntegrationPacks, FEATURE_CONNECTIONS),
   '/mcp-servers': McpServers,
   '/mcps': Mcps,
-  '/bots': Bots,
+  '/bots': guarded(Bots, FEATURE_CHAT_WORKBENCH),
   '/docs': Docs,
   '/settings': Settings,
-  '/organizations': Organizations,
-  '/organizations/:id': OrganizationDetail,
-  '/tasks': Tasks,
-  '/tasks/:id': TaskDetail,
+  '/settings/features': Features,
+  '/settings/tokens': Tokens,
+  '/features': redirect('/settings/features'),
+  '/organizations': guarded(Organizations, FEATURE_ORGANIZATION_WORKFLOWS),
+  '/organizations/:id': guarded(OrganizationDetail, FEATURE_ORGANIZATION_WORKFLOWS),
+  '/tasks': guarded(Tasks, FEATURE_ORGANIZATION_WORKFLOWS),
+  '/tasks/:id': guarded(TaskDetail, FEATURE_ORGANIZATION_WORKFLOWS),
   '/audit': Audit,
-  '/cost-events': CostEvents,
-  '/usage': Usage,
-  '/pricing': Pricing,
-  '/files': Files,
+  '/cost-events': guarded(CostEvents, FEATURE_ORGANIZATION_WORKFLOWS),
+  '/usage': guarded(Usage, FEATURE_PROVIDER_SETUP),
+  '/pricing': guarded(Pricing, FEATURE_PROVIDER_SETUP),
+  '/files': guarded(Files, FEATURE_FILES),
   '*': NotFound
 };

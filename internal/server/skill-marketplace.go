@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -13,7 +12,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/skillmd"
 )
 
 // MarketplaceSkill is the normalized skill entry returned by marketplace search.
@@ -263,7 +261,7 @@ func (s *Server) MarketplacePreviewAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	export, err := s.fetchAndParseSkill(r.Context(), body.URL)
+	export, _, err := s.fetchAndParseSkillURL(r.Context(), body.URL)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch/parse skill: %v", err), http.StatusBadRequest)
 		return
@@ -290,7 +288,7 @@ func (s *Server) MarketplaceImportAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	export, err := s.fetchAndParseSkill(r.Context(), body.URL)
+	export, checksum, err := s.fetchAndParseSkillURL(r.Context(), body.URL)
 	if err != nil {
 		httpResponse(w, fmt.Sprintf("failed to fetch/parse skill: %v", err), http.StatusBadRequest)
 		return
@@ -301,15 +299,9 @@ func (s *Server) MarketplaceImportAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userEmail := s.getUserEmail(r)
-	skill := service.Skill{
-		Name:         export.Name,
-		Description:  export.Description,
-		SystemPrompt: export.SystemPrompt,
-		Tools:        export.Tools,
-		CreatedBy:    userEmail,
-		UpdatedBy:    userEmail,
-	}
+	skill := skillFromExportData(export, s.getUserEmail(r))
+	skill.SourceURL = body.URL
+	skill.SourceChecksum = checksum
 
 	record, err := s.skillStore.CreateSkill(r.Context(), skill)
 	if err != nil {
@@ -322,62 +314,6 @@ func (s *Server) MarketplaceImportAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // ─── Internal helpers ───
-
-// fetchAndParseSkill fetches a URL and tries JSON, then SKILL.md parsing.
-func (s *Server) fetchAndParseSkill(ctx context.Context, url string) (*skillExportData, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build request: %w", err)
-	}
-
-	resp, err := s.marketplaceClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch URL: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("URL returned status %d", resp.StatusCode)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024)) // 2MB max
-	if err != nil {
-		return nil, fmt.Errorf("read response: %w", err)
-	}
-
-	// Try JSON first (unless URL clearly ends in .md).
-	if !strings.HasSuffix(strings.ToLower(url), ".md") {
-		var export skillExportData
-		if err := json.Unmarshal(data, &export); err == nil && export.Name != "" {
-			return &export, nil
-		}
-	}
-
-	// Try SKILL.md parsing.
-	parsed, err := skillmd.Parse(data)
-	if err != nil {
-		return nil, fmt.Errorf("not valid JSON or SKILL.md: %w", err)
-	}
-
-	name := parsed.Name
-	if name == "" {
-		// Try to derive name from URL.
-		parts := strings.Split(strings.TrimSuffix(url, "/"), "/")
-		for i := len(parts) - 1; i >= 0; i-- {
-			if parts[i] != "" && !strings.EqualFold(parts[i], "SKILL.md") {
-				name = parts[i]
-				break
-			}
-		}
-	}
-
-	return &skillExportData{
-		Name:         name,
-		Description:  parsed.Description,
-		SystemPrompt: parsed.Body,
-		Tools:        nil,
-	}, nil
-}
 
 // searchMarketplace dispatches search to the appropriate adapter.
 func (s *Server) searchMarketplace(ctx context.Context, src service.MarketplaceSource, query string) []MarketplaceSkill {

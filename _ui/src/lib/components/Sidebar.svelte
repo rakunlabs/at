@@ -1,12 +1,12 @@
 <script lang="ts">
   import { push, location } from "svelte-spa-router";
   import { storeInfo } from "@/lib/store/store.svelte";
+  import { isFeatureEnabled, loadFeatures } from "@/lib/store/features.svelte";
   import { getInfo } from "@/lib/api/gateway";
-    import {
+  import {
     MessageSquare,
     MessagesSquare,
     Cpu,
-    Key,
     Braces,
     Workflow,
     Activity,
@@ -33,8 +33,6 @@
     Package,
   } from "lucide-svelte";
 
-
-
   function navigate(e: MouseEvent, path: string) {
     if (e.ctrlKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
@@ -42,6 +40,7 @@
   }
 
   $effect(() => {
+    loadFeatures().catch(() => {});
     if (!storeInfo.version) {
       getInfo().then((res) => {
         storeInfo.version = res.version || "";
@@ -68,58 +67,64 @@
       <House size={14} />
       <span>Dashboard</span>
     </a>
-    <a
-      href="#/chat"
-      onclick={(e) => navigate(e, "/chat")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/chat"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <MessageSquare size={14} />
-      <span>Chat</span>
-    </a>
-    <a
-      href="#/sessions"
-      onclick={(e) => navigate(e, "/sessions")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/sessions"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <MessagesSquare size={14} />
-      <span>Sessions</span>
-    </a>
-    <a
-      href="#/providers"
-      onclick={(e) => navigate(e, "/providers")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/providers"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Cpu size={14} />
-      <span>Providers</span>
-    </a>
-    <a
-      href="#/rag"
-      onclick={(e) => navigate(e, "/rag")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/rag"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Database size={14} />
-      <span>RAG</span>
-    </a>
+    {#if isFeatureEnabled("chat_workbench")}
+      <a
+        href="#/chat"
+        onclick={(e) => navigate(e, "/chat")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/chat"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <MessageSquare size={14} />
+        <span>Chat</span>
+      </a>
+      <a
+        href="#/sessions"
+        onclick={(e) => navigate(e, "/sessions")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/sessions"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <MessagesSquare size={14} />
+        <span>Sessions</span>
+      </a>
+    {/if}
+    {#if isFeatureEnabled("provider_setup")}
+      <a
+        href="#/providers"
+        onclick={(e) => navigate(e, "/providers")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/providers"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <Cpu size={14} />
+        <span>Providers</span>
+      </a>
+    {/if}
+    {#if isFeatureEnabled("rag")}
+      <a
+        href="#/rag"
+        onclick={(e) => navigate(e, "/rag")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/rag"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <Database size={14} />
+        <span>RAG</span>
+      </a>
+    {/if}
     <a
       href="#/mcp-servers"
       onclick={(e) => navigate(e, "/mcp-servers")}
@@ -161,19 +166,6 @@
       <span>Skills</span>
     </a>
     <a
-      href="#/skill-servers"
-      onclick={(e) => navigate(e, "/skill-servers")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/skill-servers"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Server size={14} />
-      <span>Skill Servers</span>
-    </a>
-    <a
       href="#/marketplaces"
       onclick={(e) => navigate(e, "/marketplaces")}
       class={[
@@ -186,32 +178,34 @@
       <Package size={14} />
       <span>Marketplaces</span>
     </a>
-    <a
-      href="#/integrations"
-      onclick={(e) => navigate(e, "/integrations")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/integrations"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Package size={14} />
-      <span>Integrations</span>
-    </a>
-    <a
-      href="#/connections"
-      onclick={(e) => navigate(e, "/connections")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/connections"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Plug size={14} />
-      <span>Connections</span>
-    </a>
+    {#if isFeatureEnabled("connections_integrations")}
+      <a
+        href="#/integrations"
+        onclick={(e) => navigate(e, "/integrations")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/integrations"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <Package size={14} />
+        <span>Integrations</span>
+      </a>
+      <a
+        href="#/connections"
+        onclick={(e) => navigate(e, "/connections")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/connections"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <Plug size={14} />
+        <span>Connections</span>
+      </a>
+    {/if}
     <a
       href="#/variables"
       onclick={(e) => navigate(e, "/variables")}
@@ -225,58 +219,51 @@
       <Braces size={14} />
       <span>Variables</span>
     </a>
-    <a
-      href="#/agents"
-      onclick={(e) => navigate(e, "/agents")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/agents"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Bot size={14} />
-      <span>Agents</span>
-    </a>
-    <a
-      href="#/bots"
-      onclick={(e) => navigate(e, "/bots")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/bots"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Radio size={14} />
-      <span>Bots</span>
-    </a>
-    <a
-      href="#/tokens"
-      onclick={(e) => navigate(e, "/tokens")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/tokens"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <Key size={14} />
-      <span>Tokens</span>
-    </a>
-    <a
-      href="#/files"
-      onclick={(e) => navigate(e, "/files")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/files"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <FolderOpen size={14} />
-      <span>Files</span>
-    </a>
+    {#if isFeatureEnabled("agents")}
+      <a
+        href="#/agents"
+        onclick={(e) => navigate(e, "/agents")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/agents"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <Bot size={14} />
+        <span>Agents</span>
+      </a>
+    {/if}
+    {#if isFeatureEnabled("chat_workbench")}
+      <a
+        href="#/bots"
+        onclick={(e) => navigate(e, "/bots")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/bots"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <Radio size={14} />
+        <span>Bots</span>
+      </a>
+    {/if}
+    {#if isFeatureEnabled("files")}
+      <a
+        href="#/files"
+        onclick={(e) => navigate(e, "/files")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/files"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <FolderOpen size={14} />
+        <span>Files</span>
+      </a>
+    {/if}
     <a
       href="#/audit"
       onclick={(e) => navigate(e, "/audit")}
@@ -303,38 +290,42 @@
       <BookOpen size={14} />
       <span>Docs</span>
     </a>
-    <a
-      href="#/usage"
-      onclick={(e) => navigate(e, "/usage")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/usage"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <BarChart3 size={14} />
-      <span>Usage</span>
-    </a>
-    <a
-      href="#/pricing"
-      onclick={(e) => navigate(e, "/pricing")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/pricing"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <CircleDollarSign size={14} />
-      <span>Pricing</span>
-    </a>
+    {#if isFeatureEnabled("provider_setup")}
+      <a
+        href="#/usage"
+        onclick={(e) => navigate(e, "/usage")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/usage"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <BarChart3 size={14} />
+        <span>Usage</span>
+      </a>
+    {/if}
+    {#if isFeatureEnabled("provider_setup")}
+      <a
+        href="#/pricing"
+        onclick={(e) => navigate(e, "/pricing")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/pricing"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <CircleDollarSign size={14} />
+        <span>Pricing</span>
+      </a>
+    {/if}
     <a
       href="#/settings"
       onclick={(e) => navigate(e, "/settings")}
       class={[
         "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/settings"
+        $location === "/settings" || $location.startsWith("/settings/")
           ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
           : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
       ]}
@@ -342,126 +333,130 @@
       <Settings size={14} />
       <span>Settings</span>
     </a>
-    <div>
-      <span
-        class="block p-2 text-[10px] font-medium text-gray-400 dark:text-dark-text-muted tracking-wider bg-gray-50 dark:bg-dark-base w-full border-b border-gray-200 dark:border-dark-border transition-colors"
-        >Automation</span
-      >
-      <div class="border-l-4 border-gray-800 dark:border-accent">
-        <a
-          href="#/workflows"
-          onclick={(e) => navigate(e, "/workflows")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/workflows" || $location.startsWith("/workflows/")
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
+    {#if isFeatureEnabled("automation")}
+      <div>
+        <span
+          class="block p-2 text-[10px] font-medium text-gray-400 dark:text-dark-text-muted tracking-wider bg-gray-50 dark:bg-dark-base w-full border-b border-gray-200 dark:border-dark-border transition-colors"
+          >Automation</span
         >
-          <Workflow size={14} />
-          <span>Workflows</span>
-        </a>
-        <a
-          href="#/runs"
-          onclick={(e) => navigate(e, "/runs")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/runs"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <Activity size={14} />
-          <span>Runs</span>
-        </a>
-        <a
-          href="#/node-configs"
-          onclick={(e) => navigate(e, "/node-configs")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/node-configs"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <SlidersHorizontal size={14} />
-          <span>Node Configs</span>
-        </a>
-        <a
-          href="#/webhooks"
-          onclick={(e) => navigate(e, "/webhooks")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/webhooks"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <Globe size={14} />
-          <span>Webhooks</span>
-        </a>
-        <a
-          href="#/crons"
-          onclick={(e) => navigate(e, "/crons")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/crons"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <Clock size={14} />
-          <span>Crons</span>
-        </a>
+        <div class="border-l-4 border-gray-800 dark:border-accent">
+          <a
+            href="#/workflows"
+            onclick={(e) => navigate(e, "/workflows")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/workflows" || $location.startsWith("/workflows/")
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <Workflow size={14} />
+            <span>Workflows</span>
+          </a>
+          <a
+            href="#/runs"
+            onclick={(e) => navigate(e, "/runs")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/runs"
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <Activity size={14} />
+            <span>Runs</span>
+          </a>
+          <a
+            href="#/node-configs"
+            onclick={(e) => navigate(e, "/node-configs")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/node-configs"
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <SlidersHorizontal size={14} />
+            <span>Node Configs</span>
+          </a>
+          <a
+            href="#/webhooks"
+            onclick={(e) => navigate(e, "/webhooks")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/webhooks"
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <Globe size={14} />
+            <span>Webhooks</span>
+          </a>
+          <a
+            href="#/crons"
+            onclick={(e) => navigate(e, "/crons")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/crons"
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <Clock size={14} />
+            <span>Crons</span>
+          </a>
+        </div>
       </div>
-    </div>
-    <div>
-      <span
-        class="block p-2 text-[10px] font-medium text-gray-400 dark:text-dark-text-muted tracking-wider bg-gray-50 dark:bg-dark-base w-full border-b border-gray-200 dark:border-dark-border transition-colors"
-        >Organization</span
-      >
-      <div class="border-l-4 border-gray-800 dark:border-accent">
-        <a
-          href="#/organizations"
-          onclick={(e) => navigate(e, "/organizations")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/organizations" || $location.startsWith("/organizations/")
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
+    {/if}
+    {#if isFeatureEnabled("organization_workflows")}
+      <div>
+        <span
+          class="block p-2 text-[10px] font-medium text-gray-400 dark:text-dark-text-muted tracking-wider bg-gray-50 dark:bg-dark-base w-full border-b border-gray-200 dark:border-dark-border transition-colors"
+          >Organization</span
         >
-          <Building2 size={14} />
-          <span>Organizations</span>
-        </a>
-        <a
-          href="#/tasks"
-          onclick={(e) => navigate(e, "/tasks")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/tasks" || $location.startsWith("/tasks/")
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <ClipboardList size={14} />
-          <span>Tasks</span>
-        </a>
-        <a
-          href="#/cost-events"
-          onclick={(e) => navigate(e, "/cost-events")}
-          class={[
-            "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-            $location === "/cost-events"
-              ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-              : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-          ]}
-        >
-          <Receipt size={14} />
-          <span>Cost Events</span>
-        </a>
+        <div class="border-l-4 border-gray-800 dark:border-accent">
+          <a
+            href="#/organizations"
+            onclick={(e) => navigate(e, "/organizations")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/organizations" || $location.startsWith("/organizations/")
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <Building2 size={14} />
+            <span>Organizations</span>
+          </a>
+          <a
+            href="#/tasks"
+            onclick={(e) => navigate(e, "/tasks")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/tasks" || $location.startsWith("/tasks/")
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <ClipboardList size={14} />
+            <span>Tasks</span>
+          </a>
+          <a
+            href="#/cost-events"
+            onclick={(e) => navigate(e, "/cost-events")}
+            class={[
+              "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+              $location === "/cost-events"
+                ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+                : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+            ]}
+          >
+            <Receipt size={14} />
+            <span>Cost Events</span>
+          </a>
+        </div>
       </div>
-    </div>
+    {/if}
   </div>
   <div class="border-t border-gray-200 dark:border-dark-border p-3 text-[10px] text-gray-500 dark:text-dark-text-muted">
     {#if storeInfo.user}

@@ -47,6 +47,29 @@ type MCPServerConfig struct {
 
 	// Workflow tools — IDs of workflows to expose as individual named tools.
 	WorkflowIDs []string `json:"workflow_ids,omitempty"`
+
+	// Raw WebSocket passthrough (optional). When set, the gateway exposes
+	// GET /gateway/v1/mcp/{name}/ws and transparently proxies WebSocket
+	// frames to the upstream URL. Useful when an installed MCP program also
+	// serves a non-MCP WebSocket (event stream, control channel, …) that
+	// external clients should reach through AT's auth layer.
+	WSUpstream *WSUpstream `json:"ws_upstream,omitempty"`
+}
+
+// WSUpstream configures raw WebSocket passthrough for a gateway MCP endpoint.
+type WSUpstream struct {
+	URL     string            `json:"url"`               // ws:// or wss:// (http/https also accepted)
+	Headers map[string]string `json:"headers,omitempty"` // injected on dial; values support {{var:key}} references
+
+	// PassQueryParams optionally limits which client query parameters are
+	// forwarded raw to the upstream. When empty, all client query parameters
+	// except AT's auth token are forwarded for backward compatibility.
+	PassQueryParams []string `json:"pass_query_params,omitempty"`
+
+	// PassHeaders names client request headers that should be explicitly copied
+	// to the upstream. Authorization and Cookie are never forwarded from the
+	// client; configure upstream auth via Headers instead.
+	PassHeaders []string `json:"pass_headers,omitempty"`
 }
 
 // MCPUpstream represents an upstream MCP server — either HTTP or stdio (local command).

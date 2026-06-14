@@ -10,7 +10,6 @@ export interface Marketplace {
   name: string;
   description: string;
   skills: string[];
-  skill_servers?: string[];
   mcp_servers: string[];
   direct_mcp_servers: MarketplaceMCPServer[];
   created_at: string;

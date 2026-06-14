@@ -100,9 +100,6 @@ type Server struct {
 	// skillStore is the persistent store for skill definitions.
 	skillStore service.SkillStorer
 
-	// skillServerStore is the persistent store for curated skill server definitions.
-	skillServerStore service.SkillServerStorer
-
 	// variableStore is the persistent store for variables (secret and non-secret).
 	variableStore service.VariableStorer
 
@@ -266,6 +263,9 @@ type Server struct {
 	// embedded JSON, merged with DB rows at read time (DB overrides by slug).
 	connectorStore service.ConnectorStorer
 
+	// featureStore is the persistent store for runtime feature toggles.
+	featureStore service.FeatureSettingStorer
+
 	// builtinConnectors holds the embedded connector definitions loaded at
 	// startup from connectors/*.json. Merged with connectorStore rows at runtime.
 	builtinConnectors []service.Connector
@@ -414,7 +414,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		workflowVersionStore:     store,
 		triggerStore:             store,
 		skillStore:               store,
-		skillServerStore:         store,
 		variableStore:            store,
 		nodeConfigStore:          store,
 		agentStore:               store,
@@ -449,6 +448,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		guideStore:               store,
 		connectionStore:          store,
 		connectorStore:           store,
+		featureStore:             store,
 
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
@@ -608,6 +608,14 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		s.scheduler.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
 		s.scheduler.SetLoopGov(s.loopGov)
+		s.scheduler.SetEnabledCheck(func(ctx context.Context) bool {
+			enabled, err := s.isFeatureEnabled(ctx, service.FeatureAutomation)
+			if err != nil {
+				slog.Error("scheduler automation feature check failed", "error", err)
+				return true
+			}
+			return enabled
+		})
 		if err := s.scheduler.Start(ctx); err != nil {
 			slog.Error("failed to start cron scheduler", "error", err)
 			// Non-fatal: server can run without cron triggers.
@@ -642,6 +650,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	// Webhook endpoint (top-level, like gateway — not behind ForwardAuth)
 	webhookGroup := mux.Group(cfg.BasePath + "/webhooks")
+	webhookGroup.Use(s.featureGateMiddleware())
 	webhookGroup.POST("/{id}", s.WebhookAPI)
 
 	// General MCP gateway endpoint (external; auth-gated unless server public mode is enabled)
@@ -649,13 +658,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.POST("/v1/mcp/{name}/mcp", s.GatewayMCPHandler) // MCP clients append /mcp per spec
 	gatewayGroup.GET("/v1/mcp/{name}", s.GatewayMCPSSEHandler)
 	gatewayGroup.GET("/v1/mcp/{name}/mcp", s.GatewayMCPSSEHandler)
+	gatewayGroup.GET("/v1/mcp/{name}/ws", s.GatewayMCPWSHandler) // raw WebSocket passthrough to config.ws_upstream
 
-	// Curated Skill Server endpoint (external MCP transport; auth-gated unless public mode is enabled)
-	gatewayGroup.POST("/v1/skill-servers/{name}", s.SkillServerMCPHandler)
-	gatewayGroup.POST("/v1/skill-servers/{name}/mcp", s.SkillServerMCPHandler)
-	gatewayGroup.GET("/v1/skill-servers/{name}", s.SkillServerMCPSSEHandler)
-	gatewayGroup.GET("/v1/skill-servers/{name}/mcp", s.SkillServerMCPSSEHandler)
-	gatewayGroup.GET("/v1/public/skill_hub", s.PublicSkillHubAPI)
 	gatewayGroup.GET("/v1/claude-code/marketplace.json", s.ClaudeCodeMarketplaceAPI)
 	gatewayGroup.GET("/v1/claude-code/marketplace.zip", s.ClaudeCodeMarketplaceZipAPI)
 	gatewayGroup.GET("/v1/claude-code/marketplaces/{name}/plugin.zip", s.ClaudeCodeMarketplacePluginZipAPI)
@@ -677,9 +681,12 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	}
 
 	apiGroup := baseGroup.Group("/api")
+	apiGroup.Use(s.featureGateMiddleware())
 
 	// Gateway info API
 	apiGroup.GET("/v1/info", s.InfoAPI)
+	apiGroup.GET("/v1/features", s.ListFeaturesAPI)
+	apiGroup.PUT("/v1/features/{key}", s.UpdateFeatureAPI)
 
 	// Provider management API
 	apiGroup.GET("/v1/providers", s.ListProvidersAPI)
@@ -740,13 +747,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.DELETE("/v1/skills/{id}", s.DeleteSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export", s.ExportSkillAPI)
 	apiGroup.GET("/v1/skills/{id}/export-md", s.ExportSkillMDAPI)
-
-	// Skill server management (curated skill publishing over MCP)
-	apiGroup.GET("/v1/skill-servers", s.ListSkillServersAPI)
-	apiGroup.POST("/v1/skill-servers", s.CreateSkillServerAPI)
-	apiGroup.GET("/v1/skill-servers/{id}", s.GetSkillServerAPI)
-	apiGroup.PUT("/v1/skill-servers/{id}", s.UpdateSkillServerAPI)
-	apiGroup.DELETE("/v1/skill-servers/{id}", s.DeleteSkillServerAPI)
+	apiGroup.GET("/v1/skills/{id}/update-check", s.CheckSkillUpdateAPI)
+	apiGroup.POST("/v1/skills/{id}/update", s.ApplySkillUpdateAPI)
 
 	// Skill templates (predefined / store)
 	apiGroup.GET("/v1/skill-templates", s.ListSkillTemplatesAPI)

@@ -1,9 +1,22 @@
 package server
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // dispatchBuiltinTool dispatches a tool call to the appropriate executor by name.
 func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[string]any) (string, error) {
+	if featureKey := builtinToolFeatureKey(name); featureKey != "" {
+		enabled, err := s.isFeatureEnabled(ctx, featureKey)
+		if err != nil {
+			return "", fmt.Errorf("check feature %q: %w", featureKey, err)
+		}
+		if !enabled {
+			return "", fmt.Errorf("feature %q is disabled", featureKey)
+		}
+	}
+
 	switch name {
 	// Original tools.
 	case "http_request":

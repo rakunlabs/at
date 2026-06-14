@@ -158,7 +158,6 @@ func normalizeMarketplace(m *service.Marketplace) error {
 	m.Name = slugifyClaudeName(name, "market")
 	m.Description = strings.TrimSpace(m.Description)
 	m.Skills = normalizeMarketplaceRefs(m.Skills)
-	m.SkillServers = normalizeMarketplaceRefs(m.SkillServers)
 	m.MCPServers = normalizeMarketplaceRefs(m.MCPServers)
 	m.DirectMCPServers = normalizeMarketplaceMCPServers(m.DirectMCPServers)
 

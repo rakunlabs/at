@@ -97,7 +97,8 @@ func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 	case "initialize":
 		s.gwGenMCPInitialize(w, req, mcpSrv)
 	case "notifications/initialized":
-		w.WriteHeader(http.StatusOK)
+		// Per MCP Streamable HTTP, notifications are acknowledged with 202.
+		w.WriteHeader(http.StatusAccepted)
 	case "tools/list":
 		s.gwGenMCPListTools(w, req, mcpSrv)
 	case "tools/call":
@@ -156,6 +157,24 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 
 // ─── Initialize ───
 
+// negotiateMCPProtocolVersion echoes the client's requested protocol
+// version when it is a revision AT's tools-only servers can satisfy;
+// otherwise it falls back to the 2024-11-05 baseline (per MCP version
+// negotiation rules the server responds with a version it supports).
+func negotiateMCPProtocolVersion(params any) string {
+	supported := map[string]bool{
+		"2024-11-05": true,
+		"2025-03-26": true,
+		"2025-06-18": true,
+	}
+	if m, ok := params.(map[string]any); ok {
+		if v, ok := m["protocolVersion"].(string); ok && supported[v] {
+			return v
+		}
+	}
+	return "2024-11-05"
+}
+
 func (s *Server) gwGenMCPInitialize(w http.ResponseWriter, req service.MCPRequest, srv *service.MCPServer) {
 	description := srv.Description
 	if description == "" {
@@ -166,7 +185,7 @@ func (s *Server) gwGenMCPInitialize(w http.ResponseWriter, req service.MCPReques
 	}
 
 	result := map[string]any{
-		"protocolVersion": "2024-11-05",
+		"protocolVersion": negotiateMCPProtocolVersion(req.Params),
 		"capabilities": map[string]any{
 			"tools": map[string]any{},
 		},
@@ -707,34 +726,42 @@ func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args 
 	return workflow.ExecuteJSHandler(tool.Handler, args, varLookup)
 }
 
+// resolveVarRefs resolves {{var:key}} references in val against the
+// variable store. Unresolvable references are left in place (with a
+// warning) so misconfiguration is visible rather than silently empty.
+func (s *Server) resolveVarRefs(val string) string {
+	if !strings.Contains(val, "{{var:") {
+		return val
+	}
+	if s.variableStore == nil {
+		return val
+	}
+	resolved := val
+	for {
+		idx := strings.Index(resolved, "{{var:")
+		if idx == -1 {
+			break
+		}
+		end := strings.Index(resolved[idx:], "}}")
+		if end == -1 {
+			break
+		}
+		key := resolved[idx+len("{{var:") : idx+end]
+		v, err := s.variableStore.GetVariableByKey(context.Background(), key)
+		if err != nil || v == nil {
+			slog.Warn("failed to resolve variable reference", "key", key, "error", err)
+			break
+		}
+		resolved = resolved[:idx] + v.Value + resolved[idx+end+2:]
+	}
+	return resolved
+}
+
 // resolveUpstreamVars resolves {{var:key}} references in an MCPUpstream's
 // env values and args. This allows MCP server configs to reference secrets
 // stored in the variable store (e.g. MINIMAX_API_KEY={{var:minimax_api_key}}).
 func (s *Server) resolveUpstreamVars(upstream service.MCPUpstream) service.MCPUpstream {
-	resolve := func(val string) string {
-		if !strings.Contains(val, "{{var:") {
-			return val
-		}
-		resolved := val
-		for {
-			idx := strings.Index(resolved, "{{var:")
-			if idx == -1 {
-				break
-			}
-			end := strings.Index(resolved[idx:], "}}")
-			if end == -1 {
-				break
-			}
-			key := resolved[idx+len("{{var:") : idx+end]
-			v, err := s.variableStore.GetVariableByKey(context.Background(), key)
-			if err != nil || v == nil {
-				slog.Warn("failed to resolve variable in MCP upstream env", "key", key, "error", err)
-				break
-			}
-			resolved = resolved[:idx] + v.Value + resolved[idx+end+2:]
-		}
-		return resolved
-	}
+	resolve := s.resolveVarRefs
 
 	if len(upstream.Env) > 0 {
 		resolved := make(map[string]string, len(upstream.Env))

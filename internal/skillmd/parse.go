@@ -15,6 +15,8 @@ type SkillMD struct {
 	Description   string            `yaml:"description"`
 	Category      string            `yaml:"category"`
 	Tags          []string          `yaml:"tags"`
+	Version       string            `yaml:"version"`
+	Author        string            `yaml:"author"`
 	License       string            `yaml:"license"`
 	Compatibility string            `yaml:"compatibility"`
 	Metadata      map[string]string `yaml:"metadata"`

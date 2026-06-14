@@ -151,3 +151,42 @@ func TestGenerate_Roundtrip(t *testing.T) {
 		t.Errorf("roundtrip tool name = %q, want %q", parsedTools[0].Name, "my_tool")
 	}
 }
+
+func TestGenerate_RoundtripProvenance(t *testing.T) {
+	s := &SkillMD{
+		Name:        "provenance-skill",
+		Description: "Carries attribution",
+		Category:    "Utilities",
+		Tags:        []string{"a", "b"},
+		Version:     "1.2.3",
+		Author:      "Jane Doe",
+		License:     "MIT",
+		Body:        "Prompt.\n",
+	}
+
+	data, err := Generate(s, nil)
+	if err != nil {
+		t.Fatalf("generate failed: %v", err)
+	}
+
+	parsed, err := Parse(data)
+	if err != nil {
+		t.Fatalf("parse failed: %v", err)
+	}
+
+	if parsed.Version != "1.2.3" {
+		t.Errorf("roundtrip version = %q, want %q", parsed.Version, "1.2.3")
+	}
+	if parsed.Author != "Jane Doe" {
+		t.Errorf("roundtrip author = %q, want %q", parsed.Author, "Jane Doe")
+	}
+	if parsed.License != "MIT" {
+		t.Errorf("roundtrip license = %q, want %q", parsed.License, "MIT")
+	}
+	if parsed.Category != "Utilities" {
+		t.Errorf("roundtrip category = %q, want %q", parsed.Category, "Utilities")
+	}
+	if len(parsed.Tags) != 2 {
+		t.Errorf("roundtrip tags = %v, want 2 entries", parsed.Tags)
+	}
+}

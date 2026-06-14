@@ -123,8 +123,30 @@ func builtinToolDefsForWorkflow() []workflow.BuiltinToolDef {
 // BuiltinToolListAPI handles GET /api/v1/mcp/builtin-tools.
 // Returns the static list of server-side built-in tool definitions.
 func (s *Server) BuiltinToolListAPI(w http.ResponseWriter, r *http.Request) {
+	tools := builtinTools
+	if s.featureStore != nil {
+		filtered := make([]builtinToolDef, 0, len(builtinTools))
+		for _, tool := range builtinTools {
+			featureKey := builtinToolFeatureKey(tool.Name)
+			if featureKey == "" {
+				filtered = append(filtered, tool)
+				continue
+			}
+			enabled, err := s.isFeatureEnabled(r.Context(), featureKey)
+			if err != nil {
+				slog.Error("builtin tool feature check failed", "tool", tool.Name, "feature", featureKey, "error", err)
+				httpResponse(w, fmt.Sprintf("failed to check feature %q: %v", featureKey, err), http.StatusInternalServerError)
+				return
+			}
+			if enabled {
+				filtered = append(filtered, tool)
+			}
+		}
+		tools = filtered
+	}
+
 	httpResponseJSON(w, map[string]any{
-		"tools": builtinTools,
+		"tools": tools,
 	}, http.StatusOK)
 }
 

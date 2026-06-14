@@ -66,6 +66,7 @@ type Scheduler struct {
 	workflowExecutor      WorkflowExecutorFunc
 	loopGov               LoopGovernor
 	runRegistrar          RunRegistrar
+	enabledCheck          func(context.Context) bool
 
 	cluster *cluster.Cluster
 
@@ -117,6 +118,12 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 // Must be called before Start.
 func (s *Scheduler) SetRunRegistrar(r RunRegistrar) {
 	s.runRegistrar = r
+}
+
+// SetEnabledCheck installs a runtime guard for cron dispatch. When it returns
+// false, the scheduler does not load or execute cron triggers.
+func (s *Scheduler) SetEnabledCheck(f func(context.Context) bool) {
+	s.enabledCheck = f
 }
 
 // SetLoopGov installs the loop governor used by the agent_call node
@@ -275,6 +282,10 @@ func (s *Scheduler) reload() error {
 	if s.ctx == nil {
 		return nil
 	}
+	if s.enabledCheck != nil && !s.enabledCheck(s.ctx) {
+		logi.Ctx(s.ctx).Info("scheduler: disabled by feature flag")
+		return nil
+	}
 
 	triggers, err := s.triggerStore.ListEnabledCronTriggers(s.ctx)
 	if err != nil {
@@ -350,6 +361,11 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 	}
 
 	return func(ctx context.Context) error {
+		if s.enabledCheck != nil && !s.enabledCheck(ctx) {
+			logi.Ctx(ctx).Info("scheduler: cron skipped because automation is disabled", "trigger_id", trigger.ID)
+			return nil
+		}
+
 		logi.Ctx(ctx).Info("scheduler: cron triggered",
 			"trigger_id", trigger.ID,
 			"workflow_id", trigger.WorkflowID)
@@ -501,6 +517,11 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 // rag_sync cron trigger. It dispatches to the injected RAGSyncFunc.
 func (s *Scheduler) makeCronRAGSyncFunc(trigger service.Trigger) func(ctx context.Context) error {
 	return func(ctx context.Context) error {
+		if s.enabledCheck != nil && !s.enabledCheck(ctx) {
+			logi.Ctx(ctx).Info("scheduler: rag_sync skipped because automation is disabled", "trigger_id", trigger.ID)
+			return nil
+		}
+
 		collectionID := trigger.TargetID
 		logi.Ctx(ctx).Info("scheduler: cron rag_sync triggered",
 			"trigger_id", trigger.ID,

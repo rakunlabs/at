@@ -23,6 +23,12 @@ export interface Skill {
   tags?: string[];
   system_prompt: string;
   tools: SkillTool[];
+  // Sharing / provenance metadata
+  version?: string;
+  author?: string;
+  license?: string;
+  source_url?: string; // set when imported from a remote source
+  source_checksum?: string; // SHA-256 of the imported payload
   created_at: string;
   updated_at: string;
 }
@@ -120,6 +126,27 @@ export async function importSkillMD(content: string): Promise<Skill> {
 
 export async function previewImportURL(url: string): Promise<Partial<Skill>> {
   const res = await api.post<Partial<Skill>>('/skills/import-url/preview', { url });
+  return res.data;
+}
+
+// ─── Update Check / Apply ───
+
+export interface SkillUpdateCheck {
+  source_url: string;
+  local_version?: string;
+  remote_version?: string;
+  local_checksum?: string;
+  remote_checksum: string;
+  update_available: boolean;
+}
+
+export async function checkSkillUpdate(id: string): Promise<SkillUpdateCheck> {
+  const res = await api.get<SkillUpdateCheck>(`/skills/${id}/update-check`);
+  return res.data;
+}
+
+export async function applySkillUpdate(id: string): Promise<Skill> {
+  const res = await api.post<Skill>(`/skills/${id}/update`);
   return res.data;
 }
 

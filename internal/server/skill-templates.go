@@ -125,14 +125,13 @@ func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 		}
 
 		// Update the installed skill with the template's tools and prompt.
-		// Keep all other existing fields (name, description, etc.).
-		_, err = s.skillStore.UpdateSkill(ctx, installed.ID, service.Skill{
-			Name:         installed.Name,
-			Description:  installed.Description,
-			SystemPrompt: tmpl.Skill.SystemPrompt,
-			Tools:        tmpl.Skill.Tools,
-			UpdatedBy:    "system",
-		})
+		// Keep all other existing fields (name, description, category,
+		// tags, provenance metadata, etc.).
+		updated := *installed
+		updated.SystemPrompt = tmpl.Skill.SystemPrompt
+		updated.Tools = tmpl.Skill.Tools
+		updated.UpdatedBy = "system"
+		_, err = s.skillStore.UpdateSkill(ctx, installed.ID, updated)
 		if err != nil {
 			slog.Warn("skill-templates: failed to sync skill handlers",
 				"skill", tmpl.Skill.Name, "id", installed.ID, "error", err)

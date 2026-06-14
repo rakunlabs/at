@@ -8,7 +8,6 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
-	"github.com/rakunlabs/at/internal/skillmd"
 )
 
 // ─── Skill Management Tool Executors ───
@@ -309,7 +308,26 @@ func (s *Server) execSkillUpdate(ctx context.Context, args map[string]any) (stri
 		Tags:         tags,
 		SystemPrompt: stringArg(args, "system_prompt"),
 		Tools:        tools,
+		Version:      stringArg(args, "version"),
+		Author:       stringArg(args, "author"),
+		License:      stringArg(args, "license"),
 		UpdatedBy:    "mcp",
+	}
+
+	// Preserve system-managed provenance and unprovided metadata so a
+	// full-replacement update from an agent doesn't wipe attribution.
+	if existing, err := s.skillStore.GetSkill(ctx, id); err == nil && existing != nil {
+		if skill.Version == "" {
+			skill.Version = existing.Version
+		}
+		if skill.Author == "" {
+			skill.Author = existing.Author
+		}
+		if skill.License == "" {
+			skill.License = existing.License
+		}
+		skill.SourceURL = existing.SourceURL
+		skill.SourceChecksum = existing.SourceChecksum
 	}
 
 	record, err := s.skillStore.UpdateSkill(ctx, id, skill)
@@ -435,12 +453,7 @@ func (s *Server) execSkillExport(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("skill %q not found", id)
 	}
 
-	export := skillExportData{
-		Name:         record.Name,
-		Description:  record.Description,
-		SystemPrompt: record.SystemPrompt,
-		Tools:        record.Tools,
-	}
+	export := skillToExportData(record)
 	out, err := json.MarshalIndent(export, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("marshal export: %w", err)
@@ -467,6 +480,9 @@ func (s *Server) execSkillImport(ctx context.Context, args map[string]any) (stri
 		Description:  stringArg(args, "description"),
 		SystemPrompt: stringArg(args, "system_prompt"),
 		Tools:        tools,
+		Version:      stringArg(args, "version"),
+		Author:       stringArg(args, "author"),
+		License:      stringArg(args, "license"),
 		CreatedBy:    "mcp",
 		UpdatedBy:    "mcp",
 	}
@@ -492,7 +508,7 @@ func (s *Server) execSkillImportURL(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("url is required")
 	}
 
-	parsed, err := s.fetchAndParseSkillURL(ctx, url)
+	parsed, checksum, err := s.fetchAndParseSkillURL(ctx, url)
 	if err != nil {
 		return "", fmt.Errorf("fetch/parse skill: %w", err)
 	}
@@ -500,14 +516,9 @@ func (s *Server) execSkillImportURL(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("imported skill has no name")
 	}
 
-	skill := service.Skill{
-		Name:         parsed.Name,
-		Description:  parsed.Description,
-		SystemPrompt: parsed.SystemPrompt,
-		Tools:        parsed.Tools,
-		CreatedBy:    "mcp",
-		UpdatedBy:    "mcp",
-	}
+	skill := skillFromExportData(parsed, "mcp")
+	skill.SourceURL = url
+	skill.SourceChecksum = checksum
 	record, err := s.skillStore.CreateSkill(ctx, skill)
 	if err != nil {
 		return "", fmt.Errorf("create skill: %w", err)
@@ -530,21 +541,16 @@ func (s *Server) execSkillImportSkillMD(ctx context.Context, args map[string]any
 	if content == "" {
 		return "", fmt.Errorf("content is required")
 	}
-	parsed, err := skillmd.Parse([]byte(content))
+	export, err := skillExportFromSkillMD([]byte(content))
 	if err != nil {
 		return "", fmt.Errorf("parse SKILL.md: %w", err)
 	}
-	if parsed.Name == "" {
+	if export.Name == "" {
 		return "", fmt.Errorf("SKILL.md frontmatter is missing `name`")
 	}
 
-	skill := service.Skill{
-		Name:         parsed.Name,
-		Description:  parsed.Description,
-		SystemPrompt: parsed.Body,
-		CreatedBy:    "mcp",
-		UpdatedBy:    "mcp",
-	}
+	skill := skillFromExportData(export, "mcp")
+	skill.SourceChecksum = sha256Hex(content)
 	record, err := s.skillStore.CreateSkill(ctx, skill)
 	if err != nil {
 		return "", fmt.Errorf("create skill: %w", err)

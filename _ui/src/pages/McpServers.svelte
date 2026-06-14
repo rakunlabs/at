@@ -48,6 +48,10 @@
   let formMCPSets = $state<string[]>([]);
   let formBuiltinTools = $state<string[]>([]);
   let formWorkflowIds = $state<string[]>([]);
+  let formWSURL = $state('');
+  let formWSHeaders = $state<Array<{ key: string; value: string }>>([]);
+  let formWSPassQueryParams = $state('');
+  let formWSPassHeaders = $state('');
 
   // Helpers
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
@@ -106,8 +110,44 @@
     formMCPSets = [];
     formBuiltinTools = [];
     formWorkflowIds = [];
+    formWSURL = '';
+    formWSHeaders = [];
+    formWSPassQueryParams = '';
+    formWSPassHeaders = '';
     editingId = null;
     showForm = false;
+  }
+
+  function parseCSVList(value: string) {
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+
+  function recordToKVList(record?: Record<string, string>) {
+    return Object.entries(record || {}).map(([key, value]) => ({ key, value }));
+  }
+
+  function kvListToRecord(items: Array<{ key: string; value: string }>) {
+    const out: Record<string, string> = {};
+    for (const item of items) {
+      const key = item.key.trim();
+      const value = item.value.trim();
+      if (key && value) out[key] = value;
+    }
+    return out;
+  }
+
+  function addWSHeader() {
+    formWSHeaders = [...formWSHeaders, { key: '', value: '' }];
+  }
+
+  function removeWSHeader(index: number) {
+    formWSHeaders = formWSHeaders.filter((_, i) => i !== index);
+  }
+
+  function updateWSHeader(index: number, field: 'key' | 'value', value: string) {
+    const next = [...formWSHeaders];
+    next[index] = { ...next[index], [field]: value };
+    formWSHeaders = next;
   }
 
   function openCreate() {
@@ -124,6 +164,10 @@
     formMCPSets = [...(s.servers || [])];
     formBuiltinTools = s.config.enabled_builtin_tools ?? [];
     formWorkflowIds = s.config.workflow_ids ?? [];
+    formWSURL = s.config.ws_upstream?.url || '';
+    formWSHeaders = recordToKVList(s.config.ws_upstream?.headers);
+    formWSPassQueryParams = (s.config.ws_upstream?.pass_query_params || []).join(', ');
+    formWSPassHeaders = (s.config.ws_upstream?.pass_headers || []).join(', ');
     showForm = true;
   }
 
@@ -135,15 +179,38 @@
 
     saving = true;
     try {
+      const existing = editingId ? servers.find(s => s.id === editingId) : null;
+      const config: any = {
+        ...(existing?.config || {}),
+        description: formDescription.trim(),
+        enabled_builtin_tools: formBuiltinTools,
+        workflow_ids: formWorkflowIds,
+      };
+
+      const wsURL = formWSURL.trim();
+      if (wsURL) {
+        const wsHeaders = kvListToRecord(formWSHeaders);
+        const passQueryParams = parseCSVList(formWSPassQueryParams);
+        const passHeaders = parseCSVList(formWSPassHeaders);
+        config.ws_upstream = { url: wsURL };
+        if (Object.keys(wsHeaders).length > 0) {
+          config.ws_upstream.headers = wsHeaders;
+        }
+        if (passQueryParams.length > 0) {
+          config.ws_upstream.pass_query_params = passQueryParams;
+        }
+        if (passHeaders.length > 0) {
+          config.ws_upstream.pass_headers = passHeaders;
+        }
+      } else {
+        delete config.ws_upstream;
+      }
+
       const payload = {
         name: formName.trim(),
         public: formPublic,
         servers: formMCPSets,
-        config: {
-          description: formDescription.trim(),
-          enabled_builtin_tools: formBuiltinTools,
-          workflow_ids: formWorkflowIds,
-        },
+        config,
       };
 
       if (editingId) {
@@ -176,7 +243,15 @@
   function copyEndpoint(name: string) {
     const url = `${window.location.origin}/gateway/v1/mcp/${name}`;
     navigator.clipboard.writeText(url);
-    copiedName = name;
+    copiedName = `mcp:${name}`;
+    setTimeout(() => { copiedName = null; }, 2000);
+  }
+
+  function copyWSEndpoint(name: string) {
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const url = `${proto}//${window.location.host}/gateway/v1/mcp/${name}/ws`;
+    navigator.clipboard.writeText(url);
+    copiedName = `ws:${name}`;
     setTimeout(() => { copiedName = null; }, 2000);
   }
 
@@ -315,6 +390,107 @@
               <span class="block text-gray-400 dark:text-dark-text-muted mt-0.5">Allow unauthenticated MCP clients to list and call this server's tools. Only enable this for tools safe to expose without an AT token.</span>
             </span>
           </label>
+        </div>
+
+        <!-- WebSocket Passthrough -->
+        <div class="grid grid-cols-4 gap-3 items-start">
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">
+            <div class="flex items-center gap-1.5">
+              <Server size={14} />
+              WebSocket
+            </div>
+          </span>
+          <div class="col-span-3 space-y-3 border border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/30 p-3">
+            <div>
+              <label for="mcp-ws-url" class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Upstream URL</label>
+              <input
+                id="mcp-ws-url"
+                type="text"
+                bind:value={formWSURL}
+                placeholder="ws://localhost:9001/socket or wss://example.com/events"
+                class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+              />
+              <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
+                Optional raw passthrough at <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">/gateway/v1/mcp/&#123;name&#125;/ws</code>. Supports <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">ws://</code>, <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">wss://</code>, and <code class="px-1 py-0.5 bg-gray-100 dark:bg-dark-elevated">&#123;&#123;var:key&#125;&#125;</code> secrets.
+              </p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label for="mcp-ws-pass-query" class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Pass Query Params</label>
+                <input
+                  id="mcp-ws-pass-query"
+                  type="text"
+                  bind:value={formWSPassQueryParams}
+                  placeholder="tabId, providerId"
+                  class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                />
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Comma-separated allowlist. Empty forwards all query params except AT's <code>token</code>.</p>
+              </div>
+              <div>
+                <label for="mcp-ws-pass-headers" class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Pass Headers</label>
+                <input
+                  id="mcp-ws-pass-headers"
+                  type="text"
+                  bind:value={formWSPassHeaders}
+                  placeholder="X-Client-Trace, Sec-WebSocket-Protocol"
+                  class="mt-1 w-full border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                />
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Comma-separated client headers to explicitly copy. <code>Authorization</code> and <code>Cookie</code> are blocked.</p>
+              </div>
+            </div>
+
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Upstream Headers</span>
+                <button
+                  type="button"
+                  onclick={addWSHeader}
+                  class="flex items-center gap-1 px-2 py-1 text-[11px] border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-white dark:hover:bg-dark-elevated transition-colors"
+                >
+                  <Plus size={11} />
+                  Add Header
+                </button>
+              </div>
+
+              {#if formWSHeaders.length === 0}
+                <p class="text-xs text-gray-400 dark:text-dark-text-muted">No headers configured. Add one if the upstream WebSocket needs a token, e.g. <code>Authorization: Bearer &#123;&#123;var:tool_token&#125;&#125;</code>.</p>
+              {:else}
+                <div class="space-y-1.5">
+                  {#each formWSHeaders as header, i}
+                    <div class="grid grid-cols-[1fr_1fr_auto] gap-2 items-center">
+                      <input
+                        type="text"
+                        value={header.key}
+                        oninput={(e) => updateWSHeader(i, 'key', e.currentTarget.value)}
+                        placeholder="Header name"
+                        class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                      />
+                      <input
+                        type="text"
+                        value={header.value}
+                        oninput={(e) => updateWSHeader(i, 'value', e.currentTarget.value)}
+                        placeholder="Header value or &#123;&#123;var:key&#125;&#125;"
+                        class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                      />
+                      <button
+                        type="button"
+                        onclick={() => removeWSHeader(i)}
+                        class="p-1.5 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                        title="Remove header"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
+
+              <p class="text-xs text-amber-600 dark:text-amber-400">
+                Client auth headers and cookies are not forwarded to the upstream; only headers configured here are injected.
+              </p>
+            </div>
+          </div>
         </div>
 
         <!-- Internal MCPs -->
@@ -494,6 +670,9 @@
                   {#if s.public}
                     <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide bg-green-50 dark:bg-green-950/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900">Public</span>
                   {/if}
+                  {#if s.config.ws_upstream?.url}
+                    <span class="px-1.5 py-0.5 text-[10px] uppercase tracking-wide bg-blue-50 dark:bg-blue-950/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900">WS</span>
+                  {/if}
                 </div>
                 {#if s.config.description}
                   <div class="text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-64">{s.config.description}</div>
@@ -520,14 +699,26 @@
                 {/if}
               </td>
               <td class="px-4 py-2.5">
-                <button
-                  onclick={() => copyEndpoint(s.name)}
-                  class="flex items-center gap-1 text-xs font-mono text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors group"
-                  title="Click to copy endpoint URL"
-                >
-                  <Copy size={10} class={copiedName === s.name ? 'text-green-500' : 'text-gray-400 dark:text-dark-text-faint group-hover:text-gray-500'} />
-                  <span class="truncate max-w-48">.../mcp/{s.name}</span>
-                </button>
+                <div class="space-y-1">
+                  <button
+                    onclick={() => copyEndpoint(s.name)}
+                    class="flex items-center gap-1 text-xs font-mono text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors group"
+                    title="Click to copy MCP endpoint URL"
+                  >
+                    <Copy size={10} class={copiedName === `mcp:${s.name}` ? 'text-green-500' : 'text-gray-400 dark:text-dark-text-faint group-hover:text-gray-500'} />
+                    <span class="truncate max-w-48">.../mcp/{s.name}</span>
+                  </button>
+                  {#if s.config.ws_upstream?.url}
+                    <button
+                      onclick={() => copyWSEndpoint(s.name)}
+                      class="flex items-center gap-1 text-xs font-mono text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors group"
+                      title="Click to copy WebSocket passthrough URL"
+                    >
+                      <Copy size={10} class={copiedName === `ws:${s.name}` ? 'text-green-500' : 'text-blue-400 dark:text-blue-500 group-hover:text-blue-500'} />
+                      <span class="truncate max-w-48">.../mcp/{s.name}/ws</span>
+                    </button>
+                  {/if}
+                </div>
               </td>
               <td class="px-4 py-2.5 text-right">
                 {#if deleteConfirm === s.id}

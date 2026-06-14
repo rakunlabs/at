@@ -78,12 +78,12 @@ curl -X POST /api/v1/skills/import-url \
   -d '{"url": "https://example.com/skill.json"}'
 ```
 
-## Public Skill Servers and Claude Code
+## Public MCP Servers and Claude Code
 
-Skill Servers can be marked `public` to expose their MCP endpoint without a Bearer token. Public servers are also exported as Claude Code plugin packages:
+MCP Servers can be marked `public` to expose their MCP endpoint without a Bearer token. Public servers are also exported as Claude Code plugin packages:
 
 ```bash
-# Download a Claude Code marketplace layout for all public Skill Servers
+# Download a Claude Code marketplace layout for all public MCP Servers
 curl -L https://your-at-host/gateway/v1/claude-code/marketplace.zip -o at-claude-marketplace.zip
 unzip at-claude-marketplace.zip -d at-claude-marketplace
 ```
@@ -92,13 +92,13 @@ Then inside Claude Code:
 
 ```text
 /plugin marketplace add ./at-claude-marketplace
-/plugin install <plugin-name>@at-skill-servers
+/plugin install <plugin-name>@at-mcp-servers
 /reload-plugins
 ```
 
-The generated marketplace contains `.claude-plugin/marketplace.json`, one plugin per public Skill Server, local `SKILL.md` files for the selected skills, and a plugin MCP configuration that points back to the public AT Skill Server endpoint. For a one-off Claude Code session, each public server also exposes a plugin ZIP at `/gateway/v1/claude-code/plugins/{name}/plugin.zip`, usable with `claude --plugin-url`.
+The generated marketplace contains `.claude-plugin/marketplace.json`, one plugin per public MCP Server, local `SKILL.md` files for skills enabled by that MCP Server when available, and a plugin MCP configuration that points back to the public AT MCP endpoint. For a one-off Claude Code session, each public server also exposes a plugin ZIP at `/gateway/v1/claude-code/plugins/{name}/plugin.zip`, usable with `claude --plugin-url`.
 
-This is separate from direct MCP usage. Agents like opencode, Cursor, Claude MCP, or ChatGPT MCP can still connect directly to `/gateway/v1/skill-servers/{name}/mcp`; Claude Code plugin marketplaces need the generated plugin/marketplace package shape.
+This is separate from direct MCP usage. Agents like opencode, Cursor, Claude MCP, or ChatGPT MCP can still connect directly to `/gateway/v1/mcp/{name}`; Claude Code plugin marketplaces need the generated plugin/marketplace package shape.
 
 ## Skill Store (Predefined Templates)
 

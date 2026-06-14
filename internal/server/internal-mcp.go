@@ -63,7 +63,8 @@ func (s *Server) InternalMCPHandler(w http.ResponseWriter, r *http.Request) {
 	case "initialize":
 		s.gwGenMCPInitialize(w, req, virtualSrv)
 	case "notifications/initialized":
-		w.WriteHeader(http.StatusOK)
+		// Per MCP Streamable HTTP, notifications are acknowledged with 202.
+		w.WriteHeader(http.StatusAccepted)
 	case "tools/list":
 		s.gwGenMCPListTools(w, req, virtualSrv)
 	case "tools/call":

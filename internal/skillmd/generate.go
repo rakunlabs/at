@@ -70,6 +70,8 @@ func (s *SkillMD) frontmatterOnly() *skillFrontmatter {
 		Description:   s.Description,
 		Category:      s.Category,
 		Tags:          s.Tags,
+		Version:       s.Version,
+		Author:        s.Author,
 		License:       s.License,
 		Compatibility: s.Compatibility,
 		Metadata:      s.Metadata,
@@ -81,6 +83,8 @@ type skillFrontmatter struct {
 	Description   string            `yaml:"description,omitempty"`
 	Category      string            `yaml:"category,omitempty"`
 	Tags          []string          `yaml:"tags,omitempty"`
+	Version       string            `yaml:"version,omitempty"`
+	Author        string            `yaml:"author,omitempty"`
 	License       string            `yaml:"license,omitempty"`
 	Compatibility string            `yaml:"compatibility,omitempty"`
 	Metadata      map[string]string `yaml:"metadata,omitempty"`

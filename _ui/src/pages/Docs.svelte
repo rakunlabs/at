@@ -2,7 +2,6 @@
   import { storeNavbar, storeInfo } from '@/lib/store/store.svelte';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
-  import { listSkillServers, type SkillServer } from '@/lib/api/skill-servers';
   import { addToast } from '@/lib/store/toast.svelte';
   import { Copy, BookOpen, RefreshCw, Check, CheckSquare, Square } from 'lucide-svelte';
   import { push, querystring } from 'svelte-spa-router';
@@ -12,7 +11,6 @@
 
   let providers = $state<InfoProvider[]>([]);
   let mcpServers = $state<MCPServer[]>([]);
-  let skillServers = $state<SkillServer[]>([]);
   let loading = $state(true);
   let copiedId = $state<string | null>(null);
   let activeTab = $state('python');
@@ -45,13 +43,12 @@
   async function load() {
     loading = true;
     try {
-      // Pull info + MCP/Skill servers in parallel. Server listings are best-effort
+      // Pull info + MCP servers in parallel. Server listings are best-effort
       // because the docs page is still useful when no servers are configured;
       // failures fall back to a "management" placeholder in the snippet.
-      const [info, mcpRes, skillServerRes] = await Promise.allSettled([
+      const [info, mcpRes] = await Promise.allSettled([
         getInfo(),
         listMCPServers({ _limit: 100 }),
-        listSkillServers({ _limit: 100 }),
       ]);
 
       if (info.status === 'fulfilled') {
@@ -68,10 +65,6 @@
           const mgmt = mcpServers.find((s) => s.name === 'management');
           selectedMcpName = mgmt?.name || mcpServers[0].name;
         }
-      }
-
-      if (skillServerRes.status === 'fulfilled') {
-        skillServers = skillServerRes.value.data || [];
       }
 
       // Initialize selection: select default models for all providers
@@ -216,33 +209,10 @@
 
   let claudeMarketplaceJSONURL = $derived(`${baseUrl}/gateway/v1/claude-code/marketplace.json`);
   let claudeMarketplaceZipURL = $derived(`${baseUrl}/gateway/v1/claude-code/marketplace.zip`);
-  let publicSkillHubURL = $derived(`${baseUrl}/gateway/v1/public/skill_hub`);
-  let publicSkillServers = $derived(skillServers.filter((server) => server.public));
-  let exampleSkillServerName = $derived(publicSkillServers[0]?.name || skillServers[0]?.name || 'my-skill-server');
-  let exampleSkillServerIsPublic = $derived(Boolean(publicSkillServers[0]));
-  let skillServerMcpURL = $derived(`${baseUrl}/gateway/v1/skill-servers/${exampleSkillServerName}/mcp`);
-  let skillServerPluginZipURL = $derived(`${baseUrl}/gateway/v1/claude-code/plugins/${exampleSkillServerName}/plugin.zip`);
-
-  let skillServerMcpConfig = $derived.by(() => {
-    const server: {
-      type: string;
-      url: string;
-      enabled: boolean;
-      headers?: Record<string, string>;
-    } = {
-      type: 'remote',
-      url: skillServerMcpURL,
-      enabled: true,
-    };
-    if (!exampleSkillServerIsPublic) {
-      server.headers = { Authorization: 'Bearer at_xxxxx' };
-    }
-    return JSON.stringify({ mcp: { [`at-skills-${exampleSkillServerName}`]: server } }, null, 2);
-  });
 
   let claudeMarketplaceCommands = $derived(`# Inside Claude Code:
 /plugin marketplace add ${claudeMarketplaceJSONURL}
-/plugin install <plugin-name>@at-skill-servers
+/plugin install <plugin-name>@at-mcp-servers
 /reload-plugins
 
 # Optional offline export:
@@ -738,91 +708,13 @@ func main() {
     </details>
   </div>
 
-  <!-- Public Skill Server Guide -->
-  <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
-    <details class="group" open>
-      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none border-b border-gray-200 dark:border-dark-border group-[:not([open])]:border-b-0">
-        <div class="flex items-center gap-2 min-w-0">
-          <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Public Skill Server Guide</h3>
-          <span class="px-1.5 py-0.5 text-[10px] font-mono bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border truncate">MCP + catalog</span>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <button
-            onclick={(e) => { e.preventDefault(); e.stopPropagation(); copyCode('skill-server-mcp', skillServerMcpConfig); }}
-            class="flex items-center gap-1 text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
-          >
-            <Copy size={12} />
-            {copiedId === 'skill-server-mcp' ? 'Copied' : 'Copy MCP'}
-          </button>
-          <span class="text-gray-400 group-open:rotate-180 transition-transform">▼</span>
-        </div>
-      </summary>
-      <div class="p-4 space-y-4">
-        <div class="grid gap-3 md:grid-cols-3">
-          <div class="border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base p-3">
-            <div class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-dark-text-muted mb-1">Step 1</div>
-            <div class="text-xs font-medium text-gray-800 dark:text-dark-text mb-1">Create or edit</div>
-            <p class="text-xs text-gray-500 dark:text-dark-text-muted leading-relaxed">
-              Open <a href="#/skill-servers" class="underline underline-offset-2">Skill Servers</a>, create a curated server, and choose the skills to publish.
-            </p>
-          </div>
-          <div class="border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base p-3">
-            <div class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-dark-text-muted mb-1">Step 2</div>
-            <div class="text-xs font-medium text-gray-800 dark:text-dark-text mb-1">Enable Public endpoint</div>
-            <p class="text-xs text-gray-500 dark:text-dark-text-muted leading-relaxed">
-              Turn on <span class="font-medium text-gray-700 dark:text-dark-text-secondary">Public endpoint</span> in the edit form. Public servers can be called without Bearer auth.
-            </p>
-          </div>
-          <div class="border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base p-3">
-            <div class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-dark-text-muted mb-1">Step 3</div>
-            <div class="text-xs font-medium text-gray-800 dark:text-dark-text mb-1">Share as MCP or catalog</div>
-            <p class="text-xs text-gray-500 dark:text-dark-text-muted leading-relaxed">
-              Use the direct MCP URL for agents, or use the Claude marketplace ZIP/JSON for plugin-style distribution.
-            </p>
-          </div>
-        </div>
-
-        <div class="grid gap-2 text-[11px] text-gray-500 dark:text-dark-text-muted">
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="w-32 shrink-0 uppercase tracking-wide">Direct MCP</span>
-            <code class="truncate font-mono text-gray-700 dark:text-dark-text-secondary">{skillServerMcpURL}</code>
-          </div>
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="w-32 shrink-0 uppercase tracking-wide">Plugin ZIP</span>
-            <code class="truncate font-mono text-gray-700 dark:text-dark-text-secondary">{skillServerPluginZipURL}</code>
-          </div>
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="w-32 shrink-0 uppercase tracking-wide">Public hub</span>
-            <code class="truncate font-mono text-gray-700 dark:text-dark-text-secondary">{publicSkillHubURL}</code>
-          </div>
-        </div>
-
-        {#if publicSkillServers.length === 0}
-          <div class="text-[11px] text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-900/50 px-3 py-2">
-            No public Skill Server is currently configured. The examples use <code class="font-mono">{exampleSkillServerName}</code> as a placeholder until you enable Public endpoint on one server.
-          </div>
-        {:else}
-          <div class="text-[11px] text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-900/50 px-3 py-2">
-            {publicSkillServers.length} public Skill Server{publicSkillServers.length === 1 ? '' : 's'} available. The examples use <code class="font-mono">{exampleSkillServerName}</code>.
-          </div>
-        {/if}
-
-        <pre class="p-3 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border">{skillServerMcpConfig}</pre>
-
-        <p class="text-[11px] text-gray-500 dark:text-dark-text-muted leading-relaxed">
-          Public means unauthenticated discovery and tool calls. Only publish skills that are safe to expose from this AT instance.
-        </p>
-      </div>
-    </details>
-  </div>
-
-  <!-- Claude Code Skill Marketplace -->
+  <!-- Claude Code MCP Marketplace -->
   <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
     <details class="group">
       <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none border-b border-gray-200 dark:border-dark-border group-[:not([open])]:border-b-0">
         <div class="flex items-center gap-2 min-w-0">
-          <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Claude Code Skill Marketplace</h3>
-          <span class="px-1.5 py-0.5 text-[10px] font-mono bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border truncate">public Skill Servers</span>
+          <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Claude Code MCP Marketplace</h3>
+          <span class="px-1.5 py-0.5 text-[10px] font-mono bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border truncate">public MCP Servers</span>
         </div>
         <div class="flex items-center gap-2 shrink-0">
           <button
@@ -837,7 +729,7 @@ func main() {
       </summary>
       <div class="p-4 space-y-3">
         <p class="text-xs text-gray-600 dark:text-dark-text-secondary leading-relaxed">
-          Public Skill Servers are exported as Claude Code plugin packages. The marketplace JSON points plugin sources at AT-hosted ZIP downloads, so
+          Public MCP Servers are exported as Claude Code plugin packages. The marketplace JSON points plugin sources at AT-hosted ZIP downloads, so
           Claude Code can install plugins directly from this AT instance. The ZIP export remains available for offline/local marketplaces because its
           <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-[11px]">marketplace.json</code>
           uses relative plugin sources. Unzip it, add the directory locally, or commit the generated directory to a Git repo and share that repo as your team marketplace.
@@ -851,15 +743,11 @@ func main() {
             <span class="w-28 shrink-0 uppercase tracking-wide">Manifest JSON</span>
             <code class="truncate font-mono text-gray-700 dark:text-dark-text-secondary">{claudeMarketplaceJSONURL}</code>
           </div>
-          <div class="flex items-center gap-2 min-w-0">
-            <span class="w-28 shrink-0 uppercase tracking-wide">Public hub</span>
-            <code class="truncate font-mono text-gray-700 dark:text-dark-text-secondary">{publicSkillHubURL}</code>
-          </div>
         </div>
         <pre class="p-3 text-xs font-mono text-gray-700 dark:text-dark-text-secondary overflow-x-auto bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border">{claudeMarketplaceCommands}</pre>
         <p class="text-[11px] text-gray-500 dark:text-dark-text-muted">
-          For a one-off session, each public Skill Server also exposes a per-server plugin ZIP from the
-          <a href="#/skill-servers" class="underline underline-offset-2">Skill Servers</a> page. Direct remote MCP configuration remains the better fit for agents that only need tools, not Claude plugin installation.
+          For a one-off session, each public MCP Server also exposes a per-server plugin ZIP at
+          <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-[11px]">/gateway/v1/claude-code/plugins/&lt;name&gt;/plugin.zip</code>. Direct remote MCP configuration remains the better fit for agents that only need tools, not Claude plugin installation.
         </p>
       </div>
     </details>

@@ -38,6 +38,15 @@ export interface MCPServerConfig {
   enabled_builtin_tools?: string[];
   // Workflow tools
   workflow_ids?: string[];
+  // Raw WebSocket passthrough — exposes GET /gateway/v1/mcp/{name}/ws
+  ws_upstream?: WSUpstream;
+}
+
+export interface WSUpstream {
+  url: string; // ws:// or wss://
+  headers?: Record<string, string>; // values support {{var:key}}
+  pass_query_params?: string[]; // raw client query params to forward (empty = all except token)
+  pass_headers?: string[]; // raw client headers to forward (Authorization/Cookie are blocked)
 }
 
 export interface MCPUpstream {
