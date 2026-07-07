@@ -19,6 +19,7 @@ func Generate(a *AgentMD) ([]byte, error) {
 	type frontmatter struct {
 		Name                      string   `yaml:"name"`
 		Description               string   `yaml:"description,omitempty"`
+		Group                     string   `yaml:"group,omitempty"`
 		Provider                  string   `yaml:"provider"`
 		Model                     string   `yaml:"model,omitempty"`
 		Skills                    []string `yaml:"skills,omitempty"`
@@ -35,6 +36,7 @@ func Generate(a *AgentMD) ([]byte, error) {
 	fm := frontmatter{
 		Name:                      a.Name,
 		Description:               a.Description,
+		Group:                     a.Group,
 		Provider:                  a.Provider,
 		Model:                     a.Model,
 		Skills:                    a.Skills,

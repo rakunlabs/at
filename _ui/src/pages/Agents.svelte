@@ -11,7 +11,7 @@
   import { listConnections, type Connection } from '@/lib/api/connections';
   import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload, Workflow as WorkflowIcon } from 'lucide-svelte';
   import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
-  import { toggleSort, buildSortParam } from '@/lib/helper/sort';
+  import { toggleSort } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
@@ -34,10 +34,12 @@
   let searchQuery = $state('');
   let sorts = $state<SortEntry[]>([]);
   
-  // Pagination
+  // Pagination (client-side: provider/model/group live inside the JSON config
+  // column, which the generic list query can't ORDER BY — sorting by them
+  // server-side 500s. The agent set is small, so we load all and filter/sort/
+  // paginate in the browser.)
   let offset = $state(0);
   let limit = $state(10);
-  let total = $state(0);
 
   // Live "currently working" map: agent_id → list of active delegations
   let activeByAgent = $state<Record<string, ActiveDelegation[]>>({});
@@ -71,6 +73,7 @@
   // Form fields
   let formName = $state('');
   let formDescription = $state('');
+  let formGroup = $state('');
   let formProvider = $state('');
   let formModel = $state('');
   let formSystemPrompt = $state('');
@@ -98,6 +101,7 @@
       name: agent.name,
       config: {
         description: agent.config.description,
+        group: agent.config.group || '',
         provider: agent.config.provider,
         model: agent.config.model,
         system_prompt: agent.config.system_prompt,
@@ -134,6 +138,7 @@
       // Support both old flat format and new nested config format
       const cfg = src.config || src;
       formDescription = cfg.description || '';
+      formGroup = cfg.group || '';
       formProvider = cfg.provider || '';
       formModel = cfg.model || '';
       formSystemPrompt = cfg.system_prompt || '';
@@ -195,15 +200,9 @@
   async function loadData() {
     loading = true;
     try {
-      const params: any = { _offset: offset, _limit: limit };
-      if (searchQuery) {
-        params['name[like]'] = `%${searchQuery}%`;
-      }
-      const sortParam = buildSortParam(sorts);
-      if (sortParam) params._sort = sortParam;
-      
+      // Fetch the full agent set (small) and do search/sort/paging client-side.
       const [aResult, pResult, sResult, mResult, btResult, cResult, wResult] = await Promise.all([
-        listAgents(params),
+        listAgents({ _offset: 0, _limit: 1000 }),
         listProviders(),
         listSkills(),
         listMCPSets({ _limit: 500 }),
@@ -212,7 +211,6 @@
         listWorkflows({ _limit: 500 }).catch(() => ({ data: [] as Workflow[], meta: {} as any })),
       ]);
       agents = aResult.data || [];
-      total = aResult.meta?.total || 0;
       providers = pResult.data || [];
       skills = sResult.data || [];
       mcpSets = mResult.data || [];
@@ -229,14 +227,67 @@
   function handleSearch(value: string) {
     searchQuery = value;
     offset = 0;
-    loadData();
   }
 
   function handleSort(field: string, multiSort: boolean) {
     sorts = toggleSort(sorts, field, multiSort);
     offset = 0;
-    loadData();
   }
+
+  // ─── Client-side filter / sort / paginate ───
+
+  function agentSortValue(a: Agent, field: string): string {
+    switch (field) {
+      case 'name': return a.name || '';
+      case 'provider': return a.config.provider || '';
+      case 'model': return a.config.model || '';
+      case 'group': return a.config.group || '';
+      default: return '';
+    }
+  }
+
+  let filteredAgents = $derived.by(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return agents;
+    return agents.filter((a) => {
+      const hay = [
+        a.name,
+        a.config.group,
+        a.config.provider,
+        a.config.model,
+        a.config.description,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
+    });
+  });
+
+  let sortedAgents = $derived.by(() => {
+    if (sorts.length === 0) return filteredAgents;
+    const list = [...filteredAgents];
+    list.sort((a, b) => {
+      for (const s of sorts) {
+        const cmp = agentSortValue(a, s.field).localeCompare(
+          agentSortValue(b, s.field), undefined, { sensitivity: 'base', numeric: true },
+        );
+        if (cmp !== 0) return s.desc ? -cmp : cmp;
+      }
+      return 0;
+    });
+    return list;
+  });
+
+  let filteredTotal = $derived(filteredAgents.length);
+  let pagedAgents = $derived(sortedAgents.slice(offset, offset + limit));
+
+  // Distinct, sorted group names for the form datalist (reuse existing labels).
+  let existingGroups = $derived.by(() => {
+    const set = new Set<string>();
+    for (const a of agents) {
+      const g = (a.config.group || '').trim();
+      if (g) set.add(g);
+    }
+    return Array.from(set).sort((x, y) => x.localeCompare(y));
+  });
 
   loadData();
 
@@ -245,6 +296,7 @@
   function resetForm() {
     formName = '';
     formDescription = '';
+    formGroup = '';
     formProvider = '';
     formModel = '';
     formSystemPrompt = '';
@@ -273,6 +325,7 @@
     editingId = agent.id;
     formName = agent.name;
     formDescription = agent.config.description;
+    formGroup = agent.config.group || '';
     formProvider = agent.config.provider;
     formModel = agent.config.model;
     formSystemPrompt = agent.config.system_prompt;
@@ -306,6 +359,7 @@
         name: formName.trim(),
         config: {
           description: formDescription.trim(),
+          group: formGroup.trim() || undefined,
           provider: formProvider,
           model: formModel,
           system_prompt: formSystemPrompt,
@@ -387,7 +441,7 @@
         <div class="flex items-center gap-2">
           <Bot size={16} class="text-gray-500 dark:text-dark-text-muted" />
           <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Agents</h2>
-          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
+          <span class="text-xs text-gray-400 dark:text-dark-text-muted">({filteredTotal})</span>
           {#if Object.keys(activeByAgent).length > 0}
             {@const totalActive = Object.values(activeByAgent).reduce((s, a) => s + a.length, 0)}
             <span class="flex items-center gap-1.5 ml-2 px-2 py-0.5 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="Active delegations right now">
@@ -525,8 +579,24 @@
                   />
                 </div>
 
-                <!-- Provider + Model (side by side) -->
-                <div class="grid grid-cols-2 gap-3">
+                <!-- Group + Provider + Model -->
+                <div class="grid grid-cols-3 gap-3">
+                  <div>
+                    <label for="form-group" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Group</label>
+                    <input
+                      id="form-group"
+                      type="text"
+                      list="agent-group-options"
+                      bind:value={formGroup}
+                      placeholder="e.g. YouTube Shorts"
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                    />
+                    <datalist id="agent-group-options">
+                      {#each existingGroups as g}
+                        <option value={g}></option>
+                      {/each}
+                    </datalist>
+                  </div>
                   <div>
                     <label for="form-provider" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Provider</label>
                     <select
@@ -814,20 +884,20 @@
       <!-- Agent list -->
       {#if loading || agents.length > 0 || !showForm}
         <DataTable
-          items={agents}
+          items={pagedAgents}
           {loading}
-          {total}
+          total={filteredTotal}
           {limit}
           bind:offset
-          onchange={loadData}
           onsearch={handleSearch}
-          searchPlaceholder="Search by name..."
+          searchPlaceholder="Search name, group, provider..."
           emptyIcon={Bot}
           emptyTitle="No agents configured"
           emptyDescription="Agents combine LLM providers with skills for autonomous workflows"
         >
           {#snippet header()}
             <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
+            <SortableHeader field="group" label="Group" {sorts} onsort={handleSort} />
             <SortableHeader field="provider" label="Provider / Model" {sorts} onsort={handleSort} />
             <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-32"></th>
           {/snippet}
@@ -855,6 +925,18 @@
                     {/if}
                   </div>
                 </div>
+              </td>
+              <td class="px-4 py-2.5">
+                {#if agent.config.group}
+                  <span
+                    class="inline-flex items-center px-2 py-0.5 text-[10px] font-medium bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary border border-gray-200 dark:border-dark-border truncate max-w-40"
+                    title={agent.config.group}
+                  >
+                    {agent.config.group}
+                  </span>
+                {:else}
+                  <span class="text-xs text-gray-300 dark:text-dark-text-faint">—</span>
+                {/if}
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
                 <div class="flex flex-col gap-0.5">

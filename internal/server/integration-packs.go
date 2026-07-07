@@ -309,6 +309,7 @@ func loadPackAgents(fsys fs.FS, slug string) []IntegrationAgent {
 				Name: parsed.Name,
 				Config: service.AgentConfig{
 					Description:               parsed.Description,
+					Group:                     parsed.Group,
 					Provider:                  parsed.Provider,
 					Model:                     parsed.Model,
 					SystemPrompt:              parsed.SystemPrompt,
@@ -787,6 +788,7 @@ func (s *Server) AddAgentToPackAPI(w http.ResponseWriter, r *http.Request) {
 	md := &agentmd.AgentMD{
 		Name:                      req.Name,
 		Description:               req.Config.Description,
+		Group:                     req.Config.Group,
 		Provider:                  req.Config.Provider,
 		Model:                     req.Config.Model,
 		Skills:                    service.StringsFromSkillRefs(req.Config.Skills),

@@ -16,6 +16,8 @@ export interface SkillRef {
 
 export interface AgentConfig {
   description: string;
+  /** Free-form label to organize agents in the UI (filter/sort only). */
+  group?: string;
   provider: string;
   model: string;
   system_prompt: string;

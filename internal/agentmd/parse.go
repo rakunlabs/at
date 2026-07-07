@@ -11,6 +11,7 @@ import (
 type AgentMD struct {
 	Name                      string   `yaml:"name"`
 	Description               string   `yaml:"description,omitempty"`
+	Group                     string   `yaml:"group,omitempty"`
 	Provider                  string   `yaml:"provider"`
 	Model                     string   `yaml:"model,omitempty"`
 	Skills                    []string `yaml:"skills,omitempty"`

@@ -806,14 +806,32 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		// results come back as web_search_tool_result blocks that the
 		// model folds into its text answer.
 		if isAnthropicBuiltinSearchName(tool.Name) {
-			if !webSearchAdded {
-				anthropicTools = append(anthropicTools, map[string]any{
-					"type": "web_search_20250305",
-					"name": "web_search",
-				})
-				webSearchAdded = true
+			// Under a static API key, convert to Anthropic's server-side
+			// web_search_20250305 (a billed product available to the
+			// Messages API). Under Claude Code OAuth (tokenSource != nil)
+			// that server tool is NOT provisioned by the user:inference
+			// scope, so the model would be handed a tool it can never
+			// execute — searches silently fail and the model falls back to
+			// stale training data. There we instead leave the caller's own
+			// web_search tool as a normal function tool and let the agent
+			// loop dispatch it (e.g. the openai_web_search skill handler),
+			// which is provider-agnostic and actually runs.
+			if p.tokenSource == nil {
+				if !webSearchAdded {
+					anthropicTools = append(anthropicTools, map[string]any{
+						"type": "web_search_20250305",
+						"name": "web_search",
+					})
+					webSearchAdded = true
+				}
+				continue
 			}
-			continue
+			// OAuth fall-through: emit a single web_search function tool
+			// (deduped), then let the normal custom-tool path below build it.
+			if webSearchAdded {
+				continue
+			}
+			webSearchAdded = true
 		}
 		// First apply the generic schema sanitization (strips $ref, $defs,
 		// additionalProperties, etc.) that all other providers also use, then

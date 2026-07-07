@@ -97,7 +97,11 @@ const (
 
 // AgentConfig holds the configuration fields for an agent, stored as JSON in the database.
 type AgentConfig struct {
-	Description  string     `json:"description,omitempty"`
+	Description string `json:"description,omitempty"`
+	// Group is a free-form label used to organize agents in the UI (e.g.
+	// "YouTube Shorts", "QBL", "Utilities"). Purely for filtering/sorting the
+	// agent list; it has no effect on runtime behavior.
+	Group        string     `json:"group,omitempty"`
 	Provider     string     `json:"provider"`                // Provider key
 	Model        string     `json:"model,omitempty"`         // Model identifier
 	SystemPrompt string     `json:"system_prompt,omitempty"` // System prompt

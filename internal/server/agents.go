@@ -194,6 +194,7 @@ func agentToMD(agent *service.Agent) *agentmd.AgentMD {
 	return &agentmd.AgentMD{
 		Name:                      agent.Name,
 		Description:               agent.Config.Description,
+		Group:                     agent.Config.Group,
 		Provider:                  agent.Config.Provider,
 		Model:                     agent.Config.Model,
 		Skills:                    service.StringsFromSkillRefs(agent.Config.Skills),
@@ -215,6 +216,7 @@ func mdToAgent(a *agentmd.AgentMD) service.Agent {
 		Name: a.Name,
 		Config: service.AgentConfig{
 			Description:               a.Description,
+			Group:                     a.Group,
 			Provider:                  a.Provider,
 			Model:                     a.Model,
 			SystemPrompt:              a.SystemPrompt,

@@ -204,38 +204,78 @@ print(result["text"].strip())
 	return strings.TrimSpace(stdout.String())
 }
 
+// telegramMaxMessageBytes is Telegram's hard per-message ceiling. Telegram
+// counts UTF-16 code units (4096), but bytes are always >= code units for the
+// scripts we emit, so capping bytes keeps us safely under the limit while
+// never splitting a multi-byte UTF-8 rune.
+const telegramMaxMessageBytes = 4000
+
+// splitTelegramChunks splits text into chunks no larger than limit bytes
+// WITHOUT ever cutting a multi-byte UTF-8 rune. It prefers to break on the
+// last newline within a chunk (past a minimum offset so we don't emit tiny
+// fragments); otherwise it breaks on the last rune boundary at/under limit.
+func splitTelegramChunks(s string, limit int) []string {
+	if limit <= 0 {
+		limit = telegramMaxMessageBytes
+	}
+	if len(s) <= limit {
+		return []string{s}
+	}
+
+	var chunks []string
+	for len(s) > 0 {
+		if len(s) <= limit {
+			chunks = append(chunks, s)
+			break
+		}
+
+		// Find the largest cut offset <= limit that lands on a rune boundary.
+		cut := limit
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		if cut == 0 {
+			// A single rune longer than limit (shouldn't happen for limit=4000);
+			// fall back to a whole-rune advance to guarantee progress.
+			_, size := utf8.DecodeRuneInString(s)
+			cut = size
+		}
+
+		// Prefer breaking on a newline, but only if it isn't so early that we'd
+		// emit a tiny fragment (mirror of the old idx > 2000 heuristic, scaled).
+		minBreak := limit / 2
+		if nl := strings.LastIndexByte(s[:cut], '\n'); nl > minBreak {
+			cut = nl + 1
+		}
+
+		chunks = append(chunks, s[:cut])
+		s = s[cut:]
+	}
+	return chunks
+}
+
 // sendTelegramText sends a UTF-8 sanitized text message to a Telegram chat.
+// Long messages are split rune-safely (never mid-character) and each chunk is
+// rendered as MarkdownV2 with a plain-text fallback. A failure on one chunk
+// does not abort the remaining chunks.
 func sendTelegramText(bot *tgbotapi.BotAPI, chatID int64, text string) {
 	text = sanitizeUTF8(text)
 	if text == "" {
 		text = "(empty)"
 	}
 
-	// Convert to MarkdownV2
-	md := toTelegramMarkdownV2(text)
-
-	// Telegram limit is 4096 chars
-	for len(md) > 0 {
-		chunk := md
-		if len(chunk) > 4096 {
-			cutAt := 4096
-			if idx := strings.LastIndex(md[:4096], "\n"); idx > 2000 {
-				cutAt = idx + 1
-			}
-			chunk = md[:cutAt]
-			md = md[cutAt:]
-		} else {
-			md = ""
-		}
+	// Split the RAW text rune-safely first, then MarkdownV2-escape each chunk.
+	// Escaping the whole string and then slicing could break an escape
+	// sequence across chunks; escaping per-chunk avoids that.
+	for _, raw := range splitTelegramChunks(text, telegramMaxMessageBytes) {
+		chunk := toTelegramMarkdownV2(raw)
 		reply := tgbotapi.NewMessage(chatID, chunk)
 		reply.ParseMode = "MarkdownV2"
 		reply.DisableWebPagePreview = true
 		if _, err := bot.Send(reply); err != nil {
-			// MarkdownV2 failed — fall back to plain text
+			// MarkdownV2 failed — fall back to plain text for this chunk.
 			slog.Warn("telegram: MarkdownV2 failed, sending plain", "error", err)
-			plain := sanitizeUTF8(chunk)
-			// Strip MarkdownV2 escapes for plain fallback
-			plain = strings.ReplaceAll(plain, "\\", "")
+			plain := sanitizeUTF8(raw)
 			reply2 := tgbotapi.NewMessage(chatID, plain)
 			if _, err2 := bot.Send(reply2); err2 != nil {
 				slog.Error("telegram: plain send also failed", "error", err2)
@@ -1638,24 +1678,8 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		}
 	}
 
-	// Send response to Telegram
-	for len(response) > 0 {
-		chunk := response
-		if len(chunk) > 4096 {
-			cutAt := 4096
-			if idx := lastIndexBefore(response, '\n', 4096); idx > 0 {
-				cutAt = idx + 1
-			}
-			chunk = response[:cutAt]
-			response = response[cutAt:]
-		} else {
-			response = ""
-		}
-
-		reply := tgbotapi.NewMessage(msg.Chat.ID, chunk)
-		if _, err := bot.Send(reply); err != nil {
-			slog.Error("telegram bot: failed to send message", "error", err)
-			return
-		}
-	}
+	// Send response to Telegram via the shared rune-safe sender (handles
+	// UTF-8 sanitization, MarkdownV2 rendering + plain fallback, and 4096
+	// chunking without splitting multi-byte characters).
+	sendTelegramText(bot, msg.Chat.ID, response)
 }

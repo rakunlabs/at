@@ -1,6 +1,10 @@
 package server
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"unicode/utf8"
+)
 
 func TestParseNewCommandArgs(t *testing.T) {
 	cases := []struct {
@@ -105,6 +109,58 @@ func TestParseNewCommandArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSplitTelegramChunks(t *testing.T) {
+	t.Run("short text is a single chunk", func(t *testing.T) {
+		got := splitTelegramChunks("hello world", telegramMaxMessageBytes)
+		if len(got) != 1 || got[0] != "hello world" {
+			t.Fatalf("got %#v, want single chunk", got)
+		}
+	})
+
+	t.Run("never splits a multi-byte rune (emoji + Turkish)", func(t *testing.T) {
+		// Build an >4000-byte string with NO newlines, packed with multi-byte
+		// runes so a naive byte cut would land mid-rune. Emoji are 4 bytes,
+		// Turkish chars 2 bytes.
+		unit := "çşğıöü🌊⚡🏳️‍🌈😳 "
+		var b strings.Builder
+		for b.Len() <= 12000 {
+			b.WriteString(unit)
+		}
+		full := b.String()
+
+		chunks := splitTelegramChunks(full, telegramMaxMessageBytes)
+		if len(chunks) < 2 {
+			t.Fatalf("expected multiple chunks, got %d", len(chunks))
+		}
+		for i, c := range chunks {
+			if len(c) > telegramMaxMessageBytes {
+				t.Errorf("chunk %d is %d bytes, exceeds limit %d", i, len(c), telegramMaxMessageBytes)
+			}
+			if !utf8.ValidString(c) {
+				t.Errorf("chunk %d is not valid UTF-8 (rune was split)", i)
+			}
+		}
+		if joined := strings.Join(chunks, ""); joined != full {
+			t.Errorf("rejoined chunks != original (lossy split)")
+		}
+	})
+
+	t.Run("prefers newline boundaries", func(t *testing.T) {
+		line := strings.Repeat("a", 3000) + "\n"
+		full := line + strings.Repeat("b", 3000)
+		chunks := splitTelegramChunks(full, telegramMaxMessageBytes)
+		if len(chunks) != 2 {
+			t.Fatalf("expected 2 chunks, got %d", len(chunks))
+		}
+		if !strings.HasSuffix(chunks[0], "\n") {
+			t.Errorf("first chunk should end at the newline boundary")
+		}
+		if strings.Join(chunks, "") != full {
+			t.Errorf("rejoined chunks != original")
+		}
+	})
 }
 
 func TestAtoiSafe(t *testing.T) {

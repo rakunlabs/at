@@ -298,6 +298,52 @@ func TestBuildRequestBodyWebSearchServerTool(t *testing.T) {
 	}
 }
 
+// TestBuildRequestBodyWebSearchOAuthFallthrough verifies that under Claude
+// Code OAuth (tokenSource != nil), a `web_search` tool is NOT converted into
+// the server-side web_search_20250305 tool (which isn't provisioned on that
+// scope) and instead passes through as a normal function tool the agent loop
+// can dispatch.
+func TestBuildRequestBodyWebSearchOAuthFallthrough(t *testing.T) {
+	p := &Provider{MaxTokens: 1024, tokenSource: NewStaticTokenSource("oauth-tok")}
+
+	msgs := []service.Message{{Role: "user", Content: "what happened today?"}}
+	tools := []service.Tool{
+		{Name: "web_search", Description: "search the web", InputSchema: map[string]any{"type": "object"}},
+		{Name: "get_time", Description: "clock", InputSchema: map[string]any{"type": "object"}},
+	}
+
+	body := p.buildRequestBody("claude-sonnet-5", msgs, tools, nil)
+
+	// Under OAuth the tools slice is coerced to []any by transformAnthropicSystem.
+	var toolMaps []map[string]any
+	switch tv := body["tools"].(type) {
+	case []map[string]any:
+		toolMaps = tv
+	case []any:
+		for _, x := range tv {
+			if m, ok := x.(map[string]any); ok {
+				toolMaps = append(toolMaps, m)
+			}
+		}
+	default:
+		t.Fatalf("tools has unexpected type %T", body["tools"])
+	}
+
+	if len(toolMaps) != 2 {
+		t.Fatalf("expected 2 function tools, got %d: %+v", len(toolMaps), toolMaps)
+	}
+	for _, tm := range toolMaps {
+		if tm["type"] == "web_search_20250305" {
+			t.Errorf("web_search must NOT become a server tool under OAuth: %+v", tm)
+		}
+		if tm["name"] == "web_search" {
+			if _, has := tm["input_schema"]; !has {
+				t.Errorf("web_search function tool must carry input_schema: %+v", tm)
+			}
+		}
+	}
+}
+
 func TestIsAnthropicBuiltinSearchName(t *testing.T) {
 	yes := []string{"web_search", "WEB_SEARCH", " __web_search ", "websearch"}
 	no := []string{"", "google_search", "search_web", "web_searcher"}

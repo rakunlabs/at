@@ -295,6 +295,100 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		builtinToolMap[t.Name] = builtinToolHandler{name: t.Name}
 	}
 
+	// e4) Load MCP-set tools for this agent (workflows exposed as wf_* tools,
+	// stdio/HTTP upstream MCPs, and server-side skill/builtin/RAG/HTTP tools
+	// declared via mcp_sets). The chat-session loop already does this; without
+	// it, agents that rely on mcp_sets — e.g. a Video Producer whose
+	// `wf_video_toolkit` workflow (entry `assemble_video`) and ElevenLabs MCP
+	// live in mcp_sets — silently lose those tools when run through org
+	// delegation, and every such call fails with `unknown tool`.
+	mcpToolNames := make(map[string]bool)
+	mcpSetToolMap := make(map[string]string) // tool name -> MCP set name (direct dispatch)
+	var mcpSetTools []service.Tool
+	var mcpClients []service.MCPClient
+	defer func() {
+		for _, c := range mcpClients {
+			c.Close()
+		}
+	}()
+
+	if s.mcpSetStore != nil && len(agent.Config.MCPSets) > 0 {
+		var mcpURLs []string
+		mcpURLs = append(mcpURLs, agent.Config.MCPs...)
+		var mcpSetUpstreams []service.MCPUpstream
+
+		for _, setName := range agent.Config.MCPSets {
+			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
+			if err != nil || set == nil {
+				slog.Warn("org-delegation: MCP set not found", "set", setName, "error", err)
+				continue
+			}
+			// MCP Server references resolve via the gateway loopback URL.
+			for _, serverName := range set.Servers {
+				mcpURLs = append(mcpURLs, fmt.Sprintf("http://127.0.0.1:%s%s/gateway/v1/mcp/%s",
+					s.config.Port, s.config.BasePath, serverName))
+			}
+			mcpURLs = append(mcpURLs, set.URLs...)
+			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
+
+			// Server-side tools (skills/builtins/RAG/HTTP/workflows) resolve
+			// directly through callMCPSetTool — no HTTP round-trip needed.
+			if len(set.Config.EnabledRAGTools) > 0 || len(set.Config.HTTPTools) > 0 ||
+				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
+				len(set.Config.WorkflowIDs) > 0 {
+				setTools, err := s.listMCPSetTools(setName)
+				if err != nil {
+					slog.Warn("org-delegation: failed to list MCP set tools", "set", setName, "error", err)
+				} else {
+					for _, t := range setTools {
+						mcpToolNames[t.Name] = true
+						mcpSetToolMap[t.Name] = setName
+						mcpSetTools = append(mcpSetTools, t)
+					}
+				}
+			}
+		}
+
+		// HTTP MCP endpoints (gateway loopback + custom URLs + legacy mcp_urls).
+		for _, url := range mcpURLs {
+			client, err := service.NewHTTPMCPClient(ctx, url)
+			if err != nil {
+				slog.Warn("org-delegation: failed to connect to MCP server, skipping", "url", url, "error", err)
+				continue
+			}
+			mcpClients = append(mcpClients, client)
+			tools, err := client.ListTools(ctx)
+			if err != nil {
+				slog.Warn("org-delegation: failed to list MCP tools, skipping", "url", url, "error", err)
+				continue
+			}
+			for _, t := range tools {
+				mcpToolNames[t.Name] = true
+				mcpSetTools = append(mcpSetTools, t)
+			}
+		}
+
+		// Direct upstreams (stdio/HTTP) declared on MCP sets — e.g. the
+		// ElevenLabs `uvx elevenlabs-mcp` stdio server.
+		for _, upstream := range mcpSetUpstreams {
+			client, err := s.newMCPClient(ctx, upstream)
+			if err != nil {
+				slog.Warn("org-delegation: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
+				continue
+			}
+			mcpClients = append(mcpClients, client)
+			tools, err := client.ListTools(ctx)
+			if err != nil {
+				slog.Warn("org-delegation: failed to list MCP upstream tools, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
+				continue
+			}
+			for _, t := range tools {
+				mcpToolNames[t.Name] = true
+				mcpSetTools = append(mcpSetTools, t)
+			}
+		}
+	}
+
 	// Build variable lookup/lister for skill tool execution.
 	var varLookup workflow.VarLookup
 	if s.variableStore != nil {
@@ -507,6 +601,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		})
 	}
 	llmTools = append(llmTools, builtinToolDefs...)
+	// MCP-set tools (workflows, upstreams, server-side skill/builtin/RAG/HTTP).
+	// Stripped to name/description/schema so tool handlers never reach the LLM.
+	for _, t := range mcpSetTools {
+		llmTools = append(llmTools, service.Tool{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		})
+	}
 
 	var finalContent string
 
@@ -969,6 +1072,73 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						slog.Warn("org-delegation: failed to record audit",
 							"agent_id", agentID, "error", auditErr)
 					}
+				}
+			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
+				// MCP-set tool resolved server-side (workflow exposed as a
+				// wf_* tool, or a skill/builtin/RAG/HTTP tool declared via
+				// mcp_sets) — no HTTP round-trip.
+				result, callErr := s.callMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
+				if callErr != nil {
+					slog.Error("org-delegation: mcp-set tool call failed",
+						"tool", tc.Name, "set", setName, "task_id", task.ID, "error", callErr)
+					result = fmt.Sprintf("Error: %v", callErr)
+				}
+				result, _ = s.loopGov.TruncateToolResult(task.ID, tc.Name, result)
+				toolResults[i] = service.ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: tc.ID,
+					Content:   result,
+				}
+				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+					_ = recordAudit(ctx, service.AuditEntry{
+						ActorType:      "agent",
+						ActorID:        agentID,
+						Action:         "tool_call",
+						ResourceType:   "tool",
+						ResourceID:     tc.ID,
+						OrganizationID: org.ID,
+						Details: map[string]any{
+							"tool_name": tc.Name,
+							"task_id":   task.ID,
+							"iteration": iteration,
+							"has_error": callErr != nil,
+							"input":     tc.Arguments,
+							"output":    service.TruncateForAudit(result),
+						},
+					})
+				}
+			} else if mcpToolNames[tc.Name] {
+				// MCP tool served by a connected client (HTTP endpoint or a
+				// stdio/HTTP upstream such as the ElevenLabs MCP).
+				result, callErr := callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
+				if callErr != nil {
+					slog.Error("org-delegation: mcp tool call failed",
+						"tool", tc.Name, "task_id", task.ID, "error", callErr)
+					result = fmt.Sprintf("Error: %v", callErr)
+				}
+				result, _ = s.loopGov.TruncateToolResult(task.ID, tc.Name, result)
+				toolResults[i] = service.ContentBlock{
+					Type:      "tool_result",
+					ToolUseID: tc.ID,
+					Content:   result,
+				}
+				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
+					_ = recordAudit(ctx, service.AuditEntry{
+						ActorType:      "agent",
+						ActorID:        agentID,
+						Action:         "tool_call",
+						ResourceType:   "tool",
+						ResourceID:     tc.ID,
+						OrganizationID: org.ID,
+						Details: map[string]any{
+							"tool_name": tc.Name,
+							"task_id":   task.ID,
+							"iteration": iteration,
+							"has_error": callErr != nil,
+							"input":     tc.Arguments,
+							"output":    service.TruncateForAudit(result),
+						},
+					})
 				}
 			} else {
 				// Unknown tool — handle synchronously (no goroutine needed).
