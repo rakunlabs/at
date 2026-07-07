@@ -3,11 +3,13 @@ package bedrock
 import (
 	"reflect"
 	"testing"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 func TestSplitAPIKey(t *testing.T) {
 	tests := []struct {
-		in                       string
+		in                        string
 		wantA, wantS, wantSession string
 	}{
 		{"", "", "", ""},
@@ -58,15 +60,41 @@ func ptrEmptyMap() *map[string]any {
 	return &m
 }
 
+func TestToolChoiceNoneOmitsToolConfig(t *testing.T) {
+	p := &Provider{}
+	tools := []service.Tool{{Name: "foo", Description: "bar", InputSchema: map[string]any{"type": "object"}}}
+	msgs := []service.Message{{Role: "user", Content: "hi"}}
+
+	tests := []struct {
+		name       string
+		toolChoice any
+		wantConfig bool
+	}{
+		{"none string omits toolConfig", "none", false},
+		{"NONE string omits toolConfig", "NONE", false},
+		{"none object omits toolConfig", map[string]any{"type": "none"}, false},
+		{"auto keeps toolConfig", "auto", true},
+		{"nil keeps toolConfig", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := p.buildConverseRequest(msgs, tools, &service.ChatOptions{ToolChoice: tt.toolChoice})
+			if got := req.ToolConfig != nil; got != tt.wantConfig {
+				t.Errorf("ToolConfig presence = %v, want %v", got, tt.wantConfig)
+			}
+		})
+	}
+}
+
 func TestImageFormatFromMime(t *testing.T) {
 	cases := map[string]string{
-		"image/png":   "png",
-		"image/jpeg":  "jpeg",
-		"image/jpg":   "jpeg",
-		"image/gif":   "gif",
-		"image/webp":  "webp",
-		"image/heic":  "png", // fallback
-		"":            "png",
+		"image/png":  "png",
+		"image/jpeg": "jpeg",
+		"image/jpg":  "jpeg",
+		"image/gif":  "gif",
+		"image/webp": "webp",
+		"image/heic": "png", // fallback
+		"":           "png",
 	}
 	for in, want := range cases {
 		if got := imageFormatFromMime(in); got != want {

@@ -795,19 +795,37 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 
 // buildRequestBody creates the common request body for Chat and ChatStream.
 func (p *Provider) buildRequestBody(model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) map[string]any {
-	anthropicTools := make([]map[string]any, len(tools))
-	for i, tool := range tools {
+	anthropicTools := make([]map[string]any, 0, len(tools))
+	webSearchAdded := false
+	for _, tool := range tools {
+		// Synthetic web-search tool name → Anthropic's server-side
+		// web_search tool. Mirrors the gemini adapter, which converts the
+		// same names into googleSearch grounding, so an agent can declare
+		// one `web_search` tool and get native internet search on both
+		// providers. The search runs server-side within a single request;
+		// results come back as web_search_tool_result blocks that the
+		// model folds into its text answer.
+		if isAnthropicBuiltinSearchName(tool.Name) {
+			if !webSearchAdded {
+				anthropicTools = append(anthropicTools, map[string]any{
+					"type": "web_search_20250305",
+					"name": "web_search",
+				})
+				webSearchAdded = true
+			}
+			continue
+		}
 		// First apply the generic schema sanitization (strips $ref, $defs,
 		// additionalProperties, etc.) that all other providers also use, then
 		// clean Anthropic-specific issues like stray "title" fields from MCP
 		// tool providers.
 		sanitized := service.SanitizeSchema(tool.InputSchema)
 		cleanedSchema := cleanToolSchema(sanitized)
-		anthropicTools[i] = map[string]any{
+		anthropicTools = append(anthropicTools, map[string]any{
 			"name":         tool.Name,
 			"description":  tool.Description,
 			"input_schema": cleanedSchema,
-		}
+		})
 	}
 
 	// Extract system messages — Anthropic uses a top-level "system" parameter

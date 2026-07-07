@@ -193,10 +193,17 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 	body["system"] = systemArr
 
 	// ── 4. PascalCase tool names ───────────────────────────────────
+	// Server-side tools (e.g. {"type":"web_search_20250305"}) carry a
+	// "type" field and a fixed name Anthropic requires verbatim — never
+	// rename those. Regular custom tools built by buildRequestBody have
+	// no "type" key.
 	if tools, ok := body["tools"].([]any); ok {
 		for i, t := range tools {
 			tm, tok := t.(map[string]any)
 			if !tok {
+				continue
+			}
+			if _, isServerTool := tm["type"]; isServerTool {
 				continue
 			}
 			if name, nok := tm["name"].(string); nok && name != "" {
@@ -207,6 +214,9 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 	}
 	if tools, ok := body["tools"].([]map[string]any); ok {
 		for _, tm := range tools {
+			if _, isServerTool := tm["type"]; isServerTool {
+				continue
+			}
 			if name, nok := tm["name"].(string); nok && name != "" {
 				tm["name"] = prefixToolName(name)
 			}

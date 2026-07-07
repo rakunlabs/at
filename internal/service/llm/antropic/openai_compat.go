@@ -64,6 +64,18 @@ func translateAnthropicToolChoice(v any) map[string]any {
 	return nil
 }
 
+// isAnthropicBuiltinSearchName reports whether a tool name is the synthetic
+// marker that activates Anthropic's server-side web_search tool. Mirrors the
+// gemini adapter's isGeminiBuiltinSearchName so one `web_search` tool
+// declaration enables native internet search on both providers.
+func isAnthropicBuiltinSearchName(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "web_search", "__web_search", "websearch":
+		return true
+	}
+	return false
+}
+
 // anthropicResponseFormatInstruction returns a system-prompt suffix that
 // instructs the model to emit JSON when the caller passed an OpenAI
 // response_format value. Returns "" when no response_format was requested

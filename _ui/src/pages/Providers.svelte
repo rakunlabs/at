@@ -24,7 +24,18 @@
 
   storeNavbar.title = 'Providers';
 
-  const PROVIDER_TYPES = ['openai', 'anthropic', 'vertex', 'gemini', 'minimax'] as const;
+  // Keep in sync with service.SupportedProviderTypes (backend factory).
+  const PROVIDER_TYPES = [
+    'openai',
+    'anthropic',
+    'azure',
+    'bedrock',
+    'vertex',
+    'vertex-gemini',
+    'gemini',
+    'cohere',
+    'minimax',
+  ] as const;
 
   // ─── Presets ───
 
@@ -287,6 +298,120 @@
         'Uses the native Gemini API (generativelanguage.googleapis.com)',
         'Base URL is auto-configured - leave the Base URL field empty',
         'Free tier available with generous rate limits for experimentation',
+      ],
+    },
+    {
+      id: 'vertex-gemini',
+      name: 'Vertex AI (native Gemini)',
+      description: 'Native Gemini API on Vertex — keeps thinking, safety settings, and grounding',
+      key: 'vertex-gemini',
+      config: {
+        type: 'vertex-gemini',
+        model: 'gemini-2.5-flash',
+        models: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+      },
+      extraHeaders: [
+        { key: 'vertex_project', value: '' },
+        { key: 'vertex_region', value: 'us-central1' },
+      ],
+      setupSteps: [
+        'Prerequisites: A Google Cloud project with billing enabled and Vertex AI API enabled',
+        'Run: gcloud auth application-default login (same ADC setup as the "Vertex AI" preset)',
+        'Fill the vertex_project extra header with your GCP project ID',
+        'Fill the vertex_region extra header with your preferred region (e.g. us-central1)',
+        'Leave the API Key and Base URL fields empty',
+      ],
+      setupLinks: [
+        { label: 'Install gcloud', url: 'https://cloud.google.com/sdk/docs/install' },
+        { label: 'Enable Vertex AI', url: 'https://console.cloud.google.com/apis/library/aiplatform.googleapis.com' },
+        { label: 'Pricing', url: 'https://cloud.google.com/vertex-ai/generative-ai/pricing' },
+      ],
+      notes: [
+        'Uses the NATIVE Gemini API on Vertex (not the OpenAI-compatible endpoint)',
+        'Keeps Gemini-only features: thinkingConfig, safetySettings, google search grounding',
+        'Requires vertex_project + vertex_region extra headers',
+        'No API key needed — uses Google Application Default Credentials (ADC)',
+      ],
+    },
+    {
+      id: 'azure-openai',
+      name: 'Azure OpenAI',
+      description: 'OpenAI models hosted on Microsoft Azure',
+      key: 'azure',
+      config: {
+        type: 'azure',
+        model: 'gpt-4o',
+        models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1'],
+      },
+      setupSteps: [
+        'Create an Azure OpenAI resource in the Azure portal',
+        'Deploy a model (Deployments → Create) and note the deployment name',
+        'Copy an API key from the resource "Keys and Endpoint" page',
+        'Set the Base URL to the FULL deployment URL including api-version (see notes)',
+      ],
+      setupLinks: [
+        { label: 'Azure Portal', url: 'https://portal.azure.com/' },
+        { label: 'Azure OpenAI Docs', url: 'https://learn.microsoft.com/azure/ai-services/openai/' },
+      ],
+      notes: [
+        'Base URL format:',
+        '  https://{RESOURCE}.openai.azure.com/openai/deployments/{DEPLOYMENT}/chat/completions?api-version=2024-06-01',
+        'The API key is sent as the "api-key" header automatically',
+        'Model name should match your Azure deployment name',
+      ],
+    },
+    {
+      id: 'bedrock',
+      name: 'AWS Bedrock',
+      description: 'Claude, Llama, Titan, Mistral and more via the AWS Bedrock Converse API',
+      key: 'bedrock',
+      config: {
+        type: 'bedrock',
+        model: 'anthropic.claude-sonnet-4-20250514-v1:0',
+        models: ['anthropic.claude-sonnet-4-20250514-v1:0', 'anthropic.claude-3-5-haiku-20241022-v1:0'],
+      },
+      setupSteps: [
+        'Enable model access in the AWS Bedrock console (Model access page)',
+        'Create an IAM user/role with bedrock:InvokeModel permission',
+        'Put credentials in the API Key field as ACCESS_KEY:SECRET_KEY (or ACCESS_KEY:SECRET_KEY:SESSION_TOKEN)',
+        'Optionally set the Base URL to a regional endpoint (e.g. https://bedrock-runtime.eu-west-1.amazonaws.com)',
+      ],
+      setupLinks: [
+        { label: 'Bedrock Console', url: 'https://console.aws.amazon.com/bedrock/' },
+        { label: 'Model IDs', url: 'https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html' },
+        { label: 'Pricing', url: 'https://aws.amazon.com/bedrock/pricing/' },
+      ],
+      notes: [
+        'Credentials can also come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars',
+        'Region is derived from the Base URL host or the AWS_REGION env var',
+        'Uses the unified Converse API — one provider for all Bedrock model families',
+        'Streaming is simulated (the Converse response is fake-streamed)',
+      ],
+    },
+    {
+      id: 'cohere',
+      name: 'Cohere',
+      description: 'Command models plus first-party embeddings and rerank',
+      key: 'cohere',
+      config: {
+        type: 'cohere',
+        model: 'command-a-03-2025',
+        models: ['command-a-03-2025', 'command-r-plus-08-2024', 'command-r-08-2024'],
+      },
+      setupSteps: [
+        'Go to dashboard.cohere.com and sign in (or create an account)',
+        'Open the API Keys page and create a key',
+        'Paste the key in the API Key field below',
+      ],
+      setupLinks: [
+        { label: 'API Keys', url: 'https://dashboard.cohere.com/api-keys' },
+        { label: 'Models', url: 'https://docs.cohere.com/docs/models' },
+        { label: 'Pricing', url: 'https://cohere.com/pricing' },
+      ],
+      notes: [
+        'The only provider with first-party rerank support (/gateway/v1/rerank)',
+        'Also serves embeddings (embed-v4.0 family) via /gateway/v1/embeddings',
+        'Streaming is simulated (the chat response is fake-streamed)',
       ],
     },
     {

@@ -284,11 +284,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}
 	}
 
+	// Surface upstream errors as real errors (not HTTP-200 responses with
+	// error text) so gateway error mapping / fallbacks / SDKs work.
 	if result.Error != nil {
-		return &service.LLMResponse{
-			Content:  fmt.Sprintf("Error from provider: %s", result.Error.Message),
-			Finished: true,
-		}, nil
+		return nil, fmt.Errorf("openai-compatible API error (status %d, type %s): %s", statusCode, result.Error.Type, result.Error.Message)
 	}
 
 	if len(result.Choices) == 0 {
@@ -582,7 +581,9 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	// For OpenAI, BaseURL is typically "https://api.openai.com/v1/chat/completions".
 	// We want to proxy to other endpoints like "/v1/files".
 	// So we need to intelligently strip the suffix.
-	baseURL := p.BaseURL
+	// Azure-style base URLs carry a query string ("...?api-version=...");
+	// split it off before suffix matching and re-append it afterwards.
+	baseURL, baseQuery := splitBaseQuery(p.BaseURL)
 	if strings.HasSuffix(baseURL, "/chat/completions") {
 		baseURL = strings.TrimSuffix(baseURL, "/chat/completions")
 	} else if strings.HasSuffix(baseURL, "/v1") {
@@ -599,6 +600,9 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	targetURL, err := url.Parse(baseURL + path)
 	if err != nil {
 		return fmt.Errorf("invalid target URL: %w", err)
+	}
+	if baseQuery != "" {
+		targetURL.RawQuery = baseQuery
 	}
 	if r.URL.RawQuery != "" {
 		if targetURL.RawQuery == "" {

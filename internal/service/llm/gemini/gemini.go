@@ -272,6 +272,7 @@ type usageMetadata struct {
 	PromptTokenCount        int `json:"promptTokenCount"`
 	CandidatesTokenCount    int `json:"candidatesTokenCount"`
 	CachedContentTokenCount int `json:"cachedContentTokenCount"`
+	ThoughtsTokenCount      int `json:"thoughtsTokenCount"`
 	TotalTokenCount         int `json:"totalTokenCount"`
 }
 
@@ -284,14 +285,19 @@ func geminiServiceUsage(u *usageMetadata) service.Usage {
 	if promptTokens < 0 {
 		promptTokens = 0
 	}
+	// Gemini reports thinking tokens separately from candidatesTokenCount.
+	// OpenAI convention: completion_tokens includes reasoning tokens, with
+	// reasoning_tokens reported as a detail bucket.
+	completionTokens := u.CandidatesTokenCount + u.ThoughtsTokenCount
 	totalTokens := u.TotalTokenCount
 	if totalTokens <= 0 {
-		totalTokens = promptTokens + u.CandidatesTokenCount + cacheRead
+		totalTokens = promptTokens + completionTokens + cacheRead
 	}
 	return service.Usage{
 		PromptTokens:     promptTokens,
-		CompletionTokens: u.CandidatesTokenCount,
+		CompletionTokens: completionTokens,
 		CacheReadTokens:  cacheRead,
+		ReasoningTokens:  u.ThoughtsTokenCount,
 		TotalTokens:      totalTokens,
 	}
 }
@@ -390,13 +396,6 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			Message:    msg,
 			Underlying: fmt.Errorf("gemini API error (status %d): %s", statusCode, msg),
 		}
-	}
-
-	if result.Error != nil {
-		return &service.LLMResponse{
-			Content:  fmt.Sprintf("Error from Gemini API: %s (code: %d, status: %s)", result.Error.Message, result.Error.Code, result.Error.Status),
-			Finished: true,
-		}, nil
 	}
 
 	return parseResponse(&result, headers)
@@ -1248,12 +1247,10 @@ func convertToolResultToParts(msg service.Message, toolCallNames map[string]stri
 
 // parseResponse converts a Google API response to the internal LLMResponse.
 func parseResponse(resp *generateContentResponse, headers http.Header) (*service.LLMResponse, error) {
+	// Surface upstream errors as real errors (not HTTP-200 responses with
+	// error text) so gateway error mapping / fallbacks / SDKs work.
 	if resp.Error != nil {
-		return &service.LLMResponse{
-			Content:  fmt.Sprintf("Error from Gemini API: %s (code: %d, status: %s)", resp.Error.Message, resp.Error.Code, resp.Error.Status),
-			Finished: true,
-			Header:   headers,
-		}, nil
+		return nil, fmt.Errorf("gemini API error (code %d, status %s): %s", resp.Error.Code, resp.Error.Status, resp.Error.Message)
 	}
 
 	if len(resp.Candidates) == 0 {

@@ -130,13 +130,19 @@ Provider-specific compatibility notes:
   - OpenAI / Vertex: forwarded verbatim
   - Anthropic: translated (`auto` → `{type:"auto"}`, `required` → `{type:"any"}`, `{type:"function",function:{name:"X"}}` → `{type:"tool",name:"X"}`)
   - Gemini: translated to `toolConfig.functionCallingConfig` (`AUTO` / `ANY` / `NONE` + `allowedFunctionNames`)
+  - Bedrock: translated to Converse `toolChoice` (`auto` / `any` / `tool`); `"none"` is emulated by omitting `toolConfig` entirely
+  - Cohere: translated to v2 `tool_choice` (`REQUIRED` / `NONE`); forcing a specific tool maps to `REQUIRED` (closest native behaviour)
 - **`parallel_tool_calls`** maps to Anthropic's `disable_parallel_tool_use` (inverted)
 - **`response_format`** is best-effort on non-OpenAI providers:
   - Gemini: `json_object` → `responseMimeType: application/json`; `json_schema` → adds `responseSchema`
+  - Cohere: `json_object` / `json_schema` → v2 `response_format` (`{"type":"json_object","schema":{...}}`)
   - Anthropic: no native equivalent — we append a system-prompt instruction asking for JSON output (and embed the schema for `json_schema`). Strict structured-output guarantees require the tool-call grammar pattern instead.
 - **`logprobs`/`top_logprobs`** are OpenAI/Vertex only; non-OpenAI providers ignore them.
 - **`n` > 1** is honoured by OpenAI/Vertex (and Gemini via `candidateCount`); Anthropic returns one choice.
-- **`seed`** is honoured by OpenAI/Vertex/Gemini; Anthropic ignores it.
+- **`seed`** is honoured by OpenAI/Vertex/Gemini/Cohere; Anthropic ignores it.
+- **Web search**: a synthetic tool named `web_search` (or `__google_search` / `google_search` on Gemini, `__web_search` on Anthropic) activates the provider's native internet search — Gemini/vertex-gemini `googleSearch` grounding, Anthropic server-side `web_search_20250305`. OpenAI search-preview models take `web_search_options` (also forwarded by the vertex adapter). Note the tool name is consumed by the provider: a user-defined function tool with the same name will not be called on those providers.
+- Upstream provider errors surface as real gateway errors (429/5xx envelopes), never as HTTP-200 responses with error text in `content`.
+- Provider `type` strings are validated on create/update against `service.SupportedProviderTypes` (openai, anthropic, azure, bedrock, vertex, vertex-gemini, gemini, cohere, minimax).
 
 Error envelope conforms to OpenAI's shape including `param` where applicable:
 

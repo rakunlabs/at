@@ -312,7 +312,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		}
 		return cohere.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, copts...)
 	default:
-		return nil, fmt.Errorf("unknown provider type: %q (supported: anthropic, openai, vertex, gemini, minimax, bedrock, azure, cohere)", cfg.Type)
+		return nil, fmt.Errorf("unknown provider type: %q (supported: %s)", cfg.Type, strings.Join(service.SupportedProviderTypes, ", "))
 	}
 }
 

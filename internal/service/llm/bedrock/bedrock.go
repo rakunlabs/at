@@ -20,15 +20,16 @@
 // AWS_REGION env var. We do NOT call IMDSv2 / STS — that would couple us
 // to running on EC2.
 //
-// Streaming uses the InvokeWithResponseStream endpoint (AWS event-stream
-// binary protocol) — implemented in stream.go. Non-streaming uses the
-// /converse endpoint and returns a single LLMResponse.
+// This provider is non-streaming: Chat uses the /converse endpoint and the
+// gateway fake-streams the result. True streaming would require the AWS
+// event-stream binary protocol (ConverseStream) — not implemented.
 package bedrock
 
 import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -126,7 +127,10 @@ func New(apiKey, model, baseURL string, proxyURL string, insecureSkipVerify bool
 			t.Proxy = http.ProxyURL(u)
 		}
 		if insecureSkipVerify {
-			t.TLSClientConfig = nil
+			if t.TLSClientConfig == nil {
+				t.TLSClientConfig = &tls.Config{} //nolint:gosec // operator opt-in
+			}
+			t.TLSClientConfig.InsecureSkipVerify = true
 		}
 		httpClient = &http.Client{Transport: t, Timeout: 5 * time.Minute}
 	}
@@ -181,10 +185,10 @@ type converseMessage struct {
 }
 
 type converseContentB struct {
-	Text       string             `json:"text,omitempty"`
-	ToolUse    *converseToolUse   `json:"toolUse,omitempty"`
+	Text       string              `json:"text,omitempty"`
+	ToolUse    *converseToolUse    `json:"toolUse,omitempty"`
 	ToolResult *converseToolResult `json:"toolResult,omitempty"`
-	Image      *converseImage     `json:"image,omitempty"`
+	Image      *converseImage      `json:"image,omitempty"`
 }
 
 type converseSystemBlock struct {
@@ -208,9 +212,9 @@ type converseTool struct {
 }
 
 type converseToolSpec struct {
-	Name        string                  `json:"name"`
-	Description string                  `json:"description,omitempty"`
-	InputSchema map[string]any          `json:"inputSchema,omitempty"`
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"inputSchema,omitempty"`
 }
 
 type converseToolChoice struct {
@@ -238,8 +242,8 @@ type converseToolResultBlk struct {
 }
 
 type converseImage struct {
-	Format string                `json:"format"`
-	Source converseImageSourceB  `json:"source"`
+	Format string               `json:"format"`
+	Source converseImageSourceB `json:"source"`
 }
 
 type converseImageSourceB struct {
@@ -256,9 +260,11 @@ type converseResponse struct {
 	} `json:"output"`
 	StopReason string `json:"stopReason"`
 	Usage      struct {
-		InputTokens  int `json:"inputTokens"`
-		OutputTokens int `json:"outputTokens"`
-		TotalTokens  int `json:"totalTokens"`
+		InputTokens           int `json:"inputTokens"`
+		OutputTokens          int `json:"outputTokens"`
+		TotalTokens           int `json:"totalTokens"`
+		CacheReadInputTokens  int `json:"cacheReadInputTokens"`
+		CacheWriteInputTokens int `json:"cacheWriteInputTokens"`
 	} `json:"usage"`
 	Metrics struct {
 		LatencyMs int64 `json:"latencyMs"`
@@ -347,6 +353,8 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		Usage: service.Usage{
 			PromptTokens:     parsed.Usage.InputTokens,
 			CompletionTokens: parsed.Usage.OutputTokens,
+			CacheReadTokens:  parsed.Usage.CacheReadInputTokens,
+			CacheWriteTokens: parsed.Usage.CacheWriteInputTokens,
 			TotalTokens:      parsed.Usage.TotalTokens,
 		},
 	}
@@ -421,8 +429,9 @@ func (p *Provider) buildConverseRequest(messages []service.Message, tools []serv
 		}
 	}
 
-	// Tools.
-	if len(tools) > 0 {
+	// Tools. The Converse API has no "none" tool choice — emulate it by
+	// omitting toolConfig entirely so the model cannot call tools.
+	if len(tools) > 0 && !isToolChoiceNone(opts) {
 		tc := &converseToolConfig{}
 		for _, t := range tools {
 			tc.Tools = append(tc.Tools, converseTool{
@@ -534,6 +543,22 @@ func convertContentToConverse(content any) []converseContentB {
 		return out
 	}
 	return nil
+}
+
+// isToolChoiceNone reports whether the caller explicitly disabled tool use
+// (`tool_choice: "none"` or `{type: "none"}`).
+func isToolChoiceNone(opts *service.ChatOptions) bool {
+	if opts == nil || opts.ToolChoice == nil {
+		return false
+	}
+	switch x := opts.ToolChoice.(type) {
+	case string:
+		return strings.EqualFold(strings.TrimSpace(x), "none")
+	case map[string]any:
+		t, _ := x["type"].(string)
+		return strings.EqualFold(t, "none")
+	}
+	return false
 }
 
 func translateBedrockToolChoice(v any) *converseToolChoice {

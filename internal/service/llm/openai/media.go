@@ -13,12 +13,32 @@ import (
 )
 
 // apiBaseURL derives the API root from the chat completions URL.
-// e.g. "https://api.openai.com/v1/chat/completions" → "https://api.openai.com/v1"
+// e.g. "https://api.openai.com/v1/chat/completions" → "https://api.openai.com/v1".
+// Azure-style URLs carry a query string ("...?api-version=..."); the query is
+// stripped here and re-appended by apiURL.
 func (p *Provider) apiBaseURL() string {
-	base := p.BaseURL
+	base, _ := splitBaseQuery(p.BaseURL)
 	base = strings.TrimSuffix(base, "/")
 	base = strings.TrimSuffix(base, "/chat/completions")
 	return base
+}
+
+// splitBaseQuery separates an optional query string from a raw base URL.
+func splitBaseQuery(raw string) (base, query string) {
+	if i := strings.Index(raw, "?"); i >= 0 {
+		return raw[:i], raw[i+1:]
+	}
+	return raw, ""
+}
+
+// apiURL joins the API root with an endpoint path, preserving any query
+// string configured on the base URL (Azure's "?api-version=...").
+func (p *Provider) apiURL(path string) string {
+	u := p.apiBaseURL() + path
+	if _, query := splitBaseQuery(p.BaseURL); query != "" {
+		u += "?" + query
+	}
+	return u
 }
 
 // doJSON sends a JSON request and decodes the JSON response.
@@ -98,7 +118,7 @@ type imagesResponse struct {
 
 // GenerateImage implements service.ImageProvider.
 func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateRequest) (*service.ImageResponse, error) {
-	url := p.apiBaseURL() + "/images/generations"
+	url := p.apiURL("/images/generations")
 
 	apiReq := imagesRequest{
 		Prompt:         req.Prompt,
@@ -141,7 +161,7 @@ func (p *Provider) GenerateImage(ctx context.Context, req service.ImageGenerateR
 
 // GenerateAudio implements service.AudioProvider.
 func (p *Provider) GenerateAudio(ctx context.Context, req service.AudioGenerateRequest) (*service.AudioResponse, error) {
-	url := p.apiBaseURL() + "/audio/speech"
+	url := p.apiURL("/audio/speech")
 
 	apiReq := map[string]any{
 		"input": req.Input,
@@ -228,7 +248,7 @@ type transcriptionResponse struct {
 
 // TranscribeAudio implements service.AudioProvider.
 func (p *Provider) TranscribeAudio(ctx context.Context, req service.AudioTranscribeRequest) (*service.AudioTranscribeResponse, error) {
-	url := p.apiBaseURL() + "/audio/transcriptions"
+	url := p.apiURL("/audio/transcriptions")
 
 	// Whisper API requires multipart/form-data. For simplicity with base64 input,
 	// we first decode the base64 audio, then send as multipart.
@@ -357,7 +377,7 @@ type embeddingResponse struct {
 
 // CreateEmbedding implements service.EmbeddingProvider.
 func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingRequest) (*service.EmbeddingResponse, error) {
-	url := p.apiBaseURL() + "/embeddings"
+	url := p.apiURL("/embeddings")
 
 	model := req.Model
 	if model == "" {
@@ -410,7 +430,7 @@ type moderationsResponse struct {
 
 // Moderate implements service.ModerationProvider.
 func (p *Provider) Moderate(ctx context.Context, req service.ModerationRequest) (*service.ModerationResponse, error) {
-	url := p.apiBaseURL() + "/moderations"
+	url := p.apiURL("/moderations")
 
 	apiReq := moderationsRequest{
 		Input: req.Input,

@@ -193,6 +193,9 @@ type choiceMessage struct {
 }
 
 type toolCall struct {
+	// Index correlates streamed tool-call fragments; may be omitted by
+	// some upstreams on single-tool responses.
+	Index    *int         `json:"index,omitempty"`
 	ID       string       `json:"id"`
 	Function functionCall `json:"function"`
 }
@@ -271,11 +274,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}
 	}
 
+	// Surface upstream errors as real errors (not HTTP-200 responses with
+	// error text) so gateway error mapping / fallbacks / SDKs work.
 	if result.Error != nil {
-		return &service.LLMResponse{
-			Content:  fmt.Sprintf("Error from Vertex AI: %s (code: %d)", result.Error.Message, result.Error.Code),
-			Finished: true,
-		}, nil
+		return nil, fmt.Errorf("vertex API error (status %d, code %d): %s", statusCode, result.Error.Code, result.Error.Message)
 	}
 
 	if len(result.Choices) == 0 {
@@ -406,6 +408,43 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		defer resp.Body.Close()
 		defer releaseOnce()
 
+		// Vertex's OpenAI-compatible endpoint streams tool calls the same
+		// way OpenAI does: the first delta carries id+name, subsequent
+		// deltas carry partial argument string fragments keyed by "index".
+		// Accumulate per-index fragments and emit completed tool calls at
+		// finish — emitting each fragment as its own ToolCall produces
+		// garbage downstream (nil/partial Arguments, duplicate calls).
+		type toolAccum struct {
+			id        string
+			name      string
+			arguments strings.Builder
+		}
+		var toolOrder []int
+		toolsByIndex := map[int]*toolAccum{}
+
+		flushToolCalls := func() []service.ToolCall {
+			if len(toolOrder) == 0 {
+				return nil
+			}
+			out := make([]service.ToolCall, 0, len(toolOrder))
+			for _, idx := range toolOrder {
+				t := toolsByIndex[idx]
+				args := map[string]any{}
+				if s := t.arguments.String(); s != "" {
+					_ = json.Unmarshal([]byte(s), &args)
+				}
+				out = append(out, service.ToolCall{
+					ID:        t.id,
+					Name:      t.name,
+					Arguments: args,
+				})
+			}
+			// Reset so a second tool-call burst in the same stream starts clean.
+			toolOrder = toolOrder[:0]
+			toolsByIndex = map[int]*toolAccum{}
+			return out
+		}
+
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
 		for scanner.Scan() {
@@ -422,6 +461,9 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			data := strings.TrimPrefix(line, "data: ")
 
 			if data == "[DONE]" {
+				if tcs := flushToolCalls(); len(tcs) > 0 {
+					ch <- service.StreamChunk{ToolCalls: tcs}
+				}
 				return
 			}
 
@@ -448,25 +490,46 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			}
 
 			sChoice := sr.Choices[0]
+
+			// Accumulate tool-call fragments by index.
+			for i, tc := range sChoice.Delta.ToolCalls {
+				idx := i
+				if tc.Index != nil {
+					idx = *tc.Index
+				}
+				acc, ok := toolsByIndex[idx]
+				if !ok {
+					acc = &toolAccum{}
+					toolsByIndex[idx] = acc
+					toolOrder = append(toolOrder, idx)
+				}
+				if tc.ID != "" {
+					acc.id = tc.ID
+				}
+				if tc.Function.Name != "" {
+					acc.name = tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					acc.arguments.WriteString(tc.Function.Arguments)
+				}
+			}
+
 			chunk := service.StreamChunk{
 				Content:          sChoice.Delta.Content,
 				ReasoningContent: sChoice.Delta.ReasoningContent,
 			}
 
-			for _, tc := range sChoice.Delta.ToolCalls {
-				var args map[string]any
-				if tc.Function.Arguments != "" {
-					json.Unmarshal([]byte(tc.Function.Arguments), &args)
-				}
-				chunk.ToolCalls = append(chunk.ToolCalls, service.ToolCall{
-					ID:        tc.ID,
-					Name:      tc.Function.Name,
-					Arguments: args,
-				})
-			}
-
 			if sChoice.FinishReason != nil {
 				chunk.FinishReason = *sChoice.FinishReason
+				// Flush accumulated tool calls alongside the finish signal.
+				if tcs := flushToolCalls(); len(tcs) > 0 {
+					chunk.ToolCalls = tcs
+				}
+			}
+
+			// Pure tool-call fragment deltas are accumulated silently.
+			if chunk.Content == "" && chunk.ReasoningContent == "" && len(chunk.ToolCalls) == 0 && chunk.FinishReason == "" {
+				continue
 			}
 
 			ch <- chunk
@@ -474,6 +537,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 		if err := scanner.Err(); err != nil {
 			ch <- service.StreamChunk{Error: fmt.Errorf("stream read error: %w", err)}
+			return
+		}
+
+		// Clean exit without [DONE] — flush accumulated tool calls.
+		if tcs := flushToolCalls(); len(tcs) > 0 {
+			ch <- service.StreamChunk{ToolCalls: tcs}
 		}
 	}()
 
@@ -623,6 +692,9 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 		if opts.ReasoningEffort != "" {
 			reqBody["reasoning_effort"] = opts.ReasoningEffort
+		}
+		if len(opts.WebSearchOptions) > 0 {
+			reqBody["web_search_options"] = opts.WebSearchOptions
 		}
 		if opts.ToolChoice != nil && len(tools) > 0 {
 			reqBody["tool_choice"] = opts.ToolChoice

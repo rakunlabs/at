@@ -8,6 +8,33 @@ import (
 	"time"
 )
 
+// ─── Provider types ───
+
+// SupportedProviderTypes is the canonical list of provider `type` strings
+// accepted by the provider factory (cmd/at/main.go newProvider). Keep in
+// sync with the factory switch and the UI type dropdown.
+var SupportedProviderTypes = []string{
+	"openai",
+	"anthropic",
+	"azure",
+	"bedrock",
+	"vertex",
+	"vertex-gemini",
+	"gemini",
+	"cohere",
+	"minimax",
+}
+
+// IsSupportedProviderType reports whether t is a known provider type.
+func IsSupportedProviderType(t string) bool {
+	for _, s := range SupportedProviderTypes {
+		if s == t {
+			return true
+		}
+	}
+	return false
+}
+
 // ─── LLM Provider Interfaces ───
 
 // LLMProvider is the core interface for all LLM providers.

@@ -46,23 +46,23 @@ import (
 
 // responsesRequest is the OpenAI Responses API request body.
 type responsesRequest struct {
-	Model               string          `json:"model"`
-	Input               json.RawMessage `json:"input"` // string OR []InputItem
-	Instructions        string          `json:"instructions,omitempty"`
-	Tools               []OpenAITool    `json:"tools,omitempty"`
-	ToolChoice          json.RawMessage `json:"tool_choice,omitempty"`
-	Temperature         *float64        `json:"temperature,omitempty"`
-	TopP                *float64        `json:"top_p,omitempty"`
-	MaxOutputTokens     *int            `json:"max_output_tokens,omitempty"`
-	ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
-	Seed                *int            `json:"seed,omitempty"`
-	Metadata            map[string]any  `json:"metadata,omitempty"`
-	User                string          `json:"user,omitempty"`
-	Stream              bool            `json:"stream,omitempty"`
-	Store               *bool           `json:"store,omitempty"`
-	PreviousResponseID  string          `json:"previous_response_id,omitempty"`
-	Reasoning           *responsesReasoning `json:"reasoning,omitempty"`
-	Text                *responsesText      `json:"text,omitempty"`
+	Model              string              `json:"model"`
+	Input              json.RawMessage     `json:"input"` // string OR []InputItem
+	Instructions       string              `json:"instructions,omitempty"`
+	Tools              []OpenAITool        `json:"tools,omitempty"`
+	ToolChoice         json.RawMessage     `json:"tool_choice,omitempty"`
+	Temperature        *float64            `json:"temperature,omitempty"`
+	TopP               *float64            `json:"top_p,omitempty"`
+	MaxOutputTokens    *int                `json:"max_output_tokens,omitempty"`
+	ParallelToolCalls  *bool               `json:"parallel_tool_calls,omitempty"`
+	Seed               *int                `json:"seed,omitempty"`
+	Metadata           map[string]any      `json:"metadata,omitempty"`
+	User               string              `json:"user,omitempty"`
+	Stream             bool                `json:"stream,omitempty"`
+	Store              *bool               `json:"store,omitempty"`
+	PreviousResponseID string              `json:"previous_response_id,omitempty"`
+	Reasoning          *responsesReasoning `json:"reasoning,omitempty"`
+	Text               *responsesText      `json:"text,omitempty"`
 
 	// AT extensions
 	AtFallbacks  []string       `json:"at_fallbacks,omitempty"`
@@ -80,10 +80,10 @@ type responsesText struct {
 }
 
 type responsesTextFormat struct {
-	Type       string         `json:"type"` // "text" | "json_object" | "json_schema"
-	Name       string         `json:"name,omitempty"`
-	Schema     map[string]any `json:"schema,omitempty"`
-	Strict     *bool          `json:"strict,omitempty"`
+	Type   string         `json:"type"` // "text" | "json_object" | "json_schema"
+	Name   string         `json:"name,omitempty"`
+	Schema map[string]any `json:"schema,omitempty"`
+	Strict *bool          `json:"strict,omitempty"`
 }
 
 // responsesResponse is the OpenAI Responses API response body.
@@ -119,9 +119,9 @@ type responsesOutItem struct {
 }
 
 type responsesOutContent struct {
-	Type        string                  `json:"type"` // "output_text" | "refusal"
-	Text        string                  `json:"text,omitempty"`
-	Annotations []responsesAnnotation   `json:"annotations,omitempty"`
+	Type        string                `json:"type"` // "output_text" | "refusal"
+	Text        string                `json:"text,omitempty"`
+	Annotations []responsesAnnotation `json:"annotations,omitempty"`
 }
 
 type responsesAnnotation struct{}
@@ -257,18 +257,6 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 
 	tools := translateOpenAITools(req.Tools)
 
-	var messages []service.Message
-	switch info.providerType {
-	case "anthropic", "minimax":
-		var systemPrompt string
-		systemPrompt, messages = translateOpenAIToAnthropic(chatMsgs)
-		if systemPrompt != "" {
-			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
-		}
-	default:
-		messages = translateOpenAIMessages(chatMsgs, s.lookupThoughtSignature)
-	}
-
 	baseOpts := responsesRequestToChatOptions(&req)
 
 	// Per-call timeout.
@@ -324,7 +312,6 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			resp = r2
 			used = target
-			_ = i
 			break
 		}
 		lastErr = err
@@ -721,9 +708,9 @@ func buildMockResponsesResponse(model string, metadata map[string]any, parallelT
 // input may be:
 //   - a JSON string (single user message)
 //   - an array of items, where each item is either:
-//       - {type:"message", role:"user"|"assistant"|"system", content: string | content_parts}
-//       - {type:"function_call", call_id, name, arguments}
-//       - {type:"function_call_output", call_id, output}
+//   - {type:"message", role:"user"|"assistant"|"system", content: string | content_parts}
+//   - {type:"function_call", call_id, name, arguments}
+//   - {type:"function_call_output", call_id, output}
 func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([]OpenAIMessage, error) {
 	var msgs []OpenAIMessage
 	if instructions != "" {

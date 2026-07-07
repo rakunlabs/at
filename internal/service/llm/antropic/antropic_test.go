@@ -257,6 +257,62 @@ func stringIndex(s, sub string) int {
 	return -1
 }
 
+// TestBuildRequestBodyWebSearchServerTool verifies the synthetic
+// `web_search` tool name is converted into Anthropic's server-side
+// web_search_20250305 tool (and deduplicated), while regular tools keep
+// the custom {name, description, input_schema} shape.
+func TestBuildRequestBodyWebSearchServerTool(t *testing.T) {
+	p := &Provider{MaxTokens: 1024}
+
+	msgs := []service.Message{{Role: "user", Content: "what happened today?"}}
+	tools := []service.Tool{
+		{Name: "web_search", Description: "search the web", InputSchema: map[string]any{"type": "object"}},
+		{Name: "__web_search", Description: "dup marker", InputSchema: map[string]any{"type": "object"}},
+		{Name: "get_time", Description: "clock", InputSchema: map[string]any{"type": "object"}},
+	}
+
+	body := p.buildRequestBody("claude-sonnet-4-20250514", msgs, tools, nil)
+
+	rawTools, ok := body["tools"].([]map[string]any)
+	if !ok {
+		t.Fatalf("tools has unexpected type %T", body["tools"])
+	}
+	if len(rawTools) != 2 {
+		t.Fatalf("expected 2 tools (server tool deduped + get_time), got %d: %+v", len(rawTools), rawTools)
+	}
+
+	server := rawTools[0]
+	if server["type"] != "web_search_20250305" || server["name"] != "web_search" {
+		t.Errorf("expected server web_search tool first, got %+v", server)
+	}
+	if _, has := server["input_schema"]; has {
+		t.Errorf("server tool must not carry input_schema: %+v", server)
+	}
+
+	custom := rawTools[1]
+	if custom["name"] != "get_time" {
+		t.Errorf("expected custom tool get_time, got %+v", custom)
+	}
+	if _, has := custom["input_schema"]; !has {
+		t.Errorf("custom tool must carry input_schema: %+v", custom)
+	}
+}
+
+func TestIsAnthropicBuiltinSearchName(t *testing.T) {
+	yes := []string{"web_search", "WEB_SEARCH", " __web_search ", "websearch"}
+	no := []string{"", "google_search", "search_web", "web_searcher"}
+	for _, n := range yes {
+		if !isAnthropicBuiltinSearchName(n) {
+			t.Errorf("expected %q to be a builtin search name", n)
+		}
+	}
+	for _, n := range no {
+		if isAnthropicBuiltinSearchName(n) {
+			t.Errorf("expected %q NOT to be a builtin search name", n)
+		}
+	}
+}
+
 // TestConvertContentHandlesRawAnySlice ensures a []any containing raw
 // service.ContentBlock structs (e.g. produced by a future code path) is
 // normalized so tool_use blocks still carry an "input" field.

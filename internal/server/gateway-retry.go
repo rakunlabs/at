@@ -196,6 +196,16 @@ func classifyGatewayError(err error) (int, map[string]any) {
 		return status, body
 	}
 
+	if errors.Is(err, service.ErrUnsupportedOperation) {
+		return http.StatusNotImplemented, map[string]any{
+			"error": map[string]any{
+				"message": err.Error(),
+				"type":    "invalid_request_error",
+				"code":    "unsupported_operation",
+			},
+		}
+	}
+
 	return http.StatusBadGateway, map[string]any{
 		"error": map[string]any{
 			"message": fmt.Sprintf("provider error: %v", err),

@@ -390,9 +390,10 @@ func (p *Provider) GenerateAudio(ctx context.Context, req service.AudioGenerateR
 	}, nil
 }
 
-// TranscribeAudio is not supported by MiniMax. Returns an error.
+// TranscribeAudio is not supported by MiniMax. Returns a typed error the
+// gateway maps to HTTP 501 unsupported_operation.
 func (p *Provider) TranscribeAudio(_ context.Context, _ service.AudioTranscribeRequest) (*service.AudioTranscribeResponse, error) {
-	return nil, fmt.Errorf("minimax does not support speech-to-text")
+	return nil, fmt.Errorf("minimax does not support speech-to-text: %w", service.ErrUnsupportedOperation)
 }
 
 // ─── String helpers ───

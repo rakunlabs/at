@@ -444,7 +444,7 @@ var builtinTools = []builtinToolDef{
 				"type":        "object",
 				"description": "LLMConfig",
 				"properties": map[string]any{
-					"type":          map[string]any{"type": "string", "description": "Adapter type", "enum": []string{"openai", "anthropic", "gemini", "minimax", "vertex"}},
+					"type":          map[string]any{"type": "string", "description": "Adapter type", "enum": service.SupportedProviderTypes},
 					"api_key":       map[string]any{"type": "string", "description": "Provider API key (stored encrypted)"},
 					"base_url":      map[string]any{"type": "string", "description": "Override base URL (e.g. for OpenAI-compatible self-hosted endpoints)"},
 					"model":         map[string]any{"type": "string", "description": "Default model ID (returned as 'default_model' in read responses)"},

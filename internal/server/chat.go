@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-
-	"github.com/rakunlabs/at/internal/service"
 )
 
 // AdminChatCompletions handles POST /api/v1/chat/completions.
@@ -79,19 +77,10 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	// Translate tools
 	tools := translateOpenAITools(req.Tools)
 
-	// Translate messages based on provider type
-	var messages []service.Message
-
-	switch providerType {
-	case "anthropic", "minimax":
-		var systemPrompt string
-		systemPrompt, messages = translateOpenAIToAnthropic(req.Messages)
-		if systemPrompt != "" {
-			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
-		}
-	default:
-		messages = translateOpenAIMessages(req.Messages, s.lookupThoughtSignature)
-	}
+	// Translate messages based on provider type. buildProviderMessages is
+	// the single source of truth (it also covers bedrock, which needs the
+	// Anthropic-style content-block shape so system prompts survive).
+	messages, _ := s.buildProviderMessages(providerType, req.Messages, nil)
 
 	// Build per-request generation options from the client request.
 	opts := buildChatOptions(&req)

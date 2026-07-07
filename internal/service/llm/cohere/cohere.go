@@ -10,6 +10,7 @@ package cohere
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -69,7 +70,10 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 			t.Proxy = http.ProxyURL(u)
 		}
 		if insecureSkipVerify {
-			t.TLSClientConfig = nil
+			if t.TLSClientConfig == nil {
+				t.TLSClientConfig = &tls.Config{} //nolint:gosec // operator opt-in
+			}
+			t.TLSClientConfig.InsecureSkipVerify = true
 		}
 		httpClient.Transport = t
 	}
@@ -137,22 +141,23 @@ func (p *Provider) doJSON(ctx context.Context, method, path string, body any, ou
 // ─── Chat ───
 
 type chatRequest struct {
-	Model       string         `json:"model"`
-	Messages    []chatMessage  `json:"messages"`
-	Tools       []chatTool     `json:"tools,omitempty"`
-	Temperature *float64       `json:"temperature,omitempty"`
-	P           *float64       `json:"p,omitempty"`
-	MaxTokens   *int           `json:"max_tokens,omitempty"`
-	StopSeq     []string       `json:"stop_sequences,omitempty"`
-	Seed        *int           `json:"seed,omitempty"`
-	Extra       map[string]any `json:"-"`
+	Model          string        `json:"model"`
+	Messages       []chatMessage `json:"messages"`
+	Tools          []chatTool    `json:"tools,omitempty"`
+	Temperature    *float64      `json:"temperature,omitempty"`
+	P              *float64      `json:"p,omitempty"`
+	MaxTokens      *int          `json:"max_tokens,omitempty"`
+	StopSeq        []string      `json:"stop_sequences,omitempty"`
+	Seed           *int          `json:"seed,omitempty"`
+	ToolChoice     string        `json:"tool_choice,omitempty"`
+	ResponseFormat any           `json:"response_format,omitempty"`
 }
 
 type chatMessage struct {
-	Role      string             `json:"role"`
-	Content   any                `json:"content,omitempty"`
-	ToolCalls []chatToolCall     `json:"tool_calls,omitempty"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
+	Role       string         `json:"role"`
+	Content    any            `json:"content,omitempty"`
+	ToolCalls  []chatToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string         `json:"tool_call_id,omitempty"`
 }
 
 type chatTool struct {
@@ -225,6 +230,8 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			body.StopSeq = opts.Stop
 		}
 		body.Seed = opts.Seed
+		body.ToolChoice = translateCohereToolChoice(opts.ToolChoice)
+		body.ResponseFormat = translateCohereResponseFormat(opts.ResponseFormat)
 	}
 	for _, t := range tools {
 		ct := chatTool{Type: "function"}
@@ -336,6 +343,57 @@ func translateMessagesToCohere(messages []service.Message) []chatMessage {
 		out = append(out, cm)
 	}
 	return out
+}
+
+// translateCohereToolChoice maps an OpenAI-style tool_choice to Cohere's
+// v2/chat vocabulary. Cohere only supports "REQUIRED" and "NONE"; "auto" is
+// the default (omitted). Forcing a *specific* tool is not supported — the
+// closest behaviour is REQUIRED (the model must call some tool).
+func translateCohereToolChoice(v any) string {
+	switch x := v.(type) {
+	case string:
+		switch strings.ToLower(strings.TrimSpace(x)) {
+		case "required", "any":
+			return "REQUIRED"
+		case "none":
+			return "NONE"
+		}
+	case map[string]any:
+		t, _ := x["type"].(string)
+		switch strings.ToLower(t) {
+		case "function":
+			return "REQUIRED"
+		case "any", "required":
+			return "REQUIRED"
+		case "none":
+			return "NONE"
+		}
+	}
+	return ""
+}
+
+// translateCohereResponseFormat maps an OpenAI-style response_format to
+// Cohere's v2/chat shape: {"type":"json_object","schema":{...}}.
+func translateCohereResponseFormat(rf map[string]any) any {
+	if len(rf) == 0 {
+		return nil
+	}
+	t, _ := rf["type"].(string)
+	switch t {
+	case "json_object":
+		return map[string]any{"type": "json_object"}
+	case "json_schema":
+		out := map[string]any{"type": "json_object"}
+		if js, ok := rf["json_schema"].(map[string]any); ok {
+			if schema, ok := js["schema"].(map[string]any); ok {
+				out["schema"] = schema
+			}
+		}
+		return out
+	case "text":
+		return map[string]any{"type": "text"}
+	}
+	return nil
 }
 
 // marshalCohereWithExtra marshals the typed chatRequest and merges

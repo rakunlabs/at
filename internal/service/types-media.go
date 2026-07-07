@@ -1,6 +1,15 @@
 package service
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+// ErrUnsupportedOperation is returned by providers that implement a media
+// interface only partially (e.g. MiniMax implements AudioProvider for TTS
+// but not STT). The gateway maps it to HTTP 501 `unsupported_operation`
+// instead of a generic 502 provider error.
+var ErrUnsupportedOperation = errors.New("operation not supported by provider")
 
 // ─── Media Provider Interfaces ───
 //

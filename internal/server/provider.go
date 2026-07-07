@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -192,6 +193,10 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "config.type is required", http.StatusBadRequest)
 		return
 	}
+	if !service.IsSupportedProviderType(req.Config.Type) {
+		httpResponse(w, fmt.Sprintf("unsupported config.type %q (supported: %s)", req.Config.Type, strings.Join(service.SupportedProviderTypes, ", ")), http.StatusBadRequest)
+		return
+	}
 
 	if msg := validateRateLimitConfig(req.Config.RateLimit); msg != "" {
 		httpResponse(w, msg, http.StatusBadRequest)
@@ -252,6 +257,10 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 
 	if req.Config.Type == "" {
 		httpResponse(w, "config.type is required", http.StatusBadRequest)
+		return
+	}
+	if !service.IsSupportedProviderType(req.Config.Type) {
+		httpResponse(w, fmt.Sprintf("unsupported config.type %q (supported: %s)", req.Config.Type, strings.Join(service.SupportedProviderTypes, ", ")), http.StatusBadRequest)
 		return
 	}
 
