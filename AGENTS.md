@@ -168,6 +168,17 @@ upstream OpenAI when none of them are present.
 
 LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
 
+## LLM Call Audit (tracing)
+
+Langfuse-style request/response tracing for gateway LLM traffic, gated by the `llm_audit` feature flag (default ON, toggle on the Features page). This is separate from `cost_events` (per-call metrics) and `audit_log` (agent-action log): it stores the **full request and response bodies** of every upstream provider call.
+
+- **Model**: `service.LLMCall` (`internal/service/types-llmcall.go`) + `LLMCallStorer`. Table `llm_calls` (migration `21_llm_calls.sql`, both backends). One row per upstream call — each `at_fallbacks` attempt is its own row, correlated by `trace_id`. Fields: trace/session IDs, source (`gateway` / `gateway_stream` / `responses` / `chat`), endpoint, token/agent/task/run/org attribution, provider+model+requested_model, full request/response bodies, token buckets (incl. reasoning), cost_cents, latency_ms, time_to_first_token_ms (streaming), status/error, finish_reason, user_field.
+- **Recorder**: `Server.recordLLMCallAsync` (`internal/server/llm-audit.go`) — fire-and-forget, feature-gated (30s cached toggle in `Server.llmAudit`). Bodies over `LLMCallBodyMaxBytes` (256 KB) are truncated inline and the full payload is spilled to `<WorkspaceRoot>/.at-llm-audit/<yyyy-mm-dd>/<id>-<request|response>.json` (path in `request_ref`/`response_ref`; `GetLLMCall` rehydrates from disk). List queries clip bodies to `LLMCallPreviewBytes` (2 KB) via a `substr()` projection; the detail endpoint returns full bodies.
+- **Hooks**: gateway `ChatCompletions` (sync success/error, true-streaming success/mid-stream-error/open-error with reconstructed response, fake-streaming success/error) and `Responses` (non-streaming). The admin `AdminChatCompletions` streaming path records with source `chat`. Streaming reconstructs a single OpenAI-shape response from accumulated deltas (`streamAuditResponseBody`). Raw request bytes are captured pre-decode so the stored request is byte-faithful. Clients can set `x-at-trace-id` / `x-at-session-id` to stitch multi-turn conversations.
+- **Hybrid OTEL export**: `emitLLMSpan` emits a completed OTEL span per call using gen-ai semantic conventions (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.prompt`/`gen_ai.completion`) plus Langfuse dimensions (`langfuse.trace.id`, `langfuse.session.id`, `langfuse.observation.type=generation`). Goes to whatever OTLP collector `tell` wires as the global tracer provider (e.g. a self-hosted Langfuse); no-op when telemetry is off.
+- **Retention**: `startLLMAuditJanitor` (`internal/server/llm-audit-janitor.go`) sweeps rows + spill dirs older than `LLMCallRetention` (7d) hourly.
+- **API/UI**: `GET /api/v1/llm-calls` (list, newest-first, filters via `rakunlabs/query`) + `GET /api/v1/llm-calls/{id}` (full record). UI: `_ui/src/pages/LLMCalls.svelte` (route `/llm-calls`, "LLM Traces" sidebar link) — filterable table + slide-over drawer with pretty-printed request/response JSON and copy buttons.
+
 ## Connections & Connectors
 
 External-service credentials are modeled in two layers:

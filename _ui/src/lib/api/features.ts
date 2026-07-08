@@ -10,6 +10,7 @@ export const FEATURE_RAG = 'rag';
 export const FEATURE_FILES = 'files';
 export const FEATURE_CONNECTIONS = 'connections_integrations';
 export const FEATURE_ORGANIZATION_WORKFLOWS = 'organization_workflows';
+export const FEATURE_LLM_AUDIT = 'llm_audit';
 
 export interface Feature {
   key: string;

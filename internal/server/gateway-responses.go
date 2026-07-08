@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -161,8 +162,9 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	rawBody, _ := io.ReadAll(r.Body)
 	var req responsesRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(rawBody, &req); err != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("invalid request body: %v", err),
@@ -171,6 +173,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusBadRequest)
 		return
 	}
+	traceID, sessionID := auditTraceInfo(r)
 
 	if req.PreviousResponseID != "" {
 		httpResponseJSON(w, map[string]any{
@@ -318,6 +321,13 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("responses provider call failed",
 			"attempt", i, "provider", target.providerKey, "model", target.actualModel, "error", err)
 		s.recordUsageAsync(r.Context(), auth, target.fullModel, service.Usage{}, totalLatency, "error", classifyHTTPError(err), err.Error())
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: "responses", endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, requestedModel: req.Model, fullModel: target.fullModel,
+			latencyMs: totalLatency, status: "error",
+			errCode: classifyHTTPError(err), errMsg: err.Error(),
+		})
 		if !shouldFallback(err) {
 			break
 		}
@@ -336,6 +346,16 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 	s.cacheThoughtSignatures(resp.ToolCalls)
 	out := buildResponsesResponse(used.fullModel, req.Metadata, req.ParallelToolCalls, resp)
 	s.recordUsageAsync(r.Context(), auth, used.fullModel, resp.Usage, totalLatency, "ok", "", "")
+	if respBody, mErr := json.Marshal(out); mErr == nil {
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: "responses", endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, responseBody: respBody,
+			requestedModel: req.Model, fullModel: used.fullModel,
+			usage: resp.Usage, latencyMs: totalLatency, status: "ok",
+			finishReason: normalizeFinishReason(resp),
+		})
+	}
 	httpResponseJSON(w, out, http.StatusOK)
 }
 

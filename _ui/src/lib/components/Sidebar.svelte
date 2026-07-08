@@ -305,6 +305,21 @@
         <span>Usage</span>
       </a>
     {/if}
+    {#if isFeatureEnabled("llm_audit")}
+      <a
+        href="#/llm-calls"
+        onclick={(e) => navigate(e, "/llm-calls")}
+        class={[
+          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+          $location === "/llm-calls"
+            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+        ]}
+      >
+        <Activity size={14} />
+        <span>LLM Traces</span>
+      </a>
+    {/if}
     {#if isFeatureEnabled("provider_setup")}
       <a
         href="#/pricing"

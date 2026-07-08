@@ -266,6 +266,15 @@ type Server struct {
 	// featureStore is the persistent store for runtime feature toggles.
 	featureStore service.FeatureSettingStorer
 
+	// llmCallStore is the persistent store for the LLM call audit log
+	// (full request/response bodies, Langfuse-style tracing). Gated by
+	// the llm_audit feature flag.
+	llmCallStore service.LLMCallStorer
+
+	// llmAudit caches the llm_audit feature toggle so the per-call hot
+	// path avoids a DB read on every gateway request.
+	llmAudit llmAuditCache
+
 	// builtinConnectors holds the embedded connector definitions loaded at
 	// startup from connectors/*.json. Merged with connectorStore rows at runtime.
 	builtinConnectors []service.Connector
@@ -449,6 +458,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		connectionStore:          store,
 		connectorStore:           store,
 		featureStore:             store,
+		llmCallStore:             store,
 
 		marketplaceClient: &http.Client{Timeout: 10 * time.Second},
 		providerFactory:   factory,
@@ -519,6 +529,10 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// video pipeline + tool-output dumps would otherwise fill /tmp.
 	// TTL is loopgov.Config.WorkspaceTTL (default 24h, < 0 disables).
 	s.startWorkspaceJanitor(ctx)
+
+	// Start the LLM audit janitor: prunes llm_calls rows and spilled
+	// request/response bodies older than LLMCallRetention (default 7d).
+	s.startLLMAuditJanitor(ctx)
 
 	// Initialize RAG service if collection store is available.
 	{
@@ -948,6 +962,10 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/usage/grouped", s.GetUsageGroupedAPI)
 	apiGroup.GET("/v1/usage/timeseries", s.GetUsageTimeSeriesAPI)
 	apiGroup.GET("/v1/usage/budgets", s.GetUsageBudgetsAPI)
+
+	// LLM call audit (full request/response bodies, Langfuse-style tracing)
+	apiGroup.GET("/v1/llm-calls", s.ListLLMCallsAPI)
+	apiGroup.GET("/v1/llm-calls/{id}", s.GetLLMCallAPI)
 
 	// Chat session management
 	apiGroup.GET("/v1/chat/sessions", s.ListChatSessionsAPI)

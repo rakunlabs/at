@@ -127,6 +127,12 @@ var featureDefinitions = []featureDefinition{
 		Description: "Show and enable organizations, org-agent membership, task delegation, goals, projects, approvals, labels, comments, and cost event screens.",
 		Group:       "operations",
 	},
+	{
+		Key:         service.FeatureLLMAudit,
+		Name:        "LLM Call Audit",
+		Description: "Record full request/response bodies of every gateway LLM call for tracing and debugging (Langfuse-style). Emits OTEL gen-ai spans when telemetry is configured. Bodies are retained for 7 days. Disable to stop capturing request/response content.",
+		Group:       "operations",
+	},
 }
 
 func featureDefinitionForKey(key string) (featureDefinition, bool) {
@@ -402,6 +408,8 @@ func featureKeysForAPIRequest(path, method, basePath string) []string {
 		strings.HasPrefix(apiPath, "/labels") || strings.HasPrefix(apiPath, "/approvals") ||
 		strings.HasPrefix(apiPath, "/cost-events"):
 		return []string{service.FeatureOrganizationWorkflows}
+	case strings.HasPrefix(apiPath, "/llm-calls"):
+		return []string{service.FeatureLLMAudit}
 	default:
 		return nil
 	}

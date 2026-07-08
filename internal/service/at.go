@@ -81,6 +81,7 @@ type Storer interface {
 	ConnectionStorer
 	ConnectorStorer
 	FeatureSettingStorer
+	LLMCallStorer
 }
 
 // Marketplace groups Skills and MCP Servers into one Claude Code

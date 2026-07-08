@@ -82,6 +82,7 @@ type Postgres struct {
 	tableConnections          exp.IdentifierExpression
 	tableConnectors           exp.IdentifierExpression
 	tableFeatureSettings      exp.IdentifierExpression
+	tableLLMCalls             exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -225,6 +226,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableConnections:          goqu.T(tablePrefix + "connections"),
 		tableConnectors:           goqu.T(tablePrefix + "connectors"),
 		tableFeatureSettings:      goqu.T(tablePrefix + "feature_settings"),
+		tableLLMCalls:             goqu.T(tablePrefix + "llm_calls"),
 		encKey:                    encKey,
 	}, nil
 }

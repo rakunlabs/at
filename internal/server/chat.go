@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 )
@@ -12,9 +13,11 @@ import (
 // Unlike the gateway endpoint, it does not require Bearer token auth — it is
 // protected by ForwardAuth (if configured), same as all other admin routes.
 func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
-	// Parse request (same format as gateway)
+	// Parse request (same format as gateway). Capture the raw bytes first
+	// so the LLM audit log can persist the exact request.
+	rawBody, _ := io.ReadAll(r.Body)
 	var req ChatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(rawBody, &req); err != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("invalid request body: %v", err),
@@ -23,6 +26,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusBadRequest)
 		return
 	}
+	traceID, sessionID := auditTraceInfo(r)
 
 	// Parse model: "provider_key/actual_model"
 	providerKey, actualModel, err := parseModelID(req.Model)
@@ -86,7 +90,12 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	opts := buildChatOptions(&req)
 
 	if req.Stream {
-		s.handleStreamingChat(w, r, nil, info.provider, info.RetryAfterCap(), providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts)
+		audit := streamAuditCtx{
+			endpoint: r.URL.Path, source: "chat",
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, requestedModel: req.Model,
+		}
+		s.handleStreamingChat(w, r, nil, info.provider, info.RetryAfterCap(), providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts, audit)
 		return
 	}
 

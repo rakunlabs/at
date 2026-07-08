@@ -27,6 +27,7 @@ import Webhooks from '@/pages/Webhooks.svelte';
 import Crons from '@/pages/Crons.svelte';
 import Audit from '@/pages/Audit.svelte';
 import CostEvents from '@/pages/CostEvents.svelte';
+import LLMCalls from '@/pages/LLMCalls.svelte';
 import Usage from '@/pages/Usage.svelte';
 import Pricing from '@/pages/Pricing.svelte';
 import Connections from '@/pages/Connections.svelte';
@@ -44,6 +45,7 @@ import {
   FEATURE_ORGANIZATION_WORKFLOWS,
   FEATURE_PROVIDER_SETUP,
   FEATURE_RAG,
+  FEATURE_LLM_AUDIT,
 } from '@/lib/api/features';
 
 function guarded(component: any, feature: string) {
@@ -105,6 +107,7 @@ export default {
   '/tasks/:id': guarded(TaskDetail, FEATURE_ORGANIZATION_WORKFLOWS),
   '/audit': Audit,
   '/cost-events': guarded(CostEvents, FEATURE_ORGANIZATION_WORKFLOWS),
+  '/llm-calls': guarded(LLMCalls, FEATURE_LLM_AUDIT),
   '/usage': guarded(Usage, FEATURE_PROVIDER_SETUP),
   '/pricing': guarded(Pricing, FEATURE_PROVIDER_SETUP),
   '/files': guarded(Files, FEATURE_FILES),

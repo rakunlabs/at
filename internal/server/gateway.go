@@ -122,9 +122,12 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		respW = cap
 	}
 
-	// Parse request
+	// Parse request. We read the raw body first so the LLM audit log can
+	// persist the exact bytes the client sent (Langfuse-style), then
+	// unmarshal from the captured buffer.
+	rawBody, _ := io.ReadAll(r.Body)
 	var req ChatCompletionRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.Unmarshal(rawBody, &req); err != nil {
 		httpResponseJSON(respW, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("invalid request body: %v", err),
@@ -134,6 +137,9 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		s.maybeStoreIdempotent(idempKey, cap, w)
 		return
 	}
+
+	// Trace/session correlation for the audit log.
+	traceID, sessionID := auditTraceInfo(r)
 
 	// B3: mock_response short-circuit. No provider lookup, no auth model
 	// access checks beyond the basic token guard — the whole point of
@@ -216,8 +222,13 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		target := chain[0]
 		messages, tools := s.buildProviderMessages(target.info.providerType, req.Messages, req.Tools)
 		opts := cloneChatOptions(baseOpts)
+		audit := streamAuditCtx{
+			auth: auth, endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, requestedModel: req.Model,
+		}
 		s.handleStreamingChat(w, r.WithContext(callCtx), auth, target.info.provider, target.info.RetryAfterCap(),
-			target.providerKey, target.actualModel, target.fullModel, messages, tools, req.StreamOptions, opts)
+			target.providerKey, target.actualModel, target.fullModel, messages, tools, req.StreamOptions, opts, audit)
 		return
 	}
 
@@ -251,6 +262,13 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		slog.Warn("provider chat failed",
 			"attempt", i, "provider", target.providerKey, "model", target.actualModel, "error", err)
 		s.recordUsageAsync(r.Context(), auth, target.fullModel, service.Usage{}, totalLatency, "error", classifyHTTPError(err), err.Error())
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: "gateway", endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, requestedModel: req.Model, fullModel: target.fullModel,
+			latencyMs: totalLatency, status: "error",
+			errCode: classifyHTTPError(err), errMsg: err.Error(),
+		})
 		if !shouldFallback(err) {
 			break
 		}
@@ -282,6 +300,16 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.recordUsageAsync(r.Context(), auth, used.fullModel, resp.Usage, totalLatency, "ok", "", "")
+	if respBody, err := json.Marshal(chatResp); err == nil {
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: "gateway", endpoint: r.URL.Path,
+			traceID: traceID, sessionID: sessionID, userField: req.User,
+			requestBody: rawBody, responseBody: respBody,
+			requestedModel: req.Model, fullModel: used.fullModel,
+			usage: resp.Usage, latencyMs: totalLatency, status: "ok",
+			finishReason: chatRespFinishReason(chatResp),
+		})
+	}
 	httpResponseJSON(respW, chatResp, http.StatusOK)
 	s.maybeStoreIdempotent(idempKey, cap, w)
 }
@@ -684,6 +712,7 @@ func (s *Server) handleStreamingChat(
 	tools []service.Tool,
 	streamOpts *StreamOptions,
 	opts *service.ChatOptions,
+	audit streamAuditCtx,
 ) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
@@ -732,6 +761,13 @@ func (s *Server) handleStreamingChat(
 			// Record the failed call for the usage dashboard.
 			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{},
 				time.Since(streamStart).Milliseconds(), "error", classifyHTTPError(err), err.Error())
+			s.recordLLMCallAsync(r.Context(), llmAuditParams{
+				auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
+				traceID: audit.traceID, sessionID: audit.sessionID, userField: audit.userField,
+				requestBody: audit.requestBody, requestedModel: audit.requestedModel, fullModel: fullModel,
+				latencyMs: time.Since(streamStart).Milliseconds(), streamed: true, status: "error",
+				errCode: classifyHTTPError(err), errMsg: err.Error(),
+			})
 			slog.Error("provider stream failed", "provider", providerKey, "error", err)
 			// SSE headers haven't been committed yet (only set on the
 			// ResponseWriter, not flushed), so we can still emit a
@@ -766,9 +802,26 @@ func (s *Server) handleStreamingChat(
 		// final chunk or as a separate usage-only chunk).
 		var streamUsage *service.Usage
 
+		// Accumulate the reconstructed assistant turn for the audit log.
+		var (
+			auditContent   strings.Builder
+			auditReasoning strings.Builder
+			auditToolCalls []service.ToolCall
+			auditFinish    string
+			ttftMs         int64
+		)
+
 		for chunk := range chunks {
 			if chunk.Error != nil {
 				slog.Error("stream chunk error", "provider", providerKey, "error", chunk.Error)
+				s.recordLLMCallAsync(r.Context(), llmAuditParams{
+					auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
+					traceID: audit.traceID, sessionID: audit.sessionID, userField: audit.userField,
+					requestBody: audit.requestBody, requestedModel: audit.requestedModel, fullModel: fullModel,
+					responseBody: streamAuditResponseBody(chatID, fullModel, auditContent.String(), auditReasoning.String(), auditToolCalls, "error", streamUsage),
+					usage:        usageOrZero(streamUsage), latencyMs: time.Since(streamStart).Milliseconds(), ttftMs: ttftMs,
+					streamed: true, status: "error", errCode: "provider_error", errMsg: fmt.Sprintf("%v", chunk.Error),
+				})
 				writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("stream error: %v", chunk.Error))
 				return
 			}
@@ -777,6 +830,19 @@ func (s *Server) handleStreamingChat(
 			if chunk.Usage != nil {
 				usage := *chunk.Usage
 				streamUsage = &usage
+			}
+
+			// Accumulate the assistant turn for the audit reconstruction.
+			if ttftMs == 0 && (chunk.Content != "" || chunk.ReasoningContent != "" || len(chunk.ToolCalls) > 0) {
+				ttftMs = time.Since(streamStart).Milliseconds()
+			}
+			auditContent.WriteString(chunk.Content)
+			auditReasoning.WriteString(chunk.ReasoningContent)
+			if len(chunk.ToolCalls) > 0 {
+				auditToolCalls = append(auditToolCalls, chunk.ToolCalls...)
+			}
+			if chunk.FinishReason != "" {
+				auditFinish = mapStreamFinishReason(chunk.FinishReason, len(chunk.ToolCalls) > 0)
 			}
 
 			// Usage-only chunks (no content, no tool calls, no finish reason)
@@ -865,6 +931,14 @@ func (s *Server) handleStreamingChat(
 		if streamUsage != nil {
 			s.recordUsageAsync(r.Context(), auth, fullModel, *streamUsage, time.Since(streamStart).Milliseconds(), "ok", "", "")
 		}
+		s.recordLLMCallAsync(r.Context(), llmAuditParams{
+			auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
+			traceID: audit.traceID, sessionID: audit.sessionID, userField: audit.userField,
+			requestBody: audit.requestBody, requestedModel: audit.requestedModel, fullModel: fullModel,
+			responseBody: streamAuditResponseBody(chatID, fullModel, auditContent.String(), auditReasoning.String(), auditToolCalls, auditFinish, streamUsage),
+			usage:        usageOrZero(streamUsage), latencyMs: time.Since(streamStart).Milliseconds(), ttftMs: ttftMs,
+			streamed: true, status: "ok", finishReason: auditFinish,
+		})
 	} else {
 		// Fallback: fake streaming via non-streaming Chat call. Same
 		// retry semantics as the non-streaming path above — bounded
@@ -880,6 +954,13 @@ func (s *Server) handleStreamingChat(
 		fakeLatencyMs := time.Since(callStart).Milliseconds()
 		if err != nil {
 			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{}, fakeLatencyMs, "error", classifyHTTPError(err), err.Error())
+			s.recordLLMCallAsync(r.Context(), llmAuditParams{
+				auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
+				traceID: audit.traceID, sessionID: audit.sessionID, userField: audit.userField,
+				requestBody: audit.requestBody, requestedModel: audit.requestedModel, fullModel: fullModel,
+				latencyMs: fakeLatencyMs, streamed: true, status: "error",
+				errCode: classifyHTTPError(err), errMsg: err.Error(),
+			})
 			slog.Error("provider chat failed", "provider", providerKey, "error", err)
 			status, body := classifyGatewayError(err)
 			addGatewayRateLimitHeaders(w, err)
@@ -982,6 +1063,16 @@ func (s *Server) handleStreamingChat(
 
 		// Fire-and-forget usage recording for DB tokens (fake streaming).
 		s.recordUsageAsync(r.Context(), auth, fullModel, resp.Usage, fakeLatencyMs, "ok", "", "")
+		if respBody, mErr := json.Marshal(buildOpenAIResponse(chatID, fullModel, resp)); mErr == nil {
+			s.recordLLMCallAsync(r.Context(), llmAuditParams{
+				auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
+				traceID: audit.traceID, sessionID: audit.sessionID, userField: audit.userField,
+				requestBody: audit.requestBody, responseBody: respBody,
+				requestedModel: audit.requestedModel, fullModel: fullModel,
+				usage: resp.Usage, latencyMs: fakeLatencyMs, streamed: true, status: "ok",
+				finishReason: normalizeFinishReason(resp),
+			})
+		}
 	}
 
 	// End the stream
