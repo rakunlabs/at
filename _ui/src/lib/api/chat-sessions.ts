@@ -72,8 +72,21 @@ export async function clearChatMessages(sessionId: string): Promise<void> {
   await api.delete(`/chat/sessions/${sessionId}/messages`);
 }
 
-export async function listChatMessages(sessionId: string): Promise<ChatMessage[]> {
-  const res = await api.get<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`);
+export interface ListChatMessagesOptions {
+  /** Return only the most recent N messages (chronological order). */
+  limit?: number;
+  /** Page messages strictly older than this message ID (scroll-up lazy load). */
+  beforeId?: string;
+}
+
+export async function listChatMessages(
+  sessionId: string,
+  opts?: ListChatMessagesOptions
+): Promise<ChatMessage[]> {
+  const params: Record<string, string | number> = {};
+  if (opts?.limit) params.limit = opts.limit;
+  if (opts?.beforeId) params.before_id = opts.beforeId;
+  const res = await api.get<ChatMessage[]>(`/chat/sessions/${sessionId}/messages`, { params });
   return res.data;
 }
 

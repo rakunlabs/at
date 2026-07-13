@@ -101,6 +101,8 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execTaskAddComment(ctx, args)
 	case "task_process":
 		return s.execTaskProcess(ctx, args)
+	case "task_wait":
+		return s.execTaskWait(ctx, args)
 	case "task_current":
 		return s.execTaskCurrent(ctx, args)
 	case "task_children":
@@ -115,6 +117,14 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execTaskComplete(ctx, args)
 	case "task_block":
 		return s.execTaskBlock(ctx, args)
+
+	// LLM trace and observation tools.
+	case "llm_trace_list":
+		return s.execLLMTraceList(ctx, args)
+	case "llm_trace_get":
+		return s.execLLMTraceGet(ctx, args)
+	case "llm_observation_get":
+		return s.execLLMObservationGet(ctx, args)
 
 	// Organization tools.
 	case "org_create":

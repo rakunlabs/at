@@ -136,7 +136,7 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		reg.ChatSessionLookup,
 		reg.RecordUsage,
 		reg.CheckBudget,
-		reg.RecordAudit,
+		reg.RecordObservation,
 		reg.GoalAncestry,
 		reg.VersionLookup,
 	)

@@ -322,10 +322,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Initialize store. Falls back to a default on-disk SQLite database
-	// (./data/at.db) if no backend is configured. The ./data/ directory
-	// is created on startup if missing, so Docker users can bind-mount a
-	// host volume to /data in a single step.
+	// Initialize store. Postgres is the only supported backend; startup
+	// fails with a descriptive error when store.postgres is not configured.
 	st, err := store.New(ctx, cfg.Store)
 	if err != nil {
 		return fmt.Errorf("failed to create store: %w", err)
@@ -351,12 +349,8 @@ func run(ctx context.Context) error {
 		slog.Debug("provider loaded from DB", "key", rec.Key, "type", rec.Config.Type)
 	}
 
-	// Determine store type for info API.
-	// The store is always either postgres or sqlite (default when unconfigured).
-	storeType := "sqlite"
-	if cfg.Store.Postgres != nil {
-		storeType = "postgres"
-	}
+	// Store type for the info API — postgres is the only backend.
+	storeType := "postgres"
 
 	// Initialize optional cluster (distributed coordination via alan).
 	cl, err := cluster.New(cfg.Server.Alan)

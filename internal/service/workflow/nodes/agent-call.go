@@ -2,10 +2,12 @@ package nodes
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/logi"
@@ -613,6 +615,12 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		baseLLMTools = append(baseLLMTools, skillRuntime.LoadSkillToolDef())
 	}
 
+	// Trace identity: one agent_call node run is one trace. The Registry
+	// does not carry the owning workflow's identity, so the session is
+	// left empty and the recorder's source ("workflow") plus agent
+	// attribution locate the run.
+	runTraceID := ulid.Make().String()
+
 	// The legacy 0 = unlimited semantics is no longer supported; the
 	// loop runs at most maxIterations times and the platform ceiling
 	// is enforced by the governor's ClampIterations above.
@@ -662,6 +670,27 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 						"agent_id", n.agentID, "error", usageErr)
 				}
 			}
+			// Observation: failed generation.
+			if reg.RecordObservation != nil {
+				reqJSON, _ := json.Marshal(map[string]any{"model": model, "messages": callMessages, "tools": llmTools})
+				reg.RecordObservation(ctx, service.LLMCall{
+					ObservationType: service.ObservationGeneration,
+					Source:          "workflow",
+					TraceID:         runTraceID,
+					AgentID:         n.agentID,
+					RunID:           runTraceID,
+					Provider:        providerKey,
+					Model:           model,
+					RequestedModel:  providerKey + "/" + model,
+					RequestBody:     string(reqJSON),
+					LatencyMs:       latencyMs,
+					Status:          "error",
+					Level:           service.ObservationLevelError,
+					ErrorCode:       classifyLLMError(err),
+					ErrorMessage:    err.Error(),
+					Metadata:        map[string]any{"iteration": iteration},
+				})
+			}
 			return nil, fmt.Errorf("agent_call: chat failed (iteration %d): %w", iteration, err)
 		}
 
@@ -678,6 +707,37 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				logi.Ctx(ctx).Warn("agent_call: failed to record usage",
 					"agent_id", n.agentID, "error", usageErr)
 			}
+		}
+
+		// Observation: completed generation. The returned ID parents this
+		// iteration's tool observations. Body capture gating (llm_audit
+		// feature) happens server-side in the recorder.
+		genObsID := ""
+		if reg.RecordObservation != nil {
+			reqJSON, _ := json.Marshal(map[string]any{"model": model, "messages": callMessages, "tools": llmTools})
+			respJSON, _ := json.Marshal(resp)
+			genObsID = reg.RecordObservation(ctx, service.LLMCall{
+				ObservationType: service.ObservationGeneration,
+				Source:          "workflow",
+				TraceID:         runTraceID,
+				AgentID:         n.agentID,
+				RunID:           runTraceID,
+				Provider:        providerKey,
+				Model:           model,
+				RequestedModel:  providerKey + "/" + model,
+				RequestBody:     string(reqJSON),
+				ResponseBody:    string(respJSON),
+				InputTokens:     int64(resp.Usage.PromptTokens),
+				OutputTokens:    int64(resp.Usage.CompletionTokens),
+				CacheReadTokens: int64(resp.Usage.CacheReadTokens),
+				ReasoningTokens: int64(resp.Usage.ReasoningTokens),
+				LatencyMs:       latencyMs,
+				Metadata: map[string]any{
+					"iteration":  iteration,
+					"finished":   resp.Finished,
+					"tool_calls": len(resp.ToolCalls),
+				},
+			})
 		}
 
 		// Build assistant message with content blocks.
@@ -852,29 +912,28 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 				result, _ = reg.LoopGov.TruncateToolResult(runID, tc.Name, result)
 			}
 
-			// Record audit entry for each tool call. Capture the input
-			// arguments and the post-truncation output so the workflow
-			// agent_call node leaves the same kind of trace as the
-			// org-delegation / chat-session loops.
-			if n.agentID != "" && reg.RecordAudit != nil {
-				auditDetails := map[string]any{
-					"tool_name": tc.Name,
-					"iteration": iteration,
-					"has_error": callErr != nil,
-					"input":     tc.Arguments,
-					"output":    service.TruncateForAudit(result),
+			// Observation: tool call, parented to this iteration's
+			// generation — the workflow agent_call node leaves the same
+			// kind of trace as the org-delegation / chat-session loops.
+			if reg.RecordObservation != nil {
+				level := service.ObservationLevelDefault
+				if callErr != nil {
+					level = service.ObservationLevelError
 				}
-				if auditErr := reg.RecordAudit(ctx, service.AuditEntry{
-					ActorType:    "agent",
-					ActorID:      n.agentID,
-					Action:       "tool_call",
-					ResourceType: "tool",
-					ResourceID:   tc.ID,
-					Details:      auditDetails,
-				}); auditErr != nil {
-					logi.Ctx(ctx).Warn("agent_call: failed to record audit",
-						"agent_id", n.agentID, "error", auditErr)
-				}
+				argsJSON, _ := json.Marshal(tc.Arguments)
+				reg.RecordObservation(ctx, service.LLMCall{
+					ObservationType:     service.ObservationTool,
+					ParentObservationID: genObsID,
+					Source:              "workflow",
+					Name:                tc.Name,
+					TraceID:             runTraceID,
+					AgentID:             n.agentID,
+					RunID:               runTraceID,
+					Input:               string(argsJSON),
+					Output:              result,
+					Level:               level,
+					Metadata:            map[string]any{"iteration": iteration},
+				})
 			}
 
 			toolResults = append(toolResults, service.ContentBlock{

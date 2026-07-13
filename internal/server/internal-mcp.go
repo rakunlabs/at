@@ -230,7 +230,7 @@ func (s *Server) listMCPSetTools(setName string) ([]service.Tool, error) {
 				slog.Warn("listMCPSetTools: failed to load workflow", "id", wfID, "error", err)
 				continue
 			}
-			tools = append(tools, workflowToolDef(wf))
+			tools = append(tools, s.activeWorkflowToolDef(context.Background(), wf))
 		}
 	}
 

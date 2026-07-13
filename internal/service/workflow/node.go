@@ -374,9 +374,11 @@ type Registry struct {
 	// Returns an error if the agent is over budget. nil when budget tracking is not configured.
 	CheckBudget CheckBudgetFunc
 
-	// RecordAudit appends an entry to the immutable audit log.
-	// Used by agent_call nodes to log tool calls and decisions. nil when audit is not configured.
-	RecordAudit RecordAuditFunc
+	// RecordObservation records a trace observation (generation, tool
+	// call, or event) into the unified LLM trace store, returning the
+	// observation ID so callers can parent follow-up observations.
+	// Used by agent_call nodes. nil when tracing is not configured.
+	RecordObservation RecordObservationFunc
 
 	// GoalAncestry returns the full goal chain for a given goal ID (for system prompt injection).
 	// nil when goal store is not configured.
@@ -533,8 +535,9 @@ type RecordUsageFunc func(ctx context.Context, event UsageEvent) error
 // Returns a non-nil error if the agent is over budget.
 type CheckBudgetFunc func(ctx context.Context, agentID string) error
 
-// RecordAuditFunc appends an entry to the immutable audit log.
-type RecordAuditFunc func(ctx context.Context, entry service.AuditEntry) error
+// RecordObservationFunc records a trace observation (a service.LLMCall of
+// any observation type) and returns its ID ("" when recording is off).
+type RecordObservationFunc func(ctx context.Context, obs service.LLMCall) string
 
 // GoalAncestryFunc returns the full goal chain from the given goal up to the root mission.
 type GoalAncestryFunc func(ctx context.Context, goalID string) ([]service.Goal, error)
@@ -567,7 +570,7 @@ type BuiltinToolDef struct {
 }
 
 // NewRegistry creates a new execution registry.
-func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc, inputs map[string]any) *Registry {
+func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc, inputs map[string]any) *Registry {
 	if inputs == nil {
 		inputs = make(map[string]any)
 	}
@@ -593,7 +596,7 @@ func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLo
 		BuiltinToolDefs:       builtinDefs,
 		RecordUsage:           recordUsage,
 		CheckBudget:           checkBudget,
-		RecordAudit:           recordAudit,
+		RecordObservation:     recordObservation,
 		GoalAncestry:          goalAncestry,
 		VersionLookup:         versionLookup,
 		RunInputs:             inputs,

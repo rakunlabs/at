@@ -1097,11 +1097,10 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 	// support caching, and reduces cost ~90% on repeated system prompts /
 	// tool definitions for models that do.
 	//
-	// Skip when:
-	//  - the operator explicitly disabled it,
-	//  - the OAuth path already manages cache_control itself, or
-	//  - the caller passed cache_control overrides via extra_body / system.
-	if !p.promptCachingDisabled && p.tokenSource == nil {
+	// Skip only when the operator explicitly disabled it. Claude Code OAuth
+	// enables prompt caching through a beta header, but still requires explicit
+	// cache_control breakpoints in the request body.
+	if !p.promptCachingDisabled {
 		installPromptCacheMarkers(reqBody)
 	}
 
@@ -1142,6 +1141,13 @@ func installPromptCacheMarkers(reqBody map[string]any) {
 				}
 			}
 		}
+	case []map[string]any:
+		if n := len(sys); n > 0 {
+			last := sys[n-1]
+			if _, has := last["cache_control"]; !has {
+				last["cache_control"] = cacheMark
+			}
+		}
 	}
 
 	// Tools: mark the last tool to cache the whole tool definition block.
@@ -1162,29 +1168,40 @@ func installPromptCacheMarkers(reqBody map[string]any) {
 	// Anthropic's prompt cache breakpoint hashes everything up to and
 	// including the marked block, so putting it on the last message
 	// caches the full conversation prefix for the next turn.
-	var msgs []service.Message
 	switch m := reqBody["messages"].(type) {
 	case []service.Message:
-		msgs = m
+		if len(m) == 0 {
+			return
+		}
+		markMessageContent(m[len(m)-1].Content, cacheMark, func(content any) {
+			m[len(m)-1].Content = content
+		})
+		reqBody["messages"] = m
 	case []any:
-		// Already coerced (OAuth path); skip — that path manages caching itself.
-		_ = m
-		return
+		if len(m) == 0 {
+			return
+		}
+		last, ok := m[len(m)-1].(map[string]any)
+		if !ok {
+			return
+		}
+		markMessageContent(last["content"], cacheMark, func(content any) {
+			last["content"] = content
+		})
 	default:
 		return
 	}
-	if len(msgs) == 0 {
-		return
-	}
-	lastIdx := len(msgs) - 1
-	switch c := msgs[lastIdx].Content.(type) {
+}
+
+func markMessageContent(content any, cacheMark map[string]any, set func(any)) {
+	switch c := content.(type) {
 	case string:
 		if c != "" {
-			msgs[lastIdx].Content = []any{map[string]any{
+			set([]any{map[string]any{
 				"type":          "text",
 				"text":          c,
 				"cache_control": cacheMark,
-			}}
+			}})
 		}
 	case []any:
 		if n := len(c); n > 0 {
@@ -1195,7 +1212,6 @@ func installPromptCacheMarkers(reqBody map[string]any) {
 			}
 		}
 	}
-	reqBody["messages"] = msgs
 }
 
 // mergeConsecutiveMessages merges adjacent messages that share the same role.

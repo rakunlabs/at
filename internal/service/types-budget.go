@@ -72,47 +72,6 @@ type AgentBudgetStorer interface {
 	ResetModelPricingOverride(ctx context.Context, id string) error
 }
 
-// ─── Audit Trail ───
-
-// AuditEntry represents an immutable log entry for agent/system actions.
-type AuditEntry struct {
-	ID             string         `json:"id"`
-	OrganizationID string         `json:"organization_id,omitempty"`
-	ActorType      string         `json:"actor_type"`
-	ActorID        string         `json:"actor_id"`
-	Action         string         `json:"action"`
-	ResourceType   string         `json:"resource_type"`
-	ResourceID     string         `json:"resource_id"`
-	Details        map[string]any `json:"details,omitempty"`
-	CreatedAt      string         `json:"created_at"`
-}
-
-// AuditStorer defines operations for the immutable audit log.
-type AuditStorer interface {
-	RecordAudit(ctx context.Context, entry AuditEntry) error
-	ListAuditEntries(ctx context.Context, q *query.Query) (*ListResult[AuditEntry], error)
-	GetAuditTrail(ctx context.Context, resourceType, resourceID string) ([]AuditEntry, error)
-}
-
-// AuditPayloadMaxBytes is the per-side cap (input or output) we apply when
-// folding I/O into an audit entry's Details JSON. Audit rows are stored in
-// SQLite/Postgres TEXT columns and read back wholesale on the Audit page —
-// a runaway tool result would otherwise turn one row into a megabyte-class
-// blob. This cap is independent of the loop governor's tool-result cap;
-// the governor controls what the LLM sees, this controls what we persist
-// for human review.
-const AuditPayloadMaxBytes = 4096
-
-// TruncateForAudit returns s clamped to AuditPayloadMaxBytes with a clear
-// "...[truncated]" suffix when it had to cut. Intended for tool inputs and
-// outputs being attached to AuditEntry.Details; not for general logging.
-func TruncateForAudit(s string) string {
-	if len(s) <= AuditPayloadMaxBytes {
-		return s
-	}
-	return s[:AuditPayloadMaxBytes] + "...[truncated]"
-}
-
 // ─── Cost Events ───
 
 // CostEvent records a single LLM call cost with full attribution.

@@ -63,7 +63,6 @@ type Postgres struct {
 	tableAgentBudgets         exp.IdentifierExpression
 	tableAgentUsage           exp.IdentifierExpression
 	tableModelPricing         exp.IdentifierExpression
-	tableAuditLog             exp.IdentifierExpression
 	tableAgentHeartbeats      exp.IdentifierExpression
 	tableProjects             exp.IdentifierExpression
 	tableIssueComments        exp.IdentifierExpression
@@ -207,7 +206,6 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableAgentBudgets:         goqu.T(tablePrefix + "agent_budgets"),
 		tableAgentUsage:           goqu.T(tablePrefix + "agent_usage"),
 		tableModelPricing:         goqu.T(tablePrefix + "model_pricing"),
-		tableAuditLog:             goqu.T(tablePrefix + "audit_log"),
 		tableAgentHeartbeats:      goqu.T(tablePrefix + "agent_heartbeats"),
 		tableProjects:             goqu.T(tablePrefix + "projects"),
 		tableIssueComments:        goqu.T(tablePrefix + "issue_comments"),

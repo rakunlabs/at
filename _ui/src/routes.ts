@@ -23,10 +23,9 @@ import Organizations from '@/pages/Organizations.svelte';
 import OrganizationDetail from '@/pages/OrganizationDetail.svelte';
 import Tasks from '@/pages/Tasks.svelte';
 import TaskDetail from '@/pages/TaskDetail.svelte';
+import Studio from '@/pages/Studio.svelte';
 import Webhooks from '@/pages/Webhooks.svelte';
 import Crons from '@/pages/Crons.svelte';
-import Audit from '@/pages/Audit.svelte';
-import CostEvents from '@/pages/CostEvents.svelte';
 import LLMCalls from '@/pages/LLMCalls.svelte';
 import Usage from '@/pages/Usage.svelte';
 import Pricing from '@/pages/Pricing.svelte';
@@ -45,7 +44,6 @@ import {
   FEATURE_ORGANIZATION_WORKFLOWS,
   FEATURE_PROVIDER_SETUP,
   FEATURE_RAG,
-  FEATURE_LLM_AUDIT,
 } from '@/lib/api/features';
 
 function guarded(component: any, feature: string) {
@@ -105,9 +103,8 @@ export default {
   '/organizations/:id': guarded(OrganizationDetail, FEATURE_ORGANIZATION_WORKFLOWS),
   '/tasks': guarded(Tasks, FEATURE_ORGANIZATION_WORKFLOWS),
   '/tasks/:id': guarded(TaskDetail, FEATURE_ORGANIZATION_WORKFLOWS),
-  '/audit': Audit,
-  '/cost-events': guarded(CostEvents, FEATURE_ORGANIZATION_WORKFLOWS),
-  '/llm-calls': guarded(LLMCalls, FEATURE_LLM_AUDIT),
+  '/studio': guarded(Studio, FEATURE_ORGANIZATION_WORKFLOWS),
+  '/llm-calls': LLMCalls,
   '/usage': guarded(Usage, FEATURE_PROVIDER_SETUP),
   '/pricing': guarded(Pricing, FEATURE_PROVIDER_SETUP),
   '/files': guarded(Files, FEATURE_FILES),

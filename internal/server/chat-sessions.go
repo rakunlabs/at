@@ -7,10 +7,12 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/query"
@@ -250,8 +252,30 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Admin/UI surface: return all messages, no governor limit.
-	messages, err := s.chatSessionStore.ListChatMessages(r.Context(), id, 0)
+	// Optional pagination for the UI: ?limit=N returns the most recent N
+	// messages (chronological order); ?before_id=<msg-id> pages older
+	// history for scroll-up lazy loading. Without params the full history
+	// is returned (backwards compatible).
+	limit := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	beforeID := r.URL.Query().Get("before_id")
+
+	var (
+		messages []service.ChatMessage
+		err      error
+	)
+	if beforeID != "" {
+		if limit <= 0 {
+			limit = 50
+		}
+		messages, err = s.chatSessionStore.ListChatMessagesBefore(r.Context(), id, beforeID, limit)
+	} else {
+		messages, err = s.chatSessionStore.ListChatMessages(r.Context(), id, limit)
+	}
 	if err != nil {
 		slog.Error("list chat messages failed", "session_id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list messages: %v", err), http.StatusInternalServerError)
@@ -562,7 +586,17 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 						return '_'
 					}, reportAgent.Name)
 					toolName := "delegate_to_" + strings.ToLower(safeName)
-					toolDesc := fmt.Sprintf("Delegate a task to %s. %s", reportAgent.Name, reportAgent.Config.Description)
+					toolDesc := fmt.Sprintf("Delegate a task to %s", reportAgent.Name)
+					if oa.Title != "" {
+						toolDesc += fmt.Sprintf(" (%s)", oa.Title)
+					}
+					toolDesc += "."
+					if reportAgent.Config.Description != "" {
+						toolDesc += " " + reportAgent.Config.Description
+					}
+					if caps := s.agentCapabilitySummary(ctx, reportAgent); caps != "" {
+						toolDesc += " Capabilities — " + caps + "."
+					}
 					allTools = append(allTools, service.Tool{
 						Name:        toolName,
 						Description: toolDesc,
@@ -571,7 +605,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 							"properties": map[string]any{
 								"task": map[string]any{
 									"type":        "string",
-									"description": "The task or instruction to delegate to the agent.",
+									"description": "The concrete task or instruction to delegate. Be specific about what you need and the expected output.",
+								},
+								"context": map[string]any{
+									"type":        "string",
+									"description": "Optional background the teammate needs: why this is needed, constraints, or how the result will be used.",
 								},
 							},
 							"required": []string{"task"},
@@ -806,6 +844,14 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		}}, llmMessages...)
 	}
 
+	// Trace identity: one agentic-loop turn is one trace; the chat
+	// session groups turns into a session.
+	turnTraceID := ulid.Make().String()
+	traceTaskID := ""
+	if taskLinked != nil {
+		traceTaskID = taskLinked.ID
+	}
+
 	// 10. Agentic loop.
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Rebuild LLM tool list each iteration: base tools + tools from
@@ -878,6 +924,29 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 						ErrorMessage: err.Error(),
 					})
 				}
+				// Observation: failed generation.
+				var failedReqBody []byte
+				if s.llmAuditEnabled(ctx) {
+					failedReqBody, _ = json.Marshal(map[string]any{"model": model, "messages": windowed, "tools": llmTools})
+				}
+				s.recordLLMCallAsync(ctx, llmAuditParams{
+					source:         "chat",
+					traceID:        turnTraceID,
+					sessionID:      sessionID,
+					agentID:        session.AgentID,
+					taskID:         traceTaskID,
+					runID:          turnTraceID,
+					orgID:          session.OrganizationID,
+					requestedModel: providerKey + "/" + model,
+					fullModel:      providerKey + "/" + model,
+					requestBody:    failedReqBody,
+					latencyMs:      latencyMs,
+					status:         "error",
+					level:          service.ObservationLevelError,
+					errCode:        classifyHTTPError(err),
+					errMsg:         err.Error(),
+					metadata:       map[string]any{"iteration": iteration},
+				})
 				slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
 				onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("LLM error: %v", err)})
 				return nil
@@ -903,6 +972,35 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				}
 			}
 		}
+
+		// Observation: completed generation. Bodies captured only when
+		// llm_audit is on; the returned ID parents this iteration's tool
+		// observations.
+		var genReqBody, genRespBody []byte
+		if s.llmAuditEnabled(ctx) {
+			genReqBody, _ = json.Marshal(map[string]any{"model": model, "messages": windowed, "tools": llmTools})
+			genRespBody, _ = json.Marshal(resp)
+		}
+		genObsID := s.recordLLMCallAsync(ctx, llmAuditParams{
+			source:         "chat",
+			traceID:        turnTraceID,
+			sessionID:      sessionID,
+			agentID:        session.AgentID,
+			taskID:         traceTaskID,
+			runID:          turnTraceID,
+			orgID:          session.OrganizationID,
+			requestedModel: providerKey + "/" + model,
+			fullModel:      providerKey + "/" + model,
+			requestBody:    genReqBody,
+			responseBody:   genRespBody,
+			usage:          resp.Usage,
+			latencyMs:      latencyMs,
+			metadata: map[string]any{
+				"iteration":  iteration,
+				"finished":   resp.Finished,
+				"tool_calls": len(resp.ToolCalls),
+			},
+		})
 
 		// Emit text content.
 		if resp.Content != "" {
@@ -1072,6 +1170,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					if taskText == "" {
 						taskText = "Delegated task"
 					}
+					if contextText, _ := tc.Arguments["context"].(string); strings.TrimSpace(contextText) != "" {
+						taskText += "\n\n## Context from delegator\n" + strings.TrimSpace(contextText)
+					}
 					if taskLinked != nil && session.OrganizationID != "" {
 						org, _ := s.organizationStore.GetOrganization(ctx, session.OrganizationID)
 						if org != nil {
@@ -1133,32 +1234,30 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 			result, _ = s.loopGov.TruncateToolResult(runID, tc.Name, result)
 
-			// Record audit entry for each tool call. Capture the input
-			// arguments and the (post-truncation) output so the Audit
-			// page can show what the chat-session agent ran without
-			// having to re-derive it from the chat-message log.
-			recordAudit := s.recordAuditFunc()
-			if recordAudit != nil {
-				auditDetails := map[string]any{
-					"tool_name":  tc.Name,
-					"session_id": sessionID,
-					"iteration":  iteration,
-					"has_error":  callErr != nil,
-					"input":      tc.Arguments,
-					"output":     service.TruncateForAudit(result),
-				}
-				if auditErr := recordAudit(ctx, service.AuditEntry{
-					ActorType:    "agent",
-					ActorID:      session.AgentID,
-					Action:       "tool_call",
-					ResourceType: "tool",
-					ResourceID:   tc.ID,
-					Details:      auditDetails,
-				}); auditErr != nil {
-					slog.Warn("agentic loop: failed to record audit",
-						"agent_id", session.AgentID, "error", auditErr)
-				}
+			// Observation: tool call, parented to this iteration's
+			// generation. Captures the input arguments and the
+			// (post-truncation) output that entered the LLM history.
+			toolLevel := service.ObservationLevelDefault
+			if callErr != nil {
+				toolLevel = service.ObservationLevelError
 			}
+			argsJSON, _ := json.Marshal(tc.Arguments)
+			s.recordLLMCallAsync(ctx, llmAuditParams{
+				source:              "chat",
+				obsType:             service.ObservationTool,
+				parentObservationID: genObsID,
+				name:                tc.Name,
+				traceID:             turnTraceID,
+				sessionID:           sessionID,
+				agentID:             session.AgentID,
+				taskID:              traceTaskID,
+				runID:               turnTraceID,
+				orgID:               session.OrganizationID,
+				input:               string(argsJSON),
+				output:              result,
+				level:               toolLevel,
+				metadata:            map[string]any{"iteration": iteration},
+			})
 
 			toolResults = append(toolResults, service.ContentBlock{
 				Type:      "tool_result",

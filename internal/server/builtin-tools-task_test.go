@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -185,4 +188,114 @@ func TestTaskIDFromContext_RoundTrip(t *testing.T) {
 	if got := taskIDFromContext(ctx); got != "task-xyz" {
 		t.Fatalf("expected round-trip task-xyz, got %q", got)
 	}
+}
+
+type taskWaitStore struct {
+	mockTaskStore
+	mu   sync.RWMutex
+	task service.Task
+}
+
+func (m *taskWaitStore) GetTask(_ context.Context, id string) (*service.Task, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.task.ID != id {
+		return nil, nil
+	}
+	task := m.task
+	return &task, nil
+}
+
+func (m *taskWaitStore) setStatus(status, result string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.task.Status = status
+	m.task.Result = result
+}
+
+func TestExecTaskWait_ReturnsTerminalTaskImmediately(t *testing.T) {
+	store := &taskWaitStore{task: service.Task{
+		ID:     "child-1",
+		Status: service.TaskStatusCompleted,
+		Result: "video ready",
+	}}
+	s := &Server{taskStore: store}
+
+	out, err := s.execTaskWait(context.Background(), map[string]any{"id": "child-1"})
+	if err != nil {
+		t.Fatalf("execTaskWait returned error: %v", err)
+	}
+
+	var result struct {
+		Task     service.Task `json:"task"`
+		Terminal bool         `json:"terminal"`
+		TimedOut bool         `json:"timed_out"`
+	}
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("unmarshal task_wait result: %v", err)
+	}
+	if !result.Terminal || result.TimedOut {
+		t.Fatalf("unexpected wait flags: terminal=%v timed_out=%v", result.Terminal, result.TimedOut)
+	}
+	if result.Task.Result != "video ready" {
+		t.Fatalf("result = %q, want video ready", result.Task.Result)
+	}
+}
+
+func TestWaitForTask_ObservesCompletion(t *testing.T) {
+	store := &taskWaitStore{task: service.Task{ID: "child-1", Status: service.TaskStatusInProgress}}
+	s := &Server{taskStore: store}
+
+	go func() {
+		time.Sleep(15 * time.Millisecond)
+		store.setStatus(service.TaskStatusDone, "finished")
+	}()
+
+	task, timedOut, err := s.waitForTask(context.Background(), "child-1", time.Second, 5*time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForTask returned error: %v", err)
+	}
+	if timedOut {
+		t.Fatal("waitForTask unexpectedly timed out")
+	}
+	if task.Status != service.TaskStatusDone || task.Result != "finished" {
+		t.Fatalf("unexpected task: %+v", task)
+	}
+}
+
+func TestWaitForTask_ReturnsLatestTaskOnTimeout(t *testing.T) {
+	store := &taskWaitStore{task: service.Task{ID: "child-1", Status: service.TaskStatusInProgress}}
+	s := &Server{taskStore: store}
+
+	task, timedOut, err := s.waitForTask(context.Background(), "child-1", 20*time.Millisecond, 5*time.Millisecond)
+	if err != nil {
+		t.Fatalf("waitForTask returned error: %v", err)
+	}
+	if !timedOut {
+		t.Fatal("waitForTask should report timeout")
+	}
+	if task.Status != service.TaskStatusInProgress {
+		t.Fatalf("status = %q, want in_progress", task.Status)
+	}
+}
+
+func TestWaitForTask_HonorsContextCancellation(t *testing.T) {
+	store := &taskWaitStore{task: service.Task{ID: "child-1", Status: service.TaskStatusInProgress}}
+	s := &Server{taskStore: store}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, _, err := s.waitForTask(ctx, "child-1", time.Second, 5*time.Millisecond)
+	if err == nil || !strings.Contains(err.Error(), "context canceled") {
+		t.Fatalf("expected context cancellation error, got %v", err)
+	}
+}
+
+func TestTaskContextToolsIncludeTaskWait(t *testing.T) {
+	for _, tool := range taskContextToolDefs() {
+		if tool.Name == "task_wait" {
+			return
+		}
+	}
+	t.Fatal("task_wait not exposed to task-processing agents")
 }

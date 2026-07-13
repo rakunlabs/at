@@ -612,7 +612,7 @@ func (s *Server) stripConnectionFromAgents(ctx context.Context, connID string, r
 }
 
 // isUniqueViolation heuristically detects SQL/store uniqueness errors.
-// Both sqlite and postgres surface the offending constraint/text in the
+// Postgres surfaces the offending constraint/text in the
 // error message.
 func isUniqueViolation(err error) bool {
 	if err == nil {

@@ -1,7 +1,9 @@
 package server
 
 import (
+	"bytes"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -180,5 +182,72 @@ func TestFileDeleteAPIDeletesArbitraryFile(t *testing.T) {
 	}
 	if _, err := os.Stat(target); !os.IsNotExist(err) {
 		t.Errorf("file should be deleted, got err=%v", err)
+	}
+}
+
+// TestFileUploadAPI — multipart upload writes the file to the target
+// directory (creating it when missing) and returns its absolute path.
+func TestFileUploadAPI(t *testing.T) {
+	s := &Server{}
+	dir := filepath.Join(t.TempDir(), "avatars", "sub")
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("path", dir); err != nil {
+		t.Fatalf("write field: %v", err)
+	}
+	fw, err := mw.CreateFormFile("file", "me.png")
+	if err != nil {
+		t.Fatalf("create form file: %v", err)
+	}
+	if _, err := fw.Write([]byte("png-bytes")); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	s.FileUploadAPI(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	got, err := os.ReadFile(filepath.Join(dir, "me.png"))
+	if err != nil {
+		t.Fatalf("read uploaded: %v", err)
+	}
+	if string(got) != "png-bytes" {
+		t.Errorf("content mismatch: %q", got)
+	}
+}
+
+// TestFileUploadAPI_TraversalName — a path-traversal file name must be
+// flattened to its base name instead of escaping the target directory.
+func TestFileUploadAPI_TraversalName(t *testing.T) {
+	s := &Server{}
+	dir := t.TempDir()
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("path", dir)
+	_ = mw.WriteField("name", "../../escape.txt")
+	fw, _ := mw.CreateFormFile("file", "x.txt")
+	_, _ = fw.Write([]byte("data"))
+	mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	s.FileUploadAPI(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	if _, err := os.Stat(filepath.Join(dir, "escape.txt")); err != nil {
+		t.Errorf("expected flattened file inside target dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(filepath.Dir(filepath.Dir(dir)), "escape.txt")); err == nil {
+		t.Errorf("file escaped the target directory")
 	}
 }

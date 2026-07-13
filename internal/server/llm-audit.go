@@ -56,15 +56,25 @@ type llmAuditCache struct {
 
 const llmAuditCacheTTL = 30 * time.Second
 
-// llmAuditParams carries everything needed to record one LLM call. Callers
-// fill in what they have; empty fields are fine.
+// llmAuditParams carries everything needed to record one observation
+// (generation, tool, or event). Callers fill in what they have; empty
+// fields are fine.
 type llmAuditParams struct {
 	auth      *authResult
-	source    string // "gateway" | "gateway_stream" | "responses" | ...
+	source    string // "gateway" | "gateway_stream" | "responses" | "agent" | "chat" | "workflow"
 	endpoint  string
 	traceID   string
 	sessionID string
 	userField string
+
+	// Observation fields. Empty obsType means "generation".
+	obsType             string
+	parentObservationID string
+	name                string
+	input               string // tool arguments / event input (full; clipped to preview inline)
+	output              string // tool result / event output (full; clipped to preview inline)
+	level               string // service.ObservationLevel*; empty = default
+	metadata            map[string]any
 
 	requestBody  []byte
 	responseBody []byte
@@ -115,26 +125,41 @@ func (s *Server) llmAuditEnabled(ctx context.Context) bool {
 	return enabled
 }
 
-// recordLLMCallAsync persists one LLM call (full request/response bodies)
-// and emits an OTEL gen-ai span. Fire-and-forget: failures are logged, never
-// surfaced to the caller. No-op when the feature is disabled or no store is
-// wired.
-func (s *Server) recordLLMCallAsync(ctx context.Context, p llmAuditParams) {
-	if !s.llmAuditEnabled(ctx) {
-		return
+// recordLLMCallAsync persists one observation and emits an OTEL gen-ai
+// span. Skeletons (tokens, cost, latency, hierarchy, IO previews) are
+// recorded unconditionally; full request/response bodies are captured only
+// when the llm_audit feature is enabled. Fire-and-forget: failures are
+// logged, never surfaced to the caller. Returns the observation ID so
+// callers can parent follow-up observations (e.g. tool calls under their
+// generation); returns "" when no store is wired.
+func (s *Server) recordLLMCallAsync(ctx context.Context, p llmAuditParams) string {
+	if s.llmCallStore == nil {
+		return ""
 	}
+
+	bodies := s.llmAuditEnabled(ctx)
 
 	// Snapshot everything we need off the request goroutine.
 	call := s.buildLLMCall(ctx, p)
 
+	var reqBody, respBody []byte
+	if bodies {
+		reqBody, respBody = p.requestBody, p.responseBody
+	}
+
 	go func() {
 		bg := context.WithoutCancel(ctx)
-		s.spillLLMCallBodies(&call, p.requestBody, p.responseBody)
+		if bodies {
+			s.spillLLMCallBodies(&call, reqBody, respBody)
+			s.spillObservationIO(&call, p.input, p.output)
+		}
 		if err := s.llmCallStore.RecordLLMCall(bg, call); err != nil {
 			slog.Error("failed to record llm call", "trace_id", call.TraceID, "model", call.Model, "error", err.Error())
 		}
-		s.emitLLMSpan(call, p.requestBody, p.responseBody)
+		s.emitLLMSpan(call, reqBody, respBody)
 	}()
+
+	return call.ID
 }
 
 // buildLLMCall assembles the service.LLMCall record (minus body spill, which
@@ -162,8 +187,26 @@ func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLM
 		traceID = ulid.Make().String()
 	}
 
+	obsType := p.obsType
+	if obsType == "" {
+		obsType = service.ObservationGeneration
+	}
+
+	level := p.level
+	if level == "" {
+		level = service.ObservationLevelDefault
+	}
+
 	return service.LLMCall{
-		ID:                 ulid.Make().String(),
+		ID:                  ulid.Make().String(),
+		ObservationType:     obsType,
+		ParentObservationID: p.parentObservationID,
+		Name:                p.name,
+		Input:               service.TruncateObservationIO(p.input),
+		Output:              service.TruncateObservationIO(p.output),
+		Level:               level,
+		Metadata:            p.metadata,
+
 		TraceID:            traceID,
 		SessionID:          p.sessionID,
 		Source:             p.source,
@@ -204,6 +247,43 @@ func (s *Server) spillLLMCallBodies(call *service.LLMCall, reqBody, respBody []b
 	call.ResponseBody, call.ResponseTruncated, call.ResponseRef = s.clipOrSpill(call.ID, "response", respBody)
 }
 
+// spillObservationIO preserves oversized tool/event input and output when
+// full-body capture is enabled: the inline columns keep the preview (set in
+// buildLLMCall) and the full payloads are written to spill files referenced
+// by RequestRef / ResponseRef (unused by non-generation observations).
+func (s *Server) spillObservationIO(call *service.LLMCall, input, output string) {
+	if call.ObservationType == service.ObservationGeneration {
+		return
+	}
+	if len(input) > service.ObservationPreviewBytes {
+		call.RequestRef = s.spillPayload(call.ID, "input", []byte(input))
+	}
+	if len(output) > service.ObservationPreviewBytes {
+		call.ResponseRef = s.spillPayload(call.ID, "output", []byte(output))
+	}
+}
+
+// spillPayload writes a full payload to
+// <workspace>/.at-llm-audit/<yyyy-mm-dd>/<id>-<side>.json and returns its
+// path, or "" when spilling is unavailable or fails. Best-effort.
+func (s *Server) spillPayload(id, side string, body []byte) string {
+	root := s.llmAuditRoot()
+	if root == "" {
+		return ""
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	dir := filepath.Join(root, day)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	path := filepath.Join(dir, fmt.Sprintf("%s-%s.json", id, side))
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		slog.Debug("llm audit: spill write failed", "path", path, "error", err.Error())
+		return ""
+	}
+	return path
+}
+
 // clipOrSpill returns (inlineBody, truncated, spillRef). When body fits under
 // LLMCallBodyMaxBytes it is returned verbatim. Otherwise the full body is
 // written to <workspace>/.at-llm-audit/<yyyy-mm-dd>/<id>-<side>.json and the
@@ -213,20 +293,7 @@ func (s *Server) clipOrSpill(id, side string, body []byte) (string, bool, string
 		return string(body), false, ""
 	}
 
-	ref := ""
-	root := s.llmAuditRoot()
-	if root != "" {
-		day := time.Now().UTC().Format("2006-01-02")
-		dir := filepath.Join(root, day)
-		if err := os.MkdirAll(dir, 0o755); err == nil {
-			path := filepath.Join(dir, fmt.Sprintf("%s-%s.json", id, side))
-			if err := os.WriteFile(path, body, 0o644); err == nil {
-				ref = path
-			} else {
-				slog.Debug("llm audit: spill write failed", "path", path, "error", err.Error())
-			}
-		}
-	}
+	ref := s.spillPayload(id, side, body)
 
 	return string(body[:service.LLMCallBodyMaxBytes]) + "\n...[truncated, full payload in spill file]", true, ref
 }
@@ -246,13 +313,42 @@ func (s *Server) llmAuditRoot() string {
 
 // emitLLMSpan emits a completed OTEL span following the gen-ai semantic
 // conventions, plus Langfuse-compatible trace/session/input/output
-// attributes. When no tracer provider is configured (telemetry off) the
-// global tracer is a no-op, so this is safe and cheap.
+// attributes. Tool observations become gen-ai tool spans; event
+// observations are skipped (they carry no duration and the DB row is the
+// system of record). When no tracer provider is configured (telemetry off)
+// the global tracer is a no-op, so this is safe and cheap.
 func (s *Server) emitLLMSpan(call service.LLMCall, reqBody, respBody []byte) {
+	if call.ObservationType == service.ObservationEvent {
+		return
+	}
+
 	tracer := otel.Tracer("github.com/rakunlabs/at/gateway")
 
 	end := time.Now()
 	start := end.Add(-time.Duration(call.LatencyMs) * time.Millisecond)
+
+	if call.ObservationType == service.ObservationTool {
+		_, span := tracer.Start(context.Background(), "tool "+call.Name,
+			oteltrace.WithTimestamp(start),
+			oteltrace.WithSpanKind(oteltrace.SpanKindInternal),
+		)
+		span.SetAttributes(
+			attribute.String("gen_ai.operation.name", "execute_tool"),
+			attribute.String("gen_ai.tool.name", call.Name),
+			attribute.String("langfuse.trace.id", call.TraceID),
+			attribute.String("langfuse.observation.type", "span"),
+			attribute.String("gen_ai.tool.call.arguments", clipSpanBody([]byte(call.Input))),
+			attribute.String("gen_ai.tool.call.result", clipSpanBody([]byte(call.Output))),
+		)
+		if call.SessionID != "" {
+			span.SetAttributes(attribute.String("langfuse.session.id", call.SessionID))
+		}
+		if call.Level == service.ObservationLevelError || call.Status == "error" {
+			span.SetStatus(codes.Error, call.ErrorMessage)
+		}
+		span.End(oteltrace.WithTimestamp(end))
+		return
+	}
 
 	_, span := tracer.Start(context.Background(), "chat "+call.Model,
 		oteltrace.WithTimestamp(start),

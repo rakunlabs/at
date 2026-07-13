@@ -22,6 +22,8 @@ export interface InfoResponse {
   // Effective task workspace base directory on the server filesystem.
   // Equals loopgov.Config.WorkspaceRoot, falling back to /tmp/at-tasks.
   workspace_root?: string;
+  // Persistent asset library root (avatars, cloned voices) — ./data/assets.
+  assets_root?: string;
 }
 
 export async function getInfo(): Promise<InfoResponse> {

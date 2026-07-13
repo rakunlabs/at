@@ -50,7 +50,7 @@ func newTestRegistry() *workflow.Registry {
 		nil, // chatSessionLookup
 		nil, // recordUsage
 		nil, // checkBudget
-		nil, // recordAudit
+		nil, // recordObservation
 		nil, // goalAncestry
 		nil, // versionLookup
 		nil, // inputs
@@ -85,7 +85,7 @@ func newTestRegistryWithProvider(mp *mockProvider) *workflow.Registry {
 		nil, // chatSessionLookup
 		nil, // recordUsage
 		nil, // checkBudget
-		nil, // recordAudit
+		nil, // recordObservation
 		nil, // goalAncestry
 		nil, // versionLookup
 		nil, // inputs

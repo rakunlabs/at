@@ -275,6 +275,7 @@ func (s *Server) execBatchExecute(ctx context.Context, args map[string]any) (str
 var taskContextToolNames = []string{
 	"task_current",
 	"task_children",
+	"task_wait",
 	"task_create_child",
 	"task_update_current",
 	"task_comment_current",
@@ -322,6 +323,7 @@ You are operating inside task %s: %s.
 - Treat follow-up work derived from this task as child work. Use task_create_child, or task_create without root=true, for derived work items.
 - Do not create unrelated root tasks while answering questions or continuing this task. Only use task_create with root=true when the user explicitly asks for an independent task, and include a reason.
 - Before creating a child task, prefer task_current or task_children when you need to check existing subtasks and avoid duplicates.
+- After task_process starts background work, call task_wait once. Never use bash sleep commands or repeatedly poll task_get/task_children while waiting.
 - Keep updates scoped to the current task with task_update_current, task_comment_current, task_complete, or task_block whenever possible.
 `, label, task.Title)
 }
@@ -460,6 +462,20 @@ func (s *Server) execTaskCreate(ctx context.Context, args map[string]any) (strin
 		task.MaxIterations = int(v)
 	} else if v, ok := args["max_iterations"].(int); ok && v > 0 {
 		task.MaxIterations = v
+	}
+
+	// Organization fallback: task_create is also reachable outside a task
+	// context (bot/web chat sessions with no linked task, MCP clients,
+	// workflow agent_call runs). In those paths there is no current task to
+	// inherit organization_id from, which used to produce org-less orphan
+	// tasks that ProcessTaskAPI later rejects. Fall back to the executing
+	// agent's organization (membership first, then head-agent scan).
+	if task.OrganizationID == "" {
+		if orgID := s.resolveAgentOrgID(ctx, agentIDFromContext(ctx)); orgID != "" {
+			task.OrganizationID = orgID
+			slog.Info("task_create: inherited organization from executing agent",
+				"agent_id", agentIDFromContext(ctx), "organization_id", orgID, "title", title)
+		}
 	}
 
 	// Spill large descriptions to the shared task workspace and replace
@@ -852,6 +868,97 @@ func (s *Server) execTaskProcess(ctx context.Context, args map[string]any) (stri
 
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return string(data), nil
+}
+
+const (
+	taskWaitDefaultTimeout = 5 * time.Minute
+	taskWaitMaxTimeout     = 30 * time.Minute
+	taskWaitPollInterval   = time.Second
+)
+
+func isTaskTerminal(status string) bool {
+	switch status {
+	case service.TaskStatusCompleted, service.TaskStatusDone, service.TaskStatusCancelled, service.TaskStatusBlocked:
+		return true
+	default:
+		return false
+	}
+}
+
+// execTaskWait waits server-side for async task processing to finish. Keeping
+// the wait inside AT avoids burning agent iterations on shell sleeps and
+// repeated task_get calls.
+func (s *Server) execTaskWait(ctx context.Context, args map[string]any) (string, error) {
+	if s.taskStore == nil {
+		return "", fmt.Errorf("task store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	timeout := taskWaitDefaultTimeout
+	if value, ok := args["timeout_seconds"].(float64); ok {
+		if value <= 0 {
+			return "", fmt.Errorf("timeout_seconds must be greater than zero")
+		}
+		timeout = time.Duration(value * float64(time.Second))
+	}
+	if timeout > taskWaitMaxTimeout {
+		timeout = taskWaitMaxTimeout
+	}
+
+	task, timedOut, err := s.waitForTask(ctx, id, timeout, taskWaitPollInterval)
+	if err != nil {
+		return "", err
+	}
+
+	data, err := json.MarshalIndent(map[string]any{
+		"task":      task,
+		"terminal":  isTaskTerminal(task.Status),
+		"timed_out": timedOut,
+	}, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to serialize task wait result: %w", err)
+	}
+
+	return string(data), nil
+}
+
+func (s *Server) waitForTask(ctx context.Context, id string, timeout, pollInterval time.Duration) (*service.Task, bool, error) {
+	if timeout <= 0 {
+		return nil, false, fmt.Errorf("timeout must be greater than zero")
+	}
+	if pollInterval <= 0 {
+		return nil, false, fmt.Errorf("poll interval must be greater than zero")
+	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
+		task, err := s.taskStore.GetTask(ctx, id)
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to get task while waiting: %w", err)
+		}
+		if task == nil {
+			return nil, false, fmt.Errorf("task %q not found", id)
+		}
+		if isTaskTerminal(task.Status) {
+			return task, false, nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, false, fmt.Errorf("task wait cancelled: %w", ctx.Err())
+		case <-deadline.C:
+			return task, true, nil
+		case <-ticker.C:
+		}
+	}
 }
 
 // ─── Task Lifecycle Tool Executors (Phase 2) ───

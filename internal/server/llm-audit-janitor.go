@@ -17,8 +17,9 @@ import (
 const llmAuditJanitorInterval = 1 * time.Hour
 
 // startLLMAuditJanitor starts a background goroutine that periodically
-// removes llm_calls rows (and their spilled body files) older than
-// service.LLMCallRetention. No-op when no store is wired.
+// runs the two-phase retention sweep: bodies (and their spilled files) are
+// expired after service.LLMCallRetention; observation rows are deleted
+// after service.ObservationRetention. No-op when no store is wired.
 func (s *Server) startLLMAuditJanitor(ctx context.Context) {
 	if s.llmCallStore == nil {
 		return
@@ -42,7 +43,9 @@ func (s *Server) startLLMAuditJanitor(ctx context.Context) {
 	}()
 }
 
-// sweepLLMAuditOnce deletes old DB rows and old spill files. Exposed
+// sweepLLMAuditOnce runs the two-phase sweep: (1) null body columns on
+// rows older than the body retention window, (2) delete rows older than
+// the skeleton retention window, (3) remove aged spill files. Exposed
 // (package-internal) so tests can drive it.
 func (s *Server) sweepLLMAuditOnce(ctx context.Context) {
 	if ctx.Err() != nil {
@@ -53,10 +56,19 @@ func (s *Server) sweepLLMAuditOnce(ctx context.Context) {
 	cutoffStr := cutoff.Format(time.RFC3339)
 
 	if s.llmCallStore != nil {
-		if n, err := s.llmCallStore.DeleteLLMCallsBefore(ctx, cutoffStr); err != nil {
+		// Phase 1: expire bodies, keep skeletons.
+		if n, err := s.llmCallStore.ExpireLLMCallBodiesBefore(ctx, cutoffStr); err != nil {
+			slog.Debug("llm_audit_janitor: expire bodies failed", "error", err.Error())
+		} else if n > 0 {
+			slog.Info("llm_audit_janitor: expired bodies", "rows", n, "cutoff", cutoffStr)
+		}
+
+		// Phase 2: delete rows past the skeleton retention window.
+		rowCutoff := time.Now().UTC().Add(-service.ObservationRetention).Format(time.RFC3339)
+		if n, err := s.llmCallStore.DeleteLLMCallsBefore(ctx, rowCutoff); err != nil {
 			slog.Debug("llm_audit_janitor: delete rows failed", "error", err.Error())
 		} else if n > 0 {
-			slog.Info("llm_audit_janitor: swept rows", "removed", n, "cutoff", cutoffStr)
+			slog.Info("llm_audit_janitor: swept rows", "removed", n, "cutoff", rowCutoff)
 		}
 	}
 

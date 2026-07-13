@@ -1,0 +1,24 @@
+{
+  "name": "Avatar Studio",
+  "description": "Avatar video production studio: persistent avatars, cloned voices, lip-synced talking-head videos (FAL OmniHuman + ElevenLabs).",
+  "relationships": [
+    {
+      "agent_name": "Studio Director",
+      "role": "head",
+      "title": "Studio Director",
+      "is_head": true
+    },
+    {
+      "agent_name": "Avatar Designer",
+      "role": "member",
+      "title": "Avatar Designer",
+      "parent_agent_name": "Studio Director"
+    },
+    {
+      "agent_name": "Video Producer",
+      "role": "member",
+      "title": "Video Producer",
+      "parent_agent_name": "Studio Director"
+    }
+  ]
+}

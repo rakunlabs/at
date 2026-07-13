@@ -242,6 +242,57 @@ func TestBuildRequestBodyDropsTrailingToolUse(t *testing.T) {
 	}
 }
 
+func TestBuildRequestBodyPromptCachingOAuth(t *testing.T) {
+	p := &Provider{
+		MaxTokens:   1024,
+		tokenSource: NewStaticTokenSource("oauth-token"),
+	}
+	messages := []service.Message{
+		{Role: "system", Content: "stable agent instructions"},
+		{Role: "user", Content: "first turn"},
+		{Role: "assistant", Content: "working"},
+		{Role: "user", Content: "latest turn"},
+	}
+	tools := []service.Tool{{
+		Name:        "task_get",
+		Description: "Get a task",
+		InputSchema: map[string]any{"type": "object"},
+	}}
+
+	body := p.buildRequestBody("claude-sonnet-4-6", messages, tools, nil)
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+
+	if got := strings.Count(string(bodyJSON), `"cache_control":{"type":"ephemeral"}`); got != 3 {
+		t.Fatalf("cache marker count = %d, want 3; body=%s", got, bodyJSON)
+	}
+	if !bytesContainsString(bodyJSON, `"name":"mcp_Task_get"`) {
+		t.Fatalf("OAuth tool transform missing: %s", bodyJSON)
+	}
+}
+
+func TestBuildRequestBodyPromptCachingOAuthDisabled(t *testing.T) {
+	p := &Provider{
+		MaxTokens:             1024,
+		tokenSource:           NewStaticTokenSource("oauth-token"),
+		promptCachingDisabled: true,
+	}
+
+	body := p.buildRequestBody("claude-sonnet-4-6", []service.Message{
+		{Role: "system", Content: "stable agent instructions"},
+		{Role: "user", Content: "latest turn"},
+	}, nil, nil)
+	bodyJSON, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body: %v", err)
+	}
+	if bytesContainsString(bodyJSON, `"cache_control"`) {
+		t.Fatalf("cache marker present while disabled: %s", bodyJSON)
+	}
+}
+
 // bytesContainsString is a small helper to keep the test asserts
 // readable without pulling in another dep.
 func bytesContainsString(b []byte, sub string) bool {

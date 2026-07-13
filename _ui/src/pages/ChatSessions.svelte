@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listAgents, type Agent } from '@/lib/api/agents';
@@ -140,7 +141,15 @@
   } | null>(null);
   let abortController: AbortController | null = null;
   let messagesEnd = $state<HTMLDivElement | undefined>(undefined);
+  let messagesContainer = $state<HTMLDivElement | undefined>(undefined);
   let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
+
+  // Scroll-up lazy loading: sessions open anchored at the bottom with only
+  // the most recent page of messages; older history loads as the user
+  // scrolls toward the top.
+  const MESSAGE_PAGE = 50;
+  let hasOlder = $state(false);
+  let loadingOlder = $state(false);
 
   // ─── Derived ───
 
@@ -220,11 +229,49 @@
     return b?.name || botId.slice(0, 8);
   }
 
-  async function loadMessages(sessionId: string) {
+  async function loadMessages(sessionId: string, limit: number = MESSAGE_PAGE) {
     try {
-      messages = await listChatMessages(sessionId);
+      const fetched = await listChatMessages(sessionId, { limit });
+      messages = fetched;
+      // A full page means there may be older history to lazy-load.
+      hasOlder = fetched.length >= limit;
     } catch (e: any) {
       addToast(e.message || 'Failed to load messages', 'alert');
+    }
+  }
+
+  /** Load the page of messages older than the current oldest and prepend
+   *  it, preserving the visual scroll position. */
+  async function loadOlderMessages() {
+    if (!selectedSessionId || loadingOlder || !hasOlder || messages.length === 0) return;
+    const sessionId = selectedSessionId;
+    loadingOlder = true;
+    try {
+      const older = await listChatMessages(sessionId, {
+        limit: MESSAGE_PAGE,
+        beforeId: messages[0].id,
+      });
+      // Session switched while we were fetching — drop the result.
+      if (selectedSessionId !== sessionId) return;
+      hasOlder = older.length >= MESSAGE_PAGE;
+      if (older.length > 0) {
+        const el = messagesContainer;
+        const prevHeight = el?.scrollHeight ?? 0;
+        const prevTop = el?.scrollTop ?? 0;
+        messages = [...older, ...messages];
+        await tick();
+        if (el) el.scrollTop = el.scrollHeight - prevHeight + prevTop;
+      }
+    } catch (e: any) {
+      addToast(e.message || 'Failed to load older messages', 'alert');
+    } finally {
+      loadingOlder = false;
+    }
+  }
+
+  function handleMessagesScroll() {
+    if (messagesContainer && messagesContainer.scrollTop < 100) {
+      loadOlderMessages();
     }
   }
 
@@ -240,8 +287,21 @@
     showAgentPicker = false;
     showSlashMenu = false;
     await loadMessages(id);
-    scrollToBottom();
+    await anchorToBottom();
     inputEl?.focus();
+  }
+
+  /** Jump straight to the bottom (no animation). Re-anchors once more after
+   *  a short delay because Markdown rendering can grow the content height
+   *  after the first paint. */
+  async function anchorToBottom() {
+    await tick();
+    const anchor = () => {
+      if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    };
+    anchor();
+    requestAnimationFrame(anchor);
+    setTimeout(anchor, 150);
   }
 
   function scrollToBottom() {
@@ -412,7 +472,7 @@
         abortController = null;
         pendingConfirmation = null;
         if (selectedSessionId) {
-          await loadMessages(selectedSessionId);
+          await loadMessages(selectedSessionId, Math.max(MESSAGE_PAGE, messages.length + 10));
         }
         streamContent = '';
         toolEvents = [];
@@ -494,7 +554,7 @@
         abortController = null;
         pendingConfirmation = null;
         if (selectedSessionId) {
-          await loadMessages(selectedSessionId);
+          await loadMessages(selectedSessionId, Math.max(MESSAGE_PAGE, messages.length + 10));
         }
         streamContent = '';
         toolEvents = [];
@@ -754,7 +814,7 @@
     {/if}
 
     <!-- Messages area -->
-    <div class="flex-1 overflow-y-auto text-[13px] leading-relaxed">
+    <div bind:this={messagesContainer} onscroll={handleMessagesScroll} class="flex-1 overflow-y-auto text-[13px] leading-relaxed">
       {#if !selectedSessionId}
         <div class="flex items-center justify-center h-full text-gray-400 dark:text-dark-text-muted">
           <div class="text-center text-sm max-w-md">
@@ -784,6 +844,18 @@
         </div>
       {:else}
         <div class="max-w-3xl mx-auto px-4 py-4 space-y-4">
+          {#if loadingOlder}
+            <div class="flex items-center justify-center gap-1.5 py-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
+              <Loader2 size={12} class="animate-spin" /> Loading older messages…
+            </div>
+          {:else if hasOlder}
+            <div class="flex items-center justify-center py-1">
+              <button
+                onclick={loadOlderMessages}
+                class="text-[11px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary hover:underline"
+              >Load older messages</button>
+            </div>
+          {/if}
           {#each messages as msg (msg.id)}
             {#if msg.role === 'user'}
               <!-- User bubble -->

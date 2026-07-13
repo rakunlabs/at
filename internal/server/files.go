@@ -3,11 +3,14 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
 type fileEntry struct {
@@ -225,4 +228,77 @@ func (s *Server) FileDeleteAPI(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"deleted": cleaned})
+}
+
+// FileUploadAPI stores an uploaded file on the daemon's filesystem.
+// POST /api/v1/files/upload — multipart form with:
+//   - file: the file contents (required)
+//   - path: target directory (optional; defaults to the persistent assets
+//     root, which is the common case: avatar reference photos and voice
+//     samples uploaded from the Studio UI)
+//   - name: file name override (optional; defaults to the uploaded name)
+//
+// The target directory is created when missing. Same trust model as the
+// rest of the files API: full filesystem access for the daemon's UID.
+func (s *Server) FileUploadAPI(w http.ResponseWriter, r *http.Request) {
+	// Bound the request body: media uploads (photos, voice samples, clips)
+	// are expected; multi-GB uploads are not.
+	r.Body = http.MaxBytesReader(w, r.Body, 256<<20) // 256 MB
+
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, fmt.Sprintf("invalid multipart form: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file field is required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	dir := r.FormValue("path")
+	if dir == "" {
+		dir = workflow.EnsureAssetsDir()
+	}
+	cleanedDir, err := filepath.Abs(filepath.Clean(dir))
+	if err != nil {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
+	if real, err := filepath.EvalSymlinks(cleanedDir); err == nil {
+		cleanedDir = real
+	}
+	if err := os.MkdirAll(cleanedDir, 0o755); err != nil {
+		http.Error(w, fmt.Sprintf("cannot create directory: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	name := r.FormValue("name")
+	if name == "" {
+		name = header.Filename
+	}
+	name = filepath.Base(name)
+	if name == "" || name == "." || name == string(filepath.Separator) {
+		http.Error(w, "invalid file name", http.StatusBadRequest)
+		return
+	}
+
+	target := filepath.Join(cleanedDir, name)
+	out, err := os.Create(target)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("cannot create file: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer out.Close()
+
+	size, err := io.Copy(out, file)
+	if err != nil {
+		_ = os.Remove(target)
+		http.Error(w, fmt.Sprintf("write failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"path": target, "size": size})
 }

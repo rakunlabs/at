@@ -1,0 +1,121 @@
+{
+  "slug": "elevenlabs-voice",
+  "name": "ElevenLabs Voice (TTS + Cloning)",
+  "description": "Voice cloning and text-to-speech with ElevenLabs: clone a voice from samples into a persistent library, then generate speech with cloned or premade voices — the audio side of avatar talking videos.",
+  "category": "Content Creation",
+  "tags": [
+    "tts",
+    "voice-cloning",
+    "elevenlabs",
+    "audio",
+    "avatar"
+  ],
+  "required_variables": [
+    {
+      "key": "elevenlabs_api_key",
+      "description": "ElevenLabs API key (https://elevenlabs.io/app/settings/api-keys). Voice cloning requires a paid plan.",
+      "secret": true
+    }
+  ],
+  "connector": {
+    "slug": "elevenlabs",
+    "name": "ElevenLabs",
+    "description": "ElevenLabs speech API (TTS, voice cloning, music).",
+    "auth_kind": "token",
+    "fields": [
+      {
+        "key": "elevenlabs_api_key",
+        "label": "API Key",
+        "type": "secret",
+        "required": true,
+        "help": "Create at https://elevenlabs.io/app/settings/api-keys"
+      }
+    ]
+  },
+  "skill": {
+    "name": "elevenlabs_voice",
+    "description": "ElevenLabs voice cloning + TTS with a persistent voice library — pairs with fal_avatar for talking-head videos.",
+    "system_prompt": "You can clone voices and generate speech with ElevenLabs.\n\n## Tools\n- `clone_voice` — Instant Voice Cloning from 1-5 clean speech samples (paid plan required). Cloned voices are saved to the persistent voice library and reusable across tasks by name.\n- `list_voices` — library + account voices with their voice_ids.\n- `generate_speech` — TTS mp3 with any voice (cloned or premade). Output lands in the workspace; feed it to talking_video for avatar videos.\n\n## Rules\n- For voice cloning, samples must be clean speech (no music/noise); 1-3 minutes total gives the best likeness.\n- Use `eleven_multilingual_v2` for quality (supports Turkish and 28 other languages), `eleven_turbo_v2_5` when speed/cost matters.\n- ElevenLabs bills per character — do not synthesize text the user did not ask for.\n- If no cloned voice exists and the user did not specify one, pick a fitting premade account voice from list_voices.\n",
+    "tools": [
+      {
+        "name": "clone_voice",
+        "description": "Clone a voice from sample audio using ElevenLabs Instant Voice Cloning and save it to the persistent voice library. Provide 1-5 clean speech samples (1-3 minutes total is ideal; local paths or URLs). Requires a paid ElevenLabs plan. Returns {voice_id, name, manifest}.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Voice name (library key, e.g. 'ray-voice')."
+            },
+            "samples": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Audio sample files: local paths or URLs (mp3/wav/m4a/ogg). 1-5 samples, clean speech, no music."
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional description of the voice."
+            }
+          },
+          "required": [
+            "name",
+            "samples"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, mimetypes, uuid, urllib.request, urllib.error\n\nAPI_KEY = os.environ.get(\"VAR_ELEVENLABS_API_KEY\") or \"\"\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nVOICE_DIR = os.path.join(ASSETS_DIR, \"voices\")\nBASE = \"https://api.elevenlabs.io\"\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\nif not API_KEY:\n    die(\"ElevenLabs API key not configured (set elevenlabs_api_key)\")\n\ndef api(path, payload=None, method=None, raw=False, timeout=120):\n    data = json.dumps(payload).encode() if payload is not None else None\n    req = urllib.request.Request(BASE + path, data=data,\n        method=method or (\"POST\" if data else \"GET\"),\n        headers={\"xi-api-key\": API_KEY, \"Content-Type\": \"application/json\"})\n    try:\n        with urllib.request.urlopen(req, timeout=timeout) as r:\n            return r.read() if raw else json.load(r)\n    except urllib.error.HTTPError as e:\n        die(\"ElevenLabs API error\", status=e.code, body=e.read().decode(errors=\"replace\")[:800])\n\ndef slugify(name):\n    return name.strip().lower().replace(\" \", \"-\")\n\ndef local_manifests():\n    out = {}\n    if os.path.isdir(VOICE_DIR):\n        for f in os.listdir(VOICE_DIR):\n            if f.endswith(\".json\"):\n                try:\n                    m = json.load(open(os.path.join(VOICE_DIR, f)))\n                    if m.get(\"voice_id\"):\n                        out[m.get(\"slug\") or slugify(m.get(\"name\", \"\"))] = m\n                except Exception:\n                    pass\n    return out\n\ndef resolve_voice(ref):\n    \"\"\"Voice reference: raw voice_id, library name, or account voice name.\"\"\"\n    if not ref:\n        return ref\n    mans = local_manifests()\n    s = slugify(ref)\n    if s in mans:\n        return mans[s][\"voice_id\"]\n    voices = (api(\"/v1/voices\") or {}).get(\"voices\", [])\n    for v in voices:\n        if v.get(\"voice_id\") == ref:\n            return ref\n    for v in voices:\n        if v.get(\"name\", \"\").strip().lower() == ref.strip().lower():\n            return v[\"voice_id\"]\n    # Assume it is a voice_id we could not list (workspace voices etc.)\n    return ref\n\nname = os.environ.get(\"ARG_NAME\", \"\")\ndesc = os.environ.get(\"ARG_DESCRIPTION\", \"\")\ntry:\n    samples = json.loads(os.environ.get(\"ARG_SAMPLES\", \"[]\"))\nexcept Exception:\n    samples = [s for s in os.environ.get(\"ARG_SAMPLES\", \"\").split(\",\") if s.strip()]\nif not name or not samples:\n    die(\"name and samples are required\")\n\n# Materialize URLs to local files.\npaths = []\nfor s in samples[:5]:\n    s = s.strip()\n    if s.startswith((\"http://\", \"https://\")):\n        ext = os.path.splitext(s.split(\"?\")[0])[1] or \".mp3\"\n        tmp = os.path.join(WORK_DIR, \"voice-sample-%s%s\" % (uuid.uuid4().hex[:8], ext))\n        os.makedirs(WORK_DIR, exist_ok=True)\n        with urllib.request.urlopen(s, timeout=300) as r, open(tmp, \"wb\") as f:\n            f.write(r.read())\n        paths.append(tmp)\n    else:\n        p = os.path.expanduser(s)\n        if not os.path.isfile(p):\n            die(\"sample not found: \" + p)\n        paths.append(p)\n\n# Multipart form-data build (stdlib only).\nboundary = \"----atform\" + uuid.uuid4().hex\nbody = bytearray()\ndef field(k, v):\n    body.extend((\"--%s\\r\\nContent-Disposition: form-data; name=\\\"%s\\\"\\r\\n\\r\\n%s\\r\\n\" % (boundary, k, v)).encode())\nfield(\"name\", name)\nif desc:\n    field(\"description\", desc)\nfor p in paths:\n    ctype = mimetypes.guess_type(p)[0] or \"audio/mpeg\"\n    body.extend((\"--%s\\r\\nContent-Disposition: form-data; name=\\\"files\\\"; filename=\\\"%s\\\"\\r\\nContent-Type: %s\\r\\n\\r\\n\" % (boundary, os.path.basename(p), ctype)).encode())\n    body.extend(open(p, \"rb\").read())\n    body.extend(b\"\\r\\n\")\nbody.extend((\"--%s--\\r\\n\" % boundary).encode())\n\nreq = urllib.request.Request(BASE + \"/v1/voices/add\", data=bytes(body), method=\"POST\",\n    headers={\"xi-api-key\": API_KEY, \"Content-Type\": \"multipart/form-data; boundary=\" + boundary})\ntry:\n    with urllib.request.urlopen(req, timeout=300) as r:\n        res = json.load(r)\nexcept urllib.error.HTTPError as e:\n    die(\"ElevenLabs voice clone failed\", status=e.code, body=e.read().decode(errors=\"replace\")[:800])\n\nvoice_id = res.get(\"voice_id\", \"\")\nif not voice_id:\n    die(\"no voice_id in response\", raw=str(res)[:400])\n\nos.makedirs(VOICE_DIR, exist_ok=True)\nmanifest = {\"name\": name, \"slug\": slugify(name), \"voice_id\": voice_id,\n            \"provider\": \"elevenlabs\", \"description\": desc,\n            \"created_at\": time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())}\nwith open(os.path.join(VOICE_DIR, slugify(name) + \".json\"), \"w\") as f:\n    json.dump(manifest, f, indent=1)\nprint(json.dumps({\"voice_id\": voice_id, \"name\": name, \"manifest\": manifest}))\n\nATPY\n"
+      },
+      {
+        "name": "list_voices",
+        "description": "List available ElevenLabs voices: cloned voices saved in the persistent library plus the account's voices (premade + cloned). Returns names and voice_ids for generate_speech.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, mimetypes, uuid, urllib.request, urllib.error\n\nAPI_KEY = os.environ.get(\"VAR_ELEVENLABS_API_KEY\") or \"\"\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nVOICE_DIR = os.path.join(ASSETS_DIR, \"voices\")\nBASE = \"https://api.elevenlabs.io\"\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\nif not API_KEY:\n    die(\"ElevenLabs API key not configured (set elevenlabs_api_key)\")\n\ndef api(path, payload=None, method=None, raw=False, timeout=120):\n    data = json.dumps(payload).encode() if payload is not None else None\n    req = urllib.request.Request(BASE + path, data=data,\n        method=method or (\"POST\" if data else \"GET\"),\n        headers={\"xi-api-key\": API_KEY, \"Content-Type\": \"application/json\"})\n    try:\n        with urllib.request.urlopen(req, timeout=timeout) as r:\n            return r.read() if raw else json.load(r)\n    except urllib.error.HTTPError as e:\n        die(\"ElevenLabs API error\", status=e.code, body=e.read().decode(errors=\"replace\")[:800])\n\ndef slugify(name):\n    return name.strip().lower().replace(\" \", \"-\")\n\ndef local_manifests():\n    out = {}\n    if os.path.isdir(VOICE_DIR):\n        for f in os.listdir(VOICE_DIR):\n            if f.endswith(\".json\"):\n                try:\n                    m = json.load(open(os.path.join(VOICE_DIR, f)))\n                    if m.get(\"voice_id\"):\n                        out[m.get(\"slug\") or slugify(m.get(\"name\", \"\"))] = m\n                except Exception:\n                    pass\n    return out\n\ndef resolve_voice(ref):\n    \"\"\"Voice reference: raw voice_id, library name, or account voice name.\"\"\"\n    if not ref:\n        return ref\n    mans = local_manifests()\n    s = slugify(ref)\n    if s in mans:\n        return mans[s][\"voice_id\"]\n    voices = (api(\"/v1/voices\") or {}).get(\"voices\", [])\n    for v in voices:\n        if v.get(\"voice_id\") == ref:\n            return ref\n    for v in voices:\n        if v.get(\"name\", \"\").strip().lower() == ref.strip().lower():\n            return v[\"voice_id\"]\n    # Assume it is a voice_id we could not list (workspace voices etc.)\n    return ref\n\nlibrary = list(local_manifests().values())\naccount = []\nfor v in (api(\"/v1/voices\") or {}).get(\"voices\", []):\n    account.append({\"name\": v.get(\"name\"), \"voice_id\": v.get(\"voice_id\"), \"category\": v.get(\"category\")})\nprint(json.dumps({\"library\": library, \"account_voices\": account, \"library_dir\": VOICE_DIR}))\n\nATPY\n"
+      },
+      {
+        "name": "generate_speech",
+        "description": "Generate speech audio (mp3) with ElevenLabs TTS — including cloned voices. Writes the mp3 into the workspace and returns {audio_file, voice_id, characters}. Use the result as the `audio` input of talking_video.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "text": {
+              "type": "string",
+              "description": "The text to speak."
+            },
+            "voice": {
+              "type": "string",
+              "description": "Voice: library name (see list_voices), account voice name (e.g. 'Rachel'), or a raw voice_id."
+            },
+            "model_id": {
+              "type": "string",
+              "description": "TTS model. Default 'eleven_multilingual_v2'. 'eleven_turbo_v2_5' is faster/cheaper."
+            },
+            "stability": {
+              "type": "number",
+              "description": "0-1 voice stability. Default 0.5."
+            },
+            "similarity_boost": {
+              "type": "number",
+              "description": "0-1 similarity to the original voice. Default 0.75."
+            },
+            "speed": {
+              "type": "number",
+              "description": "0.7-1.2 speaking speed. Default 1.0."
+            }
+          },
+          "required": [
+            "text",
+            "voice"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, mimetypes, uuid, urllib.request, urllib.error\n\nAPI_KEY = os.environ.get(\"VAR_ELEVENLABS_API_KEY\") or \"\"\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nVOICE_DIR = os.path.join(ASSETS_DIR, \"voices\")\nBASE = \"https://api.elevenlabs.io\"\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\nif not API_KEY:\n    die(\"ElevenLabs API key not configured (set elevenlabs_api_key)\")\n\ndef api(path, payload=None, method=None, raw=False, timeout=120):\n    data = json.dumps(payload).encode() if payload is not None else None\n    req = urllib.request.Request(BASE + path, data=data,\n        method=method or (\"POST\" if data else \"GET\"),\n        headers={\"xi-api-key\": API_KEY, \"Content-Type\": \"application/json\"})\n    try:\n        with urllib.request.urlopen(req, timeout=timeout) as r:\n            return r.read() if raw else json.load(r)\n    except urllib.error.HTTPError as e:\n        die(\"ElevenLabs API error\", status=e.code, body=e.read().decode(errors=\"replace\")[:800])\n\ndef slugify(name):\n    return name.strip().lower().replace(\" \", \"-\")\n\ndef local_manifests():\n    out = {}\n    if os.path.isdir(VOICE_DIR):\n        for f in os.listdir(VOICE_DIR):\n            if f.endswith(\".json\"):\n                try:\n                    m = json.load(open(os.path.join(VOICE_DIR, f)))\n                    if m.get(\"voice_id\"):\n                        out[m.get(\"slug\") or slugify(m.get(\"name\", \"\"))] = m\n                except Exception:\n                    pass\n    return out\n\ndef resolve_voice(ref):\n    \"\"\"Voice reference: raw voice_id, library name, or account voice name.\"\"\"\n    if not ref:\n        return ref\n    mans = local_manifests()\n    s = slugify(ref)\n    if s in mans:\n        return mans[s][\"voice_id\"]\n    voices = (api(\"/v1/voices\") or {}).get(\"voices\", [])\n    for v in voices:\n        if v.get(\"voice_id\") == ref:\n            return ref\n    for v in voices:\n        if v.get(\"name\", \"\").strip().lower() == ref.strip().lower():\n            return v[\"voice_id\"]\n    # Assume it is a voice_id we could not list (workspace voices etc.)\n    return ref\n\ntext = os.environ.get(\"ARG_TEXT\", \"\")\nvoice = os.environ.get(\"ARG_VOICE\", \"\")\nmodel_id = os.environ.get(\"ARG_MODEL_ID\", \"eleven_multilingual_v2\")\nif not text or not voice:\n    die(\"text and voice are required\")\n\ndef num(key, default):\n    try:\n        return float(os.environ.get(key, \"\"))\n    except Exception:\n        return default\n\nvoice_id = resolve_voice(voice)\nsettings = {\"stability\": num(\"ARG_STABILITY\", 0.5), \"similarity_boost\": num(\"ARG_SIMILARITY_BOOST\", 0.75)}\nspeed = num(\"ARG_SPEED\", 0)\nif speed:\n    settings[\"speed\"] = max(0.7, min(1.2, speed))\n\naudio = api(\"/v1/text-to-speech/\" + voice_id,\n            {\"text\": text, \"model_id\": model_id, \"voice_settings\": settings},\n            raw=True, timeout=300)\nos.makedirs(WORK_DIR, exist_ok=True)\nout = os.path.join(WORK_DIR, \"el-tts-%s.mp3\" % uuid.uuid4().hex[:10])\nwith open(out, \"wb\") as f:\n    f.write(audio)\nprint(json.dumps({\"audio_file\": out, \"voice_id\": voice_id, \"model_id\": model_id,\n                  \"characters\": len(text), \"size_bytes\": len(audio)}))\n\nATPY\n"
+      }
+    ]
+  }
+}

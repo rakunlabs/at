@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,10 +12,19 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/rakunlabs/query/adapter/adaptergoqu"
 )
 
 type llmCallRow struct {
-	ID                 string  `db:"id"`
+	ID                  string `db:"id"`
+	ObservationType     string `db:"observation_type"`
+	ParentObservationID string `db:"parent_observation_id"`
+	Name                string `db:"name"`
+	Input               string `db:"input"`
+	Output              string `db:"output"`
+	Level               string `db:"level"`
+	Metadata            string `db:"metadata"`
+
 	TraceID            string  `db:"trace_id"`
 	SessionID          string  `db:"session_id"`
 	Source             string  `db:"source"`
@@ -52,11 +62,15 @@ type llmCallRow struct {
 	CreatedAt          string  `db:"created_at"`
 }
 
-// llmCallListColumns clips the two body columns to a preview so list
-// queries stay light; full bodies come from GetLLMCall.
+// llmCallListColumns clips the body and IO columns to a preview so list
+// queries stay light; full payloads come from GetLLMCall.
 func llmCallListColumns() []interface{} {
 	return []interface{}{
-		"id", "trace_id", "session_id", "source", "endpoint",
+		"id", "observation_type", "parent_observation_id", "name",
+		goqu.L(fmt.Sprintf("substr(input, 1, %d)", service.LLMCallPreviewBytes)).As("input"),
+		goqu.L(fmt.Sprintf("substr(output, 1, %d)", service.LLMCallPreviewBytes)).As("output"),
+		"level", "metadata",
+		"trace_id", "session_id", "source", "endpoint",
 		"token_id", "agent_id", "task_id", "run_id", "organization_id",
 		"provider", "model", "requested_model",
 		goqu.L(fmt.Sprintf("substr(request_body, 1, %d)", service.LLMCallPreviewBytes)).As("request_body"),
@@ -71,7 +85,9 @@ func llmCallListColumns() []interface{} {
 }
 
 var llmCallColumns = []interface{}{
-	"id", "trace_id", "session_id", "source", "endpoint",
+	"id", "observation_type", "parent_observation_id", "name",
+	"input", "output", "level", "metadata",
+	"trace_id", "session_id", "source", "endpoint",
 	"token_id", "agent_id", "task_id", "run_id", "organization_id",
 	"provider", "model", "requested_model",
 	"request_body", "response_body",
@@ -86,7 +102,9 @@ var llmCallColumns = []interface{}{
 func scanLLMCallRow(scanner interface{ Scan(dest ...any) error }) (llmCallRow, error) {
 	var row llmCallRow
 	err := scanner.Scan(
-		&row.ID, &row.TraceID, &row.SessionID, &row.Source, &row.Endpoint,
+		&row.ID, &row.ObservationType, &row.ParentObservationID, &row.Name,
+		&row.Input, &row.Output, &row.Level, &row.Metadata,
+		&row.TraceID, &row.SessionID, &row.Source, &row.Endpoint,
 		&row.TokenID, &row.AgentID, &row.TaskID, &row.RunID, &row.OrganizationID,
 		&row.Provider, &row.Model, &row.RequestedModel,
 		&row.RequestBody, &row.ResponseBody,
@@ -117,9 +135,33 @@ func (p *Postgres) RecordLLMCall(ctx context.Context, call service.LLMCall) erro
 		createdAt = time.Now().UTC().Format(time.RFC3339)
 	}
 
+	obsType := call.ObservationType
+	if obsType == "" {
+		obsType = service.ObservationGeneration
+	}
+
+	level := call.Level
+	if level == "" {
+		level = service.ObservationLevelDefault
+	}
+
+	metadata := ""
+	if len(call.Metadata) > 0 {
+		if b, err := json.Marshal(call.Metadata); err == nil {
+			metadata = string(b)
+		}
+	}
+
 	query, _, err := p.goqu.Insert(p.tableLLMCalls).Rows(
 		goqu.Record{
 			"id":                     id,
+			"observation_type":       obsType,
+			"parent_observation_id":  call.ParentObservationID,
+			"name":                   call.Name,
+			"input":                  call.Input,
+			"output":                 call.Output,
+			"level":                  level,
+			"metadata":               metadata,
 			"trace_id":               call.TraceID,
 			"session_id":             call.SessionID,
 			"source":                 call.Source,
@@ -225,6 +267,130 @@ func (p *Postgres) GetLLMCall(ctx context.Context, id string) (*service.LLMCall,
 	return &record, nil
 }
 
+// ListLLMCallTraces aggregates observations into one row per trace_id,
+// newest-first. Filters from q apply to the underlying observation rows
+// (source, session_id, task_id, agent_id, organization_id, status,
+// created_at ranges); pagination applies to the grouped result.
+func (p *Postgres) ListLLMCallTraces(ctx context.Context, q *query.Query) (*service.ListResult[service.LLMCallTrace], error) {
+	tbl := p.tableLLMCalls.GetTable()
+
+	ds := p.goqu.From(p.tableLLMCalls).Where(goqu.I("trace_id").Neq(""))
+	if q != nil {
+		if exprs := adaptergoqu.Expression(q); len(exprs) > 0 {
+			ds = ds.Where(exprs...)
+		}
+	}
+
+	countSQL, _, err := ds.Select(goqu.L("COUNT(DISTINCT trace_id)")).ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build count llm call traces query: %w", err)
+	}
+
+	var total uint64
+	if err := p.db.QueryRowContext(ctx, countSQL).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count llm call traces: %w", err)
+	}
+
+	offset, limit := getPagination(q)
+	if limit == 0 {
+		limit = 50
+	}
+
+	dataDs := ds.Select(
+		goqu.I("trace_id"),
+		goqu.MAX("session_id").As("session_id"),
+		goqu.MAX("source").As("source"),
+		goqu.L("(SELECT c2.name FROM "+tbl+" c2 WHERE c2.trace_id = "+tbl+".trace_id AND c2.name != '' ORDER BY c2.id ASC LIMIT 1)").As("name"),
+		goqu.MAX("task_id").As("task_id"),
+		goqu.MAX("agent_id").As("agent_id"),
+		goqu.MAX("organization_id").As("organization_id"),
+		goqu.COUNT("*").As("observation_count"),
+		goqu.L("SUM(CASE WHEN observation_type = 'generation' THEN 1 ELSE 0 END)").As("generation_count"),
+		goqu.L("COALESCE(SUM(input_tokens), 0)").As("input_tokens"),
+		goqu.L("COALESCE(SUM(output_tokens), 0)").As("output_tokens"),
+		goqu.L("COALESCE(SUM(cost_cents), 0)").As("cost_cents"),
+		goqu.L("COALESCE(SUM(latency_ms), 0)").As("latency_ms_total"),
+		goqu.L("SUM(CASE WHEN status = 'error' OR level = 'error' THEN 1 ELSE 0 END)").As("error_count"),
+		goqu.MIN("created_at").As("started_at"),
+		goqu.MAX("created_at").As("ended_at"),
+	).
+		GroupBy(goqu.I("trace_id")).
+		Order(goqu.L("MIN(created_at)").Desc()).
+		Limit(uint(limit)).
+		Offset(uint(offset))
+
+	dataSQL, _, err := dataDs.ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build list llm call traces query: %w", err)
+	}
+
+	rows, err := p.db.QueryContext(ctx, dataSQL)
+	if err != nil {
+		return nil, fmt.Errorf("list llm call traces: %w", err)
+	}
+	defer rows.Close()
+
+	var items []service.LLMCallTrace
+	for rows.Next() {
+		var t service.LLMCallTrace
+		var name sql.NullString
+		if err := rows.Scan(
+			&t.TraceID, &t.SessionID, &t.Source, &name,
+			&t.TaskID, &t.AgentID, &t.OrganizationID,
+			&t.ObservationCount, &t.GenerationCount,
+			&t.InputTokens, &t.OutputTokens, &t.CostCents, &t.LatencyMsTotal,
+			&t.ErrorCount, &t.StartedAt, &t.EndedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan llm call trace row: %w", err)
+		}
+		t.Name = name.String
+		items = append(items, t)
+	}
+
+	return &service.ListResult[service.LLMCallTrace]{
+		Data: items,
+		Meta: service.ListMeta{
+			Total:  total,
+			Offset: offset,
+			Limit:  limit,
+		},
+	}, rows.Err()
+}
+
+// ExpireLLMCallBodiesBefore nulls the heavy body columns (and full tool IO
+// beyond the preview) on rows older than cutoff, keeping the skeleton.
+func (p *Postgres) ExpireLLMCallBodiesBefore(ctx context.Context, cutoff string) (int64, error) {
+	query, _, err := p.goqu.Update(p.tableLLMCalls).
+		Set(goqu.Record{
+			"request_body":       "",
+			"response_body":      "",
+			"request_truncated":  false,
+			"response_truncated": false,
+			"request_ref":        "",
+			"response_ref":       "",
+		}).
+		Where(
+			goqu.I("created_at").Lt(cutoff),
+			goqu.L("(request_body != '' OR response_body != '' OR request_ref != '' OR response_ref != '')"),
+		).
+		ToSQL()
+	if err != nil {
+		return 0, fmt.Errorf("build expire llm call bodies query: %w", err)
+	}
+
+	res, err := p.db.ExecContext(ctx, query)
+	if err != nil {
+		return 0, fmt.Errorf("expire llm call bodies before %q: %w", cutoff, err)
+	}
+
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, nil //nolint:nilerr // count is informational
+	}
+
+	return n, nil
+}
+
 func (p *Postgres) DeleteLLMCallsBefore(ctx context.Context, cutoff string) (int64, error) {
 	query, _, err := p.goqu.Delete(p.tableLLMCalls).
 		Where(goqu.I("created_at").Lt(cutoff)).
@@ -247,8 +413,21 @@ func (p *Postgres) DeleteLLMCallsBefore(ctx context.Context, cutoff string) (int
 }
 
 func llmCallRowToRecord(row llmCallRow) service.LLMCall {
+	var metadata map[string]any
+	if row.Metadata != "" {
+		_ = json.Unmarshal([]byte(row.Metadata), &metadata)
+	}
+
 	return service.LLMCall{
-		ID:                 row.ID,
+		ID:                  row.ID,
+		ObservationType:     row.ObservationType,
+		ParentObservationID: row.ParentObservationID,
+		Name:                row.Name,
+		Input:               row.Input,
+		Output:              row.Output,
+		Level:               row.Level,
+		Metadata:            metadata,
+
 		TraceID:            row.TraceID,
 		SessionID:          row.SessionID,
 		Source:             row.Source,

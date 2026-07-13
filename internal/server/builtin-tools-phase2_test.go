@@ -24,7 +24,7 @@ import (
 //
 // The executors reuse the same store interfaces the HTTP handlers do,
 // so the underlying CRUD is already validated by the store-level
-// tests in internal/store/sqlite3. Here we only verify the executor
+// tests in internal/store/postgres. Here we only verify the executor
 // glue: argument decoding, redaction, dispatch routing.
 
 // ─── Variables ───

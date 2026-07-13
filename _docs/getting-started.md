@@ -18,8 +18,8 @@ AT is configured via `at.yaml` or environment variables prefixed with `AT_`.
 ```yaml
 # at.yaml
 store:
-  sqlite:
-    datasource: "at.db"
+  postgres:
+    datasource: "postgres://postgres@localhost:5432/postgres?sslmode=disable"
 
 server:
   port: "8080"
@@ -48,10 +48,8 @@ The UI is available at `http://localhost:8080` after starting.
 
 ## Storage
 
-AT supports three storage backends:
+AT uses PostgreSQL as its storage backend:
 
 | Backend | Use Case |
 |---------|----------|
-| **SQLite** | Default, single-instance deployments |
-| **PostgreSQL** | Production, multi-instance deployments |
-| **Memory** | Testing and development |
+| **PostgreSQL** | All deployments (`make env` starts a local instance) |

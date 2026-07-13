@@ -57,7 +57,7 @@ type Scheduler struct {
 	chatSessionLookup     ChatSessionLookupFunc
 	recordUsage           RecordUsageFunc
 	checkBudget           CheckBudgetFunc
-	recordAudit           RecordAuditFunc
+	recordObservation     RecordObservationFunc
 	goalAncestry          GoalAncestryFunc
 	ragSync               RAGSyncFunc
 	ragPageUpsert         RAGPageUpsertFunc
@@ -84,7 +84,7 @@ type ScheduleStorer interface {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, cl *cluster.Cluster) *Scheduler {
+func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
 		triggerStore:          st,
 		workflowStore:         st,
@@ -108,7 +108,7 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 		chatSessionLookup:     chatSessionLookup,
 		recordUsage:           recordUsage,
 		checkBudget:           checkBudget,
-		recordAudit:           recordAudit,
+		recordObservation:     recordObservation,
 		goalAncestry:          goalAncestry,
 		cluster:               cl,
 	}
@@ -468,7 +468,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordAudit, s.goalAncestry, versionLookup)
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordObservation, s.goalAncestry, versionLookup)
 		engine.SetRAGPageUpsert(s.ragPageUpsert)
 		engine.SetConnectionLookup(s.connectionLookup)
 		engine.SetWorkflowByNameLookup(s.workflowByNameLookup)

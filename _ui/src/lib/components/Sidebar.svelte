@@ -24,8 +24,7 @@
     Globe,
     Clock,
     ClipboardList,
-    ScrollText,
-    Receipt,
+    Clapperboard,
     BarChart3,
     CircleDollarSign,
     Plug,
@@ -265,19 +264,6 @@
       </a>
     {/if}
     <a
-      href="#/audit"
-      onclick={(e) => navigate(e, "/audit")}
-      class={[
-        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-        $location === "/audit"
-          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-      ]}
-    >
-      <ScrollText size={14} />
-      <span>Audit</span>
-    </a>
-    <a
       href="#/docs"
       onclick={(e) => navigate(e, "/docs")}
       class={[
@@ -305,21 +291,19 @@
         <span>Usage</span>
       </a>
     {/if}
-    {#if isFeatureEnabled("llm_audit")}
-      <a
-        href="#/llm-calls"
-        onclick={(e) => navigate(e, "/llm-calls")}
-        class={[
-          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-          $location === "/llm-calls"
-            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-        ]}
-      >
-        <Activity size={14} />
-        <span>LLM Traces</span>
-      </a>
-    {/if}
+    <a
+      href="#/llm-calls"
+      onclick={(e) => navigate(e, "/llm-calls")}
+      class={[
+        "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
+        $location === "/llm-calls"
+          ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
+          : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
+      ]}
+    >
+      <Activity size={14} />
+      <span>Traces</span>
+    </a>
     {#if isFeatureEnabled("provider_setup")}
       <a
         href="#/pricing"
@@ -457,17 +441,17 @@
             <span>Tasks</span>
           </a>
           <a
-            href="#/cost-events"
-            onclick={(e) => navigate(e, "/cost-events")}
+            href="#/studio"
+            onclick={(e) => navigate(e, "/studio")}
             class={[
               "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-              $location === "/cost-events"
+              $location === "/studio"
                 ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
                 : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
             ]}
           >
-            <Receipt size={14} />
-            <span>Cost Events</span>
+            <Clapperboard size={14} />
+            <span>Studio</span>
           </a>
         </div>
       </div>

@@ -2,7 +2,5 @@ log_level: debug
 server:
   # base_path: "/at"
 store:
-  # sqlite:
-  #   datasource: "file:at.db?cache=shared&mode=rwc"
-  # postgres:
-  #   datasource: "postgresql://postgres@localhost:5432/postgres?sslmode=disable"
+  postgres:
+    datasource: "postgresql://postgres@localhost:5432/postgres?sslmode=disable"

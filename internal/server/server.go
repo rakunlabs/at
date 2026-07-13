@@ -151,9 +151,6 @@ type Server struct {
 	// agentBudgetStore is the persistent store for agent budgets and cost tracking.
 	agentBudgetStore service.AgentBudgetStorer
 
-	// auditStore is the persistent store for the immutable audit log.
-	auditStore service.AuditStorer
-
 	// agentHeartbeatStore is the persistent store for agent heartbeat tracking.
 	agentHeartbeatStore service.AgentHeartbeatStorer
 
@@ -202,7 +199,7 @@ type Server struct {
 	// providerFactory creates an LLMProvider from config (for hot reload).
 	providerFactory ProviderFactory
 
-	storeType string // "postgres", "sqlite", or "none"
+	storeType string // "postgres" or "none"
 
 	// cluster is the optional distributed coordination layer (alan).
 	// nil when clustering is not configured (single-instance mode).
@@ -440,7 +437,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		goalStore:                store,
 		taskStore:                store,
 		agentBudgetStore:         store,
-		auditStore:               store,
 		agentHeartbeatStore:      store,
 		projectStore:             store,
 		issueCommentStore:        store,
@@ -614,7 +610,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), cl)
+		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
 		s.scheduler.SetRAGSync(s.ragSyncFunc())
 		s.scheduler.SetRAGPageUpsert(s.ragPageUpsertFunc())
@@ -880,10 +876,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.DELETE("/v1/model-pricing/{id}", s.DeleteModelPricingAPI)
 	apiGroup.POST("/v1/model-pricing/{id}/reset", s.ResetModelPricingAPI)
 
-	// Audit log
-	apiGroup.GET("/v1/audit", s.ListAuditEntriesAPI)
-	apiGroup.GET("/v1/audit/{resource_type}/{resource_id}", s.GetAuditTrailAPI)
-
 	// Project management
 	apiGroup.GET("/v1/projects", s.ListProjectsAPI)
 	apiGroup.POST("/v1/projects", s.CreateProjectAPI)
@@ -965,6 +957,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	// LLM call audit (full request/response bodies, Langfuse-style tracing)
 	apiGroup.GET("/v1/llm-calls", s.ListLLMCallsAPI)
+	apiGroup.GET("/v1/llm-calls/traces", s.ListLLMCallTracesAPI)
 	apiGroup.GET("/v1/llm-calls/{id}", s.GetLLMCallAPI)
 
 	// Chat session management
@@ -1115,6 +1108,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// File browser
 	apiGroup.GET("/v1/files/browse", s.FileBrowseAPI)
 	apiGroup.GET("/v1/files/serve", s.FileServeAPI)
+	apiGroup.POST("/v1/files/upload", s.FileUploadAPI)
 	apiGroup.DELETE("/v1/files", s.FileDeleteAPI)
 
 	// Audio transcription
@@ -1531,14 +1525,54 @@ func (s *Server) checkBudgetFunc() workflow.CheckBudgetFunc {
 	}
 }
 
-// recordAuditFunc returns a workflow.RecordAuditFunc that appends an entry
-// to the immutable audit log. Returns nil when the audit store is not configured.
-func (s *Server) recordAuditFunc() workflow.RecordAuditFunc {
-	if s.auditStore == nil {
+// recordObservationFunc returns a workflow.RecordObservationFunc that
+// records a trace observation through the async LLM-call recorder.
+// Returns nil when the llm-call store is not configured.
+func (s *Server) recordObservationFunc() workflow.RecordObservationFunc {
+	if s.llmCallStore == nil {
 		return nil
 	}
-	return func(ctx context.Context, entry service.AuditEntry) error {
-		return s.auditStore.RecordAudit(ctx, entry)
+	return func(ctx context.Context, obs service.LLMCall) string {
+		fullModel := ""
+		if obs.Provider != "" || obs.Model != "" {
+			fullModel = obs.Provider + "/" + obs.Model
+		}
+		return s.recordLLMCallAsync(ctx, llmAuditParams{
+			source:              obs.Source,
+			endpoint:            obs.Endpoint,
+			traceID:             obs.TraceID,
+			sessionID:           obs.SessionID,
+			userField:           obs.UserField,
+			obsType:             obs.ObservationType,
+			parentObservationID: obs.ParentObservationID,
+			name:                obs.Name,
+			input:               obs.Input,
+			output:              obs.Output,
+			level:               obs.Level,
+			metadata:            obs.Metadata,
+			requestBody:         []byte(obs.RequestBody),
+			responseBody:        []byte(obs.ResponseBody),
+			requestedModel:      obs.RequestedModel,
+			fullModel:           fullModel,
+			usage: service.Usage{
+				PromptTokens:     int(obs.InputTokens),
+				CompletionTokens: int(obs.OutputTokens),
+				CacheReadTokens:  int(obs.CacheReadTokens),
+				CacheWriteTokens: int(obs.CacheWriteTokens),
+				ReasoningTokens:  int(obs.ReasoningTokens),
+			},
+			costCents:    obs.CostCents,
+			latencyMs:    obs.LatencyMs,
+			streamed:     obs.Streamed,
+			status:       obs.Status,
+			errCode:      obs.ErrorCode,
+			errMsg:       obs.ErrorMessage,
+			finishReason: obs.FinishReason,
+			agentID:      obs.AgentID,
+			taskID:       obs.TaskID,
+			runID:        obs.RunID,
+			orgID:        obs.OrganizationID,
+		})
 	}
 }
 

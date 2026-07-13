@@ -15,7 +15,7 @@ internal/service/           → domain types + store interfaces (at.go)
 internal/service/workflow/  → DAG engine: parse → topoSort → run (concurrent fan-out)
 internal/service/workflow/nodes/ → node types registered via init()
 internal/service/llm/       → provider adapters: openai/, antropic/, gemini/, vertex/
-internal/store/             → store factory → postgres | sqlite3 (default: sqlite at ./data/at.db)
+internal/store/             → store factory → postgres (the only backend; required)
 internal/crypto/            → AES-256-GCM credential encryption, key rotation
 _ui/                        → Svelte 5 + Vite 6 + TailwindCSS 4 SPA
 ```
@@ -168,16 +168,17 @@ upstream OpenAI when none of them are present.
 
 LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
 
-## LLM Call Audit (tracing)
+## Unified LLM Tracing (traces / observations)
 
-Langfuse-style request/response tracing for gateway LLM traffic, gated by the `llm_audit` feature flag (default ON, toggle on the Features page). This is separate from `cost_events` (per-call metrics) and `audit_log` (agent-action log): it stores the **full request and response bodies** of every upstream provider call.
+Langfuse-style trace → observation tracing covering the gateway **and** all three agentic loops. This replaced the former `audit_log` table entirely (dropped by migration 22; `/api/v1/audit*` endpoints removed). It is separate from `cost_events` (permanent per-call cost metrics feeding the Usage dashboard and budget enforcement — untouched).
 
-- **Model**: `service.LLMCall` (`internal/service/types-llmcall.go`) + `LLMCallStorer`. Table `llm_calls` (migration `21_llm_calls.sql`, both backends). One row per upstream call — each `at_fallbacks` attempt is its own row, correlated by `trace_id`. Fields: trace/session IDs, source (`gateway` / `gateway_stream` / `responses` / `chat`), endpoint, token/agent/task/run/org attribution, provider+model+requested_model, full request/response bodies, token buckets (incl. reasoning), cost_cents, latency_ms, time_to_first_token_ms (streaming), status/error, finish_reason, user_field.
-- **Recorder**: `Server.recordLLMCallAsync` (`internal/server/llm-audit.go`) — fire-and-forget, feature-gated (30s cached toggle in `Server.llmAudit`). Bodies over `LLMCallBodyMaxBytes` (256 KB) are truncated inline and the full payload is spilled to `<WorkspaceRoot>/.at-llm-audit/<yyyy-mm-dd>/<id>-<request|response>.json` (path in `request_ref`/`response_ref`; `GetLLMCall` rehydrates from disk). List queries clip bodies to `LLMCallPreviewBytes` (2 KB) via a `substr()` projection; the detail endpoint returns full bodies.
-- **Hooks**: gateway `ChatCompletions` (sync success/error, true-streaming success/mid-stream-error/open-error with reconstructed response, fake-streaming success/error) and `Responses` (non-streaming). The admin `AdminChatCompletions` streaming path records with source `chat`. Streaming reconstructs a single OpenAI-shape response from accumulated deltas (`streamAuditResponseBody`). Raw request bytes are captured pre-decode so the stored request is byte-faithful. Clients can set `x-at-trace-id` / `x-at-session-id` to stitch multi-turn conversations.
-- **Hybrid OTEL export**: `emitLLMSpan` emits a completed OTEL span per call using gen-ai semantic conventions (`gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.*`, `gen_ai.prompt`/`gen_ai.completion`) plus Langfuse dimensions (`langfuse.trace.id`, `langfuse.session.id`, `langfuse.observation.type=generation`). Goes to whatever OTLP collector `tell` wires as the global tracer provider (e.g. a self-hosted Langfuse); no-op when telemetry is off.
-- **Retention**: `startLLMAuditJanitor` (`internal/server/llm-audit-janitor.go`) sweeps rows + spill dirs older than `LLMCallRetention` (7d) hourly.
-- **API/UI**: `GET /api/v1/llm-calls` (list, newest-first, filters via `rakunlabs/query`) + `GET /api/v1/llm-calls/{id}` (full record). UI: `_ui/src/pages/LLMCalls.svelte` (route `/llm-calls`, "LLM Traces" sidebar link) — filterable table + slide-over drawer with pretty-printed request/response JSON and copy buttons.
+- **Model**: `service.LLMCall` (`internal/service/types-llmcall.go`) + `LLMCallStorer`. Table `llm_calls` (migrations `21_llm_calls.sql` + `22_observations.sql`). Every row is one **observation** with `observation_type`: `generation` (LLM request/response pair), `tool` (tool execution, `input`/`output`, parented to its generation via `parent_observation_id`), or `event` (task lifecycle: `task_process_triggered`, `task_started`, `task_delegated`, `task_completed`/`_cancelled`/`_blocked`). Plus `name`, `level` (`default`/`warning`/`error`), `metadata` (JSON), trace/session IDs, source (`gateway` / `gateway_stream` / `responses` / `chat` / `agent` / `workflow`), token/agent/task/run/org attribution, token buckets, cost_cents, latency_ms, TTFT, status/error, finish_reason.
+- **Trace identity**: org-delegation → one trace per `runOrgDelegation` run (trace ID rides the context via `contextWithOrgTraceID`; the parent pre-mints the child run's trace so the `delegate_to_*` tool observation cross-links it in `metadata.child_trace_id`), session = root task ID of the delegation tree. Chat sessions → one trace per agentic turn, session = chat session ID. Workflow `agent_call` → one trace per node run (Registry carries no workflow identity; session empty). Gateway → `x-at-trace-id` / `x-at-session-id` headers or generated; each `at_fallbacks` attempt is its own row on one trace.
+- **Recorder**: `Server.recordLLMCallAsync` (`internal/server/llm-audit.go`) — fire-and-forget, returns the observation ID so callers parent tool observations under their generation. **Skeletons (tokens, cost, latency, hierarchy, 4 KB tool-IO previews) are recorded unconditionally**; the `llm_audit` feature flag (default ON, 30s cached toggle) gates **full-body capture only**. Bodies over `LLMCallBodyMaxBytes` (256 KB) truncate inline with the full payload spilled to `<WorkspaceRoot>/.at-llm-audit/<yyyy-mm-dd>/<id>-<side>.json`; oversized tool input/output spills the same way. The workflow engine reaches the recorder through the `RecordObservationFunc` seam (`workflow.Registry.RecordObservation`, wired by `Server.recordObservationFunc`), which replaced the old `RecordAuditFunc`.
+- **Hooks**: gateway `ChatCompletions` / `Responses` / admin chat (as before, byte-faithful bodies, streaming reconstruction via `streamAuditResponseBody`); org-delegation loop (`org-delegation.go` — generations incl. provider errors, all six tool classes, lifecycle events); chat-session loop (`chat-sessions.go`); workflow `agent_call` node (`nodes/agent-call.go`). Loop generations store the **post-loopgov-windowing** request in AT's canonical shape (not provider wire format).
+- **Hybrid OTEL export**: `emitLLMSpan` emits gen-ai spans for generations (`gen_ai.*`, `langfuse.trace.id`/`session.id`) and tool spans (`gen_ai.tool.name`, `gen_ai.operation.name=execute_tool`); events are DB-only. No-op when telemetry is off.
+- **Retention (two-phase)**: `startLLMAuditJanitor` (`internal/server/llm-audit-janitor.go`) hourly — phase 1 nulls bodies (`ExpireLLMCallBodiesBefore`) after `LLMCallRetention` (7d) and sweeps spill dirs; phase 2 deletes rows after `ObservationRetention` (90d). Skeletons stay queryable between the two windows.
+- **API/UI**: `GET /api/v1/llm-calls` (list, newest-first, filters incl. `observation_type`/`trace_id`/`task_id`/`session_id`), `GET /api/v1/llm-calls/traces` (GROUP BY trace aggregate: counts, token/cost sums, duration, error count), `GET /api/v1/llm-calls/{id}` (full record, spill-rehydrated). UI: `_ui/src/pages/LLMCalls.svelte` (route `/llm-calls`, "Traces" sidebar link) — trace list → nested observation tree with child-trace cross-links + detail drawer; the TaskDetail "Events" tab is the same data filtered by the task tree's `task_id`s (live-polled during delegation).
 
 ## Connections & Connectors
 
@@ -189,6 +190,18 @@ External-service credentials are modeled in two layers:
 The OAuth2 flow (`internal/server/oauth.go`) is fully connector-driven and **supports PKCE** (verifier cached on `Server.oauthPKCE`, keyed by state for the callback flow or `provider+connection` for the manual paste-code flow). Token exchange sends `Accept: application/json` (so GitHub-style endpoints return JSON), omits `client_secret` for PKCE public clients, and no longer hard-requires a refresh token — when a provider returns only an access token it is stored under `<slug>_access_token`. Account labels are fetched generically via the connector's `userinfo_url` + `account_label_path` (a dot-path supporting array indices, e.g. `items.0.snippet.title`).
 
 Skills can ship their own connector: `SkillTemplate.connector` (`internal/server/skill-templates.go`) is upserted into the registry on install when no connector with that slug exists, so a user-added skill brings its own connection type. Runtime credential resolution for skill handlers is unchanged (`internal/service/workflow/connection_resolver.go`): `getVar("<provider>_<suffix>")` resolves through per-skill → per-agent connection bindings → global variable.
+
+## Persistent Assets & Avatar Studio
+
+Reusable media (avatar portraits, cloned-voice manifests) live in a **persistent asset library** at `./data/assets` (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`) — unlike per-task workspaces it is NOT swept by the workspace janitor. Bash skill handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). Conventional layout: `avatars/<slug>.{png,json}` (image + manifest), `voices/<slug>.json` (ElevenLabs voice_id manifests), `uploads/` (user-uploaded reference photos/samples).
+
+The HeyGen-style avatar pipeline is built from three pieces:
+
+- **Skill templates**: `fal-avatar` (`create_avatar` Nano Banana 2 portrait/edit, `talking_video` ByteDance OmniHuman v1.5 lip-sync — 60s@720p / 30s@1080p, `talking_video_budget` InfiniTalk, `lipsync_video` Sync Lipsync 2.0, `save_avatar`/`list_avatars` library ops) and `elevenlabs-voice` (`clone_voice` IVC, `list_voices`, `generate_speech`). Both ship embedded `connector` blocks (`fal`, `elevenlabs`) so credentials are manageable as Connections; handlers are bash-wrapped python using the queue.fal.run submit→poll→download pattern with FAL CDN upload (data-URI fallback) for local inputs.
+- **Integration pack** `avatar-studio` (`internal/server/integration_packs/avatar-studio/`): org "Avatar Studio" with Studio Director (head) → Avatar Designer + Video Producer. Agents ship with empty provider/model (assigned at install by the Studio UI setup, or manually).
+- **Studio UI** (`_ui/src/pages/Studio.svelte`, route `/studio`, sidebar "Studio"): one-click setup (installs skill templates + pack + patches agent providers), avatar gallery over `files/browse` on `assets_root/avatars` (photo upload → identity-referenced avatar), video generation form (avatar + script + cloned-voice picker → `submitOrgTask`), productions list with 5s status polling and inline `<video>` playback via `files/serve`.
+
+Note: `internal/server/workflow_seeds/` is legacy/unreferenced — Integration Packs are the supported install mechanism.
 
 ## Memory
 
@@ -238,11 +251,11 @@ AT does not ship a native long-term agent memory store. Agents that need memory 
 - Nil store guard: `if s.store == nil { httpResponse(w, "store not configured", 503); return }`
 
 ### Store Pattern
-- Three backends (`postgres/`, `sqlite3/`, `memory/`) implement interfaces from `service/at.go`
+- Single backend (`postgres/`) implements interfaces from `service/at.go`
 - Private `fooRow` struct with `db:"..."` tags, converted via `fooRowToRecord(row)`
 - SQL built with `goqu` query builder
 - Updates re-fetch after write; `RowsAffected() == 0` → return `nil, nil`
-- Factory: `store.New(ctx, cfg)` tries postgres → sqlite3 (default: on-disk sqlite at `./data/at.db` when no backend is configured; the parent directory is auto-created so Docker users can bind-mount a volume to `/data`)
+- Factory: `store.New(ctx, cfg)` requires `store.postgres.datasource`; startup fails with a descriptive error when unset. Store tests run against a real postgres (`make env`) via `internal/store/postgres/postgrestest` and skip when unreachable; per-test isolation uses a unique table prefix
 
 ### Tests
 - Standard `testing` package, table-driven with `t.Run`

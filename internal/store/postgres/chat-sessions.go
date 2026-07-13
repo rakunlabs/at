@@ -270,16 +270,62 @@ func (p *Postgres) ListChatMessages(ctx context.Context, sessionID string, limit
 		Select("id", "session_id", "role", "data", "created_at").
 		Where(goqu.I("session_id").Eq(sessionID))
 	if limit > 0 {
-		query = query.Order(goqu.I("created_at").Desc()).Limit(uint(limit))
+		query = query.Order(goqu.I("created_at").Desc(), goqu.I("id").Desc()).Limit(uint(limit))
 	} else {
-		query = query.Order(goqu.I("created_at").Asc())
+		query = query.Order(goqu.I("created_at").Asc(), goqu.I("id").Asc())
 	}
-	sql, _, err := query.ToSQL()
+
+	return p.queryChatMessages(ctx, query, limit > 0)
+}
+
+func (p *Postgres) ListChatMessagesBefore(ctx context.Context, sessionID, beforeID string, limit int) ([]service.ChatMessage, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// Resolve the anchor message's timestamp so the cursor is stable even
+	// if IDs and timestamps disagree on ordering.
+	anchorQuery, _, err := p.goqu.From(p.tableChatMessages).
+		Select("created_at").
+		Where(goqu.I("id").Eq(beforeID), goqu.I("session_id").Eq(sessionID)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build chat message anchor query: %w", err)
+	}
+
+	var anchorCreatedAt time.Time
+	if err := p.db.QueryRowContext(ctx, anchorQuery).Scan(&anchorCreatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("get chat message anchor: %w", err)
+	}
+
+	query := p.goqu.From(p.tableChatMessages).
+		Select("id", "session_id", "role", "data", "created_at").
+		Where(
+			goqu.I("session_id").Eq(sessionID),
+			goqu.Or(
+				goqu.I("created_at").Lt(anchorCreatedAt),
+				goqu.And(goqu.I("created_at").Eq(anchorCreatedAt), goqu.I("id").Lt(beforeID)),
+			),
+		).
+		Order(goqu.I("created_at").Desc(), goqu.I("id").Desc()).
+		Limit(uint(limit))
+
+	return p.queryChatMessages(ctx, query, true)
+}
+
+// queryChatMessages runs a chat-message select and scans the rows. When
+// reverse is true the result set was fetched newest-first and is reversed in
+// Go so callers always receive chronological order.
+func (p *Postgres) queryChatMessages(ctx context.Context, q *goqu.SelectDataset, reverse bool) ([]service.ChatMessage, error) {
+	sqlStr, _, err := q.ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list chat messages query: %w", err)
 	}
 
-	rows, err := p.db.QueryContext(ctx, sql)
+	rows, err := p.db.QueryContext(ctx, sqlStr)
 	if err != nil {
 		return nil, fmt.Errorf("list chat messages: %w", err)
 	}
@@ -302,8 +348,7 @@ func (p *Postgres) ListChatMessages(ctx context.Context, sessionID string, limit
 		return nil, err
 	}
 
-	// When limit > 0 we fetched in descending order; reverse in place.
-	if limit > 0 && len(items) > 1 {
+	if reverse && len(items) > 1 {
 		for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
 			items[i], items[j] = items[j], items[i]
 		}

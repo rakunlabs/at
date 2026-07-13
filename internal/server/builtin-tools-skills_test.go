@@ -13,7 +13,7 @@ import (
 // fakeSkillStore is a minimal in-memory implementation of service.SkillStorer
 // used to verify that the new skill_* / mcp_*_* dispatch routes call into
 // the store the way the HTTP handlers do. We don't try to test the store
-// itself — that's covered by internal/store/sqlite3 — only the executor
+// itself — that's covered by internal/store/postgres — only the executor
 // glue around it.
 type fakeSkillStore struct {
 	skills  map[string]*service.Skill
@@ -447,7 +447,9 @@ func TestAtManagementTemplate_HasNewTools(t *testing.T) {
 		// Phase 2: Destructive / lifecycle
 		"agent_delete",
 		"org_update", "org_delete", "org_list_agents", "org_update_agent", "org_remove_agent",
-		"task_delete", "task_cancel", "active_delegation_list",
+		"task_wait", "task_delete", "task_cancel", "active_delegation_list",
+		// LLM traces and observations
+		"llm_trace_list", "llm_trace_get", "llm_observation_get",
 	}
 
 	enabled := map[string]bool{}
@@ -459,6 +461,31 @@ func TestAtManagementTemplate_HasNewTools(t *testing.T) {
 		if !enabled[name] {
 			t.Errorf("at-management template is missing builtin tool %q", name)
 		}
+	}
+}
+
+func TestUVXMCPTemplates_HaveWritableRuntimeDirs(t *testing.T) {
+	files := []string{"elevenlabs.json", "minimax.json", "minimax-search.json"}
+	for _, file := range files {
+		t.Run(file, func(t *testing.T) {
+			data, err := mcpTemplateFS.ReadFile("mcp_templates/" + file)
+			if err != nil {
+				t.Fatalf("read template: %v", err)
+			}
+			var tmpl MCPTemplate
+			if err := json.Unmarshal(data, &tmpl); err != nil {
+				t.Fatalf("parse template: %v", err)
+			}
+			if len(tmpl.MCPServer.Config.MCPUpstreams) != 1 {
+				t.Fatalf("upstream count = %d, want 1", len(tmpl.MCPServer.Config.MCPUpstreams))
+			}
+			env := tmpl.MCPServer.Config.MCPUpstreams[0].Env
+			for _, key := range []string{"UV_CACHE_DIR", "UV_TOOL_DIR"} {
+				if env[key] == "" {
+					t.Errorf("template is missing %s", key)
+				}
+			}
+		})
 	}
 }
 
@@ -490,6 +517,7 @@ func TestDispatch_NewToolsHaveDefinitions(t *testing.T) {
 		"agent_delete", "org_update", "org_delete", "org_list_agents",
 		"org_update_agent", "org_remove_agent",
 		"task_delete", "task_cancel", "active_delegation_list",
+		"llm_trace_list", "llm_trace_get", "llm_observation_get",
 	}
 	defined := map[string]bool{}
 	for _, def := range builtinTools {

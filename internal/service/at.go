@@ -37,7 +37,7 @@ type ListResult[T any] struct {
 }
 
 // Storer is the composite interface aggregating all domain store interfaces.
-// Store backends (postgres, sqlite3, memory) implement this interface.
+// Store backends (postgres) implement this interface.
 type Storer interface {
 	ProviderStorer
 	APITokenStorer
@@ -63,7 +63,6 @@ type Storer interface {
 	GoalStorer
 	TaskStorer
 	AgentBudgetStorer
-	AuditStorer
 	AgentHeartbeatStorer
 	ProjectStorer
 	IssueCommentStorer

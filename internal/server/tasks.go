@@ -429,22 +429,28 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 		delegCtx, cleanup := s.registerDelegation(context.Background(), task.ID, org.HeadAgentID, org.ID)
 		defer cleanup()
 
-		// Audit: task processing triggered.
-		if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-			_ = recordAudit(delegCtx, service.AuditEntry{
-				ActorType:      "system",
-				ActorID:        "process_task_api",
-				Action:         "task_process_triggered",
-				ResourceType:   "task",
-				ResourceID:     task.ID,
-				OrganizationID: org.ID,
-				Details: map[string]any{
-					"task_title":    task.Title,
-					"head_agent_id": org.HeadAgentID,
-					"org_name":      org.Name,
-				},
-			})
-		}
+		// Pre-mint the run's trace ID so the trigger event joins the
+		// same trace as the delegation run it starts.
+		runTraceID := ulid.Make().String()
+		delegCtx = contextWithOrgTraceID(delegCtx, runTraceID)
+
+		// Observation: task processing triggered.
+		s.recordLLMCallAsync(delegCtx, llmAuditParams{
+			source:    "agent",
+			obsType:   service.ObservationEvent,
+			name:      "task_process_triggered",
+			traceID:   runTraceID,
+			sessionID: s.resolveRootTaskID(delegCtx, task),
+			taskID:    task.ID,
+			runID:     runTraceID,
+			orgID:     org.ID,
+			metadata: map[string]any{
+				"task_title":    task.Title,
+				"head_agent_id": org.HeadAgentID,
+				"org_name":      org.Name,
+				"actor":         "process_task_api",
+			},
+		})
 
 		if err := s.runOrgDelegation(delegCtx, org, task, org.HeadAgentID, 0); err != nil {
 			slog.Error("process task: org-delegation failed",
@@ -688,13 +694,25 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If no conversation state but task has a result, add it as context.
-	if importedCount == 0 && task.Result != "" {
+	// If no conversation state, seed the session with the task context so
+	// the Activity tab shows what was asked (the originating request /
+	// description, e.g. what the user typed after a bot slash command) and
+	// what came out of it.
+	if importedCount == 0 && (task.Result != "" || task.Description != "") {
+		var b strings.Builder
+		fmt.Fprintf(&b, "## Task Context\n\n**Task**: %s\n**Status**: %s\n", task.Title, task.Status)
+		if task.Description != "" {
+			fmt.Fprintf(&b, "\n**Request**:\n%s\n", task.Description)
+		}
+		if task.Result != "" {
+			fmt.Fprintf(&b, "\n**Previous Result**:\n%s\n", task.Result)
+			b.WriteString("\nPlease continue working on this task.")
+		}
 		contextMsg := service.ChatMessage{
 			SessionID: session.ID,
 			Role:      "user",
 			Data: service.ChatMessageData{
-				Content: fmt.Sprintf("## Task Context\n\n**Task**: %s\n**Status**: %s\n\n**Previous Result**:\n%s\n\nPlease continue working on this task.", task.Title, task.Status, task.Result),
+				Content: b.String(),
 			},
 		}
 		if _, err := s.chatSessionStore.CreateChatMessage(ctx, contextMsg); err != nil {

@@ -17,7 +17,7 @@ docker run -d --name at -p 8080:8080 ghcr.io/rakunlabs/at:latest
 
 ### Providers
 
-Providers can be configured via YAML config file or the web UI (stored in SQLite, Postgres). Database entries override YAML.
+Providers can be configured via YAML config file or the web UI (stored in Postgres). Database entries override YAML.
 
 ```yaml
 providers:
@@ -119,18 +119,7 @@ When `admin_token` is set, all `/api/v1/settings/*` endpoints require an `Author
 
 ### Store configuration
 
-Providers and API tokens can be managed through the web UI and persisted in a database. If no store is configured, an **in-memory** store is used automatically (data will not survive restarts).
-
-#### SQLite (recommended for single-instance deployments)
-
-```yaml
-store:
-  sqlite:
-    datasource: "at.db"
-    # table_prefix: "at_"  # optional, defaults to "at_"
-```
-
-WAL mode and foreign keys are enabled automatically.
+Providers and API tokens are managed through the web UI and persisted in PostgreSQL — the only supported backend. Startup fails with a descriptive error when `store.postgres.datasource` is not configured.
 
 #### PostgreSQL
 
@@ -151,10 +140,6 @@ A Docker Compose file is provided for local development:
 make env
 ```
 
-#### In-memory (default)
-
-When neither `sqlite` nor `postgres` is configured, the store falls back to an in-memory backend. All CRUD APIs work normally but data is lost on restart.
-
 #### Credential encryption
 
 Provider credentials (`api_key` and `extra_headers` values) stored in the database can be encrypted at rest using AES-256-GCM. Add an `encryption_key` to the store configuration:
@@ -162,8 +147,8 @@ Provider credentials (`api_key` and `extra_headers` values) stored in the databa
 ```yaml
 store:
   encryption_key: "your-secret-key-here"
-  sqlite:
-    datasource: "at.db"
+  postgres:
+    datasource: "postgres://user:pass@localhost:5432/at?sslmode=disable"
 ```
 
 The key can be any non-empty string (it is hashed with SHA-256 internally to derive a 32-byte AES key). When set, sensitive fields are encrypted before being written to the database and decrypted when loaded into memory. In-memory provider data always stays in plaintext so there is no runtime overhead on gateway requests.

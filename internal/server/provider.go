@@ -9,6 +9,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/query"
 )
 
@@ -17,11 +18,12 @@ import (
 // infoResponse is returned by GET /api/v1/info.
 type infoResponse struct {
 	Providers     []infoProvider `json:"providers"`
-	StoreType     string         `json:"store_type"` // "postgres", "sqlite", or "none"
+	StoreType     string         `json:"store_type"` // "postgres" or "none"
 	Name          string         `json:"name"`       // Server name from config
 	User          string         `json:"user,omitempty"`
 	Version       string         `json:"version"`
 	WorkspaceRoot string         `json:"workspace_root"` // Effective task workspace base dir (loopgov.WorkspaceRoot, falls back to /tmp/at-tasks)
+	AssetsRoot    string         `json:"assets_root"`    // Persistent asset library root (avatars, cloned voices) — ./data/assets
 }
 
 type infoProvider struct {
@@ -59,6 +61,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 		User:          s.getUserEmail(r),
 		Version:       s.version,
 		WorkspaceRoot: s.taskWorkspaceBase(),
+		AssetsRoot:    workflow.AssetsDir(),
 	}, http.StatusOK)
 }
 

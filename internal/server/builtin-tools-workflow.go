@@ -659,7 +659,7 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordAuditFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
+	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
 	engine.SetRAGPageUpsert(s.ragPageUpsertFunc())
 	engine.SetConnectionLookup(s.connectionLookupFunc())
 	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
@@ -775,6 +775,22 @@ func workflowToolDef(wf *service.Workflow) service.Tool {
 			},
 		},
 	}
+}
+
+// activeWorkflowToolDef builds the advertised tool from the same graph version
+// executeWorkflowTool will run. This prevents draft entries from being exposed
+// while an older active version is still pinned.
+func (s *Server) activeWorkflowToolDef(ctx context.Context, wf *service.Workflow) service.Tool {
+	if wf.ActiveVersion == nil || s.workflowVersionStore == nil {
+		return workflowToolDef(wf)
+	}
+	ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, wf.ID, *wf.ActiveVersion)
+	if err != nil || ver == nil {
+		return workflowToolDef(wf)
+	}
+	active := *wf
+	active.Graph = ver.Graph
+	return workflowToolDef(&active)
 }
 
 // executeWorkflowTool runs a workflow synchronously and returns the JSON result.

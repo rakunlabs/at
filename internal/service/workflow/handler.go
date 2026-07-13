@@ -239,6 +239,11 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 		}
 	}
 
+	// Inject the persistent asset library root (avatar images, cloned-voice
+	// manifests, …). Unlike AT_WORK_DIR this survives task completion and
+	// the workspace janitor.
+	env = append(env, "AT_ASSETS_DIR="+EnsureAssetsDir())
+
 	cmd.Env = env
 
 	var stdout, stderr bytes.Buffer

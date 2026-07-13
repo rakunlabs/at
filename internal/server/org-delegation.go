@@ -166,8 +166,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 	// We also need the Agent records for building the system prompt.
 	type reportInfo struct {
-		orgAgent service.OrganizationAgent
-		agent    *service.Agent
+		orgAgent     service.OrganizationAgent
+		agent        *service.Agent
+		capabilities string   // one-line skills/tools/mcp summary
+		subReports   []string // names of this report's own direct reports (sub-team)
 	}
 	var reportInfos []reportInfo
 
@@ -184,11 +186,42 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			continue
 		}
 
-		reportInfos = append(reportInfos, reportInfo{orgAgent: oa, agent: reportAgent})
+		// Resolve the report's capabilities and its own sub-team so the
+		// manager can see who does what, and how deep each branch goes,
+		// before delegating.
+		capabilities := s.agentCapabilitySummary(ctx, reportAgent)
+		var subReports []string
+		if subs, err := s.getDirectReports(ctx, org.ID, oa.AgentID); err == nil {
+			for _, sub := range subs {
+				if sa, err := s.agentStore.GetAgent(ctx, sub.AgentID); err == nil && sa != nil {
+					subReports = append(subReports, sa.Name)
+				}
+			}
+		}
+
+		reportInfos = append(reportInfos, reportInfo{
+			orgAgent:     oa,
+			agent:        reportAgent,
+			capabilities: capabilities,
+			subReports:   subReports,
+		})
 
 		toolName := uniqueDelegateToolName(reportAgent.Name, oa.AgentID, delegateToolMap)
 
-		toolDesc := fmt.Sprintf("Delegate a task to %s. %s", reportAgent.Name, reportAgent.Config.Description)
+		// Capability-aware tool description: name + org title + free-form
+		// description + resolved capabilities, so the LLM routes work to
+		// the teammate actually equipped for it.
+		toolDesc := fmt.Sprintf("Delegate a task to %s", reportAgent.Name)
+		if oa.Title != "" {
+			toolDesc += fmt.Sprintf(" (%s)", oa.Title)
+		}
+		toolDesc += "."
+		if reportAgent.Config.Description != "" {
+			toolDesc += " " + reportAgent.Config.Description
+		}
+		if capabilities != "" {
+			toolDesc += " Capabilities — " + capabilities + "."
+		}
 		tool := service.Tool{
 			Name:        toolName,
 			Description: toolDesc,
@@ -197,7 +230,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				"properties": map[string]any{
 					"task": map[string]any{
 						"type":        "string",
-						"description": "The task or instruction to delegate to the agent.",
+						"description": "The concrete task or instruction to delegate. Be specific about what you need and the expected output.",
+					},
+					"context": map[string]any{
+						"type":        "string",
+						"description": "Optional background the teammate needs: why this is needed, constraints, prior decisions, or how the result will be used. Passed to the teammate alongside the task.",
 					},
 				},
 				"required": []string{"task"},
@@ -430,20 +467,45 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if len(skillPromptFragments) > 0 {
 		systemPrompt += "\n\n" + strings.Join(skillPromptFragments, "\n\n")
 	}
+	// Org mission context: every agent shares a common frame (org name +
+	// mission); the head agent additionally gets outcome-ownership framing.
+	systemPrompt += orgContextPrompt(org, depth)
+
 	systemPrompt += taskOperatingProtocolPrompt(task)
+
+	// Delegation context: tell a child WHO delegated the task and WHY,
+	// referencing the parent task. No-op for root tasks.
+	systemPrompt += s.delegationContextPrompt(ctx, org, task)
 
 	if len(reportInfos) > 0 {
 		var teamSection strings.Builder
-		teamSection.WriteString("\n\n## Your Team (Direct Reports)\nYou can delegate tasks to these team members using the delegate_to_* tools:\n\n")
+		teamSection.WriteString("\n\n## Your Team (Direct Reports)\nYou can delegate tasks to these teammates using the delegate_to_* tools. Match each piece of work to the teammate whose capabilities fit best:\n\n")
 		for _, ri := range reportInfos {
-			teamSection.WriteString(fmt.Sprintf("- %s (%s, %s): %s\n",
-				ri.agent.Name, ri.orgAgent.Role, ri.orgAgent.Title, ri.agent.Config.Description))
+			// Header line: name, role/title, description.
+			roleTitle := strings.TrimSpace(strings.Trim(fmt.Sprintf("%s %s", ri.orgAgent.Role, ri.orgAgent.Title), " "))
+			header := ri.agent.Name
+			if roleTitle != "" {
+				header += fmt.Sprintf(" (%s)", roleTitle)
+			}
+			desc := ri.agent.Config.Description
+			if desc != "" {
+				teamSection.WriteString(fmt.Sprintf("- **%s**: %s\n", header, desc))
+			} else {
+				teamSection.WriteString(fmt.Sprintf("- **%s**\n", header))
+			}
+			if ri.capabilities != "" {
+				teamSection.WriteString(fmt.Sprintf("  - Capabilities: %s\n", ri.capabilities))
+			}
+			if len(ri.subReports) > 0 {
+				teamSection.WriteString(fmt.Sprintf("  - Leads a sub-team: %s (can delegate further)\n", joinCapped(ri.subReports, maxRosterSkills)))
+			}
 		}
 		teamSection.WriteString("\n## CRITICAL Delegation Rules\n")
 		teamSection.WriteString("1. To delegate work you MUST call the delegate_to_* tool. Writing \"I'll delegate to X\" or \"Now delegating to X\" in text does NOT delegate — only tool calls do.\n")
 		teamSection.WriteString("2. Do NOT finish (stop making tool calls) until ALL planned delegations are complete and you have reviewed ALL results.\n")
 		teamSection.WriteString("3. After each delegation result comes back, review it and decide whether to delegate further, request revisions, or finalize.\n")
 		teamSection.WriteString("4. You are the decision-maker: only YOU decide when the overall task is complete. Summarize the final outcome in your last message.\n")
+		teamSection.WriteString("5. When delegating, pass a specific `task` and use the optional `context` field to give the teammate the background they need (why it matters, constraints, how you'll use the result). They cannot see your conversation — only what you pass.\n")
 		systemPrompt += teamSection.String()
 	} else if !delegationAllowed {
 		systemPrompt += fmt.Sprintf("\n\n## Delegation Limit\nYou are at the last allowed delegation level for this organization (depth %d, max %d). Complete the task yourself; no delegate_to_* tools are available at this depth.\n", depth, maxDepth)
@@ -462,24 +524,39 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		return fmt.Errorf("org-delegation: update task to in_progress: %w", err)
 	}
 
-	// Audit: task started processing.
-	if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-		_ = recordAudit(ctx, service.AuditEntry{
-			ActorType:      "agent",
-			ActorID:        agentID,
-			Action:         "task_started",
-			ResourceType:   "task",
-			ResourceID:     task.ID,
-			OrganizationID: org.ID,
-			Details: map[string]any{
-				"task_title": task.Title,
-				"agent_name": agent.Name,
-				"depth":      depth,
-				"model":      model,
-				"provider":   agent.Config.Provider,
-			},
-		})
+	// Trace identity: each runOrgDelegation invocation is one trace; the
+	// whole delegation tree groups into a session keyed by the root task
+	// ID. A parent delegation pre-mints the child's trace ID (so the
+	// delegate_to_* tool observation can cross-link it) and passes it via
+	// context.
+	runTraceID := orgTraceIDFromContext(ctx)
+	if runTraceID == "" {
+		runTraceID = ulid.Make().String()
+		// Store it back so downstream helpers (completeTaskWithStatus,
+		// createDelegationTask) attribute their events to this trace.
+		ctx = contextWithOrgTraceID(ctx, runTraceID)
 	}
+	traceSessionID := s.resolveRootTaskID(ctx, task)
+
+	// Observation: task started processing.
+	s.recordLLMCallAsync(ctx, llmAuditParams{
+		source:    "agent",
+		obsType:   service.ObservationEvent,
+		name:      "task_started",
+		traceID:   runTraceID,
+		sessionID: traceSessionID,
+		agentID:   agentID,
+		taskID:    task.ID,
+		runID:     runTraceID,
+		orgID:     org.ID,
+		metadata: map[string]any{
+			"task_title": task.Title,
+			"agent_name": agent.Name,
+			"depth":      depth,
+			"model":      model,
+			"provider":   agent.Config.Provider,
+		},
+	})
 
 	// h) Run agentic loop.
 	//
@@ -566,7 +643,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		// assistant tool_use blocks without matching tool_result responses.
 		messages = sanitizeLLMMessages(savedConversation)
 		// Add a continuation prompt so the agent knows to pick up where it left off.
-		continueMsg := "Continue processing this task from where you left off. Your previous run was interrupted because it reached the iteration limit. Review your progress so far and complete the remaining work."
+		continueMsg := "Continue processing this task from where you left off. Review your progress so far and complete the remaining work."
+		switch {
+		case strings.HasPrefix(task.Result, "[OUTPUT_LIMIT]"):
+			continueMsg += " The previous run reached the model output-token limit; keep the final response concise and use artifact files for large outputs."
+		case strings.HasPrefix(task.Result, "[EMPTY_RESPONSE]"):
+			continueMsg += " The previous run returned no final content; explicitly return a concise final result this time."
+		default:
+			continueMsg += " The previous run reached the agent iteration limit."
+		}
 		if task.Result != "" {
 			continueMsg += "\n\nYour partial result was:\n" + task.Result
 		}
@@ -612,6 +697,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 
 	var finalContent string
+	var lastFinishReason string
+	completedNaturally := false
+	endedWithEmptyResponse := false
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Check context cancellation.
@@ -653,9 +741,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		var resp *service.LLMResponse
 		var chatErr error
 		var latencyMs int64
+		var windowed []service.Message
 		chatOpts := s.loopGov.ChatOptions()
 		for attempt := 0; attempt < 3; attempt++ {
-			windowed, _ := s.loopGov.Limit(ctx, agentID, task.ID, messages)
+			windowed, _ = s.loopGov.Limit(ctx, agentID, task.ID, messages)
 			callStart := time.Now()
 			resp, chatErr = info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
 			latencyMs = time.Since(callStart).Milliseconds()
@@ -726,6 +815,30 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					ErrorMessage:   chatErr.Error(),
 				})
 			}
+			// Observation: failed generation. Bodies are captured only
+			// when the llm_audit feature is on.
+			var failedReqBody []byte
+			if s.llmAuditEnabled(ctx) {
+				failedReqBody, _ = json.Marshal(map[string]any{"model": model, "messages": windowed, "tools": llmTools})
+			}
+			s.recordLLMCallAsync(ctx, llmAuditParams{
+				source:         "agent",
+				traceID:        runTraceID,
+				sessionID:      traceSessionID,
+				agentID:        agentID,
+				taskID:         task.ID,
+				runID:          runTraceID,
+				orgID:          org.ID,
+				requestedModel: agent.Config.Provider + "/" + model,
+				fullModel:      agent.Config.Provider + "/" + model,
+				requestBody:    failedReqBody,
+				latencyMs:      latencyMs,
+				status:         "error",
+				level:          service.ObservationLevelError,
+				errCode:        classifyHTTPError(chatErr),
+				errMsg:         chatErr.Error(),
+				metadata:       map[string]any{"iteration": iteration},
+			})
 			slog.Error("org-delegation: chat failed",
 				"agent_id", agentID, "task_id", task.ID, "iteration", iteration, "error", chatErr)
 			_ = s.completeTaskWithStatus(ctx, task, service.TaskStatusCancelled, fmt.Sprintf("chat failed: %v", chatErr))
@@ -759,46 +872,37 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 		}
 
-		// Audit: LLM call completed. We attach a truncated assistant
-		// content preview and a compact summary of any tool calls
-		// (name + arguments) so the Audit page can show what the model
-		// actually did on this iteration without us re-shipping the
-		// entire prompt history.
-		if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-			llmDetails := map[string]any{
-				"task_id":      task.ID,
-				"iteration":    iteration,
-				"model":        model,
-				"provider":     agent.Config.Provider,
-				"finished":     resp.Finished,
-				"tool_calls":   len(resp.ToolCalls),
-				"has_content":  resp.Content != "",
-				"total_tokens": resp.Usage.TotalTokenCount(),
-			}
-			if resp.Content != "" {
-				llmDetails["content_preview"] = service.TruncateForAudit(resp.Content)
-			}
-			if len(resp.ToolCalls) > 0 {
-				summaries := make([]map[string]any, 0, len(resp.ToolCalls))
-				for _, tc := range resp.ToolCalls {
-					summaries = append(summaries, map[string]any{
-						"id":        tc.ID,
-						"name":      tc.Name,
-						"arguments": tc.Arguments,
-					})
-				}
-				llmDetails["tool_calls_detail"] = summaries
-			}
-			_ = recordAudit(ctx, service.AuditEntry{
-				ActorType:      "agent",
-				ActorID:        agentID,
-				Action:         "llm_call",
-				ResourceType:   "task",
-				ResourceID:     task.ID,
-				OrganizationID: org.ID,
-				Details:        llmDetails,
-			})
+		// Observation: completed generation. The post-windowing request
+		// (what was actually sent) and the provider response are stored
+		// as bodies when the llm_audit feature is on; the skeleton
+		// (tokens, cost, latency, hierarchy) is always recorded. The
+		// returned observation ID parents this iteration's tool calls.
+		var genReqBody, genRespBody []byte
+		if s.llmAuditEnabled(ctx) {
+			genReqBody, _ = json.Marshal(map[string]any{"model": model, "messages": windowed, "tools": llmTools})
+			genRespBody, _ = json.Marshal(resp)
 		}
+		genObsID := s.recordLLMCallAsync(ctx, llmAuditParams{
+			source:         "agent",
+			traceID:        runTraceID,
+			sessionID:      traceSessionID,
+			agentID:        agentID,
+			taskID:         task.ID,
+			runID:          runTraceID,
+			orgID:          org.ID,
+			requestedModel: agent.Config.Provider + "/" + model,
+			fullModel:      agent.Config.Provider + "/" + model,
+			requestBody:    genReqBody,
+			responseBody:   genRespBody,
+			usage:          resp.Usage,
+			latencyMs:      latencyMs,
+			metadata: map[string]any{
+				"iteration":  iteration,
+				"finished":   resp.Finished,
+				"tool_calls": len(resp.ToolCalls),
+			},
+		})
+		lastFinishReason = resp.FinishReason
 
 		// Build assistant message with content blocks.
 		var assistantContent []service.ContentBlock
@@ -828,6 +932,13 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 		// If done (no tool calls), check for unfulfilled delegation intent before finishing.
 		if resp.Finished || len(resp.ToolCalls) == 0 {
+			if isOutputLimitFinishReason(resp.FinishReason) {
+				messages = append(messages, service.Message{
+					Role:    "user",
+					Content: "Your response reached the output-token limit before completing. Continue from the partial response, keep the final answer concise, and write large structured output to the requested artifact file instead of returning it inline.",
+				})
+				continue
+			}
 			// Detect if the agent mentioned delegating but didn't actually call a delegate tool.
 			// This catches cases like "Now delegating to Video Producer..." without a tool call.
 			if len(delegateToolMap) > 0 && resp.Content != "" && detectUnfulfilledDelegation(resp.Content, delegateToolMap) {
@@ -840,7 +951,12 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				continue
 			}
 
+			if resp.Content == "" {
+				endedWithEmptyResponse = true
+				break
+			}
 			finalContent = resp.Content
+			completedNaturally = true
 			break
 		}
 
@@ -848,6 +964,33 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		toolResults := make([]service.ContentBlock, len(resp.ToolCalls))
 		var wg sync.WaitGroup
 		var resultMu sync.Mutex
+
+		// recordToolObs records a tool observation parented to this
+		// iteration's generation (skill / builtin / MCP / unknown tools;
+		// delegation tools record inline to attach child-trace links).
+		recordToolObs := func(name string, args map[string]any, output string, hasErr bool) {
+			level := service.ObservationLevelDefault
+			if hasErr {
+				level = service.ObservationLevelError
+			}
+			argsJSON, _ := json.Marshal(args)
+			s.recordLLMCallAsync(ctx, llmAuditParams{
+				source:              "agent",
+				obsType:             service.ObservationTool,
+				parentObservationID: genObsID,
+				name:                name,
+				traceID:             runTraceID,
+				sessionID:           traceSessionID,
+				agentID:             agentID,
+				taskID:              task.ID,
+				runID:               runTraceID,
+				orgID:               org.ID,
+				input:               string(argsJSON),
+				output:              output,
+				level:               level,
+				metadata:            map[string]any{"iteration": iteration},
+			})
+		}
 
 		for i, tc := range resp.ToolCalls {
 			slog.Debug("org-delegation: tool call",
@@ -861,6 +1004,13 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					taskText, _ := toolCall.Arguments["task"].(string)
 					if taskText == "" {
 						taskText = task.Title
+					}
+
+					// Fold optional delegator context into the child's
+					// task description so the teammate receives the
+					// background the manager chose to pass.
+					if contextText, _ := toolCall.Arguments["context"].(string); strings.TrimSpace(contextText) != "" {
+						taskText += "\n\n## Context from delegator\n" + strings.TrimSpace(contextText)
 					}
 
 					childTask, err := s.createDelegationTask(ctx, org, task, targetAgentID, taskText, depth)
@@ -879,8 +1029,13 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						"parent_task", task.ID, "child_task", childTask.ID,
 						"from_agent", agentID, "to_agent", targetAgentID, "depth", depth+1)
 
+					// Pre-mint the child run's trace ID so this tool
+					// observation can cross-link the child trace.
+					childTraceID := ulid.Make().String()
+					childCtx := contextWithOrgTraceID(ctx, childTraceID)
+
 					var result string
-					if delegErr := s.runOrgDelegation(ctx, org, childTask, targetAgentID, depth+1); delegErr != nil {
+					if delegErr := s.runOrgDelegation(childCtx, org, childTask, targetAgentID, depth+1); delegErr != nil {
 						result = fmt.Sprintf("Error: delegation failed: %v", delegErr)
 					} else {
 						updated, getErr := s.taskStore.GetTask(ctx, childTask.ID)
@@ -906,33 +1061,29 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					}
 					resultMu.Unlock()
 
-					// Record audit entry for delegation tool call. We attach
-					// the tool input (delegation arguments) and the truncated
-					// child-task result so the Audit page can show what was
-					// actually delegated and what came back, not just a count.
-					recordAudit := s.recordAuditFunc()
-					if recordAudit != nil {
-						auditDetails := map[string]any{
-							"tool_name": toolCall.Name,
-							"task_id":   task.ID,
-							"iteration": iteration,
-							"has_error": false,
-							"input":     toolCall.Arguments,
-							"output":    service.TruncateForAudit(result),
-						}
-						if auditErr := recordAudit(ctx, service.AuditEntry{
-							ActorType:      "agent",
-							ActorID:        agentID,
-							Action:         "tool_call",
-							ResourceType:   "tool",
-							ResourceID:     toolCall.ID,
-							OrganizationID: org.ID,
-							Details:        auditDetails,
-						}); auditErr != nil {
-							slog.Warn("org-delegation: failed to record audit",
-								"agent_id", agentID, "error", auditErr)
-						}
-					}
+					// Observation: delegation tool call, parented to the
+					// generation that requested it and cross-linked to the
+					// child run's trace.
+					argsJSON, _ := json.Marshal(toolCall.Arguments)
+					s.recordLLMCallAsync(ctx, llmAuditParams{
+						source:              "agent",
+						obsType:             service.ObservationTool,
+						parentObservationID: genObsID,
+						name:                toolCall.Name,
+						traceID:             runTraceID,
+						sessionID:           traceSessionID,
+						agentID:             agentID,
+						taskID:              task.ID,
+						runID:               runTraceID,
+						orgID:               org.ID,
+						input:               string(argsJSON),
+						output:              result,
+						metadata: map[string]any{
+							"iteration":      iteration,
+							"child_task_id":  childTask.ID,
+							"child_trace_id": childTraceID,
+						},
+					})
 				}(i, tc, reportAgentID)
 			} else if hi, ok := skillToolMap[tc.Name]; ok {
 				// Skill tool — execute the handler synchronously.
@@ -991,31 +1142,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					Content:   result,
 				}
 
-				// Record audit for skill tool call. Capture the JS handler
-				// arguments and the (post-truncation) result so the Audit
-				// page can show what was passed and what came back.
-				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-					auditDetails := map[string]any{
-						"tool_name": tc.Name,
-						"task_id":   task.ID,
-						"iteration": iteration,
-						"has_error": callErr != nil,
-						"input":     tc.Arguments,
-						"output":    service.TruncateForAudit(result),
-					}
-					if auditErr := recordAudit(ctx, service.AuditEntry{
-						ActorType:      "agent",
-						ActorID:        agentID,
-						Action:         "tool_call",
-						ResourceType:   "tool",
-						ResourceID:     tc.ID,
-						OrganizationID: org.ID,
-						Details:        auditDetails,
-					}); auditErr != nil {
-						slog.Warn("org-delegation: failed to record audit",
-							"agent_id", agentID, "error", auditErr)
-					}
-				}
+				// Observation: skill tool call (JS/bash handler) with its
+				// arguments and (post-truncation) result.
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
 			} else if _, ok := builtinToolMap[tc.Name]; ok {
 				// Builtin tool — execute via dispatchBuiltinTool.
 				var result string
@@ -1047,32 +1176,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					Content:   result,
 				}
 
-				// Record audit for builtin tool call. Builtins like
-				// task_create / bash_execute / mem_save accept structured
-				// input we want to inspect later, and their (truncated)
-				// output is what got fed back into the LLM history.
-				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-					auditDetails := map[string]any{
-						"tool_name": tc.Name,
-						"task_id":   task.ID,
-						"iteration": iteration,
-						"has_error": callErr != nil,
-						"input":     tc.Arguments,
-						"output":    service.TruncateForAudit(result),
-					}
-					if auditErr := recordAudit(ctx, service.AuditEntry{
-						ActorType:      "agent",
-						ActorID:        agentID,
-						Action:         "tool_call",
-						ResourceType:   "tool",
-						ResourceID:     tc.ID,
-						OrganizationID: org.ID,
-						Details:        auditDetails,
-					}); auditErr != nil {
-						slog.Warn("org-delegation: failed to record audit",
-							"agent_id", agentID, "error", auditErr)
-					}
-				}
+				// Observation: builtin tool call (task_create /
+				// bash_execute / mem_save ...) with structured input and
+				// the (truncated) output that got fed back into the LLM.
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
 			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
 				// MCP-set tool resolved server-side (workflow exposed as a
 				// wf_* tool, or a skill/builtin/RAG/HTTP tool declared via
@@ -1089,24 +1196,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					ToolUseID: tc.ID,
 					Content:   result,
 				}
-				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-					_ = recordAudit(ctx, service.AuditEntry{
-						ActorType:      "agent",
-						ActorID:        agentID,
-						Action:         "tool_call",
-						ResourceType:   "tool",
-						ResourceID:     tc.ID,
-						OrganizationID: org.ID,
-						Details: map[string]any{
-							"tool_name": tc.Name,
-							"task_id":   task.ID,
-							"iteration": iteration,
-							"has_error": callErr != nil,
-							"input":     tc.Arguments,
-							"output":    service.TruncateForAudit(result),
-						},
-					})
-				}
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
 			} else if mcpToolNames[tc.Name] {
 				// MCP tool served by a connected client (HTTP endpoint or a
 				// stdio/HTTP upstream such as the ElevenLabs MCP).
@@ -1122,24 +1212,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					ToolUseID: tc.ID,
 					Content:   result,
 				}
-				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-					_ = recordAudit(ctx, service.AuditEntry{
-						ActorType:      "agent",
-						ActorID:        agentID,
-						Action:         "tool_call",
-						ResourceType:   "tool",
-						ResourceID:     tc.ID,
-						OrganizationID: org.ID,
-						Details: map[string]any{
-							"tool_name": tc.Name,
-							"task_id":   task.ID,
-							"iteration": iteration,
-							"has_error": callErr != nil,
-							"input":     tc.Arguments,
-							"output":    service.TruncateForAudit(result),
-						},
-					})
-				}
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
 			} else {
 				// Unknown tool — handle synchronously (no goroutine needed).
 				toolResults[i] = service.ContentBlock{
@@ -1148,31 +1221,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					Content:   fmt.Sprintf("Error: unknown tool %q", tc.Name),
 				}
 
-				// Record audit for unknown tool call. The "output" here is
-				// the synthetic error message we fed back to the LLM —
-				// useful for spotting agents calling tools they don't have.
-				if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-					auditDetails := map[string]any{
-						"tool_name": tc.Name,
-						"task_id":   task.ID,
-						"iteration": iteration,
-						"has_error": true,
-						"input":     tc.Arguments,
-						"output":    fmt.Sprintf("Error: unknown tool %q", tc.Name),
-					}
-					if auditErr := recordAudit(ctx, service.AuditEntry{
-						ActorType:      "agent",
-						ActorID:        agentID,
-						Action:         "tool_call",
-						ResourceType:   "tool",
-						ResourceID:     tc.ID,
-						OrganizationID: org.ID,
-						Details:        auditDetails,
-					}); auditErr != nil {
-						slog.Warn("org-delegation: failed to record audit",
-							"agent_id", agentID, "error", auditErr)
-					}
-				}
+				// Observation: unknown tool call. The output is the
+				// synthetic error message we fed back to the LLM — useful
+				// for spotting agents calling tools they don't have.
+				recordToolObs(tc.Name, tc.Arguments, fmt.Sprintf("Error: unknown tool %q", tc.Name), true)
 			}
 		}
 
@@ -1186,7 +1238,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 
 	// j) On completion, determine if we finished naturally or hit the iteration limit.
-	iterationsExhausted := finalContent == ""
+	iterationsExhausted := !completedNaturally
 
 	if iterationsExhausted {
 		// Extract last assistant text from the exhausted conversation.
@@ -1206,8 +1258,19 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 		}
 
-		slog.Warn("org-delegation: max iterations exhausted — saving conversation state for continuation",
+		resultCode := "ITERATION_LIMIT"
+		resultReason := fmt.Sprintf("Task reached the maximum of %d iterations and was paused.", maxIterations)
+		if isOutputLimitFinishReason(lastFinishReason) {
+			resultCode = "OUTPUT_LIMIT"
+			resultReason = "The model reached its output-token limit before returning a complete result."
+		} else if endedWithEmptyResponse {
+			resultCode = "EMPTY_RESPONSE"
+			resultReason = fmt.Sprintf("The model ended with finish reason %q but returned no final content.", lastFinishReason)
+		}
+
+		slog.Warn("org-delegation: run paused — saving conversation state for continuation",
 			"task_id", task.ID, "agent_id", agentID, "max_iterations", maxIterations,
+			"finish_reason", lastFinishReason, "result_code", resultCode,
 			"messages_count", len(messages))
 
 		// Save conversation state as a system comment so re-processing can continue.
@@ -1242,14 +1305,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		if resultMsg == "" {
 			resultMsg = "(no output yet)"
 		}
-		blockedResult := fmt.Sprintf("[ITERATION_LIMIT] Task reached the maximum of %d iterations and was paused. Partial progress saved — re-process to continue.\n\n%s", maxIterations, resultMsg)
+		blockedResult := fmt.Sprintf("[%s] %s Partial progress saved — re-process to continue.\n\n%s", resultCode, resultReason, resultMsg)
 
 		if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusBlocked, blockedResult); err != nil {
 			return fmt.Errorf("org-delegation: update task to blocked: %w", err)
 		}
 
-		slog.Info("org-delegation: task paused at iteration limit",
-			"task_id", task.ID, "agent_id", agentID, "depth", depth)
+		slog.Info("org-delegation: task paused",
+			"task_id", task.ID, "agent_id", agentID, "depth", depth, "result_code", resultCode)
 		return nil
 	}
 
@@ -1261,6 +1324,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		"task_id", task.ID, "agent_id", agentID, "depth", depth)
 
 	return nil
+}
+
+func isOutputLimitFinishReason(reason string) bool {
+	switch strings.ToLower(reason) {
+	case "length", "max_tokens":
+		return true
+	default:
+		return false
+	}
 }
 
 // propagateStatusToParent logs a debug message when a child task reaches a terminal state.
@@ -1284,41 +1356,42 @@ func (s *Server) completeTaskWithStatus(ctx context.Context, task *service.Task,
 		return err
 	}
 
-	// Audit: task status changed to terminal state.
-	if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-		action := "task_completed"
-		if status == service.TaskStatusCancelled {
-			action = "task_cancelled"
-		} else if status == service.TaskStatusBlocked {
-			action = "task_blocked"
-		}
-
-		details := map[string]any{
-			"task_title": task.Title,
-			"status":     status,
-		}
-		if task.AssignedAgentID != "" {
-			details["agent_id"] = task.AssignedAgentID
-		}
-		// Include a truncated result preview (first 200 chars).
-		if result != "" {
-			preview := result
-			if len(preview) > 200 {
-				preview = preview[:200] + "..."
-			}
-			details["result_preview"] = preview
-		}
-
-		_ = recordAudit(ctx, service.AuditEntry{
-			ActorType:      "agent",
-			ActorID:        task.AssignedAgentID,
-			Action:         action,
-			ResourceType:   "task",
-			ResourceID:     task.ID,
-			OrganizationID: task.OrganizationID,
-			Details:        details,
-		})
+	// Observation: task reached a terminal state. The trace ID rides the
+	// context when we're inside a delegation run; outside one the
+	// recorder mints a fresh trace.
+	action := "task_completed"
+	if status == service.TaskStatusCancelled {
+		action = "task_cancelled"
+	} else if status == service.TaskStatusBlocked {
+		action = "task_blocked"
 	}
+
+	metadata := map[string]any{
+		"task_title": task.Title,
+		"status":     status,
+	}
+	// Include a truncated result preview (first 200 chars).
+	if result != "" {
+		preview := result
+		if len(preview) > 200 {
+			preview = preview[:200] + "..."
+		}
+		metadata["result_preview"] = preview
+	}
+
+	runTraceID := orgTraceIDFromContext(ctx)
+	s.recordLLMCallAsync(ctx, llmAuditParams{
+		source:    "agent",
+		obsType:   service.ObservationEvent,
+		name:      action,
+		traceID:   runTraceID,
+		sessionID: s.resolveRootTaskID(ctx, task),
+		agentID:   task.AssignedAgentID,
+		taskID:    task.ID,
+		runID:     runTraceID,
+		orgID:     task.OrganizationID,
+		metadata:  metadata,
+	})
 
 	s.propagateStatusToParent(ctx, task)
 
@@ -1390,27 +1463,47 @@ func (s *Server) createDelegationTask(ctx context.Context, org *service.Organiza
 		"child_task_id", childTask.ID, "identifier", identifier,
 		"parent_task_id", parentTask.ID, "assignee", assigneeAgentID)
 
-	// Audit: task delegated to child agent.
-	if recordAudit := s.recordAuditFunc(); recordAudit != nil {
-		_ = recordAudit(ctx, service.AuditEntry{
-			ActorType:      "agent",
-			ActorID:        parentTask.AssignedAgentID,
-			Action:         "task_delegated",
-			ResourceType:   "task",
-			ResourceID:     childTask.ID,
-			OrganizationID: org.ID,
-			Details: map[string]any{
-				"parent_task_id": parentTask.ID,
-				"child_task_id":  childTask.ID,
-				"identifier":     identifier,
-				"assignee":       assigneeAgentID,
-				"depth":          depth + 1,
-				"description":    description,
-			},
-		})
-	}
+	// Observation: task delegated to child agent. Attributed to the
+	// parent run's trace (from context).
+	runTraceID := orgTraceIDFromContext(ctx)
+	s.recordLLMCallAsync(ctx, llmAuditParams{
+		source:    "agent",
+		obsType:   service.ObservationEvent,
+		name:      "task_delegated",
+		traceID:   runTraceID,
+		sessionID: s.resolveRootTaskID(ctx, parentTask),
+		agentID:   parentTask.AssignedAgentID,
+		taskID:    childTask.ID,
+		runID:     runTraceID,
+		orgID:     org.ID,
+		metadata: map[string]any{
+			"parent_task_id": parentTask.ID,
+			"child_task_id":  childTask.ID,
+			"identifier":     identifier,
+			"assignee":       assigneeAgentID,
+			"depth":          depth + 1,
+			"description":    description,
+		},
+	})
 
 	return childTask, nil
+}
+
+// orgTraceIDCtxKey carries the current delegation run's trace ID through
+// the context so nested helpers (completeTaskWithStatus,
+// createDelegationTask) and pre-minted child runs attribute their
+// observations to the right trace.
+type orgTraceIDCtxKey struct{}
+
+func contextWithOrgTraceID(ctx context.Context, traceID string) context.Context {
+	return context.WithValue(ctx, orgTraceIDCtxKey{}, traceID)
+}
+
+func orgTraceIDFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(orgTraceIDCtxKey{}).(string); ok {
+		return v
+	}
+	return ""
 }
 
 // resolveRootTaskID walks up the ParentID chain to find the root task ID.

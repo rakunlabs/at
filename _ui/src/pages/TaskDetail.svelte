@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { push } from 'svelte-spa-router';
@@ -47,7 +48,7 @@
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { getCostByTask, type CostByTaskResult } from '@/lib/api/cost-events';
-  import { listAuditEntries, type AuditEntry } from '@/lib/api/audit';
+  import { listLLMCalls, type LLMCall } from '@/lib/api/llm-calls';
 
   interface Props {
     params: { id: string };
@@ -107,7 +108,7 @@
     }
   }
 
-  // Format cents → "$0.0042" (matches CostEvents page convention).
+  // Format cents → "$0.0042".
   function formatCostCents(cents: number): string {
     return `$${(cents / 100).toFixed(4)}`;
   }
@@ -118,24 +119,25 @@
     return String(n);
   }
 
-  // URL for the Cost Events page filtered to the task tree. The CostEvents
-  // page reads ?task_ids=A,B,C from the hash querystring and passes it
-  // through to the backend as task_id[in]=A,B,C.
+  // URL for the Traces page filtered to the task tree. The Traces page
+  // reads ?task_ids=A,B,C from the hash querystring and passes it through
+  // to the backend as task_id[in]=A,B,C.
   let costEventsUrl = $derived.by(() => {
-    if (!costRollup || !costRollup.task_ids?.length) return '#/cost-events';
-    return `#/cost-events?task_ids=${encodeURIComponent(costRollup.task_ids.join(','))}`;
+    if (!costRollup || !costRollup.task_ids?.length) return '#/llm-calls';
+    return `#/llm-calls?task_ids=${encodeURIComponent(costRollup.task_ids.join(','))}`;
   });
 
   // Active tab
   let activeTab = $state<'comments' | 'subtasks' | 'labels' | 'activity' | 'events'>('activity');
 
-  // ─── Events feed (audit-driven live timeline) ───
-  // Pulls audit entries for this task and every descendant task in the
-  // delegation tree. Refreshed on subtask reload (which already happens
-  // every 12s while a delegation is running) and on demand. This is the
-  // "show me what's happening" view that lets the user follow Content
-  // Director → Script Writer → Video Producer in real time.
-  let events = $state<AuditEntry[]>([]);
+  // ─── Events feed (observation-driven live timeline) ───
+  // Pulls trace observations (generations, tool calls, lifecycle events)
+  // for this task and every descendant task in the delegation tree.
+  // Refreshed on subtask reload (which already happens every 12s while a
+  // delegation is running) and on demand. This is the "show me what's
+  // happening" view that lets the user follow Content Director → Script
+  // Writer → Video Producer in real time.
+  let events = $state<LLMCall[]>([]);
   let eventsLoading = $state(false);
 
   async function loadEvents() {
@@ -144,16 +146,14 @@
     try {
       const ids = collectTreeTaskIds(taskTree);
       if (!ids.includes(task.id)) ids.push(task.id);
-      // Fetch the most recent N entries for the whole tree. The store
-      // accepts `resource_id[in]=A,B,C` via the query.Parse filter syntax.
+      // Fetch the most recent N observations for the whole tree. The
+      // store accepts `task_id[in]=A,B,C` via the query.Parse syntax;
+      // the endpoint defaults to newest-first.
       const params: Record<string, string | number> = {
         _limit: 200,
-        _order: 'created_at',
-        _orderdir: 'desc',
-        'resource_id[in]': ids.join(','),
-        'resource_type[in]': 'task,tool',
+        'task_id[in]': ids.join(','),
       };
-      const res = await listAuditEntries(params as any);
+      const res = await listLLMCalls(params as any);
       events = res.data || [];
     } catch {
       events = [];
@@ -170,45 +170,44 @@
     }
   });
 
-  // Render-friendly view of an audit entry. Maps action codes to short
+  // Render-friendly view of an observation. Maps types/names to short
   // human-readable strings and surfaces the actor agent name.
-  function eventLabel(e: AuditEntry): string {
-    switch (e.action) {
+  function eventLabel(e: LLMCall): string {
+    const type = e.observation_type || 'generation';
+    if (type === 'generation') {
+      return e.model ? `LLM call (${e.model})` : 'LLM call';
+    }
+    if (type === 'tool') {
+      const tool = e.name || 'tool';
+      // Pretty-print delegate_to_<agent> as "delegated to <Agent>".
+      if (tool.startsWith('delegate_to_')) {
+        const target = tool.slice('delegate_to_'.length).replace(/_/g, ' ');
+        return `delegated to ${target}`;
+      }
+      return `called ${tool}`;
+    }
+    switch (e.name) {
+      case 'task_process_triggered': return 'processing triggered';
       case 'task_started':   return 'started task';
       case 'task_completed': return 'completed task';
       case 'task_blocked':   return 'blocked task';
       case 'task_delegated': return 'delegated to subtask';
-      case 'task_failed':    return 'task failed';
       case 'task_cancelled': return 'task cancelled';
-      case 'tool_call': {
-        const tool = e.details?.tool_name || 'tool';
-        // Pretty-print delegate_to_<agent> as "delegated to <Agent>".
-        if (typeof tool === 'string' && tool.startsWith('delegate_to_')) {
-          const target = tool.slice('delegate_to_'.length).replace(/_/g, ' ');
-          return `delegated to ${target}`;
-        }
-        return `called ${tool}`;
-      }
-      case 'llm_call': {
-        const model = e.details?.model;
-        return model ? `LLM call (${model})` : 'LLM call';
-      }
-      default: return e.action;
+      default: return e.name || 'event';
     }
   }
 
-  function eventActor(e: AuditEntry): string {
-    if (e.actor_type === 'agent') return agentDisplayName(e.actor_id);
-    if (e.actor_type === 'user') return e.actor_id || 'user';
-    return e.actor_id || e.actor_type;
+  function eventActor(e: LLMCall): string {
+    if (e.agent_id) return agentDisplayName(e.agent_id);
+    return (e.metadata?.['actor'] as string) || 'system';
   }
 
-  function eventTaskTitle(e: AuditEntry): string {
-    if (e.resource_type !== 'task') return '';
+  function eventTaskTitle(e: LLMCall): string {
+    if (!e.task_id) return '';
     // Find the matching node in the tree.
     function find(n: TaskWithSubtasks | null): TaskWithSubtasks | null {
       if (!n) return null;
-      if (n.id === e.resource_id) return n;
+      if (n.id === e.task_id) return n;
       for (const c of n.sub_tasks ?? []) {
         const f = find(c);
         if (f) return f;
@@ -217,6 +216,25 @@
     }
     const node = find(taskTree);
     return node?.title || '';
+  }
+
+  // Generation stats footer for a timeline entry: tokens, cost, latency.
+  function eventStats(e: LLMCall): string {
+    if ((e.observation_type || 'generation') !== 'generation') {
+      return e.latency_ms ? `${e.latency_ms}ms` : '';
+    }
+    const parts: string[] = [];
+    if (e.input_tokens || e.output_tokens) parts.push(`${e.input_tokens} → ${e.output_tokens} tok`);
+    if (e.cost_cents) parts.push(`$${(e.cost_cents / 100).toFixed(4)}`);
+    if (e.latency_ms) parts.push(e.latency_ms >= 1000 ? `${(e.latency_ms / 1000).toFixed(1)}s` : `${e.latency_ms}ms`);
+    return parts.join(' · ');
+  }
+
+  // Expandable tool I/O in the timeline.
+  let expandedEvents = $state<Record<string, boolean>>({});
+
+  function eventExpandable(e: LLMCall): boolean {
+    return (e.observation_type || '') === 'tool' && !!(e.input || e.output);
   }
 
   // ─── Activity / Chat state ───
@@ -230,7 +248,14 @@
   let chatExpandedTools = $state<Record<string, boolean>>({});
   let chatAbortController: AbortController | null = null;
   let chatMessagesEnd = $state<HTMLDivElement | undefined>(undefined);
+  let chatMessagesContainer = $state<HTMLDivElement | undefined>(undefined);
   let chatInputEl = $state<HTMLTextAreaElement | undefined>(undefined);
+
+  // Scroll-up lazy loading for the activity chat: open anchored at the
+  // bottom with the most recent page; older history loads while scrolling up.
+  const CHAT_PAGE = 50;
+  let chatHasOlder = $state(false);
+  let chatLoadingOlder = $state(false);
 
   // ─── Active delegation tracking ───
   // Active delegations include the root task AND any in-flight descendant
@@ -731,14 +756,62 @@
     }
   }
 
-  async function loadChatMessages() {
+  async function loadChatMessages(limit: number = CHAT_PAGE) {
     if (!chatSessionId) return;
     try {
-      chatMessages = await listChatMessages(chatSessionId);
-      scrollChatToBottom();
+      const fetched = await listChatMessages(chatSessionId, { limit });
+      chatMessages = fetched;
+      chatHasOlder = fetched.length >= limit;
+      await anchorChatToBottom();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load messages', 'alert');
     }
+  }
+
+  /** Load the page older than the current oldest message and prepend it,
+   *  preserving the visual scroll position. */
+  async function loadOlderChatMessages() {
+    if (!chatSessionId || chatLoadingOlder || !chatHasOlder || chatMessages.length === 0) return;
+    const sessionId = chatSessionId;
+    chatLoadingOlder = true;
+    try {
+      const older = await listChatMessages(sessionId, {
+        limit: CHAT_PAGE,
+        beforeId: chatMessages[0].id,
+      });
+      if (chatSessionId !== sessionId) return;
+      chatHasOlder = older.length >= CHAT_PAGE;
+      if (older.length > 0) {
+        const el = chatMessagesContainer;
+        const prevHeight = el?.scrollHeight ?? 0;
+        const prevTop = el?.scrollTop ?? 0;
+        chatMessages = [...older, ...chatMessages];
+        await tick();
+        if (el) el.scrollTop = el.scrollHeight - prevHeight + prevTop;
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load older messages', 'alert');
+    } finally {
+      chatLoadingOlder = false;
+    }
+  }
+
+  function handleChatScroll() {
+    if (chatMessagesContainer && chatMessagesContainer.scrollTop < 100) {
+      loadOlderChatMessages();
+    }
+  }
+
+  /** Jump straight to the bottom (no animation). Re-anchors after a short
+   *  delay because Markdown rendering can grow the content height. */
+  async function anchorChatToBottom() {
+    await tick();
+    const anchor = () => {
+      if (chatMessagesContainer) chatMessagesContainer.scrollTop = chatMessagesContainer.scrollHeight;
+    };
+    anchor();
+    requestAnimationFrame(anchor);
+    setTimeout(anchor, 150);
   }
 
   function scrollChatToBottom() {
@@ -804,7 +877,7 @@
         chatAbortController = null;
         chatStreamContent = '';
         chatToolEvents = [];
-        await loadChatMessages();
+        await loadChatMessages(Math.max(CHAT_PAGE, chatMessages.length + 10));
         // Refresh task to pick up status/result changes
         await loadTask();
         await loadSubTasks();
@@ -1117,7 +1190,7 @@
               <!-- ─── Activity / Chat panel ─── -->
               <div class="flex flex-col h-[550px] border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
                 <!-- Chat messages area -->
-                <div class="flex-1 overflow-y-auto min-h-0">
+                <div bind:this={chatMessagesContainer} onscroll={handleChatScroll} class="flex-1 overflow-y-auto min-h-0">
                   {#if chatLoading}
                     <div class="flex items-center justify-center h-full">
                       <div class="flex items-center gap-2 text-xs text-gray-400 dark:text-dark-text-muted">
@@ -1145,6 +1218,18 @@
                     </div>
                   {:else}
                     <div class="px-4 py-3 space-y-1">
+                      {#if chatLoadingOlder}
+                        <div class="flex items-center justify-center gap-1.5 py-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
+                          <Loader2 size={12} class="animate-spin" /> Loading older messages…
+                        </div>
+                      {:else if chatHasOlder}
+                        <div class="flex items-center justify-center py-1">
+                          <button
+                            onclick={loadOlderChatMessages}
+                            class="text-[11px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary hover:underline"
+                          >Load older messages</button>
+                        </div>
+                      {/if}
                       {#if chatMessages.length === 0 && !chatSending}
                         <div class="flex flex-col items-center justify-center py-12 text-center">
                           <MessageSquare size={20} class="text-gray-300 dark:text-dark-text-faint mb-2" />
@@ -1306,10 +1391,10 @@
                 </div>
               {/if}
             {:else if activeTab === 'events'}
-              <!-- ─── Live audit timeline for the whole delegation tree ─── -->
+              <!-- ─── Live observation timeline for the whole delegation tree ─── -->
               <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
                 <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border flex items-center justify-between">
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Audit Timeline</span>
+                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Trace Timeline</span>
                   <button
                     onclick={loadEvents}
                     class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
@@ -1325,34 +1410,67 @@
                   <div class="text-sm text-gray-400 dark:text-dark-text-muted py-8 text-center flex flex-col items-center gap-2">
                     <Clock size={18} class="text-gray-300 dark:text-dark-text-faint" />
                     <span>No events yet</span>
-                    <span class="text-[10px]">Tool calls, delegations, and status changes will appear here as the agent works</span>
+                    <span class="text-[10px]">LLM calls, tool calls, delegations, and status changes will appear here as the agent works</span>
                   </div>
                 {:else}
                   <div class="max-h-[550px] overflow-y-auto">
                     {#each events as e (e.id)}
-                      {@const isLive = activeTaskIds.has(e.resource_id)}
-                      <div class="px-3 py-2 border-b border-gray-100 dark:border-dark-border-subtle flex items-start gap-2 text-xs {isLive ? 'bg-green-50/50 dark:bg-green-900/10' : ''}">
-                        <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono shrink-0 w-[140px]" title={e.created_at}>
-                          {formatDateTime(e.created_at)}
-                        </span>
-                        <span class="font-medium text-gray-700 dark:text-dark-text-secondary shrink-0 max-w-[140px] truncate">
-                          {eventActor(e)}
-                        </span>
-                        <span class="text-gray-500 dark:text-dark-text-muted shrink-0">{eventLabel(e)}</span>
-                        {#if e.resource_type === 'task' && e.resource_id !== task.id}
-                          <a
-                            href="#/tasks/{e.resource_id}"
-                            class="text-blue-600 dark:text-blue-400 hover:underline truncate flex-1 min-w-0"
-                            title={eventTaskTitle(e) || e.resource_id}
-                          >
-                            {eventTaskTitle(e) || e.resource_id.slice(0, 12)}
-                          </a>
-                        {/if}
-                        {#if isLive}
-                          <span class="ml-auto relative flex w-1.5 h-1.5 shrink-0" title="In flight">
-                            <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
-                            <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                      {@const isLive = activeTaskIds.has(e.task_id)}
+                      {@const isErr = e.status === 'error' || e.level === 'error'}
+                      <div class="border-b border-gray-100 dark:border-dark-border-subtle {isLive ? 'bg-green-50/50 dark:bg-green-900/10' : ''} {isErr ? 'bg-red-50/50 dark:bg-red-900/10' : ''}">
+                        <div class="px-3 py-2 flex items-start gap-2 text-xs">
+                          <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono shrink-0 w-[140px]" title={e.created_at}>
+                            {formatDateTime(e.created_at)}
                           </span>
+                          <span class="font-medium text-gray-700 dark:text-dark-text-secondary shrink-0 max-w-[140px] truncate">
+                            {eventActor(e)}
+                          </span>
+                          {#if eventExpandable(e)}
+                            <button
+                              onclick={() => (expandedEvents[e.id] = !expandedEvents[e.id])}
+                              class="text-gray-500 dark:text-dark-text-muted shrink-0 hover:text-gray-700 dark:hover:text-dark-text-secondary hover:underline text-left"
+                              title="Show tool input/output"
+                            >{eventLabel(e)}</button>
+                          {:else}
+                            <span class="text-gray-500 dark:text-dark-text-muted shrink-0">{eventLabel(e)}</span>
+                          {/if}
+                          {#if isErr}
+                            <span class="text-[10px] text-red-600 dark:text-red-400 shrink-0">{e.error_code || 'error'}</span>
+                          {/if}
+                          {#if e.task_id && e.task_id !== task.id}
+                            <a
+                              href="#/tasks/{e.task_id}"
+                              class="text-blue-600 dark:text-blue-400 hover:underline truncate flex-1 min-w-0"
+                              title={eventTaskTitle(e) || e.task_id}
+                            >
+                              {eventTaskTitle(e) || e.task_id.slice(0, 12)}
+                            </a>
+                          {/if}
+                          {#if eventStats(e)}
+                            <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted whitespace-nowrap shrink-0">{eventStats(e)}</span>
+                          {/if}
+                          {#if isLive}
+                            <span class="{eventStats(e) ? '' : 'ml-auto'} relative flex w-1.5 h-1.5 shrink-0 mt-1" title="In flight">
+                              <span class="absolute inline-flex w-full h-full rounded-full bg-green-400 opacity-75 animate-ping"></span>
+                              <span class="relative inline-flex w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                            </span>
+                          {/if}
+                        </div>
+                        {#if expandedEvents[e.id]}
+                          <div class="px-3 pb-2 space-y-1.5">
+                            {#if e.input}
+                              <div>
+                                <div class="text-[10px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider mb-0.5">Input</div>
+                                <pre class="text-[10px] leading-relaxed p-2 rounded bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border overflow-x-auto max-h-40 text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-words">{e.input}</pre>
+                              </div>
+                            {/if}
+                            {#if e.output}
+                              <div>
+                                <div class="text-[10px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider mb-0.5">Output</div>
+                                <pre class="text-[10px] leading-relaxed p-2 rounded bg-gray-50 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border overflow-x-auto max-h-40 text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-words">{e.output}</pre>
+                              </div>
+                            {/if}
+                          </div>
                         {/if}
                       </div>
                     {/each}
@@ -1360,7 +1478,7 @@
                 {/if}
               </div>
               <p class="text-[10px] text-gray-400 dark:text-dark-text-muted mt-2 italic">
-                Showing the most recent {events.length} audit entries across this task and its sub-tasks.
+                Showing the most recent {events.length} trace observations across this task and its sub-tasks.
                 The list refreshes when you switch back to this tab; sub-tasks themselves auto-refresh while a delegation is running.
               </p>
             {:else if activeTab === 'labels'}
@@ -1603,7 +1721,7 @@
                     <a
                       href={costEventsUrl}
                       class="p-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
-                      title="View cost events for this task tree"
+                      title="View traces for this task tree"
                     >
                       <Receipt size={10} />
                     </a>

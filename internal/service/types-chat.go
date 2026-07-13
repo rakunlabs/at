@@ -63,6 +63,11 @@ type ChatSessionStorer interface {
 	// order. When limit > 0, only the most recent `limit` messages are
 	// returned (still in ascending order); 0 means "no limit".
 	ListChatMessages(ctx context.Context, sessionID string, limit int) ([]ChatMessage, error)
+	// ListChatMessagesBefore returns up to `limit` messages strictly older
+	// than the message with the given ID, in chronological order. Used by
+	// the UI to lazy-load history while scrolling up. When the anchor
+	// message does not exist, it returns (nil, nil).
+	ListChatMessagesBefore(ctx context.Context, sessionID, beforeID string, limit int) ([]ChatMessage, error)
 	CreateChatMessage(ctx context.Context, msg ChatMessage) (*ChatMessage, error)
 	CreateChatMessages(ctx context.Context, msgs []ChatMessage) error
 	DeleteChatMessages(ctx context.Context, sessionID string) error

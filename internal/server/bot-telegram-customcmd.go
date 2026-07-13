@@ -150,9 +150,9 @@ func (s *Server) handleTelegramCustomCommand(
 	case cmd.OrganizationID != "":
 		taskID, identifier, err = s.createBotOrgTask(ctx, cmd.OrganizationID, title, brief, cmd.MaxIterations, onDone)
 	case cmd.AgentID != "":
-		taskID, identifier, err = s.createBotTaskWithOptions(ctx, cmd.AgentID, brief, BotTaskOptions{MaxIterations: cmd.MaxIterations}, onDone)
+		taskID, identifier, err = s.createBotTaskWithOptions(ctx, cmd.AgentID, brief, BotTaskOptions{MaxIterations: cmd.MaxIterations, Title: title}, onDone)
 	default:
-		taskID, identifier, err = s.createBotTaskWithOptions(ctx, defaultAgentID, brief, BotTaskOptions{MaxIterations: cmd.MaxIterations}, onDone)
+		taskID, identifier, err = s.createBotTaskWithOptions(ctx, defaultAgentID, brief, BotTaskOptions{MaxIterations: cmd.MaxIterations, Title: title}, onDone)
 	}
 
 	if err != nil {

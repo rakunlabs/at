@@ -328,6 +328,22 @@ type BotTaskOptions struct {
 	// MaxIterations overrides the agent's max_iterations for this task only.
 	// 0 = use the agent's default.
 	MaxIterations int
+	// Title overrides the derived task title. When empty, the title is
+	// derived from the topic (first line, capped at 100 chars).
+	Title string
+}
+
+// deriveBotTaskTitle turns a free-form bot message into a short single-line
+// task title: first line only, capped at 100 chars.
+func deriveBotTaskTitle(topic string) string {
+	title := strings.TrimSpace(topic)
+	if idx := strings.IndexAny(title, "\n\r"); idx > 0 {
+		title = strings.TrimSpace(title[:idx])
+	}
+	if len(title) > 100 {
+		title = title[:100] + "..."
+	}
+	return title
 }
 
 // createBotTask creates a background org task for the given agent and topic.
@@ -392,11 +408,24 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 	}
 	identifier := fmt.Sprintf("%s-%d", prefix, counter)
 
+	// Title/description split: the user's full message is preserved in the
+	// task description (visible in the UI and used to seed the task's
+	// Activity chat), while the title stays a short single line.
+	title := strings.TrimSpace(opts.Title)
+	if title == "" {
+		title = deriveBotTaskTitle(topic)
+	}
+	description := ""
+	if strings.TrimSpace(topic) != title {
+		description = topic
+	}
+
 	// Create task
 	task := service.Task{
 		OrganizationID:  org.ID,
 		AssignedAgentID: org.HeadAgentID,
-		Title:           topic,
+		Title:           title,
+		Description:     description,
 		Status:          service.TaskStatusOpen,
 		Identifier:      identifier,
 		RequestDepth:    0,

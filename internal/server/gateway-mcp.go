@@ -306,7 +306,7 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 				slog.Warn("failed to load workflow for MCP server", "id", wfID, "error", err)
 				continue
 			}
-			tools = append(tools, workflowToolDef(wf))
+			tools = append(tools, s.activeWorkflowToolDef(context.Background(), wf))
 		}
 	}
 

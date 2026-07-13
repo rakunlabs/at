@@ -69,7 +69,7 @@ type Engine struct {
 	chatSessionLookup     ChatSessionLookupFunc
 	recordUsage           RecordUsageFunc
 	checkBudget           CheckBudgetFunc
-	recordAudit           RecordAuditFunc
+	recordObservation     RecordObservationFunc
 	goalAncestry          GoalAncestryFunc
 	versionLookup         VersionLookupFunc
 	connectionLookup      ConnectionLookup
@@ -91,7 +91,7 @@ func (e *Engine) SetLoopGov(gov LoopGovernor) {
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordAudit RecordAuditFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc) *Engine {
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc) *Engine {
 	return &Engine{
 		providerLookup:        lookup,
 		skillLookup:           skillLookup,
@@ -114,7 +114,7 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 		chatSessionLookup:     chatSessionLookup,
 		recordUsage:           recordUsage,
 		checkBudget:           checkBudget,
-		recordAudit:           recordAudit,
+		recordObservation:     recordObservation,
 		goalAncestry:          goalAncestry,
 		versionLookup:         versionLookup,
 	}
@@ -388,7 +388,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordAudit, e.goalAncestry, e.versionLookup, inputs)
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordObservation, e.goalAncestry, e.versionLookup, inputs)
 	reg.RAGPageUpsert = e.ragPageUpsert
 	reg.ConnectionLookup = e.connectionLookup
 	reg.WorkflowByNameLookup = e.workflowByNameLookup
@@ -583,11 +583,28 @@ func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeO
 						continue
 					}
 				}
+				// Selection port names route the whole node result; they are not
+				// required to also exist as keys in the result payload. Nodes such
+				// as exec and conditional return fields like stdout/result while
+				// selecting "always" or "true" as the active edge.
+				if val, exists := upstreamData[conn.port]; exists {
+					result[tgtPort] = val
+				} else {
+					result[tgtPort] = upstreamData
+				}
+				continue
 			}
 
 			// Map source port data to target port.
 			if val, exists := upstreamData[conn.port]; exists {
 				result[tgtPort] = val
+			} else if conn.port == "output" {
+				// Legacy persisted graphs used the generic "output" handle for
+				// input nodes. The current input node exposes that payload as
+				// "data". Preserve those graphs without rewriting every version.
+				if val, exists := upstreamData["data"]; exists {
+					result[tgtPort] = val
+				}
 			}
 			// If the specific port doesn't exist in data, skip it.
 			// Strict port matching: we only use data from the exact port key.

@@ -1,12 +1,12 @@
 {
   "slug": "at-management",
   "name": "AT Management",
-  "description": "Full AT management toolkit — manage tasks, agents, organizations, skills, MCP servers, workflows, triggers, bots, providers, API tokens, variables, connections, node configs, guides, and approvals from any MCP client.",
+  "description": "Full AT management toolkit — manage tasks, agents, organizations, LLM traces, skills, MCP servers, workflows, triggers, bots, providers, API tokens, variables, connections, node configs, guides, and approvals from any MCP client.",
   "category": "Management",
-  "tags": ["management", "tasks", "agents", "organizations", "workflows", "skills", "mcp", "bots", "triggers", "approvals", "providers", "tokens", "variables", "connections"],
+  "tags": ["management", "tasks", "agents", "organizations", "traces", "workflows", "skills", "mcp", "bots", "triggers", "approvals", "providers", "tokens", "variables", "connections"],
   "mcp_server": {
     "name": "at-management",
-    "description": "AT platform management tools — full admin parity with the UI for tasks, agents, orgs, skills, MCP servers/sets, workflows, triggers, bots, providers, API tokens, variables, connections, node configs, guides, and approvals",
+    "description": "AT platform management tools — full admin parity with the UI for tasks, agents, orgs, LLM traces, skills, MCP servers/sets, workflows, triggers, bots, providers, API tokens, variables, connections, node configs, guides, and approvals",
     "config": {
       "enabled_builtin_tools": [
         "task_create",
@@ -15,9 +15,13 @@
         "task_update",
         "task_add_comment",
         "task_process",
+        "task_wait",
         "task_delete",
         "task_cancel",
         "active_delegation_list",
+        "llm_trace_list",
+        "llm_trace_get",
+        "llm_observation_get",
         "org_create",
         "org_list",
         "org_get",

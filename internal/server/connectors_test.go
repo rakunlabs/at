@@ -6,26 +6,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
-	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/at/internal/store/sqlite3"
+	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
 )
 
 func newConnectorTestServer(t *testing.T) *Server {
 	t.Helper()
-	dir := t.TempDir()
-	dsn := "file:" + filepath.Join(dir, "test.sqlite") + "?cache=shared"
-	store, err := sqlite3.New(context.Background(), &config.StoreSQLite{
-		Datasource: dsn,
-		Migrate:    config.Migrate{Datasource: dsn},
-	}, nil)
-	if err != nil {
-		t.Fatalf("sqlite3.New: %v", err)
-	}
-	t.Cleanup(store.Close)
+	store := postgrestest.New(t, nil)
 	return &Server{
 		connectorStore: store,
 		builtinConnectors: []service.Connector{

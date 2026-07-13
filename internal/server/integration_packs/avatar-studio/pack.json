@@ -1,0 +1,26 @@
+{
+  "slug": "avatar-studio",
+  "name": "Avatar Studio",
+  "description": "HeyGen-style avatar video production pipeline: create persistent avatars (from a prompt or your own photo), clone voices with ElevenLabs, and produce lip-synced talking-head videos via FAL OmniHuman. Install the fal-avatar, elevenlabs-voice, openai-tts, video-composer and ffmpeg-guide skill templates first (the Studio UI setup does this automatically), then assign a provider/model to the three agents.",
+  "category": "Content Creation",
+  "icon": "clapperboard",
+  "author": "AT",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "key": "fal_api_key",
+      "description": "FAL.ai API key — used for avatar image generation and OmniHuman/InfiniTalk lip-sync video.",
+      "secret": true
+    },
+    {
+      "key": "elevenlabs_api_key",
+      "description": "ElevenLabs API key — voice cloning + TTS. Optional: openai-tts is used as fallback when unset.",
+      "secret": true
+    },
+    {
+      "key": "openai_api_key",
+      "description": "OpenAI API key — fallback TTS voiceover (gpt-4o-mini-tts).",
+      "secret": true
+    }
+  ]
+}
