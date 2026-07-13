@@ -163,6 +163,52 @@ func TestSplitTelegramChunks(t *testing.T) {
 	})
 }
 
+func TestCollectBotResponseEvent(t *testing.T) {
+	tests := []struct {
+		name   string
+		events []AgenticEvent
+		want   string
+	}{
+		{
+			name: "only returns final content",
+			events: []AgenticEvent{
+				{Type: "content", Content: "Title: task context before tool"},
+				{Type: "tool_call", ToolName: "task_get"},
+				{Type: "content", Content: "The task is complete.", Final: true},
+			},
+			want: "The task is complete.",
+		},
+		{
+			name: "terminal error replaces narration",
+			events: []AgenticEvent{
+				{Type: "content", Content: "I will inspect the task."},
+				{Type: "error", Error: "provider unavailable"},
+			},
+			want: "[Error: provider unavailable]",
+		},
+		{
+			name: "max iterations marker is terminal",
+			events: []AgenticEvent{
+				{Type: "content", Content: "Working on it"},
+				{Type: "content", Content: "[Max iterations reached]", Final: true},
+			},
+			want: "[Max iterations reached]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got string
+			for _, ev := range tt.events {
+				got = collectBotResponseEvent(got, ev)
+			}
+			if got != tt.want {
+				t.Fatalf("response = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAtoiSafe(t *testing.T) {
 	cases := []struct {
 		in   string

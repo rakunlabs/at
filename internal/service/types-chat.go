@@ -18,6 +18,17 @@ type ChatSessionConfig struct {
 	// that received the message. Without this, two bots talking to the
 	// same Telegram/Discord chat would share a single session row.
 	BotConfigID string `json:"bot_config_id,omitempty"`
+	// ActiveTaskID persists a bot chat's selected topic across restarts.
+	ActiveTaskID string `json:"active_task_id,omitempty"`
+	// HistoryLimit optionally narrows the messages replayed to the LLM for
+	// focused task discussions. Zero uses the platform default.
+	HistoryLimit int `json:"history_limit,omitempty"`
+	// TaskDiscussionMode keeps interactive Q&A scoped to task context instead
+	// of instructing the agent to complete the task on every message.
+	TaskDiscussionMode bool `json:"task_discussion_mode,omitempty"`
+	// DisableTaskResultSync prevents a normal chat response from overwriting
+	// the task result or changing its terminal status.
+	DisableTaskResultSync bool `json:"disable_task_result_sync,omitempty"`
 }
 
 // ChatSession represents a persistent chat session tied to an agent.

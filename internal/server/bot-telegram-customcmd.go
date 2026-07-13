@@ -67,6 +67,7 @@ func (s *Server) handleTelegramCustomCommand(
 	msg *tgbotapi.Message,
 	tgCtx *telegramContext,
 	chatIDStr string,
+	platformSessionID string,
 	defaultAgentID string,
 ) bool {
 	cmd := s.resolveTelegramCustomCommand(ctx, tgCtx.botID, msg.Command())
@@ -165,7 +166,7 @@ func (s *Server) handleTelegramCustomCommand(
 		"command", cmd.Command, "task_id", taskID, "identifier", identifier,
 		"org", cmd.OrganizationID, "agent", cmd.AgentID)
 
-	tgCtx.activeTask.Store(chatIDStr, identifier)
+	s.setTelegramActiveTask(ctx, tgCtx, chatIDStr, platformSessionID, &service.Task{ID: taskID, Identifier: identifier})
 
 	ack := fmt.Sprintf("Task %s created and running in background.\nSet as active task.\n\nCommand: /%s\nTitle: %s\n\nI'll notify you when it's done.\n/status to check",
 		sanitizeUTF8(identifier),

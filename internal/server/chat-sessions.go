@@ -295,6 +295,7 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 type AgenticEvent struct {
 	Type      string `json:"type"`                // "content", "tool_call", "tool_result", "tool_confirm", "done", "error"
 	Content   string `json:"content,omitempty"`   // for "content" events
+	Final     bool   `json:"final,omitempty"`     // for terminal "content" events
 	ToolName  string `json:"tool_name,omitempty"` // for "tool_call", "tool_result", and "tool_confirm"
 	ToolID    string `json:"tool_id,omitempty"`   // for "tool_call", "tool_result", and "tool_confirm"
 	Result    string `json:"result,omitempty"`    // for "tool_result"
@@ -360,6 +361,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	historyLimit := 0
 	if s.loopGov != nil {
 		historyLimit = s.loopGov.ChatHistoryLimit()
+	}
+	if session.Config.HistoryLimit > 0 && (historyLimit == 0 || session.Config.HistoryLimit < historyLimit) {
+		historyLimit = session.Config.HistoryLimit
 	}
 	dbMessages, err := s.chatSessionStore.ListChatMessages(ctx, sessionID, historyLimit)
 	if err != nil {
@@ -653,9 +657,16 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 			taskContext.WriteString(fmt.Sprintf("\n**Previous Result**:\n%s\n", resultPreview))
 		}
-		taskContext.WriteString("\nYou are continuing work on this task interactively. Complete the remaining work and report your results.")
+		if session.Config.TaskDiscussionMode {
+			taskContext.WriteString("\nThis is an interactive discussion about the task. Answer the user's current message directly using the task context and recent task conversation. Do not repeat the task ID, title, status, assignee, description, or previous result unless the user asks for those details. Do not change task status or result unless the user explicitly asks you to perform an action.")
+		} else {
+			taskContext.WriteString("\nYou are continuing work on this task interactively. Complete the remaining work and report your results.")
+		}
 		taskContext.WriteString(taskOperatingProtocolPrompt(taskLinked))
 		systemPrompt += taskContext.String()
+	}
+	if session.Config.Platform != "" {
+		systemPrompt += fmt.Sprintf("\n\n## Channel\nPlatform: %s\nUser ID: %s\nChannel ID: %s", session.Config.Platform, session.Config.PlatformUserID, session.Config.PlatformChannelID)
 	}
 
 	// NOTE: User preferences are injected into the system prompt after
@@ -1002,9 +1013,12 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			},
 		})
 
-		// Emit text content.
-		if resp.Content != "" {
-			onEvent(AgenticEvent{Type: "content", Content: resp.Content})
+		// Emit text content. Bot adapters use Final to avoid concatenating
+		// pre-tool narration with the actual answer, while SSE clients can
+		// continue displaying every iteration live.
+		finalResponse := resp.Finished || len(resp.ToolCalls) == 0
+		if resp.Content != "" || finalResponse {
+			onEvent(AgenticEvent{Type: "content", Content: resp.Content, Final: finalResponse})
 		}
 
 		// Build assistant message with content blocks.
@@ -1034,11 +1048,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		})
 
 		// If done (no tool calls), persist and finish.
-		if resp.Finished || len(resp.ToolCalls) == 0 {
+		if finalResponse {
 			s.persistAssistantMessage(ctx, sessionID, resp.Content, nil)
 
 			// Auto-sync: if this session is linked to a task, update the task result.
-			if taskLinked != nil && resp.Content != "" && s.taskStore != nil {
+			if taskLinked != nil && resp.Content != "" && s.taskStore != nil && !session.Config.DisableTaskResultSync {
 				newStatus := service.TaskStatusCompleted
 				if taskLinked.ParentID != "" {
 					// Sub-tasks complete as "done" to let the parent know.
@@ -1277,7 +1291,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}
 
 	// Max iterations reached.
-	onEvent(AgenticEvent{Type: "content", Content: "\n\n[Max iterations reached]"})
+	onEvent(AgenticEvent{Type: "content", Content: "[Max iterations reached]", Final: true})
 	onEvent(AgenticEvent{Type: "done"})
 	return nil
 }

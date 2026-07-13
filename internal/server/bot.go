@@ -62,26 +62,33 @@ func (s *Server) findOrCreateBotSession(ctx context.Context, platform, botConfig
 	return newSession.ID, defaultAgentID, nil
 }
 
-// collectAgenticResponse runs the agentic loop and collects all text content into a single string.
+// collectAgenticResponse runs the agentic loop and returns its terminal text.
+// Intermediate content often narrates an upcoming tool call and should not be
+// prefixed to the final message sent by bot adapters.
 func (s *Server) collectAgenticResponse(ctx context.Context, sessionID, content string) (string, error) {
-	var builder strings.Builder
+	var response string
 
 	err := s.RunAgenticLoop(ctx, sessionID, content, func(ev AgenticEvent) {
-		switch ev.Type {
-		case "content":
-			builder.WriteString(ev.Content)
-		case "error":
-			if builder.Len() > 0 {
-				builder.WriteString("\n")
-			}
-			builder.WriteString("[Error: " + ev.Error + "]")
-		}
+		response = collectBotResponseEvent(response, ev)
 	})
 	if err != nil {
 		return "", err
 	}
 
-	return builder.String(), nil
+	return response, nil
+}
+
+func collectBotResponseEvent(response string, ev AgenticEvent) string {
+	switch ev.Type {
+	case "content":
+		if ev.Final {
+			return ev.Content
+		}
+	case "error":
+		return "[Error: " + ev.Error + "]"
+	}
+
+	return response
 }
 
 // startBotsFromDB loads enabled bot configs from the database and starts them.

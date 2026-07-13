@@ -16,7 +16,7 @@
     type ChatSession,
     type ChatMessage,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, User, Wrench, Brain, Terminal, Check, Code, Eye } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, User, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch } from 'lucide-svelte';
   import axios from 'axios';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -35,6 +35,7 @@
   let streamContent = $state('');
   let toolEvents = $state<any[]>([]);
   let expandedTools = $state<Record<string, boolean>>({});
+  let collapsedSessionThreads = $state<Record<string, boolean>>({});
   // Per-message toggle: when true, render the raw markdown source instead
   // of the rendered HTML so users can inspect / copy the original content.
   let rawSourceMode = $state<Record<string, boolean>>({});
@@ -160,9 +161,45 @@
     sessions.filter(s => {
       if (botFilter === 'all') return true;
       if (botFilter === 'web') return !s.config?.bot_config_id;
-      return s.config?.bot_config_id === botFilter;
+      return baseBotConfigId(s.config?.bot_config_id) === botFilter;
     })
   );
+
+  interface SessionThreadGroup {
+    parent: ChatSession;
+    children: ChatSession[];
+    activity: number;
+  }
+
+  // Telegram task conversations are persisted as focused sessions. Group
+  // those sessions under their channel session instead of presenting a flat,
+  // noisy list where every task looks like an unrelated conversation.
+  let sessionThreadGroups = $derived.by<SessionThreadGroup[]>(() => {
+    const taskSessions = filteredSessions.filter(isTaskThreadSession);
+    const roots = filteredSessions.filter(s => !isTaskThreadSession(s));
+    const groupedTaskIds = new Set<string>();
+    const groups = roots.map(parent => {
+      const children = taskSessions
+        .filter(child => taskThreadBelongsTo(child, parent))
+        .sort((a, b) => sessionActivityTime(b) - sessionActivityTime(a));
+      children.forEach(child => groupedTaskIds.add(child.id));
+      return {
+        parent,
+        children,
+        activity: Math.max(sessionActivityTime(parent), ...children.map(sessionActivityTime)),
+      };
+    });
+
+    // Keep task sessions visible if their original channel session was
+    // deleted or is outside the current result page.
+    for (const session of taskSessions) {
+      if (!groupedTaskIds.has(session.id)) {
+        groups.push({ parent: session, children: [], activity: sessionActivityTime(session) });
+      }
+    }
+
+    return groups.sort((a, b) => b.activity - a.activity);
+  });
 
   let selectedSession = $derived(sessions.find(s => s.id === selectedSessionId) || null);
   let currentAgent = $derived(selectedSession ? agents.find(a => a.id === selectedSession.agent_id) : null);
@@ -219,14 +256,32 @@
 
   function getBotName(botId: string | undefined): string {
     if (!botId) return '';
-    const b = bots.find(x => x.id === botId);
-    return b ? `${b.platform} · ${b.name}` : botId.slice(0, 8);
+    const baseId = baseBotConfigId(botId);
+    const b = bots.find(x => x.id === baseId);
+    return b ? `${b.platform} · ${b.name}` : baseId.slice(0, 8);
   }
 
   function getBotShortName(botId: string | undefined): string {
     if (!botId) return '';
-    const b = bots.find(x => x.id === botId);
-    return b?.name || botId.slice(0, 8);
+    const baseId = baseBotConfigId(botId);
+    const b = bots.find(x => x.id === baseId);
+    return b?.name || baseId.slice(0, 8);
+  }
+
+  function baseBotConfigId(botId: string | undefined): string {
+    return botId?.startsWith('task:') ? botId.slice(5) : (botId || '');
+  }
+
+  function isTaskThreadSession(session: ChatSession): boolean {
+    return !!session.task_id && session.config?.bot_config_id?.startsWith('task:') === true;
+  }
+
+  function taskThreadBelongsTo(child: ChatSession, parent: ChatSession): boolean {
+    return isTaskThreadSession(child)
+      && baseBotConfigId(child.config?.bot_config_id) === parent.config?.bot_config_id
+      && child.config?.platform === parent.config?.platform
+      && child.config?.platform_user_id === parent.config?.platform_user_id
+      && child.config?.platform_channel_id === parent.config?.platform_channel_id;
   }
 
   async function loadMessages(sessionId: string, limit: number = MESSAGE_PAGE) {
@@ -707,6 +762,62 @@
   });
 </script>
 
+{#snippet sessionRow(session: ChatSession, nested = false, childCount = 0)}
+  <div
+    onclick={() => selectSession(session.id)}
+    onkeydown={(e) => { if (e.key === 'Enter') selectSession(session.id); }}
+    role="button"
+    tabindex="0"
+    class={[
+      'w-full text-left py-1.5 text-[11px] border-b border-gray-100 dark:border-dark-border/50 group flex items-center gap-1 cursor-pointer transition-colors',
+      nested ? 'pl-5 pr-2 bg-gray-50/60 dark:bg-dark-base/40' : 'px-2',
+      selectedSessionId === session.id
+        ? 'bg-gray-100 dark:bg-dark-elevated border-l-2 border-l-gray-900 dark:border-l-accent'
+        : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/50 border-l-2 border-l-transparent',
+    ]}
+  >
+    {#if nested}
+      <GitBranch size={11} class="shrink-0 text-gray-300 dark:text-dark-text-faint" />
+    {/if}
+    <div class="min-w-0 flex-1">
+      <div class="flex items-baseline gap-1.5">
+        <span class="truncate text-gray-700 dark:text-dark-text font-medium flex-1 min-w-0">{session.name || 'Untitled'}</span>
+        <span class="text-[9px] text-gray-400 dark:text-dark-text-muted shrink-0 tabular-nums" title={session.updated_at || session.created_at}>
+          {formatRelative(session.updated_at || session.created_at)}
+        </span>
+      </div>
+      <div class="truncate text-[10px] text-gray-400 dark:text-dark-text-muted flex items-center gap-1">
+        {#if nested || isTaskThreadSession(session)}
+          <span class="text-violet-500 dark:text-violet-400">Task thread</span>
+          <span>·</span>
+        {/if}
+        <span>{getAgentName(session.agent_id)}</span>
+        {#if !nested && !isTaskThreadSession(session) && session.config?.bot_config_id}
+          <span>·</span>
+          <span class="text-blue-500 dark:text-blue-400" title={getBotName(session.config.bot_config_id)}>{getBotShortName(session.config.bot_config_id)}</span>
+        {/if}
+        {#if childCount > 0}
+          <span>· {childCount} task{childCount === 1 ? '' : 's'}</span>
+        {/if}
+      </div>
+    </div>
+    <button
+      onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'alert')); }}
+      class="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-orange-400 transition-opacity"
+      title="Clear messages"
+    >
+      <RotateCcw size={11} />
+    </button>
+    <button
+      onclick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
+      class="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-red-400 transition-opacity"
+      title="Delete"
+    >
+      <Trash2 size={11} />
+    </button>
+  </div>
+{/snippet}
+
 <svelte:head>
   <title>AT | Sessions</title>
 </svelte:head>
@@ -751,44 +862,25 @@
           {sessions.length === 0 ? 'Type to start chatting' : 'No sessions match this filter'}
         </div>
       {:else}
-        {#each filteredSessions as session (session.id)}
-          <div
-            onclick={() => selectSession(session.id)}
-            onkeydown={(e) => { if (e.key === 'Enter') selectSession(session.id); }}
-            role="button"
-            tabindex="0"
-            class={[
-              'w-full text-left px-2 py-1.5 text-[11px] border-b border-gray-100 dark:border-dark-border/50 group flex items-center gap-1 cursor-pointer transition-colors',
-              selectedSessionId === session.id
-                ? 'bg-gray-100 dark:bg-dark-elevated border-l-2 border-l-gray-900 dark:border-l-accent'
-                : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/50 border-l-2 border-l-transparent',
-            ]}
-          >
-            <div class="min-w-0 flex-1">
-              <div class="flex items-baseline gap-1.5">
-                <span class="truncate text-gray-700 dark:text-dark-text font-medium flex-1 min-w-0">{session.name || 'Untitled'}</span>
-                <span class="text-[9px] text-gray-400 dark:text-dark-text-muted shrink-0 tabular-nums" title={session.updated_at || session.created_at}>
-                  {formatRelative(session.updated_at || session.created_at)}
-                </span>
-              </div>
-              <div class="truncate text-[10px] text-gray-400 dark:text-dark-text-muted">
-                {getAgentName(session.agent_id)}{#if session.config?.bot_config_id} · <span class="text-blue-500 dark:text-blue-400" title={getBotName(session.config.bot_config_id)}>{getBotShortName(session.config.bot_config_id)}</span>{/if}
-              </div>
+        {#each sessionThreadGroups as thread (thread.parent.id)}
+          <div>
+            <div class="relative">
+              {@render sessionRow(thread.parent, false, thread.children.length)}
+              {#if thread.children.length > 0}
+                <button
+                  onclick={(e) => { e.stopPropagation(); collapsedSessionThreads[thread.parent.id] = !collapsedSessionThreads[thread.parent.id]; }}
+                  class="absolute left-0.5 top-2 p-0.5 text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text z-10"
+                  title={collapsedSessionThreads[thread.parent.id] ? 'Show task threads' : 'Hide task threads'}
+                >
+                  <ChevronDown size={10} class={collapsedSessionThreads[thread.parent.id] ? '-rotate-90' : ''} />
+                </button>
+              {/if}
             </div>
-            <button
-              onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'alert')); }}
-              class="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-orange-400 transition-opacity"
-              title="Clear messages"
-            >
-              <RotateCcw size={11} />
-            </button>
-            <button
-              onclick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
-              class="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-red-400 transition-opacity"
-              title="Delete"
-            >
-              <Trash2 size={11} />
-            </button>
+            {#if !collapsedSessionThreads[thread.parent.id]}
+              {#each thread.children as child (child.id)}
+                {@render sessionRow(child, true)}
+              {/each}
+            {/if}
           </div>
         {/each}
       {/if}
@@ -808,6 +900,12 @@
           {/if}
           {#if currentAgent?.config?.provider}
             <span class="text-gray-400 dark:text-dark-text-muted">· {currentAgent.config.provider}</span>
+          {/if}
+          {#if selectedSession.task_id}
+            <span class="text-gray-300 dark:text-dark-text-faint">·</span>
+            <a href={`#/tasks/${selectedSession.task_id}`} class="flex items-center gap-1 text-violet-600 dark:text-violet-400 hover:underline">
+              <GitBranch size={11} /> Task thread
+            </a>
           {/if}
         </div>
       </div>

@@ -8,6 +8,10 @@ export interface ChatSessionConfig {
   platform_user_id?: string;
   platform_channel_id?: string;
   bot_config_id?: string;
+  active_task_id?: string;
+  history_limit?: number;
+  task_discussion_mode?: boolean;
+  disable_task_result_sync?: boolean;
 }
 
 export interface ListChatSessionsParams extends ListParams {

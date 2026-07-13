@@ -611,6 +611,102 @@ type telegramContext struct {
 	chatAgents      map[string]string
 	allowedAgentIDs []string
 	activeTask      sync.Map // chatID (string) -> task identifier (string)
+	messageLocks    sync.Map // chatID (string) -> *sync.Mutex
+}
+
+const telegramTaskChatHistoryLimit = 12
+
+func telegramTaskRef(task *service.Task) string {
+	if task == nil {
+		return ""
+	}
+	if task.Identifier != "" {
+		return task.Identifier
+	}
+	return task.ID
+}
+
+func (s *Server) setTelegramActiveTask(ctx context.Context, tgCtx *telegramContext, chatID, platformSessionID string, task *service.Task) {
+	if task == nil {
+		return
+	}
+	tgCtx.activeTask.Store(chatID, telegramTaskRef(task))
+	s.persistTelegramActiveTask(ctx, platformSessionID, task.ID)
+}
+
+func (s *Server) clearTelegramActiveTask(ctx context.Context, tgCtx *telegramContext, chatID, platformSessionID string) {
+	tgCtx.activeTask.Delete(chatID)
+	s.persistTelegramActiveTask(ctx, platformSessionID, "")
+}
+
+func (s *Server) persistTelegramActiveTask(ctx context.Context, platformSessionID, taskID string) {
+	if s.chatSessionStore == nil || platformSessionID == "" {
+		return
+	}
+	session, err := s.chatSessionStore.GetChatSession(ctx, platformSessionID)
+	if err != nil || session == nil {
+		return
+	}
+	session.Config.ActiveTaskID = taskID
+	if _, err := s.chatSessionStore.UpdateChatSession(ctx, session.ID, *session); err != nil {
+		slog.Warn("telegram bot: persist active task failed", "session_id", session.ID, "task_id", taskID, "error", err)
+	}
+}
+
+func (s *Server) findOrCreateTelegramTaskSession(ctx context.Context, task *service.Task, tgCtx *telegramContext, userID, chatID string) (*service.ChatSession, error) {
+	if s.chatSessionStore == nil || task == nil {
+		return nil, fmt.Errorf("task chat store or task not configured")
+	}
+
+	if existing, err := s.chatSessionStore.GetChatSessionByTaskID(ctx, task.ID); err != nil {
+		return nil, fmt.Errorf("lookup task chat session: %w", err)
+	} else if existing != nil {
+		existing.Config.HistoryLimit = telegramTaskChatHistoryLimit
+		existing.Config.TaskDiscussionMode = true
+		existing.Config.DisableTaskResultSync = true
+		updated, updateErr := s.chatSessionStore.UpdateChatSession(ctx, existing.ID, *existing)
+		if updateErr != nil {
+			return nil, fmt.Errorf("update task chat session: %w", updateErr)
+		}
+		return updated, nil
+	}
+
+	orgID := s.taskOrganizationID(ctx, task)
+	agentID := task.AssignedAgentID
+	if agentID == "" && orgID != "" && s.organizationStore != nil {
+		org, err := s.organizationStore.GetOrganization(ctx, orgID)
+		if err == nil && org != nil {
+			agentID = org.HeadAgentID
+		}
+	}
+	if agentID == "" {
+		return nil, fmt.Errorf("task has no assigned agent and no organization head agent")
+	}
+
+	name := telegramTaskRef(task)
+	if task.Title != "" {
+		if name != "" {
+			name += ": "
+		}
+		name += task.Title
+	}
+	return s.chatSessionStore.CreateChatSession(ctx, service.ChatSession{
+		AgentID:        agentID,
+		TaskID:         task.ID,
+		OrganizationID: orgID,
+		Name:           name,
+		Config: service.ChatSessionConfig{
+			Platform:              "telegram",
+			PlatformUserID:        userID,
+			PlatformChannelID:     chatID,
+			BotConfigID:           "task:" + tgCtx.botID,
+			HistoryLimit:          telegramTaskChatHistoryLimit,
+			TaskDiscussionMode:    true,
+			DisableTaskResultSync: true,
+		},
+		CreatedBy: "telegram-bot",
+		UpdatedBy: "telegram-bot",
+	})
 }
 
 // startTelegramBot starts a Telegram bot that routes messages to the agentic loop.
@@ -679,6 +775,10 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, agentID string, tgCtx *telegramContext) {
 	chatIDStr := fmt.Sprintf("%d", msg.Chat.ID)
 	userIDStr := fmt.Sprintf("%d", msg.From.ID)
+	lockValue, _ := tgCtx.messageLocks.LoadOrStore(chatIDStr, &sync.Mutex{})
+	chatLock := lockValue.(*sync.Mutex)
+	chatLock.Lock()
+	defer chatLock.Unlock()
 
 	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "telegram", tgCtx.botID, userIDStr, chatIDStr, agentID)
 	if err != nil {
@@ -687,6 +787,13 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 	}
 	// Use the session's actual agent (respects /switch), not the bot's default.
 	agentID = sessionAgentID
+	if _, active := tgCtx.activeTask.Load(chatIDStr); !active {
+		if platformSession, getErr := s.chatSessionStore.GetChatSession(ctx, sessionID); getErr == nil && platformSession != nil && platformSession.Config.ActiveTaskID != "" {
+			if task, taskErr := s.taskStore.GetTask(ctx, platformSession.Config.ActiveTaskID); taskErr == nil && task != nil {
+				tgCtx.activeTask.Store(chatIDStr, telegramTaskRef(task))
+			}
+		}
+	}
 
 	// Send typing indicator periodically.
 	typingCtx, typingCancel := context.WithCancel(ctx)
@@ -805,8 +912,16 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		slog.Info("telegram bot: command received", "command", msg.Command(), "text", content[:min(len(content), 50)])
 		switch msg.Command() {
 		case "reset":
-			if err := s.chatSessionStore.DeleteChatMessages(ctx, sessionID); err != nil {
-				slog.Error("telegram bot: reset failed", "session_id", sessionID, "error", err)
+			resetSessionID := sessionID
+			if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok {
+				if task, _ := s.findTaskByIdentifier(ctx, agentID, activeID.(string)); task != nil {
+					if taskSession, _ := s.chatSessionStore.GetChatSessionByTaskID(ctx, task.ID); taskSession != nil {
+						resetSessionID = taskSession.ID
+					}
+				}
+			}
+			if err := s.chatSessionStore.DeleteChatMessages(ctx, resetSessionID); err != nil {
+				slog.Error("telegram bot: reset failed", "session_id", resetSessionID, "error", err)
 				reply := tgbotapi.NewMessage(msg.Chat.ID, "Failed to reset session.")
 				bot.Send(reply) //nolint:errcheck
 				return
@@ -879,8 +994,8 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 
 			slog.Info("telegram bot: task created", "task_id", taskID, "identifier", identifier)
 
-			// Auto-pick this task as active
-			tgCtx.activeTask.Store(chatIDStr, identifier)
+			// Auto-pick this task as active and persist it on the platform session.
+			s.setTelegramActiveTask(ctx, tgCtx, chatIDStr, sessionID, &service.Task{ID: taskID, Identifier: identifier})
 
 			ack := fmt.Sprintf("Task %s created and running in background.\nSet as active task.\n\nTopic: %s\n",
 				sanitizeUTF8(identifier), sanitizeUTF8(topic))
@@ -1080,7 +1195,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			target := strings.TrimSpace(msg.CommandArguments())
 			if target == "" {
 				// No argument — clear active task
-				tgCtx.activeTask.Delete(chatIDStr)
+				s.clearTelegramActiveTask(ctx, tgCtx, chatIDStr, sessionID)
 				reply := tgbotapi.NewMessage(msg.Chat.ID, "Active task cleared. Normal chat mode.")
 				bot.Send(reply) //nolint:errcheck
 				return
@@ -1093,16 +1208,8 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				return
 			}
 
-			taskRef := task.Identifier
-			if taskRef == "" {
-				taskRef = task.ID[:12]
-			}
-			tgCtx.activeTask.Store(chatIDStr, taskRef)
-
-			// Clear the chat session so context is fresh for this task
-			if err := s.chatSessionStore.DeleteChatMessages(ctx, sessionID); err != nil {
-				slog.Warn("telegram bot: pick clear session failed", "error", err)
-			}
+			taskRef := telegramTaskRef(task)
+			s.setTelegramActiveTask(ctx, tgCtx, chatIDStr, sessionID, task)
 
 			title := task.Title
 			if len(title) > 50 {
@@ -1384,7 +1491,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			// Submit the revision as a fresh top-level task into the same org as
 			// the source task. The org's head agent picks it up and runs the
 			// usual delegation pipeline.
-			_, revIdent, revErr := s.createBotOrgTask(ctx, sourceTask.OrganizationID, revTitle, revDescription, 0, onRevDone)
+			revTaskID, revIdent, revErr := s.createBotOrgTask(ctx, sourceTask.OrganizationID, revTitle, revDescription, 0, onRevDone)
 			if revErr != nil {
 				slog.Error("telegram bot: revise failed", "source_task", sourceRef, "error", revErr)
 				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed to start revision: %v", revErr))
@@ -1393,7 +1500,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 
 			// Make the new revision the active task automatically — the user is
 			// almost certainly going to /status / /result it next.
-			tgCtx.activeTask.Store(chatIDStr, revIdent)
+			s.setTelegramActiveTask(ctx, tgCtx, chatIDStr, sessionID, &service.Task{ID: revTaskID, Identifier: revIdent})
 
 			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf(
 				"Revision %s created and running in background.\nSource: %s\nChanges: %s\n\nNew task is now active. I'll notify you when it's done.\n/status to check",
@@ -1477,7 +1584,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			typingCancel()
 
 			// Make the resumed task active so /status / /result / /run default to it.
-			tgCtx.activeTask.Store(chatIDStr, identifier)
+			s.setTelegramActiveTask(ctx, tgCtx, chatIDStr, sessionID, task)
 
 			chatID := msg.Chat.ID
 			onResumeDone := func(ident, status, result string) {
@@ -1525,73 +1632,32 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			// Check for user-configured custom commands stored on the bot config.
 			// Custom commands are dispatched as background tasks (same UX as /new),
 			// optionally routed to a specific agent or organization.
-			if handled := s.handleTelegramCustomCommand(ctx, bot, msg, tgCtx, chatIDStr, agentID); handled {
+			if handled := s.handleTelegramCustomCommand(ctx, bot, msg, tgCtx, chatIDStr, sessionID, agentID); handled {
 				return
 			}
 			slog.Warn("telegram bot: unknown command, passing to agent", "command", msg.Command())
 		}
 	}
 
-	// If there's an active task, inject task context into the message (chat mode)
+	responseSessionID := sessionID
+	taskScopedChat := false
+
+	// Route ordinary messages to a persistent session owned by the active
+	// task. The task session injects task context itself and only replays a
+	// small recent history, so unrelated Telegram topics never leak in.
 	if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok {
 		taskRef := activeID.(string)
 		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
 		if task != nil {
 			ctx = contextWithTaskID(ctx, task.ID)
-			taskContext := fmt.Sprintf("[Active task: %s | Status: %s | Title: %s]", taskRef, task.Status, task.Title)
-
-			// Include the ORIGINAL brief (task.Description) so the agent can remix it
-			// for revision requests. Without this, "change this part" loses the
-			// original requirements and the agent has to guess.
-			if task.Description != "" {
-				descPreview := task.Description
-				if len(descPreview) > 3000 {
-					descPreview = descPreview[:3000] + "..."
-				}
-				taskContext += fmt.Sprintf("\n[Original brief: %s]", descPreview)
+			taskSession, taskSessionErr := s.findOrCreateTelegramTaskSession(ctx, task, tgCtx, userIDStr, chatIDStr)
+			if taskSessionErr != nil {
+				slog.Error("telegram bot: task session lookup failed", "task_id", task.ID, "error", taskSessionErr)
+				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Failed to open task conversation: %v", taskSessionErr))
+				return
 			}
-
-			if task.Result != "" {
-				resultPreview := task.Result
-				if len(resultPreview) > 4000 {
-					resultPreview = resultPreview[:4000] + "..."
-				}
-				taskContext += fmt.Sprintf("\n[Task result: %s]", resultPreview)
-
-				// Always extract and list media file paths from the FULL result,
-				// so the agent can reference them even if the result text was truncated.
-				videos, images := extractMediaFiles(task.Result)
-				if len(videos) > 0 || len(images) > 0 {
-					taskContext += "\n[Available files:"
-					for _, v := range videos {
-						taskContext += fmt.Sprintf(" %s (video)", v)
-					}
-					for _, img := range images {
-						taskContext += fmt.Sprintf(" %s (image)", img)
-					}
-					taskContext += "]"
-				}
-			}
-
-			// Revision guidance — when the active task is finished and the user
-			// is asking for a CHANGE (rather than just a question), the agent
-			// should spawn a NEW task that combines the original brief with the
-			// requested revision, NOT mutate the already-finished task in place.
-			//
-			// We surface this as a hint; the agent is responsible for detecting
-			// revision intent ("change", "make it shorter", "different ambient",
-			// "redo with X", "değiştir", "tekrar yap", etc.) and using
-			// `org_task_intake` (or `task_create` + `task_process`) with a brief
-			// of the form: "REVISION of <ID>. Original brief: <...>. Apply these
-			// changes: <user message>. Reuse anything reusable from <ID>'s
-			// components if possible." The user will be notified when the new
-			// task finishes via the same /status / /result flow.
-			if isFinishedTaskStatus(task.Status) {
-				taskContext += "\n[Revision policy: this task is FINISHED. If the user asks for a CHANGE / fix / variation / redo, do NOT touch the finished task or its files. Create a NEW task that includes the original brief above PLUS the user's requested changes, using `org_task_intake` (or `task_create` + `task_process`). Title prefix the new task with `[Revision of " + taskRef + "]`. The user can keep chatting and the new task will run in the background.]"
-			} else if isRunningTaskStatus(task.Status) {
-				taskContext += "\n[This task is currently RUNNING. The user's message is likely a question or a course-correction. Answer questions directly. For course-corrections that require restart, suggest the user wait for completion or use /cancel + a new task. Do NOT spawn another delegation chain on the same task.]"
-			}
-			content = taskContext + "\n\n" + content
+			responseSessionID = taskSession.ID
+			taskScopedChat = true
 
 			// Set the task's workspace directory so bash tool handlers (e.g. upload_to_youtube)
 			// can find files created by the task's delegation chain.
@@ -1605,10 +1671,14 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		}
 	}
 
-	// Prepend user context so agents know the user's identity for triggers/notifications
-	userContext := fmt.Sprintf("[User context: platform=telegram, chat_id=%s, user_id=%s, bot_id=%s]\n\n",
-		chatIDStr, userIDStr, tgCtx.botID)
-	content = userContext + content
+	// Generic bot chat keeps the legacy inline channel hint. Task sessions
+	// carry the same metadata in their system prompt so persisted user
+	// messages remain clean and readable under the task.
+	if !taskScopedChat {
+		userContext := fmt.Sprintf("[User context: platform=telegram, chat_id=%s, user_id=%s, bot_id=%s]\n\n",
+			chatIDStr, userIDStr, tgCtx.botID)
+		content = userContext + content
+	}
 
 	// Set container scope for per-user isolation if bot has user_containers enabled
 	if tgCtx.botID != "" && s.botConfigStore != nil {
@@ -1620,8 +1690,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		}
 	}
 
-	// No active task — normal chat flow
-	response, err := s.collectAgenticResponse(ctx, sessionID, content)
+	response, err := s.collectAgenticResponse(ctx, responseSessionID, content)
 
 	// If the error is about corrupt message history, clear and retry once.
 	// RunAgenticLoop emits LLM errors as events (not Go errors), so we must
@@ -1633,46 +1702,26 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			(strings.Contains(response, "tool id") && strings.Contains(response, "not found")) ||
 			(strings.Contains(response, "tool_call_id") && strings.Contains(response, "not found"))))
 	if isToolCallError {
-		slog.Warn("telegram bot: corrupt message history, clearing and retrying", "session_id", sessionID)
+		slog.Warn("telegram bot: corrupt message history, clearing and retrying", "session_id", responseSessionID)
 		if s.chatSessionStore != nil {
-			_ = s.chatSessionStore.DeleteChatMessages(ctx, sessionID)
+			_ = s.chatSessionStore.DeleteChatMessages(ctx, responseSessionID)
 		}
-		response, err = s.collectAgenticResponse(ctx, sessionID, content)
+		response, err = s.collectAgenticResponse(ctx, responseSessionID, content)
 	}
 
 	typingCancel()
 
 	if err != nil {
-		slog.Error("telegram bot: agentic loop failed", "session_id", sessionID, "error", err)
+		slog.Error("telegram bot: agentic loop failed", "session_id", responseSessionID, "error", err)
 		sendTelegramText(bot, msg.Chat.ID, "Sorry, an error occurred. Session has been reset, please try again.")
 		if s.chatSessionStore != nil {
-			_ = s.chatSessionStore.DeleteChatMessages(ctx, sessionID)
+			_ = s.chatSessionStore.DeleteChatMessages(ctx, responseSessionID)
 		}
 		return
 	}
 
 	if response == "" {
 		response = "(no response)"
-	}
-
-	// If there's an active task and the response has file paths, append to task result
-	if activeID, ok := tgCtx.activeTask.Load(chatIDStr); ok && s.taskStore != nil {
-		taskRef := activeID.(string)
-		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
-		if task != nil {
-			// Only update if response contains actionable content (file paths, JSON results)
-			videos, images := extractMediaFiles(response)
-			if len(videos) > 0 || len(images) > 0 {
-				// Append — don't overwrite
-				newResult := task.Result
-				if newResult != "" {
-					newResult += "\n\n---\n"
-				}
-				newResult += fmt.Sprintf("[Chat update]: %s", response)
-				_ = s.taskStore.UpdateTaskResult(ctx, task.ID, newResult)
-				slog.Info("telegram bot: task result appended", "task", taskRef)
-			}
-		}
 	}
 
 	// Send response to Telegram via the shared rune-safe sender (handles
