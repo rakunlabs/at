@@ -164,6 +164,8 @@ type LLMCallTrace struct {
 	GenerationCount  int64   `json:"generation_count"`
 	InputTokens      int64   `json:"input_tokens"`
 	OutputTokens     int64   `json:"output_tokens"`
+	CacheReadTokens  int64   `json:"cache_read_tokens"`
+	CacheWriteTokens int64   `json:"cache_write_tokens"`
 	CostCents        float64 `json:"cost_cents"`
 	LatencyMsTotal   int64   `json:"latency_ms_total"`
 	ErrorCount       int64   `json:"error_count"`

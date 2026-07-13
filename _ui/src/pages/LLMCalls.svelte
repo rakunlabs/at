@@ -493,6 +493,7 @@
           <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Obs</th>
           <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">In</th>
           <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Out</th>
+          <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Cache R/W</th>
           <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Cost</th>
           <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Duration</th>
           <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Errors</th>
@@ -514,8 +515,12 @@
             <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{trace.observation_count}</td>
             <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatTokens(trace.input_tokens)}</td>
             <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatTokens(trace.output_tokens)}</td>
+            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right whitespace-nowrap" title="Cache read / cache write tokens">{formatTokens(trace.cache_read_tokens)} / {formatTokens(trace.cache_write_tokens)}</td>
             <td class="px-4 py-2.5 text-xs font-medium text-gray-900 dark:text-dark-text text-right">{formatCost(trace.cost_cents)}</td>
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right">{formatDuration(trace.started_at, trace.ended_at)}</td>
+            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted text-right whitespace-nowrap">
+              <div title="Wall-clock duration">{formatDuration(trace.started_at, trace.ended_at)}</div>
+              <div class="text-[10px] text-gray-400 dark:text-dark-text-muted" title="Summed LLM and tool execution time">active {formatLatency(trace.latency_ms_total)}</div>
+            </td>
             <td class="px-4 py-2.5 text-xs text-right">
               {#if trace.error_count > 0}
                 <span class="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">{trace.error_count}</span>

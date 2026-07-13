@@ -308,6 +308,8 @@ func (p *Postgres) ListLLMCallTraces(ctx context.Context, q *query.Query) (*serv
 		goqu.L("SUM(CASE WHEN observation_type = 'generation' THEN 1 ELSE 0 END)").As("generation_count"),
 		goqu.L("COALESCE(SUM(input_tokens), 0)").As("input_tokens"),
 		goqu.L("COALESCE(SUM(output_tokens), 0)").As("output_tokens"),
+		goqu.L("COALESCE(SUM(cache_read_tokens), 0)").As("cache_read_tokens"),
+		goqu.L("COALESCE(SUM(cache_write_tokens), 0)").As("cache_write_tokens"),
 		goqu.L("COALESCE(SUM(cost_cents), 0)").As("cost_cents"),
 		goqu.L("COALESCE(SUM(latency_ms), 0)").As("latency_ms_total"),
 		goqu.L("SUM(CASE WHEN status = 'error' OR level = 'error' THEN 1 ELSE 0 END)").As("error_count"),
@@ -338,7 +340,8 @@ func (p *Postgres) ListLLMCallTraces(ctx context.Context, q *query.Query) (*serv
 			&t.TraceID, &t.SessionID, &t.Source, &name,
 			&t.TaskID, &t.AgentID, &t.OrganizationID,
 			&t.ObservationCount, &t.GenerationCount,
-			&t.InputTokens, &t.OutputTokens, &t.CostCents, &t.LatencyMsTotal,
+			&t.InputTokens, &t.OutputTokens, &t.CacheReadTokens, &t.CacheWriteTokens,
+			&t.CostCents, &t.LatencyMsTotal,
 			&t.ErrorCount, &t.StartedAt, &t.EndedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan llm call trace row: %w", err)

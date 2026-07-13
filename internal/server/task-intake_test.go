@@ -78,6 +78,7 @@ func (m *mockTaskStore) ListChildTasks(_ context.Context, _ string) ([]service.T
 func (m *mockTaskStore) UpdateTaskStatus(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
+func (m *mockTaskStore) UpdateTaskResult(_ context.Context, _ string, _ string) error { return nil }
 
 // --- Intake endpoint tests ---
 

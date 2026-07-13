@@ -500,6 +500,7 @@ func (s *Server) buildPricingPreview(ctx context.Context, source string, match f
 		}
 
 		if src, matchType, confidence, ok := match(model.ProviderType, model.Model); ok {
+			src = applyCachePricingDefaults(model.ProviderType, src)
 			item.Matched = true
 			item.MatchType = matchType
 			item.Confidence = confidence
@@ -516,6 +517,22 @@ func (s *Server) buildPricingPreview(ctx context.Context, source string, match f
 		items = append(items, item)
 	}
 	return items, nil
+}
+
+// applyCachePricingDefaults fills provider-documented cache rates when a
+// catalog only publishes base input/output prices. Anthropic's five-minute
+// prompt cache charges 1.25x input for writes and 0.1x input for reads.
+func applyCachePricingDefaults(providerType string, src modelPricingSourceMatch) modelPricingSourceMatch {
+	if providerType != "anthropic" || src.PromptPricePer1M <= 0 {
+		return src
+	}
+	if src.CacheReadPricePer1M == 0 {
+		src.CacheReadPricePer1M = src.PromptPricePer1M * 0.1
+	}
+	if src.CacheWritePricePer1M == 0 {
+		src.CacheWritePricePer1M = src.PromptPricePer1M * 1.25
+	}
+	return src
 }
 
 func (s *Server) buildAgentPricingPreview(ctx context.Context, req modelPricingAgentPreviewRequest) ([]modelPricingSyncPreviewItem, error) {

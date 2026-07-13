@@ -744,7 +744,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		var windowed []service.Message
 		chatOpts := s.loopGov.ChatOptions()
 		for attempt := 0; attempt < 3; attempt++ {
-			windowed, _ = s.loopGov.Limit(ctx, agentID, task.ID, messages)
+			windowed, _ = s.loopGov.LimitWithTools(ctx, agentID, task.ID, messages, llmTools)
 			callStart := time.Now()
 			resp, chatErr = info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
 			latencyMs = time.Since(callStart).Milliseconds()
@@ -968,7 +968,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		// recordToolObs records a tool observation parented to this
 		// iteration's generation (skill / builtin / MCP / unknown tools;
 		// delegation tools record inline to attach child-trace links).
-		recordToolObs := func(name string, args map[string]any, output string, hasErr bool) {
+		recordToolObs := func(name string, args map[string]any, output string, hasErr bool, latencyMs int64) {
 			level := service.ObservationLevelDefault
 			if hasErr {
 				level = service.ObservationLevelError
@@ -988,17 +988,19 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				input:               string(argsJSON),
 				output:              output,
 				level:               level,
+				latencyMs:           latencyMs,
 				metadata:            map[string]any{"iteration": iteration},
 			})
 		}
 
 		for i, tc := range resp.ToolCalls {
+			toolStarted := time.Now()
 			slog.Debug("org-delegation: tool call",
 				"tool", tc.Name, "task_id", task.ID, "iteration", iteration)
 
 			if reportAgentID, ok := delegateToolMap[tc.Name]; ok {
 				wg.Add(1)
-				go func(idx int, toolCall service.ToolCall, targetAgentID string) {
+				go func(idx int, toolCall service.ToolCall, targetAgentID string, started time.Time) {
 					defer wg.Done()
 
 					taskText, _ := toolCall.Arguments["task"].(string)
@@ -1078,13 +1080,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						orgID:               org.ID,
 						input:               string(argsJSON),
 						output:              result,
+						latencyMs:           time.Since(started).Milliseconds(),
 						metadata: map[string]any{
 							"iteration":      iteration,
 							"child_task_id":  childTask.ID,
 							"child_trace_id": childTraceID,
 						},
 					})
-				}(i, tc, reportAgentID)
+				}(i, tc, reportAgentID, toolStarted)
 			} else if hi, ok := skillToolMap[tc.Name]; ok {
 				// Skill tool — execute the handler synchronously.
 				var result string
@@ -1144,7 +1147,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 				// Observation: skill tool call (JS/bash handler) with its
 				// arguments and (post-truncation) result.
-				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil, time.Since(toolStarted).Milliseconds())
 			} else if _, ok := builtinToolMap[tc.Name]; ok {
 				// Builtin tool — execute via dispatchBuiltinTool.
 				var result string
@@ -1179,7 +1182,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// Observation: builtin tool call (task_create /
 				// bash_execute / mem_save ...) with structured input and
 				// the (truncated) output that got fed back into the LLM.
-				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil, time.Since(toolStarted).Milliseconds())
 			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
 				// MCP-set tool resolved server-side (workflow exposed as a
 				// wf_* tool, or a skill/builtin/RAG/HTTP tool declared via
@@ -1196,7 +1199,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					ToolUseID: tc.ID,
 					Content:   result,
 				}
-				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil, time.Since(toolStarted).Milliseconds())
 			} else if mcpToolNames[tc.Name] {
 				// MCP tool served by a connected client (HTTP endpoint or a
 				// stdio/HTTP upstream such as the ElevenLabs MCP).
@@ -1212,7 +1215,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					ToolUseID: tc.ID,
 					Content:   result,
 				}
-				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil)
+				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil, time.Since(toolStarted).Milliseconds())
 			} else {
 				// Unknown tool — handle synchronously (no goroutine needed).
 				toolResults[i] = service.ContentBlock{
@@ -1224,7 +1227,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// Observation: unknown tool call. The output is the
 				// synthetic error message we fed back to the LLM — useful
 				// for spotting agents calling tools they don't have.
-				recordToolObs(tc.Name, tc.Arguments, fmt.Sprintf("Error: unknown tool %q", tc.Name), true)
+				recordToolObs(tc.Name, tc.Arguments, fmt.Sprintf("Error: unknown tool %q", tc.Name), true, time.Since(toolStarted).Milliseconds())
 			}
 		}
 

@@ -554,6 +554,8 @@ type VersionLookupFunc func(ctx context.Context, workflowID string) (*service.Wo
 type LoopGovernor interface {
 	// Limit windows the message history; see loopgov.Governor.Limit.
 	Limit(ctx context.Context, agentID, taskID string, messages []service.Message) ([]service.Message, error)
+	// LimitWithTools also reserves budget for provider tool definitions.
+	LimitWithTools(ctx context.Context, agentID, taskID string, messages []service.Message, tools []service.Tool) ([]service.Message, error)
 	// ClampIterations applies the platform iteration ceiling.
 	ClampIterations(agentMax, taskMax int) int
 	// ChatOptions returns options to pass to provider.Chat.

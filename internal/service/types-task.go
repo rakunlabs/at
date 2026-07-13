@@ -79,6 +79,7 @@ type TaskStorer interface {
 	ReleaseTask(ctx context.Context, taskID string) error
 	ListChildTasks(ctx context.Context, parentID string) ([]Task, error)
 	UpdateTaskStatus(ctx context.Context, id string, status string, result string) error
+	UpdateTaskResult(ctx context.Context, id string, result string) error
 }
 
 // ─── Issue Comments ───

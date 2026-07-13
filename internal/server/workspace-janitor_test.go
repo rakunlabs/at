@@ -47,6 +47,7 @@ func (s *janitorTaskStore) ListChildTasks(_ context.Context, _ string) ([]servic
 func (s *janitorTaskStore) UpdateTaskStatus(_ context.Context, _ string, _ string, _ string) error {
 	return nil
 }
+func (s *janitorTaskStore) UpdateTaskResult(_ context.Context, _ string, _ string) error { return nil }
 
 // TestSweepWorkspaceOnce verifies the janitor's three core decisions:
 //  1. terminal-status task older than TTL → removed

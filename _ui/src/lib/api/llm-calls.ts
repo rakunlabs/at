@@ -65,6 +65,8 @@ export interface LLMCallTrace {
   generation_count: number;
   input_tokens: number;
   output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
   cost_cents: number;
   latency_ms_total: number;
   error_count: number;

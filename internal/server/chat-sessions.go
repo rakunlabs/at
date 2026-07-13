@@ -878,13 +878,13 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		// Apply the loop governor: window the message history (with a
 		// rolling summary fallback) and pass an explicit MaxTokens cap
 		// to bound output size.
-		windowed, _ := s.loopGov.Limit(ctx, session.AgentID,
+		windowed, _ := s.loopGov.LimitWithTools(ctx, session.AgentID,
 			func() string {
 				if taskLinked != nil {
 					return taskLinked.ID
 				}
 				return sessionID
-			}(), llmMessages)
+			}(), llmMessages, llmTools)
 		chatOpts := s.loopGov.ChatOptions()
 		callStart := time.Now()
 		resp, err := info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
@@ -895,13 +895,13 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				slog.Warn("agentic loop: tool call history error, sanitizing and retrying",
 					"iteration", iteration, "error", err)
 				llmMessages = sanitizeLLMMessages(llmMessages)
-				windowed, _ = s.loopGov.Limit(ctx, session.AgentID,
+				windowed, _ = s.loopGov.LimitWithTools(ctx, session.AgentID,
 					func() string {
 						if taskLinked != nil {
 							return taskLinked.ID
 						}
 						return sessionID
-					}(), llmMessages)
+					}(), llmMessages, llmTools)
 				callStart = time.Now()
 				resp, err = info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
 				latencyMs = time.Since(callStart).Milliseconds()
@@ -1112,6 +1112,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 			onEvent(AgenticEvent{Type: "tool_call", ToolName: tc.Name, ToolID: tc.ID})
 
+			toolStarted := time.Now()
 			var result string
 			var callErr error
 
@@ -1256,6 +1257,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				input:               string(argsJSON),
 				output:              result,
 				level:               toolLevel,
+				latencyMs:           time.Since(toolStarted).Milliseconds(),
 				metadata:            map[string]any{"iteration": iteration},
 			})
 

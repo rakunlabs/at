@@ -76,6 +76,16 @@ func TestModelPricingSyncSourceRegistry(t *testing.T) {
 	}
 }
 
+func TestApplyCachePricingDefaultsAnthropic(t *testing.T) {
+	got := applyCachePricingDefaults("anthropic", modelPricingSourceMatch{PromptPricePer1M: 5})
+	if got.CacheReadPricePer1M != 0.5 {
+		t.Fatalf("cache read price = %v, want 0.5", got.CacheReadPricePer1M)
+	}
+	if got.CacheWritePricePer1M != 6.25 {
+		t.Fatalf("cache write price = %v, want 6.25", got.CacheWritePricePer1M)
+	}
+}
+
 func TestMatchPiDevPricingProviderAlias(t *testing.T) {
 	catalog := []piDevModelPricing{
 		{Provider: "google", Model: "gemini-2.5-pro"},

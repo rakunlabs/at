@@ -1250,9 +1250,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 							newResult += separator
 						}
 						newResult += fmt.Sprintf("[Subtask %s]: %s", ident, result)
-						_, _ = s.taskStore.UpdateTask(context.Background(), parentTask.ID, service.Task{
-							Result: newResult,
-						})
+						_ = s.taskStore.UpdateTaskResult(context.Background(), parentTask.ID, newResult)
 					}
 					// Show what was done
 					summary := sanitizeUTF8(result)
@@ -1539,6 +1537,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 		taskRef := activeID.(string)
 		task, _ := s.findTaskByIdentifier(ctx, agentID, taskRef)
 		if task != nil {
+			ctx = contextWithTaskID(ctx, task.ID)
 			taskContext := fmt.Sprintf("[Active task: %s | Status: %s | Title: %s]", taskRef, task.Status, task.Title)
 
 			// Include the ORIGINAL brief (task.Description) so the agent can remix it
@@ -1670,9 +1669,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 					newResult += "\n\n---\n"
 				}
 				newResult += fmt.Sprintf("[Chat update]: %s", response)
-				_, _ = s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-					Result: newResult,
-				})
+				_ = s.taskStore.UpdateTaskResult(ctx, task.ID, newResult)
 				slog.Info("telegram bot: task result appended", "task", taskRef)
 			}
 		}

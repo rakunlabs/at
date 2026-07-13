@@ -147,6 +147,18 @@ func (m *mockTaskStoreForDelegation) UpdateTaskStatus(_ context.Context, id stri
 	return nil
 }
 
+func (m *mockTaskStoreForDelegation) UpdateTaskResult(_ context.Context, id string, result string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, task := range m.tasks {
+		if task.ID == id {
+			m.tasks[i].Result = result
+			return nil
+		}
+	}
+	return nil
+}
+
 // mockOrgStoreForDelegation implements service.OrganizationStorer.
 type mockOrgStoreForDelegation struct {
 	mu         sync.Mutex
@@ -221,6 +233,43 @@ func testServerWithStores(
 		taskStore:         taskStore,
 		organizationStore: orgStore,
 		agentStore:        agentStore,
+	}
+}
+
+func TestExecOrgTaskIntakeLinksTaskContextAsParent(t *testing.T) {
+	org := &service.Organization{
+		ID:          "org-target",
+		HeadAgentID: "agent-head",
+		IssuePrefix: "ORG",
+	}
+	taskStore := &mockTaskStoreForDelegation{}
+	s := testServerWithStores(
+		&mockOrgAgentStoreForDelegation{agents: []service.OrganizationAgent{
+			{OrganizationID: org.ID, AgentID: org.HeadAgentID, Status: "active"},
+		}},
+		taskStore,
+		&mockOrgStoreForDelegation{orgs: map[string]*service.Organization{org.ID: org}},
+		nil,
+	)
+
+	ctx := contextWithTaskID(context.Background(), "parent-task")
+	_, err := s.execOrgTaskIntake(ctx, map[string]any{
+		"organization_id": org.ID,
+		"title":           "Derived work",
+	})
+	if err != nil {
+		t.Fatalf("execOrgTaskIntake returned error: %v", err)
+	}
+
+	created, err := taskStore.GetTask(context.Background(), "task-1")
+	if err != nil || created == nil {
+		t.Fatalf("created task not found: task=%v error=%v", created, err)
+	}
+	if created.ParentID != "parent-task" {
+		t.Fatalf("parent_id = %q, want %q", created.ParentID, "parent-task")
+	}
+	if created.OrganizationID != org.ID {
+		t.Fatalf("organization_id = %q, want %q", created.OrganizationID, org.ID)
 	}
 }
 

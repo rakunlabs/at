@@ -852,10 +852,7 @@ func (s *Server) execTaskProcess(ctx context.Context, args map[string]any) (stri
 				"error", err,
 			)
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(delegCtx, task.ID, service.Task{
-					Status: service.TaskStatusCancelled,
-					Result: fmt.Sprintf("delegation failed: %v", err),
-				})
+				_ = s.taskStore.UpdateTaskStatus(delegCtx, task.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
 			}
 		}
 	}()

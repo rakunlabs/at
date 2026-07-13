@@ -454,10 +454,7 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 			// Use a fresh context for the post-cancellation status update,
 			// otherwise delegCtx is already cancelled and the write fails.
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(context.Background(), record.ID, service.Task{
-					Status: service.TaskStatusCancelled,
-					Result: errResult,
-				})
+				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, errResult)
 			}
 			// Notify callback of failure
 			for _, cb := range onDone {
@@ -543,10 +540,7 @@ func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task,
 			)
 			errResult := fmt.Sprintf("delegation failed: %v", err)
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(context.Background(), record.ID, service.Task{
-					Status: service.TaskStatusCancelled,
-					Result: errResult,
-				})
+				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, errResult)
 			}
 			for _, cb := range onDone {
 				cb(identifier, "failed", errResult)
@@ -603,9 +597,7 @@ func (s *Server) resumeBotTask(ctx context.Context, task *service.Task, onDone .
 
 	// Reset to open so the resumed run is reflected in status views and the
 	// next blocking iteration can write a fresh [CONVERSATION_STATE] comment.
-	if _, err := s.taskStore.UpdateTask(ctx, task.ID, service.Task{
-		Status: service.TaskStatusOpen,
-	}); err != nil {
+	if err := s.taskStore.UpdateTaskStatus(ctx, task.ID, service.TaskStatusOpen, ""); err != nil {
 		return fmt.Errorf("reset task status: %w", err)
 	}
 
@@ -636,10 +628,7 @@ func (s *Server) resumeBotTask(ctx context.Context, task *service.Task, onDone .
 				"error", err,
 			)
 			errResult := fmt.Sprintf("delegation failed: %v", err)
-			_, _ = s.taskStore.UpdateTask(context.Background(), taskID, service.Task{
-				Status: service.TaskStatusCancelled,
-				Result: errResult,
-			})
+			_ = s.taskStore.UpdateTaskStatus(context.Background(), taskID, service.TaskStatusCancelled, errResult)
 			for _, cb := range onDone {
 				cb(identifier, "failed", errResult)
 			}

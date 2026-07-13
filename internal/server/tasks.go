@@ -79,6 +79,36 @@ func (s *Server) buildTaskTree(ctx context.Context, taskID string, maxDepth int)
 	return result, nil
 }
 
+// taskOrganizationID recovers the organization for legacy parent tasks whose
+// row was partially overwritten. Recovery is safe only when every child with
+// an organization points to the same organization.
+func (s *Server) taskOrganizationID(ctx context.Context, task *service.Task) string {
+	if task == nil || task.OrganizationID != "" {
+		if task == nil {
+			return ""
+		}
+		return task.OrganizationID
+	}
+
+	children, err := s.taskStore.ListChildTasks(ctx, task.ID)
+	if err != nil {
+		return ""
+	}
+
+	var orgID string
+	for _, child := range children {
+		if child.OrganizationID == "" {
+			continue
+		}
+		if orgID != "" && orgID != child.OrganizationID {
+			return ""
+		}
+		orgID = child.OrganizationID
+	}
+
+	return orgID
+}
+
 // GetTaskAPI handles GET /api/v1/tasks/{id}.
 func (s *Server) GetTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if s.taskStore == nil {
@@ -372,21 +402,23 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Task must belong to an organization.
-	if task.OrganizationID == "" {
+	// Task must belong to an organization. Legacy parent rows may have lost
+	// this field while their children still retain an unambiguous org link.
+	orgID := s.taskOrganizationID(ctx, task)
+	if orgID == "" {
 		httpResponse(w, "task has no organization_id", http.StatusUnprocessableEntity)
 		return
 	}
 
 	// Fetch the organization.
-	org, err := s.organizationStore.GetOrganization(ctx, task.OrganizationID)
+	org, err := s.organizationStore.GetOrganization(ctx, orgID)
 	if err != nil {
-		slog.Error("process task: get organization failed", "org_id", task.OrganizationID, "error", err)
+		slog.Error("process task: get organization failed", "org_id", orgID, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to get organization: %v", err), http.StatusInternalServerError)
 		return
 	}
 	if org == nil {
-		httpResponse(w, fmt.Sprintf("organization %q not found", task.OrganizationID), http.StatusNotFound)
+		httpResponse(w, fmt.Sprintf("organization %q not found", orgID), http.StatusNotFound)
 		return
 	}
 
@@ -413,7 +445,8 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Assign the task to the head agent if not already assigned.
-	if task.AssignedAgentID != org.HeadAgentID {
+	if task.OrganizationID != orgID || task.AssignedAgentID != org.HeadAgentID {
+		task.OrganizationID = orgID
 		task.AssignedAgentID = org.HeadAgentID
 		task.Status = service.TaskStatusOpen
 		task, err = s.taskStore.UpdateTask(ctx, taskID, *task)
@@ -602,9 +635,12 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Determine the agent to use: task's assigned agent, or org's head agent.
+	// Child tasks provide a safe compatibility path for legacy parent rows
+	// whose organization link was lost by an old partial-update bug.
+	orgID := s.taskOrganizationID(ctx, task)
 	agentID := task.AssignedAgentID
-	if agentID == "" && task.OrganizationID != "" && s.organizationStore != nil {
-		org, orgErr := s.organizationStore.GetOrganization(ctx, task.OrganizationID)
+	if agentID == "" && orgID != "" && s.organizationStore != nil {
+		org, orgErr := s.organizationStore.GetOrganization(ctx, orgID)
 		if orgErr == nil && org != nil {
 			agentID = org.HeadAgentID
 		}
@@ -625,15 +661,21 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Build session name from task.
 	sessionName := task.Title
+	if sessionName == "" {
+		sessionName = task.ID
+	}
 	if task.Identifier != "" {
-		sessionName = task.Identifier + ": " + task.Title
+		sessionName = task.Identifier
+		if task.Title != "" {
+			sessionName += ": " + task.Title
+		}
 	}
 
 	// Create the chat session.
 	session, err := s.chatSessionStore.CreateChatSession(ctx, service.ChatSession{
 		AgentID:        agentID,
 		TaskID:         taskID,
-		OrganizationID: task.OrganizationID,
+		OrganizationID: orgID,
 		Name:           sessionName,
 		CreatedBy:      s.getUserEmail(r),
 		UpdatedBy:      s.getUserEmail(r),

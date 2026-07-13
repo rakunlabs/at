@@ -647,7 +647,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		callMessages := messages
 		var chatOpts *service.ChatOptions
 		if reg.LoopGov != nil {
-			windowed, _ := reg.LoopGov.Limit(ctx, n.agentID, "", messages)
+			windowed, _ := reg.LoopGov.LimitWithTools(ctx, n.agentID, "", messages, llmTools)
 			callMessages = windowed
 			chatOpts = reg.LoopGov.ChatOptions()
 		}
@@ -717,21 +717,22 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			reqJSON, _ := json.Marshal(map[string]any{"model": model, "messages": callMessages, "tools": llmTools})
 			respJSON, _ := json.Marshal(resp)
 			genObsID = reg.RecordObservation(ctx, service.LLMCall{
-				ObservationType: service.ObservationGeneration,
-				Source:          "workflow",
-				TraceID:         runTraceID,
-				AgentID:         n.agentID,
-				RunID:           runTraceID,
-				Provider:        providerKey,
-				Model:           model,
-				RequestedModel:  providerKey + "/" + model,
-				RequestBody:     string(reqJSON),
-				ResponseBody:    string(respJSON),
-				InputTokens:     int64(resp.Usage.PromptTokens),
-				OutputTokens:    int64(resp.Usage.CompletionTokens),
-				CacheReadTokens: int64(resp.Usage.CacheReadTokens),
-				ReasoningTokens: int64(resp.Usage.ReasoningTokens),
-				LatencyMs:       latencyMs,
+				ObservationType:  service.ObservationGeneration,
+				Source:           "workflow",
+				TraceID:          runTraceID,
+				AgentID:          n.agentID,
+				RunID:            runTraceID,
+				Provider:         providerKey,
+				Model:            model,
+				RequestedModel:   providerKey + "/" + model,
+				RequestBody:      string(reqJSON),
+				ResponseBody:     string(respJSON),
+				InputTokens:      int64(resp.Usage.PromptTokens),
+				OutputTokens:     int64(resp.Usage.CompletionTokens),
+				CacheReadTokens:  int64(resp.Usage.CacheReadTokens),
+				CacheWriteTokens: int64(resp.Usage.CacheWriteTokens),
+				ReasoningTokens:  int64(resp.Usage.ReasoningTokens),
+				LatencyMs:        latencyMs,
 				Metadata: map[string]any{
 					"iteration":  iteration,
 					"finished":   resp.Finished,
@@ -776,6 +777,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		// Execute tool calls and build tool results.
 		var toolResults []service.ContentBlock
 		for _, tc := range resp.ToolCalls {
+			toolStarted := time.Now()
 			logi.Ctx(ctx).Debug("agent_call: tool call",
 				"tool", tc.Name, "iteration", iteration)
 
@@ -932,6 +934,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					Input:               string(argsJSON),
 					Output:              result,
 					Level:               level,
+					LatencyMs:           time.Since(toolStarted).Milliseconds(),
 					Metadata:            map[string]any{"iteration": iteration},
 				})
 			}

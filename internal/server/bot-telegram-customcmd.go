@@ -240,10 +240,7 @@ func (s *Server) createBotOrgTask(
 			)
 			errResult := fmt.Sprintf("delegation failed: %v", err)
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(context.Background(), record.ID, service.Task{
-					Status: service.TaskStatusCancelled,
-					Result: errResult,
-				})
+				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, errResult)
 			}
 			if onDone != nil {
 				onDone(identifier, "failed", errResult)

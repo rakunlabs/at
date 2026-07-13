@@ -142,10 +142,7 @@ func (s *Server) IntakeTaskAPI(w http.ResponseWriter, r *http.Request) {
 			)
 			// Update task status to reflect failure.
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(delegCtx, record.ID, service.Task{
-					Status: service.TaskStatusCancelled,
-					Result: fmt.Sprintf("delegation failed: %v", err),
-				})
+				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
 			}
 		}
 	}()

@@ -2,6 +2,7 @@ package loopgov
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"sync"
 	"sync/atomic"
@@ -132,12 +133,22 @@ func (g *Governor) ClampIterations(agentMax, taskMax int) int {
 // Returns an error only on context cancellation; summarisation failures
 // are logged and degrade gracefully to dropping.
 func (g *Governor) Limit(ctx context.Context, agentID, taskID string, messages []service.Message) ([]service.Message, error) {
+	return g.limit(ctx, agentID, taskID, messages, 0)
+}
+
+// LimitWithTools applies the message window while reserving input budget for
+// tool definitions, which providers count on every request.
+func (g *Governor) LimitWithTools(ctx context.Context, agentID, taskID string, messages []service.Message, tools []service.Tool) ([]service.Message, error) {
+	return g.limit(ctx, agentID, taskID, messages, estimateTools(tools))
+}
+
+func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages []service.Message, toolEst int) ([]service.Message, error) {
 	if g.cfg.Disabled || len(messages) == 0 {
 		return messages, nil
 	}
 
 	totalEst := estimateMessages(messages)
-	if totalEst <= g.cfg.WindowTokens {
+	if totalEst+toolEst <= g.cfg.WindowTokens {
 		// Even when no windowing is needed, the caller's slice may
 		// already contain orphan tool_use / tool_result blocks (e.g.
 		// from an interrupted previous run, manual edit, or a bug
@@ -158,7 +169,7 @@ func (g *Governor) Limit(ctx context.Context, agentID, taskID string, messages [
 	// Reserve room for the eventual rolling-summary user message. We
 	// don't know the exact size until summarisation runs; budget the
 	// upper bound (SummaryTokens worth of chars).
-	reserved := systemEst + g.cfg.SummaryTokens
+	reserved := systemEst + g.cfg.SummaryTokens + toolEst
 
 	// Walk from the tail forward, accumulating the suffix that fits in
 	// the remaining budget. We always keep at least the most recent
@@ -229,13 +240,15 @@ func (g *Governor) Limit(ctx context.Context, agentID, taskID string, messages [
 			"task_id", taskID,
 			"dropped", len(dropped),
 			"kept", len(tail),
-			"summary_chars", len(summary))
+			"summary_chars", len(summary),
+			"tool_tokens_est", toolEst)
 	} else {
 		slog.Info("loopgov.dropped",
 			"agent_id", agentID,
 			"task_id", taskID,
 			"dropped", len(dropped),
-			"kept", len(tail))
+			"kept", len(tail),
+			"tool_tokens_est", toolEst)
 	}
 	out = append(out, tail...)
 
@@ -282,10 +295,10 @@ func estimateMessages(messages []service.Message) int {
 }
 
 // estimateMessage returns the rough input-token estimate for one
-// message, summing across all content blocks. We use len(s)/4 as a
+// message, summing across all content blocks. We use len(s)/3 as a
 // stand-in for a real tokeniser — provider-exact counts are not
-// available pre-flight and ~4 chars/token is a robust over-estimate
-// for English/code.
+// available pre-flight. Agent histories contain JSON, shell commands,
+// paths, and punctuation where 4 chars/token materially undercounts.
 func estimateMessage(m service.Message) int {
 	switch v := m.Content.(type) {
 	case string:
@@ -308,13 +321,25 @@ func estimateMessage(m service.Message) int {
 	return 0
 }
 
-// estimateTokens applies the 4-char-per-token heuristic. A floor of 1
+// estimateTools reserves space for schemas sent outside message history.
+func estimateTools(tools []service.Tool) int {
+	if len(tools) == 0 {
+		return 0
+	}
+	b, err := json.Marshal(tools)
+	if err != nil {
+		return 0
+	}
+	return estimateTokens(string(b))
+}
+
+// estimateTokens applies a conservative 3-char-per-token heuristic. A floor of 1
 // is applied when s is non-empty to avoid undercounting tiny strings.
 func estimateTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	t := len(s) / 4
+	t := len(s) / 3
 	if t < 1 {
 		return 1
 	}

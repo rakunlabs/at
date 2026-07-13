@@ -222,14 +222,36 @@ func TestEstimateTokens(t *testing.T) {
 	cases := map[string]int{
 		"":                       0,
 		"a":                      1,
+		"abc":                    1,
 		"abcd":                   1,
-		"abcde":                  1, // 5/4 = 1
-		strings.Repeat("a", 400): 100,
+		strings.Repeat("a", 300): 100,
 	}
 	for in, want := range cases {
 		if got := estimateTokens(in); got != want {
 			t.Errorf("estimateTokens(%q): got %d want %d", in[:min(20, len(in))], got, want)
 		}
+	}
+}
+
+func TestLimitWithToolsReservesSchemaBudget(t *testing.T) {
+	g := New(Config{WindowTokens: 100, SummaryTokens: 10}, nil)
+	msgs := []service.Message{
+		{Role: "system", Content: "system"},
+		{Role: "user", Content: strings.Repeat("m", 120)},
+		{Role: "assistant", Content: strings.Repeat("n", 120)},
+	}
+	tools := []service.Tool{{
+		Name:        "large_tool",
+		Description: strings.Repeat("t", 180),
+		InputSchema: map[string]any{"type": "object"},
+	}}
+
+	got, err := g.LimitWithTools(context.Background(), "a", "t", msgs, tools)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) >= len(msgs) {
+		t.Fatalf("expected tool schema budget to trigger windowing, got %d messages", len(got))
 	}
 }
 

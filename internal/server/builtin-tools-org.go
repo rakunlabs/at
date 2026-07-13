@@ -279,10 +279,12 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 	// org_task_intake is the most common entry point for pipeline-stage
 	// briefs (Director → head agent of a sub-org), so this is where the
 	// largest payloads land.
-	description, _ = s.maybeSpillBrief(ctx, description, "", title)
+	parentID := taskIDFromContext(ctx)
+	description, _ = s.maybeSpillBrief(ctx, description, parentID, title)
 
 	task := service.Task{
 		OrganizationID:  orgID,
+		ParentID:        parentID,
 		AssignedAgentID: org.HeadAgentID,
 		Title:           title,
 		Description:     description,
@@ -308,10 +310,7 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 				"error", err,
 			)
 			if s.taskStore != nil {
-				_, _ = s.taskStore.UpdateTask(delegCtx, record.ID, service.Task{
-					Status: service.TaskStatusCancelled,
-					Result: fmt.Sprintf("delegation failed: %v", err),
-				})
+				_ = s.taskStore.UpdateTaskStatus(delegCtx, record.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
 			}
 		}
 	}()

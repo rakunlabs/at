@@ -455,6 +455,22 @@ func (p *Postgres) UpdateTaskStatus(ctx context.Context, id string, status strin
 	return nil
 }
 
+func (p *Postgres) UpdateTaskResult(ctx context.Context, id string, result string) error {
+	query, _, err := p.goqu.Update(p.tableTasks).Set(goqu.Record{
+		"result":     nullString(result),
+		"updated_at": time.Now().UTC(),
+	}).Where(goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return fmt.Errorf("build update task result query: %w", err)
+	}
+
+	if _, err := p.db.ExecContext(ctx, query); err != nil {
+		return fmt.Errorf("update task result %q: %w", id, err)
+	}
+
+	return nil
+}
+
 func taskRowToRecord(row taskRow) *service.Task {
 	var checkedOutAt string
 	if row.CheckedOutAt.Valid {
