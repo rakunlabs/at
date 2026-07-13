@@ -343,9 +343,9 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 		}
 	}
 
-	inputs, _ := args["inputs"].(map[string]any)
-	if inputs == nil {
-		inputs = make(map[string]any)
+	inputs, err := workflowToolInputs(args["inputs"])
+	if err != nil {
+		return "", err
 	}
 
 	syncMode, _ := args["sync"].(bool)
@@ -745,6 +745,7 @@ func workflowToolDef(wf *service.Workflow) service.Tool {
 	// Collect input node labels for the description.
 	graph := wf.Graph
 	var entryLabels []string
+	var entryContracts []string
 	for _, n := range graph.Nodes {
 		if n.Type == "input" {
 			label, _ := n.Data["label"].(string)
@@ -752,10 +753,16 @@ func workflowToolDef(wf *service.Workflow) service.Tool {
 				label = n.ID
 			}
 			entryLabels = append(entryLabels, label)
+			if fields := workflowInputFieldNames(n.Data["fields"]); len(fields) > 0 {
+				entryContracts = append(entryContracts, fmt.Sprintf("%s(%s)", label, strings.Join(fields, ", ")))
+			}
 		}
 	}
 	if len(entryLabels) > 0 {
 		desc += " | Available entries: " + strings.Join(entryLabels, ", ")
+	}
+	if len(entryContracts) > 0 {
+		desc += " | Entry input keys: " + strings.Join(entryContracts, "; ")
 	}
 
 	return service.Tool{
@@ -770,11 +777,30 @@ func workflowToolDef(wf *service.Workflow) service.Tool {
 				},
 				"inputs": map[string]any{
 					"type":        "object",
-					"description": "Key-value inputs to pass to the workflow",
+					"description": "Key-value inputs to pass to the selected entry. Pass a native object, not a JSON string and not a data/input wrapper.",
 				},
 			},
 		},
 	}
+}
+
+func workflowInputFieldNames(value any) []string {
+	fields, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	names := make([]string, 0, len(fields))
+	for _, field := range fields {
+		fieldMap, ok := field.(map[string]any)
+		if !ok {
+			continue
+		}
+		name, _ := fieldMap["name"].(string)
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 // activeWorkflowToolDef builds the advertised tool from the same graph version
@@ -845,9 +871,94 @@ func (s *Server) executeWorkflowTool(ctx context.Context, wf *service.Workflow, 
 		return "", fmt.Errorf("workflow execution failed: %w", err)
 	}
 
-	data, _ := json.MarshalIndent(map[string]any{
+	response := map[string]any{
 		"status":  "completed",
 		"outputs": result.Outputs,
-	}, "", "  ")
+	}
+	if failure := workflowOutputFailure(result.Outputs); failure != "" {
+		response["status"] = "failed"
+		response["error"] = failure
+	}
+
+	data, _ := json.MarshalIndent(response, "", "  ")
 	return string(data), nil
+}
+
+func workflowToolInputs(value any) (map[string]any, error) {
+	switch value := value.(type) {
+	case nil:
+		return make(map[string]any), nil
+	case map[string]any:
+		return value, nil
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return make(map[string]any), nil
+		}
+		var inputs map[string]any
+		if err := json.Unmarshal([]byte(value), &inputs); err != nil {
+			return nil, fmt.Errorf("workflow inputs must be an object or a JSON-encoded object: %w", err)
+		}
+		if inputs == nil {
+			return nil, fmt.Errorf("workflow inputs must decode to an object")
+		}
+		return inputs, nil
+	default:
+		return nil, fmt.Errorf("workflow inputs must be an object, got %T", value)
+	}
+}
+
+func workflowOutputFailure(value any) string {
+	switch value := value.(type) {
+	case map[string]any:
+		if message, ok := value["error"].(string); ok && strings.TrimSpace(message) != "" {
+			return message
+		}
+		if status, ok := value["status"].(string); ok && (strings.EqualFold(status, "error") || strings.EqualFold(status, "failed")) {
+			return "workflow output reported status " + status
+		}
+		if code, ok := workflowExitCode(value["exit_code"]); ok && code != 0 {
+			return fmt.Sprintf("workflow command exited with code %d", code)
+		}
+		for _, field := range []string{"stdout", "result"} {
+			text, ok := value[field].(string)
+			if !ok || !json.Valid([]byte(strings.TrimSpace(text))) {
+				continue
+			}
+			var nested any
+			if err := json.Unmarshal([]byte(text), &nested); err == nil {
+				if failure := workflowOutputFailure(nested); failure != "" {
+					return failure
+				}
+			}
+		}
+		for _, nested := range value {
+			if failure := workflowOutputFailure(nested); failure != "" {
+				return failure
+			}
+		}
+	case []any:
+		for _, nested := range value {
+			if failure := workflowOutputFailure(nested); failure != "" {
+				return failure
+			}
+		}
+	}
+
+	return ""
+}
+
+func workflowExitCode(value any) (int64, bool) {
+	switch value := value.(type) {
+	case int:
+		return int64(value), true
+	case int64:
+		return value, true
+	case float64:
+		return int64(value), true
+	case json.Number:
+		code, err := value.Int64()
+		return code, err == nil
+	default:
+		return 0, false
+	}
 }

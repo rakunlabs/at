@@ -974,7 +974,7 @@ func TestDetectUnfulfilledDelegation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := detectUnfulfilledDelegation(tt.content, delegateToolMap)
+			got := detectUnfulfilledDelegation(tt.content, delegateToolMap, nil)
 			if got != tt.want {
 				t.Errorf("detectUnfulfilledDelegation(%q) = %v, want %v", tt.content, got, tt.want)
 			}
@@ -984,9 +984,24 @@ func TestDetectUnfulfilledDelegation(t *testing.T) {
 
 func TestDetectUnfulfilledDelegation_EmptyToolMap(t *testing.T) {
 	// With no delegate tools, should always return false regardless of content.
-	got := detectUnfulfilledDelegation("Now delegating to Video Producer", map[string]string{})
+	got := detectUnfulfilledDelegation("Now delegating to Video Producer", map[string]string{}, nil)
 	if got {
 		t.Error("expected false with empty delegateToolMap")
+	}
+}
+
+func TestDetectUnfulfilledDelegation_AlreadyDelegated(t *testing.T) {
+	tools := map[string]string{
+		"delegate_to_video_producer":   "agent-vp",
+		"delegate_to_graphic_designer": "agent-gd",
+	}
+	delegated := map[string]bool{"agent-vp": true}
+
+	if detectUnfulfilledDelegation("The delegation to Video Producer failed, so the task is blocked.", tools, delegated) {
+		t.Fatal("already fulfilled delegation should not be requested again")
+	}
+	if !detectUnfulfilledDelegation("Now delegating to Graphic Designer.", tools, delegated) {
+		t.Fatal("unfulfilled delegation to another agent should still be detected")
 	}
 }
 

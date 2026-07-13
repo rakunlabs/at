@@ -20,18 +20,81 @@ import (
 type fakeObsProvider struct {
 	mu        sync.Mutex
 	responses []*service.LLMResponse
+	requests  [][]service.Message
 	calls     int
 }
 
-func (f *fakeObsProvider) Chat(_ context.Context, _ string, _ []service.Message, _ []service.Tool, _ *service.ChatOptions) (*service.LLMResponse, error) {
+func (f *fakeObsProvider) Chat(_ context.Context, _ string, messages []service.Message, _ []service.Tool, _ *service.ChatOptions) (*service.LLMResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.requests = append(f.requests, append([]service.Message(nil), messages...))
 	if f.calls >= len(f.responses) {
 		return &service.LLMResponse{Content: "out of script", Finished: true}, nil
 	}
 	resp := f.responses[f.calls]
 	f.calls++
 	return resp, nil
+}
+
+type fakeIssueCommentStore struct {
+	mu       sync.Mutex
+	comments []service.IssueComment
+}
+
+func (f *fakeIssueCommentStore) ListCommentsByTask(_ context.Context, taskID string) ([]service.IssueComment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var comments []service.IssueComment
+	for _, comment := range f.comments {
+		if comment.TaskID == taskID {
+			comments = append(comments, comment)
+		}
+	}
+	return comments, nil
+}
+
+func (f *fakeIssueCommentStore) GetComment(_ context.Context, id string) (*service.IssueComment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.comments {
+		if f.comments[i].ID == id {
+			comment := f.comments[i]
+			return &comment, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeIssueCommentStore) CreateComment(_ context.Context, comment service.IssueComment) (*service.IssueComment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.comments = append(f.comments, comment)
+	return &comment, nil
+}
+
+func (f *fakeIssueCommentStore) UpdateComment(_ context.Context, id string, comment service.IssueComment) (*service.IssueComment, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.comments {
+		if f.comments[i].ID == id {
+			comment.ID = id
+			f.comments[i] = comment
+			return &comment, nil
+		}
+	}
+	return nil, nil
+}
+
+func (f *fakeIssueCommentStore) DeleteComment(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i := range f.comments {
+		if f.comments[i].ID == id {
+			f.comments = append(f.comments[:i], f.comments[i+1:]...)
+			break
+		}
+	}
+	return nil
 }
 
 // fakeLLMCallStore captures recorded observations in memory.
@@ -405,6 +468,104 @@ func TestOrgDelegation_ReportsIterationLimitOnlyAfterAllRounds(t *testing.T) {
 	}
 	if got.Status != service.TaskStatusBlocked || !strings.HasPrefix(got.Result, "[ITERATION_LIMIT]") {
 		t.Fatalf("task = status %q result %q, want blocked ITERATION_LIMIT", got.Status, got.Result)
+	}
+}
+
+func TestOrgDelegation_ResumeGetsFreshIterationBudget(t *testing.T) {
+	provider := &fakeObsProvider{responses: []*service.LLMResponse{
+		{ToolCalls: []service.ToolCall{{ID: "run1-tc1", Name: "unknown_one"}}, FinishReason: "tool_calls"},
+		{ToolCalls: []service.ToolCall{{ID: "run1-tc2", Name: "unknown_two"}}, FinishReason: "tool_calls"},
+		{ToolCalls: []service.ToolCall{{ID: "run2-tc1", Name: "unknown_three"}}, FinishReason: "tool_calls"},
+		{Content: "completed after resume", Finished: true, FinishReason: "stop"},
+	}}
+	obsStore := &fakeLLMCallStore{}
+	agents := map[string]*service.Agent{
+		"agent-a": {
+			ID:   "agent-a",
+			Name: "Alpha",
+			Config: service.AgentConfig{
+				Provider:      "prov1",
+				Model:         "m1",
+				SystemPrompt:  "FOLLOW THE RESUME RULES",
+				MaxIterations: 2,
+			},
+		},
+	}
+	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
+	s.issueCommentStore = &fakeIssueCommentStore{}
+	task, err := taskStore.CreateTask(context.Background(), service.Task{
+		OrganizationID: "org1", Title: "resume me", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
+
+	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+		t.Fatalf("first runOrgDelegation: %v", err)
+	}
+	paused, err := taskStore.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("GetTask after first run: %v", err)
+	}
+	if paused.Status != service.TaskStatusBlocked || !strings.HasPrefix(paused.Result, "[ITERATION_LIMIT]") {
+		t.Fatalf("first run = status %q result %q, want blocked ITERATION_LIMIT", paused.Status, paused.Result)
+	}
+
+	if err := s.runOrgDelegation(context.Background(), org, paused, "agent-a", 0); err != nil {
+		t.Fatalf("resumed runOrgDelegation: %v", err)
+	}
+	completed, err := taskStore.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("GetTask after resume: %v", err)
+	}
+	if provider.calls != 4 {
+		t.Fatalf("provider calls = %d, want 4 (2 per run)", provider.calls)
+	}
+	if completed.Status != service.TaskStatusCompleted || completed.Result != "completed after resume" {
+		t.Fatalf("resumed task = status %q result %q", completed.Status, completed.Result)
+	}
+	if len(provider.requests) < 3 || len(provider.requests[2]) == 0 {
+		t.Fatalf("missing first resumed request: %#v", provider.requests)
+	}
+	firstResumedMessage := provider.requests[2][0]
+	content, _ := firstResumedMessage.Content.(string)
+	if firstResumedMessage.Role != "system" || !strings.Contains(content, "FOLLOW THE RESUME RULES") {
+		t.Fatalf("first resumed message = %#v, want rebuilt system prompt", firstResumedMessage)
+	}
+	requestJSON, err := json.Marshal(provider.requests[2])
+	if err != nil {
+		t.Fatalf("marshal resumed request: %v", err)
+	}
+	if !strings.Contains(string(requestJSON), "fresh budget of 2 iterations") {
+		t.Fatalf("resumed request does not explain fresh budget: %s", requestJSON)
+	}
+}
+
+func TestOrgDelegation_BlockMarkerPersistsBlockedStatus(t *testing.T) {
+	provider := &fakeObsProvider{responses: []*service.LLMResponse{
+		{Content: "[BLOCKED] assemble_video dependency failed", Finished: true},
+	}}
+	agents := map[string]*service.Agent{
+		"agent-a": {ID: "agent-a", Name: "Alpha", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 2}},
+	}
+	s, taskStore := newObsTestServer(t, provider, &fakeLLMCallStore{}, agents, nil)
+	task, err := taskStore.CreateTask(context.Background(), service.Task{
+		OrganizationID: "org1", Title: "blocked work", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
+		t.Fatalf("runOrgDelegation: %v", err)
+	}
+	got, err := taskStore.GetTask(context.Background(), task.ID)
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Status != service.TaskStatusBlocked {
+		t.Fatalf("status = %q, want blocked; result = %q", got.Status, got.Result)
 	}
 }
 

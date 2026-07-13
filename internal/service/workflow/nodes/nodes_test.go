@@ -2,7 +2,9 @@ package nodes_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -835,6 +837,53 @@ func TestExec_AllowInputOverride_True(t *testing.T) {
 	stdout := sel.Data()["stdout"].(string)
 	if stdout != "OVERRIDE\n" {
 		t.Fatalf("expected 'OVERRIDE\\n', got %q", stdout)
+	}
+}
+
+func TestExec_JSONErrorOutputSelectsFailure(t *testing.T) {
+	node := makeNode(t, "exec", map[string]any{
+		"command": `printf '%s\n' '{"error":"scenes array is required"}'`,
+	})
+
+	result, err := node.Run(context.Background(), newTestRegistry(), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	sel := result.(workflow.NodeResultSelection)
+	if sel.Data()["exit_code"] != 1 {
+		t.Fatalf("exit_code = %v, want 1", sel.Data()["exit_code"])
+	}
+	if slices.Contains(sel.Selection(), "true") || !slices.Contains(sel.Selection(), "false") {
+		t.Fatalf("selection = %v, want false without true", sel.Selection())
+	}
+}
+
+func TestExec_UnwrapsSingleDataPortForNodeInput(t *testing.T) {
+	node := makeNode(t, "exec", map[string]any{
+		"command": `printf '%s' "$AT_NODE_INPUT"`,
+	})
+
+	result, err := node.Run(context.Background(), newTestRegistry(), map[string]any{
+		"data": map[string]any{
+			"audio":    "audio_0.mp3",
+			"work_dir": "/work",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	var payload map[string]any
+	stdout := result.Data()["stdout"].(string)
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("decode AT_NODE_INPUT %q: %v", stdout, err)
+	}
+	if payload["audio"] != "audio_0.mp3" || payload["work_dir"] != "/work" {
+		t.Fatalf("AT_NODE_INPUT = %#v, want flat workflow payload", payload)
+	}
+	if _, wrapped := payload["data"]; wrapped {
+		t.Fatalf("AT_NODE_INPUT still contains data wrapper: %#v", payload)
 	}
 }
 

@@ -255,8 +255,16 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 		}
 	}
 
-	// Serialize input data as JSON and pass as AT_NODE_INPUT env var.
-	if inputJSON, err := json.Marshal(inputs); err == nil {
+	// A standard exec node has one input port named "data". Its value is the
+	// workflow payload, while the surrounding map is only engine port routing.
+	// Expose the payload itself to scripts so AT_NODE_INPUT matches what callers
+	// passed to the workflow instead of adding an undocumented {"data": ...}
+	// wrapper. Multi-port exec nodes retain the complete routing map.
+	nodeInput := inputs
+	if data, ok := inputs["data"].(map[string]any); ok && len(inputs) == 1 {
+		nodeInput = data
+	}
+	if inputJSON, err := json.Marshal(nodeInput); err == nil {
 		cmdEnv = append(cmdEnv, "AT_NODE_INPUT="+string(inputJSON))
 	}
 
@@ -279,6 +287,9 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 			return nil, fmt.Errorf("exec: %w", runErr)
 		}
 	}
+	if exitCode == 0 && reportsJSONError(stdout.Bytes()) {
+		exitCode = 1
+	}
 
 	outData := make(map[string]any, len(inputs)+4)
 	for k, v := range inputs {
@@ -298,6 +309,23 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil
+}
+
+func reportsJSONError(output []byte) bool {
+	var payload map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(output), &payload); err != nil {
+		return false
+	}
+
+	errValue, ok := payload["error"]
+	if !ok || errValue == nil {
+		return false
+	}
+	if message, ok := errValue.(string); ok {
+		return strings.TrimSpace(message) != ""
+	}
+
+	return true
 }
 
 // isInsideSandbox checks that dir is inside (or equal to) the sandbox root.

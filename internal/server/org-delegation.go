@@ -162,6 +162,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// e) Build delegate tools and dispatch map.
 	// Maps tool name → agent ID of the direct report.
 	delegateToolMap := make(map[string]string, len(reports))
+	delegatedAgents := make(map[string]bool, len(reports))
 	var delegateTools []service.Tool
 
 	// We also need the Agent records for building the system prompt.
@@ -641,9 +642,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if len(savedConversation) > 0 {
 		// Sanitize restored messages — a previous interrupted run may have left
 		// assistant tool_use blocks without matching tool_result responses.
-		messages = sanitizeLLMMessages(savedConversation)
+		// Keep the freshly rebuilt system prompt: saved state intentionally omits
+		// it, and replacing messages here made resumed agents lose their rules.
+		messages = append(messages, sanitizeLLMMessages(savedConversation)...)
 		// Add a continuation prompt so the agent knows to pick up where it left off.
-		continueMsg := "Continue processing this task from where you left off. Review your progress so far and complete the remaining work."
+		continueMsg := fmt.Sprintf("Continue processing this task from where you left off. This continuation run has a fresh budget of %d iterations; iterations from the previous run do not carry over. Review your progress so far and complete the remaining work.", maxIterations)
 		switch {
 		case strings.HasPrefix(task.Result, "[OUTPUT_LIMIT]"):
 			continueMsg += " The previous run reached the model output-token limit; keep the final response concise and use artifact files for large outputs."
@@ -941,7 +944,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 			// Detect if the agent mentioned delegating but didn't actually call a delegate tool.
 			// This catches cases like "Now delegating to Video Producer..." without a tool call.
-			if len(delegateToolMap) > 0 && resp.Content != "" && detectUnfulfilledDelegation(resp.Content, delegateToolMap) {
+			if len(delegateToolMap) > 0 && resp.Content != "" && detectUnfulfilledDelegation(resp.Content, delegateToolMap, delegatedAgents) {
 				slog.Warn("org-delegation: agent mentioned delegation in text but made no tool call — nudging to use tool",
 					"task_id", task.ID, "agent_id", agentID, "iteration", iteration)
 				messages = append(messages, service.Message{
@@ -999,6 +1002,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				"tool", tc.Name, "task_id", task.ID, "iteration", iteration)
 
 			if reportAgentID, ok := delegateToolMap[tc.Name]; ok {
+				delegatedAgents[reportAgentID] = true
 				wg.Add(1)
 				go func(idx int, toolCall service.ToolCall, targetAgentID string, started time.Time) {
 					defer wg.Done()
@@ -1263,6 +1267,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 		resultCode := "ITERATION_LIMIT"
 		resultReason := fmt.Sprintf("Task reached the maximum of %d iterations and was paused.", maxIterations)
+		if len(savedConversation) > 0 {
+			resultReason = fmt.Sprintf("Continuation run used its fresh budget of %d iterations and was paused again.", maxIterations)
+		}
 		if isOutputLimitFinishReason(lastFinishReason) {
 			resultCode = "OUTPUT_LIMIT"
 			resultReason = "The model reached its output-token limit before returning a complete result."
@@ -1319,12 +1326,16 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		return nil
 	}
 
-	if err := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, finalContent); err != nil {
-		return fmt.Errorf("org-delegation: update task to completed: %w", err)
+	completionStatus := service.TaskStatusCompleted
+	if strings.HasPrefix(strings.TrimSpace(finalContent), "[BLOCKED]") {
+		completionStatus = service.TaskStatusBlocked
+	}
+	if err := s.completeTaskWithStatus(ctx, task, completionStatus, finalContent); err != nil {
+		return fmt.Errorf("org-delegation: update task final status: %w", err)
 	}
 
-	slog.Info("org-delegation: task completed",
-		"task_id", task.ID, "agent_id", agentID, "depth", depth)
+	slog.Info("org-delegation: task finished",
+		"task_id", task.ID, "agent_id", agentID, "depth", depth, "status", completionStatus)
 
 	return nil
 }
@@ -1528,13 +1539,16 @@ func (s *Server) resolveRootTaskID(ctx context.Context, task *service.Task) stri
 // delegating to a team member without actually calling a delegate_to_* tool.
 // This catches LLM hallucinations like "Now delegating to Video Producer..."
 // where the model writes about delegation intent but doesn't make the tool call.
-func detectUnfulfilledDelegation(content string, delegateToolMap map[string]string) bool {
+func detectUnfulfilledDelegation(content string, delegateToolMap map[string]string, delegatedAgents map[string]bool) bool {
 	contentLower := strings.ToLower(content)
 	// Must contain some form of "delegat" (delegating, delegate, delegation).
 	if !strings.Contains(contentLower, "delegat") {
 		return false
 	}
-	for toolName := range delegateToolMap {
+	for toolName, agentID := range delegateToolMap {
+		if delegatedAgents[agentID] {
+			continue
+		}
 		// Check for the agent name part (e.g. "video_producer" from "delegate_to_video_producer").
 		agentPart := strings.TrimPrefix(toolName, "delegate_to_")
 		// Also match natural language like "delegating to Video Producer".
