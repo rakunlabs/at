@@ -864,6 +864,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}
 
 	// 10. Agentic loop.
+	// Set when the agent finalizes the linked task via the task_complete /
+	// task_block builtin during this turn. The tool executor already wrote
+	// the terminal status+result, so the natural-finish auto-sync must not
+	// overwrite it (e.g. blocked → completed) with the closing chat text.
+	terminalToolCalled := false
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Rebuild LLM tool list each iteration: base tools + tools from
 		// any skills the LLM has activated so far.
@@ -1052,7 +1057,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			s.persistAssistantMessage(ctx, sessionID, resp.Content, nil)
 
 			// Auto-sync: if this session is linked to a task, update the task result.
-			if taskLinked != nil && resp.Content != "" && s.taskStore != nil && !session.Config.DisableTaskResultSync {
+			// Skipped when task_complete / task_block already finalized the
+			// task this turn — the tool-provided status+result wins.
+			if taskLinked != nil && resp.Content != "" && s.taskStore != nil && !session.Config.DisableTaskResultSync && !terminalToolCalled {
 				newStatus := service.TaskStatusCompleted
 				if taskLinked.ParentID != "" {
 					// Sub-tasks complete as "done" to let the parent know.
@@ -1177,6 +1184,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
 					result, callErr = s.dispatchBuiltinTool(ctx, tc.Name, tc.Arguments)
+					if callErr == nil && (tc.Name == "task_complete" || tc.Name == "task_block") {
+						terminalToolCalled = true
+					}
 				} else if hi.handlerType == "delegate" {
 					// Delegation tool for task-linked chat sessions.
 					// Creates a child task and runs org delegation synchronously.

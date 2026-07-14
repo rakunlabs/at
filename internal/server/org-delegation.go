@@ -703,6 +703,13 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	var lastFinishReason string
 	completedNaturally := false
 	endedWithEmptyResponse := false
+	// Set when the agent explicitly finalizes the task via the
+	// task_complete / task_block builtin. The tool executor already wrote
+	// the terminal status+result and emitted the task_completed /
+	// task_blocked event, so the loop must stop without running another
+	// generation and without re-completing the task (which would emit a
+	// duplicate event and overwrite the tool-provided result).
+	terminalToolStatus := ""
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Check context cancellation.
@@ -1164,6 +1171,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						"tool", tc.Name, "task_id", task.ID, "error", callErr)
 					result = fmt.Sprintf("Error: %v", callErr)
 				} else {
+					// Terminal task tools end the run: the executor already
+					// persisted status+result and emitted the lifecycle event.
+					switch tc.Name {
+					case "task_complete":
+						terminalToolStatus = service.TaskStatusCompleted
+					case "task_block":
+						terminalToolStatus = service.TaskStatusBlocked
+					}
 					logResult := result
 					if len(logResult) > 500 {
 						logResult = logResult[:500] + "..."
@@ -1242,6 +1257,22 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			Role:    "user",
 			Content: toolResults,
 		})
+
+		// The agent finalized the task via task_complete / task_block —
+		// stop here instead of paying for one more generation that would
+		// only restate the result.
+		if terminalToolStatus != "" {
+			break
+		}
+	}
+
+	// The task already reached its terminal state through the
+	// task_complete / task_block tool. Status, result, and the lifecycle
+	// event were produced by the tool executor — do not complete again.
+	if terminalToolStatus != "" {
+		slog.Info("org-delegation: task finished via terminal tool",
+			"task_id", task.ID, "agent_id", agentID, "depth", depth, "status", terminalToolStatus)
+		return nil
 	}
 
 	// j) On completion, determine if we finished naturally or hit the iteration limit.

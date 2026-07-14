@@ -65,6 +65,90 @@ func TestWorkflowToolInputs(t *testing.T) {
 	}
 }
 
+func TestStripWorkflowInputEcho(t *testing.T) {
+	inputs := map[string]any{
+		"scenes":    []any{map[string]any{"image": "/w/scene_0.png", "audio": "/w/tts_0.mp3"}},
+		"countdown": map[string]any{"enabled": true, "start_number": float64(5)},
+		"work_dir":  "/w",
+	}
+
+	tests := []struct {
+		name    string
+		outputs map[string]any
+		want    map[string]any
+	}{
+		{
+			name: "exec node echo under handle.data is stripped, results kept",
+			outputs: map[string]any{
+				"input": map[string]any{
+					"data":      copyMapForEchoTest(inputs),
+					"exit_code": 0,
+					"stdout":    `{"file":"final.mp4"}`,
+				},
+			},
+			want: map[string]any{
+				"input": map[string]any{
+					"exit_code": 0,
+					"stdout":    `{"file":"final.mp4"}`,
+				},
+			},
+		},
+		{
+			name: "label-nested echo is stripped",
+			outputs: map[string]any{
+				"assemble_result": map[string]any{
+					"input": map[string]any{
+						"data":   copyMapForEchoTest(inputs),
+						"stdout": "ok",
+					},
+				},
+			},
+			want: map[string]any{
+				"assemble_result": map[string]any{
+					"input": map[string]any{
+						"stdout": "ok",
+					},
+				},
+			},
+		},
+		{
+			name: "derived or partial data is kept",
+			outputs: map[string]any{
+				"input": map[string]any{
+					"data":   map[string]any{"work_dir": "/w"},
+					"stdout": "ok",
+				},
+			},
+			want: map[string]any{
+				"input": map[string]any{
+					"data":   map[string]any{"work_dir": "/w"},
+					"stdout": "ok",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			stripWorkflowInputEcho(tt.outputs, inputs)
+			if !reflect.DeepEqual(tt.outputs, tt.want) {
+				t.Fatalf("stripWorkflowInputEcho() = %#v, want %#v", tt.outputs, tt.want)
+			}
+		})
+	}
+}
+
+// copyMapForEchoTest deep-copies via JSON semantics-preserving shallow copy —
+// the echo check uses reflect.DeepEqual, so an equal (not identical) map must
+// also be stripped.
+func copyMapForEchoTest(m map[string]any) map[string]any {
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 func TestWorkflowOutputFailure(t *testing.T) {
 	tests := []struct {
 		name    string

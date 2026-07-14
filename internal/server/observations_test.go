@@ -328,6 +328,120 @@ func TestOrgDelegation_RecordsObservations(t *testing.T) {
 	}
 }
 
+// TestOrgDelegation_TaskCompleteToolStopsLoop verifies that a successful
+// task_complete builtin call ends the run immediately: no extra generation,
+// no duplicate task_completed event, and the tool-provided result is kept.
+func TestOrgDelegation_TaskCompleteToolStopsLoop(t *testing.T) {
+	provider := &fakeObsProvider{responses: []*service.LLMResponse{
+		{
+			ToolCalls: []service.ToolCall{{ID: "tc1", Name: "task_complete", Arguments: map[string]any{"result": "final deliverable ready"}}},
+			Usage:     service.Usage{PromptTokens: 100, CompletionTokens: 10},
+		},
+		{Content: "restated summary that must never be requested", Finished: true},
+	}}
+	obsStore := &fakeLLMCallStore{}
+	agents := map[string]*service.Agent{
+		"agent-a": {ID: "agent-a", Name: "Alpha", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 5}},
+	}
+	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
+
+	task, err := taskStore.CreateTask(context.Background(), service.Task{
+		OrganizationID: "org1", Title: "finish me", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
+	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+		t.Fatalf("runOrgDelegation: %v", err)
+	}
+
+	// The loop must stop after the terminal tool — exactly one LLM call.
+	provider.mu.Lock()
+	calls := provider.calls
+	provider.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("expected exactly 1 LLM call after task_complete, got %d", calls)
+	}
+
+	// Status and result come from the tool executor, not a closing generation.
+	updated, _ := taskStore.GetTask(context.Background(), task.ID)
+	if updated == nil || updated.Status != service.TaskStatusCompleted {
+		t.Fatalf("expected task completed, got %+v", updated)
+	}
+	if updated.Result != "final deliverable ready" {
+		t.Fatalf("tool-provided result was overwritten: %q", updated.Result)
+	}
+
+	// Expected observations: task_started, generation, tool(task_complete),
+	// task_completed — and no duplicate completion event.
+	obs := waitForObservations(t, obsStore, 4)
+	time.Sleep(100 * time.Millisecond) // catch any late duplicate event
+	obs = obsStore.snapshot()
+
+	var gens, completions int
+	for _, o := range obs {
+		switch {
+		case o.ObservationType == service.ObservationGeneration:
+			gens++
+		case o.ObservationType == service.ObservationEvent && o.Name == "task_completed":
+			completions++
+		}
+	}
+	if gens != 1 {
+		t.Fatalf("expected 1 generation, got %d: %v", gens, obsNames(obs))
+	}
+	if completions != 1 {
+		t.Fatalf("expected exactly 1 task_completed event, got %d: %v", completions, obsNames(obs))
+	}
+}
+
+// TestOrgDelegation_TaskBlockToolStopsLoop verifies that task_block ends the
+// run with the blocked status intact (previously a natural finish on the next
+// iteration would overwrite blocked → completed).
+func TestOrgDelegation_TaskBlockToolStopsLoop(t *testing.T) {
+	provider := &fakeObsProvider{responses: []*service.LLMResponse{
+		{
+			ToolCalls: []service.ToolCall{{ID: "tc1", Name: "task_block", Arguments: map[string]any{"reason": "missing script.json"}}},
+			Usage:     service.Usage{PromptTokens: 100, CompletionTokens: 10},
+		},
+		{Content: "everything looks fine", Finished: true},
+	}}
+	obsStore := &fakeLLMCallStore{}
+	agents := map[string]*service.Agent{
+		"agent-a": {ID: "agent-a", Name: "Alpha", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 5}},
+	}
+	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
+
+	task, err := taskStore.CreateTask(context.Background(), service.Task{
+		OrganizationID: "org1", Title: "block me", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+
+	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
+	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+		t.Fatalf("runOrgDelegation: %v", err)
+	}
+
+	provider.mu.Lock()
+	calls := provider.calls
+	provider.mu.Unlock()
+	if calls != 1 {
+		t.Fatalf("expected exactly 1 LLM call after task_block, got %d", calls)
+	}
+
+	updated, _ := taskStore.GetTask(context.Background(), task.ID)
+	if updated == nil || updated.Status != service.TaskStatusBlocked {
+		t.Fatalf("expected task blocked, got %+v", updated)
+	}
+	if updated.Result != "missing script.json" {
+		t.Fatalf("tool-provided reason was overwritten: %q", updated.Result)
+	}
+}
+
 func TestOrgDelegation_SkeletonOnlyWhenAuditOff(t *testing.T) {
 	provider := &fakeObsProvider{responses: []*service.LLMResponse{
 		{Content: "done", Finished: true, Usage: service.Usage{PromptTokens: 42, CompletionTokens: 7}},

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
 	"strings"
 
@@ -871,6 +872,12 @@ func (s *Server) executeWorkflowTool(ctx context.Context, wf *service.Workflow, 
 		return "", fmt.Errorf("workflow execution failed: %w", err)
 	}
 
+	// The caller already knows its own inputs — echoing them back (exec /
+	// script nodes pass their inputs through to downstream ports) only
+	// bloats the LLM message history. Strip verbatim input echoes before
+	// the result string is fed back to the agent.
+	stripWorkflowInputEcho(result.Outputs, inputs)
+
 	response := map[string]any{
 		"status":  "completed",
 		"outputs": result.Outputs,
@@ -880,8 +887,37 @@ func (s *Server) executeWorkflowTool(ctx context.Context, wf *service.Workflow, 
 		response["error"] = failure
 	}
 
-	data, _ := json.MarshalIndent(response, "", "  ")
+	// Compact JSON: this string enters the agent's message history and is
+	// re-shipped on every subsequent iteration — indentation is pure cost.
+	data, _ := json.Marshal(response)
 	return string(data), nil
+}
+
+// stripWorkflowInputEcho removes verbatim echoes of the caller's inputs from
+// collected workflow outputs. Exec and script nodes merge their inputs into
+// their output data, so a wf_* tool result would otherwise repeat the entire
+// tool input (e.g. a full scenes/countdown/polish payload) under
+// outputs.<handle>.data. Only exact matches of the original inputs map are
+// removed; derived or partial data is kept untouched.
+func stripWorkflowInputEcho(outputs map[string]any, inputs map[string]any) {
+	if len(outputs) == 0 || len(inputs) == 0 {
+		return
+	}
+	// Outputs nest as outputs[<handle>] or outputs[<label>][<handle>]
+	// depending on graph shape; the echo sits one level below as "data".
+	stripInputEchoRec(outputs, inputs, 3)
+}
+
+func stripInputEchoRec(m map[string]any, inputs map[string]any, depth int) {
+	for k, v := range m {
+		if reflect.DeepEqual(v, inputs) {
+			delete(m, k)
+			continue
+		}
+		if sub, ok := v.(map[string]any); ok && depth > 1 {
+			stripInputEchoRec(sub, inputs, depth-1)
+		}
+	}
 }
 
 func workflowToolInputs(value any) (map[string]any, error) {
