@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
 )
@@ -403,6 +404,9 @@ func TestDispatch_ProviderUpdate_PreservesAPIKey(t *testing.T) {
 	store.providers["openai-prod"].Config.Type = "openai"
 	store.providers["openai-prod"].Config.APIKey = "sk-real-key"
 	store.providers["openai-prod"].Config.RefreshToken = "rt-real"
+	store.providers["openai-prod"].Config.TokenExpiresAt = "2026-07-18T12:00:00Z"
+	store.providers["openai-prod"].Config.AuthType = "chatgpt"
+	store.providers["openai-prod"].Config.ExtraHeaders = map[string]string{"ChatGPT-Account-ID": "account-real"}
 
 	s := &Server{}
 	s.store = store
@@ -411,8 +415,9 @@ func TestDispatch_ProviderUpdate_PreservesAPIKey(t *testing.T) {
 	if _, err := s.dispatchBuiltinTool(context.Background(), "provider_update", map[string]any{
 		"key": "openai-prod",
 		"config": map[string]any{
-			"type":  "openai",
-			"model": "gpt-4o",
+			"type":      "openai",
+			"auth_type": "chatgpt",
+			"model":     "gpt-4o",
 			// note: api_key and refresh_token deliberately omitted/empty
 		},
 	}); err != nil {
@@ -426,8 +431,41 @@ func TestDispatch_ProviderUpdate_PreservesAPIKey(t *testing.T) {
 	if got.Config.RefreshToken != "rt-real" {
 		t.Errorf("refresh_token was clobbered to %q (must preserve when empty)", got.Config.RefreshToken)
 	}
+	if got.Config.TokenExpiresAt != "2026-07-18T12:00:00Z" {
+		t.Errorf("token_expires_at was clobbered to %q", got.Config.TokenExpiresAt)
+	}
+	if got.Config.ExtraHeaders["ChatGPT-Account-ID"] != "account-real" {
+		t.Errorf("ChatGPT account ID was clobbered to %q", got.Config.ExtraHeaders["ChatGPT-Account-ID"])
+	}
 	if got.Config.Model != "gpt-4o" {
 		t.Errorf("non-secret field should be updated: model = %q", got.Config.Model)
+	}
+}
+
+func TestDispatch_ProviderUpdate_DoesNotReuseCredentialAcrossAuthTypes(t *testing.T) {
+	store := newFakeProviderStore()
+	store.providers["chatgpt"] = &service.ProviderRecord{
+		Key: "chatgpt",
+		Config: config.LLMConfig{
+			Type:         "openai",
+			AuthType:     "chatgpt",
+			APIKey:       "oauth-access-token",
+			RefreshToken: "oauth-refresh-token",
+		},
+	}
+	s := &Server{store: store}
+	if _, err := s.dispatchBuiltinTool(context.Background(), "provider_update", map[string]any{
+		"key": "chatgpt",
+		"config": map[string]any{
+			"type":  "openai",
+			"model": "gpt-4o",
+		},
+	}); err != nil {
+		t.Fatalf("provider_update: %v", err)
+	}
+	got := store.providers["chatgpt"].Config
+	if got.APIKey != "" || got.RefreshToken != "" {
+		t.Fatalf("OAuth credentials were reused after auth type changed: %+v", got)
 	}
 }
 

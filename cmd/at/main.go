@@ -175,6 +175,37 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		maps.Copy(headers, cfg.ExtraHeaders)
 
 		switch cfg.AuthType {
+		case "chatgpt":
+			httpClient, err := openai.ProxyHTTPClient(cfg.Proxy, cfg.InsecureSkipVerify)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create proxy client for ChatGPT OAuth: %w", err)
+			}
+
+			var expiresAt time.Time
+			if cfg.TokenExpiresAt != "" {
+				if t, parseErr := time.Parse(time.RFC3339, cfg.TokenExpiresAt); parseErr == nil {
+					expiresAt = t
+				} else {
+					slog.Warn("ChatGPT provider: ignoring unparseable token_expires_at",
+						"value", cfg.TokenExpiresAt, "error", parseErr.Error())
+				}
+			}
+
+			accountID := headers["ChatGPT-Account-ID"]
+			var tokenSource openai.TokenSource
+			if cfg.APIKey != "" {
+				tokenSource = openai.NewCodexTokenSource(cfg.APIKey, cfg.RefreshToken, accountID, expiresAt, httpClient)
+			}
+
+			codexOpts := []openai.CodexProviderOption{
+				openai.WithCodexBaseURL(cfg.BaseURL),
+				openai.WithCodexHTTPClient(httpClient),
+				openai.WithCodexClientVersion(version),
+			}
+			if limiter != nil {
+				codexOpts = append(codexOpts, openai.WithCodexRateLimiter(limiter))
+			}
+			return openai.NewCodexProvider(cfg.Model, accountID, tokenSource, codexOpts...), nil
 		case "copilot":
 			if cfg.APIKey == "" {
 				return nil, fmt.Errorf("openai provider with auth_type=copilot requires an api_key (authorize via device flow)")
@@ -205,7 +236,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		case "":
 			// Default: use static APIKey as Bearer token (handled by klient).
 		default:
-			return nil, fmt.Errorf("unknown auth_type %q for openai provider (supported: copilot)", cfg.AuthType)
+			return nil, fmt.Errorf("unknown auth_type %q for openai provider (supported: copilot, chatgpt)", cfg.AuthType)
 		}
 
 		if limiter != nil {

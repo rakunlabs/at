@@ -272,24 +272,15 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Preserve existing secrets when the request doesn't provide them.
-	// This prevents the UI (which redacts/hides secrets) from accidentally
-	// wiping stored tokens on every update.
-	if req.Config.APIKey == "" || req.Config.RefreshToken == "" {
-		existing, err := s.store.GetProvider(r.Context(), key)
-		if err != nil {
-			slog.Error("update provider: failed to read existing config", "key", key, "error", err)
-			httpResponse(w, fmt.Sprintf("failed to read existing provider: %v", err), http.StatusInternalServerError)
-			return
-		}
-		if existing != nil {
-			if req.Config.APIKey == "" {
-				req.Config.APIKey = existing.Config.APIKey
-			}
-			if req.Config.RefreshToken == "" {
-				req.Config.RefreshToken = existing.Config.RefreshToken
-			}
-		}
+	// Preserve managed OAuth fields that redacted UI/API responses omit.
+	existing, err := s.store.GetProvider(r.Context(), key)
+	if err != nil {
+		slog.Error("update provider: failed to read existing config", "key", key, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to read existing provider: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if existing != nil {
+		preserveProviderManagedAuth(&req.Config, existing.Config)
 	}
 
 	userEmail := s.getUserEmail(r)
@@ -353,5 +344,29 @@ func redactProviderRecord(rec *service.ProviderRecord) {
 	}
 	if rec.Config.RefreshToken != "" {
 		rec.Config.RefreshToken = "***"
+	}
+}
+
+func preserveProviderManagedAuth(next *config.LLMConfig, existing config.LLMConfig) {
+	if next.AuthType != existing.AuthType {
+		return
+	}
+	if next.APIKey == "" {
+		next.APIKey = existing.APIKey
+	}
+	if next.RefreshToken == "" {
+		next.RefreshToken = existing.RefreshToken
+	}
+	if next.TokenExpiresAt == "" {
+		next.TokenExpiresAt = existing.TokenExpiresAt
+	}
+	if next.AuthType != "chatgpt" || existing.ExtraHeaders["ChatGPT-Account-ID"] == "" {
+		return
+	}
+	if next.ExtraHeaders == nil {
+		next.ExtraHeaders = make(map[string]string)
+	}
+	if next.ExtraHeaders["ChatGPT-Account-ID"] == "" {
+		next.ExtraHeaders["ChatGPT-Account-ID"] = existing.ExtraHeaders["ChatGPT-Account-ID"]
 	}
 }

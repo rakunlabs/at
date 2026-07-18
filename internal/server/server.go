@@ -478,6 +478,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// callback can close over *Server and write back to the store.
 	for key, info := range s.providers {
 		s.wireClaudeOAuthCallback(key, info.provider)
+		s.wireChatGPTOAuthCallback(key, info.provider)
 	}
 
 	// Load predefined skill templates from embedded JSON files.
@@ -1231,6 +1232,7 @@ func (s *Server) reloadProvider(key string, cfg config.LLMConfig) error {
 	// Wire the OAuth refresh persistence callback so rotated tokens are
 	// saved back to the store. No-op for non-OAuth providers.
 	s.wireClaudeOAuthCallback(key, provider)
+	s.wireChatGPTOAuthCallback(key, provider)
 
 	info := NewProviderInfo(provider, cfg)
 

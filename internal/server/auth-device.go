@@ -5,9 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,10 +24,10 @@ import (
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 )
 
-// ─── GitHub OAuth Device Flow ───
+// ─── Provider OAuth Device Flows ───
 //
-// Used by auth_type:"copilot" to authenticate via the GitHub OAuth device flow
-// instead of requiring users to manually create a PAT with specific permissions.
+// Used by auth_type:"copilot" for GitHub OAuth and auth_type:"chatgpt" for
+// the OpenAI Codex device flow.
 //
 // Flow:
 //   1. UI calls POST /api/v1/providers/device-auth with the provider key
@@ -102,6 +104,14 @@ type deviceAuthStatusResponse struct {
 	Error  string `json:"error,omitempty"`
 }
 
+type codexDeviceProviderSnapshot struct {
+	ID                 string
+	Type               string
+	BaseURL            string
+	Proxy              string
+	InsecureSkipVerify bool
+}
+
 // ─── GitHub API types ───
 
 type githubDeviceCodeResponse struct {
@@ -122,7 +132,7 @@ type githubAccessTokenResponse struct {
 // ─── Handlers ───
 
 // DeviceAuthAPI handles POST /api/v1/providers/device-auth.
-// Initiates the GitHub OAuth device flow for a Copilot provider.
+// Initiates the OAuth device flow for a Copilot or ChatGPT provider.
 func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
@@ -140,7 +150,7 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Load the provider to verify it exists and has auth_type=copilot.
+	// Load the provider to verify it exists and supports device authorization.
 	record, err := s.store.GetProvider(r.Context(), req.Key)
 	if err != nil {
 		slog.Error("device auth: get provider failed", "key", req.Key, "error", err)
@@ -151,8 +161,8 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
 		return
 	}
-	if record.Config.AuthType != "copilot" {
-		httpResponse(w, "device auth is only supported for auth_type \"copilot\"", http.StatusBadRequest)
+	if record.Config.AuthType != "copilot" && record.Config.AuthType != "chatgpt" {
+		httpResponse(w, "device auth is only supported for auth_type \"copilot\" or \"chatgpt\"", http.StatusBadRequest)
 		return
 	}
 
@@ -173,6 +183,36 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if httpClient == nil {
 		httpClient = http.DefaultClient
+	}
+
+	if record.Config.AuthType == "chatgpt" {
+		deviceResp, err := openai.RequestCodexDeviceCode(r.Context(), httpClient)
+		if err != nil {
+			slog.Error("ChatGPT device auth: request device code failed", "error", err)
+			httpResponse(w, fmt.Sprintf("failed to start ChatGPT device flow: %v", err), http.StatusBadGateway)
+			return
+		}
+
+		deviceFlows.set(req.Key, &deviceFlowState{
+			Status:   "pending",
+			UserCode: deviceResp.UserCode,
+		})
+		snapshot := codexDeviceProviderSnapshot{
+			ID:                 record.ID,
+			Type:               record.Config.Type,
+			BaseURL:            record.Config.BaseURL,
+			Proxy:              record.Config.Proxy,
+			InsecureSkipVerify: record.Config.InsecureSkipVerify,
+		}
+		go s.pollCodexDeviceAuth(req.Key, snapshot, deviceResp, httpClient)
+
+		httpResponseJSON(w, deviceAuthResponse{
+			UserCode:        deviceResp.UserCode,
+			VerificationURI: deviceResp.VerificationURL,
+			ExpiresIn:       int(openai.CodexDeviceAuthTimeout.Seconds()),
+			Interval:        int(deviceResp.Interval.Seconds()),
+		}, http.StatusOK)
+		return
 	}
 
 	deviceResp, err := requestDeviceCode(r.Context(), httpClient)
@@ -198,6 +238,79 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 		ExpiresIn:       deviceResp.ExpiresIn,
 		Interval:        deviceResp.Interval,
 	}, http.StatusOK)
+}
+
+func (s *Server) pollCodexDeviceAuth(providerKey string, snapshot codexDeviceProviderSnapshot, deviceResp *openai.CodexDeviceCode, httpClient *http.Client) {
+	tokens, err := openai.CompleteCodexDeviceAuth(context.Background(), deviceResp, httpClient)
+	if err != nil {
+		status := "error"
+		message := err.Error()
+		if errors.Is(err, context.DeadlineExceeded) {
+			status = "expired"
+			message = "device code expired; please try again"
+		}
+		slog.Error("ChatGPT device auth failed", "key", providerKey, "error", err)
+		deviceFlows.set(providerKey, &deviceFlowState{Status: status, Error: message})
+		return
+	}
+
+	if err := s.saveCodexAuthTokens(providerKey, snapshot, tokens); err != nil {
+		slog.Error("ChatGPT device auth: failed to save tokens", "key", providerKey, "error", err)
+		deviceFlows.set(providerKey, &deviceFlowState{Status: "error", Error: "authorized but failed to save tokens: " + err.Error()})
+		return
+	}
+
+	deviceFlows.set(providerKey, &deviceFlowState{Status: "authorized"})
+	go func() {
+		time.Sleep(30 * time.Second)
+		deviceFlows.remove(providerKey)
+	}()
+}
+
+func (s *Server) saveCodexAuthTokens(providerKey string, snapshot codexDeviceProviderSnapshot, tokens *openai.CodexTokens) error {
+	if s.store == nil {
+		return fmt.Errorf("store not configured")
+	}
+	if tokens == nil || tokens.AccessToken == "" || tokens.RefreshToken == "" || tokens.AccountID == "" {
+		return fmt.Errorf("ChatGPT OAuth response is missing access, refresh, or account credentials")
+	}
+
+	record, err := s.store.GetProvider(context.Background(), providerKey)
+	if err != nil {
+		return fmt.Errorf("get provider: %w", err)
+	}
+	if record == nil {
+		return fmt.Errorf("provider %q not found", providerKey)
+	}
+	if record.ID != snapshot.ID || record.Config.Type != snapshot.Type || record.Config.AuthType != "chatgpt" ||
+		record.Config.BaseURL != snapshot.BaseURL || record.Config.Proxy != snapshot.Proxy ||
+		record.Config.InsecureSkipVerify != snapshot.InsecureSkipVerify {
+		return fmt.Errorf("provider changed while ChatGPT authorization was pending; start authorization again")
+	}
+
+	cfg := record.Config
+	cfg.APIKey = tokens.AccessToken
+	cfg.RefreshToken = tokens.RefreshToken
+	if !tokens.ExpiresAt.IsZero() {
+		cfg.TokenExpiresAt = tokens.ExpiresAt.UTC().Format(time.RFC3339)
+	}
+	cfg.ExtraHeaders = maps.Clone(cfg.ExtraHeaders)
+	if cfg.ExtraHeaders == nil {
+		cfg.ExtraHeaders = make(map[string]string)
+	}
+	cfg.ExtraHeaders["ChatGPT-Account-ID"] = tokens.AccountID
+
+	if _, err := s.store.UpdateProvider(context.Background(), providerKey, service.ProviderRecord{
+		Key:       providerKey,
+		Config:    cfg,
+		UpdatedBy: "system:oauth",
+	}); err != nil {
+		return fmt.Errorf("update provider: %w", err)
+	}
+	if err := s.reloadProvider(providerKey, cfg); err != nil {
+		return fmt.Errorf("reload provider: %w", err)
+	}
+	return nil
 }
 
 // DeviceAuthStatusAPI handles GET /api/v1/providers/device-auth-status?key=xxx.
@@ -1041,4 +1154,85 @@ func (s *Server) wireClaudeOAuthCallback(providerKey string, p service.LLMProvid
 		return
 	}
 	ap.SetTokenRefreshCallback(s.claudeOAuthRefreshCallback(providerKey))
+}
+
+func (s *Server) chatGPTOAuthRefreshCallback(providerKey string) openai.CodexTokenRefreshCallback {
+	return func(_ context.Context, accessToken, refreshToken, accountID string, expiresAt time.Time) error {
+		if s.store == nil {
+			return fmt.Errorf("store not configured")
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		record, err := s.store.GetProvider(ctx, providerKey)
+		if err != nil {
+			return fmt.Errorf("read provider: %w", err)
+		}
+		if record == nil {
+			return fmt.Errorf("provider disappeared during refresh")
+		}
+		if record.Config.AuthType != "chatgpt" {
+			return fmt.Errorf("provider auth type changed during refresh")
+		}
+		storedAccountID := record.Config.ExtraHeaders["ChatGPT-Account-ID"]
+		if storedAccountID != "" && accountID != "" && storedAccountID != accountID {
+			return fmt.Errorf("provider ChatGPT account changed during refresh")
+		}
+
+		cfg := record.Config
+		cfg.APIKey = accessToken
+		cfg.RefreshToken = refreshToken
+		if !expiresAt.IsZero() {
+			cfg.TokenExpiresAt = expiresAt.UTC().Format(time.RFC3339)
+		}
+		if accountID != "" {
+			cfg.ExtraHeaders = maps.Clone(cfg.ExtraHeaders)
+			if cfg.ExtraHeaders == nil {
+				cfg.ExtraHeaders = make(map[string]string)
+			}
+			cfg.ExtraHeaders["ChatGPT-Account-ID"] = accountID
+		}
+
+		if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
+			Key:       providerKey,
+			Config:    cfg,
+			UpdatedBy: "system:oauth-refresh",
+		}); err != nil {
+			return fmt.Errorf("persist rotated tokens: %w", err)
+		}
+		return nil
+	}
+}
+
+func (s *Server) chatGPTOAuthReloadCallback(providerKey string) openai.CodexTokenReloadCallback {
+	return func(ctx context.Context) (string, string, string, time.Time, error) {
+		if s.store == nil {
+			return "", "", "", time.Time{}, fmt.Errorf("store not configured")
+		}
+		record, err := s.store.GetProvider(ctx, providerKey)
+		if err != nil {
+			return "", "", "", time.Time{}, fmt.Errorf("read provider: %w", err)
+		}
+		if record == nil || record.Config.AuthType != "chatgpt" {
+			return "", "", "", time.Time{}, fmt.Errorf("ChatGPT provider no longer exists")
+		}
+		var expiresAt time.Time
+		if record.Config.TokenExpiresAt != "" {
+			expiresAt, err = time.Parse(time.RFC3339, record.Config.TokenExpiresAt)
+			if err != nil {
+				return "", "", "", time.Time{}, fmt.Errorf("parse token expiry: %w", err)
+			}
+		}
+		return record.Config.APIKey, record.Config.RefreshToken,
+			record.Config.ExtraHeaders["ChatGPT-Account-ID"], expiresAt, nil
+	}
+}
+
+func (s *Server) wireChatGPTOAuthCallback(providerKey string, p service.LLMProvider) {
+	cp, ok := p.(*openai.CodexProvider)
+	if !ok {
+		return
+	}
+	cp.SetTokenRefreshCallback(s.chatGPTOAuthRefreshCallback(providerKey))
+	cp.SetTokenReloadCallback(s.chatGPTOAuthReloadCallback(providerKey))
 }

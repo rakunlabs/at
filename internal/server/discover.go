@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/worldline-go/klient"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/service/llm/openai"
 )
 
 // discoverRequest is the JSON body for POST /api/v1/providers/discover-models.
@@ -48,12 +50,10 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	if req.Key != "" {
 		existing, err := s.store.GetProvider(r.Context(), req.Key)
 		if err == nil && existing != nil {
-			if req.Config.APIKey == "" {
-				req.Config.APIKey = existing.Config.APIKey
-			}
 			if req.Config.AuthType == "" {
 				req.Config.AuthType = existing.Config.AuthType
 			}
+			preserveProviderManagedAuth(&req.Config, existing.Config)
 		}
 	}
 
@@ -65,7 +65,7 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 
 	switch req.Config.Type {
 	case "openai":
-		models, err = discoverOpenAIModels(ctx, req.Config)
+		models, err = s.discoverOpenAIProviderModels(ctx, req.Key, req.Config)
 	case "anthropic":
 		models, err = discoverAnthropicModels(ctx, req.Config)
 		if err != nil {
@@ -102,18 +102,56 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, discoverResponse{Models: models}, http.StatusOK)
 }
 
+type providerModelDiscoverer interface {
+	Models(ctx context.Context) ([]string, error)
+}
+
+func (s *Server) discoverOpenAIProviderModels(ctx context.Context, key string, cfg config.LLMConfig) ([]string, error) {
+	if cfg.AuthType == "chatgpt" && key != "" && s.store != nil {
+		existing, err := s.store.GetProvider(ctx, key)
+		if err == nil && existing != nil && sameChatGPTDiscoveryConfig(cfg, existing.Config) {
+			s.providerMu.RLock()
+			info, ok := s.providers[key]
+			s.providerMu.RUnlock()
+			if ok {
+				if discoverer, ok := info.provider.(providerModelDiscoverer); ok {
+					return discoverer.Models(ctx)
+				}
+			}
+		}
+	}
+	return discoverOpenAIModels(ctx, cfg, s.version)
+}
+
+func sameChatGPTDiscoveryConfig(a, b config.LLMConfig) bool {
+	return a.Type == b.Type && a.AuthType == b.AuthType && a.APIKey == b.APIKey &&
+		a.BaseURL == b.BaseURL && a.Proxy == b.Proxy && a.InsecureSkipVerify == b.InsecureSkipVerify &&
+		maps.Equal(a.ExtraHeaders, b.ExtraHeaders)
+}
+
 // discoverOpenAIModels calls GET /v1/models on an OpenAI-compatible endpoint.
 // It derives the models URL from the configured base_url by stripping /chat/completions.
-func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig) ([]string, error) {
+func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersions ...string) ([]string, error) {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1/chat/completions"
+		if cfg.AuthType == "chatgpt" {
+			baseURL = "https://chatgpt.com/backend-api/codex/responses"
+		} else {
+			baseURL = "https://api.openai.com/v1/chat/completions"
+		}
 	}
 
 	// Parse the base URL properly to preserve query parameters.
 	parsedURL, err := url.Parse(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid base_url: %w", err)
+	}
+	if cfg.AuthType == "chatgpt" {
+		clientVersion := ""
+		if len(clientVersions) > 0 {
+			clientVersion = clientVersions[0]
+		}
+		return discoverChatGPTModels(ctx, cfg, parsedURL, clientVersion)
 	}
 
 	// Check if this is a GitHub Copilot endpoint which does not support model listing.
@@ -204,6 +242,65 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig) ([]string, 
 		}
 	}
 
+	return models, nil
+}
+
+func discoverChatGPTModels(ctx context.Context, cfg config.LLMConfig, parsedURL *url.URL, clientVersion string) ([]string, error) {
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("ChatGPT provider is not authorized")
+	}
+	accountID := cfg.ExtraHeaders["ChatGPT-Account-ID"]
+	if accountID == "" {
+		return nil, fmt.Errorf("ChatGPT account ID is missing; authorize the provider again")
+	}
+
+	parsedURL.Path = strings.TrimSuffix(parsedURL.Path, "/responses") + "/models"
+	query := parsedURL.Query()
+	query.Set("client_version", openai.NormalizeCodexClientVersion(clientVersion))
+	parsedURL.RawQuery = query.Encode()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build ChatGPT models request: %w", err)
+	}
+	for key, value := range cfg.ExtraHeaders {
+		req.Header.Set(key, value)
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	req.Header.Set("ChatGPT-Account-ID", accountID)
+	req.Header.Set("Originator", "codex_cli_rs")
+	req.Header.Set("User-Agent", "at")
+
+	client, err := klientForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ChatGPT models request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read ChatGPT models response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("ChatGPT models endpoint returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+
+	var result struct {
+		Models []struct {
+			Slug string `json:"slug"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("parse ChatGPT models response: %w", err)
+	}
+	models := make([]string, 0, len(result.Models))
+	for _, model := range result.Models {
+		if model.Slug != "" {
+			models = append(models, model.Slug)
+		}
+	}
 	return models, nil
 }
 

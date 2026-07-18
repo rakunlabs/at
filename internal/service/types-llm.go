@@ -184,9 +184,9 @@ type ContentBlock struct {
 	ToolUseID string         `json:"tool_use_id,omitempty"`
 	Content   string         `json:"content,omitempty"`
 	Source    *MediaSource   `json:"source,omitempty"` // For media content blocks (images, documents, audio, video — Anthropic format)
-	// ThoughtSignature is an opaque token from Gemini thinking models (2.5+)
-	// that preserves the model's reasoning state across function-calling turns.
-	// It must be echoed back on the corresponding tool_use content block.
+	// ThoughtSignature is opaque provider reasoning state (for example Gemini's
+	// thoughtSignature or Codex encrypted reasoning) that must be echoed back on
+	// the corresponding tool_use block across function-calling turns.
 	ThoughtSignature string `json:"thought_signature,omitempty"`
 }
 
@@ -300,10 +300,8 @@ type ToolCall struct {
 	ID        string
 	Name      string
 	Arguments map[string]any
-	// ThoughtSignature is an opaque token from Gemini thinking models that
-	// preserves the model's reasoning state across function-calling turns.
-	// It must be echoed back in the subsequent request for the model to
-	// maintain context continuity.
+	// ThoughtSignature is opaque provider reasoning state that must be echoed
+	// back in the subsequent request to preserve function-calling continuity.
 	ThoughtSignature string
 }
 

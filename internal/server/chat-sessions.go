@@ -720,10 +720,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 							input = map[string]any{}
 						}
 						blocks = append(blocks, service.ContentBlock{
-							Type:  "tool_use",
-							ID:    tc.ID,
-							Name:  tc.Name,
-							Input: input,
+							Type:             "tool_use",
+							ID:               tc.ID,
+							Name:             tc.Name,
+							Input:            input,
+							ThoughtSignature: tc.ThoughtSignature,
 						})
 					}
 				}

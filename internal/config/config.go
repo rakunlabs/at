@@ -198,6 +198,9 @@ type LLMConfig struct {
 	//                     to authorize via the GitHub OAuth device flow. The resulting OAuth
 	//                     token is stored in APIKey and exchanged for short-lived Copilot
 	//                     JWTs that are cached and automatically refreshed before expiry.
+	//   - "chatgpt":       ChatGPT Plus/Pro OAuth for the Codex Responses backend. Use the
+	//                     device-auth API endpoint; access and refresh tokens are persisted
+	//                     and rotated automatically. This is not OpenAI Platform API billing.
 	//
 	// For "anthropic" type:
 	//   - "" (empty):     Use APIKey directly as a static X-Api-Key header (default).
@@ -209,12 +212,12 @@ type LLMConfig struct {
 	AuthType string `cfg:"auth_type" json:"auth_type"`
 
 	// RefreshToken stores the OAuth refresh token for providers that use
-	// token-based authentication with automatic refresh (e.g., auth_type="claude-code").
+	// token-based authentication with automatic refresh (e.g., "claude-code" or "chatgpt").
 	// This field is managed automatically by the OAuth flow and should not be set manually.
 	RefreshToken string `cfg:"refresh_token" json:"refresh_token" log:"-"`
 
 	// TokenExpiresAt stores the access-token expiry time as RFC3339.
-	// Used by OAuth-based auth (auth_type="claude-code") so the provider
+	// Used by OAuth-based auth (auth_type="claude-code" or "chatgpt") so the provider
 	// can refresh proactively before the token expires instead of waiting
 	// for an upstream 401. Managed automatically by the OAuth flow; an
 	// empty value means "expiry unknown" — the token source will refresh

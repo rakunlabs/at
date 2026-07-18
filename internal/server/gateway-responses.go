@@ -116,7 +116,8 @@ type responsesOutItem struct {
 	Arguments string `json:"arguments,omitempty"`
 
 	// reasoning fields
-	Summary []responsesReasoningSummary `json:"summary,omitempty"`
+	Summary          []responsesReasoningSummary `json:"summary,omitempty"`
+	EncryptedContent string                      `json:"encrypted_content,omitempty"`
 }
 
 type responsesOutContent struct {
@@ -428,13 +429,14 @@ func (s *Server) handleStreamingResponses(
 	// Try true streaming first.
 	callStart := time.Now()
 	var (
-		usage          *service.Usage
-		messageItemID  = "msg_" + generateChatID()
-		messageStarted bool
-		fullText       strings.Builder
-		reasoningText  strings.Builder
-		toolCallItems  = make(map[string]*responsesOutItem) // by tool_call ID
-		toolCallOrder  []string
+		usage           *service.Usage
+		messageItemID   = "msg_" + generateChatID()
+		messageStarted  bool
+		fullText        strings.Builder
+		reasoningText   strings.Builder
+		toolCallItems   = make(map[string]*responsesOutItem) // by tool_call ID
+		toolCallOrder   []string
+		reasoningByCall = make(map[string]responsesOutItem)
 	)
 
 	emitMessageStart := func() {
@@ -497,6 +499,10 @@ func (s *Server) handleStreamingResponses(
 				reasoningText.WriteString(chunk.ReasoningContent)
 			}
 			for _, tc := range chunk.ToolCalls {
+				s.cacheThoughtSignatures([]service.ToolCall{tc})
+				if reasoningItem, ok := responsesReasoningItemFromSignature(tc.ThoughtSignature); ok {
+					reasoningByCall[tc.ID] = reasoningItem
+				}
 				item, exists := toolCallItems[tc.ID]
 				if !exists {
 					item = &responsesOutItem{
@@ -547,6 +553,9 @@ func (s *Server) handleStreamingResponses(
 		}
 		emitDelta(resp.Content)
 		for _, tc := range resp.ToolCalls {
+			if reasoningItem, ok := responsesReasoningItemFromSignature(tc.ThoughtSignature); ok {
+				reasoningByCall[tc.ID] = reasoningItem
+			}
 			item := &responsesOutItem{
 				ID:     "fc_" + generateChatID(),
 				Type:   "function_call",
@@ -627,8 +636,8 @@ func (s *Server) handleStreamingResponses(
 	}
 
 	// Final response.completed
-	output := make([]responsesOutItem, 0, 1+len(toolCallOrder))
-	if reasoningText.Len() > 0 {
+	output := make([]responsesOutItem, 0, 1+len(reasoningByCall)+len(toolCallOrder))
+	if len(reasoningByCall) == 0 && reasoningText.Len() > 0 {
 		output = append(output, responsesOutItem{
 			ID:   "rs_" + generateChatID(),
 			Type: "reasoning",
@@ -651,7 +660,18 @@ func (s *Server) handleStreamingResponses(
 			}},
 		})
 	}
+	reasoningSummaryAttached := false
 	for _, tcID := range toolCallOrder {
+		if reasoningItem, ok := reasoningByCall[tcID]; ok {
+			if !reasoningSummaryAttached && reasoningText.Len() > 0 && len(reasoningItem.Summary) == 0 {
+				reasoningItem.Summary = []responsesReasoningSummary{{
+					Type: "summary_text",
+					Text: reasoningText.String(),
+				}}
+			}
+			reasoningSummaryAttached = true
+			output = append(output, reasoningItem)
+		}
 		output = append(output, *toolCallItems[tcID])
 	}
 
@@ -683,6 +703,20 @@ func (s *Server) handleStreamingResponses(
 		"type":     "response.completed",
 		"response": finalResp,
 	})
+}
+
+func responsesReasoningItemFromSignature(signature string) (responsesOutItem, bool) {
+	if signature == "" {
+		return responsesOutItem{}, false
+	}
+	var item responsesOutItem
+	if json.Unmarshal([]byte(signature), &item) != nil || item.Type != "reasoning" || item.EncryptedContent == "" {
+		return responsesOutItem{}, false
+	}
+	if item.ID == "" {
+		item.ID = "rs_" + generateChatID()
+	}
+	return item, true
 }
 
 // indexOf returns the position of s in slice, or -1 if absent.
@@ -760,6 +794,7 @@ func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([
 		return nil, fmt.Errorf("input must be a string or an array of input items: %v", err)
 	}
 
+	var pendingReasoning string
 	for _, item := range items {
 		itype, _ := item["type"].(string)
 		if itype == "" {
@@ -792,14 +827,16 @@ func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([
 				Role:    "assistant",
 				Content: json.RawMessage(`""`),
 				ToolCalls: []OpenAIToolCall{{
-					ID:   callID,
-					Type: "function",
+					ID:               callID,
+					Type:             "function",
+					ThoughtSignature: pendingReasoning,
 					Function: OpenAIFunctionCall{
 						Name:      name,
 						Arguments: args,
 					},
 				}},
 			})
+			pendingReasoning = ""
 		case "function_call_output":
 			callID, _ := item["call_id"].(string)
 			if callID == "" {
@@ -812,9 +849,13 @@ func responsesInputToOpenAIMessages(raw json.RawMessage, instructions string) ([
 				Content:    json.RawMessage(mustJSONString(output)),
 			})
 		case "reasoning":
-			// Reasoning items from previous turns aren't replayable to most
-			// providers; drop them silently.
-			continue
+			if encrypted, _ := item["encrypted_content"].(string); encrypted != "" {
+				encoded, err := json.Marshal(item)
+				if err != nil {
+					return nil, fmt.Errorf("marshal reasoning input item: %w", err)
+				}
+				pendingReasoning = string(encoded)
+			}
 		default:
 			return nil, fmt.Errorf("unsupported input item type %q", itype)
 		}
@@ -983,7 +1024,14 @@ func buildResponsesResponse(model string, metadata map[string]any, parallelToolC
 	}
 
 	// Reasoning summary (when the provider returned thinking text).
-	if strings.TrimSpace(resp.ReasoningContent) != "" {
+	hasEncryptedReasoning := false
+	for _, tc := range resp.ToolCalls {
+		if _, ok := responsesReasoningItemFromSignature(tc.ThoughtSignature); ok {
+			hasEncryptedReasoning = true
+			break
+		}
+	}
+	if strings.TrimSpace(resp.ReasoningContent) != "" && !hasEncryptedReasoning {
 		out.Output = append(out.Output, responsesOutItem{
 			ID:   "rs_" + ulid.Make().String(),
 			Type: "reasoning",
@@ -1009,7 +1057,15 @@ func buildResponsesResponse(model string, metadata map[string]any, parallelToolC
 	}
 
 	// Tool calls become function_call output items.
+	reasoningSummaryAttached := false
 	for _, tc := range resp.ToolCalls {
+		if item, ok := responsesReasoningItemFromSignature(tc.ThoughtSignature); ok {
+			if !reasoningSummaryAttached && strings.TrimSpace(resp.ReasoningContent) != "" && len(item.Summary) == 0 {
+				item.Summary = []responsesReasoningSummary{{Type: "summary_text", Text: resp.ReasoningContent}}
+			}
+			reasoningSummaryAttached = true
+			out.Output = append(out.Output, item)
+		}
 		argsJSON, _ := json.Marshal(tc.Arguments)
 		out.Output = append(out.Output, responsesOutItem{
 			ID:        "fc_" + ulid.Make().String(),

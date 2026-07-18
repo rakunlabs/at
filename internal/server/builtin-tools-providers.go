@@ -213,22 +213,13 @@ func (s *Server) execProviderUpdate(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("%s", msg)
 	}
 
-	// Preserve existing secrets when not provided. This keeps a fetch +
-	// edit + write loop from clobbering tokens — the same protection
-	// UpdateProviderAPI provides against the UI's redacted reads.
-	if cfg.APIKey == "" || cfg.RefreshToken == "" {
-		existing, err := s.store.GetProvider(ctx, key)
-		if err != nil {
-			return "", fmt.Errorf("read existing provider %q: %w", key, err)
-		}
-		if existing != nil {
-			if cfg.APIKey == "" {
-				cfg.APIKey = existing.Config.APIKey
-			}
-			if cfg.RefreshToken == "" {
-				cfg.RefreshToken = existing.Config.RefreshToken
-			}
-		}
+	// Preserve managed OAuth fields omitted by redacted provider reads.
+	existing, err := s.store.GetProvider(ctx, key)
+	if err != nil {
+		return "", fmt.Errorf("read existing provider %q: %w", key, err)
+	}
+	if existing != nil {
+		preserveProviderManagedAuth(&cfg, existing.Config)
 	}
 
 	record, err := s.store.UpdateProvider(ctx, key, service.ProviderRecord{
@@ -285,19 +276,18 @@ func (s *Server) execProviderDiscoverModels(ctx context.Context, args map[string
 
 	if key, _ := args["key"].(string); key != "" && s.store != nil {
 		if existing, err := s.store.GetProvider(ctx, key); err == nil && existing != nil {
-			if cfg.APIKey == "" {
-				cfg.APIKey = existing.Config.APIKey
-			}
 			if cfg.AuthType == "" {
 				cfg.AuthType = existing.Config.AuthType
 			}
+			preserveProviderManagedAuth(&cfg, existing.Config)
 		}
 	}
 
 	var models []string
+	key, _ := args["key"].(string)
 	switch cfg.Type {
 	case "openai":
-		models, err = discoverOpenAIModels(ctx, cfg)
+		models, err = s.discoverOpenAIProviderModels(ctx, key, cfg)
 	case "anthropic":
 		models, err = discoverAnthropicModels(ctx, cfg)
 		if err != nil {

@@ -27,8 +27,7 @@ export interface LLMConfig {
   models?: string[];
   extra_headers?: Record<string, string>;
   auth_type?: string;
-  // OAuth refresh token (managed by the claude-auth flow; redacted by the
-  // server when present).
+  // OAuth refresh token managed by provider auth flows; redacted by the server.
   refresh_token?: string;
   // Absolute access-token expiry (RFC3339). Managed by the OAuth flow; lets
   // the gateway refresh proactively across restarts.
@@ -81,7 +80,7 @@ export async function discoverModels(config: Partial<LLMConfig>, key?: string): 
   return res.data.models;
 }
 
-// ─── Device Auth (GitHub OAuth Device Flow) ───
+// ─── Device Auth (subscription-backed provider device flows) ───
 
 export interface DeviceAuthResponse {
   user_code: string;

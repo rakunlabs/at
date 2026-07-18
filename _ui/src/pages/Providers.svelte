@@ -141,6 +141,36 @@
       ],
     },
     {
+      id: 'openai-codex-chatgpt',
+      name: 'OpenAI Codex (ChatGPT Plus / Pro)',
+      description: 'Use Codex through a ChatGPT Plus or Pro subscription',
+      key: 'openai-codex',
+      config: {
+        type: 'openai',
+        auth_type: 'chatgpt',
+        base_url: 'https://chatgpt.com/backend-api/codex/responses',
+        model: 'gpt-5.3-codex',
+        models: ['gpt-5.3-codex'],
+      },
+      setupSteps: [
+        'You need an active ChatGPT Plus or Pro subscription',
+        'Click "Create" to save the provider configuration',
+        'Edit the provider and click "Authorize with ChatGPT"',
+        'Copy the device code, open the ChatGPT authorization link, and sign in',
+        'The provider will be ready to use once authorization completes',
+      ],
+      setupLinks: [
+        { label: 'ChatGPT Plans', url: 'https://chatgpt.com/pricing/' },
+        { label: 'Codex', url: 'https://openai.com/codex/' },
+      ],
+      notes: [
+        'Uses your ChatGPT Plus or Pro subscription, not a standard OpenAI Platform API account or API billing balance',
+        'The chatgpt.com backend endpoint is not a stable public API and may change or stop working without notice',
+        'Model discovery is not assumed; gpt-5.3-codex is configured as the single safe default',
+        'Authorization is completed in your browser and the stored token is managed by the backend',
+      ],
+    },
+    {
       id: 'openai',
       name: 'OpenAI',
       description: 'GPT-4o, GPT-4.1, o3-mini direct from OpenAI',
@@ -965,7 +995,7 @@
   let formRateLimitRetryAfterCapMs = $state('');
   let showRateLimitSection = $state(false);
 
-  // Device auth state (GitHub OAuth Device Flow for Copilot)
+  // Device auth state (subscription-backed provider device flows)
   let deviceAuthPending = $state(false);
   let deviceAuthCode = $state('');
   let deviceAuthURI = $state('');
@@ -1215,6 +1245,18 @@
 
   // ─── Device Auth ───
 
+  function deviceAuthProviderName(authType = formAuthType): string {
+    return authType === 'chatgpt' ? 'ChatGPT' : 'GitHub Copilot';
+  }
+
+  function deviceAuthLinkName(): string {
+    return formAuthType === 'chatgpt' ? 'ChatGPT authorization page' : 'GitHub device authorization';
+  }
+
+  function deviceAuthHost(): string {
+    return formAuthType === 'chatgpt' ? 'chatgpt.com' : 'github.com';
+  }
+
   function stopDeviceAuthPolling() {
     if (deviceAuthTimer) {
       clearInterval(deviceAuthTimer);
@@ -1232,6 +1274,8 @@
       return;
     }
 
+    const providerName = deviceAuthProviderName();
+
     try {
       deviceAuthPending = true;
       const resp = await startDeviceAuth(editingKey);
@@ -1246,7 +1290,8 @@
           const status = await getDeviceAuthStatus(editingKey!);
           if (status.status === 'authorized') {
             stopDeviceAuthPolling();
-            addToast('GitHub Copilot authorized successfully');
+            formHasStoredKey = true;
+            addToast(`${providerName} authorized successfully`);
             await load();
           } else if (status.status === 'expired') {
             stopDeviceAuthPolling();
@@ -1589,6 +1634,7 @@
                 <option value="">(none)</option>
                 {#if formType === 'openai'}
                   <option value="copilot">copilot</option>
+                  <option value="chatgpt">chatgpt</option>
                 {/if}
                 {#if formType === 'anthropic'}
                   <option value="claude-code">claude-code</option>
@@ -1600,7 +1646,7 @@
         {/if}
 
         <!-- API Key / Device Auth -->
-        {#if formAuthType === 'copilot'}
+        {#if formAuthType === 'copilot' || formAuthType === 'chatgpt'}
           <div class="grid grid-cols-4 gap-3 items-start">
             <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Authorization</span>
             <div class="col-span-3">
@@ -1608,7 +1654,7 @@
                 <!-- Device flow in progress -->
                 <div class="border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-900/20 p-4 space-y-3">
                   <div class="text-sm text-gray-700 dark:text-dark-text-secondary">
-                    Open <a href={deviceAuthURI} target="_blank" rel="noopener noreferrer" class="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline">{deviceAuthURI}</a> and enter the code:
+                    Open <a href={deviceAuthURI} target="_blank" rel="noopener noreferrer" class="font-medium text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 underline">{deviceAuthLinkName()}</a> and enter the code:
                   </div>
                   <div class="flex items-center gap-3">
                     <code class="text-2xl font-bold font-mono tracking-widest text-gray-900 dark:text-dark-text bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border px-4 py-2 select-all">{deviceAuthCode}</code>
@@ -1637,7 +1683,7 @@
                 <div class="flex items-center gap-3">
                   <span class="inline-flex items-center gap-1.5 text-sm text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-800 px-3 py-1.5">
                     <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
-                    Authorized via GitHub
+                    Authorized via {deviceAuthProviderName()}
                   </span>
                   <button
                     type="button"
@@ -1657,14 +1703,14 @@
                     class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
                   >
                     <LogIn size={14} />
-                    Authorize with GitHub
+                    Authorize with {deviceAuthProviderName()}
                   </button>
-                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Opens github.com in your browser</span>
+                  <span class="text-xs text-gray-500 dark:text-dark-text-muted">Opens {deviceAuthHost()} in your browser</span>
                 </div>
               {:else}
                 <!-- New provider, not yet saved -->
                 <div class="text-sm text-gray-500 dark:text-dark-text-muted py-1.5">
-                  Save the provider first, then click Authorize to sign in via GitHub.
+                  Save the provider first, then click Authorize to sign in via {deviceAuthProviderName()}.
                 </div>
               {/if}
             </div>
