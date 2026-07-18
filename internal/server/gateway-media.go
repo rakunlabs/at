@@ -312,6 +312,7 @@ func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
 	resp, err := audioProvider.TranscribeAudio(r.Context(), service.AudioTranscribeRequest{
 		AudioBase64:    base64.StdEncoding.EncodeToString(audioBytes),
 		ContentType:    contentType,
+		Filename:       header.Filename,
 		Model:          actualModel,
 		Language:       r.FormValue("language"),
 		Prompt:         r.FormValue("prompt"),

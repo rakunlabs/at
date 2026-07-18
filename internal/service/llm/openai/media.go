@@ -287,7 +287,11 @@ func (p *Provider) TranscribeAudio(ctx context.Context, req service.AudioTranscr
 
 	// Add audio file.
 	ext := extensionFromContentType(req.ContentType)
-	part, err := writer.CreateFormFile("file", "audio"+ext)
+	filename := req.Filename
+	if filename == "" {
+		filename = "audio" + ext
+	}
+	part, err := writer.CreateFormFile("file", filename)
 	if err != nil {
 		return nil, fmt.Errorf("create form file: %w", err)
 	}

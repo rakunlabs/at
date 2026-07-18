@@ -91,6 +91,7 @@ type AudioResponse struct {
 type AudioTranscribeRequest struct {
 	AudioBase64    string `json:"audio_base64"`              // base64-encoded audio data
 	ContentType    string `json:"content_type"`              // e.g. "audio/mpeg", "audio/wav"
+	Filename       string `json:"filename,omitempty"`        // original filename, including its audio extension
 	Model          string `json:"model,omitempty"`           // e.g. "whisper-1"
 	Language       string `json:"language,omitempty"`        // ISO-639-1 code
 	Prompt         string `json:"prompt,omitempty"`          // optional context prompt

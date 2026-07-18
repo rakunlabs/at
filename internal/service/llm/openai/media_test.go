@@ -73,11 +73,14 @@ func TestTranscribeAudio(t *testing.T) {
 		if got := r.FormValue("language"); got != "tr" {
 			t.Errorf("language = %q, want tr", got)
 		}
-		file, _, err := r.FormFile("file")
+		file, header, err := r.FormFile("file")
 		if err != nil {
 			t.Fatalf("FormFile: %v", err)
 		}
 		defer file.Close()
+		if header.Filename != "speech.mp3" {
+			t.Errorf("filename = %q, want speech.mp3", header.Filename)
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"text":"merhaba","language":"tr","duration":1.5}`))
@@ -91,6 +94,7 @@ func TestTranscribeAudio(t *testing.T) {
 	resp, err := provider.TranscribeAudio(context.Background(), service.AudioTranscribeRequest{
 		AudioBase64: base64.StdEncoding.EncodeToString([]byte("fake wav")),
 		ContentType: "audio/wav",
+		Filename:    "speech.mp3",
 		Model:       "whisper-1",
 		Language:    "tr",
 	})
