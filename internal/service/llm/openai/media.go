@@ -10,7 +10,31 @@ import (
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/common"
 )
+
+func mediaAPIError(resp *http.Response, body []byte) error {
+	message := strings.TrimSpace(string(body))
+	var envelope struct {
+		Error *OpenAIError `json:"error"`
+	}
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Error != nil && envelope.Error.Message != "" {
+		message = envelope.Error.Message
+	}
+
+	underlying := fmt.Errorf("openai-compatible media API error (status %d): %s", resp.StatusCode, message)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return &service.RateLimitError{
+			StatusCode: resp.StatusCode,
+			RetryAfter: common.ParseRetryAfter(resp.Header),
+			Provider:   "openai",
+			Message:    message,
+			Underlying: underlying,
+		}
+	}
+
+	return underlying
+}
 
 // apiBaseURL derives the API root from the chat completions URL.
 // e.g. "https://api.openai.com/v1/chat/completions" → "https://api.openai.com/v1".
@@ -82,7 +106,7 @@ func (p *Provider) doJSON(ctx context.Context, method, url string, body any, res
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+		return mediaAPIError(resp, respBody)
 	}
 
 	if result != nil {
@@ -215,7 +239,7 @@ func (p *Provider) GenerateAudio(ctx context.Context, req service.AudioGenerateR
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, mediaAPIError(resp, body)
 	}
 
 	// TTS returns raw audio bytes (not JSON).
@@ -327,7 +351,7 @@ func (p *Provider) TranscribeAudio(ctx context.Context, req service.AudioTranscr
 	}
 
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+		return nil, mediaAPIError(resp, body)
 	}
 
 	var apiResp transcriptionResponse

@@ -162,7 +162,7 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if record.Config.AuthType != "copilot" && record.Config.AuthType != "chatgpt" {
-		httpResponse(w, "device auth is only supported for auth_type \"copilot\" or \"chatgpt\"", http.StatusBadRequest)
+		httpResponse(w, fmt.Sprintf("provider auth_type is %q; save it as \"copilot\" or \"chatgpt\" before starting device auth", record.Config.AuthType), http.StatusBadRequest)
 		return
 	}
 

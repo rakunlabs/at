@@ -68,6 +68,29 @@ ANTHROPIC_BASE_URL=https://at.example.com/gateway/v1/providers/anthropic
 ANTHROPIC_API_KEY=<AT gateway token>
 ```
 
+#### Audio transcription (Whisper)
+
+An OpenAI provider also exposes the OpenAI-compatible transcription endpoint.
+The gateway model keeps the `provider/model` form; AT strips the provider prefix
+before forwarding the request upstream:
+
+```sh
+curl https://at.example.com/gateway/v1/audio/transcriptions \
+  -H "Authorization: Bearer <AT gateway token>" \
+  -F "file=@recording.wav" \
+  -F "model=openai/whisper-1" \
+  -F "language=tr" \
+  -F "response_format=json"
+```
+
+The `openai` provider must have an OpenAI API key with available billing quota,
+and `whisper-1` must be included in its configured models when a model allowlist
+is used. `auth_type: chatgpt` uses the Codex OAuth backend from a ChatGPT
+subscription and cannot call `/audio/transcriptions`; keep it as a separate
+provider from the API-key-backed provider, for example `chatgpt/...` for Codex
+and `openai-api/whisper-1` for transcription. Upstream quota errors are returned
+as HTTP 429 rather than a generic gateway 502.
+
 #### Proxy support
 
 All provider types support routing requests through an HTTP, HTTPS, or SOCKS5 proxy:

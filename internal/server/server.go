@@ -44,6 +44,7 @@ var uiFS embed.FS
 type ProviderInfo struct {
 	provider     service.LLMProvider
 	providerType string // "anthropic", "openai", "vertex", "gemini", "minimax"
+	authType     string // "", "copilot", "chatgpt", "claude-code", ...
 	defaultModel string
 	models       []string // all supported models; if empty, only defaultModel is advertised
 
@@ -1170,6 +1171,7 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 	return ProviderInfo{
 		provider:      provider,
 		providerType:  cfg.Type,
+		authType:      cfg.AuthType,
 		defaultModel:  cfg.Model,
 		models:        cfg.Models,
 		retryAfterCap: cap,

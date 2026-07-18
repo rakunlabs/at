@@ -28,9 +28,9 @@ type imagesGenRequest struct {
 
 // imagesGenResponse mirrors the OpenAI image generation response.
 type imagesGenResponse struct {
-	Created int64               `json:"created"`
-	Data    []imagesGenDatum    `json:"data"`
-	Usage   *imagesUsage        `json:"usage,omitempty"`
+	Created int64            `json:"created"`
+	Data    []imagesGenDatum `json:"data"`
+	Usage   *imagesUsage     `json:"usage,omitempty"`
 }
 
 type imagesGenDatum struct {
@@ -273,7 +273,7 @@ func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("provider %q does not support audio transcription", providerKey),
+				"message": unsupportedAudioTranscriptionMessage(providerKey, info),
 				"type":    "invalid_request_error",
 				"code":    "unsupported_operation",
 			},
@@ -362,6 +362,18 @@ func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
 	default:
 		httpResponseJSON(w, map[string]any{"text": resp.Text}, http.StatusOK)
 	}
+}
+
+func unsupportedAudioTranscriptionMessage(providerKey string, info ProviderInfo) string {
+	if info.providerType == "openai" && info.authType == "chatgpt" {
+		return fmt.Sprintf(
+			"provider %q uses auth_type %q; ChatGPT/Codex OAuth does not expose the OpenAI audio transcription API. Configure a separate OpenAI provider with auth_type empty and an OpenAI Platform API key, then use that provider prefix (for example openai-api/whisper-1)",
+			providerKey,
+			info.authType,
+		)
+	}
+
+	return fmt.Sprintf("provider %q does not support audio transcription", providerKey)
 }
 
 // ─── Moderations (POST /gateway/v1/moderations) ───

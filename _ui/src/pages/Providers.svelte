@@ -1278,6 +1278,14 @@
 
     try {
       deviceAuthPending = true;
+
+      // The auth type and any edited connection settings must be persisted
+      // before the backend selects the device-flow implementation.
+      if (!formType || !formModel) {
+        throw new Error('Type and model are required');
+      }
+      await updateProvider(editingKey, buildConfig());
+
       const resp = await startDeviceAuth(editingKey);
       deviceAuthCode = resp.user_code;
       deviceAuthURI = resp.verification_uri;
@@ -1308,7 +1316,7 @@
       }, deviceAuthInterval * 1000);
     } catch (e: any) {
       deviceAuthPending = false;
-      addToast(e?.response?.data?.message || 'Failed to start device authorization', 'alert');
+      addToast(e?.response?.data?.message || e?.message || 'Failed to start device authorization', 'alert');
     }
   }
 
