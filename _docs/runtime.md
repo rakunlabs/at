@@ -18,7 +18,7 @@ sudo apt update && sudo apt install -y \
 | Program           | Purpose                                                                                              |
 | ----------------- | ---------------------------------------------------------------------------------------------------- |
 | `bash`            | Shell command execution for builtin tools, skill handlers, workflow bash handlers, MCP tool handlers |
-| `git`             | Repository cloning/fetching for RAG sync, workflow git nodes, MCP code intelligence                  |
+| `git`             | Repository cloning/fetching for skill handlers and MCP code intelligence                             |
 | `curl`            | HTTP requests from bash handlers, health checks                                                      |
 | `ca-certificates` | TLS certificate verification for HTTPS connections                                                   |
 | `openssh-client`  | Git SSH authentication (`GIT_SSH_COMMAND`)                                                           |

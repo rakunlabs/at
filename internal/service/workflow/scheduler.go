@@ -44,13 +44,7 @@ type Scheduler struct {
 	varLister             VarLister
 	nodeConfigLookup      NodeConfigLookup
 	agentStore            service.AgentStorer
-	ragSearch             RAGSearchFunc
-	ragIngest             RAGIngestFunc
-	ragIngestFile         RAGIngestFileFunc
-	ragDeleteBySource     RAGDeleteBySourceFunc
 	varSave               VarSaveFunc
-	ragStateLookup        RAGStateLookupFunc
-	ragStateSave          RAGStateSaveFunc
 	builtinToolDispatcher BuiltinToolDispatcher
 	builtinToolDefs       []BuiltinToolDef
 	chatMessageCreator    ChatMessageCreatorFunc
@@ -59,8 +53,6 @@ type Scheduler struct {
 	checkBudget           CheckBudgetFunc
 	recordObservation     RecordObservationFunc
 	goalAncestry          GoalAncestryFunc
-	ragSync               RAGSyncFunc
-	ragPageUpsert         RAGPageUpsertFunc
 	connectionLookup      ConnectionLookup
 	workflowByNameLookup  WorkflowByNameLookupFunc
 	workflowExecutor      WorkflowExecutorFunc
@@ -84,7 +76,7 @@ type ScheduleStorer interface {
 }
 
 // NewScheduler creates a new cron trigger scheduler.
-func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, cl *cluster.Cluster) *Scheduler {
+func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, varSave VarSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, cl *cluster.Cluster) *Scheduler {
 	return &Scheduler{
 		triggerStore:          st,
 		workflowStore:         st,
@@ -95,13 +87,7 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 		varLister:             varLister,
 		nodeConfigLookup:      nodeConfigLookup,
 		agentStore:            st,
-		ragSearch:             ragSearch,
-		ragIngest:             ragIngest,
-		ragIngestFile:         ragIngestFile,
-		ragDeleteBySource:     ragDeleteBySource,
 		varSave:               varSave,
-		ragStateLookup:        ragStateLookup,
-		ragStateSave:          ragStateSave,
 		builtinToolDispatcher: builtinDispatcher,
 		builtinToolDefs:       builtinDefs,
 		chatMessageCreator:    chatMessageCreator,
@@ -131,18 +117,6 @@ func (s *Scheduler) SetEnabledCheck(f func(context.Context) bool) {
 // to legacy unbounded behaviour.
 func (s *Scheduler) SetLoopGov(gov LoopGovernor) {
 	s.loopGov = gov
-}
-
-// SetRAGSync sets the callback used to sync RAG collections.
-// Must be called before Start.
-func (s *Scheduler) SetRAGSync(f RAGSyncFunc) {
-	s.ragSync = f
-}
-
-// SetRAGPageUpsert sets the callback used to store original file content
-// in rag_pages. Optional — if not set, pages are not stored.
-func (s *Scheduler) SetRAGPageUpsert(f RAGPageUpsertFunc) {
-	s.ragPageUpsert = f
 }
 
 // SetConnectionLookup sets the callback used by agent_call nodes to resolve
@@ -351,15 +325,7 @@ func (s *Scheduler) reload() error {
 // for a given trigger. It loads the workflow, builds inputs with trigger
 // metadata, and runs the engine. If a RunRegistrar is set, the run is
 // registered for tracking and cancellation.
-//
-// For rag_sync triggers, it dispatches to the RAGSyncFunc callback instead
-// of running a workflow engine.
 func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Context) error {
-	// RAG sync triggers: dispatch to sync callback.
-	if trigger.TargetType == service.TriggerTargetRAGSync {
-		return s.makeCronRAGSyncFunc(trigger)
-	}
-
 	return func(ctx context.Context) error {
 		if s.enabledCheck != nil && !s.enabledCheck(ctx) {
 			logi.Ctx(ctx).Info("scheduler: cron skipped because automation is disabled", "trigger_id", trigger.ID)
@@ -468,8 +434,7 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.ragSearch, s.ragIngest, s.ragIngestFile, s.ragDeleteBySource, s.varSave, s.ragStateLookup, s.ragStateSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordObservation, s.goalAncestry, versionLookup)
-		engine.SetRAGPageUpsert(s.ragPageUpsert)
+		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.varSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordObservation, s.goalAncestry, versionLookup)
 		engine.SetConnectionLookup(s.connectionLookup)
 		engine.SetWorkflowByNameLookup(s.workflowByNameLookup)
 		engine.SetWorkflowExecutor(s.workflowExecutor)
@@ -508,42 +473,6 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			"workflow_id", trigger.WorkflowID,
 			"run_id", runID,
 			"output_keys", mapKeys(result.Outputs))
-
-		return nil
-	}
-}
-
-// makeCronRAGSyncFunc returns the function that hardloop will call for a
-// rag_sync cron trigger. It dispatches to the injected RAGSyncFunc.
-func (s *Scheduler) makeCronRAGSyncFunc(trigger service.Trigger) func(ctx context.Context) error {
-	return func(ctx context.Context) error {
-		if s.enabledCheck != nil && !s.enabledCheck(ctx) {
-			logi.Ctx(ctx).Info("scheduler: rag_sync skipped because automation is disabled", "trigger_id", trigger.ID)
-			return nil
-		}
-
-		collectionID := trigger.TargetID
-		logi.Ctx(ctx).Info("scheduler: cron rag_sync triggered",
-			"trigger_id", trigger.ID,
-			"collection_id", collectionID)
-
-		if s.ragSync == nil {
-			logi.Ctx(ctx).Warn("scheduler: rag_sync callback not configured, skipping",
-				"trigger_id", trigger.ID)
-			return nil
-		}
-
-		if err := s.ragSync(ctx, collectionID); err != nil {
-			logi.Ctx(ctx).Error("scheduler: rag_sync failed",
-				"trigger_id", trigger.ID,
-				"collection_id", collectionID,
-				"error", err)
-			return nil // don't stop the cron loop
-		}
-
-		logi.Ctx(ctx).Info("scheduler: rag_sync completed",
-			"trigger_id", trigger.ID,
-			"collection_id", collectionID)
 
 		return nil
 	}

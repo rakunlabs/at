@@ -14,7 +14,7 @@ import (
 )
 
 // InternalMCPHandler handles MCP protocol requests at /internal/v1/mcp/{name}.
-// It serves tools from an MCP Set's own Config (RAG/HTTP/External/Skills/Builtins).
+// It serves tools from an MCP Set's own Config (HTTP/External/Skills/Builtins).
 // This endpoint has NO authentication — it is only reachable internally by agents
 // and is not exposed under /gateway/ so external clients cannot access it.
 func (s *Server) InternalMCPHandler(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +77,7 @@ func (s *Server) InternalMCPHandler(w http.ResponseWriter, r *http.Request) {
 // ─── REST API Endpoints for Chat UI ───
 
 // ListMCPSetToolsAPI handles GET /api/v1/mcp/sets/{name}/tools.
-// Returns the list of tools available in an MCP Set (skills, builtins, upstreams, RAG, HTTP).
+// Returns the list of tools available in an MCP Set (skills, builtins, upstreams, HTTP).
 // Used by the Chat UI to discover tools when the user selects an MCP Set.
 func (s *Server) ListMCPSetToolsAPI(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
@@ -158,7 +158,7 @@ func (s *Server) mcpSetToVirtualServer(name string) (*service.MCPServer, error) 
 }
 
 // listMCPSetTools returns all tools from an MCPSet by directly resolving its config
-// (RAG, HTTP, skills, builtins, upstreams) without any HTTP round-trip.
+// (HTTP, skills, builtins, upstreams) without any HTTP round-trip.
 func (s *Server) listMCPSetTools(setName string) ([]service.Tool, error) {
 	virtualSrv, err := s.mcpSetToVirtualServer(setName)
 	if err != nil {
@@ -166,13 +166,6 @@ func (s *Server) listMCPSetTools(setName string) ([]service.Tool, error) {
 	}
 
 	var tools []service.Tool
-
-	// RAG tools.
-	for _, toolName := range virtualSrv.Config.EnabledRAGTools {
-		if t := mcpRAGToolDef(toolName); t != nil {
-			tools = append(tools, *t)
-		}
-	}
 
 	// HTTP tools.
 	for _, ht := range virtualSrv.Config.HTTPTools {
@@ -306,11 +299,6 @@ func (s *Server) callMCPSetTool(ctx context.Context, setName, toolName string, a
 		return result, nil
 	}
 
-	// RAG tool — call through the RAG service directly.
-	if slices.Contains(virtualSrv.Config.EnabledRAGTools, toolName) && s.ragService != nil {
-		return s.callRAGToolInline(ctx, toolName, args, virtualSrv)
-	}
-
 	// HTTP tool — execute the HTTP request directly.
 	for _, ht := range virtualSrv.Config.HTTPTools {
 		if ht.Name == toolName {
@@ -319,46 +307,6 @@ func (s *Server) callMCPSetTool(ctx context.Context, setName, toolName string, a
 	}
 
 	return "", fmt.Errorf("tool %q not found in MCP set %q", toolName, setName)
-}
-
-// callRAGToolInline executes a RAG tool without going through HTTP.
-func (s *Server) callRAGToolInline(ctx context.Context, toolName string, args map[string]any, srv *service.MCPServer) (string, error) {
-	if s.ragService == nil {
-		return "", fmt.Errorf("RAG service not configured")
-	}
-
-	if toolName == "rag_search" {
-		query, _ := args["query"].(string)
-		if query == "" {
-			return "", fmt.Errorf("query is required for rag_search")
-		}
-		numResults := 10
-		if n, ok := args["num_results"].(float64); ok {
-			numResults = int(n)
-		}
-		collectionIDs, _ := args["collection_ids"].([]any)
-		var ids []string
-		for _, id := range collectionIDs {
-			if str, ok := id.(string); ok {
-				ids = append(ids, str)
-			}
-		}
-		if len(ids) == 0 {
-			ids = srv.Config.CollectionIDs
-		}
-		ragSearchFn := s.ragSearchFunc()
-		if ragSearchFn == nil {
-			return "", fmt.Errorf("RAG search not available")
-		}
-		results, err := ragSearchFn(ctx, query, ids, numResults, 0)
-		if err != nil {
-			return "", fmt.Errorf("rag_search failed: %w", err)
-		}
-		data, _ := json.Marshal(results)
-		return string(data), nil
-	}
-
-	return "", fmt.Errorf("RAG tool %q not supported for inline call", toolName)
 }
 
 // callHTTPToolInline executes an HTTP tool without going through the MCP gateway.

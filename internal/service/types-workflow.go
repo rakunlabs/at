@@ -90,13 +90,13 @@ type WorkflowVersionStorer interface {
 
 // ─── Trigger Management ───
 
-// Trigger represents a workflow or RAG sync trigger (HTTP webhook or cron schedule).
+// Trigger represents a workflow trigger (HTTP webhook or cron schedule).
 // Multiple triggers can reference the same target.
 type Trigger struct {
 	ID          string         `json:"id"`
 	WorkflowID  string         `json:"workflow_id,omitempty"`   // kept for backward compat (= TargetID when TargetType is "workflow")
-	TargetType  string         `json:"target_type"`             // "workflow" or "rag_sync"
-	TargetID    string         `json:"target_id"`               // workflow ID or RAG collection ID
+	TargetType  string         `json:"target_type"`             // "workflow"
+	TargetID    string         `json:"target_id"`               // workflow ID
 	EntryNodeID string         `json:"entry_node_id,omitempty"` // optional: specific input node to start from (workflow targets only)
 	Type        string         `json:"type"`                    // "http" or "cron"
 	Config      map[string]any `json:"config"`                  // type-specific configuration
@@ -112,8 +112,6 @@ type Trigger struct {
 const (
 	// TriggerTargetWorkflow indicates the trigger executes a workflow.
 	TriggerTargetWorkflow = "workflow"
-	// TriggerTargetRAGSync indicates the trigger syncs a RAG collection.
-	TriggerTargetRAGSync = "rag_sync"
 )
 
 // TriggerStorer defines CRUD operations for workflow triggers.

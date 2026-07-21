@@ -67,7 +67,7 @@ func (s *Server) GatewayMCPSSEHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GatewayMCPHandler handles MCP protocol requests at /gateway/v1/mcp/{name}.
-// Each named endpoint can expose RAG tools, custom HTTP tools, or both.
+// Each named endpoint can expose custom HTTP tools, skills, builtins, upstreams, or workflows.
 // Auth uses the same Bearer token mechanism as the gateway chat completions endpoint unless the named server is public.
 func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 	if s.mcpServerStore == nil {
@@ -141,12 +141,12 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 	}
 
 	if auth.token != nil {
-		mcpMode := service.ResolveAccessMode(auth.token.AllowedRAGMCPsMode, auth.token.AllowedRAGMCPs)
+		mcpMode := service.ResolveAccessMode(auth.token.AllowedMCPsMode, auth.token.AllowedMCPs)
 		if mcpMode == service.AccessModeNone {
 			httpResponse(w, "token does not have access to any MCP servers", http.StatusForbidden)
 			return nil, false
 		}
-		if mcpMode == service.AccessModeList && !slices.Contains(auth.token.AllowedRAGMCPs, name) {
+		if mcpMode == service.AccessModeList && !slices.Contains(auth.token.AllowedMCPs, name) {
 			httpResponse(w, fmt.Sprintf("token does not have access to MCP server %q", name), http.StatusForbidden)
 			return nil, false
 		}
@@ -202,13 +202,6 @@ func (s *Server) gwGenMCPInitialize(w http.ResponseWriter, req service.MCPReques
 
 func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest, srv *service.MCPServer) {
 	var tools []service.Tool
-
-	// Add RAG tools if enabled.
-	for _, toolName := range srv.Config.EnabledRAGTools {
-		if t := mcpRAGToolDef(toolName); t != nil {
-			tools = append(tools, *t)
-		}
-	}
 
 	// Add custom HTTP tools.
 	for _, ht := range srv.Config.HTTPTools {
@@ -313,77 +306,6 @@ func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest
 	mcpResult(w, req.ID, map[string]any{"tools": tools})
 }
 
-// mcpRAGToolDef returns the MCP tool definition for a RAG tool name.
-func mcpRAGToolDef(name string) *service.Tool {
-	switch name {
-	case "rag_search":
-		return &service.Tool{
-			Name:        "rag_search",
-			Description: "Search documents in the RAG knowledge base by semantic similarity. Returns relevant document chunks with metadata.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query":           map[string]any{"type": "string", "description": "The natural language search query"},
-					"collection_ids":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional: filter by collection IDs"},
-					"num_results":     map[string]any{"type": "integer", "description": "Number of results to return (default: 10)"},
-					"score_threshold": map[string]any{"type": "number", "description": "Minimum similarity score (0-1)"},
-				},
-				"required": []string{"query"},
-			},
-		}
-	case "rag_list_collections":
-		return &service.Tool{
-			Name:        "rag_list_collections",
-			Description: "List all available RAG document collections with their IDs and names.",
-			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
-		}
-	case "rag_fetch_source":
-		return &service.Tool{
-			Name:        "rag_fetch_source",
-			Description: "Fetch the original full content of a document by its source identifier.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"source":     map[string]any{"type": "string", "description": "The source identifier (URL or path)"},
-					"repo_url":   map[string]any{"type": "string", "description": "Git repository URL"},
-					"commit_sha": map[string]any{"type": "string", "description": "Git commit SHA"},
-					"path":       map[string]any{"type": "string", "description": "File path within the repository"},
-				},
-				"required": []string{"source"},
-			},
-		}
-	case "rag_search_and_fetch":
-		return &service.Tool{
-			Name:        "rag_search_and_fetch",
-			Description: "Search + automatically fetch top result files. Returns both chunks and complete original files.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query":          map[string]any{"type": "string", "description": "The natural language search query"},
-					"collection_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional: filter by collection IDs"},
-					"num_results":    map[string]any{"type": "integer", "description": "Number of results to return (default: 10)"},
-				},
-				"required": []string{"query"},
-			},
-		}
-	case "rag_search_and_fetch_org":
-		return &service.Tool{
-			Name:        "rag_search_and_fetch_org",
-			Description: "Search + return only full source files (no chunks). Identifies relevant files via semantic search.",
-			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"query":          map[string]any{"type": "string", "description": "The natural language search query"},
-					"collection_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Optional: filter by collection IDs"},
-					"num_results":    map[string]any{"type": "integer", "description": "Number of results to return (default: 10)"},
-				},
-				"required": []string{"query"},
-			},
-		}
-	}
-	return nil
-}
-
 // ─── Call Tool ───
 
 func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req service.MCPRequest, srv *service.MCPServer) {
@@ -404,12 +326,6 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 
 	if params.Name == "" {
 		mcpError(w, req.ID, -32602, "tool name is required")
-		return
-	}
-
-	// Check if it's a RAG tool.
-	if slices.Contains(srv.Config.EnabledRAGTools, params.Name) {
-		s.gwGenMCPCallRAGTool(w, r, req.ID, params.Name, params.Arguments, srv)
 		return
 	}
 
@@ -554,32 +470,6 @@ func (s *Server) newMCPClient(ctx context.Context, upstream service.MCPUpstream)
 		opts = append(opts, service.WithHeaders(upstream.Headers))
 	}
 	return service.NewHTTPMCPClient(ctx, upstream.URL, opts...)
-}
-
-// ─── RAG Tool Dispatch ───
-
-func (s *Server) gwGenMCPCallRAGTool(w http.ResponseWriter, r *http.Request, id int, toolName string, args map[string]any, srv *service.MCPServer) {
-	if s.ragService == nil {
-		mcpError(w, id, -32000, "RAG service not configured")
-		return
-	}
-
-	ragSrv := ragMCPConfigFromServer(srv)
-
-	switch toolName {
-	case "rag_search":
-		s.gwMCPSearch(w, r, id, args, ragSrv)
-	case "rag_list_collections":
-		s.gwMCPListCollections(w, r, id, ragSrv)
-	case "rag_fetch_source":
-		s.gwMCPFetchSource(w, r, id, args, ragSrv)
-	case "rag_search_and_fetch":
-		s.gwMCPSearchAndFetch(w, r, id, args, ragSrv)
-	case "rag_search_and_fetch_org":
-		s.gwMCPFetchSourcesOrg(w, r, id, args, ragSrv)
-	default:
-		mcpError(w, id, -32602, fmt.Sprintf("unknown RAG tool: %s", toolName))
-	}
 }
 
 // ─── HTTP Tool Execution ───
@@ -827,4 +717,39 @@ func (s *Server) resolveTemplate(tmplStr string, args map[string]any) (string, e
 	}
 
 	return string(out), nil
+}
+
+// ─── MCP Response Helpers ───
+
+func mcpResult(w http.ResponseWriter, id int, result any) {
+	resultJSON, err := json.Marshal(result)
+	if err != nil {
+		mcpError(w, id, -32603, fmt.Sprintf("marshal result: %v", err))
+		return
+	}
+
+	resp := service.MCPResponse{
+		Jsonrpc: "2.0",
+		ID:      id,
+		Result:  resultJSON,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
+}
+
+func mcpError(w http.ResponseWriter, id int, code int, message string) {
+	resp := service.MCPResponse{
+		Jsonrpc: "2.0",
+		ID:      id,
+		Error: &service.MCPError{
+			Code:    code,
+			Message: message,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }

@@ -128,11 +128,11 @@ function buildCleanAuthToken(token: APIToken): Record<string, unknown> {
     clean.allowed_webhooks = token.allowed_webhooks;
   }
 
-  if (token.allowed_rag_mcps_mode && token.allowed_rag_mcps_mode !== 'all') {
-    clean.allowed_rag_mcps_mode = token.allowed_rag_mcps_mode;
+  if (token.allowed_mcps_mode && token.allowed_mcps_mode !== 'all') {
+    clean.allowed_mcps_mode = token.allowed_mcps_mode;
   }
-  if (token.allowed_rag_mcps && token.allowed_rag_mcps.length > 0) {
-    clean.allowed_rag_mcps = token.allowed_rag_mcps;
+  if (token.allowed_mcps && token.allowed_mcps.length > 0) {
+    clean.allowed_mcps = token.allowed_mcps;
   }
 
   if (token.expires_at) {

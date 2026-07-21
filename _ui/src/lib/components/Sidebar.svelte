@@ -16,7 +16,6 @@
     SlidersHorizontal,
     Bot,
     Radio,
-    Database,
     Server,
     Layers,
     House,
@@ -107,21 +106,6 @@
       >
         <Cpu size={14} />
         <span>Providers</span>
-      </a>
-    {/if}
-    {#if isFeatureEnabled("rag")}
-      <a
-        href="#/rag"
-        onclick={(e) => navigate(e, "/rag")}
-        class={[
-          "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-          $location === "/rag"
-            ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
-            : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
-        ]}
-      >
-        <Database size={14} />
-        <span>RAG</span>
       </a>
     {/if}
     <a

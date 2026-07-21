@@ -75,12 +75,6 @@ func TestFeatureKeyForAPIRequest(t *testing.T) {
 			want:   service.FeatureChatWorkbench,
 		},
 		{
-			name:   "rag uses rag feature",
-			path:   "/api/v1/rag/collections",
-			method: http.MethodGet,
-			want:   service.FeatureRAG,
-		},
-		{
 			name:   "files use files feature",
 			path:   "/api/v1/files/browse",
 			method: http.MethodGet,
@@ -158,16 +152,16 @@ func TestFeatureKeysForAPIRequest(t *testing.T) {
 		want   []string
 	}{
 		{
-			name:   "rag triggers require automation and rag",
-			path:   "/api/v1/rag/collections/collection-id/triggers",
+			name:   "triggers require automation",
+			path:   "/api/v1/triggers/trigger-id",
 			method: http.MethodPost,
-			want:   []string{service.FeatureAutomation, service.FeatureRAG},
+			want:   []string{service.FeatureAutomation},
 		},
 		{
-			name:   "rag chat tools require chat and rag",
-			path:   "/api/v1/mcp/rag-tools",
-			method: http.MethodGet,
-			want:   []string{service.FeatureChatWorkbench, service.FeatureRAG},
+			name:   "chat tools require chat workbench",
+			path:   "/api/v1/mcp/list-tools",
+			method: http.MethodPost,
+			want:   []string{service.FeatureChatWorkbench},
 		},
 	}
 

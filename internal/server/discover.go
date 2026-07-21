@@ -102,6 +102,130 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, discoverResponse{Models: models}, http.StatusOK)
 }
 
+// DiscoverEmbeddingModelsAPI handles POST /api/v1/providers/discover-embedding-models.
+// It uses the provided config to call the upstream provider's model listing API
+// and returns model IDs that look like embedding models.
+func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Request) {
+	var req discoverRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if req.Config.Type == "" {
+		httpResponse(w, "config.type is required", http.StatusBadRequest)
+		return
+	}
+
+	// When editing an existing provider the UI redacts the API key. Fall back
+	// to the stored config's key so discovery still works.
+	if req.Key != "" && s.store != nil {
+		existing, err := s.store.GetProvider(r.Context(), req.Key)
+		if err == nil && existing != nil {
+			if req.Config.AuthType == "" {
+				req.Config.AuthType = existing.Config.AuthType
+			}
+			preserveProviderManagedAuth(&req.Config, existing.Config)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+
+	var models []string
+	var err error
+
+	switch req.Config.Type {
+	case "openai", "azure":
+		models, err = discoverOpenAIModels(ctx, req.Config, s.version)
+		if err == nil {
+			models = filterEmbeddingModelIDs(models)
+		}
+	case "gemini":
+		models, err = discoverGeminiEmbeddingModels(ctx, req.Config, false)
+	case "cohere":
+		models, err = discoverCohereEmbeddingModels(ctx, req.Config)
+	default:
+		httpResponse(w, fmt.Sprintf("embedding model discovery is not supported for provider type %q", req.Config.Type), http.StatusBadRequest)
+		return
+	}
+
+	if err != nil {
+		slog.Error("discover embedding models failed", "type", req.Config.Type, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to discover embedding models: %v", err), http.StatusBadGateway)
+		return
+	}
+
+	httpResponseJSON(w, discoverResponse{Models: models}, http.StatusOK)
+}
+
+// filterEmbeddingModelIDs keeps model IDs that look like embedding models
+// (name-based heuristic for OpenAI-compatible providers, whose /models
+// endpoint carries no capability metadata).
+func filterEmbeddingModelIDs(models []string) []string {
+	var out []string
+	for _, m := range models {
+		lower := strings.ToLower(m)
+		if strings.Contains(lower, "embed") || strings.HasPrefix(lower, "bge-") || strings.Contains(lower, "-bge-") {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// discoverCohereEmbeddingModels calls GET /v1/models?endpoint=embed on the Cohere API.
+func discoverCohereEmbeddingModels(ctx context.Context, cfg config.LLMConfig) ([]string, error) {
+	baseURL := cfg.BaseURL
+	if baseURL == "" {
+		baseURL = "https://api.cohere.com"
+	}
+	modelsURL := strings.TrimSuffix(baseURL, "/") + "/v1/models?endpoint=embed&page_size=100"
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	if cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	}
+
+	client, err := klientForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("upstream returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+
+	var modelsResp struct {
+		Models []struct {
+			Name string `json:"name"`
+		} `json:"models"`
+	}
+	if err := json.Unmarshal(body, &modelsResp); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	models := make([]string, 0, len(modelsResp.Models))
+	for _, m := range modelsResp.Models {
+		if m.Name != "" {
+			models = append(models, m.Name)
+		}
+	}
+	return models, nil
+}
+
 type providerModelDiscoverer interface {
 	Models(ctx context.Context) ([]string, error)
 }

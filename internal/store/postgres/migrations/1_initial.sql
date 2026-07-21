@@ -180,28 +180,6 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}agents (
 );
 
 -- ============================================================================
--- RAG Collections (consolidated — single config JSONB column)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}rag_collections (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE,
-    config JSONB NOT NULL DEFAULT '{}',
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    updated_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    created_by TEXT,
-    updated_by TEXT
-);
-
--- ============================================================================
--- RAG States
--- ============================================================================
-CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}rag_states (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- ============================================================================
 -- MCP Servers
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}mcp_servers (
@@ -689,21 +667,3 @@ CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}organization_agents (
 CREATE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}org_agents_org ON ${TABLE_PREFIX}organization_agents(organization_id);
 CREATE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}org_agents_agent ON ${TABLE_PREFIX}organization_agents(agent_id);
 
--- ============================================================================
--- RAG Pages (original file content storage)
--- ============================================================================
-CREATE TABLE IF NOT EXISTS ${TABLE_PREFIX}rag_pages (
-    id TEXT PRIMARY KEY,
-    collection_id TEXT NOT NULL REFERENCES ${TABLE_PREFIX}rag_collections(id) ON DELETE CASCADE,
-    source TEXT NOT NULL,
-    path TEXT DEFAULT '',
-    content TEXT NOT NULL DEFAULT '',
-    content_type TEXT DEFAULT '',
-    metadata JSONB NOT NULL DEFAULT '{}',
-    content_hash TEXT DEFAULT '',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
-CREATE UNIQUE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}rag_pages_collection_source ON ${TABLE_PREFIX}rag_pages(collection_id, source);
-CREATE INDEX IF NOT EXISTS idx_${TABLE_PREFIX}rag_pages_collection_id ON ${TABLE_PREFIX}rag_pages(collection_id);

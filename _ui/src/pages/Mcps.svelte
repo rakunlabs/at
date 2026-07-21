@@ -3,12 +3,10 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, type MCPSet } from '@/lib/api/mcp-sets';
   import { type MCPHTTPTool, type MCPUpstream } from '@/lib/api/mcp-servers';
-  import { listCollections, type RAGCollection } from '@/lib/api/rag';
-  import { listVariables, type Variable } from '@/lib/api/secrets';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Database, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch } from 'lucide-svelte';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -77,8 +75,6 @@
       ? (sets || []).filter((s) => s.category === mySelectedCategory)
       : sets || []
   );
-  let collections = $state<RAGCollection[]>([]);
-  let availableVariables = $state<Variable[]>([]);
   let availableSkills = $state<Skill[]>([]);
   let builtinToolDefs = $state<BuiltinToolDef[]>([]);
   let availableWorkflows = $state<Workflow[]>([]);
@@ -102,15 +98,7 @@
   let formCategory = $state('');
   let formTags = $state<string[]>([]);
 
-  // Config form fields (RAG/HTTP/External/Skills)
-  let formEnabledRAGTools = $state<string[]>([]);
-  let formCollectionIds = $state<string[]>([]);
-  let formFetchMode = $state('auto');
-  let formGitCacheDir = $state('');
-  let formDefaultNumResults = $state(10);
-  let formTokenVariable = $state('');
-  let formTokenUser = $state('');
-  let formSSHKeyVariable = $state('');
+  // Config form fields (HTTP/External/Skills)
   let formHTTPTools = $state<MCPHTTPTool[]>([]);
   let formMCPUpstreams = $state<MCPUpstream[]>([]);
   let formEnabledSkills = $state<string[]>([]);
@@ -118,20 +106,12 @@
   let formWorkflowIds = $state<string[]>([]);
 
   // Section visibility
-  let showRAGSection = $state(false);
   let showHTTPSection = $state(false);
   let showSkillsSection = $state(false);
   let showBuiltinToolsSection = $state(false);
   let showWorkflowsSection = $state(false);
   let showUpstreamSection = $state(false);
 
-  const allRAGTools = [
-    { id: 'rag_search', label: 'Search', desc: 'Search across collections' },
-    { id: 'rag_list_collections', label: 'List Collections', desc: 'List available collections' },
-    { id: 'rag_fetch_source', label: 'Fetch Source', desc: 'Fetch original file content' },
-    { id: 'rag_search_and_fetch', label: 'Search & Fetch', desc: 'Search + auto-fetch full source files' },
-    { id: 'rag_search_and_fetch_org', label: 'Search & Fetch Original', desc: 'Search + return only original files' },
-  ];
 
   // ─── Load ───
 
@@ -153,20 +133,6 @@
     } finally {
       loading = false;
     }
-  }
-
-  async function loadCollections() {
-    try {
-      const res = await listCollections({ _limit: 500 });
-      collections = res.data || [];
-    } catch {}
-  }
-
-  async function loadVariables() {
-    try {
-      const res = await listVariables({ _limit: 500 });
-      availableVariables = res.data || [];
-    } catch {}
   }
 
   async function loadSkills() {
@@ -203,8 +169,6 @@
   }
 
   loadData();
-  loadCollections();
-  loadVariables();
   loadSkills();
   loadBuiltinToolDefs();
   loadWorkflows();
@@ -216,14 +180,6 @@
     formDescription = '';
     formCategory = '';
     formTags = [];
-    formEnabledRAGTools = [];
-    formCollectionIds = [];
-    formFetchMode = 'auto';
-    formGitCacheDir = '';
-    formDefaultNumResults = 10;
-    formTokenVariable = '';
-    formTokenUser = '';
-    formSSHKeyVariable = '';
     formHTTPTools = [];
     formMCPUpstreams = [];
     formEnabledSkills = [];
@@ -231,7 +187,6 @@
     formWorkflowIds = [];
     editingId = null;
     showForm = false;
-    showRAGSection = false;
     showHTTPSection = false;
     showSkillsSection = false;
     showBuiltinToolsSection = false;
@@ -253,20 +208,11 @@
     formTags = set.tags ? [...set.tags] : [];
     // Config fields
     const cfg = set.config || {} as any;
-    formEnabledRAGTools = cfg.enabled_rag_tools ?? [];
-    formCollectionIds = cfg.collection_ids ?? [];
-    formFetchMode = cfg.fetch_mode || 'auto';
-    formGitCacheDir = cfg.git_cache_dir || '';
-    formDefaultNumResults = cfg.default_num_results || 10;
-    formTokenVariable = cfg.token_variable || '';
-    formTokenUser = cfg.token_user || '';
-    formSSHKeyVariable = cfg.ssh_key_variable || '';
     formHTTPTools = (cfg.http_tools ?? []).map((t: MCPHTTPTool) => ({ ...t, headers: t.headers ? { ...t.headers } : {}, input_schema: t.input_schema ? JSON.parse(JSON.stringify(t.input_schema)) : { type: 'object', properties: {} } }));
     formMCPUpstreams = (cfg.mcp_upstreams ?? []).map((u: MCPUpstream) => ({ ...u, headers: u.headers ? { ...u.headers } : undefined, args: u.args ? [...u.args] : undefined, env: u.env ? { ...u.env } : undefined }));
     formEnabledSkills = cfg.enabled_skills ?? [];
     formBuiltinTools = cfg.enabled_builtin_tools ?? [];
     formWorkflowIds = cfg.workflow_ids ?? [];
-    showRAGSection = formEnabledRAGTools.length > 0;
     showHTTPSection = formHTTPTools.length > 0;
     showSkillsSection = formEnabledSkills.length > 0;
     showBuiltinToolsSection = formBuiltinTools.length > 0;
@@ -290,14 +236,6 @@
         tags: formTags.length > 0 ? formTags : undefined,
         config: {
           description: formDescription.trim(),
-          enabled_rag_tools: formEnabledRAGTools,
-          collection_ids: formCollectionIds,
-          fetch_mode: formFetchMode,
-          git_cache_dir: formGitCacheDir.trim(),
-          default_num_results: Number(formDefaultNumResults) || 10,
-          token_variable: formTokenVariable.trim(),
-          token_user: formTokenUser.trim(),
-          ssh_key_variable: formSSHKeyVariable.trim(),
           http_tools: formHTTPTools.map(t => ({
             ...t,
             name: t.name.trim(),
@@ -381,22 +319,6 @@
   }
 
   // ─── Tool Config Helpers ───
-
-  function toggleRAGTool(toolId: string) {
-    if (formEnabledRAGTools.includes(toolId)) {
-      formEnabledRAGTools = formEnabledRAGTools.filter(t => t !== toolId);
-    } else {
-      formEnabledRAGTools = [...formEnabledRAGTools, toolId];
-    }
-  }
-
-  function toggleCollection(colId: string) {
-    if (formCollectionIds.includes(colId)) {
-      formCollectionIds = formCollectionIds.filter(c => c !== colId);
-    } else {
-      formCollectionIds = [...formCollectionIds, colId];
-    }
-  }
 
   function addHTTPTool() {
     formHTTPTools = [...formHTTPTools, {
@@ -498,10 +420,6 @@
     } catch {}
   }
 
-  function getCollectionName(id: string): string {
-    const c = collections.find(c => c.id === id);
-    return c?.name || id.slice(0, 8);
-  }
 </script>
 
 <svelte:head>
@@ -647,129 +565,6 @@
                 placeholder="e.g. video, production"
                 class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
-            </div>
-
-            <!-- ═══ RAG Tools Section ═══ -->
-            <div class="border border-gray-200 dark:border-dark-border-subtle">
-              <button
-                type="button"
-                onclick={() => showRAGSection = !showRAGSection}
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
-              >
-                {#if showRAGSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
-                <Database size={14} />
-                RAG Tools
-                {#if formEnabledRAGTools.length > 0}
-                  <span class="text-xs text-gray-400 dark:text-dark-text-muted">({formEnabledRAGTools.length} enabled)</span>
-                {/if}
-              </button>
-
-              {#if showRAGSection}
-                <div class="px-4 pb-4 pt-2 space-y-4 border-t border-gray-200 dark:border-dark-border-subtle">
-                  <!-- Enabled RAG Tools -->
-                  <div class="grid grid-cols-4 gap-3 items-start">
-                    <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Tools</span>
-                    <div class="col-span-3 space-y-1.5">
-                      {#each allRAGTools as tool}
-                        <label class="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={formEnabledRAGTools.includes(tool.id)}
-                            onchange={() => toggleRAGTool(tool.id)}
-                            class="w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent"
-                          />
-                          <span class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary">{tool.id}</span>
-                          <span class="text-xs text-gray-400 dark:text-dark-text-muted">- {tool.desc}</span>
-                        </label>
-                      {/each}
-                    </div>
-                  </div>
-
-                  <!-- Collections -->
-                  <div class="grid grid-cols-4 gap-3 items-start">
-                    <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Collections</span>
-                    <div class="col-span-3">
-                      {#if collections.length > 0}
-                        <div class="flex flex-wrap gap-1.5">
-                          {#each collections as c}
-                            <button
-                              type="button"
-                              onclick={() => toggleCollection(c.id)}
-                              class={[
-                                'px-2 py-1 text-xs border transition-colors',
-                                formCollectionIds.includes(c.id)
-                                  ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
-                                  : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
-                              ]}
-                            >
-                              {c.name}
-                            </button>
-                          {/each}
-                        </div>
-                        <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">None selected = all collections accessible</p>
-                      {:else}
-                        <span class="text-xs text-gray-400 dark:text-dark-text-muted">No collections available</span>
-                      {/if}
-                    </div>
-                  </div>
-
-                  <!-- Fetch Mode -->
-                  <div class="grid grid-cols-4 gap-3 items-center">
-                    <label for="mcp-fetch-mode" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Fetch Mode</label>
-                    <select
-                      id="mcp-fetch-mode"
-                      bind:value={formFetchMode}
-                      class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors"
-                    >
-                      <option value="auto">auto (git cache first, then HTTP)</option>
-                      <option value="local">local (git cache only)</option>
-                      <option value="remote">remote (HTTP only)</option>
-                    </select>
-                  </div>
-
-                  <!-- Git Auth -->
-                  <div class="space-y-3 border border-gray-200 dark:border-dark-border-subtle p-3">
-                    <p class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Git Authentication</p>
-                    <div class="grid grid-cols-4 gap-3 items-center">
-                      <label for="mcp-token-var" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Token Variable</label>
-                      <input id="mcp-token-var" type="text" list="mcp-var-list" bind:value={formTokenVariable} placeholder="e.g. github_token"
-                        class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
-                    </div>
-                    <div class="grid grid-cols-4 gap-3 items-center">
-                      <label for="mcp-token-user" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Token User</label>
-                      <input id="mcp-token-user" type="text" bind:value={formTokenUser} placeholder="x-token-auth (default)"
-                        class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
-                    </div>
-                    <div class="grid grid-cols-4 gap-3 items-center">
-                      <label for="mcp-ssh-key-var" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">SSH Key Variable</label>
-                      <input id="mcp-ssh-key-var" type="text" list="mcp-var-list" bind:value={formSSHKeyVariable} placeholder="e.g. deploy_ssh_key"
-                        class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
-                    </div>
-                    <datalist id="mcp-var-list">
-                      {#each availableVariables as v}
-                        <option value={v.key}>{v.key}{v.description ? ` — ${v.description}` : ''}</option>
-                      {/each}
-                    </datalist>
-                  </div>
-
-                  <!-- Git Cache Dir -->
-                  <div class="grid grid-cols-4 gap-3 items-center">
-                    <label for="mcp-git-cache" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Git Cache Dir</label>
-                    <input id="mcp-git-cache" type="text" bind:value={formGitCacheDir} placeholder="/tmp/at-git-cache (default)"
-                      class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
-                  </div>
-
-                  <!-- Default Num Results -->
-                  <div class="grid grid-cols-4 gap-3 items-center">
-                    <label for="mcp-num-results" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Default Results</label>
-                    <div class="col-span-3 flex items-center gap-2">
-                      <input id="mcp-num-results" type="number" bind:value={formDefaultNumResults} min={1} max={100}
-                        class="w-24 border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-sm font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
-                      <span class="text-xs text-gray-400 dark:text-dark-text-muted">Default number of search results</span>
-                    </div>
-                  </div>
-                </div>
-              {/if}
             </div>
 
             <!-- ═══ HTTP Tools Section ═══ -->
@@ -1293,9 +1088,6 @@
               </td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
                 <div class="flex flex-wrap gap-1">
-                  {#if (set.config?.enabled_rag_tools ?? []).length > 0}
-                    <span class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 font-mono">RAG</span>
-                  {/if}
                   {#if (set.config?.http_tools ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800 font-mono">{(set.config.http_tools ?? []).length} HTTP</span>
                   {/if}
@@ -1308,7 +1100,7 @@
                   {#if (set.config?.enabled_builtin_tools ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 font-mono">{(set.config.enabled_builtin_tools ?? []).length} builtin</span>
                   {/if}
-                  {#if !(set.config?.enabled_rag_tools?.length) && !(set.config?.http_tools?.length) && !(set.config?.enabled_skills?.length) && !(set.config?.mcp_upstreams?.length) && !(set.config?.enabled_builtin_tools?.length)}
+                  {#if !(set.config?.http_tools?.length) && !(set.config?.enabled_skills?.length) && !(set.config?.mcp_upstreams?.length) && !(set.config?.enabled_builtin_tools?.length)}
                     <span class="text-gray-400 dark:text-dark-text-muted">-</span>
                   {/if}
                 </div>
@@ -1426,9 +1218,6 @@
 
                 <!-- Config preview -->
                 <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-3 space-y-0.5">
-                  {#if (tmpl.mcp_server.config.enabled_rag_tools ?? []).length > 0}
-                    <div><span class="font-mono px-1 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">RAG</span> {tmpl.mcp_server.config.enabled_rag_tools?.join(', ')}</div>
-                  {/if}
                   {#if (tmpl.mcp_server.config.mcp_upstreams ?? []).length > 0}
                     <div><span class="font-mono px-1 py-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400">External</span> {tmpl.mcp_server.config.mcp_upstreams?.map(u => u.command ? `${u.command} ${(u.args ?? []).join(' ')}` : new URL(u.url!).hostname).join(', ')}</div>
                   {/if}

@@ -6,7 +6,6 @@ export const FEATURE_PROVIDER_SETUP = 'provider_setup';
 export const FEATURE_CHAT_WORKBENCH = 'chat_workbench';
 export const FEATURE_AGENTS = 'agents';
 export const FEATURE_AUTOMATION = 'automation';
-export const FEATURE_RAG = 'rag';
 export const FEATURE_FILES = 'files';
 export const FEATURE_CONNECTIONS = 'connections_integrations';
 export const FEATURE_ORGANIZATION_WORKFLOWS = 'organization_workflows';

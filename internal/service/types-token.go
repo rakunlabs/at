@@ -29,8 +29,8 @@ type APIToken struct {
 	AllowedModels        types.Slice[string]    `json:"allowed_models"`         // used when mode = "list" ("provider/model" format)
 	AllowedWebhooksMode  string                 `json:"allowed_webhooks_mode"`  // "all" (default/""), "none", or "list"
 	AllowedWebhooks      types.Slice[string]    `json:"allowed_webhooks"`       // used when mode = "list" (trigger IDs or aliases)
-	AllowedRAGMCPsMode   string                 `json:"allowed_rag_mcps_mode"`  // "all" (default/""), "none", or "list"
-	AllowedRAGMCPs       types.Slice[string]    `json:"allowed_rag_mcps"`       // used when mode = "list" (server names)
+	AllowedMCPsMode      string                 `json:"allowed_mcps_mode"`      // "all" (default/""), "none", or "list"
+	AllowedMCPs          types.Slice[string]    `json:"allowed_mcps"`           // used when mode = "list" (gateway MCP server names)
 	ExpiresAt            types.Null[types.Time] `json:"expires_at"`             // zero value = no expiry
 	TotalTokenLimit      types.Null[int64]      `json:"total_token_limit"`      // max total tokens allowed (across all models); nil = unlimited
 	SpendLimitCents      types.Null[float64]    `json:"spend_limit_cents"`      // max spend in cents for the current reset window; nil = unlimited

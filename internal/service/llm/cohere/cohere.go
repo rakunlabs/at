@@ -4,7 +4,7 @@
 //
 // Cohere's wire format is close to OpenAI but not identical, and the
 // rerank endpoint is something nobody else offers natively — first-class
-// support is meaningful for RAG.
+// support is meaningful for retrieval use cases.
 package cohere
 
 import (

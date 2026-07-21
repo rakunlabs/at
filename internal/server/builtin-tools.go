@@ -256,9 +256,9 @@ var builtinTools = []builtinToolDef{
 	{Name: "skill_import_skillmd", Description: "Import a skill by parsing raw Anthropic SKILL.md content. Frontmatter must contain at least `name` and `description`; the body becomes the skill's system_prompt.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"content": map[string]any{"type": "string", "description": "Raw SKILL.md content"}}, "required": []string{"content"}}},
 
 	// ─── MCP Server / MCP Set Management Tools ───
-	{Name: "mcp_server_list", Description: "List all general (gateway-facing) MCP servers. These expose composed tool sets (HTTP tools, upstream MCPs, RAG, skills, builtins, workflows) over a gateway MCP endpoint. Endpoints require bearer auth unless public is true.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
-	{Name: "mcp_server_get", Description: "Get full details of a gateway-facing MCP server, including its config (HTTP tools, upstream MCPs, enabled skills/builtins, RAG settings).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP server ID"}}, "required": []string{"id"}}},
-	{Name: "mcp_server_create", Description: "Create a new gateway-facing MCP server. The `config` object can declare HTTP tools, upstream MCP servers (HTTP or stdio), enabled skill names, enabled builtin tool names, RAG collections, and workflow IDs. Once created, agents and external MCP clients can call its tools.", InputSchema: map[string]any{
+	{Name: "mcp_server_list", Description: "List all general (gateway-facing) MCP servers. These expose composed tool sets (HTTP tools, upstream MCPs, skills, builtins, workflows) over a gateway MCP endpoint. Endpoints require bearer auth unless public is true.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "mcp_server_get", Description: "Get full details of a gateway-facing MCP server, including its config (HTTP tools, upstream MCPs, enabled skills/builtins).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP server ID"}}, "required": []string{"id"}}},
+	{Name: "mcp_server_create", Description: "Create a new gateway-facing MCP server. The `config` object can declare HTTP tools, upstream MCP servers (HTTP or stdio), enabled skill names, enabled builtin tool names, and workflow IDs. Once created, agents and external MCP clients can call its tools.", InputSchema: map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"name":        map[string]any{"type": "string", "description": "MCP server name (unique, used in the public URL)"},
@@ -274,8 +274,6 @@ var builtinTools = []builtinToolDef{
 					"enabled_skills":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Skill names whose tools should be exposed"},
 					"enabled_builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Builtin tool names to expose (e.g. 'http_request', 'task_create')"},
 					"workflow_ids":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Workflow IDs to expose as named tools"},
-					"enabled_rag_tools":     map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "RAG tool names to expose (e.g. 'rag_search', 'rag_list_collections')"},
-					"collection_ids":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "RAG collection IDs scoped to this server"},
 					"fetch_mode":            map[string]any{"type": "string"},
 					"default_num_results":   map[string]any{"type": "integer"},
 					"token_variable":        map[string]any{"type": "string"},
@@ -303,7 +301,7 @@ var builtinTools = []builtinToolDef{
 	}},
 	{Name: "mcp_server_delete", Description: "Delete a gateway-facing MCP server by ID. Existing MCP clients pointed at its URL will start receiving 404 on their next request.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP server ID to delete"}}, "required": []string{"id"}}},
 
-	{Name: "mcp_set_list", Description: "List all MCP Sets — internal MCP configurations agents can be assigned via the `mcp_sets` field on agent_create/agent_update. Each set composes builtins, skills, HTTP tools, upstream MCPs, RAG, and workflows.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "mcp_set_list", Description: "List all MCP Sets — internal MCP configurations agents can be assigned via the `mcp_sets` field on agent_create/agent_update. Each set composes builtins, skills, HTTP tools, upstream MCPs, and workflows.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
 	{Name: "mcp_set_get", Description: "Get full details of an MCP Set by ID, including its config.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The MCP Set ID"}}, "required": []string{"id"}}},
 	{Name: "mcp_set_create", Description: "Create a new MCP Set. Same config shape as mcp_server_create — the difference is that MCP Sets are consumed internally by agents (referenced by name in agent.mcp_sets) rather than exposed as a public gateway endpoint.", InputSchema: map[string]any{
 		"type": "object",
@@ -523,8 +521,8 @@ var builtinTools = []builtinToolDef{
 			"allowed_models":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"allowed_webhooks_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
 			"allowed_webhooks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"allowed_rag_mcps_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
-			"allowed_rag_mcps":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_mcps_mode":      map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_mcps":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"expires_at":             map[string]any{"type": "string", "description": "RFC3339 timestamp; omit for no expiry"},
 			"total_token_limit":      map[string]any{"type": "integer", "description": "Max total LLM tokens; omit for unlimited"},
 			"limit_reset_interval":   map[string]any{"type": "string", "description": "Duration string ('24h', '7d', '30d') or omit for manual reset"},
@@ -542,8 +540,8 @@ var builtinTools = []builtinToolDef{
 			"allowed_models":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"allowed_webhooks_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
 			"allowed_webhooks":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-			"allowed_rag_mcps_mode":  map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
-			"allowed_rag_mcps":       map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+			"allowed_mcps_mode":      map[string]any{"type": "string", "enum": []string{"all", "none", "list"}},
+			"allowed_mcps":           map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
 			"expires_at":             map[string]any{"type": "string"},
 			"total_token_limit":      map[string]any{"type": "integer"},
 			"limit_reset_interval":   map[string]any{"type": "string"},

@@ -122,13 +122,7 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		reg.NodeConfigLookup,
 		reg.WorkflowLookup,
 		reg.AgentLookup,
-		reg.RAGSearch,
-		reg.RAGIngest,
-		reg.RAGIngestFile,
-		reg.RAGDeleteBySource,
 		reg.VarSave,
-		reg.RAGStateLookup,
-		reg.RAGStateSave,
 		reg.BuiltinToolDispatcher,
 		reg.BuiltinToolDefs,
 		reg.UserPrefLookup,
@@ -140,7 +134,6 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		reg.GoalAncestry,
 		reg.VersionLookup,
 	)
-	childEngine.SetRAGPageUpsert(reg.RAGPageUpsert)
 
 	// 4. Run the child workflow.
 	// Use the active version's graph if available, otherwise fall back to the draft graph.

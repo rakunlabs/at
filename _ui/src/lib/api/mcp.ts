@@ -41,22 +41,6 @@ export interface BuiltinCallToolResponse {
   error?: string;
 }
 
-export interface RAGToolDef {
-  name: string;
-  description: string;
-  input_schema: Record<string, any>;
-}
-
-export interface RAGToolListResponse {
-  tools: RAGToolDef[];
-  available: boolean;
-}
-
-export interface RAGCallToolResponse {
-  result: string;
-  error?: string;
-}
-
 // ─── API Functions ───
 
 /**
@@ -127,42 +111,6 @@ export async function callBuiltinTool(
   const res = await api.post<BuiltinCallToolResponse>('/mcp/call-builtin-tool', {
     name,
     arguments: args,
-  });
-  return res.data;
-}
-
-/**
- * List available RAG tool definitions.
- * Returns tools + availability flag (false if RAG service not configured).
- */
-export async function listRAGTools(): Promise<RAGToolListResponse> {
-  const res = await api.get<RAGToolListResponse>('/mcp/rag-tools');
-  return res.data;
-}
-
-/**
- * Optional git auth config for RAG tool calls.
- */
-export interface RAGAuthConfig {
-  token_variable?: string;
-  token_user?: string;
-  ssh_key_variable?: string;
-}
-
-/**
- * Call a RAG tool by name (rag_search, rag_list_collections, rag_fetch_source, rag_search_and_fetch, rag_search_and_fetch_org).
- */
-export async function callRAGTool(
-  name: string,
-  args: Record<string, any>,
-  auth?: RAGAuthConfig,
-): Promise<RAGCallToolResponse> {
-  const res = await api.post<RAGCallToolResponse>('/mcp/call-rag-tool', {
-    name,
-    arguments: args,
-    ...(auth?.token_variable && { token_variable: auth.token_variable }),
-    ...(auth?.token_user && { token_user: auth.token_user }),
-    ...(auth?.ssh_key_variable && { ssh_key_variable: auth.ssh_key_variable }),
   });
   return res.data;
 }

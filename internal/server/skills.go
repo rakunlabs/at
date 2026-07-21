@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +17,12 @@ import (
 	"github.com/rakunlabs/at/internal/skillmd"
 	"github.com/rakunlabs/query"
 )
+
+// sha256Hex returns the hex-encoded SHA-256 hash of s.
+func sha256Hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
 
 // ─── Skill CRUD API ───
 

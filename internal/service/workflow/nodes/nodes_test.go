@@ -38,13 +38,7 @@ func newTestRegistry() *workflow.Registry {
 		nil, // nodeConfigLookup
 		nil, // workflowLookup
 		nil, // agentLookup
-		nil, // ragSearch
-		nil, // ragIngest
-		nil, // ragIngestFile
-		nil, // ragDeleteBySource
 		nil, // varSave
-		nil, // ragStateLookup
-		nil, // ragStateSave
 		nil, // builtinDispatcher
 		nil, // builtinDefs
 		nil, // userPrefLookup
@@ -73,13 +67,7 @@ func newTestRegistryWithProvider(mp *mockProvider) *workflow.Registry {
 		nil, // nodeConfigLookup
 		nil, // workflowLookup
 		nil, // agentLookup
-		nil, // ragSearch
-		nil, // ragIngest
-		nil, // ragIngestFile
-		nil, // ragDeleteBySource
 		nil, // varSave
-		nil, // ragStateLookup
-		nil, // ragStateSave
 		nil, // builtinDispatcher
 		nil, // builtinDefs
 		nil, // userPrefLookup

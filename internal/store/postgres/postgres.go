@@ -47,9 +47,6 @@ type Postgres struct {
 	tableAgents               exp.IdentifierExpression
 	tableChatSessions         exp.IdentifierExpression
 	tableChatMessages         exp.IdentifierExpression
-	tableRAGCollections       exp.IdentifierExpression
-	tableRAGStates            exp.IdentifierExpression
-	tableRAGPages             exp.IdentifierExpression
 	tableMCPServers           exp.IdentifierExpression
 	tableMCPSets              exp.IdentifierExpression
 	tableBotConfigs           exp.IdentifierExpression
@@ -190,9 +187,6 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableAgents:               goqu.T(tablePrefix + "agents"),
 		tableChatSessions:         goqu.T(tablePrefix + "chat_sessions"),
 		tableChatMessages:         goqu.T(tablePrefix + "chat_messages"),
-		tableRAGCollections:       goqu.T(tablePrefix + "rag_collections"),
-		tableRAGStates:            goqu.T(tablePrefix + "rag_states"),
-		tableRAGPages:             goqu.T(tablePrefix + "rag_pages"),
 		tableMCPServers:           goqu.T(tablePrefix + "mcp_servers"),
 		tableMCPSets:              goqu.T(tablePrefix + "mcp_sets"),
 		tableBotConfigs:           goqu.T(tablePrefix + "bot_configs"),

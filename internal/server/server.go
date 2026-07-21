@@ -1,11 +1,8 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"embed"
-	"encoding/hex"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -23,9 +20,7 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/container"
 	"github.com/rakunlabs/at/internal/service/loopgov"
-	"github.com/rakunlabs/at/internal/service/rag"
 	"github.com/rakunlabs/at/internal/service/workflow"
-	"github.com/tmc/langchaingo/schema"
 
 	mfolder "github.com/rakunlabs/ada/handler/folder"
 	mcors "github.com/rakunlabs/ada/middleware/cors"
@@ -46,7 +41,11 @@ type ProviderInfo struct {
 	providerType string // "anthropic", "openai", "vertex", "gemini", "minimax"
 	authType     string // "", "copilot", "chatgpt", "claude-code", ...
 	defaultModel string
-	models       []string // all supported models; if empty, only defaultModel is advertised
+	models       []string // all supported chat models; if empty, only defaultModel is advertised
+
+	// embeddingModels lists the embedding models this provider serves via
+	// /gateway/v1/embeddings. Advertised by /gateway/v1/models; advisory.
+	embeddingModels []string
 
 	// retryAfterCap is the maximum time the agent retry loop will sleep
 	// when the upstream API returns Retry-After. Resolved from
@@ -112,15 +111,6 @@ type Server struct {
 
 	// chatSessionStore is the persistent store for chat sessions and messages.
 	chatSessionStore service.ChatSessionStorer
-
-	// ragCollectionStore is the persistent store for RAG collection configs.
-	ragCollectionStore service.RAGCollectionStorer
-
-	// ragStateStore is the persistent store for RAG sync states.
-	ragStateStore service.RAGStateStorer
-
-	// ragPageStore is the persistent store for original file content (RAG pages).
-	ragPageStore service.RAGPageStorer
 
 	// mcpServerStore is the persistent store for general MCP server configurations.
 	mcpServerStore service.MCPServerStorer
@@ -190,9 +180,6 @@ type Server struct {
 
 	// marketplaceClient is used for outbound HTTP requests to marketplace APIs.
 	marketplaceClient *http.Client
-
-	// ragService is the RAG ingestion and search engine (nil if ragCollectionStore is nil).
-	ragService *rag.Service
 
 	// scheduler is the cron trigger scheduler (nil if triggerStore is nil).
 	scheduler *workflow.Scheduler
@@ -425,9 +412,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		nodeConfigStore:          store,
 		agentStore:               store,
 		chatSessionStore:         store,
-		ragCollectionStore:       store,
-		ragStateStore:            store,
-		ragPageStore:             store,
 		mcpServerStore:           store,
 		mcpSetStore:              store,
 		botConfigStore:           store,
@@ -532,24 +516,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// request/response bodies older than LLMCallRetention (default 7d).
 	s.startLLMAuditJanitor(ctx)
 
-	// Initialize RAG service if collection store is available.
-	{
-		providerLookupForRAG := func(ctx context.Context, key string) (*config.LLMConfig, error) {
-			if store == nil {
-				return nil, fmt.Errorf("provider store not configured")
-			}
-			rec, err := store.GetProvider(ctx, key)
-			if err != nil {
-				return nil, err
-			}
-			if rec == nil {
-				return nil, fmt.Errorf("provider %q not found", key)
-			}
-			return &rec.Config, nil
-		}
-		s.ragService = rag.NewService(store, providerLookupForRAG)
-	}
-
 	// Initialize cron trigger scheduler if trigger store is available.
 	{
 		providerLookup := func(key string) (service.LLMProvider, string, error) {
@@ -612,10 +578,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 			}
 		}
 
-		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.ragSearchFunc(), s.ragIngestFunc(), s.ragIngestFileFunc(), s.ragDeleteBySourceFunc(), s.varSaveFunc(), s.ragStateLookupFunc(), s.ragStateSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
+		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.varSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
-		s.scheduler.SetRAGSync(s.ragSyncFunc())
-		s.scheduler.SetRAGPageUpsert(s.ragPageUpsertFunc())
 		s.scheduler.SetConnectionLookup(s.connectionLookupFunc())
 		s.scheduler.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
@@ -678,7 +642,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.GET("/v1/claude-code/plugins/{name}/plugin.zip", s.ClaudeCodePluginZipAPI)
 
 	// Internal MCP endpoint — no auth, for agent-to-server tool resolution.
-	// Serves tools from MCP Sets (RAG/skills/HTTP/builtins). Not under /gateway/
+	// Serves tools from MCP Sets (skills/HTTP/builtins). Not under /gateway/
 	// so it's not exposed through any external reverse proxy.
 	internalGroup := mux.Group(cfg.BasePath + "/internal")
 	internalGroup.POST("/v1/mcp/{name}", s.InternalMCPHandler)
@@ -704,6 +668,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/providers", s.ListProvidersAPI)
 	apiGroup.POST("/v1/providers", s.CreateProviderAPI)
 	apiGroup.POST("/v1/providers/discover-models", s.DiscoverModelsAPI)
+	apiGroup.POST("/v1/providers/discover-embedding-models", s.DiscoverEmbeddingModelsAPI)
 	apiGroup.POST("/v1/providers/device-auth", s.DeviceAuthAPI)
 	apiGroup.GET("/v1/providers/device-auth-status", s.DeviceAuthStatusAPI)
 	apiGroup.POST("/v1/providers/claude-auth", s.ClaudeAuthStartAPI)
@@ -973,36 +938,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/chat/sessions/{id}/messages", s.SendChatMessageAPI)
 	apiGroup.POST("/v1/chat/sessions/{id}/confirm", s.ConfirmToolCallAPI)
 
-	// RAG collection management
-	apiGroup.GET("/v1/rag/collections", s.ListRAGCollectionsAPI)
-	apiGroup.POST("/v1/rag/collections", s.CreateRAGCollectionAPI)
-	apiGroup.GET("/v1/rag/collections/{id}", s.GetRAGCollectionAPI)
-	apiGroup.PUT("/v1/rag/collections/{id}", s.UpdateRAGCollectionAPI)
-	apiGroup.DELETE("/v1/rag/collections/{id}", s.DeleteRAGCollectionAPI)
-
-	// RAG document ingestion
-	apiGroup.POST("/v1/rag/collections/{id}/documents", s.UploadRAGDocumentAPI)
-	apiGroup.POST("/v1/rag/collections/{id}/import/url", s.ImportRAGFromURLAPI)
-
-	// RAG git sync
-	apiGroup.POST("/v1/rag/collections/{id}/sync", s.SyncRAGCollectionAPI)
-
-	// RAG pages (original file content)
-	apiGroup.GET("/v1/rag/collections/{id}/pages", s.ListRAGPagesAPI)
-	apiGroup.GET("/v1/rag/pages/{id}", s.GetRAGPageAPI)
-	apiGroup.DELETE("/v1/rag/pages/{id}", s.DeleteRAGPageAPI)
-
-	// RAG collection triggers (rag_sync triggers)
-	apiGroup.GET("/v1/rag/collections/{id}/triggers", s.ListRAGTriggersAPI)
-	apiGroup.POST("/v1/rag/collections/{id}/triggers", s.CreateRAGTriggerAPI)
-
-	// RAG search
-	apiGroup.POST("/v1/rag/search", s.SearchRAGAPI)
-
-	// RAG embedding tools
-	apiGroup.POST("/v1/rag/discover-embedding-models", s.DiscoverEmbeddingModelsAPI)
-	apiGroup.POST("/v1/rag/test-embedding", s.TestEmbeddingAPI)
-
 	// Bot config management
 	apiGroup.GET("/v1/bots", s.ListBotConfigsAPI)
 	apiGroup.POST("/v1/bots", s.CreateBotConfigAPI)
@@ -1099,10 +1034,6 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/mcp/builtin-tools", s.BuiltinToolListAPI)
 	apiGroup.POST("/v1/mcp/call-builtin-tool", s.BuiltinToolCallAPI)
 
-	// RAG tools (direct access for Chat UI, bypasses MCP protocol)
-	apiGroup.GET("/v1/mcp/rag-tools", s.RAGToolListAPI)
-	apiGroup.POST("/v1/mcp/call-rag-tool", s.RAGToolCallAPI)
-
 	// Workflow run management
 	apiGroup.GET("/v1/runs", s.ListActiveRunsAPI)
 	apiGroup.POST("/v1/runs/{id}/cancel", s.CancelRunAPI)
@@ -1169,12 +1100,13 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 		cap = cfg.RateLimit.RetryAfterCap()
 	}
 	return ProviderInfo{
-		provider:      provider,
-		providerType:  cfg.Type,
-		authType:      cfg.AuthType,
-		defaultModel:  cfg.Model,
-		models:        cfg.Models,
-		retryAfterCap: cap,
+		provider:        provider,
+		providerType:    cfg.Type,
+		authType:        cfg.AuthType,
+		defaultModel:    cfg.Model,
+		models:          cfg.Models,
+		embeddingModels: cfg.EmbeddingModels,
+		retryAfterCap:   cap,
 	}
 }
 
@@ -1285,81 +1217,6 @@ func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
-// ragSearchFunc returns a workflow.RAGSearchFunc that delegates to the server's
-// ragService. Returns nil when RAG is not configured, which is safe — nodes
-// should check for nil before calling.
-func (s *Server) ragSearchFunc() workflow.RAGSearchFunc {
-	if s.ragService == nil {
-		return nil
-	}
-	return func(ctx context.Context, query string, collectionIDs []string, numResults int, scoreThreshold float32) ([]workflow.RAGSearchResult, error) {
-		results, err := s.ragService.Search(ctx, rag.SearchRequest{
-			Query:          query,
-			CollectionIDs:  collectionIDs,
-			NumResults:     numResults,
-			ScoreThreshold: scoreThreshold,
-		})
-		if err != nil {
-			return nil, err
-		}
-		out := make([]workflow.RAGSearchResult, len(results))
-		for i, r := range results {
-			out[i] = workflow.RAGSearchResult{
-				Content:      r.Content,
-				Metadata:     r.Metadata,
-				Score:        r.Score,
-				CollectionID: r.CollectionID,
-			}
-		}
-		return out, nil
-	}
-}
-
-// ragIngestFunc returns a workflow.RAGIngestFunc that delegates to the server's
-// ragService. Returns nil when RAG is not configured.
-func (s *Server) ragIngestFunc() workflow.RAGIngestFunc {
-	if s.ragService == nil {
-		return nil
-	}
-	return func(ctx context.Context, collectionID string, chunks []workflow.RAGIngestDocument) (int, error) {
-		// Convert workflow documents to langchaingo schema documents.
-		docs := make([]schema.Document, len(chunks))
-		for i, c := range chunks {
-			docs[i] = schema.Document{
-				PageContent: c.PageContent,
-				Metadata:    c.Metadata,
-			}
-		}
-		return s.ragService.IngestChunks(ctx, collectionID, docs)
-	}
-}
-
-// ragIngestFileFunc returns a workflow.RAGIngestFileFunc that delegates to the
-// server's ragService. Returns nil when RAG is not configured.
-func (s *Server) ragIngestFileFunc() workflow.RAGIngestFileFunc {
-	if s.ragService == nil {
-		return nil
-	}
-	return func(ctx context.Context, collectionID string, content []byte, source string, extraMetadata map[string]any) (int, error) {
-		result, err := s.ragService.Ingest(ctx, collectionID, bytes.NewReader(content), "", source, extraMetadata)
-		if err != nil {
-			return 0, err
-		}
-		return result.ChunksStored, nil
-	}
-}
-
-// ragDeleteBySourceFunc returns a workflow.RAGDeleteBySourceFunc that delegates
-// to the server's ragService. Returns nil when RAG is not configured.
-func (s *Server) ragDeleteBySourceFunc() workflow.RAGDeleteBySourceFunc {
-	if s.ragService == nil {
-		return nil
-	}
-	return func(ctx context.Context, collectionID, source string) error {
-		return s.ragService.DeleteDocumentsBySource(ctx, collectionID, source)
-	}
-}
-
 // connectionLookupFunc returns a workflow.ConnectionLookup that resolves a
 // named Connection by ID. Returns nil when the connection store is not
 // configured (in which case agent_call nodes resolve only against global
@@ -1402,28 +1259,6 @@ func (s *Server) varSaveFunc() workflow.VarSaveFunc {
 			return fmt.Errorf("create variable %q: %w", key, err)
 		}
 		return nil
-	}
-}
-
-// ragStateLookupFunc returns a workflow.RAGStateLookupFunc that delegates to the
-// server's ragStateStore. Returns nil when store is not configured.
-func (s *Server) ragStateLookupFunc() workflow.RAGStateLookupFunc {
-	if s.ragStateStore == nil {
-		return nil
-	}
-	return func(ctx context.Context, key string) (*service.RAGState, error) {
-		return s.ragStateStore.GetRAGState(ctx, key)
-	}
-}
-
-// ragStateSaveFunc returns a workflow.RAGStateSaveFunc that delegates to the
-// server's ragStateStore. Returns nil when store is not configured.
-func (s *Server) ragStateSaveFunc() workflow.RAGStateSaveFunc {
-	if s.ragStateStore == nil {
-		return nil
-	}
-	return func(ctx context.Context, key, value string) error {
-		return s.ragStateStore.SetRAGState(ctx, key, value)
 	}
 }
 
@@ -1589,62 +1424,6 @@ func (s *Server) goalAncestryFunc() workflow.GoalAncestryFunc {
 	}
 	return func(ctx context.Context, goalID string) ([]service.Goal, error) {
 		return s.goalStore.GetGoalAncestry(ctx, goalID)
-	}
-}
-
-// ragPageUpsertFunc returns a workflow.RAGPageUpsertFunc that stores original
-// file content in the rag_pages table. Returns nil when page store is not configured.
-func (s *Server) ragPageUpsertFunc() workflow.RAGPageUpsertFunc {
-	if s.ragPageStore == nil {
-		return nil
-	}
-	return func(ctx context.Context, collectionID, source, path, content, contentType string, metadata map[string]any) error {
-		if contentType == "" {
-			contentType = rag.DetectContentType(path)
-		}
-		h := sha256.Sum256([]byte(content))
-		hash := hex.EncodeToString(h[:])
-		_, err := s.ragPageStore.UpsertRAGPage(ctx, service.RAGPage{
-			CollectionID: collectionID,
-			Source:       source,
-			Path:         path,
-			Content:      content,
-			ContentType:  contentType,
-			Metadata:     metadata,
-			ContentHash:  hash,
-		})
-		return err
-	}
-}
-
-// ragSyncFunc returns a workflow.RAGSyncFunc that triggers a git sync for a
-// RAG collection. Used by the cron scheduler for rag_sync triggers.
-// Returns nil when RAG is not configured.
-func (s *Server) ragSyncFunc() workflow.RAGSyncFunc {
-	if s.ragService == nil || s.ragCollectionStore == nil {
-		return nil
-	}
-	return func(ctx context.Context, collectionID string) error {
-		collection, err := s.ragCollectionStore.GetRAGCollection(ctx, collectionID)
-		if err != nil {
-			return fmt.Errorf("get collection %s: %w", collectionID, err)
-		}
-		if collection == nil {
-			return fmt.Errorf("collection %s not found", collectionID)
-		}
-		if collection.Config.GitSource == nil {
-			return fmt.Errorf("collection %s has no git source configured", collectionID)
-		}
-
-		deps := rag.SyncDeps{
-			RAGService: s.ragService,
-			PageStore:  s.ragPageStore,
-			StateStore: s.ragStateStore,
-			VarStore:   s.variableStore,
-		}
-
-		_, err = rag.SyncCollection(ctx, deps, collection)
-		return err
 	}
 }
 

@@ -54,14 +54,7 @@ type Engine struct {
 	nodeConfigLookup      NodeConfigLookup
 	workflowLookup        WorkflowLookup
 	agentLookup           AgentLookup
-	ragSearch             RAGSearchFunc
-	ragIngest             RAGIngestFunc
-	ragIngestFile         RAGIngestFileFunc
-	ragDeleteBySource     RAGDeleteBySourceFunc
 	varSave               VarSaveFunc
-	ragStateLookup        RAGStateLookupFunc
-	ragStateSave          RAGStateSaveFunc
-	ragPageUpsert         RAGPageUpsertFunc
 	builtinToolDispatcher BuiltinToolDispatcher
 	builtinToolDefs       []BuiltinToolDef
 	userPrefLookup        UserPrefLookup
@@ -91,7 +84,7 @@ func (e *Engine) SetLoopGov(gov LoopGovernor) {
 }
 
 // NewEngine creates a new workflow execution engine.
-func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, ragSearch RAGSearchFunc, ragIngest RAGIngestFunc, ragIngestFile RAGIngestFileFunc, ragDeleteBySource RAGDeleteBySourceFunc, varSave VarSaveFunc, ragStateLookup RAGStateLookupFunc, ragStateSave RAGStateSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc) *Engine {
+func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, varSave VarSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc) *Engine {
 	return &Engine{
 		providerLookup:        lookup,
 		skillLookup:           skillLookup,
@@ -100,13 +93,7 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 		nodeConfigLookup:      nodeConfigLookup,
 		workflowLookup:        workflowLookup,
 		agentLookup:           agentLookup,
-		ragSearch:             ragSearch,
-		ragIngest:             ragIngest,
-		ragIngestFile:         ragIngestFile,
-		ragDeleteBySource:     ragDeleteBySource,
 		varSave:               varSave,
-		ragStateLookup:        ragStateLookup,
-		ragStateSave:          ragStateSave,
 		builtinToolDispatcher: builtinDispatcher,
 		builtinToolDefs:       builtinDefs,
 		userPrefLookup:        userPrefLookup,
@@ -118,12 +105,6 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 		goalAncestry:          goalAncestry,
 		versionLookup:         versionLookup,
 	}
-}
-
-// SetRAGPageUpsert sets the callback used to store original file content
-// in rag_pages. Optional — if not set, pages are not stored.
-func (e *Engine) SetRAGPageUpsert(f RAGPageUpsertFunc) {
-	e.ragPageUpsert = f
 }
 
 // SetConnectionLookup sets the callback used by agent_call nodes to resolve
@@ -388,8 +369,7 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.ragSearch, e.ragIngest, e.ragIngestFile, e.ragDeleteBySource, e.varSave, e.ragStateLookup, e.ragStateSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordObservation, e.goalAncestry, e.versionLookup, inputs)
-	reg.RAGPageUpsert = e.ragPageUpsert
+	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.varSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordObservation, e.goalAncestry, e.versionLookup, inputs)
 	reg.ConnectionLookup = e.connectionLookup
 	reg.WorkflowByNameLookup = e.workflowByNameLookup
 	reg.WorkflowExecutor = e.workflowExecutor

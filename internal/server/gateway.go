@@ -502,19 +502,13 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	var models []ModelData
 	s.providerMu.RLock()
 	for key, info := range s.providers {
-		if len(info.models) > 0 {
-			for _, m := range info.models {
-				fullID := key + "/" + m
-				if auth.isModelAllowed(key, fullID) {
-					models = append(models, ModelData{
-						ID:      fullID,
-						Object:  "model",
-						OwnedBy: key,
-					})
-				}
+		seen := make(map[string]bool)
+		add := func(m string) {
+			if m == "" || seen[m] {
+				return
 			}
-		} else {
-			fullID := key + "/" + info.defaultModel
+			seen[m] = true
+			fullID := key + "/" + m
 			if auth.isModelAllowed(key, fullID) {
 				models = append(models, ModelData{
 					ID:      fullID,
@@ -522,6 +516,19 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 					OwnedBy: key,
 				})
 			}
+		}
+
+		if len(info.models) > 0 {
+			for _, m := range info.models {
+				add(m)
+			}
+		} else {
+			add(info.defaultModel)
+		}
+
+		// Embedding models are advertised alongside chat models.
+		for _, m := range info.embeddingModels {
+			add(m)
 		}
 	}
 	s.providerMu.RUnlock()

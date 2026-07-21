@@ -7,6 +7,7 @@
     updateProvider,
     deleteProvider,
     discoverModels,
+    discoverEmbeddingModels,
     startDeviceAuth,
     getDeviceAuthStatus,
     startClaudeAuth,
@@ -980,12 +981,15 @@
   let formModel = $state('');
   let formModels = $state<string[]>([]);
   let newModelInput = $state('');
+  let formEmbeddingModels = $state<string[]>([]);
+  let newEmbeddingModelInput = $state('');
   let formAuthType = $state('');
   let formProxy = $state('');
   let formInsecureSkipVerify = $state(false);
   let formHasStoredKey = $state(false);
   let formExtraHeaders = $state<{ key: string; value: string }[]>([]);
   let discoveringModels = $state(false);
+  let discoveringEmbeddingModels = $state(false);
 
   // Rate limit fields. Empty string = unlimited / use default.
   let formRateLimitRPM = $state('');
@@ -1063,6 +1067,8 @@
     formModel = '';
     formModels = [];
     newModelInput = '';
+    formEmbeddingModels = [];
+    newEmbeddingModelInput = '';
     formAuthType = '';
     formProxy = '';
     formInsecureSkipVerify = false;
@@ -1100,6 +1106,7 @@
     formBaseUrl = preset.config.base_url || '';
     formModel = preset.config.model || '';
     formModels = [...(preset.config.models || [])];
+    formEmbeddingModels = [...(preset.config.embedding_models || [])];
     formAuthType = preset.config.auth_type || '';
     formProxy = '';
     formExtraHeaders = preset.extraHeaders ? [...preset.extraHeaders] : [];
@@ -1119,6 +1126,7 @@
     formBaseUrl = rec.config.base_url || '';
     formModel = rec.config.model;
     formModels = [...(rec.config.models || [])];
+    formEmbeddingModels = [...(rec.config.embedding_models || [])];
     formAuthType = rec.config.auth_type || '';
     formProxy = rec.config.proxy || '';
     formInsecureSkipVerify = rec.config.insecure_skip_verify || false;
@@ -1153,6 +1161,9 @@
 
     const models = formModels.filter(Boolean);
     if (models.length > 0) cfg.models = models;
+
+    const embeddingModels = formEmbeddingModels.filter(Boolean);
+    if (embeddingModels.length > 0) cfg.embedding_models = embeddingModels;
 
     const headers: Record<string, string> = {};
     for (const h of formExtraHeaders) {
@@ -1241,6 +1252,21 @@
 
   function removeModel(index: number) {
     formModels = formModels.filter((_, i) => i !== index);
+  }
+
+  function addEmbeddingModel() {
+    const model = newEmbeddingModelInput.trim();
+    if (!model) return;
+    if (formEmbeddingModels.includes(model)) {
+      addToast(`"${model}" is already in the list`, 'warn');
+      return;
+    }
+    formEmbeddingModels = [...formEmbeddingModels, model];
+    newEmbeddingModelInput = '';
+  }
+
+  function removeEmbeddingModel(index: number) {
+    formEmbeddingModels = formEmbeddingModels.filter((_, i) => i !== index);
   }
 
   // ─── Device Auth ───
@@ -1449,6 +1475,45 @@
       addToast(e?.response?.data?.message || 'Failed to discover models', 'alert');
     } finally {
       discoveringModels = false;
+    }
+  }
+
+  async function handleDiscoverEmbeddingModels() {
+    if (!formType) {
+      addToast('Select a provider type first', 'warn');
+      return;
+    }
+
+    if (!['openai', 'azure', 'gemini', 'cohere'].includes(formType)) {
+      addToast('Embedding model discovery is not supported for this provider type', 'warn');
+      return;
+    }
+
+    discoveringEmbeddingModels = true;
+    try {
+      const cfg: Record<string, any> = { type: formType };
+      if (formApiKey) cfg.api_key = formApiKey;
+      if (formBaseUrl) cfg.base_url = formBaseUrl;
+      if (formProxy) cfg.proxy = formProxy;
+      if (formInsecureSkipVerify) cfg.insecure_skip_verify = true;
+
+      const headers: Record<string, string> = {};
+      for (const h of formExtraHeaders) {
+        if (h.key && h.value) headers[h.key] = h.value;
+      }
+      if (Object.keys(headers).length > 0) cfg.extra_headers = headers;
+
+      const models = await discoverEmbeddingModels(cfg as any, editingKey || undefined);
+      if (models.length === 0) {
+        addToast('No embedding models found', 'warn');
+      } else {
+        formEmbeddingModels = models;
+        addToast(`Found ${models.length} embedding models`);
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to discover embedding models', 'alert');
+    } finally {
+      discoveringEmbeddingModels = false;
     }
   }
 
@@ -2100,6 +2165,52 @@
           </div>
         </div>
 
+        <!-- Embedding Models -->
+        <div class="grid grid-cols-4 gap-3">
+          <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Embedding Models</span>
+          <div class="col-span-3 space-y-2">
+            {#each formEmbeddingModels as model, i}
+              <div class="flex gap-2 items-center">
+                <span class="flex-1 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-dark-text-secondary">{model}</span>
+                <button
+                  type="button"
+                  onclick={() => removeEmbeddingModel(i)}
+                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint transition-colors"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            {/each}
+            <div class="flex gap-2">
+              <input
+                type="text"
+                bind:value={newEmbeddingModelInput}
+                placeholder="e.g., text-embedding-3-small"
+                onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmbeddingModel(); } }}
+                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              />
+              <button
+                type="button"
+                onclick={addEmbeddingModel}
+                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors shrink-0"
+              >
+                + Add
+              </button>
+              <button
+                type="button"
+                onclick={handleDiscoverEmbeddingModels}
+                disabled={discoveringEmbeddingModels}
+                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                title="Fetch available embedding models from the provider using the API key above"
+              >
+                <RefreshCw size={13} class={discoveringEmbeddingModels ? 'animate-spin' : ''} />
+                {discoveringEmbeddingModels ? 'Fetching...' : 'Fetch'}
+              </button>
+            </div>
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted">Served via <span class="font-mono">/gateway/v1/embeddings</span> and advertised by <span class="font-mono">/gateway/v1/models</span>.</p>
+          </div>
+        </div>
+
         <!-- Extra Headers -->
         <div class="grid grid-cols-4 gap-3">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Extra Headers</span>
@@ -2191,6 +2302,12 @@
           <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{rec.config.model}</td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
             {(rec.config.models || []).length > 0 ? (rec.config.models || []).join(', ') : '-'}
+            {#if (rec.config.embedding_models || []).length > 0}
+              <div class="mt-0.5 flex flex-wrap items-center gap-1">
+                <span class="px-1 py-0.5 text-[10px] uppercase tracking-wide bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800">emb</span>
+                <span>{(rec.config.embedding_models || []).join(', ')}</span>
+              </div>
+            {/if}
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48" title={rec.config.base_url || ''}>
             {rec.config.base_url || 'default'}

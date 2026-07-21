@@ -25,6 +25,7 @@ export interface LLMConfig {
   base_url?: string;
   model: string;
   models?: string[];
+  embedding_models?: string[];
   extra_headers?: Record<string, string>;
   auth_type?: string;
   // OAuth refresh token managed by provider auth flows; redacted by the server.
@@ -77,6 +78,13 @@ export async function discoverModels(config: Partial<LLMConfig>, key?: string): 
   const body: Record<string, any> = { config };
   if (key) body.key = key;
   const res = await api.post<DiscoverModelsResponse>('/providers/discover-models', body);
+  return res.data.models;
+}
+
+export async function discoverEmbeddingModels(config: Partial<LLMConfig>, key?: string): Promise<string[]> {
+  const body: Record<string, any> = { config };
+  if (key) body.key = key;
+  const res = await api.post<DiscoverModelsResponse>('/providers/discover-embedding-models', body);
   return res.data.models;
 }
 

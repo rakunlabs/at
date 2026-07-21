@@ -9,7 +9,7 @@ const api = axios.create({
 export interface Trigger {
   id: string;
   workflow_id: string;
-  target_type: string;  // "workflow" | "rag_sync"
+  target_type: string;  // "workflow"
   target_id: string;
   entry_node_id?: string;
   type: 'http' | 'cron';

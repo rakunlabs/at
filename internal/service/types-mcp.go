@@ -23,16 +23,6 @@ type MCPHTTPTool struct {
 type MCPServerConfig struct {
 	Description string `json:"description,omitempty"`
 
-	// RAG tool integration (optional).
-	EnabledRAGTools   []string `json:"enabled_rag_tools,omitempty"`
-	CollectionIDs     []string `json:"collection_ids,omitempty"`
-	FetchMode         string   `json:"fetch_mode,omitempty"`
-	GitCacheDir       string   `json:"git_cache_dir,omitempty"`
-	DefaultNumResults int      `json:"default_num_results,omitempty"`
-	TokenVariable     string   `json:"token_variable,omitempty"`
-	TokenUser         string   `json:"token_user,omitempty"`
-	SSHKeyVariable    string   `json:"ssh_key_variable,omitempty"`
-
 	// Custom HTTP tools.
 	HTTPTools []MCPHTTPTool `json:"http_tools,omitempty"`
 

@@ -437,9 +437,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			// Collect direct upstreams for stdio/HTTP resolution.
 			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
 
-			// If the MCP set has server-side tools (RAG/HTTP/Skills/Builtins),
+			// If the MCP set has server-side tools (HTTP/Skills/Builtins),
 			// resolve them directly — no HTTP loopback.
-			if len(set.Config.EnabledRAGTools) > 0 || len(set.Config.HTTPTools) > 0 ||
+			if len(set.Config.HTTPTools) > 0 ||
 				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
 				setTools, err := s.listMCPSetTools(setName)
 				if err != nil {

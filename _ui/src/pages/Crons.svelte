@@ -9,7 +9,6 @@
     type Trigger,
   } from '@/lib/api/triggers';
   import { listWorkflows, getWorkflow, type Workflow, type WorkflowNode } from '@/lib/api/workflows';
-  import { listCollections, type RAGCollection } from '@/lib/api/rag';
   import {
     Clock,
     Plus,
@@ -32,7 +31,6 @@
 
   // Reference data
   let workflows = $state<Workflow[]>([]);
-  let ragCollections = $state<RAGCollection[]>([]);
 
   // Form
   let showForm = $state(false);
@@ -70,14 +68,12 @@
   async function load() {
     loading = true;
     try {
-      const [trigs, wfRes, ragRes] = await Promise.all([
+      const [trigs, wfRes] = await Promise.all([
         listAllTriggers({ type: 'cron' }),
         listWorkflows({ _limit: 1000 }).catch(() => ({ data: [], meta: { total: 0, offset: 0, limit: 0 } })),
-        listCollections({ _limit: 1000 }).catch(() => ({ data: [], meta: { total: 0, offset: 0, limit: 0 } })),
       ]);
       triggers = trigs;
       workflows = wfRes.data || [];
-      ragCollections = ragRes.data || [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load cron jobs', 'alert');
     } finally {
@@ -92,9 +88,6 @@
   function getTargetName(t: Trigger): string {
     if (t.target_type === 'workflow') {
       return workflows.find(w => w.id === t.target_id)?.name || t.target_id;
-    }
-    if (t.target_type === 'rag_sync') {
-      return ragCollections.find(c => c.id === t.target_id)?.name || t.target_id;
     }
     return t.target_id;
   }
@@ -303,7 +296,6 @@
             class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors"
           >
             <option value="workflow">Workflow</option>
-            <option value="rag_sync">RAG Sync</option>
           </select>
         </div>
 
@@ -317,15 +309,9 @@
             class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors"
           >
             <option value="">Select target...</option>
-            {#if formTargetType === 'workflow'}
-              {#each workflows as w}
-                <option value={w.id}>{w.name}</option>
-              {/each}
-            {:else}
-              {#each ragCollections as c}
-                <option value={c.id}>{c.name}</option>
-              {/each}
-            {/if}
+            {#each workflows as w}
+              <option value={w.id}>{w.name}</option>
+            {/each}
           </select>
         </div>
 
@@ -438,7 +424,7 @@
     <div class="text-center py-12 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
       <Clock size={24} class="mx-auto mb-2 text-gray-300 dark:text-dark-text-muted" />
       <p class="text-sm text-gray-500 dark:text-dark-text-muted">No cron jobs configured</p>
-      <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Create a cron job to run workflows or RAG syncs on a schedule</p>
+      <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Create a cron job to run workflows on a schedule</p>
     </div>
   {:else}
     <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
@@ -461,7 +447,7 @@
               </td>
               <td class="px-4 py-2.5">
                 <span class="text-xs px-1.5 py-0.5 bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
-                  {t.target_type === 'rag_sync' ? 'RAG' : 'Workflow'}
+                  Workflow
                 </span>
                 <span class="ml-1.5 text-xs text-gray-700 dark:text-dark-text-secondary">{getTargetName(t)}</span>
               </td>

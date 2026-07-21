@@ -29,8 +29,10 @@ type createTokenRequest struct {
 	AllowedModels        []string `json:"allowed_models,omitempty"`         // used when mode = "list"
 	AllowedWebhooksMode  string   `json:"allowed_webhooks_mode,omitempty"`  // "all" (default/""), "none", or "list"
 	AllowedWebhooks      []string `json:"allowed_webhooks,omitempty"`       // used when mode = "list"
-	AllowedRAGMCPsMode   string   `json:"allowed_rag_mcps_mode,omitempty"`  // "all" (default/""), "none", or "list"
-	AllowedRAGMCPs       []string `json:"allowed_rag_mcps,omitempty"`       // used when mode = "list"
+	AllowedMCPsMode      string   `json:"allowed_mcps_mode,omitempty"`      // "all" (default/""), "none", or "list"
+	AllowedMCPs          []string `json:"allowed_mcps,omitempty"`           // used when mode = "list" (gateway MCP server names)
+	LegacyRAGMCPsMode    string   `json:"allowed_rag_mcps_mode,omitempty"`  // deprecated alias for allowed_mcps_mode
+	LegacyRAGMCPs        []string `json:"allowed_rag_mcps,omitempty"`       // deprecated alias for allowed_mcps
 	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
 	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
 	SpendLimitCents      *float64 `json:"spend_limit_cents,omitempty"`      // max spend in cents; nil = unlimited
@@ -46,8 +48,10 @@ type updateTokenRequest struct {
 	AllowedModels        []string `json:"allowed_models,omitempty"`         // used when mode = "list"
 	AllowedWebhooksMode  string   `json:"allowed_webhooks_mode,omitempty"`  // "all" (default/""), "none", or "list"
 	AllowedWebhooks      []string `json:"allowed_webhooks,omitempty"`       // used when mode = "list"
-	AllowedRAGMCPsMode   string   `json:"allowed_rag_mcps_mode,omitempty"`  // "all" (default/""), "none", or "list"
-	AllowedRAGMCPs       []string `json:"allowed_rag_mcps,omitempty"`       // used when mode = "list"
+	AllowedMCPsMode      string   `json:"allowed_mcps_mode,omitempty"`      // "all" (default/""), "none", or "list"
+	AllowedMCPs          []string `json:"allowed_mcps,omitempty"`           // used when mode = "list" (gateway MCP server names)
+	LegacyRAGMCPsMode    string   `json:"allowed_rag_mcps_mode,omitempty"`  // deprecated alias for allowed_mcps_mode
+	LegacyRAGMCPs        []string `json:"allowed_rag_mcps,omitempty"`       // deprecated alias for allowed_mcps
 	ExpiresAt            *string  `json:"expires_at,omitempty"`             // RFC3339 timestamp, nil/empty = no expiry
 	TotalTokenLimit      *int64   `json:"total_token_limit,omitempty"`      // max total tokens; nil = unlimited
 	SpendLimitCents      *float64 `json:"spend_limit_cents,omitempty"`      // max spend in cents; nil = unlimited
@@ -106,6 +110,14 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Backward compat: fold legacy allowed_rag_mcps* fields into allowed_mcps*.
+	if req.AllowedMCPsMode == "" && req.LegacyRAGMCPsMode != "" {
+		req.AllowedMCPsMode = req.LegacyRAGMCPsMode
+	}
+	if len(req.AllowedMCPs) == 0 && len(req.LegacyRAGMCPs) > 0 {
+		req.AllowedMCPs = req.LegacyRAGMCPs
+	}
+
 	if req.Name == "" {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
@@ -155,8 +167,8 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		AllowedModels:        req.AllowedModels,
 		AllowedWebhooksMode:  req.AllowedWebhooksMode,
 		AllowedWebhooks:      req.AllowedWebhooks,
-		AllowedRAGMCPsMode:   req.AllowedRAGMCPsMode,
-		AllowedRAGMCPs:       req.AllowedRAGMCPs,
+		AllowedMCPsMode:      req.AllowedMCPsMode,
+		AllowedMCPs:          req.AllowedMCPs,
 		ExpiresAt:            expiresAt,
 		TotalTokenLimit:      toNullInt64(req.TotalTokenLimit),
 		SpendLimitCents:      toNullFloat64(req.SpendLimitCents),
@@ -219,6 +231,14 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Backward compat: fold legacy allowed_rag_mcps* fields into allowed_mcps*.
+	if req.AllowedMCPsMode == "" && req.LegacyRAGMCPsMode != "" {
+		req.AllowedMCPsMode = req.LegacyRAGMCPsMode
+	}
+	if len(req.AllowedMCPs) == 0 && len(req.LegacyRAGMCPs) > 0 {
+		req.AllowedMCPs = req.LegacyRAGMCPs
+	}
+
 	if req.Name == "" {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
@@ -251,8 +271,8 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		AllowedModels:        req.AllowedModels,
 		AllowedWebhooksMode:  req.AllowedWebhooksMode,
 		AllowedWebhooks:      req.AllowedWebhooks,
-		AllowedRAGMCPsMode:   req.AllowedRAGMCPsMode,
-		AllowedRAGMCPs:       req.AllowedRAGMCPs,
+		AllowedMCPsMode:      req.AllowedMCPsMode,
+		AllowedMCPs:          req.AllowedMCPs,
 		ExpiresAt:            expiresAt,
 		TotalTokenLimit:      toNullInt64(req.TotalTokenLimit),
 		SpendLimitCents:      toNullFloat64(req.SpendLimitCents),

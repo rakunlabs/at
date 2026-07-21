@@ -334,7 +334,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 
 	// e4) Load MCP-set tools for this agent (workflows exposed as wf_* tools,
-	// stdio/HTTP upstream MCPs, and server-side skill/builtin/RAG/HTTP tools
+	// stdio/HTTP upstream MCPs, and server-side skill/builtin/HTTP tools
 	// declared via mcp_sets). The chat-session loop already does this; without
 	// it, agents that rely on mcp_sets — e.g. a Video Producer whose
 	// `wf_video_toolkit` workflow (entry `assemble_video`) and ElevenLabs MCP
@@ -369,9 +369,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			mcpURLs = append(mcpURLs, set.URLs...)
 			mcpSetUpstreams = append(mcpSetUpstreams, set.Config.MCPUpstreams...)
 
-			// Server-side tools (skills/builtins/RAG/HTTP/workflows) resolve
+			// Server-side tools (skills/builtins/HTTP/workflows) resolve
 			// directly through callMCPSetTool — no HTTP round-trip needed.
-			if len(set.Config.EnabledRAGTools) > 0 || len(set.Config.HTTPTools) > 0 ||
+			if len(set.Config.HTTPTools) > 0 ||
 				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
 				len(set.Config.WorkflowIDs) > 0 {
 				setTools, err := s.listMCPSetTools(setName)
@@ -689,7 +689,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		})
 	}
 	llmTools = append(llmTools, builtinToolDefs...)
-	// MCP-set tools (workflows, upstreams, server-side skill/builtin/RAG/HTTP).
+	// MCP-set tools (workflows, upstreams, server-side skill/builtin/HTTP).
 	// Stripped to name/description/schema so tool handlers never reach the LLM.
 	for _, t := range mcpSetTools {
 		llmTools = append(llmTools, service.Tool{
@@ -1204,7 +1204,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				recordToolObs(tc.Name, tc.Arguments, result, callErr != nil, time.Since(toolStarted).Milliseconds())
 			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
 				// MCP-set tool resolved server-side (workflow exposed as a
-				// wf_* tool, or a skill/builtin/RAG/HTTP tool declared via
+				// wf_* tool, or a skill/builtin/HTTP tool declared via
 				// mcp_sets) — no HTTP round-trip.
 				result, callErr := s.callMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
 				if callErr != nil {

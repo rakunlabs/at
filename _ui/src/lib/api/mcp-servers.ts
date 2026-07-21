@@ -19,15 +19,6 @@ export interface MCPHTTPTool {
 
 export interface MCPServerConfig {
   description?: string;
-  // RAG integration
-  enabled_rag_tools?: string[];
-  collection_ids?: string[];
-  fetch_mode?: string;
-  git_cache_dir?: string;
-  default_num_results?: number;
-  token_variable?: string;
-  token_user?: string;
-  ssh_key_variable?: string;
   // HTTP tools
   http_tools?: MCPHTTPTool[];
   // Upstream MCP servers

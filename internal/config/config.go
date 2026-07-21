@@ -186,6 +186,12 @@ type LLMConfig struct {
 	// If empty, only the default Model is advertised and no strict validation is applied.
 	Models []string `cfg:"models" json:"models"`
 
+	// EmbeddingModels is the list of embedding models this provider serves via
+	// POST /gateway/v1/embeddings. They are advertised by /gateway/v1/models
+	// alongside chat models. Advisory — requests for models outside this list
+	// are still forwarded to the provider.
+	EmbeddingModels []string `cfg:"embedding_models" json:"embedding_models"`
+
 	// ExtraHeaders allows setting additional HTTP headers sent with each request.
 	// Useful for providers that require custom headers (e.g., GitHub Models).
 	ExtraHeaders map[string]string `cfg:"extra_headers" json:"extra_headers"`

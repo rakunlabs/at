@@ -69,7 +69,7 @@ var featureGroupDefinitions = []featureGroupDefinition{
 	{
 		Key:         "data_integrations",
 		Name:        "Data & Integrations",
-		Description: "RAG, file browser, external connections, and integration packs.",
+		Description: "File browser, external connections, and integration packs.",
 	},
 	{
 		Key:         "operations",
@@ -102,12 +102,6 @@ var featureDefinitions = []featureDefinition{
 		Name:        "Automation",
 		Description: "Show and enable workflows, workflow runs, node configs, webhooks, cron triggers, and workflow/trigger built-in tools.",
 		Group:       "automation",
-	},
-	{
-		Key:         service.FeatureRAG,
-		Name:        "RAG",
-		Description: "Show and enable RAG collections, document ingestion, search, embedding tests, and RAG chat tools.",
-		Group:       "data_integrations",
 	},
 	{
 		Key:         service.FeatureFiles,
@@ -375,10 +369,7 @@ func featureKeysForAPIRequest(path, method, basePath string) []string {
 		return []string{service.FeatureProviderSetup}
 	case apiPath == "/workflow-node-types" || strings.HasPrefix(apiPath, "/workflows") ||
 		strings.HasPrefix(apiPath, "/triggers") || strings.HasPrefix(apiPath, "/runs") ||
-		strings.HasPrefix(apiPath, "/node-configs") || strings.HasPrefix(apiPath, "/rag/collections/") && strings.Contains(apiPath, "/triggers"):
-		if strings.HasPrefix(apiPath, "/rag/") {
-			return []string{service.FeatureAutomation, service.FeatureRAG}
-		}
+		strings.HasPrefix(apiPath, "/node-configs"):
 		return []string{service.FeatureAutomation}
 	case apiPath == "/chat/completions" || strings.HasPrefix(apiPath, "/chat/sessions"):
 		return []string{service.FeatureChatWorkbench}
@@ -386,14 +377,10 @@ func featureKeysForAPIRequest(path, method, basePath string) []string {
 		apiPath == "/mcp/call-skill-tool" || apiPath == "/mcp/builtin-tools" ||
 		apiPath == "/mcp/call-builtin-tool" || strings.HasPrefix(apiPath, "/mcp/set-tools/"):
 		return []string{service.FeatureChatWorkbench}
-	case apiPath == "/mcp/rag-tools" || apiPath == "/mcp/call-rag-tool":
-		return []string{service.FeatureChatWorkbench, service.FeatureRAG}
 	case apiPath == "/audio/transcribe":
 		return []string{service.FeatureChatWorkbench}
 	case strings.HasPrefix(apiPath, "/bots"):
 		return []string{service.FeatureChatWorkbench}
-	case strings.HasPrefix(apiPath, "/rag"):
-		return []string{service.FeatureRAG}
 	case strings.HasPrefix(apiPath, "/files"):
 		return []string{service.FeatureFiles}
 	case strings.HasPrefix(apiPath, "/connections") || strings.HasPrefix(apiPath, "/connectors") ||

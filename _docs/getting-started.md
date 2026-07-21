@@ -41,7 +41,6 @@ The UI is available at `http://localhost:8080` after starting.
 - **Skills** — Reusable prompt templates that agents can use
 - **Variables** — Key-value pairs for dynamic prompt content
 - **MCP Servers** — Model Context Protocol servers for external tool integration
-- **RAG** — Retrieval-Augmented Generation with document indexing
 - **Bots** — Discord and Telegram integrations that connect agents to messaging platforms
 - **Workflows** — Visual automation pipelines with triggers and node-based execution
 - **Tokens** — API gateway authentication tokens with scoping

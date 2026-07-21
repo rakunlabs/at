@@ -12,7 +12,6 @@
 //   - types_task.go    — Task, issue comment, label, approval types
 //   - types_budget.go  — Agent budget, cost event, audit types
 //   - types_chat.go    — Chat session, bot config, user preference, marketplace types
-//   - types_rag.go     — RAG collection, state, page types
 //   - types_mcp.go     — MCP server, MCP set types
 //   - types_feature.go — runtime feature toggles
 package service
@@ -50,9 +49,6 @@ type Storer interface {
 	NodeConfigStorer
 	AgentStorer
 	ChatSessionStorer
-	RAGCollectionStorer
-	RAGStateStorer
-	RAGPageStorer
 	MCPServerStorer
 	MCPSetStorer
 	BotConfigStorer

@@ -133,9 +133,9 @@ func (s *Server) execAPITokenCreate(ctx context.Context, args map[string]any) (s
 	if err != nil {
 		return "", fmt.Errorf("allowed_webhooks: %w", err)
 	}
-	allowedRAGMCPs, err := decodeStringSlice(args["allowed_rag_mcps"])
+	allowedMCPs, err := decodeStringSlice(args["allowed_mcps"])
 	if err != nil {
-		return "", fmt.Errorf("allowed_rag_mcps: %w", err)
+		return "", fmt.Errorf("allowed_mcps: %w", err)
 	}
 
 	token := service.APIToken{
@@ -147,8 +147,8 @@ func (s *Server) execAPITokenCreate(ctx context.Context, args map[string]any) (s
 		AllowedModels:        allowedModels,
 		AllowedWebhooksMode:  stringArg(args, "allowed_webhooks_mode"),
 		AllowedWebhooks:      allowedWebhooks,
-		AllowedRAGMCPsMode:   stringArg(args, "allowed_rag_mcps_mode"),
-		AllowedRAGMCPs:       allowedRAGMCPs,
+		AllowedMCPsMode:      stringArg(args, "allowed_mcps_mode"),
+		AllowedMCPs:          allowedMCPs,
 		ExpiresAt:            expiresAt,
 		TotalTokenLimit:      toNullInt64(optionalInt64(args, "total_token_limit")),
 		LimitResetInterval:   toNullString(limitInterval),
@@ -215,9 +215,9 @@ func (s *Server) execAPITokenUpdate(ctx context.Context, args map[string]any) (s
 	if err != nil {
 		return "", fmt.Errorf("allowed_webhooks: %w", err)
 	}
-	allowedRAGMCPs, err := decodeStringSlice(args["allowed_rag_mcps"])
+	allowedMCPs, err := decodeStringSlice(args["allowed_mcps"])
 	if err != nil {
-		return "", fmt.Errorf("allowed_rag_mcps: %w", err)
+		return "", fmt.Errorf("allowed_mcps: %w", err)
 	}
 
 	token := service.APIToken{
@@ -228,8 +228,8 @@ func (s *Server) execAPITokenUpdate(ctx context.Context, args map[string]any) (s
 		AllowedModels:        allowedModels,
 		AllowedWebhooksMode:  stringArg(args, "allowed_webhooks_mode"),
 		AllowedWebhooks:      allowedWebhooks,
-		AllowedRAGMCPsMode:   stringArg(args, "allowed_rag_mcps_mode"),
-		AllowedRAGMCPs:       allowedRAGMCPs,
+		AllowedMCPsMode:      stringArg(args, "allowed_mcps_mode"),
+		AllowedMCPs:          allowedMCPs,
 		ExpiresAt:            expiresAt,
 		TotalTokenLimit:      toNullInt64(optionalInt64(args, "total_token_limit")),
 		LimitResetInterval:   toNullString(limitInterval),

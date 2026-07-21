@@ -13,7 +13,6 @@ import NodeConfigs from '@/pages/NodeConfigs.svelte';
 import Workflows from '@/pages/Workflows.svelte';
 import WorkflowEditor from '@/pages/WorkflowEditor.svelte';
 import Runs from '@/pages/Runs.svelte';
-import Rag from '@/pages/Rag.svelte';
 import McpServers from '@/pages/McpServers.svelte';
 import Mcps from '@/pages/Mcps.svelte';
 import Bots from '@/pages/Bots.svelte';
@@ -43,7 +42,6 @@ import {
   FEATURE_FILES,
   FEATURE_ORGANIZATION_WORKFLOWS,
   FEATURE_PROVIDER_SETUP,
-  FEATURE_RAG,
 } from '@/lib/api/features';
 
 function guarded(component: any, feature: string) {
@@ -88,7 +86,6 @@ export default {
   '/runs': guarded(Runs, FEATURE_AUTOMATION),
   '/webhooks': guarded(Webhooks, FEATURE_AUTOMATION),
   '/crons': guarded(Crons, FEATURE_AUTOMATION),
-  '/rag': guarded(Rag, FEATURE_RAG),
   '/connections': guarded(Connections, FEATURE_CONNECTIONS),
   '/integrations': guarded(IntegrationPacks, FEATURE_CONNECTIONS),
   '/mcp-servers': McpServers,

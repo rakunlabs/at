@@ -224,10 +224,10 @@
         req.allowed_webhooks = formSelectedWebhooks;
       }
       if (formMcpServersMode !== 'all') {
-        req.allowed_rag_mcps_mode = formMcpServersMode;
+        req.allowed_mcps_mode = formMcpServersMode;
       }
       if (formMcpServersMode === 'list' && formSelectedMcpServers.length > 0) {
-        req.allowed_rag_mcps = formSelectedMcpServers;
+        req.allowed_mcps = formSelectedMcpServers;
       }
       if (formExpiresAt) {
         req.expires_at = new Date(formExpiresAt).toISOString();
@@ -332,8 +332,8 @@
     editSelectedModels = token.allowed_models ? [...token.allowed_models] : [];
     editWebhooksMode = resolveMode(token.allowed_webhooks_mode, token.allowed_webhooks);
     editSelectedWebhooks = token.allowed_webhooks ? [...token.allowed_webhooks] : [];
-    editMcpServersMode = resolveMode(token.allowed_rag_mcps_mode, token.allowed_rag_mcps);
-    editSelectedMcpServers = token.allowed_rag_mcps ? [...token.allowed_rag_mcps] : [];
+    editMcpServersMode = resolveMode(token.allowed_mcps_mode, token.allowed_mcps);
+    editSelectedMcpServers = token.allowed_mcps ? [...token.allowed_mcps] : [];
     editTotalTokenLimit = token.total_token_limit != null ? String(token.total_token_limit) : '';
     editSpendLimitCents = token.spend_limit_cents != null ? String(token.spend_limit_cents) : '';
     editLimitResetInterval = token.limit_reset_interval || '';
@@ -429,10 +429,10 @@
         req.allowed_webhooks = editSelectedWebhooks;
       }
       if (editMcpServersMode !== 'all') {
-        req.allowed_rag_mcps_mode = editMcpServersMode;
+        req.allowed_mcps_mode = editMcpServersMode;
       }
       if (editMcpServersMode === 'list' && editSelectedMcpServers.length > 0) {
-        req.allowed_rag_mcps = editSelectedMcpServers;
+        req.allowed_mcps = editSelectedMcpServers;
       }
       if (editExpiresAt) {
         req.expires_at = new Date(editExpiresAt).toISOString();
@@ -1269,7 +1269,7 @@
               {@const pMode = resolveMode(token.allowed_providers_mode, token.allowed_providers)}
               {@const mMode = resolveMode(token.allowed_models_mode, token.allowed_models)}
               {@const wMode = resolveMode(token.allowed_webhooks_mode, token.allowed_webhooks)}
-              {@const rMode = resolveMode(token.allowed_rag_mcps_mode, token.allowed_rag_mcps)}
+              {@const rMode = resolveMode(token.allowed_mcps_mode, token.allowed_mcps)}
               {#if pMode === 'all' && mMode === 'all' && wMode === 'all' && rMode === 'all'}
                 <span class="text-gray-400 dark:text-dark-text-muted">All access</span>
               {:else}
@@ -1300,10 +1300,10 @@
                   {/if}
                   {#if rMode === 'none'}
                     <div><span class="text-red-500 dark:text-red-400">MCP Servers: None</span></div>
-                  {:else if rMode === 'list' && token.allowed_rag_mcps && token.allowed_rag_mcps.length > 0}
+                  {:else if rMode === 'list' && token.allowed_mcps && token.allowed_mcps.length > 0}
                     <div>
                       <span class="text-gray-400 dark:text-dark-text-muted">MCP Servers:</span>
-                      {token.allowed_rag_mcps.slice(0, 3).join(', ')}{token.allowed_rag_mcps.length > 3 ? ` +${token.allowed_rag_mcps.length - 3}` : ''}
+                      {token.allowed_mcps.slice(0, 3).join(', ')}{token.allowed_mcps.length > 3 ? ` +${token.allowed_mcps.length - 3}` : ''}
                     </div>
                   {/if}
                 </div>

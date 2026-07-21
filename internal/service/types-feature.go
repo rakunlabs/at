@@ -7,7 +7,6 @@ const (
 	FeatureChatWorkbench         = "chat_workbench"
 	FeatureAgents                = "agents"
 	FeatureAutomation            = "automation"
-	FeatureRAG                   = "rag"
 	FeatureFiles                 = "files"
 	FeatureConnections           = "connections_integrations"
 	FeatureOrganizationWorkflows = "organization_workflows"

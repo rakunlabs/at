@@ -12,12 +12,10 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
-  import { listMCPTools, callMCPTool, callSkillTool, listBuiltinTools, callBuiltinTool, listRAGTools, callRAGTool, type MCPToolInfo, type BuiltinToolDef, type RAGToolDef, type RAGAuthConfig } from '@/lib/api/mcp';
-  import { listCollections, type RAGCollection } from '@/lib/api/rag';
+  import { listMCPTools, callMCPTool, callSkillTool, listBuiltinTools, callBuiltinTool, type MCPToolInfo, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listAgents, type Agent, type SkillRef } from '@/lib/api/agents';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
-  import { listVariables, type Variable } from '@/lib/api/secrets';
   import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, Mic, MicOff } from 'lucide-svelte';
   import axios from 'axios';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -33,7 +31,7 @@
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
-    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'rag' | 'mcpset';
+    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'mcpset';
     /** MCP server URL (when type === 'mcp') */
     serverUrl?: string;
     /** Skill name (when type === 'skill') */
@@ -238,16 +236,6 @@
   let builtinTools = $state<BuiltinToolDef[]>([]);
   let enabledBuiltinTools = $state<string[]>([]);
 
-  // RAG tools
-  let ragTools = $state<RAGToolDef[]>([]);
-  let ragAvailable = $state(false);
-  let enabledRagTools = $state<string[]>([]);
-  let ragCollections = $state<RAGCollection[]>([]);
-  let selectedRagCollectionIds = $state<string[]>([]);
-  let ragTokenVariable = $state('');
-  let ragTokenUser = $state('');
-  let ragSSHKeyVariable = $state('');
-  let chatVariables = $state<Variable[]>([]);
 
   // Frontend-only tools
   let enabledFrontendTools = $state<string[]>([]);
@@ -323,25 +311,6 @@
     }
   }
 
-  async function loadRAGTools() {
-    try {
-      const res = await listRAGTools();
-      ragTools = res.tools ?? [];
-      ragAvailable = res.available ?? false;
-    } catch {
-      // RAG tools endpoint may not be available
-    }
-  }
-
-  async function loadRAGCollections() {
-    try {
-      const res = await listCollections();
-      ragCollections = res.data ?? [];
-    } catch {
-      // RAG collections endpoint may not be available
-    }
-  }
-
   async function loadMCPSets() {
     try {
       const res = await listMCPSets({ _limit: 500 });
@@ -355,18 +324,7 @@
   loadAgents();
   loadSkills();
   loadBuiltinTools();
-  loadRAGTools();
-  loadRAGCollections();
   loadMCPSets();
-
-  async function loadChatVariables() {
-    try {
-      const res = await listVariables({ _limit: 500 });
-      chatVariables = res.data || [];
-    } catch {}
-  }
-
-  loadChatVariables();
 
   // ─── Scroll ───
 
@@ -494,8 +452,6 @@
     selectedSkillNames = [];
     enabledBuiltinTools = [];
     enabledFrontendTools = [];
-    enabledRagTools = [];
-    selectedRagCollectionIds = [];
     refreshTools();
   }
 
@@ -575,29 +531,7 @@
     refreshTools();
   }
 
-  function toggleRagTool(toolName: string) {
-    if (enabledRagTools.includes(toolName)) {
-      enabledRagTools = enabledRagTools.filter(t => t !== toolName);
-    } else {
-      enabledRagTools = [...enabledRagTools, toolName];
-    }
-    refreshTools();
-  }
-
-  function toggleRagCollection(collectionId: string) {
-    if (selectedRagCollectionIds.includes(collectionId)) {
-      selectedRagCollectionIds = selectedRagCollectionIds.filter(id => id !== collectionId);
-    } else {
-      selectedRagCollectionIds = [...selectedRagCollectionIds, collectionId];
-    }
-    // Auto-enable rag_search when a collection is selected
-    if (selectedRagCollectionIds.length > 0 && enabledRagTools.length === 0) {
-      enabledRagTools = ['rag_search'];
-      refreshTools();
-    }
-  }
-
-  /** Discover tools from MCP servers, selected skills, enabled builtins, frontend tools, and RAG. Build the dispatch map. */
+  /** Discover tools from MCP servers, selected skills, enabled builtins, and frontend tools. Build the dispatch map. */
   async function refreshTools() {
     loadingTools = true;
     const newTools: ToolDefinition[] = [];
@@ -703,23 +637,6 @@
         newTools.push(def);
         newSourceMap[def.function.name] = { type: 'frontend' };
       }
-
-      // 6. Add selected RAG tools
-      if (enabledRagTools.length > 0 && ragAvailable) {
-        for (const tool of ragTools) {
-          if (!enabledRagTools.includes(tool.name)) continue;
-          if (newSourceMap[tool.name]) continue;
-          newTools.push({
-            type: 'function',
-            function: {
-              name: tool.name,
-              description: tool.description,
-              parameters: tool.input_schema || { type: 'object', properties: {} },
-            },
-          });
-          newSourceMap[tool.name] = { type: 'rag' };
-        }
-      }
     } catch (e: any) {
       addToast(e.message || 'Failed to discover tools', 'alert');
     } finally {
@@ -759,18 +676,6 @@
         return res.result;
       } else if (source.type === 'builtin') {
         const res = await callBuiltinTool(tc.function.name, args);
-        if (res.error) return `Error: ${res.error}`;
-        return res.result;
-      } else if (source.type === 'rag') {
-        // If user selected specific collections, inject them into rag_search
-        if ((tc.function.name === 'rag_search' || tc.function.name === 'rag_search_and_fetch' || tc.function.name === 'rag_search_and_fetch_org') && selectedRagCollectionIds.length > 0) {
-          args.collection_ids = selectedRagCollectionIds;
-        }
-        const ragAuth: RAGAuthConfig = {};
-        if (ragTokenVariable) ragAuth.token_variable = ragTokenVariable;
-        if (ragTokenUser) ragAuth.token_user = ragTokenUser;
-        if (ragSSHKeyVariable) ragAuth.ssh_key_variable = ragSSHKeyVariable;
-        const res = await callRAGTool(tc.function.name, args, ragAuth);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
       } else if (source.type === 'frontend') {
@@ -1328,81 +1233,6 @@
         </div>
       </label>
 
-      <!-- RAG Knowledge Base -->
-      {#if ragAvailable && ragTools.length > 0}
-        <label class="block">
-          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">RAG Knowledge Base</span>
-          <div class="space-y-1.5">
-            <div class="flex flex-wrap gap-1.5">
-              {#each ragTools as tool}
-                <button
-                  onclick={() => toggleRagTool(tool.name)}
-                  class="px-2.5 py-1 text-xs border transition-colors {enabledRagTools.includes(tool.name)
-                    ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                    : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-                  title={tool.description}
-                >
-                  {tool.name}
-                </button>
-              {/each}
-            </div>
-            {#if enabledRagTools.length > 0 && ragCollections.length > 0}
-              <div>
-                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted mb-1 block">Collections {selectedRagCollectionIds.length > 0 ? `(${selectedRagCollectionIds.length} selected)` : '(all)'}</span>
-                <div class="flex flex-wrap gap-1.5">
-                  {#each ragCollections as col}
-                    <button
-                      onclick={() => toggleRagCollection(col.id)}
-                      class="px-2.5 py-1 text-xs border transition-colors {selectedRagCollectionIds.includes(col.id)
-                        ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                        : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-                      title={col.config.description || col.name}
-                    >
-                      {col.name}
-                    </button>
-                  {/each}
-                </div>
-              </div>
-            {/if}
-            {#if enabledRagTools.some(t => t === 'rag_fetch_source' || t === 'rag_search_and_fetch' || t === 'rag_search_and_fetch_org')}
-              <div class="space-y-1">
-                <span class="text-[10px] text-gray-400 dark:text-dark-text-muted block">Git Auth (optional)</span>
-                <div class="flex flex-wrap gap-1.5">
-                  <input
-                    type="text"
-                    list="chat-var-list"
-                    bind:value={ragTokenVariable}
-                    placeholder="Token variable"
-                    class="w-36 border border-gray-300 dark:border-dark-border-subtle px-2 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                    title="Variable key containing HTTPS token for private repos"
-                  />
-                  <input
-                    type="text"
-                    bind:value={ragTokenUser}
-                    placeholder="Token user"
-                    class="w-28 border border-gray-300 dark:border-dark-border-subtle px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                    title="Username for HTTPS token auth (default: x-token-auth)"
-                  />
-                  <input
-                    type="text"
-                    list="chat-var-list"
-                    bind:value={ragSSHKeyVariable}
-                    placeholder="SSH key variable"
-                    class="w-36 border border-gray-300 dark:border-dark-border-subtle px-2 py-0.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
-                    title="Variable key containing SSH private key for git+ssh repos"
-                  />
-                </div>
-                <datalist id="chat-var-list">
-                  {#each chatVariables as v}
-                    <option value={v.key}>{v.key}{v.description ? ` — ${v.description}` : ''}</option>
-                  {/each}
-                </datalist>
-              </div>
-            {/if}
-          </div>
-        </label>
-      {/if}
-
       <!-- Discovered tools summary + clear button -->
       <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted pt-1 border-t border-gray-200 dark:border-dark-border">
         {#if loadingTools}
@@ -1413,12 +1243,12 @@
           <span>{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
           <span class="text-gray-300 dark:text-dark-border">|</span>
           <span class="truncate flex-1">{discoveredTools.map(t => t.function.name).join(', ')}</span>
-        {:else if mcpUrls.length > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || enabledRagTools.length > 0}
+        {:else if mcpUrls.length > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
           <span>No tools discovered</span>
         {:else}
           <span>Add MCP servers, enable skills, or toggle tools above</span>
         {/if}
-        {#if toolCount > 0 || selectedMCPSetNames.length > 0 || mcpUrls.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0 || enabledRagTools.length > 0}
+        {#if toolCount > 0 || selectedMCPSetNames.length > 0 || mcpUrls.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
           <button
             onclick={clearAllToolSelections}
             class="ml-auto shrink-0 px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 transition-colors"
@@ -1562,8 +1392,6 @@
                             (Built-in)
                           {:else if toolSourceMap[tc.function.name]?.type === 'frontend'}
                             (Chat)
-                          {:else if toolSourceMap[tc.function.name]?.type === 'rag'}
-                            (RAG)
                           {/if}
                         </span>
                       </div>
