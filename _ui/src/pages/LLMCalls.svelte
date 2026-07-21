@@ -10,7 +10,7 @@
     type LLMCall,
     type LLMCallTrace,
   } from '@/lib/api/llm-calls';
-  import { formatDate } from '@/lib/helper/format';
+  import { formatDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
@@ -504,7 +504,7 @@
             class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer"
             onclick={() => openTrace(trace)}
           >
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap">{formatDate(trace.started_at)}</td>
+            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap font-mono">{formatDateTime(trace.started_at)}</td>
             <td class="px-4 py-2.5 text-xs text-gray-700 dark:text-dark-text-secondary max-w-56">
               <div class="truncate" title={trace.name || trace.trace_id}>{trace.name || trace.trace_id}</div>
               {#if trace.task_id}
@@ -563,7 +563,7 @@
             class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer"
             onclick={() => openDetail(call)}
           >
-            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap">{formatDate(call.created_at)}</td>
+            <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap font-mono">{formatDateTime(call.created_at)}</td>
             <td class="px-4 py-2.5 text-xs">{@render typeBadge(call)}</td>
             <td class="px-4 py-2.5 text-xs text-gray-700 dark:text-dark-text-secondary max-w-56 truncate" title={obsLabel(call)}>
               {obsLabel(call)}
@@ -631,7 +631,7 @@
     {#if o.latency_ms}
       <span class="text-[10px] text-gray-400 dark:text-dark-text-muted whitespace-nowrap shrink-0">{formatLatency(o.latency_ms)}</span>
     {/if}
-    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted whitespace-nowrap shrink-0">{formatDate(o.created_at)}</span>
+    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted whitespace-nowrap shrink-0 font-mono">{formatDateTime(o.created_at)}</span>
   </button>
 {/snippet}
 
@@ -657,7 +657,7 @@
         <!-- Meta grid -->
         <div class="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
           <div class="text-gray-400 dark:text-dark-text-muted">Time</div>
-          <div class="text-gray-700 dark:text-dark-text-secondary">{formatDate(selected.created_at)}</div>
+          <div class="text-gray-700 dark:text-dark-text-secondary font-mono">{formatDateTime(selected.created_at)}</div>
           <div class="text-gray-400 dark:text-dark-text-muted">Trace ID</div>
           <div class="text-gray-700 dark:text-dark-text-secondary font-mono truncate" title={selected.trace_id}>{selected.trace_id || '-'}</div>
           <div class="text-gray-400 dark:text-dark-text-muted">Session ID</div>

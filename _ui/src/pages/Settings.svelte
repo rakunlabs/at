@@ -18,7 +18,7 @@
   function formatBuildDate(value: string): string {
     if (!value || value === '-') return 'development';
     const date = new Date(value);
-    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+    return Number.isNaN(date.getTime()) ? value : date.toISOString();
   }
 
   // ─── Actions ───

@@ -227,6 +227,10 @@ func (s *Server) execWorkflowUpdate(ctx context.Context, args map[string]any) (s
 		req.Graph = graph
 	}
 	req.UpdatedBy = "agent"
+	activate := true
+	if value, ok := args["activate"].(bool); ok {
+		activate = value
+	}
 
 	// Sync triggers.
 	var cronChanged bool
@@ -246,6 +250,8 @@ func (s *Server) execWorkflowUpdate(ctx context.Context, args map[string]any) (s
 	}
 
 	// Auto-create version snapshot.
+	var createdVersion *int
+	activationRequired := false
 	if s.workflowVersionStore != nil {
 		ver, err := s.workflowVersionStore.CreateWorkflowVersion(ctx, service.WorkflowVersion{
 			WorkflowID:  id,
@@ -255,8 +261,13 @@ func (s *Server) execWorkflowUpdate(ctx context.Context, args map[string]any) (s
 			CreatedBy:   "agent",
 		})
 		if err == nil && ver != nil {
-			if record.ActiveVersion == nil {
-				_ = s.workflowVersionStore.SetActiveVersion(ctx, id, ver.Version)
+			createdVersion = &ver.Version
+			if activate || record.ActiveVersion == nil {
+				if err := s.workflowVersionStore.SetActiveVersion(ctx, id, ver.Version); err != nil {
+					return "", fmt.Errorf("activate updated workflow version: %w", err)
+				}
+			} else if *record.ActiveVersion != ver.Version {
+				activationRequired = true
 			}
 		}
 	}
@@ -273,9 +284,90 @@ func (s *Server) execWorkflowUpdate(ctx context.Context, args map[string]any) (s
 		"node_count":  len(record.Graph.Nodes),
 		"edge_count":  len(record.Graph.Edges),
 	}
+	if createdVersion != nil {
+		result["version"] = *createdVersion
+		result["activation_required"] = activationRequired
+		if !activationRequired {
+			result["active_version"] = *createdVersion
+		}
+		if activationRequired {
+			result["next_action"] = fmt.Sprintf("Call workflow_activate with id %q and version %d so these changes take effect.", id, *createdVersion)
+		}
+	}
 
 	data, _ := json.MarshalIndent(result, "", "  ")
 	return string(data), nil
+}
+
+// execWorkflowActivate activates an immutable workflow version.
+// Parameters: id (string, required), version (positive integer, required)
+func (s *Server) execWorkflowActivate(ctx context.Context, args map[string]any) (string, error) {
+	if s.workflowStore == nil || s.workflowVersionStore == nil {
+		return "", fmt.Errorf("workflow version store not configured")
+	}
+
+	id, _ := args["id"].(string)
+	if id == "" {
+		return "", fmt.Errorf("id is required")
+	}
+
+	version, err := workflowVersionArg(args["version"])
+	if err != nil {
+		return "", err
+	}
+
+	ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, id, version)
+	if err != nil {
+		return "", fmt.Errorf("verify workflow version: %w", err)
+	}
+	if ver == nil {
+		return "", fmt.Errorf("workflow %q version %d not found", id, version)
+	}
+
+	if err := s.workflowVersionStore.SetActiveVersion(ctx, id, version); err != nil {
+		return "", fmt.Errorf("set active workflow version: %w", err)
+	}
+
+	if _, err := s.workflowStore.UpdateWorkflow(ctx, id, service.Workflow{
+		Name:        ver.Name,
+		Description: ver.Description,
+		Graph:       ver.Graph,
+		UpdatedBy:   "agent",
+	}); err != nil {
+		return "", fmt.Errorf("sync workflow with active version: %w", err)
+	}
+
+	if s.scheduler != nil {
+		if err := s.scheduler.Reload(); err != nil {
+			return "", fmt.Errorf("reload scheduler: %w", err)
+		}
+	}
+
+	data, _ := json.MarshalIndent(map[string]any{
+		"status":         "activated",
+		"id":             id,
+		"active_version": version,
+	}, "", "  ")
+	return string(data), nil
+}
+
+func workflowVersionArg(value any) (int, error) {
+	var version int
+	switch v := value.(type) {
+	case int:
+		version = v
+	case float64:
+		version = int(v)
+		if float64(version) != v {
+			return 0, fmt.Errorf("version must be a positive integer")
+		}
+	default:
+		return 0, fmt.Errorf("version must be a positive integer")
+	}
+	if version <= 0 {
+		return 0, fmt.Errorf("version must be a positive integer")
+	}
+	return version, nil
 }
 
 // execWorkflowDelete deletes a workflow and its associated triggers.

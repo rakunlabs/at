@@ -450,6 +450,8 @@ func TestAtManagementTemplate_HasNewTools(t *testing.T) {
 		"task_wait", "task_delete", "task_cancel", "active_delegation_list",
 		// LLM traces and observations
 		"llm_trace_list", "llm_trace_get", "llm_observation_get",
+		// Workflow version lifecycle
+		"workflow_activate",
 	}
 
 	enabled := map[string]bool{}
@@ -518,6 +520,7 @@ func TestDispatch_NewToolsHaveDefinitions(t *testing.T) {
 		"org_update_agent", "org_remove_agent",
 		"task_delete", "task_cancel", "active_delegation_list",
 		"llm_trace_list", "llm_trace_get", "llm_observation_get",
+		"workflow_activate",
 	}
 	defined := map[string]bool{}
 	for _, def := range builtinTools {

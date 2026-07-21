@@ -67,6 +67,8 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 		return s.execWorkflowCreate(ctx, args)
 	case "workflow_update":
 		return s.execWorkflowUpdate(ctx, args)
+	case "workflow_activate":
+		return s.execWorkflowActivate(ctx, args)
 	case "workflow_delete":
 		return s.execWorkflowDelete(ctx, args)
 	case "workflow_run":

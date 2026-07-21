@@ -39,6 +39,53 @@ func TestWorkflowToolDefDescribesEntryInputKeys(t *testing.T) {
 	}
 }
 
+func TestWorkflowUpdateToolRequiresActivation(t *testing.T) {
+	var updateDescription string
+	activateDefined := false
+	for _, tool := range builtinTools {
+		switch tool.Name {
+		case "workflow_update":
+			updateDescription = tool.Description
+		case "workflow_activate":
+			activateDefined = true
+		}
+	}
+
+	if !activateDefined {
+		t.Fatal("workflow_activate tool is not defined")
+	}
+	if !strings.Contains(updateDescription, "activated by default") || !strings.Contains(updateDescription, "MUST call workflow_activate") {
+		t.Fatalf("workflow_update does not require activation: %q", updateDescription)
+	}
+}
+
+func TestWorkflowVersionArg(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   any
+		want    int
+		wantErr bool
+	}{
+		{name: "JSON integer", value: float64(3), want: 3},
+		{name: "Go integer", value: 2, want: 2},
+		{name: "fraction", value: 1.5, wantErr: true},
+		{name: "zero", value: float64(0), wantErr: true},
+		{name: "string", value: "3", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := workflowVersionArg(tt.value)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("workflowVersionArg() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Fatalf("workflowVersionArg() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWorkflowToolInputs(t *testing.T) {
 	want := map[string]any{"audio": "audio_0.mp3", "work_dir": "/work"}
 	tests := []struct {

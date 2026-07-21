@@ -5,16 +5,13 @@ export function formatDate(date: string | Date | undefined | null, includeTime =
   
   if (isNaN(d.getTime())) return 'Invalid Date';
 
+  if (includeTime) return d.toISOString();
+
   const options: Intl.DateTimeFormatOptions = {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
   };
-
-  if (includeTime) {
-    options.hour = '2-digit';
-    options.minute = '2-digit';
-  }
 
   return d.toLocaleDateString('en-US', options);
 }

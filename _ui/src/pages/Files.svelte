@@ -347,8 +347,7 @@
           {entries.length > 0 ? 'No matches' : 'Empty directory'}
         </div>
       {:else}
-        <div class="m-3 overflow-hidden border border-sky-200/80 dark:border-cyan-950 bg-white dark:bg-[#182023] shadow-sm">
-        <table class="w-full text-sm">
+        <table class="w-full text-sm bg-white dark:bg-[#182023]">
           <thead>
             <tr class="border-b border-sky-200/80 dark:border-cyan-950 bg-sky-50/80 dark:bg-cyan-950/20 text-xs text-slate-500 dark:text-dark-text-muted">
               <th class="text-left px-4 py-2 font-medium">
@@ -427,7 +426,6 @@
             {/each}
           </tbody>
         </table>
-        </div>
       {/if}
     </div>
   </div>
