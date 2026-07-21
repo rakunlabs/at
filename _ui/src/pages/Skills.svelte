@@ -54,7 +54,7 @@
   
   // Pagination
   let offset = $state(0);
-  let limit = $state(10);
+  let limit = $state(25);
   let total = $state(0);
 
   // Search & Sort
@@ -934,7 +934,7 @@
           items={filteredSkills}
           {loading}
           total={mySelectedCategory ? filteredSkills.length : total}
-          {limit}
+          bind:limit
           bind:offset
           onchange={load}
           onsearch={handleSearch}

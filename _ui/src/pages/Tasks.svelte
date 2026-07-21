@@ -70,7 +70,7 @@
 
   // Pagination (for list view)
   let offset = $state(0);
-  let limit = $state(20);
+  let limit = $state(25);
   let total = $state(0);
 
   // Search & Sort & Filter
@@ -643,7 +643,7 @@
         items={filteredTasks}
         {loading}
         {total}
-        {limit}
+        bind:limit
         bind:offset
         onchange={load}
         onsearch={handleSearch}

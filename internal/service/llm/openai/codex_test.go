@@ -364,6 +364,36 @@ func TestBuildCodexRequestReplaysEncryptedReasoning(t *testing.T) {
 	}
 }
 
+func TestBuildCodexRequestOmitsUnsupportedControls(t *testing.T) {
+	maxTokens := 4096
+	maxCompletionTokens := 8192
+	temperature := 0.5
+	topP := 0.9
+	request := buildCodexRequest("gpt-5.5", nil, nil, &service.ChatOptions{
+		MaxTokens:           &maxTokens,
+		MaxCompletionTokens: &maxCompletionTokens,
+		Temperature:         &temperature,
+		TopP:                &topP,
+		Metadata:            map[string]any{"key": "value"},
+	})
+
+	for _, key := range []string{"max_output_tokens", "temperature", "top_p", "metadata"} {
+		if _, ok := request[key]; ok {
+			t.Errorf("unsupported Codex control %q was included: %#v", key, request[key])
+		}
+	}
+}
+
+func TestBuildCodexRequestAllowsExplicitExtraBodyControls(t *testing.T) {
+	request := buildCodexRequest("gpt-5.5", nil, nil, &service.ChatOptions{
+		ExtraBody: map[string]any{"max_output_tokens": 1024},
+	})
+
+	if request["max_output_tokens"] != 1024 {
+		t.Fatalf("explicit max_output_tokens = %#v", request["max_output_tokens"])
+	}
+}
+
 func TestCodexProviderReturnsTyped429(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Retry-After", "2")

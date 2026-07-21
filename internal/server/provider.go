@@ -22,6 +22,8 @@ type infoResponse struct {
 	Name          string         `json:"name"`       // Server name from config
 	User          string         `json:"user,omitempty"`
 	Version       string         `json:"version"`
+	Commit        string         `json:"commit"`
+	BuildDate     string         `json:"build_date"`
 	WorkspaceRoot string         `json:"workspace_root"` // Effective task workspace base dir (loopgov.WorkspaceRoot, falls back to /tmp/at-tasks)
 	AssetsRoot    string         `json:"assets_root"`    // Persistent asset library root (avatars, cloned voices) — ./data/assets
 }
@@ -60,6 +62,8 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 		Name:          s.config.Name,
 		User:          s.getUserEmail(r),
 		Version:       s.version,
+		Commit:        s.commit,
+		BuildDate:     s.buildDate,
 		WorkspaceRoot: s.taskWorkspaceBase(),
 		AssetsRoot:    workflow.AssetsDir(),
 	}, http.StatusOK)

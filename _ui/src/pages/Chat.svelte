@@ -273,6 +273,7 @@
           allModels.push(`${p.key}/${p.default_model}`);
         }
       }
+      allModels.sort((a, b) => a.localeCompare(b));
       models = allModels;
       if (allModels.length > 0 && !selectedModel) {
         selectedModel = allModels[0];

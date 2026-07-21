@@ -39,7 +39,7 @@
   // server-side 500s. The agent set is small, so we load all and filter/sort/
   // paginate in the browser.)
   let offset = $state(0);
-  let limit = $state(10);
+  let limit = $state(25);
 
   // Live "currently working" map: agent_id → list of active delegations
   let activeByAgent = $state<Record<string, ActiveDelegation[]>>({});
@@ -887,7 +887,7 @@
           items={pagedAgents}
           {loading}
           total={filteredTotal}
-          {limit}
+          bind:limit
           bind:offset
           onsearch={handleSearch}
           searchPlaceholder="Search name, group, provider..."

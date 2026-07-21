@@ -21,7 +21,7 @@
   
   // Pagination
   let offset = $state(0);
-  let limit = $state(10);
+  let limit = $state(25);
   let total = $state(0);
 
   // Search & Sort
@@ -1238,7 +1238,7 @@
     items={tokens}
     {loading}
     {total}
-    {limit}
+    bind:limit
     bind:offset
     onchange={loadTokens}
     onsearch={handleSearch}

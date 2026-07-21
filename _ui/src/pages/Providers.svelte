@@ -955,7 +955,7 @@
   
   // Pagination
   let offset = $state(0);
-  let limit = $state(10);
+  let limit = $state(25);
   let total = $state(0);
 
   // Search & Sort
@@ -2270,12 +2270,12 @@
   {/if}
 
   <!-- Provider list -->
-  {#if loading || providers.length > 0 || (!showForm && !showPresets)}
+  {#if !showForm && !showPresets}
     <DataTable
       items={providers}
       {loading}
       {total}
-      {limit}
+      bind:limit
       bind:offset
       onchange={load}
       onsearch={handleSearch}

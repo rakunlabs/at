@@ -39,7 +39,7 @@
   let traces = $state<LLMCallTrace[]>([]);
   let tracesLoading = $state(true);
   let tracesOffset = $state(0);
-  let tracesLimit = $state(20);
+  let tracesLimit = $state(25);
   let tracesTotal = $state(0);
 
   // Trace detail (observation tree)
@@ -51,7 +51,7 @@
   let calls = $state<LLMCall[]>([]);
   let loading = $state(true);
   let offset = $state(0);
-  let limit = $state(20);
+  let limit = $state(25);
   let total = $state(0);
   let searchQuery = $state('');
   let sorts = $state<SortEntry[]>([]);
@@ -479,7 +479,7 @@
         items={traces}
         loading={tracesLoading}
         total={tracesTotal}
-        limit={tracesLimit}
+        bind:limit={tracesLimit}
         bind:offset={tracesOffset}
         onchange={loadTraces}
         emptyIcon={Activity}
@@ -537,7 +537,7 @@
         items={calls}
         {loading}
         {total}
-        {limit}
+        bind:limit
         bind:offset
         onchange={load}
         onsearch={handleSearch}

@@ -34,7 +34,7 @@
     items = [], 
     loading = false,
     total = 0,
-    limit = 10,
+    limit = $bindable(25),
     offset = $bindable(0),
     onchange,
     searchValue = $bindable(''),
@@ -132,7 +132,7 @@
     </table>
     
     {#if total > 0}
-      <Pagination {total} {limit} bind:offset {onchange} />
+      <Pagination {total} bind:limit bind:offset {onchange} />
     {/if}
   {/if}
 </div>

@@ -1,8 +1,6 @@
 <script lang="ts">
   import { push, location } from "svelte-spa-router";
-  import { storeInfo } from "@/lib/store/store.svelte";
   import { isFeatureEnabled, loadFeatures } from "@/lib/store/features.svelte";
-  import { getInfo } from "@/lib/api/gateway";
   import {
     MessageSquare,
     MessagesSquare,
@@ -39,14 +37,6 @@
 
   $effect(() => {
     loadFeatures().catch(() => {});
-    if (!storeInfo.version) {
-      getInfo().then((res) => {
-        storeInfo.version = res.version || "";
-        storeInfo.user = res.user || "";
-        storeInfo.store_type = res.store_type || "";
-        storeInfo.name = res.name || "AT";
-      });
-    }
   });
 </script>
 
@@ -440,14 +430,6 @@
         </div>
       </div>
     {/if}
-  </div>
-  <div class="border-t border-gray-200 dark:border-dark-border p-3 text-[10px] text-gray-500 dark:text-dark-text-muted">
-    {#if storeInfo.user}
-      <div class="truncate font-medium text-gray-700 dark:text-dark-text-secondary" title={storeInfo.user}>{storeInfo.user}</div>
-    {/if}
-    <div class="flex items-center gap-2 mt-0.5">
-      <span class="text-gray-600 dark:text-dark-text-muted">{storeInfo.version || 'v0.0.0'}</span>
-    </div>
   </div>
 </div>
 

@@ -636,23 +636,12 @@ func buildCodexRequest(model string, messages []service.Message, tools []service
 		if len(opts.ResponseFormat) > 0 {
 			request["text"] = map[string]any{"format": codexTextFormat(opts.ResponseFormat)}
 		}
-		if opts.MaxCompletionTokens != nil {
-			request["max_output_tokens"] = *opts.MaxCompletionTokens
-		} else if opts.MaxTokens != nil {
-			request["max_output_tokens"] = *opts.MaxTokens
-		}
-		if opts.Temperature != nil {
-			request["temperature"] = *opts.Temperature
-		}
-		if opts.TopP != nil {
-			request["top_p"] = *opts.TopP
-		}
 		if opts.ServiceTier != "" {
 			request["service_tier"] = opts.ServiceTier
 		}
-		if len(opts.Metadata) > 0 {
-			request["metadata"] = opts.Metadata
-		}
+		// ChatGPT's Codex endpoint does not accept the Responses API's output
+		// token, sampling, or metadata controls. ExtraBody remains available for
+		// explicitly opting into fields added to the endpoint in the future.
 		for key, value := range opts.ExtraBody {
 			request[key] = value
 		}

@@ -26,6 +26,8 @@ const (
 
 	// msgTypeRotateKey identifies a key rotation broadcast message.
 	msgTypeRotateKey = "rotate-key"
+
+	unlockTimeout = 5 * time.Second
 )
 
 // clusterMessage is the JSON envelope for messages sent between peers.
@@ -70,7 +72,7 @@ func (c *Cluster) Start(ctx context.Context, onNewKey func(newKey []byte)) error
 		slog.Info("cluster peer left", "addr", addr.String())
 	})
 
-	handler := func(_ context.Context, msg alan.Message) {
+	handler := func(ctx context.Context, msg alan.Message) {
 		var cm clusterMessage
 		if err := json.Unmarshal(msg.Data, &cm); err != nil {
 			slog.Warn("cluster: invalid message", "from", msg.Addr, "error", err)
@@ -97,7 +99,7 @@ func (c *Cluster) Start(ctx context.Context, onNewKey func(newKey []byte)) error
 
 			// Reply with ack if this is a request.
 			if msg.IsRequest() {
-				c.alan.Reply(msg, []byte("ok")) //nolint:errcheck
+				c.alan.Reply(ctx, msg, []byte("ok")) //nolint:errcheck
 			}
 
 		default:
@@ -105,7 +107,9 @@ func (c *Cluster) Start(ctx context.Context, onNewKey func(newKey []byte)) error
 		}
 	}
 
-	return c.alan.Start(ctx, handler)
+	c.alan.Handle(msgTypeRotateKey, handler)
+
+	return c.alan.Start(ctx)
 }
 
 // Stop gracefully leaves the cluster.
@@ -121,7 +125,7 @@ func (c *Cluster) Lock(ctx context.Context) error {
 
 // Unlock releases the distributed lock for key rotation.
 func (c *Cluster) Unlock() error {
-	return c.alan.Unlock(lockKeyRotation)
+	return c.unlock(lockKeyRotation)
 }
 
 // LockScheduler acquires the distributed lock for the cron scheduler.
@@ -132,7 +136,14 @@ func (c *Cluster) LockScheduler(ctx context.Context) error {
 
 // UnlockScheduler releases the distributed lock for the cron scheduler.
 func (c *Cluster) UnlockScheduler() error {
-	return c.alan.Unlock(lockScheduler)
+	return c.unlock(lockScheduler)
+}
+
+func (c *Cluster) unlock(key string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), unlockTimeout)
+	defer cancel()
+
+	return c.alan.Unlock(ctx, key)
 }
 
 // BroadcastNewKey sends the new encryption key to all peers and waits for
@@ -162,7 +173,7 @@ func (c *Cluster) BroadcastNewKey(ctx context.Context, newKey []byte) error {
 	broadcastCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	replies, err := c.alan.SendAndWaitReply(broadcastCtx, data)
+	replies, err := c.alan.SendAndWaitReply(broadcastCtx, msgTypeRotateKey, data)
 	if err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return fmt.Errorf("broadcast key rotation: %w", err)
 	}

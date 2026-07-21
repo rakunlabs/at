@@ -21,6 +21,10 @@ $effect.root(() => {
 export const storeInfo = $state({
   name: "AT",
   version: "",
+  commit: "",
+  build_date: "",
   user: "",
   store_type: "",
+  workspace_root: "",
+  assets_root: "",
 });

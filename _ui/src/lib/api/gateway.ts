@@ -18,6 +18,8 @@ export interface InfoResponse {
   store_type: string;
   name?: string;
   version?: string;
+  commit?: string;
+  build_date?: string;
   user?: string;
   // Effective task workspace base directory on the server filesystem.
   // Equals loopgov.Config.WorkspaceRoot, falling back to /tmp/at-tasks.

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { storeNavbar } from '@/lib/store/store.svelte';
+  import { storeInfo, storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { rotateKey } from '@/lib/api/admin';
-  import { Settings, RotateCw, Eye, EyeOff } from 'lucide-svelte';
+  import { Info, RotateCw, Eye, EyeOff } from 'lucide-svelte';
 
   storeNavbar.title = 'Settings';
 
@@ -14,6 +14,12 @@
   let showAdminToken = $state(false);
   let showEncryptionKey = $state(false);
   let disableEncryption = $state(false);
+
+  function formatBuildDate(value: string): string {
+    if (!value || value === '-') return 'development';
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  }
 
   // ─── Actions ───
   async function handleRotate() {
@@ -174,6 +180,49 @@
         The admin token must match the <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 py-0.5 text-gray-600 dark:text-dark-text-secondary">admin_token</code> configured in the server settings.
         If no admin token is configured on the server, this operation will be rejected.
       </p>
+    </div>
+  </div>
+
+  <!-- About -->
+  <div class="mt-6 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+    <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center gap-2">
+      <Info size={14} class="text-gray-500 dark:text-dark-text-muted" />
+      <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">About</h3>
+    </div>
+
+    <div class="p-4 grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-4">
+      <div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Application</div>
+        <div class="mt-1 text-sm text-gray-800 dark:text-dark-text">{storeInfo.name || 'AT'}</div>
+      </div>
+      <div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Version</div>
+        <code class="mt-1 block text-sm text-gray-800 dark:text-dark-text">{storeInfo.version || 'development'}</code>
+      </div>
+      <div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Commit</div>
+        <code class="mt-1 block text-sm text-gray-800 dark:text-dark-text">{storeInfo.commit && storeInfo.commit !== '-' ? storeInfo.commit : 'development'}</code>
+      </div>
+      <div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Build Date</div>
+        <time class="mt-1 block text-sm text-gray-800 dark:text-dark-text" datetime={storeInfo.build_date}>{formatBuildDate(storeInfo.build_date)}</time>
+      </div>
+      <div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Store Backend</div>
+        <code class="mt-1 block text-sm text-gray-800 dark:text-dark-text">{storeInfo.store_type || 'not configured'}</code>
+      </div>
+      <div>
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Signed In As</div>
+        <div class="mt-1 text-sm text-gray-800 dark:text-dark-text break-all">{storeInfo.user || 'Anonymous'}</div>
+      </div>
+      <div class="sm:col-span-2">
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Workspace Root</div>
+        <code class="mt-1 block text-xs text-gray-700 dark:text-dark-text-secondary break-all">{storeInfo.workspace_root || 'Unavailable'}</code>
+      </div>
+      <div class="sm:col-span-2">
+        <div class="text-[10px] font-medium uppercase tracking-wider text-gray-400 dark:text-dark-text-muted">Assets Root</div>
+        <code class="mt-1 block text-xs text-gray-700 dark:text-dark-text-secondary break-all">{storeInfo.assets_root || 'Unavailable'}</code>
+      </div>
     </div>
   </div>
 </div>

@@ -218,7 +218,9 @@ type Server struct {
 	// map key: task ID (string), value: *activeDelegation
 	activeDelegations sync.Map
 
-	version string
+	version   string
+	commit    string
+	buildDate string
 
 	// idempotency caches responses for requests that carry an
 	// Idempotency-Key header (5-minute TTL). Per-token scoped.
@@ -384,7 +386,7 @@ func loopgovConfigFromYAML(ws *config.Workspace) loopgov.Config {
 // exception is `server.workspace` in at.yaml — see
 // loopgovConfigFromYAML — which lets operators point per-task workdirs
 // at a mounted data disk so the boot disk doesn't fill up.
-func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version string) (*Server, error) {
+func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version, commit, buildDate string) (*Server, error) {
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -452,6 +454,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		loopGov:          loopgov.New(loopgovConfigFromYAML(cfg.Workspace), nil),
 		cluster:          cl,
 		version:          version,
+		commit:           commit,
+		buildDate:        buildDate,
 		todos:            newTodoStore(),
 		lspManager:       newLSPManager(),
 		containerManager: container.New(),
