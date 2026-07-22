@@ -377,6 +377,60 @@ func TestSanitizeSchema_KeepsPropertyWithEnumNoType(t *testing.T) {
 	}
 }
 
+func TestSanitizeSchema_StripsNumericValidationKeywords(t *testing.T) {
+	// Gemini rejects exclusiveMinimum/exclusiveMaximum/multipleOf/const with a
+	// 400 "Unknown name" error. They must be stripped while the property (and
+	// its supported minimum/maximum) is preserved. Mirrors a Pydantic
+	// Field(gt=0, lt=100, multiple_of=5) schema.
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"count": map[string]any{
+				"type":             "integer",
+				"exclusiveMinimum": float64(0),
+				"exclusiveMaximum": float64(100),
+				"multipleOf":       float64(5),
+				"minimum":          float64(0),
+			},
+			"mode": map[string]any{
+				"type":  "string",
+				"const": "fast",
+			},
+		},
+		"required": []any{"count", "mode"},
+	}
+
+	got := SanitizeSchema(input)
+	props := got["properties"].(map[string]any)
+
+	count := props["count"].(map[string]any)
+	for _, k := range []string{"exclusiveMinimum", "exclusiveMaximum", "multipleOf"} {
+		if _, ok := count[k]; ok {
+			t.Errorf("expected %q to be removed from count", k)
+		}
+	}
+	if count["type"] != "integer" {
+		t.Errorf("expected count type to be preserved, got %v", count["type"])
+	}
+	if count["minimum"] != float64(0) {
+		t.Errorf("expected supported 'minimum' to be preserved, got %v", count["minimum"])
+	}
+
+	mode := props["mode"].(map[string]any)
+	if _, ok := mode["const"]; ok {
+		t.Error("expected 'const' to be removed from mode")
+	}
+	if mode["type"] != "string" {
+		t.Errorf("expected mode type to be preserved, got %v", mode["type"])
+	}
+
+	// Both properties keep a valid type, so required stays intact.
+	req := got["required"].([]any)
+	if len(req) != 2 {
+		t.Errorf("expected 2 required fields, got %d: %v", len(req), req)
+	}
+}
+
 func TestSanitizeSchema_KeepsPropertyWithAnyOf(t *testing.T) {
 	// A property with anyOf but no explicit type should be kept.
 	input := map[string]any{
@@ -397,5 +451,252 @@ func TestSanitizeSchema_KeepsPropertyWithAnyOf(t *testing.T) {
 	props := got["properties"].(map[string]any)
 	if _, ok := props["value"]; !ok {
 		t.Error("expected 'value' property to be kept (has anyOf)")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// SanitizeSchemaForGemini (allowlist) tests
+// ---------------------------------------------------------------------------
+
+func TestSanitizeSchemaForGemini_Nil(t *testing.T) {
+	if got := SanitizeSchemaForGemini(nil); got != nil {
+		t.Errorf("SanitizeSchemaForGemini(nil) = %v, want nil", got)
+	}
+}
+
+func TestSanitizeSchemaForGemini_DropsUnknownKeywords(t *testing.T) {
+	// Everything not on the Gemini allowlist must be dropped, while supported
+	// keywords survive. Covers the denylist keys too (they're not allowlisted).
+	input := map[string]any{
+		"type":                  "object",
+		"$schema":               "https://json-schema.org/draft/2020-12/schema",
+		"additionalProperties":  false,
+		"$defs":                 map[string]any{"X": map[string]any{"type": "string"}},
+		"unevaluatedProperties": false,
+		"properties": map[string]any{
+			"n": map[string]any{
+				"type":             "integer",
+				"exclusiveMinimum": float64(0),
+				"multipleOf":       float64(2),
+				"const":            float64(4),
+				"uniqueItems":      true,
+				"minimum":          float64(0),
+				"description":      "a number",
+			},
+		},
+		"required": []any{"n"},
+	}
+
+	got := SanitizeSchemaForGemini(input)
+
+	for _, k := range []string{"$schema", "additionalProperties", "$defs", "unevaluatedProperties"} {
+		if _, ok := got[k]; ok {
+			t.Errorf("expected top-level %q to be dropped", k)
+		}
+	}
+	n := got["properties"].(map[string]any)["n"].(map[string]any)
+	for _, k := range []string{"exclusiveMinimum", "multipleOf", "const", "uniqueItems"} {
+		if _, ok := n[k]; ok {
+			t.Errorf("expected %q to be dropped from n", k)
+		}
+	}
+	if n["type"] != "integer" || n["minimum"] != float64(0) || n["description"] != "a number" {
+		t.Errorf("expected supported keywords preserved, got %v", n)
+	}
+	if req, _ := got["required"].([]any); len(req) != 1 || req[0] != "n" {
+		t.Errorf("expected required [n], got %v", got["required"])
+	}
+}
+
+func TestSanitizeSchemaForGemini_FormatWhitelist(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"email":  map[string]any{"type": "string", "format": "email"},
+			"uri":    map[string]any{"type": "string", "format": "uri"},
+			"when":   map[string]any{"type": "string", "format": "date-time"},
+			"kind":   map[string]any{"type": "string", "format": "enum", "enum": []any{"a", "b"}},
+			"bignum": map[string]any{"type": "integer", "format": "int64"},
+			"weird":  map[string]any{"type": "integer", "format": "uint128"},
+		},
+	}
+
+	got := SanitizeSchemaForGemini(input)
+	props := got["properties"].(map[string]any)
+
+	// Unsupported formats dropped, property (and type) retained.
+	for _, name := range []string{"email", "uri", "weird"} {
+		p := props[name].(map[string]any)
+		if _, ok := p["format"]; ok {
+			t.Errorf("expected format dropped from %q, got %v", name, p["format"])
+		}
+		if _, ok := p["type"]; !ok {
+			t.Errorf("expected %q to keep its type", name)
+		}
+	}
+	// Supported formats retained.
+	if props["when"].(map[string]any)["format"] != "date-time" {
+		t.Error("expected date-time format retained")
+	}
+	if props["kind"].(map[string]any)["format"] != "enum" {
+		t.Error("expected enum format retained")
+	}
+	if props["bignum"].(map[string]any)["format"] != "int64" {
+		t.Error("expected int64 format retained")
+	}
+}
+
+func TestSanitizeSchemaForGemini_TypeArrayToNullable(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"name":  map[string]any{"type": []any{"string", "null"}},
+			"age":   map[string]any{"type": []any{"null", "integer"}},
+			"plain": map[string]any{"type": "string"},
+		},
+	}
+
+	got := SanitizeSchemaForGemini(input)
+	props := got["properties"].(map[string]any)
+
+	name := props["name"].(map[string]any)
+	if name["type"] != "string" || name["nullable"] != true {
+		t.Errorf("expected name type=string nullable=true, got %v", name)
+	}
+	age := props["age"].(map[string]any)
+	if age["type"] != "integer" || age["nullable"] != true {
+		t.Errorf("expected age type=integer nullable=true, got %v", age)
+	}
+	plain := props["plain"].(map[string]any)
+	if _, ok := plain["nullable"]; ok {
+		t.Errorf("expected plain to have no nullable, got %v", plain)
+	}
+}
+
+func TestSanitizeSchemaForGemini_OneOfBecomesAnyOf(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"v": map[string]any{
+				"oneOf": []any{
+					map[string]any{"type": "string"},
+					map[string]any{"type": "integer", "exclusiveMinimum": float64(0)},
+				},
+			},
+		},
+		"required": []any{"v"},
+	}
+
+	got := SanitizeSchemaForGemini(input)
+	v := got["properties"].(map[string]any)["v"].(map[string]any)
+
+	if _, ok := v["oneOf"]; ok {
+		t.Error("expected oneOf to be removed")
+	}
+	anyOf, ok := v["anyOf"].([]any)
+	if !ok || len(anyOf) != 2 {
+		t.Fatalf("expected oneOf mapped to anyOf with 2 entries, got %v", v["anyOf"])
+	}
+	// Nested unsupported keyword inside the branch must also be stripped.
+	second := anyOf[1].(map[string]any)
+	if _, ok := second["exclusiveMinimum"]; ok {
+		t.Error("expected nested exclusiveMinimum stripped inside anyOf branch")
+	}
+	// Property with anyOf is kept (not pruned).
+	if req, _ := got["required"].([]any); len(req) != 1 || req[0] != "v" {
+		t.Errorf("expected required [v], got %v", got["required"])
+	}
+}
+
+func TestSanitizeSchemaForGemini_DropsAllOfAndNot(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"typed": map[string]any{
+				"type":  "string",
+				"allOf": []any{map[string]any{"minLength": float64(1)}},
+				"not":   map[string]any{"const": "x"},
+			},
+			"onlyAllOf": map[string]any{
+				"allOf": []any{map[string]any{"type": "string"}},
+			},
+		},
+		"required": []any{"typed", "onlyAllOf"},
+	}
+
+	got := SanitizeSchemaForGemini(input)
+	props := got["properties"].(map[string]any)
+
+	typed := props["typed"].(map[string]any)
+	if _, ok := typed["allOf"]; ok {
+		t.Error("expected allOf dropped")
+	}
+	if _, ok := typed["not"]; ok {
+		t.Error("expected not dropped")
+	}
+	if typed["type"] != "string" {
+		t.Error("expected typed to keep its type")
+	}
+	// A property that had ONLY allOf becomes empty → pruned from properties and
+	// from required.
+	if _, ok := props["onlyAllOf"]; ok {
+		t.Error("expected onlyAllOf (allOf-only) property to be pruned")
+	}
+	if req, _ := got["required"].([]any); len(req) != 1 || req[0] != "typed" {
+		t.Errorf("expected required [typed], got %v", got["required"])
+	}
+}
+
+func TestSanitizeSchemaForGemini_RecursesItemsAndNested(t *testing.T) {
+	input := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"tags": map[string]any{
+				"type": "array",
+				"items": map[string]any{
+					"type":                 "object",
+					"additionalProperties": false,
+					"properties": map[string]any{
+						"id": map[string]any{"type": "integer", "exclusiveMinimum": float64(0)},
+					},
+				},
+			},
+		},
+	}
+
+	got := SanitizeSchemaForGemini(input)
+	items := got["properties"].(map[string]any)["tags"].(map[string]any)["items"].(map[string]any)
+	if _, ok := items["additionalProperties"]; ok {
+		t.Error("expected additionalProperties stripped in items")
+	}
+	id := items["properties"].(map[string]any)["id"].(map[string]any)
+	if _, ok := id["exclusiveMinimum"]; ok {
+		t.Error("expected exclusiveMinimum stripped deep in items.properties")
+	}
+	if id["type"] != "integer" {
+		t.Errorf("expected nested id type=integer, got %v", id["type"])
+	}
+}
+
+func TestSanitizeSchemaForGemini_DoesNotMutateOriginal(t *testing.T) {
+	input := map[string]any{
+		"type":    "object",
+		"$schema": "x",
+		"properties": map[string]any{
+			"n": map[string]any{"type": []any{"integer", "null"}, "exclusiveMinimum": float64(0)},
+		},
+	}
+	original := map[string]any{
+		"type":    "object",
+		"$schema": "x",
+		"properties": map[string]any{
+			"n": map[string]any{"type": []any{"integer", "null"}, "exclusiveMinimum": float64(0)},
+		},
+	}
+
+	_ = SanitizeSchemaForGemini(input)
+
+	if !reflect.DeepEqual(input, original) {
+		t.Error("SanitizeSchemaForGemini mutated the original input")
 	}
 }

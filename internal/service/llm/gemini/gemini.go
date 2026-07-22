@@ -737,7 +737,7 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 				enableSearch = true
 				continue
 			}
-			sanitized := service.SanitizeSchema(tool.InputSchema)
+			sanitized := service.SanitizeSchemaForGemini(tool.InputSchema)
 			decls = append(decls, functionDeclaration{
 				Name:        tool.Name,
 				Description: tool.Description,

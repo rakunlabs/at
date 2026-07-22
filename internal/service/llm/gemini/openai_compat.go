@@ -3,6 +3,8 @@ package gemini
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // marshalRequestWithExtraBody marshals the typed Gemini request, then
@@ -109,7 +111,13 @@ func geminiResponseFormat(rf map[string]any) (string, any) {
 			return "application/json", nil
 		}
 		schema, _ := wrap["schema"].(map[string]any)
-		return "application/json", schema
+		// The responseSchema goes through the same strict Gemini validator as
+		// tool declarations, so it must be sanitized identically — otherwise
+		// $ref/additionalProperties/exclusiveMinimum/etc. trigger a 400.
+		if sanitized := service.SanitizeSchemaForGemini(schema); sanitized != nil {
+			return "application/json", sanitized
+		}
+		return "application/json", nil
 	}
 	return "", nil
 }
