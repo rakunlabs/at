@@ -767,6 +767,71 @@ func TestSanitizeSchemaForGemini_RealKrabbyMCPSchema(t *testing.T) {
 	assertGeminiClean(t, got)
 }
 
+// TestSanitizeSchemaForGemini_OpencodeAnyOfNullableArray reproduces the schema
+// an MCP client (opencode) actually sends to AT's gateway for krabby's optional
+// []string fields. opencode rewrites krabby's wire `type:["null","array"]` into
+// a split `anyOf:[{"type":"array"}] + nullable:true` with `items` left on the
+// parent. Gemini rejects it (items predicate + missing anyOf[0].items). After
+// sanitization it must collapse to a valid single array schema.
+func TestSanitizeSchemaForGemini_OpencodeAnyOfNullableArray(t *testing.T) {
+	const raw = `{
+      "type": "object",
+      "properties": {
+        "context_filter": {
+          "items": {"type": "string"},
+          "description": "optional explicit edge-context filter, e.g. ['call','field']",
+          "anyOf": [{"type": "array"}],
+          "nullable": true
+        }
+      },
+      "required": ["question"]
+    }`
+
+	var in map[string]any
+	if err := json.Unmarshal([]byte(raw), &in); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	got := SanitizeSchemaForGemini(in)
+	cf := got["properties"].(map[string]any)["context_filter"].(map[string]any)
+
+	if _, ok := cf["anyOf"]; ok {
+		t.Errorf("expected anyOf collapsed away, got %v", cf["anyOf"])
+	}
+	if cf["type"] != "array" {
+		t.Errorf("expected type merged up to \"array\", got %v", cf["type"])
+	}
+	if cf["nullable"] != true {
+		t.Errorf("expected nullable:true preserved, got %v", cf["nullable"])
+	}
+	items, ok := cf["items"].(map[string]any)
+	if !ok || items["type"] != "string" {
+		t.Errorf("expected items {type:string} preserved at parent, got %v", cf["items"])
+	}
+	assertGeminiClean(t, got)
+}
+
+// TestSanitizeSchemaForGemini_KeepsGenuineUnion makes sure a real multi-branch
+// anyOf (not a nullable-array split) is preserved, with only the null branch
+// folded into nullable.
+func TestSanitizeSchemaForGemini_KeepsGenuineUnion(t *testing.T) {
+	in := map[string]any{
+		"anyOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{"type": "integer"},
+			map[string]any{"type": "null"},
+		},
+	}
+	got := SanitizeSchemaForGemini(in)
+	anyOf, ok := got["anyOf"].([]any)
+	if !ok || len(anyOf) != 2 {
+		t.Fatalf("expected 2-branch anyOf kept, got %v", got["anyOf"])
+	}
+	if got["nullable"] != true {
+		t.Errorf("expected null branch folded into nullable:true, got %v", got["nullable"])
+	}
+}
+
 // assertGeminiClean walks a sanitized schema and fails if any key is one Gemini
 // is known to reject.
 func assertGeminiClean(t *testing.T, node map[string]any) {

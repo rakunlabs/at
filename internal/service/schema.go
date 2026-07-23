@@ -267,6 +267,7 @@ func sanitizeGeminiMap(m map[string]any) map[string]any {
 		}
 	}
 
+	collapseGeminiAnyOf(out)
 	pruneEmptyProperties(out)
 	pruneRequired(out)
 	return out
@@ -301,6 +302,69 @@ func normalizeGeminiType(v any) (any, bool) {
 		return picked, nullable
 	default:
 		return v, false
+	}
+}
+
+// collapseGeminiAnyOf normalises the `anyOf` construct into a shape Gemini's
+// strict validator accepts. MCP clients (e.g. opencode) commonly express a
+// nullable array field coming off the wire as `type: ["null","array"]` by
+// splitting it into `anyOf: [{"type":"array"}] + nullable: true` while leaving
+// `items` on the PARENT. Gemini then rejects it twice:
+//
+//   - parent has `items` but its own `$type` isn't ARRAY
+//   - the `anyOf[0]` array branch is missing its `items`
+//
+// This walks the (already-sanitized) `anyOf`:
+//   - a pure-null / empty branch is dropped and records `nullable: true`
+//   - if exactly one real branch remains, it is MERGED UP into the parent
+//     (parent keys win; the branch fills in the missing `type`/`items`), and
+//     `anyOf` is removed — turning the split shape back into a valid single
+//     array/object schema
+//   - if several real branches remain (a genuine union) `anyOf` is kept with
+//     the null branch stripped and `nullable` recorded instead
+func collapseGeminiAnyOf(out map[string]any) {
+	raw, ok := out["anyOf"].([]any)
+	if !ok {
+		return
+	}
+
+	var real []map[string]any
+	nullable := false
+	for _, b := range raw {
+		m, ok := b.(map[string]any)
+		if !ok {
+			continue
+		}
+		if t, _ := m["type"].(string); t == "null" {
+			nullable = true
+			continue
+		}
+		if len(m) == 0 {
+			continue
+		}
+		real = append(real, m)
+	}
+
+	if nullable {
+		out["nullable"] = true
+	}
+
+	switch len(real) {
+	case 0:
+		delete(out, "anyOf")
+	case 1:
+		delete(out, "anyOf")
+		for k, v := range real[0] {
+			if _, exists := out[k]; !exists {
+				out[k] = v
+			}
+		}
+	default:
+		branches := make([]any, len(real))
+		for i, m := range real {
+			branches[i] = m
+		}
+		out["anyOf"] = branches
 	}
 }
 
