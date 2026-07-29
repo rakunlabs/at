@@ -34,6 +34,7 @@
   let selectedSyncSource = $state('pi.dev');
   let loading = $state(true);
   let previewLoading = $state(false);
+  let providersLoading = $state(true);
   let applying = $state(false);
   let saving = $state(false);
   let exportingCatalog = $state(false);
@@ -75,6 +76,14 @@
     preview.filter((p) => statusFilter === 'all' || p.status === statusFilter)
   );
 
+  let selectedAgentProvider = $derived(providers.find((provider) => provider.key === agent.provider_key));
+  let agentModels = $derived(
+    [...new Set((selectedAgentProvider?.config.models || []).filter(Boolean))]
+  );
+  let agentCanRun = $derived(
+    Boolean(agent.provider_key && (agent.model.trim() || selectedAgentProvider?.config.model))
+  );
+
   async function loadPricing() {
     loading = true;
     try {
@@ -87,15 +96,14 @@
   }
 
   async function loadProviders() {
+    providersLoading = true;
     try {
-      const res = await listProviders();
+      const res = await listProviders({ _offset: 0, _limit: 1000 });
       providers = res.data || [];
-      if (!agent.provider_key && providers.length > 0) {
-        agent.provider_key = providers[0].key;
-        agent.model = providers[0].config.model || '';
-      }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load providers', 'alert');
+    } finally {
+      providersLoading = false;
     }
   }
 
@@ -113,9 +121,9 @@
     }
   }
 
-  function updateAgentProviderModel() {
-    const provider = providers.find((item) => item.key === agent.provider_key);
-    agent.model = provider?.config.model || '';
+  function updateAgentProvider(event: Event) {
+    agent.provider_key = (event.currentTarget as HTMLSelectElement).value;
+    agent.model = '';
   }
 
   function resetForm() {
@@ -222,6 +230,10 @@
   async function runAgentPreview() {
     if (!agent.provider_key) {
       addToast('Select a provider for the pricing agent', 'alert');
+      return;
+    }
+    if (!agent.model.trim() && !selectedAgentProvider?.config.model) {
+      addToast('Select or enter a model for the pricing agent', 'alert');
       return;
     }
     previewLoading = true;
@@ -417,7 +429,7 @@
           <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Tell a configured provider where to look, paste source text, or allow web search if that model supports it. The result is a preview before anything is applied.</p>
         </div>
       </div>
-      <button onclick={runAgentPreview} disabled={previewLoading || !agent.provider_key} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+      <button onclick={runAgentPreview} disabled={previewLoading || !agentCanRun} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
         <Bot size={12} />
         {previewLoading ? 'Previewing...' : 'Run Agent Preview'}
       </button>
@@ -425,16 +437,30 @@
     <div class="mt-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
       <div>
         <label for="pricing-agent-provider" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Agent Provider</label>
-        <select id="pricing-agent-provider" bind:value={agent.provider_key} onchange={updateAgentProviderModel} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400">
-          <option value="">Select provider</option>
+        <select id="pricing-agent-provider" value={agent.provider_key} onchange={updateAgentProvider} disabled={providersLoading} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 disabled:opacity-50">
+          <option value="">{providersLoading ? 'Loading providers...' : 'Select provider'}</option>
           {#each providers as provider}
-            <option value={provider.key}>{provider.key} · {provider.config.model}</option>
+            <option value={provider.key}>{provider.key} ({provider.config.type})</option>
           {/each}
         </select>
+        {#if !providersLoading && providers.length === 0}
+          <p class="mt-1 text-[11px] text-amber-600 dark:text-amber-400">Configure a provider before running the pricing agent.</p>
+        {/if}
       </div>
       <div>
         <label for="pricing-agent-model" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Agent Model</label>
-        <input id="pricing-agent-model" bind:value={agent.model} placeholder="default provider model" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+        {#if selectedAgentProvider && (selectedAgentProvider.config.model || agentModels.length > 0)}
+          <select id="pricing-agent-model" bind:value={agent.model} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400">
+            <option value="">
+              {selectedAgentProvider.config.model ? `Default (${selectedAgentProvider.config.model})` : 'Select model'}
+            </option>
+            {#each agentModels as model}
+              <option value={model}>{model}</option>
+            {/each}
+          </select>
+        {:else}
+          <input id="pricing-agent-model" bind:value={agent.model} disabled={!selectedAgentProvider} placeholder={selectedAgentProvider ? 'Enter model name' : 'Select a provider first'} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 disabled:opacity-50" />
+        {/if}
       </div>
       <div class="lg:col-span-2">
         <label for="pricing-agent-url" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Source URL</label>
