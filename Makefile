@@ -42,11 +42,11 @@ build-ui: install-ui ## Build the UI assets
 .PHONY: build
 build: build-ui ## Build the Go binary
 	@echo "> Building $(PROJECT) binary with goreleaser"
-	goreleaser build --snapshot --clean --single-target
+	GOOS=linux GOARCH=amd64 goreleaser build --snapshot --clean --single-target
 
 .PHONY: build-container
 build-container: build ## Build the container image with test tag
-	docker build -t $(PROJECT):test -f ci/Dockerfile dist/at_linux_amd64_v1/
+	docker build --platform=linux/amd64 -t $(PROJECT):test -f ci/Dockerfile dist/at_linux_amd64_v1/
 
 .PHONY: lint
 lint: ## Lint Go files
