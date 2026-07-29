@@ -22,8 +22,9 @@ type batchEmbedRequest struct {
 }
 
 type embedRequest struct {
-	Model   string  `json:"model"`
-	Content content `json:"content"`
+	Model                string  `json:"model"`
+	Content              content `json:"content"`
+	OutputDimensionality *int    `json:"outputDimensionality,omitempty"`
 }
 
 type batchEmbedResponse struct {
@@ -53,6 +54,7 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 			Content: content{
 				Parts: []part{{Text: text}},
 			},
+			OutputDimensionality: req.Dimensions,
 		}
 	}
 

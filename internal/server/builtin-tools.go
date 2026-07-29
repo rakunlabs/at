@@ -727,6 +727,10 @@ var builtinTools = []builtinToolDef{
 			"issue_prefix":                          map[string]any{"type": "string"},
 			"head_agent_id":                         map[string]any{"type": "string", "description": "Must be an active member of the org"},
 			"budget_monthly_cents":                  map[string]any{"type": "number"},
+			"budget_period":                         map[string]any{"type": "string", "enum": []string{"daily", "weekly", "monthly"}},
+			"budget_reset_day":                      map[string]any{"type": "integer", "description": "Weekly: ISO weekday 1-7; monthly: day 1-31; daily: 0"},
+			"budget_reset_time":                     map[string]any{"type": "string", "description": "Local reset time in HH:MM format"},
+			"budget_timezone":                       map[string]any{"type": "string", "description": "IANA timezone, e.g. Europe/Istanbul"},
 			"max_delegation_depth":                  map[string]any{"type": "integer"},
 			"require_board_approval_for_new_agents": map[string]any{"type": "boolean"},
 			"container_config": map[string]any{

@@ -426,15 +426,17 @@ func pickInt(primary, fallback int) int {
 // ─── Embeddings ───
 
 type embedRequest struct {
-	Model          string   `json:"model"`
-	Texts          []string `json:"texts"`
-	InputType      string   `json:"input_type"`
-	EmbeddingTypes []string `json:"embedding_types"`
+	Model           string   `json:"model"`
+	Texts           []string `json:"texts"`
+	InputType       string   `json:"input_type"`
+	EmbeddingTypes  []string `json:"embedding_types"`
+	OutputDimension *int     `json:"output_dimension,omitempty"`
 }
 
 type embedResponse struct {
 	Embeddings struct {
-		Float [][]float64 `json:"float"`
+		Float  [][]float64 `json:"float"`
+		Base64 []string    `json:"base64"`
 	} `json:"embeddings"`
 	Meta struct {
 		BilledUnits struct {
@@ -449,19 +451,25 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 	if model == "" {
 		model = "embed-english-v3.0"
 	}
+	embeddingType := "float"
+	if req.EncodingFormat == "base64" {
+		embeddingType = "base64"
+	}
 	body := embedRequest{
-		Model:          model,
-		Texts:          req.Input,
-		InputType:      "search_document",
-		EmbeddingTypes: []string{"float"},
+		Model:           model,
+		Texts:           req.Input,
+		InputType:       "search_document",
+		EmbeddingTypes:  []string{embeddingType},
+		OutputDimension: req.Dimensions,
 	}
 	var parsed embedResponse
 	if _, _, err := p.doJSON(ctx, http.MethodPost, "/v2/embed", body, &parsed); err != nil {
 		return nil, err
 	}
 	return &service.EmbeddingResponse{
-		Embeddings: parsed.Embeddings.Float,
-		Model:      model,
+		Embeddings:       parsed.Embeddings.Float,
+		Base64Embeddings: parsed.Embeddings.Base64,
+		Model:            model,
 		Usage: service.Usage{
 			PromptTokens: parsed.Meta.BilledUnits.InputTokens,
 			TotalTokens:  parsed.Meta.BilledUnits.InputTokens,

@@ -1,9 +1,12 @@
 package server
 
 import (
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"time"
 
@@ -31,9 +34,9 @@ type embeddingsResponse struct {
 }
 
 type embeddingDatum struct {
-	Object    string    `json:"object"` // "embedding"
-	Index     int       `json:"index"`
-	Embedding []float64 `json:"embedding"`
+	Object    string `json:"object"` // "embedding"
+	Index     int    `json:"index"`
+	Embedding any    `json:"embedding"` // []float64 or base64 string
 }
 
 type embeddingsUsage struct {
@@ -70,7 +73,16 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusBadRequest)
 		return
 	}
-
+	if req.EncodingFormat != "" && req.EncodingFormat != "float" && req.EncodingFormat != "base64" {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": "encoding_format must be either 'float' or 'base64'",
+				"type":    "invalid_request_error",
+				"param":   "encoding_format",
+			},
+		}, http.StatusBadRequest)
+		return
+	}
 	// Parse input — single string OR array.
 	inputs, err := parseEmbeddingsInput(req.Input)
 	if err != nil {
@@ -157,10 +169,18 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	dimensions := req.Dimensions
+	if dimensions != nil && *dimensions == 0 {
+		dimensions = nil
+	}
+
 	callStart := time.Now()
 	resp, err := embProvider.CreateEmbedding(r.Context(), service.EmbeddingRequest{
-		Input: inputs,
-		Model: actualModel,
+		Input:          inputs,
+		Model:          actualModel,
+		EncodingFormat: req.EncodingFormat,
+		Dimensions:     dimensions,
+		User:           req.User,
 	})
 	latencyMs := time.Since(callStart).Milliseconds()
 	if err != nil {
@@ -172,12 +192,23 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := make([]embeddingDatum, len(resp.Embeddings))
-	for i, v := range resp.Embeddings {
-		data[i] = embeddingDatum{
-			Object:    "embedding",
-			Index:     i,
-			Embedding: v,
+	var data []embeddingDatum
+	if req.EncodingFormat == "base64" {
+		encoded := resp.Base64Embeddings
+		if len(encoded) == 0 {
+			encoded = make([]string, len(resp.Embeddings))
+			for i, embedding := range resp.Embeddings {
+				encoded[i] = encodeEmbeddingBase64(embedding)
+			}
+		}
+		data = make([]embeddingDatum, len(encoded))
+		for i, embedding := range encoded {
+			data[i] = embeddingDatum{Object: "embedding", Index: i, Embedding: embedding}
+		}
+	} else {
+		data = make([]embeddingDatum, len(resp.Embeddings))
+		for i, embedding := range resp.Embeddings {
+			data[i] = embeddingDatum{Object: "embedding", Index: i, Embedding: embedding}
 		}
 	}
 
@@ -193,6 +224,16 @@ func (s *Server) Embeddings(w http.ResponseWriter, r *http.Request) {
 
 	s.recordUsageAsync(r.Context(), auth, req.Model, resp.Usage, latencyMs, "ok", "", "")
 	httpResponseJSON(w, out, http.StatusOK)
+}
+
+// encodeEmbeddingBase64 matches OpenAI's base64 representation: contiguous
+// little-endian IEEE-754 float32 values.
+func encodeEmbeddingBase64(embedding []float64) string {
+	raw := make([]byte, len(embedding)*4)
+	for i, value := range embedding {
+		binary.LittleEndian.PutUint32(raw[i*4:], math.Float32bits(float32(value)))
+	}
+	return base64.StdEncoding.EncodeToString(raw)
 }
 
 // parseEmbeddingsInput accepts either a single string, an array of strings,
@@ -220,5 +261,3 @@ func parseEmbeddingsInput(raw json.RawMessage) ([]string, error) {
 	// knows to send text.
 	return nil, fmt.Errorf("input must be a string or an array of strings (token-id inputs are not supported by this gateway)")
 }
-
-

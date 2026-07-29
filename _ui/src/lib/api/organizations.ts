@@ -3,7 +3,14 @@ import type { ListResult, ListParams } from './types';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
-export interface Organization {
+export interface BudgetSchedule {
+  budget_period: 'daily' | 'weekly' | 'monthly';
+  budget_reset_day: number;
+  budget_reset_time: string;
+  budget_timezone: string;
+}
+
+export interface Organization extends Partial<BudgetSchedule> {
   id: string;
   name: string;
   description: string;
@@ -21,6 +28,16 @@ export interface Organization {
   updated_at: string;
   created_by: string;
   updated_by: string;
+}
+
+export interface OrganizationBudgetStatus extends BudgetSchedule {
+  limit_cents: number;
+  spend_cents: number;
+  remaining_cents: number;
+  usage_percent: number;
+  period_start: string;
+  period_end: string;
+  next_reset_at: string;
 }
 
 export interface ContainerConfig {
@@ -62,6 +79,11 @@ export async function listOrganizations(params?: ListParams): Promise<ListResult
 
 export async function getOrganization(id: string): Promise<Organization> {
   const res = await api.get<Organization>(`/organizations/${id}`);
+  return res.data;
+}
+
+export async function getOrganizationBudget(id: string): Promise<OrganizationBudgetStatus> {
+  const res = await api.get<OrganizationBudgetStatus>(`/organizations/${id}/budget`);
   return res.data;
 }
 

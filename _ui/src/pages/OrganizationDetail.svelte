@@ -4,6 +4,7 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import {
     getOrganization,
+    getOrganizationBudget,
     updateOrganization,
     listOrgAgents,
     addAgentToOrg,
@@ -19,14 +20,16 @@
     type IntakeTaskResponse,
     type ContainerConfig,
     type BundlePreview,
+    type OrganizationBudgetStatus,
   } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listGoals, type Goal } from '@/lib/api/goals';
   import { TASK_PRIORITIES, TASK_PRIORITY_LABELS, listActiveDelegations, type ActiveDelegation } from '@/lib/api/tasks';
-  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Container, Download, Upload } from 'lucide-svelte';
+  import { ArrowLeft, Save, Plus, X, RefreshCw, UserPlus, Trash2, Crown, Send, Container, Download, Upload, DollarSign } from 'lucide-svelte';
   import ImportPreviewDialog from '@/lib/components/ImportPreviewDialog.svelte';
   import { agentAvatar } from '@/lib/helper/avatar';
   import OrgChart from '@/lib/components/OrgChart.svelte';
+  import BudgetScheduleFields from '@/lib/components/BudgetScheduleFields.svelte';
 
   // ─── Props ───
   let { params = { id: '' } }: { params?: { id: string } } = $props();
@@ -51,7 +54,14 @@
   // Submit-task panel
   let showTaskPanel = $state(false);
   let showContainerPanel = $state(false);
+  let showBudgetPanel = $state(false);
   let containerConfig = $state<ContainerConfig>({ enabled: false, image: 'at-agent-runtime:latest', cpu: '2', memory: '4g', network: true });
+  let budgetMonthlyUsd = $state<number | undefined>(undefined);
+  let budgetPeriod = $state('monthly');
+  let budgetResetDay = $state(1);
+  let budgetResetTime = $state('00:00');
+  let budgetTimezone = $state('UTC');
+  let organizationBudget = $state<OrganizationBudgetStatus | null>(null);
   let taskTitle = $state('');
   let taskDescription = $state('');
   let taskPriority = $state('');
@@ -109,6 +119,26 @@
     return new Map(memberships.map((m) => [m.agent_id, m]));
   }
 
+  function formatBudgetReset(value: string): string {
+    try {
+      return new Date(value).toLocaleString(undefined, {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: organizationBudget?.budget_timezone || 'UTC',
+        timeZoneName: 'short',
+      });
+    } catch {
+      return value;
+    }
+  }
+
+  function formatBudget(cents: number): string {
+    return `$${(cents / 100).toFixed(2)}`;
+  }
+
   // ─── Build OrgChart agent list ───
   function chartAgents() {
     const agents = agentMap();
@@ -138,6 +168,22 @@
       storeNavbar.title = `Org: ${organization.name}`;
       if (organization.container_config) {
         containerConfig = { ...containerConfig, ...organization.container_config };
+      }
+      budgetMonthlyUsd = organization.budget_monthly_cents
+        ? organization.budget_monthly_cents / 100
+        : undefined;
+      try {
+        organizationBudget = await getOrganizationBudget(organization.id);
+        budgetPeriod = organizationBudget.budget_period;
+        budgetResetDay = organizationBudget.budget_reset_day;
+        budgetResetTime = organizationBudget.budget_reset_time;
+        budgetTimezone = organizationBudget.budget_timezone;
+      } catch {
+        organizationBudget = null;
+        budgetPeriod = organization.budget_period || 'monthly';
+        budgetResetDay = organization.budget_reset_day ?? (budgetPeriod === 'daily' ? 0 : 1);
+        budgetResetTime = organization.budget_reset_time || '00:00';
+        budgetTimezone = organization.budget_timezone || 'UTC';
       }
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load organization', 'alert');
@@ -197,6 +243,39 @@
       addToast('Container config saved');
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to save', 'alert');
+    }
+  }
+
+  async function saveBudget() {
+    if (!organization) return;
+    const value = budgetMonthlyUsd ?? 0;
+    if (!Number.isFinite(value) || value < 0) {
+      addToast('Monthly budget must be zero or a positive USD amount', 'warn');
+      return;
+    }
+    saving = true;
+    try {
+      organization = await updateOrganization(organization.id, {
+        budget_monthly_cents: Math.round(value * 100),
+        budget_period: budgetPeriod as 'daily' | 'weekly' | 'monthly',
+        budget_reset_day: budgetResetDay,
+        budget_reset_time: budgetResetTime,
+        budget_timezone: budgetTimezone,
+      });
+      budgetMonthlyUsd = organization.budget_monthly_cents
+        ? organization.budget_monthly_cents / 100
+        : undefined;
+      addToast(value > 0 ? `Budget set to $${value.toFixed(2)} per ${budgetPeriod} period` : 'Budget disabled');
+      try {
+        organizationBudget = await getOrganizationBudget(organization.id);
+      } catch {
+        organizationBudget = null;
+      }
+      showBudgetPanel = false;
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to save budget', 'alert');
+    } finally {
+      saving = false;
     }
   }
 
@@ -491,14 +570,14 @@
           class="hidden"
         />
         <button
-          onclick={() => { showAddPanel = !showAddPanel; showTaskPanel = false; }}
+          onclick={() => { showAddPanel = !showAddPanel; showTaskPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
           class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
         >
           <UserPlus size={12} />
           Add Agent
         </button>
         <button
-          onclick={() => { showTaskPanel = !showTaskPanel; showAddPanel = false; }}
+          onclick={() => { showTaskPanel = !showTaskPanel; showAddPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
           disabled={!organization.head_agent_id}
           title={organization.head_agent_id ? 'Submit a task to this organization' : 'Set a head agent first'}
           class="flex items-center gap-1 px-2 py-1 text-xs {showTaskPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -507,7 +586,7 @@
           Submit Task
         </button>
         <button
-          onclick={() => { showContainerPanel = !showContainerPanel; showAddPanel = false; showTaskPanel = false; }}
+          onclick={() => { showContainerPanel = !showContainerPanel; showAddPanel = false; showTaskPanel = false; showBudgetPanel = false; }}
           class="flex items-center gap-1 px-2 py-1 text-xs {showContainerPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
         >
           <Container size={12} />
@@ -516,8 +595,112 @@
             <span class="w-1.5 h-1.5 bg-green-400 rounded-full"></span>
           {/if}
         </button>
+        <button
+          onclick={() => { showBudgetPanel = !showBudgetPanel; showAddPanel = false; showTaskPanel = false; showContainerPanel = false; }}
+          class="flex items-center gap-1 px-2 py-1 text-xs {showBudgetPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
+          title="Configure the organization spending limit"
+        >
+          <DollarSign size={12} />
+          {organization.budget_monthly_cents
+            ? `${formatBudget(organizationBudget?.spend_cents || 0)} / ${formatBudget(organization.budget_monthly_cents)}`
+            : 'Budget'}
+        </button>
       </div>
     </div>
+
+    <!-- Organization Budget Panel -->
+    {#if showBudgetPanel}
+      {@const spentCents = organizationBudget?.spend_cents || 0}
+      {@const limitCents = organizationBudget?.limit_cents ?? organization.budget_monthly_cents ?? 0}
+      {@const usagePercent = organizationBudget?.usage_percent ?? (limitCents > 0 ? (spentCents / limitCents) * 100 : 0)}
+      <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 shrink-0">
+        <div class="flex items-center justify-between mb-3">
+          <div>
+            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Organization Budget</span>
+            <p class="text-[10px] text-gray-400 dark:text-dark-text-muted mt-0.5">Checked against this organization's cost events before every delegation LLM call.</p>
+          </div>
+          <button onclick={() => { showBudgetPanel = false; }} class="text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text">
+            <X size={14} />
+          </button>
+        </div>
+
+        <div class="grid grid-cols-4 gap-2 mb-3">
+          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Spent</span>
+            <span class="text-sm font-mono font-medium text-gray-900 dark:text-dark-text">{formatBudget(spentCents)}</span>
+          </div>
+          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Limit</span>
+            <span class="text-sm font-mono font-medium text-gray-900 dark:text-dark-text">{limitCents > 0 ? formatBudget(limitCents) : 'Unlimited'}</span>
+          </div>
+          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Remaining</span>
+            <span class="text-sm font-mono font-medium" class:text-red-600={limitCents > 0 && spentCents >= limitCents} class:dark:text-red-400={limitCents > 0 && spentCents >= limitCents} class:text-gray-900={limitCents === 0 || spentCents < limitCents} class:dark:text-dark-text={limitCents === 0 || spentCents < limitCents}>
+              {limitCents > 0 ? formatBudget(Math.max(0, limitCents - spentCents)) : 'Unlimited'}
+            </span>
+          </div>
+          <div class="border border-gray-200 dark:border-dark-border-subtle bg-gray-50 dark:bg-dark-elevated px-2.5 py-2">
+            <span class="text-[9px] font-medium text-gray-400 dark:text-dark-text-muted uppercase tracking-wider block">Period</span>
+            <span class="text-[11px] font-medium text-gray-700 dark:text-dark-text-secondary">
+              {organizationBudget ? `Resets ${formatBudgetReset(organizationBudget.next_reset_at)}` : 'Unavailable'}
+            </span>
+          </div>
+        </div>
+
+        {#if limitCents > 0}
+          <div class="mb-3">
+            <div class="flex items-center justify-between text-[10px] mb-1">
+              <span class="text-gray-400 dark:text-dark-text-muted">Current {budgetPeriod} period</span>
+              <span class="font-mono" class:text-red-600={usagePercent >= 100} class:dark:text-red-400={usagePercent >= 100}>{usagePercent.toFixed(1)}%</span>
+            </div>
+            <div class="h-1.5 bg-gray-100 dark:bg-dark-elevated overflow-hidden">
+              <div
+                class="h-full transition-all"
+                class:bg-emerald-500={usagePercent < 80}
+                class:bg-amber-500={usagePercent >= 80 && usagePercent < 100}
+                class:bg-red-500={usagePercent >= 100}
+                style="width: {Math.min(100, usagePercent)}%"
+              ></div>
+            </div>
+          </div>
+        {/if}
+
+        <div class="mb-3 pb-3 border-b border-gray-100 dark:border-dark-border">
+          <BudgetScheduleFields
+            bind:period={budgetPeriod}
+            bind:resetDay={budgetResetDay}
+            bind:resetTime={budgetResetTime}
+            bind:timezone={budgetTimezone}
+          />
+        </div>
+
+        <div class="flex items-end gap-3">
+          <label class="block w-56">
+            <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
+            <div class="relative">
+              <DollarSign size={12} class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted" />
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                bind:value={budgetMonthlyUsd}
+                placeholder="Unlimited"
+                class="w-full pl-6 pr-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+              />
+            </div>
+          </label>
+          <button
+            onclick={saveBudget}
+            disabled={saving}
+            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded transition-colors disabled:opacity-50"
+          >
+            <Save size={12} />
+            Save
+          </button>
+          <span class="pb-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Blank or 0 disables the limit.</span>
+        </div>
+      </div>
+    {/if}
 
     <!-- Container Config Panel -->
     {#if showContainerPanel}

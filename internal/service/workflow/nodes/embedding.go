@@ -28,6 +28,7 @@ import (
 type embeddingNode struct {
 	providerKey string
 	model       string
+	dimensions  int
 }
 
 func init() {
@@ -37,10 +38,15 @@ func init() {
 func newEmbeddingNode(node service.WorkflowNode) (workflow.Noder, error) {
 	providerKey, _ := node.Data["provider"].(string)
 	model, _ := node.Data["model"].(string)
+	dimensions := 0
+	if value, ok := node.Data["dimensions"].(float64); ok && value > 0 {
+		dimensions = int(value)
+	}
 
 	return &embeddingNode{
 		providerKey: providerKey,
 		model:       model,
+		dimensions:  dimensions,
 	}, nil
 }
 
@@ -63,6 +69,7 @@ func (n *embeddingNode) Meta() workflow.NodeMeta {
 			{Name: "label", Type: "string", Required: true, Description: "Display name"},
 			{Name: "provider", Type: "string", Required: true, Description: "Provider key"},
 			{Name: "model", Type: "string", Description: "Embedding model name"},
+			{Name: "dimensions", Type: "number", Description: "Output vector dimensions (provider/model dependent)"},
 		},
 		Color: "teal",
 	}
@@ -122,6 +129,9 @@ func (n *embeddingNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	req := service.EmbeddingRequest{
 		Input: texts,
 		Model: n.model,
+	}
+	if n.dimensions > 0 {
+		req.Dimensions = &n.dimensions
 	}
 
 	resp, err := embProvider.CreateEmbedding(ctx, req)

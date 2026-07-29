@@ -1,9 +1,55 @@
 package cohere
 
 import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
+
+	"github.com/rakunlabs/at/internal/service"
 )
+
+func TestCreateEmbeddingForwardsOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/embed" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		var body embedRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body.OutputDimension == nil || *body.OutputDimension != 512 {
+			t.Errorf("output_dimension = %v", body.OutputDimension)
+		}
+		if !reflect.DeepEqual(body.EmbeddingTypes, []string{"base64"}) {
+			t.Errorf("embedding_types = %#v", body.EmbeddingTypes)
+		}
+		_, _ = w.Write([]byte(`{"embeddings":{"base64":["AQIDBA=="]},"meta":{"billed_units":{"input_tokens":2}}}`))
+	}))
+	defer server.Close()
+
+	provider, err := New("test-key", "unused", server.URL, "", false)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	dimensions := 512
+	resp, err := provider.CreateEmbedding(context.Background(), service.EmbeddingRequest{
+		Input:          []string{"hello"},
+		Model:          "embed-v4.0",
+		EncodingFormat: "base64",
+		Dimensions:     &dimensions,
+	})
+	if err != nil {
+		t.Fatalf("CreateEmbedding: %v", err)
+	}
+	if len(resp.Base64Embeddings) != 1 || resp.Base64Embeddings[0] != "AQIDBA==" {
+		t.Fatalf("base64 embeddings = %#v", resp.Base64Embeddings)
+	}
+}
 
 func TestTranslateCohereToolChoice(t *testing.T) {
 	tests := []struct {

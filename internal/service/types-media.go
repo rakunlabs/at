@@ -115,15 +115,19 @@ type TranscriptionSegment struct {
 
 // EmbeddingRequest describes a text embedding request.
 type EmbeddingRequest struct {
-	Input []string `json:"input"`           // one or more texts to embed
-	Model string   `json:"model,omitempty"` // e.g. "text-embedding-3-small"
+	Input          []string `json:"input"`                     // one or more texts to embed
+	Model          string   `json:"model,omitempty"`           // e.g. "text-embedding-3-small"
+	EncodingFormat string   `json:"encoding_format,omitempty"` // "float" (default) or "base64"
+	Dimensions     *int     `json:"dimensions,omitempty"`
+	User           string   `json:"user,omitempty"`
 }
 
 // EmbeddingResponse is the result of an embedding operation.
 type EmbeddingResponse struct {
-	Embeddings [][]float64 `json:"embeddings"`
-	Model      string      `json:"model"`
-	Usage      Usage       `json:"usage,omitempty"`
+	Embeddings       [][]float64 `json:"embeddings,omitempty"`
+	Base64Embeddings []string    `json:"base64_embeddings,omitempty"`
+	Model            string      `json:"model"`
+	Usage            Usage       `json:"usage,omitempty"`
 }
 
 // ModerationRequest describes a content-moderation request.

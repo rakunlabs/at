@@ -1,9 +1,10 @@
 import axios from 'axios';
 import type { ListResult, ListParams } from './types';
+import type { BudgetSchedule } from './organizations';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
-export interface AgentBudget {
+export interface AgentBudget extends BudgetSchedule {
   id: string;
   agent_id: string;
   monthly_limit: number;
@@ -112,12 +113,18 @@ export interface AgentSpend {
 }
 
 export async function getAgentBudget(agentId: string): Promise<AgentBudget | null> {
-  const res = await api.get<AgentBudget>(`/agents/${agentId}/budget`);
-  return res.data;
+  try {
+    const res = await api.get<AgentBudget>(`/agents/${agentId}/budget`);
+    return res.data;
+  } catch (error: any) {
+    if (error?.response?.status === 404) return null;
+    throw error;
+  }
 }
 
-export async function setAgentBudget(agentId: string, data: Partial<AgentBudget>): Promise<void> {
-  await api.put(`/agents/${agentId}/budget`, data);
+export async function setAgentBudget(agentId: string, data: Partial<AgentBudget>): Promise<AgentBudget> {
+  const res = await api.put<AgentBudget>(`/agents/${agentId}/budget`, data);
+  return res.data;
 }
 
 export async function getAgentUsage(agentId: string, params?: ListParams): Promise<ListResult<AgentUsageRecord>> {

@@ -538,8 +538,11 @@
           {@const pct = Math.min(100, b.usage_percent)}
           {@const over = b.usage_percent > 100}
           <div class="flex items-center gap-2 text-xs">
-            <div class="w-40 truncate" title={b.agent_id}>
-              <span class="font-medium text-gray-900 dark:text-dark-text">{b.agent_name || b.agent_id}</span>
+            <div class="w-52 min-w-0" title={b.agent_id}>
+              <span class="font-medium text-gray-900 dark:text-dark-text block truncate">{b.agent_name || b.agent_id}</span>
+              <span class="text-[9px] text-gray-400 dark:text-dark-text-muted block truncate">
+                {b.budget_period}{b.period_end ? ` · resets ${new Date(b.period_end).toLocaleString(undefined, { timeZone: b.budget_timezone || 'UTC' })}` : ''}
+              </span>
             </div>
             <div class="flex-1 h-4 relative bg-gray-100 dark:bg-dark-elevated rounded-sm overflow-hidden">
               <div

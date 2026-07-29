@@ -367,7 +367,22 @@ func (s *Server) execOrgUpdate(ctx context.Context, args map[string]any) (string
 		updated.HeadAgentID = stringArg(args, "head_agent_id")
 	}
 	if v := optionalInt64(args, "budget_monthly_cents"); v != nil {
+		if *v < 0 {
+			return "", fmt.Errorf("budget_monthly_cents must be non-negative")
+		}
 		updated.BudgetMonthlyCents = *v
+	}
+	if updated.BudgetPeriod == "" && hasBudgetScheduleArg(args) {
+		schedule, err := effectiveOrganizationBudgetSchedule(existing)
+		if err != nil {
+			return "", err
+		}
+		updated.BudgetSchedule = schedule
+	}
+	if changed, err := applyBudgetScheduleArgs(&updated.BudgetSchedule, args); err != nil {
+		return "", err
+	} else if changed {
+		updated.BudgetResetAt = ""
 	}
 	if v, ok := args["max_delegation_depth"]; ok {
 		switch n := v.(type) {
@@ -424,6 +439,47 @@ func (s *Server) execOrgUpdate(ctx context.Context, args map[string]any) (string
 		return "", fmt.Errorf("marshal org: %w", err)
 	}
 	return string(out), nil
+}
+
+func applyBudgetScheduleArgs(schedule *service.BudgetSchedule, args map[string]any) (bool, error) {
+	changed := false
+	if value, ok := args["budget_period"].(string); ok {
+		schedule.BudgetPeriod = value
+		changed = true
+	}
+	if value, ok := args["budget_reset_day"].(float64); ok {
+		schedule.BudgetResetDay = int(value)
+		changed = true
+	}
+	if value, ok := args["budget_reset_time"].(string); ok {
+		schedule.BudgetResetTime = value
+		changed = true
+	}
+	if value, ok := args["budget_timezone"].(string); ok {
+		schedule.BudgetTimezone = value
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	if schedule.BudgetPeriod == service.BudgetPeriodDaily {
+		schedule.BudgetResetDay = 0
+	}
+	normalized, err := service.NormalizeBudgetSchedule(*schedule)
+	if err != nil {
+		return false, err
+	}
+	*schedule = normalized
+	return true, nil
+}
+
+func hasBudgetScheduleArg(args map[string]any) bool {
+	for _, key := range []string{"budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone"} {
+		if _, ok := args[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) execOrgDelete(ctx context.Context, args map[string]any) (string, error) {

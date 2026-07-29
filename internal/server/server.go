@@ -800,6 +800,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/organizations/import", s.ImportOrganizationBundleAPI)
 	apiGroup.POST("/v1/organizations/import/preview", s.PreviewImportBundleAPI)
 	apiGroup.GET("/v1/organizations/{id}", s.GetOrganizationAPI)
+	apiGroup.GET("/v1/organizations/{id}/budget", s.GetOrganizationBudgetAPI)
 	apiGroup.PUT("/v1/organizations/{id}", s.UpdateOrganizationAPI)
 	apiGroup.DELETE("/v1/organizations/{id}", s.DeleteOrganizationAPI)
 	apiGroup.GET("/v1/organizations/{id}/export", s.ExportOrganizationBundleAPI)
@@ -1290,23 +1291,7 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 		// Dollar-denominated for agent_usage (historic), cents for cost_events.
 		estimatedCost := costCents / 100
 
-		// 1. Legacy: agent_usage (per-agent totals, budget enforcement).
-		if s.agentBudgetStore != nil {
-			if err := s.agentBudgetStore.RecordAgentUsage(ctx, service.AgentUsageRecord{
-				AgentID:          event.AgentID,
-				TaskID:           event.TaskID,
-				WorkflowRunID:    event.RunID,
-				Model:            event.Model,
-				PromptTokens:     int64(event.Usage.PromptTokens),
-				CompletionTokens: int64(event.Usage.CompletionTokens),
-				TotalTokens:      int64(event.Usage.TotalTokenCount()),
-				EstimatedCost:    estimatedCost,
-			}); err != nil {
-				return err
-			}
-		}
-
-		// 2. Dashboard: cost_events (per-call with latency/status/attribution).
+		// cost_events is authoritative for both budget enforcement and dashboards.
 		if s.costEventStore != nil {
 			status := event.Status
 			if status == "" {
@@ -1332,8 +1317,24 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 				ErrorCode:        event.ErrorCode,
 				ErrorMessage:     event.ErrorMessage,
 			}); err != nil {
-				// Non-fatal: budget write already succeeded; log and continue.
-				slog.Warn("record cost event failed", "agent_id", event.AgentID, "error", err)
+				return fmt.Errorf("record authoritative cost event: %w", err)
+			}
+		}
+
+		// Keep the legacy agent_usage feed best-effort for compatibility. It no
+		// longer drives budget decisions.
+		if s.agentBudgetStore != nil {
+			if err := s.agentBudgetStore.RecordAgentUsage(ctx, service.AgentUsageRecord{
+				AgentID:          event.AgentID,
+				TaskID:           event.TaskID,
+				WorkflowRunID:    event.RunID,
+				Model:            event.Model,
+				PromptTokens:     int64(event.Usage.PromptTokens),
+				CompletionTokens: int64(event.Usage.CompletionTokens),
+				TotalTokens:      int64(event.Usage.TotalTokenCount()),
+				EstimatedCost:    estimatedCost,
+			}); err != nil {
+				slog.Warn("record legacy agent usage failed", "agent_id", event.AgentID, "error", err)
 			}
 		}
 
@@ -1345,7 +1346,7 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 // agent has exceeded its spending budget. Returns nil when the budget store
 // is not configured.
 func (s *Server) checkBudgetFunc() workflow.CheckBudgetFunc {
-	if s.agentBudgetStore == nil {
+	if s.agentBudgetStore == nil || s.costEventStore == nil {
 		return nil
 	}
 	return func(ctx context.Context, agentID string) error {
@@ -1357,12 +1358,15 @@ func (s *Server) checkBudgetFunc() workflow.CheckBudgetFunc {
 			// No budget set — unlimited.
 			return nil
 		}
-		totalSpend, err := s.agentBudgetStore.GetAgentTotalSpend(ctx, agentID)
-		if err != nil {
-			return fmt.Errorf("get total spend for agent %s: %w", agentID, err)
+		if budget.MonthlyLimit <= 0 {
+			return nil
 		}
-		if totalSpend >= budget.MonthlyLimit {
-			return fmt.Errorf("agent %s has exceeded monthly budget (%.2f / %.2f USD)", agentID, totalSpend, budget.MonthlyLimit)
+		budget, err = s.deriveAgentBudget(ctx, budget, time.Now())
+		if err != nil {
+			return fmt.Errorf("get current spend for agent %s: %w", agentID, err)
+		}
+		if budget.CurrentSpend >= budget.MonthlyLimit {
+			return fmt.Errorf("agent %s has exceeded budget (%.2f / %.2f USD)", agentID, budget.CurrentSpend, budget.MonthlyLimit)
 		}
 		return nil
 	}

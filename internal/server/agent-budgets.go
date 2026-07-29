@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
@@ -12,7 +13,7 @@ import (
 
 // GetAgentBudgetAPI handles GET /api/v1/agents/{id}/budget.
 func (s *Server) GetAgentBudgetAPI(w http.ResponseWriter, r *http.Request) {
-	if s.agentBudgetStore == nil {
+	if s.agentBudgetStore == nil || s.costEventStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -34,13 +35,19 @@ func (s *Server) GetAgentBudgetAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("budget for agent %q not found", agentID), http.StatusNotFound)
 		return
 	}
+	record, err = s.deriveAgentBudget(r.Context(), record, time.Now())
+	if err != nil {
+		slog.Error("derive agent budget failed", "agent_id", agentID, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get agent budget: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	httpResponseJSON(w, record, http.StatusOK)
 }
 
 // SetAgentBudgetAPI handles PUT /api/v1/agents/{id}/budget.
 func (s *Server) SetAgentBudgetAPI(w http.ResponseWriter, r *http.Request) {
-	if s.agentBudgetStore == nil {
+	if s.agentBudgetStore == nil || s.costEventStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -58,6 +65,32 @@ func (s *Server) SetAgentBudgetAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	req.AgentID = agentID
+	if !validAgentBudgetLimit(req.MonthlyLimit) {
+		httpResponse(w, "monthly_limit must be a finite non-negative number", http.StatusBadRequest)
+		return
+	}
+	schedule, err := service.NormalizeBudgetSchedule(req.BudgetSchedule)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.BudgetSchedule = schedule
+	now := time.Now()
+	start, end, err := service.BudgetPeriodBounds(now, schedule)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.PeriodStart = start.Format(time.RFC3339)
+	req.PeriodEnd = end.Format(time.RFC3339)
+	summary, usageErr := s.costEventStore.GetUsageSummary(r.Context(), service.UsageFilter{
+		From: start.Format(time.RFC3339), To: end.Format(time.RFC3339), AgentIDs: []string{agentID},
+	})
+	if usageErr != nil {
+		httpResponse(w, fmt.Sprintf("failed to get agent budget spend: %v", usageErr), http.StatusInternalServerError)
+		return
+	}
+	req.CurrentSpend = summary.CostCents / 100
 
 	if err := s.agentBudgetStore.SetAgentBudget(r.Context(), req); err != nil {
 		slog.Error("set agent budget failed", "agent_id", agentID, "error", err)
@@ -65,7 +98,20 @@ func (s *Server) SetAgentBudgetAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpResponse(w, "budget updated", http.StatusOK)
+	record, err := s.agentBudgetStore.GetAgentBudget(r.Context(), agentID)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to get updated agent budget: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if record == nil {
+		record = &req
+	}
+	record, err = s.deriveAgentBudget(r.Context(), record, now)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to get updated agent budget: %v", err), http.StatusInternalServerError)
+		return
+	}
+	httpResponseJSON(w, record, http.StatusOK)
 }
 
 // GetAgentUsageAPI handles GET /api/v1/agents/{id}/usage.

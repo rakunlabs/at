@@ -16,14 +16,18 @@ import (
 // ─── Agent Budget CRUD ───
 
 type agentBudgetRow struct {
-	ID           string    `db:"id"`
-	AgentID      string    `db:"agent_id"`
-	MonthlyLimit float64   `db:"monthly_limit"`
-	CurrentSpend float64   `db:"current_spend"`
-	PeriodStart  time.Time `db:"period_start"`
-	PeriodEnd    time.Time `db:"period_end"`
-	CreatedAt    time.Time `db:"created_at"`
-	UpdatedAt    time.Time `db:"updated_at"`
+	ID              string         `db:"id"`
+	AgentID         string         `db:"agent_id"`
+	MonthlyLimit    float64        `db:"monthly_limit"`
+	CurrentSpend    float64        `db:"current_spend"`
+	PeriodStart     time.Time      `db:"period_start"`
+	PeriodEnd       time.Time      `db:"period_end"`
+	BudgetPeriod    sql.NullString `db:"budget_period"`
+	BudgetResetDay  sql.NullInt64  `db:"budget_reset_day"`
+	BudgetResetTime sql.NullString `db:"budget_reset_time"`
+	BudgetTimezone  sql.NullString `db:"budget_timezone"`
+	CreatedAt       time.Time      `db:"created_at"`
+	UpdatedAt       time.Time      `db:"updated_at"`
 }
 
 type agentUsageRow struct {
@@ -64,7 +68,7 @@ type modelPricingRow struct {
 
 func (p *Postgres) GetAgentBudget(ctx context.Context, agentID string) (*service.AgentBudget, error) {
 	query, _, err := p.goqu.From(p.tableAgentBudgets).
-		Select("id", "agent_id", "monthly_limit", "current_spend", "period_start", "period_end", "created_at", "updated_at").
+		Select("id", "agent_id", "monthly_limit", "current_spend", "period_start", "period_end", "budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone", "created_at", "updated_at").
 		Where(goqu.I("agent_id").Eq(agentID)).
 		ToSQL()
 	if err != nil {
@@ -74,7 +78,9 @@ func (p *Postgres) GetAgentBudget(ctx context.Context, agentID string) (*service
 	var row agentBudgetRow
 	err = p.db.QueryRowContext(ctx, query).Scan(
 		&row.ID, &row.AgentID, &row.MonthlyLimit, &row.CurrentSpend,
-		&row.PeriodStart, &row.PeriodEnd, &row.CreatedAt, &row.UpdatedAt,
+		&row.PeriodStart, &row.PeriodEnd,
+		&row.BudgetPeriod, &row.BudgetResetDay, &row.BudgetResetTime, &row.BudgetTimezone,
+		&row.CreatedAt, &row.UpdatedAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -89,7 +95,7 @@ func (p *Postgres) GetAgentBudget(ctx context.Context, agentID string) (*service
 // ListAgentBudgets returns all configured agent budgets.
 func (p *Postgres) ListAgentBudgets(ctx context.Context) ([]service.AgentBudget, error) {
 	query, _, err := p.goqu.From(p.tableAgentBudgets).
-		Select("id", "agent_id", "monthly_limit", "current_spend", "period_start", "period_end", "created_at", "updated_at").
+		Select("id", "agent_id", "monthly_limit", "current_spend", "period_start", "period_end", "budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone", "created_at", "updated_at").
 		Order(goqu.I("agent_id").Asc()).
 		ToSQL()
 	if err != nil {
@@ -107,7 +113,9 @@ func (p *Postgres) ListAgentBudgets(ctx context.Context) ([]service.AgentBudget,
 		var row agentBudgetRow
 		if err := rows.Scan(
 			&row.ID, &row.AgentID, &row.MonthlyLimit, &row.CurrentSpend,
-			&row.PeriodStart, &row.PeriodEnd, &row.CreatedAt, &row.UpdatedAt,
+			&row.PeriodStart, &row.PeriodEnd,
+			&row.BudgetPeriod, &row.BudgetResetDay, &row.BudgetResetTime, &row.BudgetTimezone,
+			&row.CreatedAt, &row.UpdatedAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan agent budget row: %w", err)
 		}
@@ -122,23 +130,36 @@ func (p *Postgres) SetAgentBudget(ctx context.Context, budget service.AgentBudge
 
 	// Use raw SQL for ON CONFLICT upsert.
 	rawSQL := fmt.Sprintf(
-		`INSERT INTO %s (id, agent_id, monthly_limit, current_spend, period_start, period_end, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+		`INSERT INTO %s (id, agent_id, monthly_limit, current_spend, period_start, period_end, budget_period, budget_reset_day, budget_reset_time, budget_timezone, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (agent_id) DO UPDATE SET
 			monthly_limit = EXCLUDED.monthly_limit,
 			current_spend = EXCLUDED.current_spend,
 			period_start = EXCLUDED.period_start,
 			period_end = EXCLUDED.period_end,
+			budget_period = EXCLUDED.budget_period,
+			budget_reset_day = EXCLUDED.budget_reset_day,
+			budget_reset_time = EXCLUDED.budget_reset_time,
+			budget_timezone = EXCLUDED.budget_timezone,
 			updated_at = EXCLUDED.updated_at`,
 		p.tableAgentBudgets.GetTable(),
 	)
 
-	periodStart, _ := time.Parse(time.RFC3339, budget.PeriodStart)
-	periodEnd, _ := time.Parse(time.RFC3339, budget.PeriodEnd)
+	periodStart, err := time.Parse(time.RFC3339, budget.PeriodStart)
+	if err != nil {
+		return fmt.Errorf("parse agent budget period_start: %w", err)
+	}
+	periodEnd, err := time.Parse(time.RFC3339, budget.PeriodEnd)
+	if err != nil {
+		return fmt.Errorf("parse agent budget period_end: %w", err)
+	}
 
-	_, err := p.db.ExecContext(ctx, rawSQL,
+	_, err = p.db.ExecContext(ctx, rawSQL,
 		id, budget.AgentID, budget.MonthlyLimit, budget.CurrentSpend,
-		periodStart, periodEnd, now, now,
+		periodStart, periodEnd,
+		nullString(budget.BudgetPeriod), nullInt(budget.BudgetResetDay),
+		nullString(budget.BudgetResetTime), nullString(budget.BudgetTimezone),
+		now, now,
 	)
 	if err != nil {
 		return fmt.Errorf("set agent budget for %q: %w", budget.AgentID, err)
@@ -379,6 +400,12 @@ func (p *Postgres) ResetModelPricingOverride(ctx context.Context, id string) err
 
 func agentBudgetRowToRecord(row agentBudgetRow) *service.AgentBudget {
 	return &service.AgentBudget{
+		BudgetSchedule: service.BudgetSchedule{
+			BudgetPeriod:    row.BudgetPeriod.String,
+			BudgetResetDay:  int(row.BudgetResetDay.Int64),
+			BudgetResetTime: row.BudgetResetTime.String,
+			BudgetTimezone:  row.BudgetTimezone.String,
+		},
 		ID:           row.ID,
 		AgentID:      row.AgentID,
 		MonthlyLimit: row.MonthlyLimit,

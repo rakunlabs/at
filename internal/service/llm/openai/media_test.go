@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -51,6 +52,44 @@ func TestAPIURL(t *testing.T) {
 				t.Errorf("apiURL(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestCreateEmbeddingForwardsOptionalFields(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Errorf("path = %q, want /v1/embeddings", r.URL.Path)
+		}
+		var body embeddingRequest
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body.EncodingFormat != "base64" || body.Dimensions == nil || *body.Dimensions != 256 || body.User != "user-123" {
+			t.Errorf("request = %+v", body)
+		}
+		_, _ = w.Write([]byte(`{"data":[{"embedding":"AQIDBA=="}],"model":"text-embedding-3-small","usage":{"prompt_tokens":2,"total_tokens":2}}`))
+	}))
+	defer server.Close()
+
+	provider, err := New("test-key", "unused", server.URL+"/v1/chat/completions", "", false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	dimensions := 256
+	resp, err := provider.CreateEmbedding(context.Background(), service.EmbeddingRequest{
+		Input:          []string{"hello"},
+		Model:          "text-embedding-3-small",
+		EncodingFormat: "base64",
+		Dimensions:     &dimensions,
+		User:           "user-123",
+	})
+	if err != nil {
+		t.Fatalf("CreateEmbedding: %v", err)
+	}
+	if len(resp.Base64Embeddings) != 1 || resp.Base64Embeddings[0] != "AQIDBA==" {
+		t.Fatalf("base64 embeddings = %#v", resp.Base64Embeddings)
 	}
 }
 

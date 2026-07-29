@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
@@ -65,6 +66,35 @@ func (s *Server) GetOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, record, http.StatusOK)
 }
 
+// GetOrganizationBudgetAPI handles GET /api/v1/organizations/{id}/budget.
+func (s *Server) GetOrganizationBudgetAPI(w http.ResponseWriter, r *http.Request) {
+	if s.organizationStore == nil || s.costEventStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "organization id is required", http.StatusBadRequest)
+		return
+	}
+	org, err := s.organizationStore.GetOrganization(r.Context(), id)
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to get organization: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if org == nil {
+		httpResponse(w, fmt.Sprintf("organization %q not found", id), http.StatusNotFound)
+		return
+	}
+	status, err := s.organizationBudgetStatus(r.Context(), org, time.Now())
+	if err != nil {
+		slog.Error("get organization budget failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get organization budget: %v", err), http.StatusInternalServerError)
+		return
+	}
+	httpResponseJSON(w, status, http.StatusOK)
+}
+
 // CreateOrganizationAPI handles POST /api/v1/organizations.
 func (s *Server) CreateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 	if s.organizationStore == nil {
@@ -81,6 +111,19 @@ func (s *Server) CreateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 	if req.Name == "" {
 		httpResponse(w, "name is required", http.StatusBadRequest)
 		return
+	}
+	if req.BudgetMonthlyCents < 0 {
+		httpResponse(w, "budget_monthly_cents must be non-negative", http.StatusBadRequest)
+		return
+	}
+	if req.BudgetPeriod != "" || req.BudgetResetDay != 0 || req.BudgetResetTime != "" || req.BudgetTimezone != "" {
+		schedule, err := service.NormalizeBudgetSchedule(req.BudgetSchedule)
+		if err != nil {
+			httpResponse(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.BudgetSchedule = schedule
+		req.BudgetResetAt = ""
 	}
 
 	userEmail := s.getUserEmail(r)
@@ -131,6 +174,14 @@ func (s *Server) UpdateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 	// Allow partial updates while preserving the ability to explicitly clear
 	// string fields such as head_agent_id.
 	req := *existing
+	if existing.BudgetPeriod == "" && hasBudgetScheduleField(fields) {
+		schedule, err := effectiveOrganizationBudgetSchedule(existing)
+		if err != nil {
+			httpResponse(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.BudgetSchedule = schedule
+	}
 	if raw, ok := fields["name"]; ok {
 		var v string
 		if err := json.Unmarshal(raw, &v); err != nil {
@@ -163,6 +214,10 @@ func (s *Server) UpdateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 			httpResponse(w, fmt.Sprintf("invalid budget_monthly_cents: %v", err), http.StatusBadRequest)
 			return
 		}
+		if v < 0 {
+			httpResponse(w, "budget_monthly_cents must be non-negative", http.StatusBadRequest)
+			return
+		}
 		req.BudgetMonthlyCents = v
 	}
 	if raw, ok := fields["spent_monthly_cents"]; ok {
@@ -180,6 +235,55 @@ func (s *Server) UpdateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		req.BudgetResetAt = v
+		if v != "" {
+			if _, err := time.Parse(time.RFC3339, v); err != nil {
+				httpResponse(w, fmt.Sprintf("invalid budget_reset_at: %v", err), http.StatusBadRequest)
+				return
+			}
+		}
+	}
+	scheduleChanged := false
+	resetDayChanged := false
+	if raw, ok := fields["budget_period"]; ok {
+		if err := json.Unmarshal(raw, &req.BudgetPeriod); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid budget_period: %v", err), http.StatusBadRequest)
+			return
+		}
+		scheduleChanged = true
+	}
+	if raw, ok := fields["budget_reset_day"]; ok {
+		if err := json.Unmarshal(raw, &req.BudgetResetDay); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid budget_reset_day: %v", err), http.StatusBadRequest)
+			return
+		}
+		scheduleChanged = true
+		resetDayChanged = true
+	}
+	if raw, ok := fields["budget_reset_time"]; ok {
+		if err := json.Unmarshal(raw, &req.BudgetResetTime); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid budget_reset_time: %v", err), http.StatusBadRequest)
+			return
+		}
+		scheduleChanged = true
+	}
+	if raw, ok := fields["budget_timezone"]; ok {
+		if err := json.Unmarshal(raw, &req.BudgetTimezone); err != nil {
+			httpResponse(w, fmt.Sprintf("invalid budget_timezone: %v", err), http.StatusBadRequest)
+			return
+		}
+		scheduleChanged = true
+	}
+	if scheduleChanged {
+		if req.BudgetPeriod == service.BudgetPeriodDaily && !resetDayChanged {
+			req.BudgetResetDay = 0
+		}
+		schedule, err := service.NormalizeBudgetSchedule(req.BudgetSchedule)
+		if err != nil {
+			httpResponse(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		req.BudgetSchedule = schedule
+		req.BudgetResetAt = ""
 	}
 	if raw, ok := fields["require_board_approval_for_new_agents"]; ok {
 		var v bool
@@ -262,6 +366,15 @@ func (s *Server) UpdateOrganizationAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, record, http.StatusOK)
+}
+
+func hasBudgetScheduleField(fields map[string]json.RawMessage) bool {
+	for _, key := range []string{"budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone"} {
+		if _, ok := fields[key]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // DeleteOrganizationAPI handles DELETE /api/v1/organizations/{id}.

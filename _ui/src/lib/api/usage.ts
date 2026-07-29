@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { BudgetSchedule } from './organizations';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
@@ -45,7 +46,7 @@ export interface UsageTimeSeriesPoint {
   avg_latency_ms: number;
 }
 
-export interface BudgetUtilization {
+export interface BudgetUtilization extends BudgetSchedule {
   agent_id: string;
   agent_name?: string;
   monthly_limit: number;

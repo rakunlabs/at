@@ -11,6 +11,7 @@ import (
 
 // Organization represents a tenant scope for grouping agents, goals, and tasks.
 type Organization struct {
+	BudgetSchedule
 	ID                   string           `json:"id"`
 	Name                 string           `json:"name"`
 	Description          string           `json:"description"`

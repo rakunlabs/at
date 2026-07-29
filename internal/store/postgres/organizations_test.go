@@ -102,13 +102,17 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 
 	t.Run("create with all enhanced fields", func(t *testing.T) {
 		org := service.Organization{
-			Name:                 "Full Org",
-			Description:          "Testing all fields",
-			IssuePrefix:          "PAP",
-			IssueCounter:         41,
-			BudgetMonthlyCents:   100000,
-			SpentMonthlyCents:    5000,
-			BudgetResetAt:        "2026-03-01T00:00:00Z",
+			Name:               "Full Org",
+			Description:        "Testing all fields",
+			IssuePrefix:        "PAP",
+			IssueCounter:       41,
+			BudgetMonthlyCents: 100000,
+			SpentMonthlyCents:  5000,
+			BudgetResetAt:      "2026-03-01T00:00:00Z",
+			BudgetSchedule: service.BudgetSchedule{
+				BudgetPeriod: service.BudgetPeriodWeekly, BudgetResetDay: 3,
+				BudgetResetTime: "09:15", BudgetTimezone: "Europe/Berlin",
+			},
 			RequireBoardApproval: true,
 			HeadAgentID:          "agent-head",
 			MaxDelegationDepth:   3,
@@ -153,6 +157,9 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 		if err != nil || !gotReset.Equal(wantReset) {
 			t.Errorf("BudgetResetAt: got %q, want instant %q (parse err: %v)", fetched.BudgetResetAt, "2026-03-01T00:00:00Z", err)
 		}
+		if fetched.BudgetSchedule != org.BudgetSchedule {
+			t.Errorf("BudgetSchedule: got %+v, want %+v", fetched.BudgetSchedule, org.BudgetSchedule)
+		}
 		if !fetched.RequireBoardApproval {
 			t.Error("RequireBoardApproval: got false, want true")
 		}
@@ -185,14 +192,18 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 
 		// Update with enhanced fields
 		updated, err := store.UpdateOrganization(ctx, created.ID, service.Organization{
-			Name:                 "Update Test",
-			Description:          "After update",
-			IssuePrefix:          "UPD",
-			HeadAgentID:          "agent-new",
-			MaxDelegationDepth:   8,
-			BudgetMonthlyCents:   50000,
-			SpentMonthlyCents:    1000,
-			BudgetResetAt:        "2026-04-01T00:00:00Z",
+			Name:               "Update Test",
+			Description:        "After update",
+			IssuePrefix:        "UPD",
+			HeadAgentID:        "agent-new",
+			MaxDelegationDepth: 8,
+			BudgetMonthlyCents: 50000,
+			SpentMonthlyCents:  1000,
+			BudgetResetAt:      "2026-04-01T00:00:00Z",
+			BudgetSchedule: service.BudgetSchedule{
+				BudgetPeriod: service.BudgetPeriodMonthly, BudgetResetDay: 15,
+				BudgetResetTime: "08:00", BudgetTimezone: "America/New_York",
+			},
 			RequireBoardApproval: true,
 			ContainerConfig: &service.ContainerConfig{
 				Enabled: true,
@@ -220,6 +231,9 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 		}
 		if !updated.RequireBoardApproval {
 			t.Error("RequireBoardApproval: got false, want true")
+		}
+		if updated.BudgetPeriod != service.BudgetPeriodMonthly || updated.BudgetResetDay != 15 || updated.BudgetTimezone != "America/New_York" {
+			t.Errorf("BudgetSchedule: got %+v", updated.BudgetSchedule)
 		}
 		if updated.ContainerConfig == nil || updated.ContainerConfig.Image != "custom:latest" || updated.ContainerConfig.CPU != "1" || updated.ContainerConfig.Memory != "1g" {
 			t.Errorf("ContainerConfig: got %+v", updated.ContainerConfig)

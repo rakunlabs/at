@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -151,7 +152,7 @@ func (s *Server) GetUsageTimeSeriesAPI(w http.ResponseWriter, r *http.Request) {
 // GetUsageBudgetsAPI handles GET /api/v1/usage/budgets.
 // Returns all configured agent budgets with their utilization percent computed.
 func (s *Server) GetUsageBudgetsAPI(w http.ResponseWriter, r *http.Request) {
-	if s.agentBudgetStore == nil {
+	if s.agentBudgetStore == nil || s.costEventStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
@@ -172,25 +173,27 @@ func (s *Server) GetUsageBudgetsAPI(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		// Prefer live spend (SUM of agent_usage.estimated_cost) over stored current_spend.
-		spend := b.CurrentSpend
-		if total, err := s.agentBudgetStore.GetAgentTotalSpend(r.Context(), b.AgentID); err == nil {
-			spend = total
+		derived, err := s.deriveAgentBudget(r.Context(), &b, time.Now())
+		if err != nil {
+			slog.Error("derive agent budget utilization failed", "agent_id", b.AgentID, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to get budget utilization: %v", err), http.StatusInternalServerError)
+			return
 		}
 
 		pct := 0.0
 		if b.MonthlyLimit > 0 {
-			pct = (spend / b.MonthlyLimit) * 100
+			pct = (derived.CurrentSpend / b.MonthlyLimit) * 100
 		}
 
 		out = append(out, service.BudgetUtilization{
-			AgentID:      b.AgentID,
-			AgentName:    name,
-			MonthlyLimit: b.MonthlyLimit,
-			CurrentSpend: spend,
-			PeriodStart:  b.PeriodStart,
-			PeriodEnd:    b.PeriodEnd,
-			UsagePercent: pct,
+			BudgetSchedule: derived.BudgetSchedule,
+			AgentID:        b.AgentID,
+			AgentName:      name,
+			MonthlyLimit:   b.MonthlyLimit,
+			CurrentSpend:   derived.CurrentSpend,
+			PeriodStart:    derived.PeriodStart,
+			PeriodEnd:      derived.PeriodEnd,
+			UsagePercent:   pct,
 		})
 	}
 

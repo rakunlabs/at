@@ -29,6 +29,7 @@ type bundleManifest struct {
 
 // bundleOrganization is the portable org config (no IDs, no timestamps).
 type bundleOrganization struct {
+	service.BudgetSchedule
 	Name                 string                   `json:"name"`
 	Description          string                   `json:"description"`
 	IssuePrefix          string                   `json:"issue_prefix,omitempty"`
@@ -207,6 +208,7 @@ func (s *Server) ExportOrganizationBundleAPI(w http.ResponseWriter, r *http.Requ
 		Description:          org.Description,
 		IssuePrefix:          org.IssuePrefix,
 		BudgetMonthlyCents:   org.BudgetMonthlyCents,
+		BudgetSchedule:       org.BudgetSchedule,
 		RequireBoardApproval: org.RequireBoardApproval,
 		MaxDelegationDepth:   org.MaxDelegationDepth,
 		ContainerConfig:      org.ContainerConfig,
@@ -801,11 +803,22 @@ func (s *Server) parseBundle(r *http.Request) (*parsedBundle, error) {
 			if err := json.Unmarshal(data, &org); err != nil {
 				return nil, fmt.Errorf("invalid organization.json: %w", err)
 			}
+			if org.BudgetMonthlyCents < 0 {
+				return nil, fmt.Errorf("invalid organization.json: budget_monthly_cents must be non-negative")
+			}
+			if org.BudgetPeriod != "" || org.BudgetResetDay != 0 || org.BudgetResetTime != "" || org.BudgetTimezone != "" {
+				schedule, err := service.NormalizeBudgetSchedule(org.BudgetSchedule)
+				if err != nil {
+					return nil, fmt.Errorf("invalid organization.json budget schedule: %w", err)
+				}
+				org.BudgetSchedule = schedule
+			}
 			bundle.org = &service.Organization{
 				Name:                 org.Name,
 				Description:          org.Description,
 				IssuePrefix:          org.IssuePrefix,
 				BudgetMonthlyCents:   org.BudgetMonthlyCents,
+				BudgetSchedule:       org.BudgetSchedule,
 				RequireBoardApproval: org.RequireBoardApproval,
 				MaxDelegationDepth:   org.MaxDelegationDepth,
 				ContainerConfig:      org.ContainerConfig,

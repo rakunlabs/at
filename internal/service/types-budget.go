@@ -2,14 +2,137 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/rakunlabs/query"
 )
 
 // ─── Agent Budgets & Cost Tracking ───
 
+const (
+	BudgetPeriodDaily   = "daily"
+	BudgetPeriodWeekly  = "weekly"
+	BudgetPeriodMonthly = "monthly"
+)
+
+// BudgetSchedule defines recurring budget reset boundaries in a local timezone.
+type BudgetSchedule struct {
+	BudgetPeriod    string `json:"budget_period"`
+	BudgetResetDay  int    `json:"budget_reset_day"`
+	BudgetResetTime string `json:"budget_reset_time"`
+	BudgetTimezone  string `json:"budget_timezone"`
+}
+
+// NormalizeBudgetSchedule validates a schedule and fills its defaults.
+func NormalizeBudgetSchedule(schedule BudgetSchedule) (BudgetSchedule, error) {
+	if schedule.BudgetPeriod == "" {
+		schedule.BudgetPeriod = BudgetPeriodMonthly
+	}
+	if schedule.BudgetResetTime == "" {
+		schedule.BudgetResetTime = "00:00"
+	}
+	if schedule.BudgetTimezone == "" {
+		schedule.BudgetTimezone = "UTC"
+	}
+
+	switch schedule.BudgetPeriod {
+	case BudgetPeriodDaily:
+		if schedule.BudgetResetDay != 0 {
+			return BudgetSchedule{}, fmt.Errorf("budget_reset_day is not used for daily budgets")
+		}
+	case BudgetPeriodWeekly:
+		if schedule.BudgetResetDay == 0 {
+			schedule.BudgetResetDay = 1
+		}
+		if schedule.BudgetResetDay < 1 || schedule.BudgetResetDay > 7 {
+			return BudgetSchedule{}, fmt.Errorf("budget_reset_day must be between 1 and 7 for weekly budgets")
+		}
+	case BudgetPeriodMonthly:
+		if schedule.BudgetResetDay == 0 {
+			schedule.BudgetResetDay = 1
+		}
+		if schedule.BudgetResetDay < 1 || schedule.BudgetResetDay > 31 {
+			return BudgetSchedule{}, fmt.Errorf("budget_reset_day must be between 1 and 31 for monthly budgets")
+		}
+	default:
+		return BudgetSchedule{}, fmt.Errorf("budget_period must be daily, weekly, or monthly")
+	}
+
+	parts := strings.Split(schedule.BudgetResetTime, ":")
+	if len(parts) != 2 || len(parts[0]) != 2 || len(parts[1]) != 2 {
+		return BudgetSchedule{}, fmt.Errorf("budget_reset_time must use HH:MM format")
+	}
+	hour, hourErr := strconv.Atoi(parts[0])
+	minute, minuteErr := strconv.Atoi(parts[1])
+	if hourErr != nil || minuteErr != nil || hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return BudgetSchedule{}, fmt.Errorf("budget_reset_time must use HH:MM format")
+	}
+	if _, err := time.LoadLocation(schedule.BudgetTimezone); err != nil {
+		return BudgetSchedule{}, fmt.Errorf("invalid budget_timezone %q: %w", schedule.BudgetTimezone, err)
+	}
+
+	return schedule, nil
+}
+
+// BudgetPeriodBounds returns the current schedule interval [start, end).
+func BudgetPeriodBounds(now time.Time, schedule BudgetSchedule) (time.Time, time.Time, error) {
+	schedule, err := NormalizeBudgetSchedule(schedule)
+	if err != nil {
+		return time.Time{}, time.Time{}, err
+	}
+	loc, _ := time.LoadLocation(schedule.BudgetTimezone)
+	localNow := now.In(loc)
+	timeParts := strings.Split(schedule.BudgetResetTime, ":")
+	hour, _ := strconv.Atoi(timeParts[0])
+	minute, _ := strconv.Atoi(timeParts[1])
+
+	boundary := func(year int, month time.Month, day int) time.Time {
+		lastDay := time.Date(year, month+1, 0, 0, 0, 0, 0, loc).Day()
+		if day > lastDay {
+			day = lastDay
+		}
+		return time.Date(year, month, day, hour, minute, 0, 0, loc)
+	}
+
+	var start, end time.Time
+	switch schedule.BudgetPeriod {
+	case BudgetPeriodDaily:
+		start = boundary(localNow.Year(), localNow.Month(), localNow.Day())
+		if localNow.Before(start) {
+			previous := localNow.AddDate(0, 0, -1)
+			start = boundary(previous.Year(), previous.Month(), previous.Day())
+		}
+		next := start.AddDate(0, 0, 1)
+		end = boundary(next.Year(), next.Month(), next.Day())
+	case BudgetPeriodWeekly:
+		daysSinceReset := (int(localNow.Weekday()) - schedule.BudgetResetDay + 7) % 7
+		candidate := localNow.AddDate(0, 0, -daysSinceReset)
+		start = boundary(candidate.Year(), candidate.Month(), candidate.Day())
+		if localNow.Before(start) {
+			candidate = candidate.AddDate(0, 0, -7)
+			start = boundary(candidate.Year(), candidate.Month(), candidate.Day())
+		}
+		next := start.AddDate(0, 0, 7)
+		end = boundary(next.Year(), next.Month(), next.Day())
+	case BudgetPeriodMonthly:
+		start = boundary(localNow.Year(), localNow.Month(), schedule.BudgetResetDay)
+		if localNow.Before(start) {
+			previous := time.Date(localNow.Year(), localNow.Month()-1, 1, 0, 0, 0, 0, loc)
+			start = boundary(previous.Year(), previous.Month(), schedule.BudgetResetDay)
+		}
+		nextMonth := time.Date(start.Year(), start.Month()+1, 1, 0, 0, 0, 0, loc)
+		end = boundary(nextMonth.Year(), nextMonth.Month(), schedule.BudgetResetDay)
+	}
+
+	return start, end, nil
+}
+
 // AgentBudget represents a spending limit for an agent within a time period.
 type AgentBudget struct {
+	BudgetSchedule
 	ID           string  `json:"id"`
 	AgentID      string  `json:"agent_id"`
 	MonthlyLimit float64 `json:"monthly_limit"`
@@ -18,6 +141,18 @@ type AgentBudget struct {
 	PeriodEnd    string  `json:"period_end"`
 	CreatedAt    string  `json:"created_at"`
 	UpdatedAt    string  `json:"updated_at"`
+}
+
+// BudgetStatus reports an organization's effective budget window and spend.
+type BudgetStatus struct {
+	BudgetSchedule
+	LimitCents     int64   `json:"limit_cents"`
+	SpendCents     float64 `json:"spend_cents"`
+	RemainingCents float64 `json:"remaining_cents"`
+	UsagePercent   float64 `json:"usage_percent"`
+	PeriodStart    string  `json:"period_start"`
+	PeriodEnd      string  `json:"period_end"`
+	NextResetAt    string  `json:"next_reset_at"`
 }
 
 // AgentUsageRecord represents a single cost event from an agent's LLM call.
@@ -158,6 +293,7 @@ type UsageTimeSeriesPoint struct {
 
 // BudgetUtilization combines an agent's budget with its current spend.
 type BudgetUtilization struct {
+	BudgetSchedule
 	AgentID      string  `json:"agent_id"`
 	AgentName    string  `json:"agent_name,omitempty"`
 	MonthlyLimit float64 `json:"monthly_limit"`

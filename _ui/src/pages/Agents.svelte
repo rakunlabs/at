@@ -9,11 +9,13 @@
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listConnections, type Connection } from '@/lib/api/connections';
+  import { getAgentBudget, setAgentBudget, type AgentBudget } from '@/lib/api/agent-budgets';
   import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload, Workflow as WorkflowIcon } from 'lucide-svelte';
   import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
   import { toggleSort } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
+  import BudgetScheduleFields from '@/lib/components/BudgetScheduleFields.svelte';
 
   storeNavbar.title = 'Agents';
 
@@ -87,6 +89,12 @@
   let formConfirmationTools = $state<string[]>([]);
   let formAvatarSeed = $state('');
   let showAvatarSeed = $state(false);
+  let formAgentBudget = $state<AgentBudget | null>(null);
+  let formBudgetLimit = $state<number | undefined>(undefined);
+  let formBudgetPeriod = $state('monthly');
+  let formBudgetResetDay = $state(1);
+  let formBudgetResetTime = $state('00:00');
+  let formBudgetTimezone = $state('UTC');
   /**
    * provider → connection_id. Agents bind a default connection per provider;
    * tool handlers resolve provider-scoped variable keys (e.g. youtube_refresh_token)
@@ -310,6 +318,12 @@
     formConfirmationTools = [];
     formAvatarSeed = '';
     showAvatarSeed = false;
+    formAgentBudget = null;
+    formBudgetLimit = undefined;
+    formBudgetPeriod = 'monthly';
+    formBudgetResetDay = 1;
+    formBudgetResetTime = '00:00';
+    formBudgetTimezone = 'UTC';
     formConnections = {};
     editingId = null;
     showForm = false;
@@ -320,7 +334,7 @@
     showForm = true;
   }
 
-  function openEdit(agent: Agent) {
+  async function openEdit(agent: Agent) {
     resetForm();
     editingId = agent.id;
     formName = agent.name;
@@ -340,6 +354,21 @@
     formAvatarSeed = agent.config.avatar_seed || '';
     formConnections = { ...(agent.config.connections || {}) };
     showForm = true;
+    const requestedAgentID = agent.id;
+    try {
+      const budget = await getAgentBudget(agent.id);
+      if (editingId !== requestedAgentID) return;
+      formAgentBudget = budget;
+      if (formAgentBudget) {
+        formBudgetLimit = formAgentBudget.monthly_limit || undefined;
+        formBudgetPeriod = formAgentBudget.budget_period || 'monthly';
+        formBudgetResetDay = formAgentBudget.budget_reset_day || (formBudgetPeriod === 'daily' ? 0 : 1);
+        formBudgetResetTime = formAgentBudget.budget_reset_time || '00:00';
+        formBudgetTimezone = formAgentBudget.budget_timezone || 'UTC';
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load agent budget', 'alert');
+    }
   }
 
   async function handleSubmit() {
@@ -376,12 +405,23 @@
         },
       };
 
+      let savedAgent: Agent;
       if (editingId) {
-        await updateAgent(editingId, payload);
+        savedAgent = await updateAgent(editingId, payload);
         addToast(`Agent "${formName}" updated`);
       } else {
-        await createAgent(payload);
+        savedAgent = await createAgent(payload);
+        editingId = savedAgent.id;
         addToast(`Agent "${formName}" created`);
+      }
+      if (formBudgetLimit !== undefined || formAgentBudget !== null) {
+        await setAgentBudget(savedAgent.id, {
+          monthly_limit: formBudgetLimit ?? 0,
+          budget_period: formBudgetPeriod as 'daily' | 'weekly' | 'monthly',
+          budget_reset_day: formBudgetResetDay,
+          budget_reset_time: formBudgetResetTime,
+          budget_timezone: formBudgetTimezone,
+        });
       }
       resetForm();
       await loadData();
@@ -830,6 +870,45 @@
                 </div>
               </div>
             {/if}
+
+            <!-- Agent Budget -->
+            <div class="border border-gray-200 dark:border-dark-border bg-gray-50/60 dark:bg-dark-base p-3 space-y-3">
+              <div class="flex items-center justify-between">
+                <div>
+                  <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Spending Budget</span>
+                  <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">Checked before each agent LLM call. Blank or 0 disables the limit.</span>
+                </div>
+                {#if formAgentBudget}
+                  <div class="text-right">
+                    <span class="block text-xs font-mono text-gray-700 dark:text-dark-text-secondary">
+                      ${formAgentBudget.current_spend.toFixed(2)} / {formAgentBudget.monthly_limit > 0 ? `$${formAgentBudget.monthly_limit.toFixed(2)}` : 'Unlimited'}
+                    </span>
+                    <span class="text-[9px] text-gray-400 dark:text-dark-text-muted">
+                      Resets {new Date(formAgentBudget.period_end).toLocaleString(undefined, { timeZone: formAgentBudget.budget_timezone || 'UTC' })}
+                    </span>
+                  </div>
+                {/if}
+              </div>
+
+              <label class="block w-56">
+                <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Period limit (USD)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  bind:value={formBudgetLimit}
+                  placeholder="Unlimited"
+                  class="w-full px-2 py-1 text-xs font-mono border border-gray-300 dark:border-dark-border-subtle rounded focus:outline-none focus:ring-1 focus:ring-gray-400 dark:bg-dark-elevated dark:text-dark-text"
+                />
+              </label>
+
+              <BudgetScheduleFields
+                bind:period={formBudgetPeriod}
+                bind:resetDay={formBudgetResetDay}
+                bind:resetTime={formBudgetResetTime}
+                bind:timezone={formBudgetTimezone}
+              />
+            </div>
 
             <!-- Max Iterations / Tool Timeout -->
             <div class="grid grid-cols-2 gap-3">

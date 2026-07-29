@@ -25,6 +25,10 @@ type orgRow struct {
 	BudgetMonthlyCents   int64          `db:"budget_monthly_cents"`
 	SpentMonthlyCents    int64          `db:"spent_monthly_cents"`
 	BudgetResetAt        sql.NullTime   `db:"budget_reset_at"`
+	BudgetPeriod         sql.NullString `db:"budget_period"`
+	BudgetResetDay       sql.NullInt64  `db:"budget_reset_day"`
+	BudgetResetTime      sql.NullString `db:"budget_reset_time"`
+	BudgetTimezone       sql.NullString `db:"budget_timezone"`
 	RequireBoardApproval bool           `db:"require_board_approval_for_new_agents"`
 	HeadAgentID          string         `db:"head_agent_id"`
 	MaxDelegationDepth   int            `db:"max_delegation_depth"`
@@ -41,6 +45,7 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 		"id", "name", "description",
 		"issue_prefix", "issue_counter",
 		"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
+		"budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone",
 		"require_board_approval_for_new_agents",
 		"head_agent_id", "max_delegation_depth",
 		"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
@@ -62,6 +67,7 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 			&row.ID, &row.Name, &row.Description,
 			&row.IssuePrefix, &row.IssueCounter,
 			&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
+			&row.BudgetPeriod, &row.BudgetResetDay, &row.BudgetResetTime, &row.BudgetTimezone,
 			&row.RequireBoardApproval,
 			&row.HeadAgentID, &row.MaxDelegationDepth,
 			&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
@@ -90,6 +96,7 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 			"id", "name", "description",
 			"issue_prefix", "issue_counter",
 			"budget_monthly_cents", "spent_monthly_cents", "budget_reset_at",
+			"budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone",
 			"require_board_approval_for_new_agents",
 			"head_agent_id", "max_delegation_depth",
 			"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
@@ -105,6 +112,7 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 		&row.ID, &row.Name, &row.Description,
 		&row.IssuePrefix, &row.IssueCounter,
 		&row.BudgetMonthlyCents, &row.SpentMonthlyCents, &row.BudgetResetAt,
+		&row.BudgetPeriod, &row.BudgetResetDay, &row.BudgetResetTime, &row.BudgetTimezone,
 		&row.RequireBoardApproval,
 		&row.HeadAgentID, &row.MaxDelegationDepth,
 		&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
@@ -141,6 +149,10 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 		"issue_counter":                         org.IssueCounter,
 		"budget_monthly_cents":                  org.BudgetMonthlyCents,
 		"spent_monthly_cents":                   org.SpentMonthlyCents,
+		"budget_period":                         nullString(org.BudgetPeriod),
+		"budget_reset_day":                      nullInt(org.BudgetResetDay),
+		"budget_reset_time":                     nullString(org.BudgetResetTime),
+		"budget_timezone":                       nullString(org.BudgetTimezone),
 		"require_board_approval_for_new_agents": org.RequireBoardApproval,
 		"head_agent_id":                         org.HeadAgentID,
 		"max_delegation_depth":                  maxDepth,
@@ -156,6 +168,8 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 		if err == nil {
 			rec["budget_reset_at"] = t
 		}
+	} else {
+		rec["budget_reset_at"] = nil
 	}
 
 	query, _, err := p.goqu.Insert(p.tableOrganizations).Rows(rec).ToSQL()
@@ -176,6 +190,7 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 		BudgetMonthlyCents:   org.BudgetMonthlyCents,
 		SpentMonthlyCents:    org.SpentMonthlyCents,
 		BudgetResetAt:        org.BudgetResetAt,
+		BudgetSchedule:       org.BudgetSchedule,
 		RequireBoardApproval: org.RequireBoardApproval,
 		HeadAgentID:          org.HeadAgentID,
 		MaxDelegationDepth:   maxDepth,
@@ -198,6 +213,10 @@ func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org servic
 		"head_agent_id":                         org.HeadAgentID,
 		"budget_monthly_cents":                  org.BudgetMonthlyCents,
 		"spent_monthly_cents":                   org.SpentMonthlyCents,
+		"budget_period":                         nullString(org.BudgetPeriod),
+		"budget_reset_day":                      nullInt(org.BudgetResetDay),
+		"budget_reset_time":                     nullString(org.BudgetResetTime),
+		"budget_timezone":                       nullString(org.BudgetTimezone),
 		"updated_at":                            now,
 		"updated_by":                            org.UpdatedBy,
 	}
@@ -214,6 +233,8 @@ func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org servic
 		if err == nil {
 			rec["budget_reset_at"] = t
 		}
+	} else {
+		rec["budget_reset_at"] = nil
 	}
 
 	query, _, err := p.goqu.Update(p.tableOrganizations).Set(rec).Where(goqu.I("id").Eq(id)).ToSQL()
@@ -280,14 +301,20 @@ func orgRowToRecord(row orgRow) *service.Organization {
 	}
 
 	return &service.Organization{
-		ID:                   row.ID,
-		Name:                 row.Name,
-		Description:          row.Description,
-		IssuePrefix:          row.IssuePrefix,
-		IssueCounter:         row.IssueCounter,
-		BudgetMonthlyCents:   row.BudgetMonthlyCents,
-		SpentMonthlyCents:    row.SpentMonthlyCents,
-		BudgetResetAt:        budgetResetAt,
+		ID:                 row.ID,
+		Name:               row.Name,
+		Description:        row.Description,
+		IssuePrefix:        row.IssuePrefix,
+		IssueCounter:       row.IssueCounter,
+		BudgetMonthlyCents: row.BudgetMonthlyCents,
+		SpentMonthlyCents:  row.SpentMonthlyCents,
+		BudgetResetAt:      budgetResetAt,
+		BudgetSchedule: service.BudgetSchedule{
+			BudgetPeriod:    row.BudgetPeriod.String,
+			BudgetResetDay:  int(row.BudgetResetDay.Int64),
+			BudgetResetTime: row.BudgetResetTime.String,
+			BudgetTimezone:  row.BudgetTimezone.String,
+		},
 		RequireBoardApproval: row.RequireBoardApproval,
 		HeadAgentID:          row.HeadAgentID,
 		MaxDelegationDepth:   row.MaxDelegationDepth,
@@ -298,6 +325,13 @@ func orgRowToRecord(row orgRow) *service.Organization {
 		CreatedBy:            row.CreatedBy,
 		UpdatedBy:            row.UpdatedBy,
 	}
+}
+
+func nullInt(v int) any {
+	if v == 0 {
+		return nil
+	}
+	return v
 }
 
 func marshalContainerConfig(cfg *service.ContainerConfig) any {

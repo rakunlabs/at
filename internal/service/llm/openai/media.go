@@ -387,14 +387,17 @@ func (p *Provider) TranscribeAudio(ctx context.Context, req service.AudioTranscr
 
 // embeddingRequest is the OpenAI embeddings API request.
 type embeddingRequest struct {
-	Input []string `json:"input"`
-	Model string   `json:"model"`
+	Input          []string `json:"input"`
+	Model          string   `json:"model"`
+	EncodingFormat string   `json:"encoding_format,omitempty"`
+	Dimensions     *int     `json:"dimensions,omitempty"`
+	User           string   `json:"user,omitempty"`
 }
 
 // embeddingResponse is the OpenAI embeddings API response.
 type embeddingResponse struct {
 	Data []struct {
-		Embedding []float64 `json:"embedding"`
+		Embedding json.RawMessage `json:"embedding"`
 	} `json:"data"`
 	Model string `json:"model"`
 	Usage struct {
@@ -413,8 +416,11 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 	}
 
 	apiReq := embeddingRequest{
-		Input: req.Input,
-		Model: model,
+		Input:          req.Input,
+		Model:          model,
+		EncodingFormat: req.EncodingFormat,
+		Dimensions:     req.Dimensions,
+		User:           req.User,
 	}
 
 	var apiResp embeddingResponse
@@ -422,14 +428,30 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		return nil, fmt.Errorf("create embedding: %w", err)
 	}
 
-	embeddings := make([][]float64, len(apiResp.Data))
-	for i, d := range apiResp.Data {
-		embeddings[i] = d.Embedding
+	var (
+		embeddings       [][]float64
+		base64Embeddings []string
+	)
+	if req.EncodingFormat == "base64" {
+		base64Embeddings = make([]string, len(apiResp.Data))
+		for i, d := range apiResp.Data {
+			if err := json.Unmarshal(d.Embedding, &base64Embeddings[i]); err != nil {
+				return nil, fmt.Errorf("decode base64 embedding at index %d: %w", i, err)
+			}
+		}
+	} else {
+		embeddings = make([][]float64, len(apiResp.Data))
+		for i, d := range apiResp.Data {
+			if err := json.Unmarshal(d.Embedding, &embeddings[i]); err != nil {
+				return nil, fmt.Errorf("decode float embedding at index %d: %w", i, err)
+			}
+		}
 	}
 
 	return &service.EmbeddingResponse{
-		Embeddings: embeddings,
-		Model:      apiResp.Model,
+		Embeddings:       embeddings,
+		Base64Embeddings: base64Embeddings,
+		Model:            apiResp.Model,
 		Usage: service.Usage{
 			PromptTokens: apiResp.Usage.PromptTokens,
 			TotalTokens:  apiResp.Usage.TotalTokens,

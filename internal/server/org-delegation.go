@@ -1636,33 +1636,14 @@ func (s *Server) checkOrganizationBudget(ctx context.Context, org *service.Organ
 	if org == nil || org.BudgetMonthlyCents <= 0 {
 		return nil
 	}
-
-	spendCents := float64(org.SpentMonthlyCents)
-	if s.costEventStore != nil {
-		summary, err := s.costEventStore.GetUsageSummary(ctx, service.UsageFilter{
-			From:   orgBudgetWindowStart(org),
-			OrgIDs: []string{org.ID},
-		})
-		if err != nil {
-			return fmt.Errorf("get organization spend: %w", err)
-		}
-		spendCents = summary.CostCents
+	status, err := s.organizationBudgetStatus(ctx, org, time.Now())
+	if err != nil {
+		return err
 	}
 
 	limitCents := float64(org.BudgetMonthlyCents)
-	if spendCents >= limitCents {
-		return fmt.Errorf("organization %s has exceeded monthly budget (%.2f / %.2f USD)", org.ID, spendCents/100, limitCents/100)
+	if status.SpendCents >= limitCents {
+		return fmt.Errorf("organization %s has exceeded budget (%.2f / %.2f USD)", org.ID, status.SpendCents/100, limitCents/100)
 	}
 	return nil
-}
-
-func orgBudgetWindowStart(org *service.Organization) string {
-	if org != nil && org.BudgetResetAt != "" {
-		if t, err := time.Parse(time.RFC3339, org.BudgetResetAt); err == nil {
-			return t.UTC().Format(time.RFC3339)
-		}
-	}
-	now := time.Now().UTC()
-	start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
-	return start.Format(time.RFC3339)
 }

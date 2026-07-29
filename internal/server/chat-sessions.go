@@ -881,6 +881,21 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			return nil
 		}
 
+		// Organization-linked chats share the same period budget as delegation.
+		if session.OrganizationID != "" && s.organizationStore != nil {
+			org, orgErr := s.organizationStore.GetOrganization(ctx, session.OrganizationID)
+			if orgErr != nil {
+				onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("Organization budget check failed: %v", orgErr)})
+				return nil
+			}
+			if org != nil {
+				if budgetErr := s.checkOrganizationBudget(ctx, org); budgetErr != nil {
+					onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("Organization budget exceeded: %v", budgetErr)})
+					return nil
+				}
+			}
+		}
+
 		// Check agent budget before making an LLM call.
 		if s.agentBudgetStore != nil {
 			checkBudget := s.checkBudgetFunc()
@@ -932,13 +947,15 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				// / "anthropic"). The dashboard groups by user-facing provider.
 				if recordUsage := s.recordUsageFunc(); recordUsage != nil {
 					_ = recordUsage(ctx, workflow.UsageEvent{
-						AgentID:      session.AgentID,
-						Model:        model,
-						Provider:     providerKey,
-						LatencyMs:    latencyMs,
-						Status:       "error",
-						ErrorCode:    classifyHTTPError(err),
-						ErrorMessage: err.Error(),
+						OrganizationID: session.OrganizationID,
+						AgentID:        session.AgentID,
+						TaskID:         traceTaskID,
+						Model:          model,
+						Provider:       providerKey,
+						LatencyMs:      latencyMs,
+						Status:         "error",
+						ErrorCode:      classifyHTTPError(err),
+						ErrorMessage:   err.Error(),
 					})
 				}
 				// Observation: failed generation.
@@ -977,12 +994,14 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			recordUsage := s.recordUsageFunc()
 			if recordUsage != nil {
 				if usageErr := recordUsage(ctx, workflow.UsageEvent{
-					AgentID:   session.AgentID,
-					Model:     model,
-					Provider:  providerKey,
-					Usage:     resp.Usage,
-					LatencyMs: latencyMs,
-					Status:    "ok",
+					OrganizationID: session.OrganizationID,
+					AgentID:        session.AgentID,
+					TaskID:         traceTaskID,
+					Model:          model,
+					Provider:       providerKey,
+					Usage:          resp.Usage,
+					LatencyMs:      latencyMs,
+					Status:         "ok",
 				}); usageErr != nil {
 					slog.Warn("agentic loop: failed to record usage",
 						"agent_id", session.AgentID, "error", usageErr)
