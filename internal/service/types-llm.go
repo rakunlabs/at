@@ -176,8 +176,12 @@ type Message struct {
 
 // ContentBlock represents a structured content block within a message.
 type ContentBlock struct {
-	Type      string         `json:"type"`
-	Text      string         `json:"text,omitempty"`
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+	// Thinking and Signature carry an unmodified, provider-signed reasoning
+	// block when it is safe to replay during a tool-use continuation.
+	Thinking  string         `json:"thinking,omitempty"`
+	Signature string         `json:"signature,omitempty"`
 	ID        string         `json:"id,omitempty"`
 	Name      string         `json:"name,omitempty"`
 	Input     map[string]any `json:"input,omitempty"`
@@ -274,11 +278,14 @@ type StreamChunk struct {
 type LLMResponse struct {
 	Content          string
 	ReasoningContent string
-	InlineImages     []InlineImage
-	ToolCalls        []ToolCall
-	Finished         bool
-	Usage            Usage
-	Header           http.Header
+	// ReasoningSignature is populated only when ReasoningContent represents one
+	// complete signed block that can be replayed without modification.
+	ReasoningSignature string
+	InlineImages       []InlineImage
+	ToolCalls          []ToolCall
+	Finished           bool
+	Usage              Usage
+	Header             http.Header
 
 	// FinishReason is the upstream finish reason normalised to OpenAI's
 	// vocabulary: "stop" | "length" | "content_filter" | "tool_calls" |
@@ -306,6 +313,44 @@ type ToolCall struct {
 }
 
 // ─── Errors ───
+
+// UpstreamError is returned when an LLM provider responds with a non-success
+// HTTP status. It preserves the upstream status and provider error code so
+// callers can distinguish permanent request errors from transient failures.
+type UpstreamError struct {
+	Provider   string
+	StatusCode int
+	Code       string
+	Param      string
+	Message    string
+	Underlying error
+}
+
+func (e *UpstreamError) Error() string {
+	provider := e.Provider
+	if provider == "" {
+		provider = "upstream"
+	}
+
+	msg := fmt.Sprintf("%s upstream error", provider)
+	if e.StatusCode != 0 {
+		msg += fmt.Sprintf(" (status %d)", e.StatusCode)
+	}
+	if e.Code != "" {
+		msg += fmt.Sprintf(" [%s]", e.Code)
+	}
+	if e.Param != "" {
+		msg += fmt.Sprintf(" (param %s)", e.Param)
+	}
+	if e.Message != "" {
+		msg += ": " + e.Message
+	} else if e.Underlying != nil {
+		msg += ": " + e.Underlying.Error()
+	}
+	return msg
+}
+
+func (e *UpstreamError) Unwrap() error { return e.Underlying }
 
 // RateLimitError is returned by LLM providers when the upstream API
 // responds with HTTP 429 (or an equivalent rate-limit signal). Callers

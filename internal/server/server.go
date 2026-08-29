@@ -1124,6 +1124,8 @@ func (s *Server) Start(ctx context.Context) error {
 	// bash_execute fails with `chdir: no such file or directory` until the LLM
 	// burns its iteration budget. Catch that here, loudly, at startup.
 	ensureTaskWorkspaceBase(s.taskWorkspaceBase())
+	assets := workflow.EnsureAssetsDir()
+	slog.Info("startup: persistent asset library ready", "path", assets)
 
 	return s.server.StartWithContext(ctx, net.JoinHostPort(s.config.Host, s.config.Port))
 }

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strings"
 	"sync/atomic"
+	"time"
 )
 
 // mcpProtocolVersion is the latest MCP protocol revision this client
@@ -26,6 +27,12 @@ type MCPClient interface {
 	ListTools(ctx context.Context) ([]Tool, error)
 	CallTool(ctx context.Context, name string, arguments map[string]any) (string, error)
 	Close() error
+}
+
+// MCPClientContextCloser is an optional extension used by runtimes that need
+// cancellation-aware cleanup. MCPClient keeps Close for compatibility.
+type MCPClientContextCloser interface {
+	CloseContext(ctx context.Context) error
 }
 
 // MCP Protocol Types
@@ -403,12 +410,20 @@ func (c *HTTPMCPClient) CallTool(ctx context.Context, name string, arguments map
 	return "", nil
 }
 
+const httpMCPClientCloseTimeout = time.Second
+
 func (c *HTTPMCPClient) Close() error {
+	ctx, cancel := context.WithTimeout(context.Background(), httpMCPClientCloseTimeout)
+	defer cancel()
+	return c.CloseContext(ctx)
+}
+
+func (c *HTTPMCPClient) CloseContext(ctx context.Context) error {
 	// Optional: send shutdown notification
 	req := MCPRequest{
 		Jsonrpc: "2.0",
 		Method:  "notifications/cancelled",
 	}
-	c.sendRequest(context.Background(), req)
-	return nil
+	_, err := c.sendRequest(ctx, req)
+	return err
 }

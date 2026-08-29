@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -100,7 +101,7 @@ func (s *Server) GatewayMCPHandler(w http.ResponseWriter, r *http.Request) {
 		// Per MCP Streamable HTTP, notifications are acknowledged with 202.
 		w.WriteHeader(http.StatusAccepted)
 	case "tools/list":
-		s.gwGenMCPListTools(w, req, mcpSrv)
+		s.gwGenMCPListTools(r.Context(), w, req, mcpSrv)
 	case "tools/call":
 		s.gwGenMCPCallTool(w, r, req, mcpSrv)
 	default:
@@ -200,110 +201,10 @@ func (s *Server) gwGenMCPInitialize(w http.ResponseWriter, req service.MCPReques
 
 // ─── List Tools ───
 
-func (s *Server) gwGenMCPListTools(w http.ResponseWriter, req service.MCPRequest, srv *service.MCPServer) {
-	var tools []service.Tool
-
-	// Add custom HTTP tools.
-	for _, ht := range srv.Config.HTTPTools {
-		schema := ht.InputSchema
-		if schema == nil {
-			schema = map[string]any{"type": "object", "properties": map[string]any{}}
-		}
-		tools = append(tools, service.Tool{
-			Name:        ht.Name,
-			Description: ht.Description,
-			InputSchema: schema,
-		})
-	}
-
-	// Add skill tools.
-	if s.skillStore != nil {
-		for _, skillName := range srv.Config.EnabledSkills {
-			skill, err := s.skillStore.GetSkillByName(context.Background(), skillName)
-			if err != nil || skill == nil {
-				slog.Warn("failed to load skill for MCP server", "skill", skillName, "error", err)
-				continue
-			}
-			for _, t := range skill.Tools {
-				tools = append(tools, service.Tool{
-					Name:        t.Name,
-					Description: t.Description,
-					InputSchema: t.InputSchema,
-				})
-			}
-		}
-	}
-
-	// Add tools from upstream MCP servers.
-	for _, upstream := range srv.Config.MCPUpstreams {
-		client, err := s.newMCPClient(context.Background(), upstream)
-		if err != nil {
-			slog.Warn("failed to connect to upstream MCP server", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		upstreamTools, err := client.ListTools(context.Background())
-		if err != nil {
-			slog.Warn("failed to list tools from upstream MCP server", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		tools = append(tools, upstreamTools...)
-	}
-
-	// Add tools from referenced internal MCPs (mcp_sets) — resolved directly, no HTTP.
-	for _, setName := range srv.Servers {
-		refTools, err := s.listMCPSetTools(setName)
-		if err != nil {
-			slog.Warn("failed to list tools from referenced internal MCP", "set", setName, "error", err)
-			continue
-		}
-		tools = append(tools, refTools...)
-	}
-	// Add tools from custom URLs.
-	for _, url := range srv.URLs {
-		client, err := service.NewHTTPMCPClient(context.Background(), url)
-		if err != nil {
-			slog.Warn("failed to connect to MCP URL", "url", url, "error", err)
-			continue
-		}
-		urlTools, err := client.ListTools(context.Background())
-		if err != nil {
-			slog.Warn("failed to list tools from MCP URL", "url", url, "error", err)
-			continue
-		}
-		tools = append(tools, urlTools...)
-	}
-
-	// Add enabled builtin tools.
-	for _, toolName := range srv.Config.EnabledBuiltinTools {
-		if !isKnownBuiltinTool(toolName) {
-			slog.Warn("unknown builtin tool in MCP server config", "tool", toolName, "server", srv.Name)
-			continue
-		}
-		for _, bt := range builtinTools {
-			if bt.Name == toolName {
-				tools = append(tools, service.Tool{
-					Name:        bt.Name,
-					Description: bt.Description,
-					InputSchema: bt.InputSchema,
-				})
-				break
-			}
-		}
-	}
-
-	// Add workflow tools.
-	if s.workflowStore != nil {
-		for _, wfID := range srv.Config.WorkflowIDs {
-			wf, err := s.workflowStore.GetWorkflow(context.Background(), wfID)
-			if err != nil || wf == nil {
-				slog.Warn("failed to load workflow for MCP server", "id", wfID, "error", err)
-				continue
-			}
-			tools = append(tools, s.activeWorkflowToolDef(context.Background(), wf))
-		}
-	}
-
-	mcpResult(w, req.ID, map[string]any{"tools": tools})
+func (s *Server) gwGenMCPListTools(ctx context.Context, w http.ResponseWriter, req service.MCPRequest, srv *service.MCPServer) {
+	runtime := s.newMCPRuntimeBuilder().buildGateway(ctx, srv)
+	defer closeMCPRuntime(ctx, runtime)
+	mcpResult(w, req.ID, map[string]any{"tools": runtime.ListTools(ctx)})
 }
 
 // ─── Call Tool ───
@@ -329,152 +230,66 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		return
 	}
 
-	// Check if it's an HTTP tool.
-	for _, ht := range srv.Config.HTTPTools {
-		if ht.Name == params.Name {
-			s.gwGenMCPCallHTTPTool(w, r, req.ID, ht, params.Arguments, srv)
+	runtime := s.newMCPRuntimeBuilder().buildGateway(r.Context(), srv)
+	defer closeMCPRuntime(r.Context(), runtime)
+	result, err := runtime.CallTool(r.Context(), params.Name, params.Arguments)
+	if err != nil {
+		var notFound *mcpToolNotFoundError
+		if errors.As(err, &notFound) {
+			mcpError(w, req.ID, -32602, err.Error())
 			return
 		}
-	}
-
-	// Check if it's a skill tool.
-	if s.skillStore != nil {
-		for _, skillName := range srv.Config.EnabledSkills {
-			skill, err := s.skillStore.GetSkillByName(r.Context(), skillName)
-			if err != nil || skill == nil {
-				continue
-			}
-			for i := range skill.Tools {
-				if skill.Tools[i].Name == params.Name {
-					result, err := s.executeSkillTool(r.Context(), &skill.Tools[i], params.Arguments)
-					if err != nil {
-						mcpError(w, req.ID, -32000, fmt.Sprintf("skill tool execution failed: %v", err))
-						return
-					}
-					mcpResult(w, req.ID, map[string]any{
-						"content": []map[string]any{
-							{"type": "text", "text": result},
-						},
-					})
-					return
-				}
-			}
-		}
-	}
-
-	// Try upstream MCP servers.
-	for _, upstream := range srv.Config.MCPUpstreams {
-		client, err := s.newMCPClient(r.Context(), upstream)
-		if err != nil {
-			slog.Warn("failed to connect to upstream MCP server for call", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
-		if err != nil {
-			slog.Warn("upstream MCP call failed", "upstream", upstream.URL+upstream.Command, "tool", params.Name, "error", err)
-			continue
-		}
-		mcpResult(w, req.ID, map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": result},
-			},
-		})
+		mcpError(w, req.ID, -32000, err.Error())
 		return
 	}
-
-	// Try referenced internal MCPs (mcp_sets) — resolved directly, no HTTP.
-	for _, setName := range srv.Servers {
-		result, err := s.callMCPSetTool(r.Context(), setName, params.Name, params.Arguments)
-		if err != nil {
-			continue
-		}
-		mcpResult(w, req.ID, map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": result},
-			},
-		})
-		return
-	}
-	// Try custom URLs.
-	for _, url := range srv.URLs {
-		client, err := service.NewHTTPMCPClient(r.Context(), url)
-		if err != nil {
-			continue
-		}
-		result, err := client.CallTool(r.Context(), params.Name, params.Arguments)
-		if err != nil {
-			continue
-		}
-		mcpResult(w, req.ID, map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": result},
-			},
-		})
-		return
-	}
-
-	// Try enabled builtin tools.
-	if slices.Contains(srv.Config.EnabledBuiltinTools, params.Name) && isKnownBuiltinTool(params.Name) {
-		result, err := s.dispatchBuiltinTool(r.Context(), params.Name, params.Arguments)
-		if err != nil {
-			mcpError(w, req.ID, -32000, fmt.Sprintf("builtin tool execution failed: %v", err))
-			return
-		}
-		mcpResult(w, req.ID, map[string]any{
-			"content": []map[string]any{
-				{"type": "text", "text": result},
-			},
-		})
-		return
-	}
-
-	// Check if it's a workflow tool.
-	if s.workflowStore != nil {
-		for _, wfID := range srv.Config.WorkflowIDs {
-			wf, err := s.workflowStore.GetWorkflow(r.Context(), wfID)
-			if err != nil || wf == nil {
-				continue
-			}
-			if workflowToolName(wf) == params.Name {
-				result, err := s.executeWorkflowTool(r.Context(), wf, params.Arguments)
-				if err != nil {
-					mcpError(w, req.ID, -32000, fmt.Sprintf("workflow tool execution failed: %v", err))
-					return
-				}
-				mcpResult(w, req.ID, map[string]any{
-					"content": []map[string]any{
-						{"type": "text", "text": result},
-					},
-				})
-				return
-			}
-		}
-	}
-
-	mcpError(w, req.ID, -32602, fmt.Sprintf("unknown tool: %s", params.Name))
+	mcpResult(w, req.ID, map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": result},
+		},
+	})
 }
 
 // newMCPClient creates an MCPClient for the given upstream, dispatching to
 // either the stdio process manager or the HTTP client based on config.
 func (s *Server) newMCPClient(ctx context.Context, upstream service.MCPUpstream) (service.MCPClient, error) {
+	lease, err := s.acquireMCPClient(ctx, upstream)
+	return lease.client, err
+}
+
+func (s *Server) acquireMCPClient(ctx context.Context, upstream service.MCPUpstream) (mcpClientLease, error) {
 	// Resolve {{var:key}} references in env values and args.
 	if s.variableStore != nil {
-		upstream = s.resolveUpstreamVars(upstream)
+		upstream = s.resolveUpstreamVarsContext(ctx, upstream)
 	}
 
 	if upstream.Command != "" {
-		return s.stdioManager.GetOrCreate(upstream)
+		client, err := s.stdioManager.GetOrCreate(upstream)
+		return mcpClientLease{client: client, owned: false}, err
 	}
 	var opts []service.HTTPMCPClientOption
 	if len(upstream.Headers) > 0 {
 		opts = append(opts, service.WithHeaders(upstream.Headers))
 	}
-	return service.NewHTTPMCPClient(ctx, upstream.URL, opts...)
+	client, err := service.NewHTTPMCPClient(ctx, upstream.URL, opts...)
+	return mcpClientLease{client: client, owned: true}, err
 }
 
 // ─── HTTP Tool Execution ───
 
 func (s *Server) gwGenMCPCallHTTPTool(w http.ResponseWriter, r *http.Request, id int, tool service.MCPHTTPTool, args map[string]any, srv *service.MCPServer) {
+	text, err := s.callGatewayMCPHTTPTool(r.Context(), tool, args)
+	if err != nil {
+		mcpError(w, id, -32000, err.Error())
+		return
+	}
+	mcpResult(w, id, map[string]any{
+		"content": []map[string]any{
+			{"type": "text", "text": text},
+		},
+	})
+}
+
+func (s *Server) callGatewayMCPHTTPTool(ctx context.Context, tool service.MCPHTTPTool, args map[string]any) (string, error) {
 	if args == nil {
 		args = make(map[string]any)
 	}
@@ -482,28 +297,25 @@ func (s *Server) gwGenMCPCallHTTPTool(w http.ResponseWriter, r *http.Request, id
 	// Resolve variable values for headers (support {{var:key}} syntax).
 	resolvedHeaders := make(map[string]string, len(tool.Headers))
 	for k, v := range tool.Headers {
-		resolved, err := s.resolveTemplate(v, args)
+		resolved, err := s.resolveTemplateContext(ctx, v, args)
 		if err != nil {
-			mcpError(w, id, -32000, fmt.Sprintf("failed to resolve header %q: %v", k, err))
-			return
+			return "", fmt.Errorf("failed to resolve header %q: %w", k, err)
 		}
 		resolvedHeaders[k] = resolved
 	}
 
 	// Resolve URL template.
-	resolvedURL, err := s.resolveTemplate(tool.URL, args)
+	resolvedURL, err := s.resolveTemplateContext(ctx, tool.URL, args)
 	if err != nil {
-		mcpError(w, id, -32000, fmt.Sprintf("failed to resolve URL template: %v", err))
-		return
+		return "", fmt.Errorf("failed to resolve URL template: %w", err)
 	}
 
 	// Resolve body template.
 	var bodyReader io.Reader
 	if tool.BodyTemplate != "" {
-		resolvedBody, err := s.resolveTemplate(tool.BodyTemplate, args)
+		resolvedBody, err := s.resolveTemplateContext(ctx, tool.BodyTemplate, args)
 		if err != nil {
-			mcpError(w, id, -32000, fmt.Sprintf("failed to resolve body template: %v", err))
-			return
+			return "", fmt.Errorf("failed to resolve body template: %w", err)
 		}
 		bodyReader = strings.NewReader(resolvedBody)
 	} else if tool.Method == "POST" || tool.Method == "PUT" || tool.Method == "PATCH" {
@@ -517,10 +329,9 @@ func (s *Server) gwGenMCPCallHTTPTool(w http.ResponseWriter, r *http.Request, id
 		method = "GET"
 	}
 
-	httpReq, err := http.NewRequestWithContext(r.Context(), method, resolvedURL, bodyReader)
+	httpReq, err := http.NewRequestWithContext(ctx, method, resolvedURL, bodyReader)
 	if err != nil {
-		mcpError(w, id, -32000, fmt.Sprintf("failed to create HTTP request: %v", err))
-		return
+		return "", fmt.Errorf("failed to create HTTP request: %w", err)
 	}
 
 	for k, v := range resolvedHeaders {
@@ -535,8 +346,7 @@ func (s *Server) gwGenMCPCallHTTPTool(w http.ResponseWriter, r *http.Request, id
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(httpReq)
 	if err != nil {
-		mcpError(w, id, -32000, fmt.Sprintf("HTTP request failed: %v", err))
-		return
+		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -545,8 +355,7 @@ func (s *Server) gwGenMCPCallHTTPTool(w http.ResponseWriter, r *http.Request, id
 	limitReader := io.LimitReader(resp.Body, int64(maxBody+1))
 	body, err := io.ReadAll(limitReader)
 	if err != nil {
-		mcpError(w, id, -32000, fmt.Sprintf("failed to read response: %v", err))
-		return
+		return "", fmt.Errorf("failed to read response: %w", err)
 	}
 
 	truncated := false
@@ -566,13 +375,7 @@ func (s *Server) gwGenMCPCallHTTPTool(w http.ResponseWriter, r *http.Request, id
 	}
 
 	resultJSON, _ := json.Marshal(result)
-	text := string(resultJSON)
-
-	mcpResult(w, id, map[string]any{
-		"content": []map[string]any{
-			{"type": "text", "text": text},
-		},
-	})
+	return string(resultJSON), nil
 }
 
 // executeSkillTool runs a skill tool's handler (bash or JS) and returns the result.
@@ -620,6 +423,10 @@ func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args 
 // variable store. Unresolvable references are left in place (with a
 // warning) so misconfiguration is visible rather than silently empty.
 func (s *Server) resolveVarRefs(val string) string {
+	return s.resolveVarRefsContext(context.Background(), val)
+}
+
+func (s *Server) resolveVarRefsContext(ctx context.Context, val string) string {
 	if !strings.Contains(val, "{{var:") {
 		return val
 	}
@@ -637,7 +444,7 @@ func (s *Server) resolveVarRefs(val string) string {
 			break
 		}
 		key := resolved[idx+len("{{var:") : idx+end]
-		v, err := s.variableStore.GetVariableByKey(context.Background(), key)
+		v, err := s.variableStore.GetVariableByKey(ctx, key)
 		if err != nil || v == nil {
 			slog.Warn("failed to resolve variable reference", "key", key, "error", err)
 			break
@@ -651,7 +458,11 @@ func (s *Server) resolveVarRefs(val string) string {
 // env values and args. This allows MCP server configs to reference secrets
 // stored in the variable store (e.g. MINIMAX_API_KEY={{var:minimax_api_key}}).
 func (s *Server) resolveUpstreamVars(upstream service.MCPUpstream) service.MCPUpstream {
-	resolve := s.resolveVarRefs
+	return s.resolveUpstreamVarsContext(context.Background(), upstream)
+}
+
+func (s *Server) resolveUpstreamVarsContext(ctx context.Context, upstream service.MCPUpstream) service.MCPUpstream {
+	resolve := func(value string) string { return s.resolveVarRefsContext(ctx, value) }
 
 	if len(upstream.Env) > 0 {
 		resolved := make(map[string]string, len(upstream.Env))
@@ -679,6 +490,10 @@ func (s *Server) resolveUpstreamVars(upstream service.MCPUpstream) service.MCPUp
 // resolveTemplate resolves a Go text/template string with args as data.
 // Also supports {{var:key}} syntax to look up variables from the variable store.
 func (s *Server) resolveTemplate(tmplStr string, args map[string]any) (string, error) {
+	return s.resolveTemplateContext(context.Background(), tmplStr, args)
+}
+
+func (s *Server) resolveTemplateContext(ctx context.Context, tmplStr string, args map[string]any) (string, error) {
 	// First resolve {{var:key}} references.
 	resolved := tmplStr
 	if s.variableStore != nil && strings.Contains(resolved, "{{var:") {
@@ -692,7 +507,7 @@ func (s *Server) resolveTemplate(tmplStr string, args map[string]any) (string, e
 				break
 			}
 			key := resolved[idx+len("{{var:") : idx+end]
-			v, err := s.variableStore.GetVariableByKey(context.Background(), key)
+			v, err := s.variableStore.GetVariableByKey(ctx, key)
 			if err != nil {
 				return "", fmt.Errorf("variable %q lookup failed: %w", key, err)
 			}

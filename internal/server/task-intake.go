@@ -1,8 +1,8 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -129,23 +129,14 @@ func (s *Server) IntakeTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fire async delegation in a tracked, cancellable background goroutine.
-	go func() {
-		delegCtx, cleanup := s.registerDelegation(context.Background(), record.ID, org.HeadAgentID, org.ID)
-		defer cleanup()
-
-		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
-			slog.Error("org-delegation: failed",
-				"org_id", org.ID,
-				"task_id", record.ID,
-				"error", err,
-			)
-			// Update task status to reflect failure.
-			if s.taskStore != nil {
-				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
-			}
+	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, nil); err != nil {
+		if errors.Is(err, errDelegationAlreadyRunning) {
+			httpResponse(w, err.Error(), http.StatusConflict)
+			return
 		}
-	}()
+		httpResponse(w, fmt.Sprintf("failed to start delegation: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	httpResponseJSON(w, intakeTaskResponse{
 		ID:         record.ID,

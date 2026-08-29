@@ -131,12 +131,13 @@ type Error struct {
 
 // Response structures
 type ContentBlock struct {
-	Type     string         `json:"type"`
-	Text     string         `json:"text"`
-	Thinking string         `json:"thinking"`
-	ID       string         `json:"id"`
-	Name     string         `json:"name"`
-	Input    map[string]any `json:"input"`
+	Type      string         `json:"type"`
+	Text      string         `json:"text"`
+	Thinking  string         `json:"thinking"`
+	Signature string         `json:"signature"`
+	ID        string         `json:"id"`
+	Name      string         `json:"name"`
+	Input     map[string]any `json:"input"`
 }
 
 type Usage struct {
@@ -286,6 +287,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}
 
 		rawBody = string(bodyData)
+		if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+			_ = json.Unmarshal(bodyData, &result)
+			return nil
+		}
 
 		if err := json.Unmarshal(bodyData, &result); err != nil {
 			return fmt.Errorf("failed to decode response (status %d): %w (body: %s)", r.StatusCode, err, rawBody)
@@ -302,8 +307,11 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		Header:       headers,
 	}
 
-	if result.Type == "error" {
+	if result.Type == "error" || statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
 		errMsg := result.Error.Message
+		if errMsg == "" {
+			errMsg = strings.TrimSpace(rawBody)
+		}
 		if errMsg == "" {
 			errMsg = "unknown error"
 		}
@@ -331,16 +339,34 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 				Underlying: fmt.Errorf("anthropic API error [%s] (status %d): %s", result.Error.Type, statusCode, errMsg),
 			}
 		}
-		return nil, fmt.Errorf("anthropic API error [%s] (status %d): %s", result.Error.Type, statusCode, errMsg)
+		underlying := fmt.Errorf("anthropic API error [%s] (status %d): %s", result.Error.Type, statusCode, errMsg)
+		return nil, &service.UpstreamError{
+			Provider:   "anthropic",
+			StatusCode: statusCode,
+			Code:       result.Error.Type,
+			Message:    errMsg,
+			Underlying: underlying,
+		}
 	}
 
 	// Map upstream usage to the internal Usage struct.
 	llmResp.Usage = anthropicServiceUsage(result.Usage)
 
+	thinkingBlocks := 0
 	for _, block := range result.Content {
 		switch block.Type {
 		case "thinking":
+			thinkingBlocks++
 			llmResp.ReasoningContent += block.Thinking
+			// The normalized response can safely replay one complete thinking
+			// block. If an upstream ever returns multiple signed blocks in one
+			// response, leave the signature empty rather than combining blocks
+			// into a payload Anthropic would reject as modified.
+			if thinkingBlocks == 1 {
+				llmResp.ReasoningSignature = block.Signature
+			} else {
+				llmResp.ReasoningSignature = ""
+			}
 		case "text":
 			llmResp.Content += block.Text
 		case "tool_use":
@@ -505,7 +531,23 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				Underlying: fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData)),
 			}
 		}
-		return nil, nil, fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, string(bodyData))
+		msg := strings.TrimSpace(string(bodyData))
+		code := ""
+		var envelope AnthropicResponse
+		if json.Unmarshal(bodyData, &envelope) == nil {
+			if envelope.Error.Message != "" {
+				msg = envelope.Error.Message
+			}
+			code = envelope.Error.Type
+		}
+		underlying := fmt.Errorf("anthropic returned status %d: %s", resp.StatusCode, msg)
+		return nil, nil, &service.UpstreamError{
+			Provider:   "anthropic",
+			StatusCode: resp.StatusCode,
+			Code:       code,
+			Message:    msg,
+			Underlying: underlying,
+		}
 	}
 
 	ch := make(chan service.StreamChunk, 64)
@@ -1523,26 +1565,47 @@ func convertContent(content any) any {
 	case []service.ContentBlock:
 		out := make([]map[string]any, 0, len(blocks))
 		for _, b := range blocks {
-			out = append(out, contentBlockToMap(b))
+			if block := contentBlockToMap(b); block != nil {
+				out = append(out, block)
+			}
 		}
 		return out
 	case []any:
-		for i, b := range blocks {
+		out := make([]any, 0, len(blocks))
+		for _, b := range blocks {
 			switch elem := b.(type) {
 			case service.ContentBlock:
 				// A raw struct slipped through (e.g. via mergeContent).
 				// Normalize via contentBlockToMap so tool_use blocks
 				// always carry an "input" object.
-				blocks[i] = contentBlockToMap(elem)
+				if block := contentBlockToMap(elem); block != nil {
+					out = append(out, block)
+				}
 			case map[string]any:
+				if elem["type"] == "thinking" {
+					signature, _ := elem["signature"].(string)
+					if signature == "" {
+						continue
+					}
+					thinking, _ := elem["thinking"].(string)
+					out = append(out, map[string]any{
+						"type":      "thinking",
+						"thinking":  thinking,
+						"signature": signature,
+					})
+					continue
+				}
 				if elem["type"] == "tool_use" {
 					if _, has := elem["input"]; !has {
 						elem["input"] = map[string]any{}
 					}
 				}
+				out = append(out, elem)
+			default:
+				out = append(out, elem)
 			}
 		}
-		return blocks
+		return out
 	default:
 		return content
 	}
@@ -1550,6 +1613,15 @@ func convertContent(content any) any {
 
 func contentBlockToMap(b service.ContentBlock) map[string]any {
 	switch b.Type {
+	case "thinking":
+		if b.Signature == "" {
+			return nil
+		}
+		return map[string]any{
+			"type":      "thinking",
+			"thinking":  b.Thinking,
+			"signature": b.Signature,
+		}
 	case "tool_use":
 		input := b.Input
 		if input == nil {

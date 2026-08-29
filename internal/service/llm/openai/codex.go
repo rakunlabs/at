@@ -237,17 +237,7 @@ func (p *CodexProvider) ChatStream(ctx context.Context, model string, messages [
 		defer resp.Body.Close()
 		defer releaseOnce()
 		respBody, _ := io.ReadAll(resp.Body)
-		message := codexErrorMessage(respBody)
-		if resp.StatusCode == http.StatusTooManyRequests {
-			return nil, nil, &service.RateLimitError{
-				StatusCode: resp.StatusCode,
-				RetryAfter: common.ParseRetryAfter(resp.Header),
-				Provider:   "openai-codex",
-				Message:    message,
-				Underlying: fmt.Errorf("Codex API returned status %d: %s", resp.StatusCode, message),
-			}
-		}
-		return nil, nil, fmt.Errorf("Codex API returned status %d: %s", resp.StatusCode, message)
+		return nil, nil, codexHTTPError(resp, respBody)
 	}
 
 	ch := make(chan service.StreamChunk, 64)
@@ -287,7 +277,7 @@ func (p *CodexProvider) Models(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("read Codex models response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Codex models endpoint returned %d: %s", resp.StatusCode, codexErrorMessage(body))
+		return nil, codexHTTPError(resp, body)
 	}
 	var result codexModelsResponse
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -326,22 +316,46 @@ func (p *CodexProvider) recoverUnauthorized(ctx context.Context, resp *http.Resp
 	return send()
 }
 
-func codexErrorMessage(body []byte) string {
+func codexErrorDetails(body []byte) (message, code, param string) {
 	var envelope struct {
-		Error struct {
-			Message string `json:"message"`
-		} `json:"error"`
-		Message string `json:"message"`
+		Error   *OpenAIError `json:"error"`
+		Message string       `json:"message"`
 	}
 	if json.Unmarshal(body, &envelope) == nil {
-		if envelope.Error.Message != "" {
-			return envelope.Error.Message
+		if envelope.Error != nil {
+			code = envelope.Error.Code
+			param = envelope.Error.Param
+			if envelope.Error.Message != "" {
+				return envelope.Error.Message, code, param
+			}
 		}
 		if envelope.Message != "" {
-			return envelope.Message
+			return envelope.Message, code, param
 		}
 	}
-	return truncate(strings.TrimSpace(string(body)), 500)
+	return truncate(strings.TrimSpace(string(body)), 500), code, param
+}
+
+func codexHTTPError(resp *http.Response, body []byte) error {
+	message, code, param := codexErrorDetails(body)
+	underlying := fmt.Errorf("Codex API returned status %d: %s", resp.StatusCode, message)
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return &service.RateLimitError{
+			StatusCode: resp.StatusCode,
+			RetryAfter: common.ParseRetryAfter(resp.Header),
+			Provider:   "openai-codex",
+			Message:    message,
+			Underlying: underlying,
+		}
+	}
+	return &service.UpstreamError{
+		Provider:   "openai-codex",
+		StatusCode: resp.StatusCode,
+		Code:       code,
+		Param:      param,
+		Message:    message,
+		Underlying: underlying,
+	}
 }
 
 type codexSSEEvent struct {

@@ -329,6 +329,33 @@ func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode s
 // TaskDoneCallback is called when a bot-created task finishes (success or failure).
 type TaskDoneCallback func(identifier, status, result string)
 
+func (s *Server) botTaskDoneCallback(taskID, identifier string, callbacks []TaskDoneCallback) delegationRunDoneFunc {
+	if len(callbacks) == 0 {
+		return nil
+	}
+	return func(ctx context.Context, runErr error) {
+		if runErr != nil {
+			result := fmt.Sprintf("delegation failed: %v", runErr)
+			for _, cb := range callbacks {
+				cb(identifier, "failed", result)
+			}
+			return
+		}
+
+		if s.taskStore != nil {
+			if updated, err := s.taskStore.GetTask(ctx, taskID); err == nil && updated != nil {
+				for _, cb := range callbacks {
+					cb(identifier, updated.Status, updated.Result)
+				}
+				return
+			}
+		}
+		for _, cb := range callbacks {
+			cb(identifier, "done", "")
+		}
+	}
+}
+
 // BotTaskOptions are optional knobs for createBotTask. A zero value is fine —
 // every field is optional and falls back to the same behaviour as before.
 type BotTaskOptions struct {
@@ -445,46 +472,10 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
 
-	// Fire async delegation with optional completion callback.
-	// Register with activeDelegations so /cancel (and the HTTP cancel endpoint)
-	// can interrupt the goroutine via context cancellation.
-	go func() {
-		delegCtx, cleanup := s.registerDelegation(context.Background(), record.ID, org.HeadAgentID, org.ID)
-		defer cleanup()
-		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
-			slog.Error("bot-task: delegation failed",
-				"org_id", org.ID,
-				"task_id", record.ID,
-				"error", err,
-			)
-			errResult := fmt.Sprintf("delegation failed: %v", err)
-			// Use a fresh context for the post-cancellation status update,
-			// otherwise delegCtx is already cancelled and the write fails.
-			if s.taskStore != nil {
-				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, errResult)
-			}
-			// Notify callback of failure
-			for _, cb := range onDone {
-				cb(identifier, "failed", errResult)
-			}
-			return
-		}
-
-		// Task succeeded — get the final state and notify
-		if s.taskStore != nil {
-			if updated, err := s.taskStore.GetTask(delegCtx, record.ID); err == nil && updated != nil {
-				for _, cb := range onDone {
-					cb(identifier, updated.Status, updated.Result)
-				}
-				return
-			}
-		}
-
-		// Fallback notify
-		for _, cb := range onDone {
-			cb(identifier, "done", "")
-		}
-	}()
+	completion := s.botTaskDoneCallback(record.ID, identifier, onDone)
+	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, completion); err != nil {
+		return "", "", fmt.Errorf("start delegation: %w", err)
+	}
 
 	return record.ID, identifier, nil
 }
@@ -536,38 +527,10 @@ func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task,
 		return "", "", fmt.Errorf("create subtask: %w", err)
 	}
 
-	go func() {
-		delegCtx, cleanup := s.registerDelegation(context.Background(), record.ID, org.HeadAgentID, org.ID)
-		defer cleanup()
-		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
-			slog.Error("bot-subtask: delegation failed",
-				"parent_id", parentTask.ID,
-				"subtask_id", record.ID,
-				"error", err,
-			)
-			errResult := fmt.Sprintf("delegation failed: %v", err)
-			if s.taskStore != nil {
-				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, errResult)
-			}
-			for _, cb := range onDone {
-				cb(identifier, "failed", errResult)
-			}
-			return
-		}
-
-		if s.taskStore != nil {
-			if updated, err := s.taskStore.GetTask(delegCtx, record.ID); err == nil && updated != nil {
-				for _, cb := range onDone {
-					cb(identifier, updated.Status, updated.Result)
-				}
-				return
-			}
-		}
-
-		for _, cb := range onDone {
-			cb(identifier, "done", "")
-		}
-	}()
+	completion := s.botTaskDoneCallback(record.ID, identifier, onDone)
+	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, completion); err != nil {
+		return "", "", fmt.Errorf("start delegation: %w", err)
+	}
 
 	return record.ID, identifier, nil
 }
@@ -602,57 +565,23 @@ func (s *Server) resumeBotTask(ctx context.Context, task *service.Task, onDone .
 		return fmt.Errorf("organization or head agent missing")
 	}
 
+	reservation, err := s.reserveDelegationRun(s.ctx, task.ID, org.HeadAgentID, org.ID)
+	if err != nil {
+		return fmt.Errorf("reserve delegation: %w", err)
+	}
+
 	// Reset to open so the resumed run is reflected in status views and the
 	// next blocking iteration can write a fresh [CONVERSATION_STATE] comment.
 	if err := s.taskStore.UpdateTaskStatus(ctx, task.ID, service.TaskStatusOpen, ""); err != nil {
+		reservation.cleanup()
 		return fmt.Errorf("reset task status: %w", err)
 	}
 
-	identifier := task.Identifier
-	taskID := task.ID
-	headAgentID := org.HeadAgentID
-	orgCopy := *org
-
-	go func() {
-		delegCtx, cleanup := s.registerDelegation(context.Background(), taskID, headAgentID, orgCopy.ID)
-		defer cleanup()
-
-		// Re-fetch so we hand the loop the live task row (UpdateTask above
-		// changed status; the receiver expects current state).
-		fresh, getErr := s.taskStore.GetTask(delegCtx, taskID)
-		if getErr != nil || fresh == nil {
-			errResult := fmt.Sprintf("resume: failed to load task: %v", getErr)
-			for _, cb := range onDone {
-				cb(identifier, "failed", errResult)
-			}
-			return
-		}
-
-		if err := s.runOrgDelegation(delegCtx, &orgCopy, fresh, headAgentID, fresh.RequestDepth); err != nil {
-			slog.Error("bot-resume: delegation failed",
-				"org_id", orgCopy.ID,
-				"task_id", taskID,
-				"error", err,
-			)
-			errResult := fmt.Sprintf("delegation failed: %v", err)
-			_ = s.taskStore.UpdateTaskStatus(context.Background(), taskID, service.TaskStatusCancelled, errResult)
-			for _, cb := range onDone {
-				cb(identifier, "failed", errResult)
-			}
-			return
-		}
-
-		if updated, err := s.taskStore.GetTask(delegCtx, taskID); err == nil && updated != nil {
-			for _, cb := range onDone {
-				cb(identifier, updated.Status, updated.Result)
-			}
-			return
-		}
-
-		for _, cb := range onDone {
-			cb(identifier, "done", "")
-		}
-	}()
+	runTask := *task
+	runTask.Status = service.TaskStatusOpen
+	runTask.Result = ""
+	completion := s.botTaskDoneCallback(task.ID, task.Identifier, onDone)
+	s.startReservedDelegationRun(reservation, org, &runTask, org.HeadAgentID, runTask.RequestDepth, completion)
 
 	return nil
 }

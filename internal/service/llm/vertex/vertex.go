@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/worldline-go/klient"
@@ -240,12 +241,19 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	var result vertexResponse
 	var headers http.Header
 	var statusCode int
+	var rawBody string
 	if err := p.client.Do(req, func(r *http.Response) error {
 		headers = r.Header
 		statusCode = r.StatusCode
 		bodyData, err := io.ReadAll(r.Body)
 		if err != nil {
 			return err
+		}
+
+		rawBody = string(bodyData)
+		if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+			_ = json.Unmarshal(bodyData, &result)
+			return nil
 		}
 
 		if err := json.Unmarshal(bodyData, &result); err != nil {
@@ -271,6 +279,24 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			Provider:   "vertex",
 			Message:    msg,
 			Underlying: fmt.Errorf("vertex API error (status %d): %s", statusCode, msg),
+		}
+	}
+	if statusCode < http.StatusOK || statusCode >= http.StatusMultipleChoices {
+		msg := strings.TrimSpace(rawBody)
+		code := ""
+		if result.Error != nil {
+			msg = result.Error.Message
+			if result.Error.Code != 0 {
+				code = strconv.Itoa(result.Error.Code)
+			}
+		}
+		underlying := fmt.Errorf("vertex API error (status %d): %s", statusCode, msg)
+		return nil, &service.UpstreamError{
+			Provider:   "vertex",
+			StatusCode: statusCode,
+			Code:       code,
+			Message:    msg,
+			Underlying: underlying,
 		}
 	}
 
@@ -398,7 +424,23 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				Underlying: fmt.Errorf("vertex returned status %d: %s", resp.StatusCode, string(bodyData)),
 			}
 		}
-		return nil, nil, fmt.Errorf("vertex returned status %d: %s", resp.StatusCode, string(bodyData))
+		msg := strings.TrimSpace(string(bodyData))
+		code := ""
+		var envelope vertexResponse
+		if json.Unmarshal(bodyData, &envelope) == nil && envelope.Error != nil {
+			msg = envelope.Error.Message
+			if envelope.Error.Code != 0 {
+				code = strconv.Itoa(envelope.Error.Code)
+			}
+		}
+		underlying := fmt.Errorf("vertex returned status %d: %s", resp.StatusCode, msg)
+		return nil, nil, &service.UpstreamError{
+			Provider:   "vertex",
+			StatusCode: resp.StatusCode,
+			Code:       code,
+			Message:    msg,
+			Underlying: underlying,
+		}
 	}
 
 	ch := make(chan service.StreamChunk, 64)

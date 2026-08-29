@@ -14,6 +14,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/agentloop"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/query"
 )
@@ -441,7 +442,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			// resolve them directly — no HTTP loopback.
 			if len(set.Config.HTTPTools) > 0 ||
 				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
-				setTools, err := s.listMCPSetTools(setName)
+				setTools, err := s.listMCPSetTools(ctx, setName)
 				if err != nil {
 					slog.Warn("agentic loop: failed to list MCP set tools", "set", setName, "error", err)
 				} else {
@@ -863,6 +864,22 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	if taskLinked != nil {
 		traceTaskID = taskLinked.ID
 	}
+	loopRunID := sessionID
+	if traceTaskID != "" {
+		loopRunID = traceTaskID
+	}
+	observationContext := agentloop.ObservationContext{
+		Source:         "chat",
+		TraceID:        turnTraceID,
+		SessionID:      sessionID,
+		AgentID:        session.AgentID,
+		TaskID:         traceTaskID,
+		RunID:          turnTraceID,
+		OrganizationID: session.OrganizationID,
+		Provider:       providerKey,
+		Model:          model,
+	}
+	recordObservation := s.recordObservationFunc()
 
 	// 10. Agentic loop.
 	// Set when the agent finalizes the linked task via the task_complete /
@@ -910,33 +927,18 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		// Apply the loop governor: window the message history (with a
 		// rolling summary fallback) and pass an explicit MaxTokens cap
 		// to bound output size.
-		windowed, _ := s.loopGov.LimitWithTools(ctx, session.AgentID,
-			func() string {
-				if taskLinked != nil {
-					return taskLinked.ID
-				}
-				return sessionID
-			}(), llmMessages, llmTools)
-		chatOpts := s.loopGov.ChatOptions()
-		callStart := time.Now()
-		resp, err := info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
-		latencyMs := time.Since(callStart).Milliseconds()
+		resp, windowed, latencyMs, err := agentloop.CallProvider(
+			ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools,
+		)
 		if err != nil {
 			// Recover from corrupted tool call history — sanitize and retry once.
 			if isToolPairingError(err) {
 				slog.Warn("agentic loop: tool call history error, sanitizing and retrying",
 					"iteration", iteration, "error", err)
 				llmMessages = sanitizeLLMMessages(llmMessages)
-				windowed, _ = s.loopGov.LimitWithTools(ctx, session.AgentID,
-					func() string {
-						if taskLinked != nil {
-							return taskLinked.ID
-						}
-						return sessionID
-					}(), llmMessages, llmTools)
-				callStart = time.Now()
-				resp, err = info.provider.Chat(ctx, model, windowed, llmTools, chatOpts)
-				latencyMs = time.Since(callStart).Milliseconds()
+				resp, windowed, latencyMs, err = agentloop.CallProvider(
+					ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools,
+				)
 			}
 			if err != nil {
 				// Record failed call for usage dashboard.
@@ -958,29 +960,13 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 						ErrorMessage:   err.Error(),
 					})
 				}
-				// Observation: failed generation.
-				var failedReqBody []byte
-				if s.llmAuditEnabled(ctx) {
-					failedReqBody, _ = json.Marshal(map[string]any{"model": model, "messages": windowed, "tools": llmTools})
+				if recordObservation != nil {
+					recordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
+						Context: observationContext, Messages: windowed, Tools: llmTools,
+						LatencyMs: latencyMs, Iteration: iteration, Err: err,
+						ErrorCode: classifyHTTPError(err),
+					}))
 				}
-				s.recordLLMCallAsync(ctx, llmAuditParams{
-					source:         "chat",
-					traceID:        turnTraceID,
-					sessionID:      sessionID,
-					agentID:        session.AgentID,
-					taskID:         traceTaskID,
-					runID:          turnTraceID,
-					orgID:          session.OrganizationID,
-					requestedModel: providerKey + "/" + model,
-					fullModel:      providerKey + "/" + model,
-					requestBody:    failedReqBody,
-					latencyMs:      latencyMs,
-					status:         "error",
-					level:          service.ObservationLevelError,
-					errCode:        classifyHTTPError(err),
-					errMsg:         err.Error(),
-					metadata:       map[string]any{"iteration": iteration},
-				})
 				slog.Error("agentic loop: chat failed", "iteration", iteration, "error", err)
 				onEvent(AgenticEvent{Type: "error", Error: fmt.Sprintf("LLM error: %v", err)})
 				return nil
@@ -1009,34 +995,14 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 		}
 
-		// Observation: completed generation. Bodies captured only when
-		// llm_audit is on; the returned ID parents this iteration's tool
-		// observations.
-		var genReqBody, genRespBody []byte
-		if s.llmAuditEnabled(ctx) {
-			genReqBody, _ = json.Marshal(map[string]any{"model": model, "messages": windowed, "tools": llmTools})
-			genRespBody, _ = json.Marshal(resp)
+		// The returned ID parents this iteration's tool observations.
+		genObsID := ""
+		if recordObservation != nil {
+			genObsID = recordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
+				Context: observationContext, Messages: windowed, Tools: llmTools,
+				Response: resp, LatencyMs: latencyMs, Iteration: iteration,
+			}))
 		}
-		genObsID := s.recordLLMCallAsync(ctx, llmAuditParams{
-			source:         "chat",
-			traceID:        turnTraceID,
-			sessionID:      sessionID,
-			agentID:        session.AgentID,
-			taskID:         traceTaskID,
-			runID:          turnTraceID,
-			orgID:          session.OrganizationID,
-			requestedModel: providerKey + "/" + model,
-			fullModel:      providerKey + "/" + model,
-			requestBody:    genReqBody,
-			responseBody:   genRespBody,
-			usage:          resp.Usage,
-			latencyMs:      latencyMs,
-			metadata: map[string]any{
-				"iteration":  iteration,
-				"finished":   resp.Finished,
-				"tool_calls": len(resp.ToolCalls),
-			},
-		})
 
 		// Emit text content. Bot adapters use Final to avoid concatenating
 		// pre-tool narration with the actual answer, while SSE clients can
@@ -1046,31 +1012,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			onEvent(AgenticEvent{Type: "content", Content: resp.Content, Final: finalResponse})
 		}
 
-		// Build assistant message with content blocks.
-		var assistantContent []service.ContentBlock
-		if resp.Content != "" {
-			assistantContent = append(assistantContent, service.ContentBlock{
-				Type: "text",
-				Text: resp.Content,
-			})
-		}
-		for _, tc := range resp.ToolCalls {
-			input := tc.Arguments
-			if input == nil {
-				input = map[string]any{}
-			}
-			assistantContent = append(assistantContent, service.ContentBlock{
-				Type:             "tool_use",
-				ID:               tc.ID,
-				Name:             tc.Name,
-				Input:            input,
-				ThoughtSignature: tc.ThoughtSignature,
-			})
-		}
-		llmMessages = append(llmMessages, service.Message{
-			Role:    "assistant",
-			Content: assistantContent,
-		})
+		llmMessages = append(llmMessages, agentloop.AssistantMessage(resp))
 
 		// If done (no tool calls), persist and finish.
 		if finalResponse {
@@ -1142,11 +1084,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					onEvent(AgenticEvent{Type: "tool_call", ToolName: tc.Name, ToolID: tc.ID})
 					onEvent(AgenticEvent{Type: "tool_result", ToolName: tc.Name, ToolID: tc.ID, Result: result})
 
-					toolResults = append(toolResults, service.ContentBlock{
-						Type:      "tool_result",
-						ToolUseID: tc.ID,
-						Content:   result,
-					})
+					_, block := agentloop.ToolResult(nil, "", tc, result)
+					toolResults = append(toolResults, block)
 					continue
 				}
 			}
@@ -1273,43 +1212,20 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			// LLM message history. The full payload is preserved on
 			// disk under the workspace root (when configured); the LLM
 			// sees a marker pointing at the file.
-			runID := sessionID
-			if taskLinked != nil {
-				runID = taskLinked.ID
-			}
-			result, _ = s.loopGov.TruncateToolResult(runID, tc.Name, result)
+			result, block := agentloop.ToolResult(s.loopGov, loopRunID, tc, result)
 
 			// Observation: tool call, parented to this iteration's
 			// generation. Captures the input arguments and the
 			// (post-truncation) output that entered the LLM history.
-			toolLevel := service.ObservationLevelDefault
-			if callErr != nil {
-				toolLevel = service.ObservationLevelError
+			if recordObservation != nil {
+				recordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
+					Context: observationContext, ParentObservationID: genObsID,
+					Tool: tc, Output: result, LatencyMs: time.Since(toolStarted).Milliseconds(),
+					Iteration: iteration, Err: callErr,
+				}))
 			}
-			argsJSON, _ := json.Marshal(tc.Arguments)
-			s.recordLLMCallAsync(ctx, llmAuditParams{
-				source:              "chat",
-				obsType:             service.ObservationTool,
-				parentObservationID: genObsID,
-				name:                tc.Name,
-				traceID:             turnTraceID,
-				sessionID:           sessionID,
-				agentID:             session.AgentID,
-				taskID:              traceTaskID,
-				runID:               turnTraceID,
-				orgID:               session.OrganizationID,
-				input:               string(argsJSON),
-				output:              result,
-				level:               toolLevel,
-				latencyMs:           time.Since(toolStarted).Milliseconds(),
-				metadata:            map[string]any{"iteration": iteration},
-			})
 
-			toolResults = append(toolResults, service.ContentBlock{
-				Type:      "tool_result",
-				ToolUseID: tc.ID,
-				Content:   result,
-			})
+			toolResults = append(toolResults, block)
 		}
 
 		// Persist tool results and continue loop.

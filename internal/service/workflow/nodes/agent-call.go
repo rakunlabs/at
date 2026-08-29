@@ -2,13 +2,13 @@ package nodes
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/agentloop"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/logi"
 )
@@ -620,6 +620,18 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// left empty and the recorder's source ("workflow") plus agent
 	// attribution locate the run.
 	runTraceID := ulid.Make().String()
+	observationContext := agentloop.ObservationContext{
+		Source:   "workflow",
+		TraceID:  runTraceID,
+		AgentID:  n.agentID,
+		RunID:    runTraceID,
+		Provider: providerKey,
+		Model:    model,
+	}
+	toolResultRunID := n.agentID
+	if toolResultRunID == "" {
+		toolResultRunID = "agent_call"
+	}
 
 	// The legacy 0 = unlimited semantics is no longer supported; the
 	// loop runs at most maxIterations times and the platform ceiling
@@ -642,18 +654,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			}
 		}
 
-		// Apply the loop governor before the call: window the message
-		// slice and pass an explicit MaxTokens cap.
-		callMessages := messages
-		var chatOpts *service.ChatOptions
-		if reg.LoopGov != nil {
-			windowed, _ := reg.LoopGov.LimitWithTools(ctx, n.agentID, "", messages, llmTools)
-			callMessages = windowed
-			chatOpts = reg.LoopGov.ChatOptions()
-		}
-		callStart := time.Now()
-		resp, err := provider.Chat(ctx, model, callMessages, llmTools, chatOpts)
-		latencyMs := time.Since(callStart).Milliseconds()
+		resp, callMessages, latencyMs, err := agentloop.CallProvider(
+			ctx, reg.LoopGov, provider, model, n.agentID, "", messages, llmTools,
+		)
 		if err != nil {
 			// Record the failed call for the usage dashboard before returning.
 			if n.agentID != "" && reg.RecordUsage != nil {
@@ -672,24 +675,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			}
 			// Observation: failed generation.
 			if reg.RecordObservation != nil {
-				reqJSON, _ := json.Marshal(map[string]any{"model": model, "messages": callMessages, "tools": llmTools})
-				reg.RecordObservation(ctx, service.LLMCall{
-					ObservationType: service.ObservationGeneration,
-					Source:          "workflow",
-					TraceID:         runTraceID,
-					AgentID:         n.agentID,
-					RunID:           runTraceID,
-					Provider:        providerKey,
-					Model:           model,
-					RequestedModel:  providerKey + "/" + model,
-					RequestBody:     string(reqJSON),
-					LatencyMs:       latencyMs,
-					Status:          "error",
-					Level:           service.ObservationLevelError,
-					ErrorCode:       classifyLLMError(err),
-					ErrorMessage:    err.Error(),
-					Metadata:        map[string]any{"iteration": iteration},
-				})
+				reg.RecordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
+					Context: observationContext, Messages: callMessages, Tools: llmTools,
+					LatencyMs: latencyMs, Iteration: iteration, Err: err,
+					ErrorCode: classifyLLMError(err),
+				}))
 			}
 			return nil, fmt.Errorf("agent_call: chat failed (iteration %d): %w", iteration, err)
 		}
@@ -714,58 +704,13 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		// feature) happens server-side in the recorder.
 		genObsID := ""
 		if reg.RecordObservation != nil {
-			reqJSON, _ := json.Marshal(map[string]any{"model": model, "messages": callMessages, "tools": llmTools})
-			respJSON, _ := json.Marshal(resp)
-			genObsID = reg.RecordObservation(ctx, service.LLMCall{
-				ObservationType:  service.ObservationGeneration,
-				Source:           "workflow",
-				TraceID:          runTraceID,
-				AgentID:          n.agentID,
-				RunID:            runTraceID,
-				Provider:         providerKey,
-				Model:            model,
-				RequestedModel:   providerKey + "/" + model,
-				RequestBody:      string(reqJSON),
-				ResponseBody:     string(respJSON),
-				InputTokens:      int64(resp.Usage.PromptTokens),
-				OutputTokens:     int64(resp.Usage.CompletionTokens),
-				CacheReadTokens:  int64(resp.Usage.CacheReadTokens),
-				CacheWriteTokens: int64(resp.Usage.CacheWriteTokens),
-				ReasoningTokens:  int64(resp.Usage.ReasoningTokens),
-				LatencyMs:        latencyMs,
-				Metadata: map[string]any{
-					"iteration":  iteration,
-					"finished":   resp.Finished,
-					"tool_calls": len(resp.ToolCalls),
-				},
-			})
+			genObsID = reg.RecordObservation(ctx, agentloop.NewGenerationObservation(agentloop.GenerationObservationParams{
+				Context: observationContext, Messages: callMessages, Tools: llmTools,
+				Response: resp, LatencyMs: latencyMs, Iteration: iteration,
+			}))
 		}
 
-		// Build assistant message with content blocks.
-		var assistantContent []service.ContentBlock
-		if resp.Content != "" {
-			assistantContent = append(assistantContent, service.ContentBlock{
-				Type: "text",
-				Text: resp.Content,
-			})
-		}
-		for _, tc := range resp.ToolCalls {
-			input := tc.Arguments
-			if input == nil {
-				input = map[string]any{}
-			}
-			assistantContent = append(assistantContent, service.ContentBlock{
-				Type:             "tool_use",
-				ID:               tc.ID,
-				Name:             tc.Name,
-				Input:            input,
-				ThoughtSignature: tc.ThoughtSignature,
-			})
-		}
-		messages = append(messages, service.Message{
-			Role:    "assistant",
-			Content: assistantContent,
-		})
+		messages = append(messages, agentloop.AssistantMessage(resp))
 
 		// If the LLM is done (no tool calls), return the final answer.
 		if resp.Finished || len(resp.ToolCalls) == 0 {
@@ -906,44 +851,20 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			// LLM message history. The runID for dump file naming is
 			// best-effort: agent_call doesn't always have a stable
 			// task id, so we use the agent id as a coarse namespace.
-			if reg.LoopGov != nil {
-				runID := n.agentID
-				if runID == "" {
-					runID = "agent_call"
-				}
-				result, _ = reg.LoopGov.TruncateToolResult(runID, tc.Name, result)
-			}
+			result, block := agentloop.ToolResult(reg.LoopGov, toolResultRunID, tc, result)
 
 			// Observation: tool call, parented to this iteration's
 			// generation — the workflow agent_call node leaves the same
 			// kind of trace as the org-delegation / chat-session loops.
 			if reg.RecordObservation != nil {
-				level := service.ObservationLevelDefault
-				if callErr != nil {
-					level = service.ObservationLevelError
-				}
-				argsJSON, _ := json.Marshal(tc.Arguments)
-				reg.RecordObservation(ctx, service.LLMCall{
-					ObservationType:     service.ObservationTool,
-					ParentObservationID: genObsID,
-					Source:              "workflow",
-					Name:                tc.Name,
-					TraceID:             runTraceID,
-					AgentID:             n.agentID,
-					RunID:               runTraceID,
-					Input:               string(argsJSON),
-					Output:              result,
-					Level:               level,
-					LatencyMs:           time.Since(toolStarted).Milliseconds(),
-					Metadata:            map[string]any{"iteration": iteration},
-				})
+				reg.RecordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
+					Context: observationContext, ParentObservationID: genObsID,
+					Tool: tc, Output: result, LatencyMs: time.Since(toolStarted).Milliseconds(),
+					Iteration: iteration, Err: callErr,
+				}))
 			}
 
-			toolResults = append(toolResults, service.ContentBlock{
-				Type:      "tool_result",
-				ToolUseID: tc.ID,
-				Content:   result,
-			})
+			toolResults = append(toolResults, block)
 		}
 
 		messages = append(messages, service.Message{

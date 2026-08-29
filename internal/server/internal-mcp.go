@@ -7,7 +7,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -66,7 +65,7 @@ func (s *Server) InternalMCPHandler(w http.ResponseWriter, r *http.Request) {
 		// Per MCP Streamable HTTP, notifications are acknowledged with 202.
 		w.WriteHeader(http.StatusAccepted)
 	case "tools/list":
-		s.gwGenMCPListTools(w, req, virtualSrv)
+		s.gwGenMCPListTools(r.Context(), w, req, virtualSrv)
 	case "tools/call":
 		s.gwGenMCPCallTool(w, r, req, virtualSrv)
 	default:
@@ -86,7 +85,7 @@ func (s *Server) ListMCPSetToolsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tools, err := s.listMCPSetTools(name)
+	tools, err := s.listMCPSetTools(r.Context(), name)
 	if err != nil {
 		slog.Error("list mcp set tools failed", "name", name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list tools: %v", err), http.StatusInternalServerError)
@@ -138,12 +137,12 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 
 // mcpSetToVirtualServer looks up an MCPSet by name and returns a virtual MCPServer
 // that can be used with the existing gwGenMCP* handlers.
-func (s *Server) mcpSetToVirtualServer(name string) (*service.MCPServer, error) {
+func (s *Server) mcpSetToVirtualServer(ctx context.Context, name string) (*service.MCPServer, error) {
 	if s.mcpSetStore == nil {
 		return nil, fmt.Errorf("mcp set store not configured")
 	}
 
-	mcpSet, err := s.mcpSetStore.GetMCPSetByName(context.Background(), name)
+	mcpSet, err := s.mcpSetStore.GetMCPSetByName(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MCP set %q: %w", name, err)
 	}
@@ -159,167 +158,37 @@ func (s *Server) mcpSetToVirtualServer(name string) (*service.MCPServer, error) 
 
 // listMCPSetTools returns all tools from an MCPSet by directly resolving its config
 // (HTTP, skills, builtins, upstreams) without any HTTP round-trip.
-func (s *Server) listMCPSetTools(setName string) ([]service.Tool, error) {
-	virtualSrv, err := s.mcpSetToVirtualServer(setName)
+func (s *Server) listMCPSetTools(ctx context.Context, setName string) ([]service.Tool, error) {
+	runtime, err := s.newMCPRuntimeBuilder().buildSet(ctx, setName)
 	if err != nil {
 		return nil, err
 	}
-
-	var tools []service.Tool
-
-	// HTTP tools.
-	for _, ht := range virtualSrv.Config.HTTPTools {
-		schema := ht.InputSchema
-		if schema == nil {
-			schema = map[string]any{"type": "object", "properties": map[string]any{}}
-		}
-		tools = append(tools, service.Tool{
-			Name:        ht.Name,
-			Description: ht.Description,
-			InputSchema: schema,
-		})
-	}
-
-	// Skill tools.
-	if s.skillStore != nil {
-		for _, skillName := range virtualSrv.Config.EnabledSkills {
-			skill, err := s.skillStore.GetSkillByName(context.Background(), skillName)
-			if err != nil || skill == nil {
-				slog.Warn("listMCPSetTools: failed to load skill", "skill", skillName, "error", err)
-				continue
-			}
-			for _, t := range skill.Tools {
-				tools = append(tools, service.Tool{
-					Name:        t.Name,
-					Description: t.Description,
-					InputSchema: t.InputSchema,
-				})
-			}
-		}
-	}
-
-	// Builtin tools.
-	for _, toolName := range virtualSrv.Config.EnabledBuiltinTools {
-		if !isKnownBuiltinTool(toolName) {
-			continue
-		}
-		for _, bt := range builtinTools {
-			if bt.Name == toolName {
-				tools = append(tools, service.Tool{
-					Name:        bt.Name,
-					Description: bt.Description,
-					InputSchema: bt.InputSchema,
-				})
-				break
-			}
-		}
-	}
-
-	// Workflow tools.
-	if s.workflowStore != nil {
-		for _, wfID := range virtualSrv.Config.WorkflowIDs {
-			wf, err := s.workflowStore.GetWorkflow(context.Background(), wfID)
-			if err != nil || wf == nil {
-				slog.Warn("listMCPSetTools: failed to load workflow", "id", wfID, "error", err)
-				continue
-			}
-			tools = append(tools, s.activeWorkflowToolDef(context.Background(), wf))
-		}
-	}
-
-	// Upstream MCP tools (stdio/HTTP — these are direct clients, not round-trips to self).
-	for _, upstream := range virtualSrv.Config.MCPUpstreams {
-		client, err := s.newMCPClient(context.Background(), upstream)
-		if err != nil {
-			slog.Warn("listMCPSetTools: failed to connect to upstream", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		upstreamTools, err := client.ListTools(context.Background())
-		if err != nil {
-			slog.Warn("listMCPSetTools: failed to list tools from upstream", "upstream", upstream.URL+upstream.Command, "error", err)
-			continue
-		}
-		tools = append(tools, upstreamTools...)
-	}
-
-	return tools, nil
+	defer closeMCPRuntime(ctx, runtime)
+	return runtime.ListTools(ctx), nil
 }
 
 // callMCPSetTool calls a tool on an MCPSet by directly resolving its config —
 // no HTTP round-trip. Returns the tool result string or an error.
 func (s *Server) callMCPSetTool(ctx context.Context, setName, toolName string, args map[string]any) (string, error) {
-	virtualSrv, err := s.mcpSetToVirtualServer(setName)
+	runtime, err := s.newMCPRuntimeBuilder().buildSet(ctx, setName)
 	if err != nil {
 		return "", err
 	}
-
-	// Skill tool — most common for internal MCPs.
-	if s.skillStore != nil {
-		for _, skillName := range virtualSrv.Config.EnabledSkills {
-			skill, err := s.skillStore.GetSkillByName(ctx, skillName)
-			if err != nil || skill == nil {
-				continue
-			}
-			for i := range skill.Tools {
-				if skill.Tools[i].Name == toolName {
-					return s.executeSkillTool(ctx, &skill.Tools[i], args)
-				}
-			}
-		}
-	}
-
-	// Builtin tool.
-	if slices.Contains(virtualSrv.Config.EnabledBuiltinTools, toolName) && isKnownBuiltinTool(toolName) {
-		return s.dispatchBuiltinTool(ctx, toolName, args)
-	}
-
-	// Workflow tool.
-	if s.workflowStore != nil {
-		for _, wfID := range virtualSrv.Config.WorkflowIDs {
-			wf, err := s.workflowStore.GetWorkflow(ctx, wfID)
-			if err != nil || wf == nil {
-				continue
-			}
-			if workflowToolName(wf) == toolName {
-				return s.executeWorkflowTool(ctx, wf, args)
-			}
-		}
-	}
-
-	// Upstream MCP tool (stdio/HTTP — direct client, no self-loopback).
-	for _, upstream := range virtualSrv.Config.MCPUpstreams {
-		client, err := s.newMCPClient(ctx, upstream)
-		if err != nil {
-			continue
-		}
-		result, err := client.CallTool(ctx, toolName, args)
-		if err != nil {
-			continue
-		}
-		return result, nil
-	}
-
-	// HTTP tool — execute the HTTP request directly.
-	for _, ht := range virtualSrv.Config.HTTPTools {
-		if ht.Name == toolName {
-			return s.callHTTPToolInline(ctx, ht, args, virtualSrv)
-		}
-	}
-
-	return "", fmt.Errorf("tool %q not found in MCP set %q", toolName, setName)
+	defer closeMCPRuntime(ctx, runtime)
+	return runtime.CallTool(ctx, toolName, args)
 }
 
 // callHTTPToolInline executes an HTTP tool without going through the MCP gateway.
 func (s *Server) callHTTPToolInline(ctx context.Context, tool service.MCPHTTPTool, args map[string]any, srv *service.MCPServer) (string, error) {
 	// Resolve template for URL and body.
-	resolvedURL, err := s.resolveTemplate(tool.URL, args)
+	resolvedURL, err := s.resolveTemplateContext(ctx, tool.URL, args)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve URL template: %w", err)
 	}
 
 	var bodyStr string
 	if tool.BodyTemplate != "" {
-		bodyStr, err = s.resolveTemplate(tool.BodyTemplate, args)
+		bodyStr, err = s.resolveTemplateContext(ctx, tool.BodyTemplate, args)
 		if err != nil {
 			return "", fmt.Errorf("failed to resolve body template: %w", err)
 		}
@@ -346,7 +215,7 @@ func (s *Server) callHTTPToolInline(ctx context.Context, tool service.MCPHTTPToo
 	}
 
 	for k, v := range tool.Headers {
-		resolved, _ := s.resolveTemplate(v, args)
+		resolved, _ := s.resolveTemplateContext(ctx, v, args)
 		req.Header.Set(k, resolved)
 	}
 	if bodyStr != "" && req.Header.Get("Content-Type") == "" {

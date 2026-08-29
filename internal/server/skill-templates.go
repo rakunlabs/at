@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +17,8 @@ import (
 
 //go:embed skill_templates/*.json
 var skillTemplateFS embed.FS
+
+const skillTemplateSourcePrefix = "builtin://skill-template/"
 
 // SkillTemplate is a predefined skill that ships with AT.
 type SkillTemplate struct {
@@ -48,6 +53,104 @@ type RequiredVariable struct {
 	Secret      bool   `json:"secret"`
 }
 
+// validateSkillTemplate validates the declarative parts of a built-in skill.
+// Callers may provide validateBash to parse bash handlers without executing
+// them. Heredoc bodies (including embedded Python) remain data to the shell
+// parser; extracting those scripts into standalone assets is a separate
+// migration.
+func validateSkillTemplate(tmpl SkillTemplate, validateBash func(string) error) error {
+	var errs []error
+	require := func(path, value string) {
+		if strings.TrimSpace(value) == "" {
+			errs = append(errs, fmt.Errorf("%s is required", path))
+		}
+	}
+
+	require("slug", tmpl.Slug)
+	require("name", tmpl.Name)
+	require("description", tmpl.Description)
+	require("category", tmpl.Category)
+	require("skill.name", tmpl.Skill.Name)
+	require("skill.description", tmpl.Skill.Description)
+	require("skill.system_prompt", tmpl.Skill.SystemPrompt)
+
+	variableKeys := make(map[string]struct{}, len(tmpl.RequiredVariables))
+	for i, variable := range tmpl.RequiredVariables {
+		path := fmt.Sprintf("required_variables[%d]", i)
+		require(path+".key", variable.Key)
+		require(path+".description", variable.Description)
+		if _, exists := variableKeys[variable.Key]; exists && variable.Key != "" {
+			errs = append(errs, fmt.Errorf("%s.key %q is duplicated", path, variable.Key))
+		}
+		variableKeys[variable.Key] = struct{}{}
+	}
+
+	toolNames := make(map[string]struct{}, len(tmpl.Skill.Tools))
+	for i, tool := range tmpl.Skill.Tools {
+		path := fmt.Sprintf("skill.tools[%d]", i)
+		require(path+".name", tool.Name)
+		require(path+".description", tool.Description)
+		require(path+".handler_type", tool.HandlerType)
+		require(path+".handler", tool.Handler)
+		if _, exists := toolNames[tool.Name]; exists && tool.Name != "" {
+			errs = append(errs, fmt.Errorf("%s.name %q is duplicated", path, tool.Name))
+		}
+		toolNames[tool.Name] = struct{}{}
+
+		if tool.InputSchema == nil {
+			errs = append(errs, fmt.Errorf("%s.inputSchema is required", path))
+		} else if schemaType, ok := tool.InputSchema["type"].(string); !ok || schemaType != "object" {
+			errs = append(errs, fmt.Errorf("%s.inputSchema.type must be %q", path, "object"))
+		}
+
+		switch tool.HandlerType {
+		case "bash":
+			if validateBash != nil && strings.TrimSpace(tool.Handler) != "" {
+				if err := validateBash(tool.Handler); err != nil {
+					errs = append(errs, fmt.Errorf("%s.handler has invalid bash syntax: %w", path, err))
+				}
+			}
+		case "js":
+		case "":
+		default:
+			errs = append(errs, fmt.Errorf("%s.handler_type %q is unsupported", path, tool.HandlerType))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// skillTemplateManagedChecksum is the deterministic version of content owned
+// by template sync. encoding/json sorts map keys, while slices retain order, so
+// every Tool field (including future fields) participates without depending on
+// map iteration order. User-owned skill metadata is deliberately excluded.
+func skillTemplateManagedChecksum(tmpl SkillTemplateData) (string, error) {
+	payload := struct {
+		SystemPrompt string         `json:"system_prompt"`
+		Tools        []service.Tool `json:"tools"`
+	}{
+		SystemPrompt: tmpl.SystemPrompt,
+		Tools:        tmpl.Tools,
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("marshal template-managed skill content: %w", err)
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func installedSkillManagedChecksum(installed *service.Skill) (string, error) {
+	return skillTemplateManagedChecksum(SkillTemplateData{
+		SystemPrompt: installed.SystemPrompt,
+		Tools:        installed.Tools,
+	})
+}
+
+func skillTemplateSourceURL(slug string) string {
+	return skillTemplateSourcePrefix + slug
+}
+
 // loadSkillTemplates reads all embedded JSON template files.
 func (s *Server) loadSkillTemplates() {
 	entries, err := skillTemplateFS.ReadDir("skill_templates")
@@ -79,10 +182,10 @@ func (s *Server) loadSkillTemplates() {
 	slog.Info("loaded skill templates", "count", len(s.skillTemplates))
 }
 
-// syncInstalledSkillHandlers updates installed skills whose tool handlers
-// differ from the current embedded templates. This ensures that bug fixes
-// in skill handlers (e.g. mktemp → uuid, workspace dir support) are applied
-// to already-installed skills without requiring manual reinstallation.
+// syncInstalledSkillHandlers updates only template-owned skills whose managed
+// payload still matches the checksum installed by the previous template
+// version. A mismatch means the user changed the prompt or tools, so startup
+// preserves that customization rather than treating it as template drift.
 func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 	if s.skillStore == nil || len(s.skillTemplates) == 0 {
 		return
@@ -97,30 +200,54 @@ func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 			continue // not installed — skip
 		}
 
-		// Check if any tool handler differs, or the system prompt drifted.
-		// (SystemPrompt sync was added so the ffmpeg-guide skill — which is
-		// almost entirely system-prompt hints to the model — picks up the
-		// CPU-discipline addendum baked into newer template versions.)
-		needsUpdate := false
-		if installed.SystemPrompt != tmpl.Skill.SystemPrompt {
-			needsUpdate = true
+		templateChecksum, err := skillTemplateManagedChecksum(tmpl.Skill)
+		if err != nil {
+			slog.Warn("skill-templates: failed to checksum embedded template",
+				"skill", tmpl.Skill.Name, "error", err)
+			continue
 		}
-		if len(installed.Tools) != len(tmpl.Skill.Tools) {
-			needsUpdate = true
-		} else {
-			for i := range tmpl.Skill.Tools {
-				if i >= len(installed.Tools) {
-					needsUpdate = true
-					break
-				}
-				if installed.Tools[i].Handler != tmpl.Skill.Tools[i].Handler {
-					needsUpdate = true
-					break
-				}
-			}
+		installedChecksum, err := installedSkillManagedChecksum(installed)
+		if err != nil {
+			slog.Warn("skill-templates: failed to checksum installed skill",
+				"skill", tmpl.Skill.Name, "id", installed.ID, "error", err)
+			continue
 		}
 
-		if !needsUpdate {
+		sourceURL := skillTemplateSourceURL(tmpl.Slug)
+		if installed.SourceURL == "" && installed.SourceChecksum == "" {
+			// Legacy installs had no checksum. Exact matches are safe to enrol.
+			// "system" is also a reliable historical marker because this sync is
+			// the only skill path that uses it; ordinary user/API edits replace it.
+			// Other drift could be an old template or a user customization and is
+			// intentionally preserved because it cannot be distinguished.
+			previouslySynced := installed.UpdatedBy == "system"
+			if installedChecksum != templateChecksum && !previouslySynced {
+				continue
+			}
+			updated := *installed
+			if previouslySynced {
+				updated.SystemPrompt = tmpl.Skill.SystemPrompt
+				updated.Tools = tmpl.Skill.Tools
+			}
+			updated.SourceURL = sourceURL
+			updated.SourceChecksum = templateChecksum
+			updated.UpdatedBy = "system"
+			if _, err = s.skillStore.UpdateSkill(ctx, installed.ID, updated); err != nil {
+				slog.Warn("skill-templates: failed to mark legacy template skill",
+					"skill", tmpl.Skill.Name, "id", installed.ID, "error", err)
+			}
+			continue
+		}
+
+		if installed.SourceURL != sourceURL || installed.SourceChecksum == "" {
+			continue
+		}
+		if installedChecksum != installed.SourceChecksum {
+			slog.Info("skill-templates: preserving customized installed skill",
+				"skill", tmpl.Skill.Name, "id", installed.ID)
+			continue
+		}
+		if installed.SourceChecksum == templateChecksum {
 			continue
 		}
 
@@ -130,6 +257,7 @@ func (s *Server) syncInstalledSkillHandlers(ctx context.Context) {
 		updated := *installed
 		updated.SystemPrompt = tmpl.Skill.SystemPrompt
 		updated.Tools = tmpl.Skill.Tools
+		updated.SourceChecksum = templateChecksum
 		updated.UpdatedBy = "system"
 		_, err = s.skillStore.UpdateSkill(ctx, installed.ID, updated)
 		if err != nil {
@@ -194,16 +322,24 @@ func (s *Server) InstallSkillTemplateAPI(w http.ResponseWriter, r *http.Request)
 	}
 
 	userEmail := s.getUserEmail(r)
+	checksum, err := skillTemplateManagedChecksum(tmpl.Skill)
+	if err != nil {
+		slog.Error("install skill template checksum failed", "slug", slug, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to checksum template: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	skill := service.Skill{
-		Name:         tmpl.Skill.Name,
-		Description:  tmpl.Skill.Description,
-		Category:     tmpl.Category,
-		Tags:         tmpl.Tags,
-		SystemPrompt: tmpl.Skill.SystemPrompt,
-		Tools:        tmpl.Skill.Tools,
-		CreatedBy:    userEmail,
-		UpdatedBy:    userEmail,
+		Name:           tmpl.Skill.Name,
+		Description:    tmpl.Skill.Description,
+		Category:       tmpl.Category,
+		Tags:           tmpl.Tags,
+		SystemPrompt:   tmpl.Skill.SystemPrompt,
+		Tools:          tmpl.Skill.Tools,
+		SourceURL:      skillTemplateSourceURL(tmpl.Slug),
+		SourceChecksum: checksum,
+		CreatedBy:      userEmail,
+		UpdatedBy:      userEmail,
 	}
 
 	record, err := s.skillStore.CreateSkill(r.Context(), skill)

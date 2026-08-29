@@ -752,12 +752,29 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.varSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
-	engine.SetConnectionLookup(s.connectionLookupFunc())
-	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
-	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
-	engine.SetLoopGov(s.loopGov)
-	return engine
+	return workflow.NewEngineWithDependencies(workflow.Dependencies{
+		ProviderLookup:        providerLookup,
+		SkillLookup:           skillLookup,
+		VarLookup:             varLookup,
+		VarLister:             varLister,
+		NodeConfigLookup:      nodeConfigLookup,
+		WorkflowLookup:        workflowLookup,
+		WorkflowByNameLookup:  s.workflowByNameLookupFunc(),
+		WorkflowExecutor:      s.workflowExecutorFunc(),
+		AgentLookup:           agentLookup,
+		ConnectionLookup:      s.connectionLookupFunc(),
+		VarSave:               s.varSaveFunc(),
+		BuiltinToolDispatcher: s.dispatchBuiltinTool,
+		BuiltinToolDefs:       builtinToolDefsForWorkflow(),
+		ChatMessageCreator:    s.chatMessageCreatorFunc(),
+		ChatSessionLookup:     s.chatSessionLookupFunc(),
+		RecordUsage:           s.recordUsageFunc(),
+		CheckBudget:           s.checkBudgetFunc(),
+		RecordObservation:     s.recordObservationFunc(),
+		GoalAncestry:          s.goalAncestryFunc(),
+		VersionLookup:         s.versionLookupFunc(),
+		LoopGov:               s.loopGov,
+	})
 }
 
 // workflowByNameLookupFunc returns a WorkflowByNameLookupFunc used by

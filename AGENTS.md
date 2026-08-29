@@ -193,13 +193,33 @@ Skills can ship their own connector: `SkillTemplate.connector` (`internal/server
 
 ## Persistent Assets & Avatar Studio
 
-Reusable media (avatar portraits, cloned-voice manifests) live in a **persistent asset library** at `./data/assets` (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`) — unlike per-task workspaces it is NOT swept by the workspace janitor. Bash skill handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). Conventional layout: `avatars/<slug>.{png,json}` (image + manifest), `voices/<slug>.json` (ElevenLabs voice_id manifests), `uploads/` (user-uploaded reference photos/samples).
+Reusable media (character portraits, cloned-voice manifests, series state and rendered episodes) live in a **persistent asset library** at `./data/assets` (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`) — unlike per-task workspaces it is NOT swept by the workspace janitor. Bash skill handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). `EnsureAssetsDir` creates the conventional roots: `avatars/`, `voices/`, `uploads/`, and `series/`.
 
 The HeyGen-style avatar pipeline is built from three pieces:
 
-- **Skill templates**: `fal-avatar` (`create_avatar` Nano Banana 2 portrait/edit, `talking_video` ByteDance OmniHuman v1.5 lip-sync — 60s@720p / 30s@1080p, `talking_video_budget` InfiniTalk, `lipsync_video` Sync Lipsync 2.0, `save_avatar`/`list_avatars` library ops) and `elevenlabs-voice` (`clone_voice` IVC, `list_voices`, `generate_speech`). Both ship embedded `connector` blocks (`fal`, `elevenlabs`) so credentials are manageable as Connections; handlers are bash-wrapped python using the queue.fal.run submit→poll→download pattern with FAL CDN upload (data-URI fallback) for local inputs.
+- **Skill templates**: `fal-avatar` (`create_avatar` Nano Banana 2 portrait/edit, `character_sheet` front/profile/back identity references, `update_character` bible metadata + voice binding, `talking_video` ByteDance OmniHuman v1.5 lip-sync — 60s@720p / 30s@1080p, `talking_video_budget` InfiniTalk, `lipsync_video` Sync Lipsync 2.0, library ops) and `elevenlabs-voice` (`clone_voice` IVC, `list_voices`, `generate_speech`). Both ship embedded `connector` blocks (`fal`, `elevenlabs`) so credentials are manageable as Connections; handlers are bash-wrapped python using the queue.fal.run submit→poll→download pattern with FAL CDN upload (data-URI fallback) for local inputs. Avatar manifests are backward-compatible character bibles: v2 optionally adds `turnarounds`, ordered `reference_images`, bound `voice`, `sora_character_id`, `lora_url`, `style_notes`, `wardrobe`, and `persona`.
 - **Integration pack** `avatar-studio` (`internal/server/integration_packs/avatar-studio/`): org "Avatar Studio" with Studio Director (head) → Avatar Designer + Video Producer. Agents ship with empty provider/model (assigned at install by the Studio UI setup, or manually).
-- **Studio UI** (`_ui/src/pages/Studio.svelte`, route `/studio`, sidebar "Studio"): one-click setup (installs skill templates + pack + patches agent providers), avatar gallery over `files/browse` on `assets_root/avatars` (photo upload → identity-referenced avatar), video generation form (avatar + script + cloned-voice picker → `submitOrgTask`), productions list with 5s status polling and inline `<video>` playback via `files/serve`.
+- **Studio UI** (`_ui/src/pages/Studio.svelte`, route `/studio`, sidebar "Studio"): one-click setup installs both studio packs + all media skills and patches agent providers. Tabs: Characters (portrait gallery, v2 bible editor, turnaround/Sora actions, quick talking-head video), Series (style/cast editor, episodes, live-polled shot storyboard with still/clip/provenance), Productions (structured `episode.json.final_video` playback plus regex fallback for legacy one-offs).
+
+## Series Studio
+
+Episodic production is filesystem-backed so bash skill handlers and the UI share one durable contract without new REST endpoints:
+
+```
+data/assets/series/<series-slug>/
+  series.json                       # cast + style lock + model policy
+  episodes/<NN>/
+    episode.json                    # script + shots[] + per-shot provenance
+    stills/<shot-id>.png
+    shots/<shot-id>.mp4
+    final.mp4
+```
+
+- **`series-library` skill** (`internal/server/skill_templates/series-library.json`): pure-local tools `series_create/get/list/update`, `episode_create/get/update`, `shots_set`, `shot_update`. Writes are atomic; workspace still/clip/final paths are copied into the persistent episode tree. Episode statuses: `draft|scripted|generating|assembled|published`; shot statuses: `planned|still_ready|generated|approved|failed`. The UI reads `final_video` from this manifest — free-text task regex is only a legacy fallback.
+- **`fal-cinema` skill** (`internal/server/skill_templates/fal-cinema.json`): identity-preserving scene tools — Kling v3 Pro elements (`scene_video`), Veo 3.1 references (`scene_video_veo`), Seedance 2.5 long takes (`scene_video_long`), Vidu Q2 drafts (`scene_video_budget`), Veo/MiniMax first-last continuity, PixVerse transitions, local `extract_last_frame`, and Sora 2 character registry/generation. Doctrine: stills before clips, always pass the series style lock, draft cheap/final premium, chain shot N's last frame into shot N+1.
+- **`ltx-video` skill** (`internal/server/skill_templates/ltx-video.json`): direct Lightricks API integration (not FAL), authenticated through the `ltx` connector's `ltx_api_key`. `scene_video_ltx25` routes prompt-only / `start_image` / `audio` to `api.ltx.io/v2/{text,image,audio}-to-video`, uploads local media through `/v1/upload`, polls the async job, and downloads the result. LTX-2.5 Fast supports up to 20s/4K; Pro up to 10s/1080p; both support native audio, camera motion, automatic duration, and first/last frames. For recurring identity, compose the multi-reference still first, because the managed LTX API accepts one start image rather than character-reference arrays.
+- **Adjacent media additions**: `fal-image.edit_image_nano_banana` composes character/location/prop reference images into shot keyframes; `video-composer.generate_subtitles` + `burn_subtitles` provide Whisper→SRT→ffmpeg captioning.
+- **Integration pack `video-series`** (`internal/server/integration_packs/video-series/`): org "Series Studio" with Showrunner (head) → Script Writer + Character Designer + Scene Director + Episode Editor. Agents ship with empty provider/model; the Studio setup assigns them. Every stage reads/writes `series_library` state instead of carrying the production only in LLM history.
 
 Note: `internal/server/workflow_seeds/` is legacy/unreferenced — Integration Packs are the supported install mechanism.
 

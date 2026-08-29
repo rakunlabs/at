@@ -1,6 +1,7 @@
 package antropic
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/agentloop"
 )
 
 // findToolUseBlocks walks a marshalled messages payload and returns every
@@ -121,6 +123,94 @@ func TestProxyOAuthPreservesQueryAndAddsBeta(t *testing.T) {
 	}
 	if gotAuth != "Bearer oauth-token" {
 		t.Fatalf("Authorization = %q, want Bearer oauth-token", gotAuth)
+	}
+}
+
+func TestThinkingToolUseRoundTripOAuth(t *testing.T) {
+	var requestBodies [][]byte
+	call := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request: %v", err)
+		}
+		requestBodies = append(requestBodies, body)
+		call++
+		w.Header().Set("Content-Type", "application/json")
+		if call == 1 {
+			_, _ = w.Write([]byte(`{
+				"type":"message",
+				"content":[
+					{"type":"thinking","thinking":"I should look this up.","signature":"signed-thinking-state"},
+					{"type":"tool_use","id":"tool-1","name":"mcp_Lookup","input":{"query":"status"}}
+				],
+				"stop_reason":"tool_use",
+				"usage":{"input_tokens":10,"output_tokens":5}
+			}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"type":"message","content":[{"type":"text","text":"done"}],"stop_reason":"end_turn","usage":{"input_tokens":12,"output_tokens":2}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	p, err := New("", "claude-sonnet-4-6", srv.URL, "", false, WithTokenSource(NewStaticTokenSource("oauth-token")))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	tools := []service.Tool{{
+		Name: "lookup", Description: "Look up a value",
+		InputSchema: map[string]any{"type": "object"},
+	}}
+	messages := []service.Message{{Role: "user", Content: "check status"}}
+	resp, err := p.Chat(context.Background(), "claude-sonnet-4-6", messages, tools, nil)
+	if err != nil {
+		t.Fatalf("first Chat: %v", err)
+	}
+	if resp.ReasoningContent != "I should look this up." || resp.ReasoningSignature != "signed-thinking-state" {
+		t.Fatalf("normalized reasoning = content %q signature %q", resp.ReasoningContent, resp.ReasoningSignature)
+	}
+
+	messages = append(messages, agentloop.AssistantMessage(resp))
+	messages = append(messages, service.Message{Role: "user", Content: []service.ContentBlock{{
+		Type: "tool_result", ToolUseID: "tool-1", Content: "green",
+	}}})
+	if _, err := p.Chat(context.Background(), "claude-sonnet-4-6", messages, tools, nil); err != nil {
+		t.Fatalf("second Chat: %v", err)
+	}
+	if len(requestBodies) != 2 {
+		t.Fatalf("request count = %d, want 2", len(requestBodies))
+	}
+
+	second := string(requestBodies[1])
+	for _, want := range []string{
+		`"thinking":{"budget_tokens":10000,"type":"enabled"}`,
+		`{"signature":"signed-thinking-state","thinking":"I should look this up.","type":"thinking"}`,
+		`"name":"mcp_Lookup"`,
+		`"tool_use_id":"tool-1"`,
+	} {
+		if !strings.Contains(second, want) {
+			t.Fatalf("second request missing %s: %s", want, second)
+		}
+	}
+	if strings.Contains(second, `{"text":"I should look this up.","type":"thinking"}`) {
+		t.Fatalf("thinking replayed with malformed text field: %s", second)
+	}
+}
+
+func TestConvertContentDropsUnsignedThinking(t *testing.T) {
+	content := convertContent([]service.ContentBlock{
+		{Type: "thinking", Thinking: "cannot be verified"},
+		{Type: "text", Text: "safe answer"},
+	})
+	encoded, err := json.Marshal(content)
+	if err != nil {
+		t.Fatalf("marshal converted content: %v", err)
+	}
+	if strings.Contains(string(encoded), `"type":"thinking"`) {
+		t.Fatalf("unsigned thinking survived conversion: %s", encoded)
+	}
+	if !strings.Contains(string(encoded), `"text":"safe answer"`) {
+		t.Fatalf("text block was lost: %s", encoded)
 	}
 }
 

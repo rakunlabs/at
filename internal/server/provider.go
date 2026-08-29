@@ -25,7 +25,7 @@ type infoResponse struct {
 	Commit        string         `json:"commit"`
 	BuildDate     string         `json:"build_date"`
 	WorkspaceRoot string         `json:"workspace_root"` // Effective task workspace base dir (loopgov.WorkspaceRoot, falls back to /tmp/at-tasks)
-	AssetsRoot    string         `json:"assets_root"`    // Persistent asset library root (avatars, cloned voices) — ./data/assets
+	AssetsRoot    string         `json:"assets_root"`    // Persistent asset library root (characters, voices, series) — ./data/assets
 }
 
 type infoProvider struct {

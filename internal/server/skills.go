@@ -145,15 +145,18 @@ func (s *Server) UpdateSkillAPI(w http.ResponseWriter, r *http.Request) {
 	userEmail := s.getUserEmail(r)
 	req.UpdatedBy = userEmail
 
-	// Source provenance is system-managed (set on import) — preserve it on
-	// updates so clients that send partial payloads don't wipe it.
-	if existing, err := s.skillStore.GetSkill(r.Context(), id); err == nil && existing != nil {
-		if req.SourceURL == "" {
-			req.SourceURL = existing.SourceURL
-		}
-		if req.SourceChecksum == "" {
-			req.SourceChecksum = existing.SourceChecksum
-		}
+	// Source provenance is system-managed (set on import/template install).
+	// Always preserve it so user edits cannot claim a different source or reset
+	// the checksum used to detect template-owned content.
+	existing, err := s.skillStore.GetSkill(r.Context(), id)
+	if err != nil {
+		slog.Error("get skill provenance failed", "id", id, "error", err)
+		httpResponse(w, fmt.Sprintf("failed to get skill provenance: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if existing != nil {
+		req.SourceURL = existing.SourceURL
+		req.SourceChecksum = existing.SourceChecksum
 	}
 
 	record, err := s.skillStore.UpdateSkill(r.Context(), id, req)

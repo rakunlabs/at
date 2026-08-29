@@ -33,7 +33,20 @@ func mediaAPIError(resp *http.Response, body []byte) error {
 		}
 	}
 
-	return underlying
+	code := ""
+	param := ""
+	if envelope.Error != nil {
+		code = envelope.Error.Code
+		param = envelope.Error.Param
+	}
+	return &service.UpstreamError{
+		Provider:   "openai",
+		StatusCode: resp.StatusCode,
+		Code:       code,
+		Param:      param,
+		Message:    message,
+		Underlying: underlying,
+	}
 }
 
 // apiBaseURL derives the API root from the chat completions URL.

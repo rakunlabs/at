@@ -459,11 +459,29 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.varSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
-	engine.SetConnectionLookup(s.connectionLookupFunc())
-	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
-	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
-	engine.SetLoopGov(s.loopGov)
+	engine := workflow.NewEngineWithDependencies(workflow.Dependencies{
+		ProviderLookup:        providerLookup,
+		SkillLookup:           skillLookup,
+		VarLookup:             varLookup,
+		VarLister:             varLister,
+		NodeConfigLookup:      nodeConfigLookup,
+		WorkflowLookup:        workflowLookup,
+		WorkflowByNameLookup:  s.workflowByNameLookupFunc(),
+		WorkflowExecutor:      s.workflowExecutorFunc(),
+		AgentLookup:           agentLookup,
+		ConnectionLookup:      s.connectionLookupFunc(),
+		VarSave:               s.varSaveFunc(),
+		BuiltinToolDispatcher: s.dispatchBuiltinTool,
+		BuiltinToolDefs:       builtinToolDefsForWorkflow(),
+		ChatMessageCreator:    s.chatMessageCreatorFunc(),
+		ChatSessionLookup:     s.chatSessionLookupFunc(),
+		RecordUsage:           s.recordUsageFunc(),
+		CheckBudget:           s.checkBudgetFunc(),
+		RecordObservation:     s.recordObservationFunc(),
+		GoalAncestry:          s.goalAncestryFunc(),
+		VersionLookup:         s.versionLookupFunc(),
+		LoopGov:               s.loopGov,
+	})
 
 	// Manual/API runs start from "input" nodes only.
 	// Collect all input node IDs and check for output nodes.
@@ -714,11 +732,29 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	engine := workflow.NewEngine(providerLookup, skillLookup, varLookup, varLister, nodeConfigLookup, workflowLookup, agentLookup, s.varSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), nil, s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), s.versionLookupFunc())
-	engine.SetConnectionLookup(s.connectionLookupFunc())
-	engine.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
-	engine.SetWorkflowExecutor(s.workflowExecutorFunc())
-	engine.SetLoopGov(s.loopGov)
+	engine := workflow.NewEngineWithDependencies(workflow.Dependencies{
+		ProviderLookup:        providerLookup,
+		SkillLookup:           skillLookup,
+		VarLookup:             varLookup,
+		VarLister:             varLister,
+		NodeConfigLookup:      nodeConfigLookup,
+		WorkflowLookup:        workflowLookup,
+		WorkflowByNameLookup:  s.workflowByNameLookupFunc(),
+		WorkflowExecutor:      s.workflowExecutorFunc(),
+		AgentLookup:           agentLookup,
+		ConnectionLookup:      s.connectionLookupFunc(),
+		VarSave:               s.varSaveFunc(),
+		BuiltinToolDispatcher: s.dispatchBuiltinTool,
+		BuiltinToolDefs:       builtinToolDefsForWorkflow(),
+		ChatMessageCreator:    s.chatMessageCreatorFunc(),
+		ChatSessionLookup:     s.chatSessionLookupFunc(),
+		RecordUsage:           s.recordUsageFunc(),
+		CheckBudget:           s.checkBudgetFunc(),
+		RecordObservation:     s.recordObservationFunc(),
+		GoalAncestry:          s.goalAncestryFunc(),
+		VersionLookup:         s.versionLookupFunc(),
+		LoopGov:               s.loopGov,
+	})
 
 	// Create buffered event channel and attach to engine.
 	eventCh := make(chan workflow.NodeEvent, 64)

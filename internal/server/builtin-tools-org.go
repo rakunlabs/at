@@ -300,20 +300,9 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 		return "", fmt.Errorf("failed to create task: %w", err)
 	}
 
-	// Fire async delegation.
-	go func() {
-		delegCtx := context.Background()
-		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
-			slog.Error("org-delegation: failed",
-				"org_id", org.ID,
-				"task_id", record.ID,
-				"error", err,
-			)
-			if s.taskStore != nil {
-				_ = s.taskStore.UpdateTaskStatus(delegCtx, record.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
-			}
-		}
-	}()
+	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, nil); err != nil {
+		return "", fmt.Errorf("start delegation: %w", err)
+	}
 
 	result := map[string]any{
 		"id":         record.ID,

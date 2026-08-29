@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDecodeMCPResponseSSE(t *testing.T) {
@@ -170,6 +172,41 @@ func TestNormalizeMCPEndpointURL(t *testing.T) {
 				t.Errorf("normalizeMCPEndpointURL(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestHTTPMCPClientCloseIsBounded(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req MCPRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		switch req.Method {
+		case "initialize":
+			w.Header().Set("Content-Type", "application/json")
+			w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"test","version":"1"}}}`))
+		case "notifications/initialized":
+			w.WriteHeader(http.StatusAccepted)
+		case "notifications/cancelled":
+			<-r.Context().Done()
+		default:
+			t.Errorf("unexpected method %q", req.Method)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := NewHTTPMCPClient(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("NewHTTPMCPClient: %v", err)
+	}
+	started := time.Now()
+	err = client.Close()
+	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Close error = %v, want deadline exceeded", err)
+	}
+	if elapsed := time.Since(started); elapsed > 2*httpMCPClientCloseTimeout {
+		t.Fatalf("Close took %v, want bounded cleanup", elapsed)
 	}
 }
 

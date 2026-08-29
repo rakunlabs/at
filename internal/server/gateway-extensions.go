@@ -42,6 +42,14 @@ func shouldFallback(err error) bool {
 	if errors.As(err, &rle) {
 		return true
 	}
+	var upstreamErr *service.UpstreamError
+	if errors.As(err, &upstreamErr) {
+		status := upstreamErr.StatusCode
+		return status == http.StatusRequestTimeout ||
+			status == http.StatusTooEarly ||
+			status == http.StatusTooManyRequests ||
+			status >= 500
+	}
 	// HTTP status classification falls back to the response-shaping logic:
 	// status, _ := classifyGatewayError → use that to decide
 	status, _ := classifyGatewayError(err)

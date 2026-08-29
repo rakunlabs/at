@@ -1,0 +1,393 @@
+{
+  "slug": "series-library",
+  "name": "Series Library",
+  "description": "Persistent, structured state for episodic video production: series (cast + style lock), episodes, and per-shot provenance, stored as JSON manifests + media in the durable asset library (series/<slug>/...). Pure local filesystem - no external APIs. Replaces free-text task results with structured episode state the Studio UI reads directly.",
+  "category": "Content Creation",
+  "tags": [
+    "series",
+    "episodes",
+    "storyboard",
+    "video",
+    "library"
+  ],
+  "required_variables": [],
+  "skill": {
+    "name": "series_library",
+    "description": "Structured series/episode/shot state in the persistent asset library: create and read series (cast, style lock), episodes, planned shot lists, and record per-shot artifacts + provenance.",
+    "system_prompt": "You manage the persistent series library: the structured state for episodic video production. State lives in JSON manifests on disk (survives every task) - NOT in chat history. Layout: series/<slug>/series.json and series/<slug>/episodes/<NN>/{episode.json, stills/, shots/, final.mp4}.\n\n## Protocol (non-negotiable)\n- READ before you act: `series_get` for the style lock (style.block / negative / seed / aspect_ratio / draft_model / final_model) and cast; `episode_get` for the current shot list and statuses. Never work from memory.\n- RECORD every artifact the moment it exists: `shot_update` after each still/clip generation (pass the workspace file path - it is COPIED into the series tree automatically), `episode_update` for status/script/final_video. If it is not in the manifest, it did not happen.\n- Provenance is mandatory on generated shots: prompt, model, seed (when returned), references, cost_estimate_usd.\n- Statuses - episode: draft -> scripted -> generating -> assembled -> published. Shot: planned -> still_ready -> generated -> approved (or failed).\n- Cast characters must exist in the avatar library first (fal_avatar). `series_create`/`series_update` validate cast names and will list what is available.\n- Script Writer flow: `episode_create` -> write script -> `shots_set` with the full planned shot list ({id, scene, duration_s, description, dialogue:[{character, line}], prompt}). This flips the episode to scripted.\n- Scene Director flow: per shot - compose still, `shot_update id=sNN still=... status=still_ready`; generate clip with the series style lock, `shot_update id=sNN clip=... model=... seed=... prompt=... status=generated`.\n- Editor flow: assemble, then `episode_update status=assembled final_video=<path>` (copied to final.mp4). The UI reads exactly this - a final video not recorded here is invisible.\n- File params accept workspace paths; they are ingested into the episode directory (stills/<id>.png, shots/<id>.mp4, final.mp4) so the workspace janitor cannot destroy them.",
+    "tools": [
+      {
+        "name": "series_create",
+        "description": "Create a new series in the persistent library: name, description, cast (validated against the avatar library) and the style lock (style_block, negative, seed, aspect_ratio, draft/final model policy). Fails if the series exists. Returns the created series.json.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Series name (slug is derived from it)."
+            },
+            "description": {
+              "type": "string",
+              "description": "Short premise / logline."
+            },
+            "cast": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Cast list: [{\"character\": \"maya\", \"role\": \"lead detective\"}, ...] (or plain character names). Characters must exist in the avatar library."
+            },
+            "style_block": {
+              "type": "string",
+              "description": "The style lock: one style directive passed to EVERY image/video generation of this series."
+            },
+            "negative": {
+              "type": "string",
+              "description": "Series-wide negative prompt."
+            },
+            "seed": {
+              "type": "integer",
+              "description": "Series seed for reproducibility (used where models support it)."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "description": "Default aspect ratio (default 16:9)."
+            },
+            "draft_model": {
+              "type": "string",
+              "description": "Tool to draft shots with (default scene_video_budget)."
+            },
+            "final_model": {
+              "type": "string",
+              "description": "Tool for final renders (default scene_video)."
+            }
+          },
+          "required": [
+            "name"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nname = arg(\"NAME\")\nif not name:\n    die(\"name is required\")\nslug = slugify(name)\np = series_json_path(slug)\nif os.path.isfile(p):\n    die(\"series already exists: %s (use series_update or series_get)\" % slug)\ncast = validate_cast(arg_json(\"CAST\")) or []\nstyle = {\n    \"block\": arg(\"STYLE_BLOCK\"),\n    \"negative\": arg(\"NEGATIVE\"),\n    \"seed\": arg_int(\"SEED\"),\n    \"aspect_ratio\": arg(\"ASPECT_RATIO\", \"16:9\"),\n    \"draft_model\": arg(\"DRAFT_MODEL\", \"scene_video_budget\"),\n    \"final_model\": arg(\"FINAL_MODEL\", \"scene_video\"),\n}\ndata = {\"name\": name, \"slug\": slug, \"description\": arg(\"DESCRIPTION\"),\n        \"cast\": cast, \"style\": style, \"created_at\": now(), \"updated_at\": now()}\nwrite_json_atomic(p, data)\nos.makedirs(episodes_dir(slug), exist_ok=True)\nprint(json.dumps({\"created\": data, \"dir\": os.path.dirname(p)}))\n\nATPY\n"
+      },
+      {
+        "name": "series_get",
+        "description": "Read a series: full series.json (cast + style lock) plus an episode summary list (number, title, status, shot count, final_video). ALWAYS call this before generating anything for the series.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "series": {
+              "type": "string",
+              "description": "Series name or slug."
+            }
+          },
+          "required": [
+            "series"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nslug, data = load_series(arg(\"SERIES\"))\neps = []\nedir = episodes_dir(slug)\nif os.path.isdir(edir):\n    for d in sorted(os.listdir(edir)):\n        pj = os.path.join(edir, d, \"episode.json\")\n        if os.path.isfile(pj):\n            try:\n                e = json.load(open(pj))\n            except ValueError:\n                continue\n            eps.append({\"number\": e.get(\"number\"), \"title\": e.get(\"title\"),\n                        \"status\": e.get(\"status\"), \"shots\": len(e.get(\"shots\") or []),\n                        \"final_video\": e.get(\"final_video\", \"\")})\nprint(json.dumps({\"series\": data, \"episodes\": eps, \"dir\": os.path.join(SERIES_DIR, slug)}))\n\nATPY\n"
+      },
+      {
+        "name": "series_list",
+        "description": "List all series in the library with episode counts and cast.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nitems = []\nif os.path.isdir(SERIES_DIR):\n    for d in sorted(os.listdir(SERIES_DIR)):\n        p = series_json_path(d)\n        if os.path.isfile(p):\n            try:\n                s = json.load(open(p))\n            except ValueError:\n                continue\n            edir = episodes_dir(d)\n            n = len([x for x in os.listdir(edir)\n                     if os.path.isfile(os.path.join(edir, x, \"episode.json\"))]) if os.path.isdir(edir) else 0\n            items.append({\"name\": s.get(\"name\"), \"slug\": s.get(\"slug\"),\n                          \"description\": s.get(\"description\", \"\"), \"episodes\": n,\n                          \"cast\": [c.get(\"character\") for c in s.get(\"cast\") or []]})\nprint(json.dumps({\"series\": items, \"library_dir\": SERIES_DIR}))\n\nATPY\n"
+      },
+      {
+        "name": "series_update",
+        "description": "Patch a series: name, description, cast (revalidated), or style lock fields (style_block, negative, seed, aspect_ratio, draft_model, final_model). Pass \"-\" to clear a text field. Returns the updated series.json.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "series": {
+              "type": "string",
+              "description": "Series name or slug."
+            },
+            "name": {
+              "type": "string",
+              "description": "New display name."
+            },
+            "description": {
+              "type": "string",
+              "description": "New description (\"-\" clears)."
+            },
+            "cast": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "Replacement cast list (validated)."
+            },
+            "style_block": {
+              "type": "string",
+              "description": "New style lock block (\"-\" clears)."
+            },
+            "negative": {
+              "type": "string",
+              "description": "New negative prompt (\"-\" clears)."
+            },
+            "seed": {
+              "type": "integer",
+              "description": "New series seed."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "description": "New default aspect ratio."
+            },
+            "draft_model": {
+              "type": "string",
+              "description": "New draft tool policy."
+            },
+            "final_model": {
+              "type": "string",
+              "description": "New final tool policy."
+            }
+          },
+          "required": [
+            "series"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nslug, data = load_series(arg(\"SERIES\"))\nupdated = []\nname = arg(\"NAME\")\nif name:\n    data[\"name\"] = name; updated.append(\"name\")\ndesc = arg(\"DESCRIPTION\")\nif desc:\n    data[\"description\"] = \"\" if desc == \"-\" else desc; updated.append(\"description\")\ncast = validate_cast(arg_json(\"CAST\"))\nif cast is not None:\n    data[\"cast\"] = cast; updated.append(\"cast\")\nstyle = data.setdefault(\"style\", {})\nfor key, argname in ((\"block\", \"STYLE_BLOCK\"), (\"negative\", \"NEGATIVE\"),\n                     (\"aspect_ratio\", \"ASPECT_RATIO\"), (\"draft_model\", \"DRAFT_MODEL\"),\n                     (\"final_model\", \"FINAL_MODEL\")):\n    v = arg(argname)\n    if v:\n        style[key] = \"\" if v == \"-\" else v; updated.append(\"style.\" + key)\nseed = arg_int(\"SEED\")\nif seed is not None:\n    style[\"seed\"] = seed; updated.append(\"style.seed\")\nif not updated:\n    die(\"nothing to update: pass at least one field (use \\\"-\\\" to clear a text field)\")\ndata[\"updated_at\"] = now()\nwrite_json_atomic(series_json_path(slug), data)\nprint(json.dumps({\"updated\": updated, \"series\": data}))\n\nATPY\n"
+      },
+      {
+        "name": "episode_create",
+        "description": "Create the next episode of a series (zero-padded numbering, scaffolds stills/ and shots/ dirs, status=draft). Returns the created episode.json and its directory.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "series": {
+              "type": "string",
+              "description": "Series name or slug."
+            },
+            "title": {
+              "type": "string",
+              "description": "Episode title."
+            },
+            "synopsis": {
+              "type": "string",
+              "description": "One-paragraph synopsis."
+            },
+            "script": {
+              "type": "string",
+              "description": "Optional full script text (can be set later via episode_update)."
+            },
+            "number": {
+              "type": "integer",
+              "description": "Explicit episode number (default: next free)."
+            },
+            "task_id": {
+              "type": "string",
+              "description": "Org task ID producing this episode (for UI cross-linking)."
+            }
+          },
+          "required": [
+            "series"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nslug, series = load_series(arg(\"SERIES\"))\nedir = episodes_dir(slug)\nos.makedirs(edir, exist_ok=True)\nnums = []\nfor d in os.listdir(edir):\n    if os.path.isfile(os.path.join(edir, d, \"episode.json\")):\n        try:\n            nums.append(int(d.lstrip(\"0\") or \"0\"))\n        except ValueError:\n            pass\nnum = arg_int(\"NUMBER\") or (max(nums) + 1 if nums else 1)\ned = episode_dir(slug, num)\npj = os.path.join(ed, \"episode.json\")\nif os.path.isfile(pj):\n    die(\"episode %02d already exists in series %s\" % (num, slug))\nos.makedirs(os.path.join(ed, \"shots\"), exist_ok=True)\nos.makedirs(os.path.join(ed, \"stills\"), exist_ok=True)\ndata = {\"number\": num, \"title\": arg(\"TITLE\"), \"synopsis\": arg(\"SYNOPSIS\"),\n        \"status\": \"draft\", \"task_id\": arg(\"TASK_ID\"), \"script\": arg(\"SCRIPT\"),\n        \"shots\": [], \"final_video\": \"\", \"duration_s\": 0,\n        \"created_at\": now(), \"updated_at\": now()}\nwrite_json_atomic(pj, data)\nprint(json.dumps({\"created\": data, \"dir\": ed}))\n\nATPY\n"
+      },
+      {
+        "name": "episode_get",
+        "description": "Read an episode: full episode.json including the shot list with per-shot status and provenance.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "series": {
+              "type": "string",
+              "description": "Series name or slug."
+            },
+            "episode": {
+              "type": "integer",
+              "description": "Episode number."
+            }
+          },
+          "required": [
+            "series",
+            "episode"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nslug, _ = load_series(arg(\"SERIES\"))\nnum, data, pj = load_episode(slug, arg(\"EPISODE\"))\nprint(json.dumps({\"episode\": data, \"dir\": os.path.dirname(pj), \"series\": slug}))\n\nATPY\n"
+      },
+      {
+        "name": "episode_update",
+        "description": "Patch an episode: title, synopsis, status (draft|scripted|generating|assembled|published), script, task_id, duration_s, final_video. final_video accepts a workspace path and is COPIED into the episode dir as final.mp4 - this is how the finished episode becomes visible to the UI.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "series": {
+              "type": "string",
+              "description": "Series name or slug."
+            },
+            "episode": {
+              "type": "integer",
+              "description": "Episode number."
+            },
+            "title": {
+              "type": "string",
+              "description": "New title (\"-\" clears)."
+            },
+            "synopsis": {
+              "type": "string",
+              "description": "New synopsis (\"-\" clears)."
+            },
+            "status": {
+              "type": "string",
+              "description": "New status: draft, scripted, generating, assembled, published."
+            },
+            "script": {
+              "type": "string",
+              "description": "Full script text (\"-\" clears)."
+            },
+            "task_id": {
+              "type": "string",
+              "description": "Org task ID producing this episode."
+            },
+            "final_video": {
+              "type": "string",
+              "description": "Path to the assembled episode video (copied to final.mp4)."
+            },
+            "duration_s": {
+              "type": "integer",
+              "description": "Final duration in seconds."
+            }
+          },
+          "required": [
+            "series",
+            "episode"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nslug, _ = load_series(arg(\"SERIES\"))\nnum, data, pj = load_episode(slug, arg(\"EPISODE\"))\ned = os.path.dirname(pj)\nupdated = []\nfor key, argname in ((\"title\", \"TITLE\"), (\"synopsis\", \"SYNOPSIS\"), (\"script\", \"SCRIPT\"), (\"task_id\", \"TASK_ID\")):\n    v = arg(argname)\n    if v:\n        data[key] = \"\" if v == \"-\" else v; updated.append(key)\nstatus = arg(\"STATUS\")\nif status:\n    if status not in EPISODE_STATUSES:\n        die(\"invalid status %r\" % status, allowed=list(EPISODE_STATUSES))\n    data[\"status\"] = status; updated.append(\"status\")\nfv = arg(\"FINAL_VIDEO\")\nif fv:\n    data[\"final_video\"] = ingest_file(fv, ed, \"final.mp4\"); updated.append(\"final_video\")\ndur = arg_int(\"DURATION_S\")\nif dur is not None:\n    data[\"duration_s\"] = dur; updated.append(\"duration_s\")\nif not updated:\n    die(\"nothing to update\")\ndata[\"updated_at\"] = now()\nwrite_json_atomic(pj, data)\nprint(json.dumps({\"updated\": updated, \"episode\": {k: data[k] for k in (\"number\", \"title\", \"status\", \"final_video\", \"duration_s\")}}))\n\nATPY\n"
+      },
+      {
+        "name": "shots_set",
+        "description": "Replace the episode's planned shot list (Script Writer output). Each shot: {id?, scene, duration_s, description, dialogue:[{character,line}], prompt, references?, model?, seed?, cost_estimate_usd?}. IDs default to s01, s02... Flips a draft episode to scripted. Generation artifacts are recorded later per-shot via shot_update.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "series": {
+              "type": "string",
+              "description": "Series name or slug."
+            },
+            "episode": {
+              "type": "integer",
+              "description": "Episode number."
+            },
+            "shots": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "The full planned shot list (replaces any existing list)."
+            }
+          },
+          "required": [
+            "series",
+            "episode",
+            "shots"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nslug, _ = load_series(arg(\"SERIES\"))\nnum, data, pj = load_episode(slug, arg(\"EPISODE\"))\nshots = arg_json(\"SHOTS\")\nif not isinstance(shots, list) or not shots:\n    die(\"shots must be a non-empty JSON array of shot objects\")\nnorm = []\nseen = set()\nfor i, s in enumerate(shots, 1):\n    if not isinstance(s, dict):\n        die(\"each shot must be an object\", index=i)\n    sid = str(s.get(\"id\") or (\"s%02d\" % i))\n    if sid in seen:\n        die(\"duplicate shot id: \" + sid)\n    seen.add(sid)\n    status = str(s.get(\"status\") or \"planned\")\n    if status not in SHOT_STATUSES:\n        die(\"invalid shot status %r for %s\" % (status, sid), allowed=list(SHOT_STATUSES))\n    norm.append({\n        \"id\": sid,\n        \"scene\": s.get(\"scene\") or 1,\n        \"duration_s\": s.get(\"duration_s\") or 5,\n        \"description\": str(s.get(\"description\") or \"\"),\n        \"dialogue\": s.get(\"dialogue\") or [],\n        \"prompt\": str(s.get(\"prompt\") or \"\"),\n        \"references\": s.get(\"references\") or [],\n        \"model\": str(s.get(\"model\") or \"\"),\n        \"seed\": s.get(\"seed\"),\n        \"still\": \"\", \"clip\": \"\", \"first_frame\": \"\", \"last_frame\": \"\",\n        \"status\": status,\n        \"cost_estimate_usd\": s.get(\"cost_estimate_usd\"),\n        \"updated_at\": now(),\n    })\ndata[\"shots\"] = norm\nif data.get(\"status\") == \"draft\":\n    data[\"status\"] = \"scripted\"\ndata[\"updated_at\"] = now()\nwrite_json_atomic(pj, data)\nprint(json.dumps({\"shots\": len(norm), \"ids\": [s[\"id\"] for s in norm], \"episode_status\": data[\"status\"]}))\n\nATPY\n"
+      },
+      {
+        "name": "shot_update",
+        "description": "Patch ONE shot by id (creates it if new; all other shots untouched). Records generation artifacts + provenance: still/clip/first_frame/last_frame (workspace paths are COPIED into the episode tree), prompt, model, seed, references, dialogue, status (planned|still_ready|generated|approved|failed), duration_s, cost_estimate_usd. Call this after EVERY generation.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "series": {
+              "type": "string",
+              "description": "Series name or slug."
+            },
+            "episode": {
+              "type": "integer",
+              "description": "Episode number."
+            },
+            "id": {
+              "type": "string",
+              "description": "Shot id, e.g. s01."
+            },
+            "description": {
+              "type": "string",
+              "description": "Shot description."
+            },
+            "prompt": {
+              "type": "string",
+              "description": "The exact generation prompt used."
+            },
+            "model": {
+              "type": "string",
+              "description": "Model/tool used (e.g. fal-ai/kling-video/v3/pro/image-to-video)."
+            },
+            "seed": {
+              "type": "integer",
+              "description": "Seed used/returned."
+            },
+            "status": {
+              "type": "string",
+              "description": "planned, still_ready, generated, approved, failed."
+            },
+            "still": {
+              "type": "string",
+              "description": "Keyframe still path (copied to stills/<id>.png)."
+            },
+            "clip": {
+              "type": "string",
+              "description": "Generated clip path (copied to shots/<id>.mp4)."
+            },
+            "first_frame": {
+              "type": "string",
+              "description": "First-frame image path (copied to stills/<id>-first.png)."
+            },
+            "last_frame": {
+              "type": "string",
+              "description": "Last-frame image path (copied to stills/<id>-last.png)."
+            },
+            "references": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Reference images/characters used."
+            },
+            "dialogue": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "description": "[{character, line}] spoken in this shot."
+            },
+            "scene": {
+              "type": "integer",
+              "description": "Scene number this shot belongs to."
+            },
+            "duration_s": {
+              "type": "integer",
+              "description": "Shot duration in seconds."
+            },
+            "cost_estimate_usd": {
+              "type": "string",
+              "description": "Estimated generation cost in USD."
+            }
+          },
+          "required": [
+            "series",
+            "episode",
+            "id"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, uuid, shutil\n\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nSERIES_DIR = os.path.join(ASSETS_DIR, \"series\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\nEPISODE_STATUSES = (\"draft\", \"scripted\", \"generating\", \"assembled\", \"published\")\nSHOT_STATUSES = (\"planned\", \"still_ready\", \"generated\", \"approved\", \"failed\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef now():\n    return time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n\ndef slugify(name):\n    return \"-\".join(\"\".join(c if c.isalnum() else \" \" for c in name.strip().lower()).split())\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_json(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return None\n    try:\n        return json.loads(raw)\n    except ValueError:\n        die(\"%s must be valid JSON, got: %s\" % (name.lower(), raw[:200]))\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef write_json_atomic(path, data):\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(data, f, indent=1, ensure_ascii=False)\n    os.replace(tmp, path)\n\ndef known_characters():\n    if not os.path.isdir(AVATAR_DIR):\n        return []\n    return sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\"))\n\ndef validate_cast(cast):\n    \"\"\"Normalize cast entries to [{character, role}] and validate against the avatar library.\"\"\"\n    if cast is None:\n        return None\n    if not isinstance(cast, list):\n        die(\"cast must be a list of {character, role} objects or character names\")\n    avail = known_characters()\n    out = []\n    for entry in cast:\n        if isinstance(entry, str):\n            entry = {\"character\": entry, \"role\": \"\"}\n        if not isinstance(entry, dict) or not entry.get(\"character\"):\n            die(\"each cast entry needs a character name\", entry=entry)\n        slug = slugify(str(entry[\"character\"]))\n        if slug not in avail:\n            imgs = [os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR)] if os.path.isdir(AVATAR_DIR) else []\n            if slug not in imgs:\n                die(\"cast character not found in the avatar library: %r (create it with fal_avatar create_avatar save_as=...)\" % entry[\"character\"], available=avail)\n        out.append({\"character\": slug, \"role\": str(entry.get(\"role\") or \"\")})\n    return out\n\ndef series_json_path(slug):\n    return os.path.join(SERIES_DIR, slug, \"series.json\")\n\ndef load_series(ref):\n    if not ref:\n        die(\"series is required (name or slug)\")\n    slug = slugify(ref)\n    p = series_json_path(slug)\n    if not os.path.isfile(p):\n        avail = []\n        if os.path.isdir(SERIES_DIR):\n            avail = sorted(d for d in os.listdir(SERIES_DIR)\n                           if os.path.isfile(series_json_path(d)))\n        die(\"series not found: %r\" % ref, available=avail)\n    try:\n        return slug, json.load(open(p))\n    except ValueError as e:\n        die(\"corrupt series.json for %r: %s\" % (ref, e))\n\ndef episodes_dir(slug):\n    return os.path.join(SERIES_DIR, slug, \"episodes\")\n\ndef episode_dir(slug, num):\n    return os.path.join(episodes_dir(slug), \"%02d\" % num)\n\ndef load_episode(slug, ref):\n    num = None\n    try:\n        num = int(str(ref).lstrip(\"0\") or \"0\")\n    except ValueError:\n        die(\"episode must be a number, got %r\" % ref)\n    p = os.path.join(episode_dir(slug, num), \"episode.json\")\n    if not os.path.isfile(p):\n        avail = sorted(os.listdir(episodes_dir(slug))) if os.path.isdir(episodes_dir(slug)) else []\n        die(\"episode %s not found in series %r\" % (ref, slug), available=avail)\n    try:\n        return num, json.load(open(p)), p\n    except ValueError as e:\n        die(\"corrupt episode.json for %s/%02d: %s\" % (slug, num, e))\n\ndef ingest_file(src, ep_dir, rel_target):\n    \"\"\"Copy an artifact into the episode tree and return the relative path.\n    Accepts absolute/workspace paths; already-relative paths are returned as-is\n    (after checking they exist under the episode dir).\"\"\"\n    if not src:\n        return src\n    if not os.path.isabs(src):\n        p = os.path.join(ep_dir, src)\n        if not os.path.isfile(p):\n            die(\"file not found under episode dir: \" + src)\n        return src\n    sp = os.path.expanduser(src)\n    if not os.path.isfile(sp):\n        die(\"file not found: \" + sp)\n    dest = os.path.join(ep_dir, rel_target)\n    os.makedirs(os.path.dirname(dest), exist_ok=True)\n    if os.path.abspath(sp) != os.path.abspath(dest):\n        shutil.copyfile(sp, dest)\n    return rel_target\n\nslug, _ = load_series(arg(\"SERIES\"))\nnum, data, pj = load_episode(slug, arg(\"EPISODE\"))\ned = os.path.dirname(pj)\nsid = arg(\"ID\")\nif not sid:\n    die(\"id is required (shot id, e.g. s01)\")\nshots = data.setdefault(\"shots\", [])\nshot = next((s for s in shots if s.get(\"id\") == sid), None)\nif shot is None:\n    shot = {\"id\": sid, \"scene\": 1, \"duration_s\": 5, \"description\": \"\", \"dialogue\": [],\n            \"prompt\": \"\", \"references\": [], \"model\": \"\", \"seed\": None,\n            \"still\": \"\", \"clip\": \"\", \"first_frame\": \"\", \"last_frame\": \"\",\n            \"status\": \"planned\", \"cost_estimate_usd\": None, \"updated_at\": now()}\n    shots.append(shot)\n\nupdated = []\nfor key, argname in ((\"description\", \"DESCRIPTION\"), (\"prompt\", \"PROMPT\"), (\"model\", \"MODEL\")):\n    v = arg(argname)\n    if v:\n        shot[key] = \"\" if v == \"-\" else v; updated.append(key)\nstatus = arg(\"STATUS\")\nif status:\n    if status not in SHOT_STATUSES:\n        die(\"invalid shot status %r\" % status, allowed=list(SHOT_STATUSES))\n    shot[\"status\"] = status; updated.append(\"status\")\nfor key, argname, target in ((\"still\", \"STILL\", \"stills/%s.png\" % sid),\n                             (\"clip\", \"CLIP\", \"shots/%s.mp4\" % sid),\n                             (\"first_frame\", \"FIRST_FRAME\", \"stills/%s-first.png\" % sid),\n                             (\"last_frame\", \"LAST_FRAME\", \"stills/%s-last.png\" % sid)):\n    v = arg(argname)\n    if v:\n        shot[key] = ingest_file(v, ed, target); updated.append(key)\nrefs = arg_json(\"REFERENCES\")\nif refs is not None:\n    if not isinstance(refs, list):\n        die(\"references must be a JSON array\")\n    shot[\"references\"] = [str(r) for r in refs]; updated.append(\"references\")\ndlg = arg_json(\"DIALOGUE\")\nif dlg is not None:\n    if not isinstance(dlg, list):\n        die(\"dialogue must be a JSON array of {character, line}\")\n    shot[\"dialogue\"] = dlg; updated.append(\"dialogue\")\nseed = arg_int(\"SEED\")\nif seed is not None:\n    shot[\"seed\"] = seed; updated.append(\"seed\")\ndur = arg_int(\"DURATION_S\")\nif dur is not None:\n    shot[\"duration_s\"] = dur; updated.append(\"duration_s\")\nscene = arg_int(\"SCENE\")\nif scene is not None:\n    shot[\"scene\"] = scene; updated.append(\"scene\")\ncost = arg(\"COST_ESTIMATE_USD\")\nif cost:\n    try:\n        shot[\"cost_estimate_usd\"] = float(cost); updated.append(\"cost_estimate_usd\")\n    except ValueError:\n        die(\"cost_estimate_usd must be a number\")\nif not updated:\n    die(\"nothing to update for shot \" + sid)\nshot[\"updated_at\"] = now()\ndata[\"updated_at\"] = now()\nwrite_json_atomic(pj, data)\nprint(json.dumps({\"shot\": shot, \"updated\": updated}))\n\nATPY\n"
+      }
+    ]
+  }
+}

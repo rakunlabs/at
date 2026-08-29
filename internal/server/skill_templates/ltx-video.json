@@ -1,0 +1,134 @@
+{
+  "slug": "ltx-video",
+  "name": "LTX-2.5 Video (Direct API)",
+  "description": "Generate native-audio video directly through Lightricks' LTX-2.5 API using your own LTX API key. One normalized tool routes text, first/last-frame image, or audio conditioning to the correct async endpoint; Fast supports up to 20s/4K, Pro up to 10s/1080p.",
+  "category": "Content Creation",
+  "tags": [
+    "video",
+    "ltx",
+    "ltx-2.5",
+    "image-to-video",
+    "audio-to-video",
+    "cinema"
+  ],
+  "required_variables": [
+    {
+      "key": "ltx_api_key",
+      "description": "LTX API key from https://ltx.io — used with Bearer auth against api.ltx.io.",
+      "secret": true
+    }
+  ],
+  "connector": {
+    "slug": "ltx",
+    "name": "LTX",
+    "description": "Lightricks LTX video generation API (LTX-2.5 Fast/Pro).",
+    "auth_kind": "token",
+    "fields": [
+      {
+        "key": "ltx_api_key",
+        "label": "API Key",
+        "type": "secret",
+        "required": true,
+        "help": "Create an API key at https://ltx.io"
+      }
+    ]
+  },
+  "skill": {
+    "name": "ltx_video",
+    "description": "Direct LTX-2.5 text/image/audio-to-video generation with native audio, automatic duration, camera motion, and first/last-frame interpolation.",
+    "system_prompt": "You generate cinematic video directly with the Lightricks LTX-2.5 API (the user's LTX connection, not FAL).\n\n## `scene_video_ltx25` routing\n- No media input: text-to-video.\n- `start_image`: image-to-video; the still is the identity/style anchor.\n- `start_image` + `end_image`: first/last-frame interpolation. Duration must be explicit (not auto).\n- `audio`: audio-to-video; output length follows the audio. Add `start_image` to preserve character identity and `end_image` for a bounded ending.\n\n## Production guidance\n- Recurring characters: LTX has no character ID or multiple-reference array. First compose an identity-preserving keyframe still with `fal_image.edit_image_nano_banana`, then pass it as `start_image`.\n- LTX-2.5 has native multi-shot consistency inside one generation. For a connected sequence, describe cuts and timing in one prompt; it holds character, setting, lighting, style and voice more reliably than separate requests.\n- `fast`: drafts, 12-20s shots, or 1440p/4K. `pro`: final 6-10s identity/detail-critical shots at 720p/1080p.\n- Pass the series `style.block` as `style` on every call. There is no native seed or negative-prompt field.\n- Audio is native by default for text/image generation. For a character's exact cloned voice, produce the audio first with ElevenLabs and call with `audio` + the shot still.\n- Billing is per generated second (or input-audio second). Keep duration tight. Always record `video_file`, `model`, exact prompt, references, and estimated cost with `series_library.shot_update`.",
+    "tools": [
+      {
+        "name": "scene_video_ltx25",
+        "description": "Generate video directly with LTX-2.5 using the configured LTX API key. Routes automatically: prompt only → text-to-video; start_image → image-to-video; audio → audio-to-video. Supports Fast/Pro, native audio, automatic duration, camera motion, and optional end_image interpolation. Local image/audio files are uploaded to LTX storage; the completed video is downloaded to the workspace. Returns JSON {video_file, video_url, model, endpoint, job_id, resolution, fps}.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Scene, action, camera, mood, cuts and audio description. For native multi-shot, describe the connected cuts in this one prompt."
+            },
+            "variant": {
+              "type": "string",
+              "enum": [
+                "fast",
+                "pro"
+              ],
+              "description": "fast (default): economical, up to 20s/4K. pro: higher fidelity, 6-10s, 720p/1080p."
+            },
+            "start_image": {
+              "type": "string",
+              "description": "Optional first-frame image: local path, public HTTPS URL, data URI, or ltx:// URI. Enables identity-preserving image-to-video."
+            },
+            "end_image": {
+              "type": "string",
+              "description": "Optional final-frame image. Requires start_image and an explicit duration."
+            },
+            "audio": {
+              "type": "string",
+              "description": "Optional driving audio: local path, public HTTPS URL, data URI, or ltx:// URI. Routes to audio-to-video; length follows audio (Fast max 20s at 720/1080, otherwise 10s; Pro max 10s)."
+            },
+            "duration": {
+              "description": "Video seconds for text/image generation: auto (default), or supported even value. Fast: 6-20s at 720/1080 24/25fps; Pro: 6/8/10s. Not used for audio-to-video.",
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "string"
+                }
+              ]
+            },
+            "resolution": {
+              "type": "string",
+              "description": "720p, 1080p (default), 1440p or 4K. Pro supports only 720p/1080p. Exact WIDTHxHEIGHT is also accepted."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "enum": [
+                "16:9",
+                "9:16"
+              ],
+              "description": "16:9 (default) or 9:16; used to map resolution tier to exact pixels."
+            },
+            "fps": {
+              "type": "integer",
+              "description": "Default 24. Fast: 24/25/48/50; Pro: 24/25/50. High fps limits duration to 10s."
+            },
+            "generate_audio": {
+              "type": "boolean",
+              "description": "Generate synchronized audio for text/image video (default true). Ignored for audio-to-video."
+            },
+            "camera_motion": {
+              "type": "string",
+              "enum": [
+                "dolly_in",
+                "dolly_out",
+                "dolly_left",
+                "dolly_right",
+                "jib_up",
+                "jib_down",
+                "static",
+                "focus_shift"
+              ],
+              "description": "Optional native camera motion preset."
+            },
+            "style": {
+              "type": "string",
+              "description": "Series/project style lock appended to the prompt."
+            },
+            "output": {
+              "type": "string",
+              "description": "Optional local output .mp4 path (default workspace/ltx25-<id>.mp4)."
+            }
+          },
+          "required": [
+            "prompt"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport base64, json, mimetypes, os, subprocess, sys, time, urllib.error, urllib.request, uuid\n\nAPI_KEY = os.environ.get(\"VAR_LTX_API_KEY\") or os.environ.get(\"VAR_LTX_KEY\") or \"\"\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nBASE_URL = \"https://api.ltx.io\"\n\ndef die(message, **extra):\n    out = {\"error\": message}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\nif not API_KEY:\n    die(\"LTX API key not configured (create an LTX connection with ltx_api_key)\")\n\ndef uid():\n    return uuid.uuid4().hex[:10]\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_bool(name, default=True):\n    raw = os.environ.get(\"ARG_\" + name, \"\").strip().lower()\n    if not raw:\n        return default\n    return raw not in (\"false\", \"0\", \"no\", \"off\")\n\ndef arg_int(name, default=None):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return default\n    try:\n        return int(float(raw))\n    except ValueError:\n        die(name.lower() + \" must be a number, got %r\" % raw)\n\ndef request_json(path, payload=None, method=None, timeout=60):\n    data = json.dumps(payload).encode() if payload is not None else None\n    req = urllib.request.Request(BASE_URL + path, data=data,\n        method=method or (\"POST\" if data is not None else \"GET\"),\n        headers={\"Authorization\": \"Bearer \" + API_KEY,\n                 \"Content-Type\": \"application/json\"})\n    try:\n        with urllib.request.urlopen(req, timeout=timeout) as resp:\n            return json.load(resp)\n    except urllib.error.HTTPError as e:\n        detail = e.read().decode(\"utf-8\", \"replace\")[:1000]\n        try:\n            parsed = json.loads(detail)\n            message = parsed.get(\"message\") or parsed.get(\"error\", {}).get(\"message\") or detail\n            error_type = parsed.get(\"type\") or parsed.get(\"error\", {}).get(\"type\")\n        except ValueError:\n            message, error_type = detail, \"\"\n        die(\"LTX API HTTP %d: %s\" % (e.code, message), error_type=error_type)\n    except urllib.error.URLError as e:\n        die(\"LTX API request failed: %s\" % e.reason)\n\ndef upload_local(path):\n    \"\"\"Upload a local file through LTX /v1/upload and return ltx:// storage URI.\"\"\"\n    p = os.path.expanduser(path)\n    if not os.path.isfile(p):\n        die(\"input file not found: \" + p)\n    info = request_json(\"/v1/upload\", payload=None, method=\"POST\", timeout=30)\n    upload_url = info.get(\"upload_url\") or \"\"\n    storage_uri = info.get(\"storage_uri\") or \"\"\n    if not upload_url or not storage_uri:\n        die(\"LTX upload initialization returned no upload_url/storage_uri\", raw=str(info)[:600])\n    headers = {str(k): str(v) for k, v in (info.get(\"required_headers\") or {}).items()}\n    headers.setdefault(\"Content-Type\", mimetypes.guess_type(p)[0] or \"application/octet-stream\")\n    blob = open(p, \"rb\").read()\n    try:\n        req = urllib.request.Request(upload_url, data=blob, headers=headers, method=\"PUT\")\n        with urllib.request.urlopen(req, timeout=900):\n            pass\n    except urllib.error.HTTPError as e:\n        die(\"LTX storage upload failed: HTTP %d\" % e.code,\n            detail=e.read().decode(\"utf-8\", \"replace\")[:500])\n    except urllib.error.URLError as e:\n        die(\"LTX storage upload failed: %s\" % e.reason)\n    return storage_uri\n\ndef media_uri(ref):\n    if not ref:\n        return \"\"\n    if ref.startswith((\"https://\", \"data:\", \"ltx://\")):\n        return ref\n    if ref.startswith(\"http://\"):\n        die(\"LTX accepts public HTTPS URLs only (not HTTP): \" + ref)\n    return upload_local(ref)\n\ndef resolution_pixels(tier, aspect):\n    aliases = {\n        \"1280x720\": \"1280x720\", \"720x1280\": \"720x1280\",\n        \"1920x1080\": \"1920x1080\", \"1080x1920\": \"1080x1920\",\n        \"2560x1440\": \"2560x1440\", \"1440x2560\": \"1440x2560\",\n        \"3840x2160\": \"3840x2160\", \"2160x3840\": \"2160x3840\",\n    }\n    if tier in aliases:\n        return tier\n    landscape = aspect != \"9:16\"\n    pairs = {\n        \"720p\": (\"1280x720\", \"720x1280\"),\n        \"1080p\": (\"1920x1080\", \"1080x1920\"),\n        \"1440p\": (\"2560x1440\", \"1440x2560\"),\n        \"4k\": (\"3840x2160\", \"2160x3840\"),\n        \"2160p\": (\"3840x2160\", \"2160x3840\"),\n    }\n    key = tier.lower()\n    if key not in pairs:\n        die(\"resolution must be 720p, 1080p, 1440p, 4K, or an exact supported WIDTHxHEIGHT\")\n    return pairs[key][0 if landscape else 1]\n\ndef validate_matrix(variant, resolution, fps, duration, automatic):\n    short = resolution in (\"1280x720\", \"720x1280\", \"1920x1080\", \"1080x1920\")\n    if variant == \"pro\":\n        if not short:\n            die(\"LTX-2.5 Pro supports 720p/1080p only; use variant=fast for 1440p/4K\")\n        if fps not in (24, 25, 50):\n            die(\"LTX-2.5 Pro fps must be 24, 25, or 50\")\n        allowed = (6, 8, 10)\n    else:\n        if fps not in (24, 25, 48, 50):\n            die(\"LTX-2.5 Fast fps must be 24, 25, 48, or 50\")\n        allowed = (6, 8, 10, 12, 14, 16, 18, 20) if short and fps in (24, 25) else (6, 8, 10)\n    if not automatic and duration not in allowed:\n        die(\"unsupported duration for this model/resolution/fps\", allowed_durations=list(allowed))\n\ndef local_audio_duration(ref):\n    if not ref or ref.startswith((\"https://\", \"data:\", \"ltx://\")):\n        return None\n    p = os.path.expanduser(ref)\n    probe = subprocess.run([\"ffprobe\", \"-v\", \"error\", \"-show_entries\", \"format=duration\",\n                            \"-of\", \"default=noprint_wrappers=1:nokey=1\", p],\n                           capture_output=True, text=True)\n    try:\n        return float(probe.stdout.strip())\n    except ValueError:\n        die(\"ffprobe could not read audio duration\", stderr=(probe.stderr or \"\")[-400:])\n\ndef poll(endpoint, job_id, minutes=45):\n    deadline = time.time() + minutes * 60\n    while time.time() < deadline:\n        time.sleep(5)\n        status = request_json(\"/v2/%s/%s\" % (endpoint, job_id), timeout=60)\n        state = status.get(\"status\")\n        if state == \"completed\":\n            return status\n        if state == \"failed\":\n            err = status.get(\"error\") or {}\n            die(\"LTX generation failed: %s\" % (err.get(\"message\") or \"unknown error\"),\n                error_type=err.get(\"type\"), job_id=job_id)\n    die(\"LTX generation timed out\", job_id=job_id,\n        status_url=BASE_URL + \"/v2/%s/%s\" % (endpoint, job_id))\n\ndef download(url, output):\n    req = urllib.request.Request(url)\n    with urllib.request.urlopen(req, timeout=900) as resp, open(output, \"wb\") as f:\n        while True:\n            chunk = resp.read(1 << 20)\n            if not chunk:\n                break\n            f.write(chunk)\n    return os.path.getsize(output)\n\nprompt = arg(\"PROMPT\")\nif not prompt:\n    die(\"prompt is required\")\nstyle = arg(\"STYLE\")\nif style:\n    prompt = prompt.rstrip() + \" Visual style: \" + style.strip()\n\nvariant = arg(\"VARIANT\", \"fast\").lower()\nif variant not in (\"fast\", \"pro\"):\n    die(\"variant must be fast or pro\")\nmodel = \"ltx-2-5-\" + variant\nstart_image = arg(\"START_IMAGE\")\nend_image = arg(\"END_IMAGE\")\naudio = arg(\"AUDIO\")\nif end_image and not start_image:\n    die(\"end_image requires start_image\")\n\naspect = arg(\"ASPECT_RATIO\", \"16:9\")\nif aspect not in (\"16:9\", \"9:16\"):\n    die(\"aspect_ratio must be 16:9 or 9:16\")\nresolution = resolution_pixels(arg(\"RESOLUTION\", \"1080p\"), aspect)\nfps = arg_int(\"FPS\", 24)\ncamera = arg(\"CAMERA_MOTION\")\nif camera and camera not in (\"dolly_in\", \"dolly_out\", \"dolly_left\", \"dolly_right\", \"jib_up\", \"jib_down\", \"static\", \"focus_shift\"):\n    die(\"unsupported camera_motion\", allowed=[\"dolly_in\", \"dolly_out\", \"dolly_left\", \"dolly_right\", \"jib_up\", \"jib_down\", \"static\", \"focus_shift\"])\n\nif audio:\n    endpoint = \"audio-to-video\"\n    local_duration = local_audio_duration(audio)\n    high_res = resolution not in (\"1280x720\", \"720x1280\", \"1920x1080\", \"1080x1920\")\n    max_seconds = 10 if variant == \"pro\" or high_res else 20\n    if local_duration is not None and (local_duration < 2 or local_duration > max_seconds + 0.05):\n        die(\"audio duration %.2fs is outside LTX-2.5 %s limit (2-%ds for this model/resolution)\" %\n            (local_duration, variant, max_seconds))\n    # Validate model/resolution/fps while ignoring explicit video duration.\n    validate_matrix(variant, resolution, fps, 6, automatic=True)\n    payload = {\"audio_uri\": media_uri(audio), \"prompt\": prompt, \"model\": model,\n               \"resolution\": resolution, \"fps\": fps}\n    if start_image:\n        payload[\"image_uri\"] = media_uri(start_image)\n    if end_image:\n        payload[\"last_frame_uri\"] = media_uri(end_image)\n    if camera:\n        payload[\"camera_motion\"] = camera\nelse:\n    endpoint = \"image-to-video\" if start_image else \"text-to-video\"\n    raw_duration = arg(\"DURATION\", \"auto\").lower()\n    automatic = raw_duration in (\"auto\", \"null\")\n    if automatic and end_image:\n        die(\"automatic duration cannot be combined with end_image; choose 6, 8, or 10 seconds\")\n    duration = None if automatic else arg_int(\"DURATION\")\n    validate_matrix(variant, resolution, fps, duration, automatic)\n    payload = {\"prompt\": prompt, \"model\": model, \"duration\": duration,\n               \"resolution\": resolution, \"fps\": fps,\n               \"generate_audio\": arg_bool(\"GENERATE_AUDIO\", True)}\n    if start_image:\n        payload[\"image_uri\"] = media_uri(start_image)\n    if end_image:\n        payload[\"last_frame_uri\"] = media_uri(end_image)\n    if camera:\n        payload[\"camera_motion\"] = camera\n\nsubmitted = request_json(\"/v2/\" + endpoint, payload=payload, method=\"POST\", timeout=90)\njob_id = submitted.get(\"id\") or \"\"\nif not job_id:\n    die(\"LTX submit returned no job id\", raw=str(submitted)[:600])\nstatus = poll(endpoint, job_id)\nresult = status.get(\"result\") or {}\nvideo_url = result.get(\"video_url\") or \"\"\nif not video_url:\n    die(\"LTX completed without result.video_url\", job_id=job_id, raw=str(status)[:800])\nos.makedirs(WORK_DIR, exist_ok=True)\noutput = arg(\"OUTPUT\") or os.path.join(WORK_DIR, \"ltx25-%s.mp4\" % uid())\nif not os.path.isabs(output):\n    output = os.path.join(WORK_DIR, output)\nos.makedirs(os.path.dirname(output), exist_ok=True)\nsize = download(video_url, output)\nprint(json.dumps({\"video_file\": output, \"video_url\": video_url, \"size_bytes\": size,\n                  \"model\": model, \"endpoint\": endpoint, \"job_id\": job_id,\n                  \"resolution\": resolution, \"fps\": fps}))\n\nATPY\n"
+      }
+    ]
+  }
+}

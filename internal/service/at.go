@@ -137,8 +137,8 @@ type Skill struct {
 	Version        string `json:"version,omitempty"`         // Semver-ish version string declared by the author
 	Author         string `json:"author,omitempty"`          // Attribution carried through export/import
 	License        string `json:"license,omitempty"`         // SPDX-style license identifier
-	SourceURL      string `json:"source_url,omitempty"`      // Where the skill was imported from (empty for local skills)
-	SourceChecksum string `json:"source_checksum,omitempty"` // SHA-256 hex of the imported source payload
+	SourceURL      string `json:"source_url,omitempty"`      // Imported source or reserved built-in template identity (empty for local skills)
+	SourceChecksum string `json:"source_checksum,omitempty"` // SHA-256 of imported source or last applied template-managed payload
 
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`

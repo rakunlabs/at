@@ -128,7 +128,7 @@ func (p *Provider) doJSON(ctx context.Context, method, path string, body any, ou
 		}
 	}
 	if resp.StatusCode >= 400 {
-		return resp.Header, resp.StatusCode, fmt.Errorf("cohere API error (status %d): %s", resp.StatusCode, string(respBody))
+		return resp.Header, resp.StatusCode, cohereUpstreamError(resp.StatusCode, respBody)
 	}
 	if out != nil {
 		if err := json.Unmarshal(respBody, out); err != nil {
@@ -270,7 +270,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("cohere API error (status %d): %s", resp.StatusCode, string(respBody))
+		return nil, cohereUpstreamError(resp.StatusCode, respBody)
 	}
 
 	var parsed chatResponse
@@ -304,6 +304,48 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		})
 	}
 	return out, nil
+}
+
+func cohereUpstreamError(statusCode int, body []byte) error {
+	message := strings.TrimSpace(string(body))
+	code := ""
+	var envelope map[string]any
+	if json.Unmarshal(body, &envelope) == nil {
+		if value, ok := envelope["message"].(string); ok && value != "" {
+			message = value
+		}
+		code = cohereErrorField(envelope["code"])
+		if code == "" {
+			code = cohereErrorField(envelope["type"])
+		}
+		if nested, ok := envelope["error"].(map[string]any); ok {
+			if value, ok := nested["message"].(string); ok && value != "" {
+				message = value
+			}
+			if code == "" {
+				code = cohereErrorField(nested["code"])
+			}
+			if code == "" {
+				code = cohereErrorField(nested["type"])
+			}
+		}
+	}
+
+	underlying := fmt.Errorf("cohere API error (status %d): %s", statusCode, message)
+	return &service.UpstreamError{
+		Provider:   "cohere",
+		StatusCode: statusCode,
+		Code:       code,
+		Message:    message,
+		Underlying: underlying,
+	}
+}
+
+func cohereErrorField(value any) string {
+	if value == nil {
+		return ""
+	}
+	return fmt.Sprint(value)
 }
 
 func translateMessagesToCohere(messages []service.Message) []chatMessage {

@@ -112,28 +112,8 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		}
 	}
 
-	// 3. Create a child engine.
-	// We reuse the lookups from the current registry to share state/config access.
-	childEngine := workflow.NewEngine(
-		reg.ProviderLookup,
-		reg.SkillLookup,
-		reg.VarLookup,
-		reg.VarLister,
-		reg.NodeConfigLookup,
-		reg.WorkflowLookup,
-		reg.AgentLookup,
-		reg.VarSave,
-		reg.BuiltinToolDispatcher,
-		reg.BuiltinToolDefs,
-		reg.UserPrefLookup,
-		reg.ChatMessageCreator,
-		reg.ChatSessionLookup,
-		reg.RecordUsage,
-		reg.CheckBudget,
-		reg.RecordObservation,
-		reg.GoalAncestry,
-		reg.VersionLookup,
-	)
+	// 3. Create a child engine with the parent's complete dependency set.
+	childEngine := reg.NewChildEngine()
 
 	// 4. Run the child workflow.
 	// Use the active version's graph if available, otherwise fall back to the draft graph.
@@ -156,31 +136,10 @@ func (n *workflowCallNode) Run(ctx context.Context, reg *workflow.Registry, inpu
 		}
 	}
 
-	// Channel for early output (sync mode).
-	outputCh := make(chan workflow.EarlyOutput, 1)
-
-	// Run in a separate goroutine to handle the channel, but we block waiting for it.
-	// Actually, Engine.Run blocks until completion if we don't care about early output,
-	// BUT we *do* want the outputs.
-	// Engine.Run returns *RunResult which contains the final outputs.
-	// So we can just call Engine.Run directly!
-
-	// Wait, Engine.Run executes async fan-out. It blocks until all branches finish.
-	// So direct call is fine.
-
-	// Use a timeout? The parent context handles cancellation.
-	// Maybe add a configurable timeout in the node config?
-	// For now, inherit context.
-
-	result, err := childEngine.Run(ctx, graphToRun, runInputs, entryNodeIDs, outputCh)
+	result, err := childEngine.Run(ctx, graphToRun, runInputs, entryNodeIDs, nil)
 	if err != nil {
 		return nil, fmt.Errorf("workflow_call: execution failed: %w", err)
 	}
 
-	// If an output node fired, we prefer that.
-	// Engine.Run returns `result.Outputs` which is collected from Output nodes
-	// or terminal nodes (if enabled, but we disabled that).
-	// So `result.Outputs` is exactly what we want.
-
-	return workflow.NewResult(result.Outputs), nil
+	return workflow.NewResult(map[string]any{"output": result.Outputs}), nil
 }

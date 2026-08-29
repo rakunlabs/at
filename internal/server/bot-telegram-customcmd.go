@@ -230,36 +230,13 @@ func (s *Server) createBotOrgTask(
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
 
-	go func() {
-		delegCtx, cleanup := s.registerDelegation(context.Background(), record.ID, org.HeadAgentID, org.ID)
-		defer cleanup()
-		if err := s.runOrgDelegation(delegCtx, org, record, org.HeadAgentID, 0); err != nil {
-			slog.Error("bot-task: org-routed delegation failed",
-				"org_id", org.ID,
-				"task_id", record.ID,
-				"error", err,
-			)
-			errResult := fmt.Sprintf("delegation failed: %v", err)
-			if s.taskStore != nil {
-				_ = s.taskStore.UpdateTaskStatus(context.Background(), record.ID, service.TaskStatusCancelled, errResult)
-			}
-			if onDone != nil {
-				onDone(identifier, "failed", errResult)
-			}
-			return
-		}
-		if s.taskStore != nil {
-			if updated, err := s.taskStore.GetTask(delegCtx, record.ID); err == nil && updated != nil {
-				if onDone != nil {
-					onDone(identifier, updated.Status, updated.Result)
-				}
-				return
-			}
-		}
-		if onDone != nil {
-			onDone(identifier, "done", "")
-		}
-	}()
+	var completion delegationRunDoneFunc
+	if onDone != nil {
+		completion = s.botTaskDoneCallback(record.ID, identifier, []TaskDoneCallback{onDone})
+	}
+	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, completion); err != nil {
+		return "", "", fmt.Errorf("start delegation: %w", err)
+	}
 
 	return record.ID, identifier, nil
 }

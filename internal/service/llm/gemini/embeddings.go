@@ -9,6 +9,7 @@ import (
 	"net/http"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/common"
 )
 
 // ─── Embeddings ───
@@ -94,7 +95,30 @@ func (p *Provider) CreateEmbedding(ctx context.Context, req service.EmbeddingReq
 		return nil, fmt.Errorf("read embed response: %w", err)
 	}
 	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("gemini embed API error (status %d): %s", resp.StatusCode, string(respBody))
+		message := string(respBody)
+		code := ""
+		var envelope generateContentResponse
+		if json.Unmarshal(respBody, &envelope) == nil && envelope.Error != nil {
+			message = envelope.Error.Message
+			code = envelope.Error.Status
+		}
+		underlying := fmt.Errorf("gemini embed API error (status %d): %s", resp.StatusCode, message)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, &service.RateLimitError{
+				StatusCode: resp.StatusCode,
+				RetryAfter: common.ParseRetryAfter(resp.Header),
+				Provider:   "gemini",
+				Message:    message,
+				Underlying: underlying,
+			}
+		}
+		return nil, &service.UpstreamError{
+			Provider:   "gemini",
+			StatusCode: resp.StatusCode,
+			Code:       code,
+			Message:    message,
+			Underlying: underlying,
+		}
 	}
 
 	var parsed batchEmbedResponse

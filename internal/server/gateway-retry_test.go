@@ -169,17 +169,23 @@ func TestCallWithGatewayRetry_DefaultCapWhenZero(t *testing.T) {
 	}
 }
 
-// TestClassifyGatewayError_PreservesUpstreamStatus confirms the helper
-// returns the upstream status (429 → 429, 529 → 529) instead of
-// collapsing to a generic 502, so client SDKs can detect rate-limit
-// conditions correctly.
+// TestClassifyGatewayError_PreservesUpstreamStatus confirms typed provider
+// failures retain their status while legacy errors keep the compatibility 502.
 func TestClassifyGatewayError_PreservesUpstreamStatus(t *testing.T) {
 	tests := []struct {
 		name       string
 		err        error
 		wantStatus int
 		wantType   string
+		wantCode   string
+		wantParam  string
 	}{
+		{name: "typed 400", err: &service.UpstreamError{Provider: "test", StatusCode: 400, Code: "bad_request", Param: "model", Message: "bad"}, wantStatus: 400, wantType: "invalid_request_error", wantCode: "bad_request", wantParam: "model"},
+		{name: "typed 401", err: &service.UpstreamError{Provider: "test", StatusCode: 401, Code: "unauthorized", Message: "bad"}, wantStatus: 401, wantType: "invalid_request_error", wantCode: "unauthorized"},
+		{name: "typed 408", err: &service.UpstreamError{Provider: "test", StatusCode: 408, Code: "timeout", Message: "bad"}, wantStatus: 408, wantType: "invalid_request_error", wantCode: "timeout"},
+		{name: "typed 425", err: &service.UpstreamError{Provider: "test", StatusCode: 425, Code: "too_early", Message: "bad"}, wantStatus: 425, wantType: "invalid_request_error", wantCode: "too_early"},
+		{name: "typed 429", err: &service.UpstreamError{Provider: "test", StatusCode: 429, Code: "rate_limit", Message: "bad"}, wantStatus: 429, wantType: "rate_limit_error", wantCode: "rate_limit"},
+		{name: "typed 500", err: &service.UpstreamError{Provider: "test", StatusCode: 500, Code: "internal", Message: "bad"}, wantStatus: 500, wantType: "server_error", wantCode: "internal"},
 		{
 			name: "429 maps to 429 + rate_limit_error",
 			err: &service.RateLimitError{
@@ -190,6 +196,7 @@ func TestClassifyGatewayError_PreservesUpstreamStatus(t *testing.T) {
 			},
 			wantStatus: 429,
 			wantType:   "rate_limit_error",
+			wantCode:   "rate_limit_error",
 		},
 		{
 			name: "529 maps to 529 + overloaded_error",
@@ -201,9 +208,10 @@ func TestClassifyGatewayError_PreservesUpstreamStatus(t *testing.T) {
 			},
 			wantStatus: 529,
 			wantType:   "overloaded_error",
+			wantCode:   "overloaded_error",
 		},
 		{
-			name:       "non-rate-limit error falls to 502",
+			name:       "legacy error falls to 502",
 			err:        errors.New("network error"),
 			wantStatus: http.StatusBadGateway,
 			wantType:   "server_error",
@@ -221,6 +229,16 @@ func TestClassifyGatewayError_PreservesUpstreamStatus(t *testing.T) {
 			}
 			if got, _ := errBody["type"].(string); got != tt.wantType {
 				t.Errorf("type = %q, want %q", got, tt.wantType)
+			}
+			if got, _ := errBody["code"].(string); got != tt.wantCode {
+				t.Errorf("code = %q, want %q", got, tt.wantCode)
+			}
+			gotParam, hasParam := errBody["param"]
+			if tt.wantParam == "" && hasParam {
+				t.Errorf("param = %q, want field omitted", gotParam)
+			}
+			if tt.wantParam != "" && gotParam != tt.wantParam {
+				t.Errorf("param = %q, want %q", gotParam, tt.wantParam)
 			}
 		})
 	}

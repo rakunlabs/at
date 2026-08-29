@@ -2,8 +2,10 @@ package workflow
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -47,28 +49,7 @@ type NodeEvent struct {
 // from those entry points is executed. Annotation nodes (group, sticky_note)
 // and unrelated trigger branches are silently excluded.
 type Engine struct {
-	providerLookup        ProviderLookup
-	skillLookup           SkillLookup
-	varLookup             VarLookup
-	varLister             VarLister
-	nodeConfigLookup      NodeConfigLookup
-	workflowLookup        WorkflowLookup
-	agentLookup           AgentLookup
-	varSave               VarSaveFunc
-	builtinToolDispatcher BuiltinToolDispatcher
-	builtinToolDefs       []BuiltinToolDef
-	userPrefLookup        UserPrefLookup
-	chatMessageCreator    ChatMessageCreatorFunc
-	chatSessionLookup     ChatSessionLookupFunc
-	recordUsage           RecordUsageFunc
-	checkBudget           CheckBudgetFunc
-	recordObservation     RecordObservationFunc
-	goalAncestry          GoalAncestryFunc
-	versionLookup         VersionLookupFunc
-	connectionLookup      ConnectionLookup
-	workflowByNameLookup  WorkflowByNameLookupFunc
-	workflowExecutor      WorkflowExecutorFunc
-	loopGov               LoopGovernor
+	dependencies *Dependencies
 
 	// eventCh receives real-time node execution events when set.
 	// The channel is optional; when nil, no events are emitted.
@@ -80,31 +61,48 @@ type Engine struct {
 // May be called once at engine construction; nil disables governance
 // (legacy behaviour).
 func (e *Engine) SetLoopGov(gov LoopGovernor) {
-	e.loopGov = gov
+	e.ensureDependencies().LoopGov = gov
 }
 
 // NewEngine creates a new workflow execution engine.
 func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, varSave VarSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc) *Engine {
-	return &Engine{
-		providerLookup:        lookup,
-		skillLookup:           skillLookup,
-		varLookup:             varLookup,
-		varLister:             varLister,
-		nodeConfigLookup:      nodeConfigLookup,
-		workflowLookup:        workflowLookup,
-		agentLookup:           agentLookup,
-		varSave:               varSave,
-		builtinToolDispatcher: builtinDispatcher,
-		builtinToolDefs:       builtinDefs,
-		userPrefLookup:        userPrefLookup,
-		chatMessageCreator:    chatMessageCreator,
-		chatSessionLookup:     chatSessionLookup,
-		recordUsage:           recordUsage,
-		checkBudget:           checkBudget,
-		recordObservation:     recordObservation,
-		goalAncestry:          goalAncestry,
-		versionLookup:         versionLookup,
+	return NewEngineWithDependencies(Dependencies{
+		ProviderLookup:        lookup,
+		SkillLookup:           skillLookup,
+		VarLookup:             varLookup,
+		VarLister:             varLister,
+		NodeConfigLookup:      nodeConfigLookup,
+		WorkflowLookup:        workflowLookup,
+		AgentLookup:           agentLookup,
+		VarSave:               varSave,
+		BuiltinToolDispatcher: builtinDispatcher,
+		BuiltinToolDefs:       builtinDefs,
+		UserPrefLookup:        userPrefLookup,
+		ChatMessageCreator:    chatMessageCreator,
+		ChatSessionLookup:     chatSessionLookup,
+		RecordUsage:           recordUsage,
+		CheckBudget:           checkBudget,
+		RecordObservation:     recordObservation,
+		GoalAncestry:          goalAncestry,
+		VersionLookup:         versionLookup,
+	})
+}
+
+// NewEngineWithDependencies creates an engine from one dependency object.
+func NewEngineWithDependencies(deps Dependencies) *Engine {
+	return &Engine{dependencies: &deps}
+}
+
+// NewChild creates an engine with a complete copy of the parent's dependencies.
+func (e *Engine) NewChild() *Engine {
+	return NewEngineWithDependencies(*e.ensureDependencies())
+}
+
+func (e *Engine) ensureDependencies() *Dependencies {
+	if e.dependencies == nil {
+		e.dependencies = &Dependencies{}
 	}
+	return e.dependencies
 }
 
 // SetConnectionLookup sets the callback used by agent_call nodes to resolve
@@ -113,21 +111,21 @@ func NewEngine(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLook
 // the agent's bound connections before falling back to global variables.
 // Optional — when nil, only global variables are used.
 func (e *Engine) SetConnectionLookup(f ConnectionLookup) {
-	e.connectionLookup = f
+	e.ensureDependencies().ConnectionLookup = f
 }
 
 // SetWorkflowByNameLookup sets the callback used by agent_call nodes to
 // resolve agent-attached workflows (AgentConfig.Workflows) by name.
 // Optional — when nil, agents cannot attach workflows directly.
 func (e *Engine) SetWorkflowByNameLookup(f WorkflowByNameLookupFunc) {
-	e.workflowByNameLookup = f
+	e.ensureDependencies().WorkflowByNameLookup = f
 }
 
 // SetWorkflowExecutor sets the callback used by agent_call nodes to dispatch
 // `wf_*` tool calls. Optional — when nil, workflow tool calls fail with a
 // "no handler" error message.
 func (e *Engine) SetWorkflowExecutor(f WorkflowExecutorFunc) {
-	e.workflowExecutor = f
+	e.ensureDependencies().WorkflowExecutor = f
 }
 
 // SetEventChannel sets the channel for real-time node execution events.
@@ -369,11 +367,8 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return &RunResult{Outputs: map[string]any{}}, nil
 	}
 
-	reg := NewRegistry(e.providerLookup, e.skillLookup, e.varLookup, e.varLister, e.nodeConfigLookup, e.workflowLookup, e.agentLookup, e.varSave, e.builtinToolDispatcher, e.builtinToolDefs, e.userPrefLookup, e.chatMessageCreator, e.chatSessionLookup, e.recordUsage, e.checkBudget, e.recordObservation, e.goalAncestry, e.versionLookup, inputs)
-	reg.ConnectionLookup = e.connectionLookup
-	reg.WorkflowByNameLookup = e.workflowByNameLookup
-	reg.WorkflowExecutor = e.workflowExecutor
-	reg.LoopGov = e.loopGov
+	reg := NewRegistryWithDependencies(e.ensureDependencies(), inputs)
+	reg.engine = e
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
@@ -398,16 +393,12 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		return nil, err
 	}
 
-	// Phase 2: Execute nodes in topological order.
-	// nodeOutputs stores the result from each node, keyed by node ID.
+	// Phase 2: execute the non-fan-out graph in topological order. Fan-out
+	// descendants are owned by their branch and never also run on this path.
 	nodeOutputs := make(map[string]NodeResult, len(graph.Nodes))
+	fanOutOwned := make(map[string]bool)
+	var fanOuts []fanOutExecution
 
-	// For concurrent fan-out, we use a WaitGroup to track all branches.
-	var wg sync.WaitGroup
-	var execMu sync.Mutex // protects nodeOutputs during concurrent writes
-	var firstErr error
-
-	// Execute sequentially for non-fan-out paths, fan-out spawns goroutines.
 	for _, nodeID := range order {
 		// Check for cancellation between node executions.
 		if err := ctx.Err(); err != nil {
@@ -417,113 +408,44 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 		}
 
 		st, ok := states[nodeID]
-		if !ok {
+		if !ok || fanOutOwned[nodeID] {
 			continue
 		}
 
-		// Gather inputs from upstream nodes.
-		nodeInputs := e.gatherInputs(nodeID, states, nodeOutputs)
+		nodeInputs, active := e.gatherInputs(nodeID, states, nodeOutputs)
+		if !active {
+			e.emitSkipped(st)
+			continue
+		}
 
-		// Run the node.
-		e.emitEvent(NodeEvent{
-			NodeID:    st.node.ID,
-			NodeType:  st.noder.Type(),
-			EventType: "started",
-		})
-		logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
-
-		startTime := time.Now()
-		result, err := st.noder.Run(ctx, reg, nodeInputs)
-		durationMs := time.Since(startTime).Milliseconds()
-
+		result, stopped, err := e.executeNode(ctx, st, reg, nodeInputs, signalOutput)
 		if err != nil {
-			if err == ErrStopBranch {
-				e.emitEvent(NodeEvent{
-					NodeID:     st.node.ID,
-					NodeType:   st.noder.Type(),
-					EventType:  "skipped",
-					DurationMs: durationMs,
-				})
-				continue
-			}
-			e.emitEvent(NodeEvent{
-				NodeID:     st.node.ID,
-				NodeType:   st.noder.Type(),
-				EventType:  "error",
-				Error:      err.Error(),
-				DurationMs: durationMs,
-			})
-			err = fmt.Errorf("%s: %w", nodeRef(st), err)
 			signalOutput(nil, err)
 			return nil, err
 		}
-		logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
-
-		// Emit completed event with truncated output data.
-		completedEvent := NodeEvent{
-			NodeID:     st.node.ID,
-			NodeType:   st.noder.Type(),
-			EventType:  "completed",
-			DurationMs: durationMs,
-		}
-		if result != nil {
-			completedEvent.Data = truncateOutputData(result.Data())
-		}
-		e.emitEvent(completedEvent)
-
-		if result == nil {
+		if stopped || result == nil {
 			continue
 		}
 
-		// Store output.
-		execMu.Lock()
-		nodeOutputs[nodeID] = result
-		execMu.Unlock()
-
-		// Signal early output when the first "output" node fires.
-		if st.noder.Type() == "output" {
-			signalOutput(reg.Outputs(), nil)
-		}
-
-		// Handle fan-out: if the result implements NodeResultFanOut,
-		// we need to spawn goroutines for each item.
 		if fanOut, ok := result.(NodeResultFanOut); ok {
 			items := fanOut.Items()
-			if len(items) == 0 {
-				continue
+			if len(items) > 0 {
+				fanOuts = append(fanOuts, fanOutExecution{sourceNodeID: nodeID, items: items})
+				for downstreamID := range e.findDownstream(nodeID, states) {
+					fanOutOwned[downstreamID] = true
+				}
 			}
-
-			// For each fan-out item, execute the downstream subgraph
-			// in a separate goroutine.
-			for _, item := range items {
-				wg.Add(1)
-				go func(data map[string]any) {
-					defer wg.Done()
-					if err := e.runFanOutBranch(ctx, nodeID, data, states, order, reg); err != nil {
-						logi.Ctx(ctx).Error("fan-out branch failed", append(nodeLogAttrs(st), "error", err)...)
-						execMu.Lock()
-						if firstErr == nil {
-							firstErr = err
-						}
-						execMu.Unlock()
-					}
-				}(item)
-			}
+			continue
 		}
 
-		// Handle selection routing: if the result implements NodeResultSelection,
-		// we need to mark which output ports are active. The gatherInputs function
-		// will check this during downstream execution.
-		// (Selection routing is handled naturally by the port-based wiring —
-		// nodes with selection just have multiple named output ports like
-		// "true"/"false", and the selection indices map to port names.)
+		nodeOutputs[nodeID] = result
 	}
 
-	// Wait for all fan-out branches.
-	wg.Wait()
-
-	if firstErr != nil {
-		return nil, firstErr
+	for _, fanOut := range fanOuts {
+		if err := e.runFanOut(ctx, fanOut, states, order, reg, nodeOutputs, signalOutput); err != nil {
+			signalOutput(nil, err)
+			return nil, err
+		}
 	}
 
 	// Collect outputs from Output nodes via the registry.
@@ -535,14 +457,84 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	return &RunResult{Outputs: outputs}, nil
 }
 
-// gatherInputs collects data from upstream nodes for a given node.
-func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeOutputs map[string]NodeResult) map[string]any {
+type fanOutExecution struct {
+	sourceNodeID string
+	items        []map[string]any
+}
+
+type outputSignal func(map[string]any, error)
+
+// executeNode is the single execution path for main and fan-out nodes.
+func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, inputs map[string]any, signalOutput outputSignal) (NodeResult, bool, error) {
+	e.emitEvent(NodeEvent{
+		NodeID:    st.node.ID,
+		NodeType:  st.noder.Type(),
+		EventType: "started",
+	})
+	logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
+
+	startTime := time.Now()
+	result, err := st.noder.Run(ctx, reg, inputs)
+	durationMs := time.Since(startTime).Milliseconds()
+	if err != nil {
+		if errors.Is(err, ErrStopBranch) {
+			e.emitEvent(NodeEvent{
+				NodeID:     st.node.ID,
+				NodeType:   st.noder.Type(),
+				EventType:  "skipped",
+				DurationMs: durationMs,
+			})
+			return nil, true, nil
+		}
+
+		e.emitEvent(NodeEvent{
+			NodeID:     st.node.ID,
+			NodeType:   st.noder.Type(),
+			EventType:  "error",
+			Error:      err.Error(),
+			DurationMs: durationMs,
+		})
+		return nil, false, fmt.Errorf("%s: %w", nodeRef(st), err)
+	}
+	logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
+
+	completedEvent := NodeEvent{
+		NodeID:     st.node.ID,
+		NodeType:   st.noder.Type(),
+		EventType:  "completed",
+		DurationMs: durationMs,
+	}
+	if result != nil {
+		completedEvent.Data = truncateOutputData(result.Data())
+	}
+	e.emitEvent(completedEvent)
+
+	if st.noder.Type() == "output" {
+		signalOutput(reg.Outputs(), nil)
+	}
+
+	return result, false, nil
+}
+
+func (e *Engine) emitSkipped(st *nodeState) {
+	e.emitEvent(NodeEvent{
+		NodeID:    st.node.ID,
+		NodeType:  st.noder.Type(),
+		EventType: "skipped",
+	})
+}
+
+// gatherInputs collects upstream data and reports whether the node is active.
+// Root nodes are active by definition; other nodes require at least one active
+// incoming edge.
+func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeOutputs map[string]NodeResult) (map[string]any, bool) {
 	st := states[nodeID]
 	if st == nil {
-		return make(map[string]any)
+		return make(map[string]any), false
 	}
 
 	result := make(map[string]any)
+	active := len(st.inputs) == 0
 
 	for tgtPort, conns := range st.inputs {
 		for _, conn := range conns {
@@ -563,6 +555,7 @@ func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeO
 						continue
 					}
 				}
+				active = true
 				// Selection port names route the whole node result; they are not
 				// required to also exist as keys in the result payload. Nodes such
 				// as exec and conditional return fields like stdout/result while
@@ -574,6 +567,8 @@ func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeO
 				}
 				continue
 			}
+
+			active = true
 
 			// Map source port data to target port.
 			if val, exists := upstreamData[conn.port]; exists {
@@ -591,7 +586,7 @@ func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeO
 		}
 	}
 
-	return result
+	return result, active
 }
 
 // isPortActive checks whether a specific output port is active given selection port names.
@@ -605,22 +600,52 @@ func (e *Engine) isPortActive(portName string, _ *nodeState, selection []string)
 	return false
 }
 
-// runFanOutBranch executes downstream nodes for a single fan-out item.
-func (e *Engine) runFanOutBranch(ctx context.Context, sourceNodeID string, data map[string]any, states map[string]*nodeState, order []string, reg *Registry) error {
-	// Find the position of sourceNodeID in order and execute everything after it
-	// that is downstream.
-	downstream := e.findDownstream(sourceNodeID, states)
+// runFanOut executes each item concurrently, then merges branch outputs in item
+// order. This preserves fan-out concurrency while making duplicate output keys
+// deterministic: later items win, matching Registry.SetOutputs semantics.
+func (e *Engine) runFanOut(ctx context.Context, fanOut fanOutExecution, states map[string]*nodeState, order []string, reg *Registry, baseOutputs map[string]NodeResult, signalOutput outputSignal) error {
+	branchRegs := make([]*Registry, len(fanOut.items))
+	errs := make([]error, len(fanOut.items))
+	var wg sync.WaitGroup
 
-	// Create a local outputs map for this branch.
-	branchOutputs := make(map[string]NodeResult)
-	branchOutputs[sourceNodeID] = NewResult(data)
+	for i, item := range fanOut.items {
+		branchRegs[i] = reg.newBranch()
+		wg.Add(1)
+		go func(index int, data map[string]any) {
+			defer wg.Done()
+			errs[index] = e.runFanOutBranch(ctx, fanOut.sourceNodeID, data, states, order, branchRegs[index], baseOutputs, signalOutput)
+		}(i, item)
+	}
+	wg.Wait()
+
+	for i, branchReg := range branchRegs {
+		if errs[i] == nil {
+			reg.SetOutputs(branchReg.Outputs())
+		}
+	}
+	for i, err := range errs {
+		if err != nil {
+			st := states[fanOut.sourceNodeID]
+			logi.Ctx(ctx).Error("fan-out branch failed", append(nodeLogAttrs(st), "item_index", i, "error", err)...)
+			return err
+		}
+	}
+
+	return nil
+}
+
+// runFanOutBranch executes downstream nodes for a single fan-out item.
+func (e *Engine) runFanOutBranch(ctx context.Context, sourceNodeID string, data map[string]any, states map[string]*nodeState, order []string, reg *Registry, baseOutputs map[string]NodeResult, signalOutput outputSignal) error {
+	downstream := e.findDownstream(sourceNodeID, states)
+	branchOutputs := cloneNodeOutputs(baseOutputs)
+	branchOutputs[sourceNodeID] = NewSelectionResult(data, outputPorts(states[sourceNodeID]))
+	fanOutOwned := make(map[string]bool)
+	var fanOuts []fanOutExecution
 
 	for _, nodeID := range order {
-		if !downstream[nodeID] {
+		if !downstream[nodeID] || fanOutOwned[nodeID] {
 			continue
 		}
-
-		// Check for cancellation between node executions.
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("workflow cancelled: %w", err)
 		}
@@ -630,24 +655,61 @@ func (e *Engine) runFanOutBranch(ctx context.Context, sourceNodeID string, data 
 			continue
 		}
 
-		nodeInputs := e.gatherInputs(nodeID, states, branchOutputs)
-
-		logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
-		result, err := st.noder.Run(ctx, reg, nodeInputs)
-		if err != nil {
-			if err == ErrStopBranch {
-				continue
-			}
-			return fmt.Errorf("%s: %w", nodeRef(st), err)
+		nodeInputs, active := e.gatherInputs(nodeID, states, branchOutputs)
+		if !active {
+			e.emitSkipped(st)
+			continue
 		}
-		logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
 
-		if result != nil {
-			branchOutputs[nodeID] = result
+		result, stopped, err := e.executeNode(ctx, st, reg, nodeInputs, signalOutput)
+		if err != nil {
+			return err
+		}
+		if stopped || result == nil {
+			continue
+		}
+
+		if nested, ok := result.(NodeResultFanOut); ok {
+			items := nested.Items()
+			if len(items) > 0 {
+				fanOuts = append(fanOuts, fanOutExecution{sourceNodeID: nodeID, items: items})
+				for downstreamID := range e.findDownstream(nodeID, states) {
+					fanOutOwned[downstreamID] = true
+				}
+			}
+			continue
+		}
+
+		branchOutputs[nodeID] = result
+	}
+
+	for _, nested := range fanOuts {
+		if err := e.runFanOut(ctx, nested, states, order, reg, branchOutputs, signalOutput); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+func cloneNodeOutputs(outputs map[string]NodeResult) map[string]NodeResult {
+	cloned := make(map[string]NodeResult, len(outputs))
+	for nodeID, result := range outputs {
+		cloned[nodeID] = result
+	}
+	return cloned
+}
+
+func outputPorts(st *nodeState) []string {
+	if st == nil {
+		return nil
+	}
+	ports := make([]string, 0, len(st.outputs))
+	for port := range st.outputs {
+		ports = append(ports, port)
+	}
+	sort.Strings(ports)
+	return ports
 }
 
 // findDownstream returns a set of all node IDs reachable from sourceNodeID.
@@ -805,6 +867,9 @@ func topoSort(reachable map[string]bool, edges []service.WorkflowEdge) ([]string
 		adjacency[e.Source] = append(adjacency[e.Source], e.Target)
 		inDegree[e.Target]++
 	}
+	for id := range adjacency {
+		sort.Strings(adjacency[id])
+	}
 
 	var queue []string
 	for id := range reachable {
@@ -812,6 +877,7 @@ func topoSort(reachable map[string]bool, edges []service.WorkflowEdge) ([]string
 			queue = append(queue, id)
 		}
 	}
+	sort.Strings(queue)
 
 	var order []string
 	for len(queue) > 0 {
@@ -825,6 +891,7 @@ func topoSort(reachable map[string]bool, edges []service.WorkflowEdge) ([]string
 				queue = append(queue, neighbor)
 			}
 		}
+		sort.Strings(queue)
 	}
 
 	if len(order) != len(reachable) {

@@ -1,7 +1,7 @@
 {
   "slug": "fal-image",
   "name": "FAL Image Generation (Nano Banana)",
-  "description": "Generate images via FAL.ai Nano Banana (Google Gemini Image): Standard (Flash), Pro, and Nano Banana 2 (Gemini 3 Pro Image). Synchronous, returns image URL and downloads to AT_WORK_DIR.",
+  "description": "Generate images via FAL.ai Nano Banana (Google Gemini Image): Standard (Flash), Pro, and Nano Banana 2 (Gemini 3 Pro Image). Synchronous, returns image URL and downloads to AT_WORK_DIR. Includes multi-image reference editing (Nano Banana 2 Edit) for character-consistent keyframe stills.",
   "category": "Content Creation",
   "tags": [
     "image",
@@ -21,7 +21,7 @@
   "skill": {
     "name": "fal_image",
     "description": "Generate images via FAL.ai Nano Banana (Google Gemini Image).",
-    "system_prompt": "You can generate images using FAL.ai's Nano Banana model family (Google Gemini Image).\n\n## Tools\n- `generate_image_nano_banana` — Standard (Gemini 2.5 Flash Image). Fastest, cheapest. Good for iteration.\n- `generate_image_nano_banana_pro` — Pro. Higher quality, photorealistic.\n- `generate_image_nano_banana_2` — Nano Banana 2 (Gemini 3 Pro Image). Newest, best quality. **Default pick.**\n\n## Aspect ratio\n- '1:1' (square)\n- '16:9' (landscape — YouTube, ASMR cozy room)\n- '9:16' (vertical — Shorts/TikTok)\n- '4:3', '3:4', '21:9'\n\n## Output\nAll tools return JSON: `{ image_url: '<https url>', local_file: '<path in AT_WORK_DIR>', size_bytes: N, description: '...' }`.\n- `image_url` is the FAL CDN URL (can expire — use the local file).\n- `local_file` is already downloaded to AT_WORK_DIR — use that path directly for downstream tools.\n- `description` is FAL's auto-generated description of the image — verify the subject matches what you asked for.\n\n## Prompt rules\n- Name the exact subject FIRST.\n- Include camera angle, distance, framing, lighting.\n- Use full descriptive sentences — Gemini follows natural language well.\n- For photoreal output, end with: 'photorealistic, cinematic lighting'.\n- For ASMR/lofi: 'painterly digital art, cozy lo-fi aesthetic, warm color palette, soft shadows, hand-illustrated'.",
+    "system_prompt": "You can generate images using FAL.ai's Nano Banana model family (Google Gemini Image).\n\n## Tools\n- `generate_image_nano_banana` — Standard (Gemini 2.5 Flash Image). Fastest, cheapest. Good for iteration.\n- `generate_image_nano_banana_pro` — Pro. Higher quality, photorealistic.\n- `generate_image_nano_banana_2` — Nano Banana 2 (Gemini 3 Pro Image). Newest, best quality. **Default pick.**\n\n## Aspect ratio\n- '1:1' (square)\n- '16:9' (landscape — YouTube, ASMR cozy room)\n- '9:16' (vertical — Shorts/TikTok)\n- '4:3', '3:4', '21:9'\n\n## Output\nAll tools return JSON: `{ image_url: '<https url>', local_file: '<path in AT_WORK_DIR>', size_bytes: N, description: '...' }`.\n- `image_url` is the FAL CDN URL (can expire — use the local file).\n- `local_file` is already downloaded to AT_WORK_DIR — use that path directly for downstream tools.\n- `description` is FAL's auto-generated description of the image — verify the subject matches what you asked for.\n\n## Prompt rules\n- Name the exact subject FIRST.\n- Include camera angle, distance, framing, lighting.\n- Use full descriptive sentences — Gemini follows natural language well.\n- For photoreal output, end with: 'photorealistic, cinematic lighting'.\n- For ASMR/lofi: 'painterly digital art, cozy lo-fi aesthetic, warm color palette, soft shadows, hand-illustrated'.\n\n## Reference editing\n- `edit_image_nano_banana` composes/edits with up to 6 reference images (local paths, URLs, or library character names) via Nano Banana 2 Edit - use it to build keyframe stills that place a recurring character into a scene before animating (identity is preserved from the references).",
     "tools": [
       {
         "name": "generate_image_nano_banana_2",
@@ -29,15 +29,63 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "prompt": { "type": "string", "description": "Image description." },
-            "aspect_ratio": { "type": "string", "description": "'1:1','16:9','9:16','4:3','3:4','21:9'. Default '16:9'." },
-            "output_format": { "type": "string", "description": "'png' (default) or 'jpeg'." },
-            "num_images": { "type": "number", "description": "1-4. Default 1." }
+            "prompt": {
+              "type": "string",
+              "description": "Image description."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "description": "'1:1','16:9','9:16','4:3','3:4','21:9'. Default '16:9'."
+            },
+            "output_format": {
+              "type": "string",
+              "description": "'png' (default) or 'jpeg'."
+            },
+            "num_images": {
+              "type": "number",
+              "description": "1-4. Default 1."
+            }
           },
-          "required": ["prompt"]
+          "required": [
+            "prompt"
+          ]
         },
         "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured (set fal_api_key or FAL_KEY)\"}'\n  exit 0\nfi\n\nPROMPT=\"$ARG_PROMPT\"\nAR=\"${ARG_ASPECT_RATIO:-16:9}\"\nFMT=\"${ARG_OUTPUT_FORMAT:-png}\"\nN=\"${ARG_NUM_IMAGES:-1}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"\nmkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid; print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/nano-banana-2-$UUID.$FMT\"\n\nPAYLOAD=$(python3 -c \"\nimport json,sys\nprint(json.dumps({'prompt': sys.argv[1], 'aspect_ratio': sys.argv[2], 'output_format': sys.argv[3], 'num_images': int(sys.argv[4])}))\n\" \"$PROMPT\" \"$AR\" \"$FMT\" \"$N\")\n\nRESP=$(curl -sS --max-time 120 -X POST 'https://fal.run/fal-ai/nano-banana-2' \\\n  -H \"Authorization: Key $API_KEY\" \\\n  -H 'Content-Type: application/json' \\\n  -d \"$PAYLOAD\")\n\nIMG_URL=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin)\n    imgs=d.get('images') or []\n    if imgs: print(imgs[0].get('url',''))\nexcept: pass\n\")\nDESC=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print((d.get('description') or '')[:500])\nexcept: pass\n\")\n\nif [ -z \"$IMG_URL\" ]; then\n  ERR=$(echo \"$RESP\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL returned no image URL\\\",\\\"raw\\\":$ERR}\"\n  exit 0\nfi\n\ncurl -sSL -o \"$OUT\" \"$IMG_URL\"\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\nESC_DESC=$(python3 -c 'import sys,json;print(json.dumps(sys.argv[1]))' \"$DESC\")\necho \"{\\\"image_url\\\":\\\"$IMG_URL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"description\\\":$ESC_DESC,\\\"model\\\":\\\"nano-banana-2\\\"}\"",
         "handler_type": "bash"
+      },
+      {
+        "name": "edit_image_nano_banana",
+        "description": "Compose or edit images with FAL Nano Banana 2 Edit using multiple reference inputs: place a library character into a location, combine character + prop + background, restyle a still. Accepts up to 6 images (local paths, URLs, or library character names - a character name resolves to its portrait). Identity from reference images is preserved. Ideal for producing per-shot keyframe stills before animating them (scene_video). Returns JSON {image_file, image_url}.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "prompt": {
+              "type": "string",
+              "description": "Composition/edit instruction, e.g. 'Place the woman from image 1 into the alley from image 2, walking toward the camera, night rain'."
+            },
+            "images": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "1-6 input images: local paths, URLs, or library character names."
+            },
+            "aspect_ratio": {
+              "type": "string",
+              "description": "Output aspect ratio (e.g. 16:9, 9:16, 1:1, 21:9). Default: follows input."
+            },
+            "output": {
+              "type": "string",
+              "description": "Optional output PNG path (default: workspace nb2-edit-<id>.png)."
+            }
+          },
+          "required": [
+            "prompt",
+            "images"
+          ]
+        },
+        "handler_type": "bash",
+        "handler": "#!/bin/bash\npython3 - <<'ATPY'\n\nimport json, os, sys, time, base64, mimetypes, urllib.request, urllib.error\n\nAPI_KEY = os.environ.get(\"VAR_FAL_API_KEY\") or os.environ.get(\"VAR_FAL_KEY\") or \"\"\nWORK_DIR = os.environ.get(\"AT_WORK_DIR\") or \"/tmp\"\nASSETS_DIR = os.environ.get(\"AT_ASSETS_DIR\") or os.path.join(WORK_DIR, \"assets\")\nAVATAR_DIR = os.path.join(ASSETS_DIR, \"avatars\")\n\ndef die(msg, **extra):\n    out = {\"error\": msg}\n    out.update(extra)\n    print(json.dumps(out)); sys.exit(0)\n\nif not API_KEY:\n    die(\"FAL API key not configured (set fal_api_key or FAL_KEY)\")\n\ndef http_json(url, payload=None, method=None, timeout=60):\n    data = json.dumps(payload).encode() if payload is not None else None\n    req = urllib.request.Request(url, data=data, method=method or (\"POST\" if data else \"GET\"),\n        headers={\"Authorization\": \"Key \" + API_KEY, \"Content-Type\": \"application/json\"})\n    with urllib.request.urlopen(req, timeout=timeout) as r:\n        return json.load(r)\n\ndef resolve_avatar(ref):\n    \"\"\"Resolve an avatar reference: URL, local path, or library name.\"\"\"\n    if not ref:\n        return ref\n    if ref.startswith((\"http://\", \"https://\", \"data:\")):\n        return ref\n    if os.path.isfile(os.path.expanduser(ref)):\n        return os.path.expanduser(ref)\n    # Library lookup by name/slug: avatars/<slug>.{png,jpg,jpeg,webp}\n    slug = ref.strip().lower().replace(\" \", \"-\")\n    for ext in (\"png\", \"jpg\", \"jpeg\", \"webp\"):\n        p = os.path.join(AVATAR_DIR, slug + \".\" + ext)\n        if os.path.isfile(p):\n            return p\n    manifest = os.path.join(AVATAR_DIR, slug + \".json\")\n    if os.path.isfile(manifest):\n        try:\n            m = json.load(open(manifest))\n            if m.get(\"file\") and os.path.isfile(m[\"file\"]):\n                return m[\"file\"]\n        except Exception:\n            pass\n    die(\"avatar not found: %r (not a URL, file, or library name; use list_avatars)\" % ref)\n\ndef to_fal_url(path_or_url):\n    \"\"\"Return a URL FAL can fetch: pass URLs through, upload local files to\n    the FAL CDN, fall back to a base64 data URI.\"\"\"\n    if path_or_url.startswith((\"http://\", \"https://\", \"data:\")):\n        return path_or_url\n    p = os.path.expanduser(path_or_url)\n    if not os.path.isfile(p):\n        die(\"file not found: \" + p)\n    ctype = mimetypes.guess_type(p)[0] or \"application/octet-stream\"\n    blob = open(p, \"rb\").read()\n    try:\n        init = http_json(\"https://rest.alpha.fal.ai/storage/upload/initiate?storage_type=fal-cdn-v3\",\n                         {\"content_type\": ctype, \"file_name\": os.path.basename(p)}, timeout=30)\n        up = urllib.request.Request(init[\"upload_url\"], data=blob,\n                                    headers={\"Content-Type\": ctype}, method=\"PUT\")\n        with urllib.request.urlopen(up, timeout=600):\n            pass\n        return init[\"file_url\"]\n    except Exception:\n        if len(blob) > 20 * 1024 * 1024:\n            die(\"CDN upload failed and file too large (>20MB) for inline data URI: \" + p)\n        return \"data:\" + ctype + \";base64,\" + base64.b64encode(blob).decode()\n\ndef queue_run(model, payload, poll_minutes=25):\n    \"\"\"Submit to queue.fal.run and poll until completion.\"\"\"\n    sub = http_json(\"https://queue.fal.run/\" + model, payload, timeout=60)\n    req_id = sub.get(\"request_id\")\n    if not req_id:\n        die(\"FAL submit failed\", raw=str(sub)[:800])\n    status_url = sub.get(\"status_url\") or \"https://queue.fal.run/%s/requests/%s/status\" % (model, req_id)\n    resp_url = sub.get(\"response_url\") or \"https://queue.fal.run/%s/requests/%s\" % (model, req_id)\n    deadline = time.time() + poll_minutes * 60\n    while time.time() < deadline:\n        time.sleep(10)\n        try:\n            st = http_json(status_url, timeout=30)\n        except Exception:\n            continue\n        status = st.get(\"status\", \"\")\n        if status == \"COMPLETED\":\n            return http_json(resp_url, timeout=60), req_id\n        if status in (\"FAILED\", \"ERROR\"):\n            die(\"FAL job failed\", status=status, request_id=req_id)\n    die(\"FAL job timed out\", request_id=req_id, status_url=status_url, response_url=resp_url,\n        hint=\"Retry, or poll the status_url manually with the API key.\")\n\ndef download(url, out_path):\n    req = urllib.request.Request(url)\n    with urllib.request.urlopen(req, timeout=600) as r, open(out_path, \"wb\") as f:\n        while True:\n            chunk = r.read(1 << 20)\n            if not chunk:\n                break\n            f.write(chunk)\n    return os.path.getsize(out_path)\n\ndef save_to_library(src_path, name, description=\"\", source_url=\"\"):\n    os.makedirs(AVATAR_DIR, exist_ok=True)\n    slug = name.strip().lower().replace(\" \", \"-\")\n    ext = os.path.splitext(src_path)[1].lstrip(\".\") or \"png\"\n    dest = os.path.join(AVATAR_DIR, slug + \".\" + ext)\n    if os.path.abspath(src_path) != os.path.abspath(dest):\n        import shutil\n        shutil.copyfile(src_path, dest)\n    now = time.strftime(\"%Y-%m-%dT%H:%M:%SZ\", time.gmtime())\n    mpath = os.path.join(AVATAR_DIR, slug + \".json\")\n    manifest = {}\n    if os.path.isfile(mpath):\n        try:\n            manifest = json.load(open(mpath))\n        except Exception:\n            manifest = {}\n    manifest.update({\"name\": name, \"slug\": slug, \"file\": dest, \"version\": 2, \"updated_at\": now})\n    if description:\n        manifest[\"description\"] = description\n    manifest.setdefault(\"description\", \"\")\n    if source_url:\n        manifest[\"source_url\"] = source_url\n    manifest.setdefault(\"source_url\", \"\")\n    manifest.setdefault(\"created_at\", now)\n    refs = [r for r in (manifest.get(\"reference_images\") or [])]\n    base = os.path.basename(dest)\n    if base not in refs and dest not in refs:\n        refs.insert(0, base)\n    manifest[\"reference_images\"] = refs\n    write_manifest(mpath, manifest)\n    return manifest\n\ndef uid():\n    import uuid\n    return uuid.uuid4().hex[:10]\n\ndef slugify(name):\n    return name.strip().lower().replace(\" \", \"-\")\n\ndef manifest_path(slug):\n    return os.path.join(AVATAR_DIR, slug + \".json\")\n\ndef load_manifest(ref):\n    \"\"\"Load a library character by name/slug. Returns (slug, manifest) or dies.\"\"\"\n    slug = slugify(ref)\n    p = manifest_path(slug)\n    if os.path.isfile(p):\n        try:\n            return slug, json.load(open(p))\n        except Exception as e:\n            die(\"corrupt manifest for %r: %s\" % (ref, e))\n    for ext in (\"png\", \"jpg\", \"jpeg\", \"webp\"):\n        img = os.path.join(AVATAR_DIR, slug + \".\" + ext)\n        if os.path.isfile(img):\n            return slug, {\"name\": ref, \"slug\": slug, \"file\": img}\n    avail = sorted(os.path.splitext(f)[0] for f in os.listdir(AVATAR_DIR) if f.endswith(\".json\")) if os.path.isdir(AVATAR_DIR) else []\n    die(\"character not found in library: %r\" % ref, available=avail)\n\ndef write_manifest(path, manifest):\n    \"\"\"Atomic manifest write: temp file + rename.\"\"\"\n    os.makedirs(os.path.dirname(path), exist_ok=True)\n    tmp = path + \".tmp-\" + uid()\n    with open(tmp, \"w\") as f:\n        json.dump(manifest, f, indent=1)\n    os.replace(tmp, path)\n\ndef arg(name, default=\"\"):\n    return os.environ.get(\"ARG_\" + name, \"\") or default\n\ndef arg_list(name):\n    raw = os.environ.get(\"ARG_\" + name, \"\")\n    if not raw:\n        return []\n    try:\n        v = json.loads(raw)\n        if isinstance(v, list):\n            return [str(x) for x in v if str(x).strip()]\n    except ValueError:\n        pass\n    return [x.strip() for x in raw.split(\",\") if x.strip()]\n\ndef resolve_image(ref):\n    \"\"\"URL, local path, or library character name (portrait) -> FAL-fetchable URL.\"\"\"\n    if ref.startswith((\"http://\", \"https://\", \"data:\")):\n        return ref\n    p = os.path.expanduser(ref)\n    if os.path.isfile(p):\n        return to_fal_url(p)\n    return to_fal_url(resolve_avatar(ref))\n\nprompt = arg(\"PROMPT\")\nrefs = arg_list(\"IMAGES\")\nif not prompt:\n    die(\"prompt is required\")\nif not refs:\n    die(\"images is required: one or more local paths, URLs, or library character names\")\nif len(refs) > 6:\n    die(\"at most 6 input images are supported\")\nar = arg(\"ASPECT_RATIO\", \"auto\")\n\npayload = {\"prompt\": prompt, \"image_urls\": [resolve_image(r) for r in refs],\n           \"output_format\": \"png\", \"num_images\": 1}\nif ar and ar != \"auto\":\n    payload[\"aspect_ratio\"] = ar\n\nres, req_id = queue_run(\"fal-ai/nano-banana-2/edit\", payload, poll_minutes=10)\nimgs = res.get(\"images\") or []\nif not imgs or not imgs[0].get(\"url\"):\n    die(\"FAL returned no image\", request_id=req_id, raw=str(res)[:500])\nurl = imgs[0][\"url\"]\nout = arg(\"OUTPUT\") or os.path.join(WORK_DIR, \"nb2-edit-%s.png\" % uid())\nif not os.path.isabs(out):\n    out = os.path.join(WORK_DIR, out)\nos.makedirs(os.path.dirname(out), exist_ok=True)\nsize = download(url, out)\nprint(json.dumps({\"image_file\": out, \"image_url\": url, \"size_bytes\": size,\n                  \"model\": \"fal-ai/nano-banana-2/edit\", \"request_id\": req_id}))\n\nATPY\n"
       },
       {
         "name": "generate_image_nano_banana_pro",
@@ -45,12 +93,22 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "prompt": { "type": "string" },
-            "aspect_ratio": { "type": "string" },
-            "output_format": { "type": "string" },
-            "num_images": { "type": "number" }
+            "prompt": {
+              "type": "string"
+            },
+            "aspect_ratio": {
+              "type": "string"
+            },
+            "output_format": {
+              "type": "string"
+            },
+            "num_images": {
+              "type": "number"
+            }
           },
-          "required": ["prompt"]
+          "required": [
+            "prompt"
+          ]
         },
         "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured\"}'; exit 0\nfi\nPROMPT=\"$ARG_PROMPT\"; AR=\"${ARG_ASPECT_RATIO:-16:9}\"; FMT=\"${ARG_OUTPUT_FORMAT:-png}\"; N=\"${ARG_NUM_IMAGES:-1}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid;print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/nano-banana-pro-$UUID.$FMT\"\nPAYLOAD=$(python3 -c \"import json,sys;print(json.dumps({'prompt':sys.argv[1],'aspect_ratio':sys.argv[2],'output_format':sys.argv[3],'num_images':int(sys.argv[4])}))\" \"$PROMPT\" \"$AR\" \"$FMT\" \"$N\")\nRESP=$(curl -sS --max-time 120 -X POST 'https://fal.run/fal-ai/nano-banana-pro' -H \"Authorization: Key $API_KEY\" -H 'Content-Type: application/json' -d \"$PAYLOAD\")\nIMG_URL=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); imgs=d.get('images') or []\n    if imgs: print(imgs[0].get('url',''))\nexcept: pass\")\nDESC=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print((d.get('description') or '')[:500])\nexcept: pass\")\nif [ -z \"$IMG_URL\" ]; then\n  ERR=$(echo \"$RESP\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL returned no image URL\\\",\\\"raw\\\":$ERR}\"; exit 0\nfi\ncurl -sSL -o \"$OUT\" \"$IMG_URL\"\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\nESC_DESC=$(python3 -c 'import sys,json;print(json.dumps(sys.argv[1]))' \"$DESC\")\necho \"{\\\"image_url\\\":\\\"$IMG_URL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"description\\\":$ESC_DESC,\\\"model\\\":\\\"nano-banana-pro\\\"}\"",
         "handler_type": "bash"
@@ -61,12 +119,22 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "prompt": { "type": "string" },
-            "aspect_ratio": { "type": "string" },
-            "output_format": { "type": "string" },
-            "num_images": { "type": "number" }
+            "prompt": {
+              "type": "string"
+            },
+            "aspect_ratio": {
+              "type": "string"
+            },
+            "output_format": {
+              "type": "string"
+            },
+            "num_images": {
+              "type": "number"
+            }
           },
-          "required": ["prompt"]
+          "required": [
+            "prompt"
+          ]
         },
         "handler": "#!/bin/bash\nset -e\nAPI_KEY=\"${VAR_FAL_API_KEY:-${VAR_FAL_KEY:-}}\"\nif [ -z \"$API_KEY\" ]; then\n  echo '{\"error\":\"FAL API key not configured\"}'; exit 0\nfi\nPROMPT=\"$ARG_PROMPT\"; AR=\"${ARG_ASPECT_RATIO:-16:9}\"; FMT=\"${ARG_OUTPUT_FORMAT:-png}\"; N=\"${ARG_NUM_IMAGES:-1}\"\nWORK_DIR=\"${AT_WORK_DIR:-/tmp}\"; mkdir -p \"$WORK_DIR\"\nUUID=$(python3 -c 'import uuid;print(uuid.uuid4().hex[:10])')\nOUT=\"$WORK_DIR/nano-banana-$UUID.$FMT\"\nPAYLOAD=$(python3 -c \"import json,sys;print(json.dumps({'prompt':sys.argv[1],'aspect_ratio':sys.argv[2],'output_format':sys.argv[3],'num_images':int(sys.argv[4])}))\" \"$PROMPT\" \"$AR\" \"$FMT\" \"$N\")\nRESP=$(curl -sS --max-time 120 -X POST 'https://fal.run/fal-ai/nano-banana' -H \"Authorization: Key $API_KEY\" -H 'Content-Type: application/json' -d \"$PAYLOAD\")\nIMG_URL=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); imgs=d.get('images') or []\n    if imgs: print(imgs[0].get('url',''))\nexcept: pass\")\nDESC=$(echo \"$RESP\" | python3 -c \"import sys,json\ntry:\n    d=json.load(sys.stdin); print((d.get('description') or '')[:500])\nexcept: pass\")\nif [ -z \"$IMG_URL\" ]; then\n  ERR=$(echo \"$RESP\" | head -c 800 | python3 -c 'import sys,json;print(json.dumps(sys.stdin.read()))')\n  echo \"{\\\"error\\\":\\\"FAL returned no image URL\\\",\\\"raw\\\":$ERR}\"; exit 0\nfi\ncurl -sSL -o \"$OUT\" \"$IMG_URL\"\nSIZE=$(stat -c%s \"$OUT\" 2>/dev/null || stat -f%z \"$OUT\")\nESC_DESC=$(python3 -c 'import sys,json;print(json.dumps(sys.argv[1]))' \"$DESC\")\necho \"{\\\"image_url\\\":\\\"$IMG_URL\\\",\\\"local_file\\\":\\\"$OUT\\\",\\\"size_bytes\\\":$SIZE,\\\"description\\\":$ESC_DESC,\\\"model\\\":\\\"nano-banana\\\"}\"",
         "handler_type": "bash"

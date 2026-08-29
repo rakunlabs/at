@@ -1,0 +1,31 @@
+{
+  "slug": "video-series",
+  "name": "Series Studio",
+  "description": "Episodic video series production with recurring, consistent characters: a Showrunner org that scripts episodes into shot lists, keeps a character bible (portraits + turnarounds + bound voices), generates identity-consistent scene clips with shot-to-shot continuity (FAL Kling/Veo/Seedance/Vidu/Sora or direct LTX-2.5), and assembles captioned episodes — all recorded as structured state in the persistent series library. Install the series-library, fal-cinema, ltx-video, fal-avatar, fal-image, elevenlabs-voice, openai-tts, video-composer and ffmpeg-guide skill templates first (the Studio UI setup does this automatically), then assign a provider/model to the five agents.",
+  "category": "Content Creation",
+  "icon": "film",
+  "author": "AT",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "key": "fal_api_key",
+      "description": "FAL.ai API key — character portraits/turnarounds, reference-to-video scene generation, continuity shots, Sora characters.",
+      "secret": true
+    },
+    {
+      "key": "ltx_api_key",
+      "description": "LTX API key — direct LTX-2.5 Fast/Pro text, image and audio-to-video generation through api.ltx.io.",
+      "secret": true
+    },
+    {
+      "key": "elevenlabs_api_key",
+      "description": "ElevenLabs API key — per-character cloned voices + dialogue TTS. Optional: openai-tts is used as fallback when unset.",
+      "secret": true
+    },
+    {
+      "key": "openai_api_key",
+      "description": "OpenAI API key — fallback TTS and Whisper subtitle generation. Optional.",
+      "secret": true
+    }
+  ]
+}

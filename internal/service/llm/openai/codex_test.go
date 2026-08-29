@@ -419,6 +419,28 @@ func TestCodexProviderReturnsTyped429(t *testing.T) {
 	}
 }
 
+func TestCodexProviderReturnsUpstreamError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"Invalid model","type":"invalid_request_error","param":"model","code":"model_not_found"}}`))
+	}))
+	defer server.Close()
+
+	provider := NewCodexProvider("codex", "account", NewCodexTokenSource("token", "", "account", time.Time{}, nil),
+		WithCodexBaseURL(server.URL),
+		WithCodexHTTPClient(server.Client()),
+	)
+	_, err := provider.Chat(context.Background(), "", nil, nil, nil)
+
+	var upstreamErr *service.UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("error type = %T, want *service.UpstreamError", err)
+	}
+	if upstreamErr.Provider != "openai-codex" || upstreamErr.StatusCode != http.StatusBadRequest || upstreamErr.Code != "model_not_found" || upstreamErr.Param != "model" || upstreamErr.Message != "Invalid model" {
+		t.Fatalf("unexpected upstream error: %+v", upstreamErr)
+	}
+}
+
 func TestCodexProviderRefreshesAndRetriesOnceOnUnauthorized(t *testing.T) {
 	oldAccessToken := codexTestJWT(t, "account", time.Now().Add(time.Hour))
 	newAccessToken := codexTestJWT(t, "account", time.Now().Add(2*time.Hour))

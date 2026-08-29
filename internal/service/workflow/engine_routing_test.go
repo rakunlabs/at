@@ -17,7 +17,10 @@ func TestGatherInputsSelectionRoutesWholePayload(t *testing.T) {
 		"exec": NewSelectionResult(payload, []string{"always", "true"}),
 	}
 
-	got := e.gatherInputs("out", states, outputs)
+	got, active := e.gatherInputs("out", states, outputs)
+	if !active {
+		t.Fatal("expected selected predecessor to activate node")
+	}
 	input, ok := got["input"].(map[string]any)
 	if !ok {
 		t.Fatalf("input = %#v, want full result payload", got["input"])
@@ -42,7 +45,10 @@ func TestGatherInputsLegacyOutputHandleUsesData(t *testing.T) {
 		"input": NewResult(map[string]any{"data": payload}),
 	}
 
-	got := e.gatherInputs("exec", states, outputs)
+	got, active := e.gatherInputs("exec", states, outputs)
+	if !active {
+		t.Fatal("expected predecessor to activate node")
+	}
 	data, ok := got["data"].(map[string]any)
 	if !ok || data["scene"] != 1 {
 		t.Fatalf("data = %#v, want legacy output handle to route data payload", got["data"])

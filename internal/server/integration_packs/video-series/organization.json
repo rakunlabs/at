@@ -1,0 +1,36 @@
+{
+  "name": "Series Studio",
+  "description": "Episodic video series production: character bible, scripted shot lists, identity-consistent scene generation with continuity, and captioned episode assembly recorded in the persistent series library.",
+  "relationships": [
+    {
+      "agent_name": "Showrunner",
+      "role": "head",
+      "title": "Showrunner",
+      "is_head": true
+    },
+    {
+      "agent_name": "Script Writer",
+      "role": "member",
+      "title": "Script Writer",
+      "parent_agent_name": "Showrunner"
+    },
+    {
+      "agent_name": "Character Designer",
+      "role": "member",
+      "title": "Character Designer",
+      "parent_agent_name": "Showrunner"
+    },
+    {
+      "agent_name": "Scene Director",
+      "role": "member",
+      "title": "Scene Director",
+      "parent_agent_name": "Showrunner"
+    },
+    {
+      "agent_name": "Episode Editor",
+      "role": "member",
+      "title": "Episode Editor",
+      "parent_agent_name": "Showrunner"
+    }
+  ]
+}

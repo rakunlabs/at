@@ -152,7 +152,7 @@ func TestTranscribeAudioRateLimit(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "7")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"error":{"message":"quota exhausted","type":"insufficient_quota"}}`))
+		_, _ = w.Write([]byte(`{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","param":null,"code":"insufficient_quota"}}`))
 	}))
 	defer server.Close()
 
@@ -175,7 +175,36 @@ func TestTranscribeAudioRateLimit(t *testing.T) {
 	if rateLimitErr.RetryAfter != 7*time.Second {
 		t.Errorf("RetryAfter = %s, want 7s", rateLimitErr.RetryAfter)
 	}
-	if rateLimitErr.Message != "quota exhausted" {
-		t.Errorf("Message = %q, want quota exhausted", rateLimitErr.Message)
+	if rateLimitErr.Message != "You exceeded your current quota" {
+		t.Errorf("Message = %q, want quota message", rateLimitErr.Message)
+	}
+}
+
+func TestTranscribeAudioPreservesOpenAIErrorFields(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"error":{"message":"Invalid file format","type":"invalid_request_error","param":"file","code":"invalid_value"}}`))
+	}))
+	defer server.Close()
+
+	provider, err := New("test-key", "unused", server.URL+"/v1/chat/completions", "", false, nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = provider.TranscribeAudio(context.Background(), service.AudioTranscribeRequest{
+		AudioBase64: base64.StdEncoding.EncodeToString([]byte("not audio")),
+		ContentType: "application/octet-stream",
+		Model:       "whisper-1",
+	})
+
+	var upstreamErr *service.UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("error = %T %v, want *service.UpstreamError", err, err)
+	}
+	if upstreamErr.Code != "invalid_value" || upstreamErr.Param != "file" || upstreamErr.Message != "Invalid file format" {
+		t.Fatalf("UpstreamError = %#v", upstreamErr)
 	}
 }

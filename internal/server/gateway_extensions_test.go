@@ -17,13 +17,19 @@ func TestShouldFallback(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{"nil", nil, false},
-		{"context.Canceled", context.Canceled, true},
-		{"context.DeadlineExceeded", context.DeadlineExceeded, true},
-		{"rate limit", &service.RateLimitError{StatusCode: 429, Provider: "p"}, true},
+		{name: "nil", err: nil, want: false},
+		{name: "context.Canceled", err: context.Canceled, want: true},
+		{name: "context.DeadlineExceeded", err: context.DeadlineExceeded, want: true},
+		{name: "typed 400", err: &service.UpstreamError{StatusCode: 400}, want: false},
+		{name: "typed 401", err: &service.UpstreamError{StatusCode: 401}, want: false},
+		{name: "typed 408", err: &service.UpstreamError{StatusCode: 408}, want: true},
+		{name: "typed 425", err: &service.UpstreamError{StatusCode: 425}, want: true},
+		{name: "typed 429", err: &service.UpstreamError{StatusCode: 429}, want: true},
+		{name: "typed 500", err: &service.UpstreamError{StatusCode: 500}, want: true},
+		{name: "rate limit", err: &service.RateLimitError{StatusCode: 429, Provider: "p"}, want: true},
 		// classifyGatewayError defaults unclassified errors to 502, which
 		// is in the retryable 5xx range — fallback IS appropriate.
-		{"plain error treated as 5xx", errors.New("upstream blew up"), true},
+		{name: "legacy error treated as 502", err: errors.New("upstream blew up"), want: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

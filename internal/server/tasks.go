@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -457,46 +458,39 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fire async delegation in a tracked, cancellable background goroutine.
-	go func() {
-		delegCtx, cleanup := s.registerDelegation(context.Background(), task.ID, org.HeadAgentID, org.ID)
-		defer cleanup()
-
-		// Pre-mint the run's trace ID so the trigger event joins the
-		// same trace as the delegation run it starts.
-		runTraceID := ulid.Make().String()
-		delegCtx = contextWithOrgTraceID(delegCtx, runTraceID)
-
-		// Observation: task processing triggered.
-		s.recordLLMCallAsync(delegCtx, llmAuditParams{
-			source:    "agent",
-			obsType:   service.ObservationEvent,
-			name:      "task_process_triggered",
-			traceID:   runTraceID,
-			sessionID: s.resolveRootTaskID(delegCtx, task),
-			taskID:    task.ID,
-			runID:     runTraceID,
-			orgID:     org.ID,
-			metadata: map[string]any{
-				"task_title":    task.Title,
-				"head_agent_id": org.HeadAgentID,
-				"org_name":      org.Name,
-				"actor":         "process_task_api",
-			},
-		})
-
-		if err := s.runOrgDelegation(delegCtx, org, task, org.HeadAgentID, 0); err != nil {
-			slog.Error("process task: org-delegation failed",
-				"org_id", org.ID,
-				"task_id", task.ID,
-				"error", err,
-			)
-			// Update task status to reflect failure.
-			if s.taskStore != nil {
-				_ = s.taskStore.UpdateTaskStatus(delegCtx, task.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
-			}
+	// Pre-mint the run trace so the trigger event and delegation share it.
+	delegationParent := s.ctx
+	if delegationParent == nil {
+		delegationParent = context.Background()
+	}
+	runTraceID := ulid.Make().String()
+	delegationParent = contextWithOrgTraceID(delegationParent, runTraceID)
+	if err := s.startDelegationRun(delegationParent, org, task, org.HeadAgentID, 0, nil); err != nil {
+		if errors.Is(err, errDelegationAlreadyRunning) {
+			httpResponse(w, err.Error(), http.StatusConflict)
+			return
 		}
-	}()
+		httpResponse(w, fmt.Sprintf("failed to start delegation: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Observation: task processing triggered.
+	s.recordLLMCallAsync(delegationParent, llmAuditParams{
+		source:    "agent",
+		obsType:   service.ObservationEvent,
+		name:      "task_process_triggered",
+		traceID:   runTraceID,
+		sessionID: s.resolveRootTaskID(delegationParent, task),
+		taskID:    task.ID,
+		runID:     runTraceID,
+		orgID:     org.ID,
+		metadata: map[string]any{
+			"task_title":    task.Title,
+			"head_agent_id": org.HeadAgentID,
+			"org_name":      org.Name,
+			"actor":         "process_task_api",
+		},
+	})
 
 	httpResponseJSON(w, map[string]string{
 		"id":     task.ID,

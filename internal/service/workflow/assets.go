@@ -21,8 +21,8 @@ var (
 //
 // The root is ./data/assets resolved to an absolute path — the same ./data
 // directory Docker users bind-mount for persistence. Subdirectories
-// (avatars/, voices/, videos/) are created lazily by the tools that use
-// them.
+// (avatars/, voices/, uploads/, series/) are created by EnsureAssetsDir and
+// lazily by the tools that use them.
 func AssetsDir() string {
 	assetsDirOnce.Do(func() {
 		p := filepath.Join("data", "assets")
@@ -34,11 +34,15 @@ func AssetsDir() string {
 	return assetsDirPath
 }
 
-// EnsureAssetsDir creates the assets root (and returns it). Best-effort:
-// on error the path is still returned so callers can surface the failure
-// when they actually try to write.
+// EnsureAssetsDir creates the assets root and its conventional
+// subdirectories (and returns the root). Best-effort: on error the path is
+// still returned so callers can surface the failure when they actually try
+// to write.
 func EnsureAssetsDir() string {
 	dir := AssetsDir()
 	_ = os.MkdirAll(dir, 0o755)
+	for _, sub := range []string{"avatars", "voices", "uploads", "series"} {
+		_ = os.MkdirAll(filepath.Join(dir, sub), 0o755)
+	}
 	return dir
 }

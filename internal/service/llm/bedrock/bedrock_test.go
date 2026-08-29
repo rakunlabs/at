@@ -1,11 +1,38 @@
 package bedrock
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
 )
+
+func TestChatNonSuccessReturnsUpstreamError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("x-amzn-errortype", "AccessDeniedException")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = w.Write([]byte(`{"message":"access denied"}`))
+	}))
+	defer server.Close()
+
+	provider, err := New("access:secret", "test-model", server.URL, "", false)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = provider.Chat(context.Background(), "test-model", []service.Message{{Role: "user", Content: "hi"}}, nil, nil)
+
+	var upstreamErr *service.UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("error = %T %v, want *service.UpstreamError", err, err)
+	}
+	if upstreamErr.StatusCode != http.StatusForbidden || upstreamErr.Code != "AccessDeniedException" || upstreamErr.Message != "access denied" {
+		t.Fatalf("UpstreamError = %#v", upstreamErr)
+	}
+}
 
 func TestSplitAPIKey(t *testing.T) {
 	tests := []struct {

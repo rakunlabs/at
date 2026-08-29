@@ -842,20 +842,9 @@ func (s *Server) execTaskProcess(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("no agent assigned and organization has no head agent")
 	}
 
-	// Fire async delegation.
-	go func() {
-		delegCtx := context.Background()
-		if err := s.runOrgDelegation(delegCtx, org, task, agentID, task.RequestDepth); err != nil {
-			slog.Error("org-delegation: failed",
-				"org_id", org.ID,
-				"task_id", task.ID,
-				"error", err,
-			)
-			if s.taskStore != nil {
-				_ = s.taskStore.UpdateTaskStatus(delegCtx, task.ID, service.TaskStatusCancelled, fmt.Sprintf("delegation failed: %v", err))
-			}
-		}
-	}()
+	if err := s.startDelegationRun(s.ctx, org, task, agentID, task.RequestDepth, nil); err != nil {
+		return "", fmt.Errorf("start delegation: %w", err)
+	}
 
 	result := map[string]any{
 		"status":  "accepted",

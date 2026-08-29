@@ -261,9 +261,10 @@ func NewFanOutResult(items []map[string]any) NodeResultFanOut {
 
 // ─── Registry ───
 
-// Registry holds shared state and dependencies available to all nodes
-// during execution. Similar to chore's registry.Registry.
-type Registry struct {
+// Dependencies contains the runtime services available to workflow nodes.
+// Engine and Registry share one instance so child engines can inherit the
+// complete dependency set without reconstructing positional arguments.
+type Dependencies struct {
 	// ProviderLookup resolves LLM provider keys to provider instances.
 	ProviderLookup ProviderLookup
 
@@ -363,9 +364,17 @@ type Registry struct {
 	// limits inside the agent_call node's agentic loop. nil means
 	// "no enforcement" (legacy behaviour); callers SHOULD populate it.
 	LoopGov LoopGovernor
+}
+
+// Registry holds shared state and dependencies available to all nodes
+// during execution. Similar to chore's registry.Registry.
+type Registry struct {
+	*Dependencies
 
 	// RunInputs are the original inputs passed when triggering the workflow.
 	RunInputs map[string]any
+
+	engine *Engine
 
 	// mu protects errors and outputs.
 	mu sync.Mutex
@@ -500,10 +509,7 @@ type BuiltinToolDef struct {
 
 // NewRegistry creates a new execution registry.
 func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLookup, varLister VarLister, nodeConfigLookup NodeConfigLookup, workflowLookup WorkflowLookup, agentLookup AgentLookup, varSave VarSaveFunc, builtinDispatcher BuiltinToolDispatcher, builtinDefs []BuiltinToolDef, userPrefLookup UserPrefLookup, chatMessageCreator ChatMessageCreatorFunc, chatSessionLookup ChatSessionLookupFunc, recordUsage RecordUsageFunc, checkBudget CheckBudgetFunc, recordObservation RecordObservationFunc, goalAncestry GoalAncestryFunc, versionLookup VersionLookupFunc, inputs map[string]any) *Registry {
-	if inputs == nil {
-		inputs = make(map[string]any)
-	}
-	return &Registry{
+	return NewRegistryWithDependencies(&Dependencies{
 		ProviderLookup:        lookup,
 		SkillLookup:           skillLookup,
 		VarLookup:             varLookup,
@@ -522,9 +528,40 @@ func NewRegistry(lookup ProviderLookup, skillLookup SkillLookup, varLookup VarLo
 		RecordObservation:     recordObservation,
 		GoalAncestry:          goalAncestry,
 		VersionLookup:         versionLookup,
-		RunInputs:             inputs,
-		outputs:               make(map[string]any),
+	}, inputs)
+}
+
+// NewRegistryWithDependencies creates a registry sharing deps with its engine.
+func NewRegistryWithDependencies(deps *Dependencies, inputs map[string]any) *Registry {
+	if deps == nil {
+		deps = &Dependencies{}
 	}
+	if inputs == nil {
+		inputs = make(map[string]any)
+	}
+	return &Registry{
+		Dependencies: deps,
+		RunInputs:    inputs,
+		outputs:      make(map[string]any),
+	}
+}
+
+// NewChildEngine creates an engine inheriting every dependency from the
+// engine executing this registry.
+func (r *Registry) NewChildEngine() *Engine {
+	if r.engine != nil {
+		return r.engine.NewChild()
+	}
+	if r.Dependencies == nil {
+		return NewEngineWithDependencies(Dependencies{})
+	}
+	return NewEngineWithDependencies(*r.Dependencies)
+}
+
+func (r *Registry) newBranch() *Registry {
+	branch := NewRegistryWithDependencies(r.Dependencies, r.RunInputs)
+	branch.engine = r.engine
+	return branch
 }
 
 // AddError records a non-fatal execution error.

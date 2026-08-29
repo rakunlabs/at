@@ -24,11 +24,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/worldline-go/klient"
 
 	"github.com/rakunlabs/at/internal/service"
 	antropic "github.com/rakunlabs/at/internal/service/llm/antropic"
+	"github.com/rakunlabs/at/internal/service/llm/common"
 )
 
 const (
@@ -180,7 +183,24 @@ func (p *Provider) doJSON(ctx context.Context, method, url string, body any, res
 	}
 
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("API error %d: %s", resp.StatusCode, string(respBody))
+		message, code := minimaxErrorDetails(respBody)
+		underlying := fmt.Errorf("MiniMax API error %d: %s", resp.StatusCode, message)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return &service.RateLimitError{
+				StatusCode: resp.StatusCode,
+				RetryAfter: common.ParseRetryAfter(resp.Header),
+				Provider:   "minimax",
+				Message:    message,
+				Underlying: underlying,
+			}
+		}
+		return &service.UpstreamError{
+			Provider:   "minimax",
+			StatusCode: resp.StatusCode,
+			Code:       code,
+			Message:    message,
+			Underlying: underlying,
+		}
 	}
 
 	if result != nil {
@@ -190,6 +210,29 @@ func (p *Provider) doJSON(ctx context.Context, method, url string, body any, res
 	}
 
 	return nil
+}
+
+func minimaxErrorDetails(body []byte) (message, code string) {
+	message = strings.TrimSpace(string(body))
+	var envelope struct {
+		Message  string `json:"message"`
+		BaseResp struct {
+			StatusCode int    `json:"status_code"`
+			StatusMsg  string `json:"status_msg"`
+		} `json:"base_resp"`
+	}
+	if json.Unmarshal(body, &envelope) != nil {
+		return message, ""
+	}
+	if envelope.BaseResp.StatusMsg != "" {
+		message = envelope.BaseResp.StatusMsg
+	} else if envelope.Message != "" {
+		message = envelope.Message
+	}
+	if envelope.BaseResp.StatusCode != 0 {
+		code = strconv.Itoa(envelope.BaseResp.StatusCode)
+	}
+	return message, code
 }
 
 // ─── Image Generation ───

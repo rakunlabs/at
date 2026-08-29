@@ -434,11 +434,29 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			}
 		}
 
-		engine := NewEngine(s.providerLookup, s.skillLookup, s.varLookup, s.varLister, s.nodeConfigLookup, workflowLookup, agentLookup, s.varSave, s.builtinToolDispatcher, s.builtinToolDefs, nil, s.chatMessageCreator, s.chatSessionLookup, s.recordUsage, s.checkBudget, s.recordObservation, s.goalAncestry, versionLookup)
-		engine.SetConnectionLookup(s.connectionLookup)
-		engine.SetWorkflowByNameLookup(s.workflowByNameLookup)
-		engine.SetWorkflowExecutor(s.workflowExecutor)
-		engine.SetLoopGov(s.loopGov)
+		engine := NewEngineWithDependencies(Dependencies{
+			ProviderLookup:        s.providerLookup,
+			SkillLookup:           s.skillLookup,
+			VarLookup:             s.varLookup,
+			VarLister:             s.varLister,
+			NodeConfigLookup:      s.nodeConfigLookup,
+			WorkflowLookup:        workflowLookup,
+			WorkflowByNameLookup:  s.workflowByNameLookup,
+			WorkflowExecutor:      s.workflowExecutor,
+			AgentLookup:           agentLookup,
+			ConnectionLookup:      s.connectionLookup,
+			VarSave:               s.varSave,
+			BuiltinToolDispatcher: s.builtinToolDispatcher,
+			BuiltinToolDefs:       s.builtinToolDefs,
+			ChatMessageCreator:    s.chatMessageCreator,
+			ChatSessionLookup:     s.chatSessionLookup,
+			RecordUsage:           s.recordUsage,
+			CheckBudget:           s.checkBudget,
+			RecordObservation:     s.recordObservation,
+			GoalAncestry:          s.goalAncestry,
+			VersionLookup:         versionLookup,
+			LoopGov:               s.loopGov,
+		})
 
 		// Determine entry node(s) for this trigger.
 		var entryNodeIDs []string

@@ -332,13 +332,29 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		// Bedrock returns {"message":"..."} on error
 		var errBody struct {
 			Message string `json:"message"`
+			Code    string `json:"code"`
+			Type    string `json:"__type"`
 		}
 		_ = json.Unmarshal(respBody, &errBody)
 		msg := errBody.Message
 		if msg == "" {
 			msg = string(respBody)
 		}
-		return nil, fmt.Errorf("bedrock API error (status %d): %s", resp.StatusCode, msg)
+		code := resp.Header.Get("x-amzn-errortype")
+		if code == "" {
+			code = errBody.Code
+		}
+		if code == "" {
+			code = errBody.Type
+		}
+		underlying := fmt.Errorf("bedrock API error (status %d): %s", resp.StatusCode, msg)
+		return nil, &service.UpstreamError{
+			Provider:   "bedrock",
+			StatusCode: resp.StatusCode,
+			Code:       code,
+			Message:    msg,
+			Underlying: underlying,
+		}
 	}
 
 	var parsed converseResponse

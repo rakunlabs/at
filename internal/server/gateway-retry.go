@@ -196,6 +196,40 @@ func classifyGatewayError(err error) (int, map[string]any) {
 		return status, body
 	}
 
+	var upstreamErr *service.UpstreamError
+	if errors.As(err, &upstreamErr) {
+		status := upstreamErr.StatusCode
+		if status < 100 || status > 599 {
+			status = http.StatusBadGateway
+		}
+
+		errType := "server_error"
+		if status >= 400 && status < 500 {
+			errType = "invalid_request_error"
+		}
+		if status == http.StatusTooManyRequests {
+			errType = "rate_limit_error"
+		}
+
+		message := upstreamErr.Message
+		if message == "" {
+			message = upstreamErr.Error()
+		}
+		errorBody := map[string]any{
+			"message":  message,
+			"type":     errType,
+			"provider": upstreamErr.Provider,
+		}
+		if upstreamErr.Code != "" {
+			errorBody["code"] = upstreamErr.Code
+		}
+		if upstreamErr.Param != "" {
+			errorBody["param"] = upstreamErr.Param
+		}
+
+		return status, map[string]any{"error": errorBody}
+	}
+
 	if errors.Is(err, service.ErrUnsupportedOperation) {
 		return http.StatusNotImplemented, map[string]any{
 			"error": map[string]any{

@@ -4,6 +4,7 @@
   import { addToast } from '@/lib/store/toast.svelte';
   import { listWorkflows, getWorkflow, updateWorkflow, runWorkflow, runWorkflowStream, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
   import { workflowRun, clearRunState, handleStreamEvent, getNodeStatuses } from '@/lib/store/workflow-run.svelte';
+  import { cloneWorkflowNodeData, createDefaultWorkflowNodeData, getWorkflowNodeDimensions, validateWorkflowNodeDefinitions, workflowPaletteGroups, type WorkflowNodeType } from '@/lib/workflow/node-definitions';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listNodeConfigs, type NodeConfig } from '@/lib/api/node-configs';
@@ -90,7 +91,7 @@
     audio_generate: AudioGenerateProps,
     audio_transcribe: AudioTranscribeProps,
     embedding: EmbeddingProps,
-  };
+  } satisfies Record<WorkflowNodeType, any>;
 
   // ─── Props ───
   let { params = { id: '' } }: { params?: { id: string } } = $props();
@@ -124,68 +125,10 @@
     audio_generate: AudioGenerateNode,
     audio_transcribe: AudioTranscribeNode,
     embedding: EmbeddingNode,
-  };
+  } satisfies Record<WorkflowNodeType, NodeTypes[string]>;
 
-  const paletteGroups = [
-    {
-      label: 'Entry',
-      nodes: [
-        { type: 'input', label: 'Input', description: 'Manual input data' },
-      ],
-    },
-    {
-      label: 'Processing',
-      nodes: [
-        { type: 'llm_call', label: 'LLM Call', description: 'Call an LLM provider' },
-        { type: 'agent_call', label: 'Agent Call', description: 'Agentic loop with tools' },
-        { type: 'template', label: 'Template', description: 'Template with variables' },
-        { type: 'workflow_call', label: 'Workflow Call', description: 'Call another workflow' },
-        { type: 'http_request', label: 'HTTP Request', description: 'Make an HTTP request' },
-        { type: 'email', label: 'Email', description: 'Send email via SMTP' },
-        { type: 'script', label: 'Script', description: 'Run JavaScript code' },
-        { type: 'exec', label: 'Exec', description: 'Run a shell command' },
-        { type: 'log', label: 'Log', description: 'Log data and pass through' },
-      ],
-    },
-    {
-      label: 'Media',
-      nodes: [
-        { type: 'image_generate', label: 'Image Generate', description: 'Generate images from text' },
-        { type: 'vision_analyze', label: 'Vision Analyze', description: 'Analyze images with LLM' },
-        { type: 'audio_generate', label: 'Text to Speech', description: 'Convert text to audio' },
-        { type: 'audio_transcribe', label: 'Speech to Text', description: 'Transcribe audio to text' },
-        { type: 'embedding', label: 'Embedding', description: 'Create vector embeddings' },
-      ],
-    },
-    {
-      label: 'Flow Control',
-      nodes: [
-        { type: 'conditional', label: 'Conditional', description: 'If/else branching' },
-        { type: 'loop', label: 'Loop', description: 'For-each fan-out' },
-      ],
-    },
-    {
-      label: 'Resources',
-      nodes: [
-        { type: 'skill_config', label: 'Skill Config', description: 'Skills for agent nodes' },
-        { type: 'agent_config', label: 'Agent Config', description: 'Sub-agent delegate' },
-        { type: 'mcp_config', label: 'MCP Config', description: 'MCP servers for agents' },
-      ],
-    },
-    {
-      label: 'Output',
-      nodes: [
-        { type: 'output', label: 'Output', description: 'Workflow output data' },
-      ],
-    },
-    {
-      label: 'Annotation',
-      nodes: [
-        { type: 'group', label: 'Group', description: 'Visual grouping of nodes' },
-        { type: 'sticky_note', label: 'Sticky Note', description: 'Markdown note on canvas' },
-      ],
-    },
-  ];
+  const definitionErrors = validateWorkflowNodeDefinitions(Object.keys(nodeTypes), Object.keys(propsComponents));
+  if (definitionErrors.length > 0) throw new Error(definitionErrors.join('\n'));
 
   // ─── State ───
   let workflow = $state<Workflow | null>(null);
@@ -315,85 +258,6 @@
       target_handle: e.target_handle,
     }));
     return { nodes, edges };
-  }
-
-  function defaultNodeData(type: string): Record<string, any> {
-    if (type === 'input') {
-      return { label: 'Input' };
-    }
-    if (type === 'output') {
-      return { label: 'Output' };
-    }
-    if (type === 'llm_call') {
-      return { label: 'LLM Call', provider: '', model: '', system_prompt: '' };
-    }
-    if (type === 'agent_call') {
-      return { label: 'Agent Call', provider: '', model: '', system_prompt: '', max_iterations: 10 };
-    }
-    if (type === 'skill_config') {
-      return { label: 'Skill Config', skills: [] };
-    }
-    if (type === 'agent_config') {
-      return { label: 'Agent Config', agent_id: '' };
-    }
-    if (type === 'mcp_config') {
-      return { label: 'MCP Config', mcp_urls: [] };
-    }
-    if (type === 'template') {
-      return { label: 'Template', template: '', variables: [] };
-    }
-    if (type === 'workflow_call') {
-      return { label: 'Workflow Call', workflow_id: '', workflow_name: '', inputs: {} };
-    }
-    if (type === 'http_request') {
-      return {
-        label: 'HTTP Request',
-        url: '',
-        method: 'GET',
-        headers: {},
-        body: '',
-        timeout: 30,
-        proxy: '',
-        insecure_skip_verify: false,
-        retry: false,
-      };
-    }
-    if (type === 'conditional') {
-      return { label: 'Conditional', expression: '' };
-    }
-    if (type === 'loop') {
-      return { label: 'Loop', expression: '' };
-    }
-    if (type === 'script') {
-      return { label: 'Script', code: '', input_count: 1 };
-    }
-    if (type === 'exec') {
-      return { label: 'Exec', command: '', working_dir: '', timeout: 60, sandbox_root: '/tmp/at-sandbox', input_count: 1 };
-    }
-    if (type === 'email') {
-      return {
-        label: 'Email',
-        config_id: '',
-        to: '',
-        cc: '',
-        bcc: '',
-        subject: '',
-        body: '',
-        content_type: 'text/plain',
-        from: '',
-        reply_to: '',
-      };
-    }
-    if (type === 'group') {
-      return { label: 'Group', color: '#22c55e' };
-    }
-    if (type === 'sticky_note') {
-      return { text: 'Double-click to edit...', color: '#fef08a' };
-    }
-    if (type === 'log') {
-      return { label: 'Log', level: 'info', message: '' };
-    }
-    return {};
   }
 
   function stableStringify(value: any): string {
@@ -615,107 +479,10 @@
     if (!canvasRef) return;
     const flow = canvasRef.getFlow();
     nodeCounter++;
-    const defaultData: Record<string, any> = { node_number: nodeCounter };
-    if (type === 'input') {
-      defaultData.label = 'Input';
-    } else if (type === 'output') {
-      defaultData.label = 'Output';
-    } else if (type === 'llm_call') {
-      defaultData.label = 'LLM Call';
-      defaultData.provider = '';
-      defaultData.model = '';
-      defaultData.system_prompt = '';
-    } else if (type === 'agent_call') {
-      defaultData.label = 'Agent Call';
-      defaultData.provider = '';
-      defaultData.model = '';
-      defaultData.system_prompt = '';
-      defaultData.max_iterations = 10;
-    } else if (type === 'skill_config') {
-      defaultData.label = 'Skill Config';
-      defaultData.skills = [];
-    } else if (type === 'mcp_config') {
-      defaultData.label = 'MCP Config';
-      defaultData.mcp_urls = [];
-    } else if (type === 'template') {
-      defaultData.label = 'Template';
-      defaultData.template = '';
-      defaultData.variables = [];
-    } else if (type === 'http_request') {
-      defaultData.label = 'HTTP Request';
-      defaultData.url = '';
-      defaultData.method = 'GET';
-      defaultData.headers = {};
-      defaultData.body = '';
-      defaultData.timeout = 30;
-      defaultData.proxy = '';
-      defaultData.insecure_skip_verify = false;
-      defaultData.retry = false;
-    } else if (type === 'conditional') {
-      defaultData.label = 'Conditional';
-      defaultData.expression = '';
-    } else if (type === 'loop') {
-      defaultData.label = 'Loop';
-      defaultData.expression = '';
-    } else if (type === 'script') {
-      defaultData.label = 'Script';
-      defaultData.code = '';
-      defaultData.input_count = 1;
-    } else if (type === 'exec') {
-      defaultData.label = 'Exec';
-      defaultData.command = '';
-      defaultData.working_dir = '';
-      defaultData.timeout = 60;
-      defaultData.sandbox_root = '/tmp/at-sandbox';
-      defaultData.input_count = 1;
-    } else if (type === 'email') {
-      defaultData.label = 'Email';
-      defaultData.config_id = '';
-      defaultData.to = '';
-      defaultData.cc = '';
-      defaultData.bcc = '';
-      defaultData.subject = '';
-      defaultData.body = '';
-      defaultData.content_type = 'text/plain';
-      defaultData.from = '';
-      defaultData.reply_to = '';
-    } else if (type === 'image_generate') {
-      defaultData.label = 'Image Generate';
-      defaultData.provider = '';
-      defaultData.model = '';
-      defaultData.size = '1024x1024';
-      defaultData.quality = 'standard';
-      defaultData.style = 'vivid';
-      defaultData.n = 1;
-    } else if (type === 'vision_analyze') {
-      defaultData.label = 'Vision Analyze';
-      defaultData.provider = '';
-      defaultData.model = '';
-      defaultData.system_prompt = '';
-    } else if (type === 'audio_generate') {
-      defaultData.label = 'Text to Speech';
-      defaultData.provider = '';
-      defaultData.model = 'tts-1';
-      defaultData.voice = 'alloy';
-      defaultData.response_format = 'mp3';
-      defaultData.speed = 1.0;
-    } else if (type === 'audio_transcribe') {
-      defaultData.label = 'Speech to Text';
-      defaultData.provider = '';
-      defaultData.model = 'whisper-1';
-      defaultData.language = '';
-      defaultData.response_format = 'json';
-    } else if (type === 'embedding') {
-      defaultData.label = 'Embedding';
-      defaultData.provider = '';
-      defaultData.model = '';
-    } else if (type === 'group') {
-      defaultData.label = 'Group';
-      defaultData.color = '#22c55e';
-    } else if (type === 'sticky_note') {
-      defaultData.text = 'Double-click to edit...';
-      defaultData.color = '#fef08a';
-    }
+    const defaultData: Record<string, any> = {
+      ...createDefaultWorkflowNodeData(type),
+      node_number: nodeCounter,
+    };
     const pos = position ?? { x: 200 + nodeCounter * 30, y: 150 + nodeCounter * 30 };
     const nodeOpts: Record<string, any> = {
       id: `${type}_${nodeCounter}`,
@@ -723,12 +490,10 @@
       position: pos,
       data: defaultData,
     };
-    if (type === 'group') {
-      nodeOpts.width = 250;
-      nodeOpts.height = 200;
-    } else if (type === 'sticky_note') {
-      nodeOpts.width = 200;
-      nodeOpts.height = 140;
+    const dimensions = getWorkflowNodeDimensions(type);
+    if (dimensions) {
+      nodeOpts.width = dimensions.width;
+      nodeOpts.height = dimensions.height;
     }
     flow.addNode(nodeOpts as FlowNode);
   }
@@ -796,9 +561,10 @@
       }
       selectedNodeId = nodeId;
       selectedNodeType = node.type;
-      const defaults = defaultNodeData(node.type);
-      selectedNodeData = { ...defaults, ...node.data };
-      selectedNodeOriginalData = { ...defaults, ...node.data };
+      const defaults = createDefaultWorkflowNodeData(node.type);
+      const hydratedData = { ...defaults, ...node.data };
+      selectedNodeData = cloneWorkflowNodeData(hydratedData);
+      selectedNodeOriginalData = cloneWorkflowNodeData(hydratedData);
     }
   }
 
@@ -873,8 +639,8 @@
       }
     }
 
-    flow.updateNodeData(selectedNodeId, selectedNodeData);
-    selectedNodeOriginalData = { ...selectedNodeData };
+    flow.updateNodeData(selectedNodeId, cloneWorkflowNodeData(selectedNodeData));
+    selectedNodeOriginalData = cloneWorkflowNodeData(selectedNodeData);
     addToast('Node updated', 'info');
   }
 
@@ -995,7 +761,7 @@
       <!-- Node Palette -->
       <div class="w-44 bg-white dark:bg-dark-surface border-r border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto">
         <div class="p-2">
-          {#each paletteGroups as group}
+          {#each workflowPaletteGroups as group}
             <button
               onclick={() => { collapsedGroups[group.label] = !collapsedGroups[group.label]; }}
               class="w-full flex items-center gap-1 mt-2 first:mt-0 mb-1 text-left group"

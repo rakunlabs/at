@@ -14,6 +14,7 @@
   import { listVariables } from '@/lib/api/secrets';
   import { listNodeConfigs } from '@/lib/api/node-configs';
   import { getNodeTypes, type NodeTypeMeta, type PortMeta, type FieldMeta } from '@/lib/api/workflows';
+  import { createDefaultWorkflowNodeData, getWorkflowNodeDimensions, isWorkflowNodeType, workflowNodeDefinitions, workflowNodeTypes } from '@/lib/workflow/node-definitions';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
 
@@ -72,16 +73,7 @@
 
   // ─── Tool Definitions (derived from node type metadata) ───
 
-  // Frontend-only node types that don't have backend Meta() implementations.
-  const FRONTEND_ONLY_TYPES = ['http_trigger', 'cron_trigger', 'group', 'sticky_note'];
-
   const flowTools: ToolDefinition[] = $derived.by(() => {
-    // Build the dynamic enum of valid node types.
-    const typeNames = nodeTypeMetas.map(m => m.type);
-    for (const ft of FRONTEND_ONLY_TYPES) {
-      if (!typeNames.includes(ft)) typeNames.push(ft);
-    }
-
     return [
       {
         type: 'function',
@@ -101,7 +93,7 @@
             properties: {
               type: {
                 type: 'string',
-                enum: typeNames.length > 0 ? typeNames : undefined,
+                enum: workflowNodeTypes,
                 description: 'The node type',
               },
               id: { type: 'string', description: 'Optional custom ID. Auto-generated if omitted.' },
@@ -273,16 +265,15 @@
 
   // ─── Dynamic System Prompt ───
 
-  /** Generate the "Available Node Types" section from backend metadata. */
+  /** Generate docs only for node types the frontend can render. */
   function buildNodeTypesDoc(): string {
-    if (nodeTypeMetas.length === 0) return 'Loading node types...\n';
-
     let doc = '';
-    for (const meta of nodeTypeMetas) {
-      doc += `### ${meta.type}\n`;
-      doc += `${meta.description}\n`;
+    for (const definition of workflowNodeDefinitions) {
+      const meta = nodeTypeMetas.find(candidate => candidate.type === definition.type);
+      doc += `### ${definition.type}\n`;
+      doc += `${meta?.description || definition.description}\n`;
 
-      if (meta.inputs && meta.inputs.length > 0) {
+      if (meta?.inputs && meta.inputs.length > 0) {
         const handles = meta.inputs.map((p: PortMeta) => {
           let s = `id="${p.name}" (port: ${p.type}`;
           if (p.accept?.length) s += `, accepts: ${p.accept.join(', ')}`;
@@ -293,7 +284,7 @@
         doc += `- Input handles: ${handles.join(', ')}\n`;
       }
 
-      if (meta.outputs && meta.outputs.length > 0) {
+      if (meta?.outputs && meta.outputs.length > 0) {
         const handles = meta.outputs.map((p: PortMeta) => {
           let s = `id="${p.name}" (port: ${p.type}`;
           if (p.position && p.position !== 'right') s += `, position: ${p.position}`;
@@ -303,7 +294,7 @@
         doc += `- Output handles: ${handles.join(', ')}\n`;
       }
 
-      if (meta.fields && meta.fields.length > 0) {
+      if (meta?.fields && meta.fields.length > 0) {
         const fields = meta.fields.map((f: FieldMeta) => {
           let s = f.name;
           if (f.type !== 'string') s += ` (${f.type})`;
@@ -316,72 +307,32 @@
         doc += `- Data fields: ${fields.join(', ')}\n`;
       }
 
+      if (!meta) {
+        if (definition.type === 'http_trigger') {
+          doc += '- Output handles: id="output" (port: data)\n';
+          doc += '- Data fields: label [required], trigger_id (auto-assigned on save), alias (optional URL path), public (boolean, skip auth)\n';
+        } else if (definition.type === 'cron_trigger') {
+          doc += '- Output handles: id="output" (port: data)\n';
+          doc += '- Data fields: label [required], schedule (cron expression e.g. "*/5 * * * *"), timezone (IANA e.g. "America/New_York"), payload (object)\n';
+        } else if (definition.type === 'group') {
+          doc += '- No handles; this node cannot be connected with edges\n';
+          doc += '- Data fields: label [required], color (CSS hex, default "#22c55e")\n';
+        } else if (definition.type === 'sticky_note') {
+          doc += '- No handles; this node cannot be connected with edges\n';
+          doc += '- Data fields: text (markdown content), color (CSS hex, default "#fef08a")\n';
+          doc += '- NOTE: uses "text" instead of "label". Do NOT include a "label" field.\n';
+        }
+      }
+
+      const dimensions = getWorkflowNodeDimensions(definition.type);
+      if (dimensions) {
+        doc += `- Canvas dimensions: ${dimensions.width}x${dimensions.height}, applied automatically by add_node\n`;
+      }
+
       doc += '\n';
     }
 
-    // Frontend-only node types (no backend Noder).
-    doc += `### http_trigger
-Webhook trigger endpoint
-- Output handles: id="output" (port: data)
-- Data fields: label [required], trigger_id (auto-assigned on save), alias (optional URL path), public (boolean, skip auth)
-
-### cron_trigger
-Cron schedule trigger
-- Output handles: id="output" (port: data)
-- Data fields: label [required], schedule (cron expression e.g. "*/5 * * * *"), timezone (IANA e.g. "America/New_York"), payload (object)
-
-### group
-Visual grouping container (no handles)
-- Data fields: label [required], color (CSS hex, default "#22c55e")
-- When adding, also set style: { width: 400, height: 300 }
-
-### sticky_note
-Markdown annotation (no handles)
-- Data fields: text (markdown content), color (CSS hex, default "#fef08a")
-- NOTE: uses "text" instead of "label". Do NOT include a "label" field.
-- When adding, also set style: { width: 200, height: 150 }
-`;
-
     return doc;
-  }
-
-  /** Build default node data from metadata Fields, falling back to zero values. */
-  function defaultNodeData(type: string): Record<string, any> {
-    // Frontend-only types with static defaults.
-    switch (type) {
-      case 'http_trigger': return { label: 'HTTP Trigger', trigger_id: '', alias: '', public: false };
-      case 'cron_trigger': return { label: 'Cron Trigger', schedule: '', timezone: '', payload: {} };
-      case 'group': return { label: 'Group', color: '#22c55e' };
-      case 'sticky_note': return { text: 'Double-click to edit...', color: '#fef08a' };
-    }
-
-    // Look up metadata and build defaults from Fields.
-    const meta = nodeTypeMetas.find(m => m.type === type);
-    if (!meta || !meta.fields?.length) return { label: type };
-
-    const data: Record<string, any> = {};
-    for (const field of meta.fields) {
-      if (field.default !== undefined && field.default !== null) {
-        data[field.name] = field.default;
-      } else {
-        // Zero-value by type.
-        switch (field.type) {
-          case 'string':  data[field.name] = ''; break;
-          case 'number':  data[field.name] = 0; break;
-          case 'boolean': data[field.name] = false; break;
-          case 'array':   data[field.name] = []; break;
-          case 'object':  data[field.name] = {}; break;
-          default:        data[field.name] = ''; break;
-        }
-      }
-    }
-
-    // If no label was set from fields, use the meta label.
-    if (!data.label && type !== 'sticky_note') {
-      data.label = meta.label;
-    }
-
-    return data;
   }
 
   const systemPrompt = $derived(`You are a workflow editor AI assistant. You help users build and modify visual node-based workflows.
@@ -425,6 +376,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
 
 ## Important
 - Always use get_flow first to understand the current state before making changes
+- Use only the node types listed above; add_node rejects other backend node types
 - Use meaningful node IDs that reflect the node's purpose
 - Always include a "label" field in node data (except sticky_note which uses "text")
 - group and sticky_note nodes are visual-only; they have no handles and cannot be connected with edges`);
@@ -443,9 +395,12 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
 
         case 'add_node': {
           const { type, position, data, id } = args;
+          if (!isWorkflowNodeType(type)) {
+            return JSON.stringify({ error: `Unsupported node type "${String(type)}"` });
+          }
           nodeIdCounter++;
           const nodeId = id || `${type}_ai_${nodeIdCounter}`;
-          const defaults = defaultNodeData(type);
+          const defaults = createDefaultWorkflowNodeData(type);
           const nodeData = { ...defaults, ...(data || {}) };
           const nodeOpts: any = {
             id: nodeId,
@@ -453,11 +408,10 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
             position: { x: position.x, y: position.y },
             data: nodeData,
           };
-          // Visual-only nodes need explicit dimensions
-          if (type === 'group') {
-            nodeOpts.style = { width: 400, height: 300 };
-          } else if (type === 'sticky_note') {
-            nodeOpts.style = { width: 200, height: 150 };
+          const dimensions = getWorkflowNodeDimensions(type);
+          if (dimensions) {
+            nodeOpts.width = dimensions.width;
+            nodeOpts.height = dimensions.height;
           }
           flow.addNode(nodeOpts);
           return JSON.stringify({ success: true, id: nodeId });

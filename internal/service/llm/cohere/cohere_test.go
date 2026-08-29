@@ -3,6 +3,7 @@ package cohere
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -10,6 +11,28 @@ import (
 
 	"github.com/rakunlabs/at/internal/service"
 )
+
+func TestCreateEmbeddingNonSuccessReturnsUpstreamError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"message":"invalid token","code":"invalid_api_key"}`))
+	}))
+	defer server.Close()
+
+	provider, err := New("test-key", "unused", server.URL, "", false)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = provider.CreateEmbedding(context.Background(), service.EmbeddingRequest{Input: []string{"hello"}, Model: "embed-v4.0"})
+
+	var upstreamErr *service.UpstreamError
+	if !errors.As(err, &upstreamErr) {
+		t.Fatalf("error = %T %v, want *service.UpstreamError", err, err)
+	}
+	if upstreamErr.StatusCode != http.StatusUnauthorized || upstreamErr.Code != "invalid_api_key" || upstreamErr.Message != "invalid token" {
+		t.Fatalf("UpstreamError = %#v", upstreamErr)
+	}
+}
 
 func TestCreateEmbeddingForwardsOptionalFields(t *testing.T) {
 	t.Parallel()
