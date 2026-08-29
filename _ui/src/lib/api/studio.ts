@@ -89,6 +89,13 @@ export interface Shot {
   updated_at?: string;
 }
 
+export interface EpisodeReference {
+  id: string;
+  path: string;
+  note?: string;
+  added_at?: string;
+}
+
 export interface EpisodeManifest {
   number: number;
   title?: string;
@@ -96,6 +103,7 @@ export interface EpisodeManifest {
   status?: string;
   task_id?: string;
   script?: string;
+  references?: EpisodeReference[];
   shots: Shot[];
   final_video?: string;
   duration_s?: number;
@@ -287,6 +295,28 @@ export async function saveEpisodeManifest(dir: string, manifest: EpisodeManifest
   await uploadFile(blob, dir, 'episode.json');
 }
 
+/** Persist user-supplied visual references beside the episode manifest. */
+export async function addEpisodeReferences(
+  episode: EpisodeItem,
+  items: { file: File; note?: string }[],
+): Promise<EpisodeItem> {
+  const references = [...(episode.manifest.references || [])];
+  for (const [index, item] of items.entries()) {
+    const ext = item.file.name.match(/\.[a-zA-Z0-9]+$/)?.[0]?.toLowerCase() || '.jpg';
+    const id = `ref-${Date.now().toString(36)}-${index + 1}`;
+    const uploaded = await uploadFile(item.file, `${episode.dir}/references`, `${id}${ext}`);
+    references.push({
+      id,
+      path: uploaded.path,
+      note: item.note?.trim() || '',
+      added_at: new Date().toISOString().replace(/\.\d+Z$/, 'Z'),
+    });
+  }
+  const manifest = { ...episode.manifest, references };
+  await saveEpisodeManifest(episode.dir, manifest);
+  return { ...episode, manifest };
+}
+
 /** Scaffold an episode before submitting its org task, so task_id can be bound immediately. */
 export async function createEpisodeDraft(
   assetsRoot: string,
@@ -305,6 +335,7 @@ export async function createEpisodeDraft(
     status: 'draft',
     task_id: '',
     script: '',
+    references: [],
     shots: [],
     final_video: '',
     duration_s: 0,

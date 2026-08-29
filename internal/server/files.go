@@ -285,17 +285,31 @@ func (s *Server) FileUploadAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := filepath.Join(cleanedDir, name)
-	out, err := os.Create(target)
+	out, err := os.CreateTemp(cleanedDir, "."+name+".upload-*")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("cannot create file: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer out.Close()
+	temp := out.Name()
+	defer os.Remove(temp)
 
 	size, err := io.Copy(out, file)
 	if err != nil {
-		_ = os.Remove(target)
+		_ = out.Close()
 		http.Error(w, fmt.Sprintf("write failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := out.Chmod(0o644); err != nil {
+		_ = out.Close()
+		http.Error(w, fmt.Sprintf("set permissions failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := out.Close(); err != nil {
+		http.Error(w, fmt.Sprintf("close failed: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(temp, target); err != nil {
+		http.Error(w, fmt.Sprintf("replace failed: %v", err), http.StatusInternalServerError)
 		return
 	}
 

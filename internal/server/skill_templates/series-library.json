@@ -195,7 +195,7 @@
       },
       {
         "name": "episode_get",
-        "description": "Read an episode: full episode.json including the shot list with per-shot status and provenance.",
+        "description": "Read an episode: full episode.json including user-uploaded visual references (path + usage note) and the shot list with per-shot status and provenance.",
         "inputSchema": {
           "type": "object",
           "properties": {

@@ -4,6 +4,7 @@
   import { submitOrgTask, type Organization } from '@/lib/api/organizations';
   import { getTask } from '@/lib/api/tasks';
   import {
+    addEpisodeReferences,
     bindEpisodeTask,
     createEpisodeDraft,
     loadEpisode,
@@ -19,7 +20,8 @@
     type SeriesManifest,
   } from '@/lib/api/studio';
   import StudioStoryboard from './StudioStoryboard.svelte';
-  import { BookOpen, ChevronLeft, Film, Loader2, Plus, RefreshCw, Save, Sparkles, Video, WandSparkles } from 'lucide-svelte';
+  import StudioEpisodeEditor from './StudioEpisodeEditor.svelte';
+  import { BookOpen, ChevronLeft, Film, ImagePlus, Loader2, Plus, RefreshCw, Save, Sparkles, Video, WandSparkles, X } from 'lucide-svelte';
 
   interface Props {
     assetsRoot: string;
@@ -61,6 +63,7 @@
   let showEpisodeForm = $state(false);
   let episodeTitle = $state('');
   let episodePremise = $state('');
+  let episodeReferences = $state<{ file: File; note: string }[]>([]);
   let taskBusy = $state(false);
   let activeTaskId = $state('');
   let activeAction = $state('');
@@ -208,21 +211,26 @@
     }
     taskBusy = true;
     try {
-      const draft = await createEpisodeDraft(
+      let draft = await createEpisodeDraft(
         assetsRoot,
         selectedSeries.slug,
         episodes,
         episodeTitle.trim(),
         episodePremise.trim(),
       );
+      if (episodeReferences.length) draft = await addEpisodeReferences(draft, episodeReferences);
+      const visualNotes = (draft.manifest.references || [])
+        .map((ref) => `- ${ref.path}${ref.note ? `: ${ref.note}` : ''}`)
+        .join('\n');
       const res = await submitOrgTask(seriesOrg.id, {
         title: `${selectedSeries.name} — Episode ${draft.manifest.number}: ${episodeTitle.trim()}`,
         description: [
           `Write episode ${draft.manifest.number} of series "${selectedSeries.slug}".`,
           `An episode draft already exists; use episode_get, then episode_update + shots_set. Do NOT create another episode.`,
           `Premise: ${episodePremise.trim()}`,
+          visualNotes ? `User-supplied visual references (follow each note and carry relevant paths into shot references):\n${visualNotes}` : '',
           'Stop after the episode is scripted and its complete planned shot list is recorded. Do not generate media in this task.',
-        ].join('\n'),
+        ].filter(Boolean).join('\n'),
       });
       await bindEpisodeTask(assetsRoot, selectedSeries.slug, draft.manifest.number, res.id);
       activeTaskId = res.id;
@@ -231,6 +239,7 @@
       showEpisodeForm = false;
       episodeTitle = '';
       episodePremise = '';
+      episodeReferences = [];
       await reloadEpisodes();
       startPoll();
       onTaskSubmitted();
@@ -248,7 +257,7 @@
     const briefs = {
       stills: [
         `Generate ONLY the keyframe stills for episode ${num} of series "${selectedSeries.slug}".`,
-        'Read series_get and episode_get. For each planned shot without a still, compose it with edit_image_nano_banana using cast references and the series style lock, then shot_update still=<path> status=still_ready. Do not generate clips yet.',
+        'Read series_get and episode_get. Treat episode-level visual reference notes as binding and pass relevant image paths into composition. For each planned shot without a still, compose it with edit_image_nano_banana using cast references and the series style lock, then shot_update still=<path> references=[...] status=still_ready. Do not generate clips yet.',
       ],
       shots: [
         `Generate the video clips for episode ${num} of series "${selectedSeries.slug}".`,
@@ -280,6 +289,21 @@
   function startPoll() {
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = setInterval(pollActive, 5000);
+  }
+
+  async function revisionSubmitted(taskId: string) {
+    if (selectedSeries && selectedEpisode) {
+      try {
+        await bindEpisodeTask(assetsRoot, selectedSeries.slug, selectedEpisode.manifest.number, taskId);
+      } catch {
+        addToast('Revision started, but its task link could not be saved', 'alert');
+      }
+    }
+    activeTaskId = taskId;
+    activeAction = 'Revising storyboard';
+    taskBusy = true;
+    startPoll();
+    onTaskSubmitted();
   }
 
   async function pollActive() {
@@ -395,9 +419,17 @@
 
     <section class="grid grid-cols-1 lg:grid-cols-[230px_1fr] gap-4">
       <aside class="border-r border-gray-200 dark:border-dark-border lg:pr-3">
-        <div class="flex items-center justify-between mb-2"><h3 class="text-xs font-semibold text-gray-900 dark:text-dark-text">Episodes</h3><button onclick={() => (showEpisodeForm = !showEpisodeForm)} class="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-dark-text" title="Write next episode"><Plus size={13} /></button></div>
+        <div class="flex items-center justify-between mb-2"><h3 class="text-xs font-semibold text-gray-900 dark:text-dark-text">Episodes</h3><button onclick={() => (showEpisodeForm = !showEpisodeForm)} class="p-1.5 text-gray-400 hover:text-gray-700 dark:hover:text-dark-text" title="Write next episode"><Plus size={13} /></button></div>
         {#if showEpisodeForm}
-          <div class="mb-3 space-y-1.5"><input bind:value={episodeTitle} placeholder="Episode title" class="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base" /><textarea bind:value={episodePremise} rows="3" placeholder="What happens in this episode? Include continuity notes from prior episodes." class="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base"></textarea><button onclick={writeEpisode} disabled={taskBusy} class="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium bg-gray-900 dark:bg-accent text-white disabled:opacity-50">{#if taskBusy}<Loader2 size={10} class="animate-spin" />{:else}<BookOpen size={10} />{/if} Start writing</button></div>
+          <div class="mb-3 space-y-1.5">
+            <input bind:value={episodeTitle} aria-label="Episode title" placeholder="Episode title" class="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base" />
+            <textarea bind:value={episodePremise} aria-label="Episode premise" rows="3" placeholder="What happens in this episode? Include continuity notes from prior episodes." class="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-base"></textarea>
+            <label class="flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] border border-dashed border-gray-300 dark:border-dark-border text-gray-500 dark:text-dark-text-muted cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-elevated"><ImagePlus size={10} /> Add visual references<input type="file" accept="image/*" multiple class="hidden" onchange={(e) => { const files = (e.currentTarget as HTMLInputElement).files; if (files) episodeReferences = [...episodeReferences, ...Array.from(files).map((file) => ({ file, note: '' }))]; }} /></label>
+            {#each episodeReferences as item, index (`${item.file.name}-${index}`)}
+              <div class="flex items-start gap-1 border border-gray-200 dark:border-dark-border p-1"><div class="min-w-0 flex-1"><p class="text-[9px] text-gray-400 truncate">{item.file.name}</p><input bind:value={item.note} aria-label={`How to use ${item.file.name}`} placeholder="Use this as…" class="mt-0.5 w-full px-1 py-1 text-[10px] border border-gray-100 dark:border-dark-border bg-white dark:bg-dark-base" /></div><button onclick={() => (episodeReferences = episodeReferences.filter((_, i) => i !== index))} class="p-2 text-gray-400 hover:text-red-500" title="Remove"><X size={10} /></button></div>
+            {/each}
+            <button onclick={writeEpisode} disabled={taskBusy} class="w-full inline-flex items-center justify-center gap-1 px-2 py-1 text-[10px] font-medium bg-gray-900 dark:bg-accent text-white disabled:opacity-50">{#if taskBusy}<Loader2 size={10} class="animate-spin" />{:else}<BookOpen size={10} />{/if} Start writing</button>
+          </div>
         {/if}
         <div class="space-y-px">
           {#each episodes as ep (ep.manifest.number)}
@@ -411,6 +443,7 @@
         {#if selectedEpisode}
           <div class="flex flex-col sm:flex-row sm:items-start gap-3 mb-3"><div class="min-w-0 flex-1"><h3 class="text-sm font-semibold text-gray-900 dark:text-dark-text">E{String(selectedEpisode.manifest.number).padStart(2, '0')} — {selectedEpisode.manifest.title || 'Untitled'}</h3><p class="text-[11px] text-gray-500 dark:text-dark-text-muted">{selectedEpisode.manifest.synopsis || 'No synopsis yet'}</p></div><div class="flex flex-wrap gap-1"><button onclick={() => runStage('stills')} disabled={taskBusy || !selectedEpisode.manifest.shots.length} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-gray-200 dark:border-dark-border disabled:opacity-40"><WandSparkles size={10} /> Stills</button><button onclick={() => runStage('shots')} disabled={taskBusy || !selectedEpisode.manifest.shots.length} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] border border-gray-200 dark:border-dark-border disabled:opacity-40"><Sparkles size={10} /> Shots</button><button onclick={() => runStage('assemble')} disabled={taskBusy || !selectedEpisode.manifest.shots.some((s) => s.clip)} class="inline-flex items-center gap-1 px-2 py-1 text-[10px] bg-gray-900 dark:bg-accent text-white disabled:opacity-40"><Video size={10} /> Assemble</button></div></div>
           {#if taskBusy}<div class="mb-3 flex items-center gap-2 px-2 py-1.5 bg-amber-50 dark:bg-amber-950 text-[10px] text-amber-700 dark:text-amber-300"><Loader2 size={11} class="animate-spin" /> {activeAction || 'Production task'} is running; storyboard updates every 5 seconds.</div>{/if}
+          <div class="mb-3">{#key `${selectedSeries.slug}-${selectedEpisode.manifest.number}`}<StudioEpisodeEditor episode={selectedEpisode} series={selectedSeries} {seriesOrg} busy={taskBusy} onSaved={reloadEpisodes} onRevisionSubmitted={revisionSubmitted} />{/key}</div>
           <StudioStoryboard episode={selectedEpisode} busy={taskBusy} />
         {:else}
           <div class="min-h-64 flex flex-col items-center justify-center border border-dashed border-gray-200 dark:border-dark-border text-gray-400 dark:text-dark-text-muted"><Film size={22} class="mb-2" /><p class="text-xs">Select an episode to open its storyboard.</p></div>

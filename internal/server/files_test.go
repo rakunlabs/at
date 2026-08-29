@@ -222,6 +222,46 @@ func TestFileUploadAPI(t *testing.T) {
 	}
 }
 
+func TestFileUploadAPIReplacesExistingFile(t *testing.T) {
+	s := &Server{}
+	dir := t.TempDir()
+	target := filepath.Join(dir, "episode.json")
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatalf("write existing file: %v", err)
+	}
+
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	_ = mw.WriteField("path", dir)
+	_ = mw.WriteField("name", "episode.json")
+	fw, _ := mw.CreateFormFile("file", "manifest.json")
+	_, _ = fw.Write([]byte("new"))
+	_ = mw.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	s.FileUploadAPI(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read replaced file: %v", err)
+	}
+	if string(got) != "new" {
+		t.Errorf("content mismatch: %q", got)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, ".episode.json.upload-*"))
+	if err != nil {
+		t.Fatalf("glob temporary uploads: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("temporary uploads were not cleaned up: %v", matches)
+	}
+}
+
 // TestFileUploadAPI_TraversalName — a path-traversal file name must be
 // flattened to its base name instead of escaping the target directory.
 func TestFileUploadAPI_TraversalName(t *testing.T) {
