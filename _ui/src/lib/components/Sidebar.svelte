@@ -414,6 +414,14 @@
             <ClipboardList size={14} />
             <span>Tasks</span>
           </a>
+        </div>
+      </div>
+      <div>
+        <span
+          class="block p-2 text-[10px] font-medium text-gray-400 dark:text-dark-text-muted tracking-wider bg-gray-50 dark:bg-dark-base w-full border-b border-gray-200 dark:border-dark-border transition-colors"
+          >Studio</span
+        >
+        <div class="border-l-4 border-gray-800 dark:border-accent">
           <a
             href="#/studio"
             onclick={(e) => navigate(e, "/studio")}
@@ -425,7 +433,7 @@
             ]}
           >
             <Clapperboard size={14} />
-            <span>Studio</span>
+            <span>Video Studio</span>
           </a>
         </div>
       </div>

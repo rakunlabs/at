@@ -549,6 +549,56 @@ func extractMediaFiles(result string) (videos []string, images []string) {
 	return
 }
 
+// sendTelegramResultMedia sends media referenced by a task result and returns
+// the number of files Telegram accepted. Videos are documents to preserve the
+// original encoding, quality, and aspect ratio.
+func sendTelegramResultMedia(bot *tgbotapi.BotAPI, chatID int64, ident, result string) int {
+	videos, images := extractMediaFiles(result)
+	caption := sanitizeUTF8(ident)
+	sent := 0
+
+	for _, path := range videos {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		doc := tgbotapi.NewDocument(chatID, tgbotapi.FilePath(path))
+		doc.Caption = caption
+		if _, err := bot.Send(doc); err != nil {
+			slog.Warn("telegram bot: send video failed", "file", path, "error", err)
+			continue
+		}
+		sent++
+	}
+
+	for _, path := range images {
+		if _, err := os.Stat(path); err != nil {
+			continue
+		}
+		photo := tgbotapi.NewPhoto(chatID, tgbotapi.FilePath(path))
+		photo.Caption = caption
+		if _, err := bot.Send(photo); err != nil {
+			slog.Warn("telegram bot: send image failed", "file", path, "error", err)
+			continue
+		}
+		sent++
+	}
+
+	return sent
+}
+
+func sendTelegramCompletedResult(bot *tgbotapi.BotAPI, chatID int64, ident, result, label string) {
+	safeIdent := sanitizeUTF8(ident)
+	if sendTelegramResultMedia(bot, chatID, safeIdent, result) > 0 {
+		return
+	}
+
+	message := fmt.Sprintf("%s %s completed.", label, safeIdent)
+	if strings.TrimSpace(result) != "" {
+		message += "\n\nResult:\n" + sanitizeUTF8(result)
+	}
+	sendTelegramText(bot, chatID, message)
+}
+
 // newCommandFlagRe matches inline /new flags such as:
 //
 //	max=50    --max=50    -max=50
@@ -956,7 +1006,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			onDone := func(ident, status, result string) {
 				switch status {
 				case "done", "completed":
-					sendTelegramText(bot, chatID, fmt.Sprintf("Task %s completed!\nUse /result %s to get the output.", sanitizeUTF8(ident), sanitizeUTF8(ident)))
+					sendTelegramCompletedResult(bot, chatID, ident, result, "Task")
 				case "blocked":
 					// Iteration-limit pause is recoverable via /resume. Other
 					// blocked reasons (review, manual block) just need the user
@@ -1088,31 +1138,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 				return
 			}
 
-			// Try to send video/image files
-			videoFiles, imageFiles := extractMediaFiles(task.Result)
-
-			for _, vf := range videoFiles {
-				if _, err := os.Stat(vf); err == nil {
-					// Send as document to preserve original quality and aspect ratio
-					doc := tgbotapi.NewDocument(msg.Chat.ID, tgbotapi.FilePath(vf))
-					doc.Caption = sanitizeUTF8(task.Identifier)
-					if _, err := bot.Send(doc); err != nil {
-						slog.Warn("telegram bot: send video failed", "file", vf, "error", err)
-						sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Video at: %s (too large for Telegram)", vf))
-					}
-				}
-			}
-
-			for _, imgf := range imageFiles {
-				if _, err := os.Stat(imgf); err == nil {
-					photo := tgbotapi.NewPhoto(msg.Chat.ID, tgbotapi.FilePath(imgf))
-					photo.Caption = sanitizeUTF8(task.Identifier)
-					bot.Send(photo) //nolint:errcheck
-				}
-			}
-
-			// Send text result if no media or always
-			if len(videoFiles) == 0 && len(imageFiles) == 0 {
+			if sendTelegramResultMedia(bot, msg.Chat.ID, task.Identifier, task.Result) == 0 {
 				sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Result:\n%s", sanitizeUTF8(task.Result)))
 			}
 			return
@@ -1364,7 +1390,9 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 					if len(summary) > 500 {
 						summary = summary[:500] + "..."
 					}
-					sendTelegramText(bot, chatID, fmt.Sprintf("Done: %s\n\nResult:\n%s\n\n/result %s for full output", sanitizeUTF8(ident), summary, sanitizeUTF8(taskRef)))
+					if sendTelegramResultMedia(bot, chatID, ident, result) == 0 {
+						sendTelegramText(bot, chatID, fmt.Sprintf("Done: %s\n\nResult:\n%s", sanitizeUTF8(ident), summary))
+					}
 				case "blocked":
 					if strings.HasPrefix(result, "[ITERATION_LIMIT]") {
 						sendTelegramText(bot, chatID, fmt.Sprintf(
@@ -1466,7 +1494,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			onRevDone := func(ident, status, result string) {
 				switch status {
 				case "done", "completed":
-					sendTelegramText(bot, chatID, fmt.Sprintf("Revision %s completed.\nUse /result %s to get the output.", sanitizeUTF8(ident), sanitizeUTF8(ident)))
+					sendTelegramCompletedResult(bot, chatID, ident, result, "Revision")
 				case "blocked":
 					if strings.HasPrefix(result, "[ITERATION_LIMIT]") {
 						sendTelegramText(bot, chatID, fmt.Sprintf(
@@ -1590,9 +1618,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			onResumeDone := func(ident, status, result string) {
 				switch status {
 				case "done", "completed":
-					sendTelegramText(bot, chatID,
-						fmt.Sprintf("Task %s resumed and completed.\nUse /result %s to get the output.",
-							sanitizeUTF8(ident), sanitizeUTF8(ident)))
+					sendTelegramCompletedResult(bot, chatID, ident, result, "Task")
 				case "blocked":
 					// Hit the iteration limit a second time — tell the user
 					// they can call /resume again.

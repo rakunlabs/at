@@ -117,7 +117,7 @@ func (s *Server) handleTelegramCustomCommand(
 	onDone := func(ident, status, result string) {
 		switch status {
 		case "done", "completed":
-			sendTelegramText(bot, chatID, fmt.Sprintf("Task %s completed.\nUse /result %s to get the output.", sanitizeUTF8(ident), sanitizeUTF8(ident)))
+			sendTelegramCompletedResult(bot, chatID, ident, result, "Task")
 		case "blocked":
 			// Iteration-limit pause is recoverable via /resume — surface that
 			// to the user instead of presenting the task as a hard failure.

@@ -1,10 +1,53 @@
 package server
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf8"
 )
+
+func TestExtractMediaFiles(t *testing.T) {
+	tests := []struct {
+		name       string
+		result     string
+		wantVideos []string
+		wantImages []string
+	}{
+		{
+			name:       "top-level JSON video",
+			result:     `{"video_file":"/tmp/render/final.mp4"}`,
+			wantVideos: []string{"/tmp/render/final.mp4"},
+		},
+		{
+			name:       "nested manifest and plain image",
+			result:     `{"episode":{"final_video":"/data/assets/series/demo/final.webm"},"cover":"/tmp/cover.png"}`,
+			wantVideos: []string{"/data/assets/series/demo/final.webm"},
+			wantImages: []string{"/tmp/cover.png"},
+		},
+		{
+			name:       "deduplicates JSON and text scan",
+			result:     `{"output":"/tmp/final.mov","message":"saved /tmp/final.mov"}`,
+			wantVideos: []string{"/tmp/final.mov"},
+		},
+		{
+			name:   "no media",
+			result: "Task completed without an artifact.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			videos, images := extractMediaFiles(tt.result)
+			if !reflect.DeepEqual(videos, tt.wantVideos) {
+				t.Fatalf("videos = %#v, want %#v", videos, tt.wantVideos)
+			}
+			if !reflect.DeepEqual(images, tt.wantImages) {
+				t.Fatalf("images = %#v, want %#v", images, tt.wantImages)
+			}
+		})
+	}
+}
 
 func TestParseNewCommandArgs(t *testing.T) {
 	cases := []struct {
