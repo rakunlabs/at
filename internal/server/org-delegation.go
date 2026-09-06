@@ -540,15 +540,16 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 	traceSessionID := s.resolveRootTaskID(ctx, task)
 	observationContext := agentloop.ObservationContext{
-		Source:         "agent",
-		TraceID:        runTraceID,
-		SessionID:      traceSessionID,
-		AgentID:        agentID,
-		TaskID:         task.ID,
-		RunID:          runTraceID,
-		OrganizationID: org.ID,
-		Provider:       agent.Config.Provider,
-		Model:          model,
+		Source:          "agent",
+		TraceID:         runTraceID,
+		SessionID:       traceSessionID,
+		AgentID:         agentID,
+		TaskID:          task.ID,
+		RunID:           runTraceID,
+		OrganizationID:  org.ID,
+		Provider:        agent.Config.Provider,
+		Model:           model,
+		ReasoningEffort: agent.Config.ReasoningEffort,
 	}
 	recordObservation := s.recordObservationFunc()
 
@@ -714,6 +715,8 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 	var finalContent string
 	var lastFinishReason string
+	consecutiveOutputLimits := 0
+	const outputLimitAdvisory = "Preserve existing artifacts. Write remaining output in small chapter/section file writes with small tool arguments, not one giant tool argument payload or inline response. Keep the final response concise."
 	completedNaturally := false
 	endedWithEmptyResponse := false
 	// Set when the agent explicitly finalizes the task via the
@@ -759,15 +762,14 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 
 		// Call LLM with retry on transient errors (5xx, rate limits).
-		// The loop governor windows the message slice (with rolling
-		// summary fallback) and supplies a per-call MaxTokens cap.
+		// The loop governor windows the message slice with rolling summary fallback.
 		var resp *service.LLMResponse
 		var chatErr error
 		var latencyMs int64
 		var windowed []service.Message
 		for attempt := 0; attempt < 3; attempt++ {
 			resp, windowed, latencyMs, chatErr = agentloop.CallProvider(
-				ctx, s.loopGov, info.provider, model, agentID, task.ID, messages, llmTools,
+				ctx, s.loopGov, info.provider, model, agentID, task.ID, messages, llmTools, agent.Config.ReasoningEffort,
 			)
 			if chatErr == nil {
 				break
@@ -886,17 +888,30 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 		lastFinishReason = resp.FinishReason
 
+		// Truncated tool calls are unsafe to execute or replay, even when Finished is false.
+		if isOutputLimitFinishReason(resp.FinishReason) {
+			consecutiveOutputLimits++
+			if resp.Content != "" {
+				messages = append(messages, service.Message{
+					Role:    "assistant",
+					Content: []service.ContentBlock{{Type: "text", Text: resp.Content}},
+				})
+			}
+			if consecutiveOutputLimits >= 3 {
+				break
+			}
+			messages = append(messages, service.Message{
+				Role:    "user",
+				Content: "Your response reached the output-token limit before completing. Any tool calls in that response were not executed. " + outputLimitAdvisory,
+			})
+			continue
+		}
+		consecutiveOutputLimits = 0
+
 		messages = append(messages, agentloop.AssistantMessage(resp))
 
 		// If done (no tool calls), check for unfulfilled delegation intent before finishing.
 		if resp.Finished || len(resp.ToolCalls) == 0 {
-			if isOutputLimitFinishReason(resp.FinishReason) {
-				messages = append(messages, service.Message{
-					Role:    "user",
-					Content: "Your response reached the output-token limit before completing. Continue from the partial response, keep the final answer concise, and write large structured output to the requested artifact file instead of returning it inline.",
-				})
-				continue
-			}
 			// Detect if the agent mentioned delegating but didn't actually call a delegate tool.
 			// This catches cases like "Now delegating to Video Producer..." without a tool call.
 			if len(delegateToolMap) > 0 && resp.Content != "" && detectUnfulfilledDelegation(resp.Content, delegateToolMap, delegatedAgents) {
@@ -1074,7 +1089,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				var result string
 				var callErr error
 
-				result, callErr = s.dispatchBuiltinTool(ctx, tc.Name, tc.Arguments)
+				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+				result, callErr = s.dispatchBuiltinTool(toolCtx, tc.Name, tc.Arguments)
+				cancel()
 
 				if callErr != nil {
 					slog.Error("org-delegation: builtin tool call failed",
@@ -1196,6 +1213,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		if isOutputLimitFinishReason(lastFinishReason) {
 			resultCode = "OUTPUT_LIMIT"
 			resultReason = "The model reached its output-token limit before returning a complete result."
+			if consecutiveOutputLimits >= 3 {
+				resultReason = "Stopped after 3 consecutive output-limit responses without untruncated progress."
+			}
+			resultReason += " Any tool calls in truncated responses were not executed. " + outputLimitAdvisory
 		} else if endedWithEmptyResponse {
 			resultCode = "EMPTY_RESPONSE"
 			resultReason = fmt.Sprintf("The model ended with finish reason %q but returned no final content.", lastFinishReason)

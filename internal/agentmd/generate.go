@@ -22,6 +22,7 @@ func Generate(a *AgentMD) ([]byte, error) {
 		Group                     string   `yaml:"group,omitempty"`
 		Provider                  string   `yaml:"provider"`
 		Model                     string   `yaml:"model,omitempty"`
+		ReasoningEffort           string   `yaml:"reasoning_effort,omitempty"`
 		Skills                    []string `yaml:"skills,omitempty"`
 		MCPSets                   []string `yaml:"mcp_sets,omitempty"`
 		MCPs                      []string `yaml:"mcp_urls,omitempty"`
@@ -39,6 +40,7 @@ func Generate(a *AgentMD) ([]byte, error) {
 		Group:                     a.Group,
 		Provider:                  a.Provider,
 		Model:                     a.Model,
+		ReasoningEffort:           a.ReasoningEffort,
 		Skills:                    a.Skills,
 		MCPSets:                   a.MCPSets,
 		MCPs:                      a.MCPs,

@@ -6,6 +6,7 @@ package agentloop
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -33,14 +34,31 @@ func CallProvider(
 	model, agentID, taskID string,
 	messages []service.Message,
 	tools []service.Tool,
+	reasoningEffort string,
 ) (resp *service.LLMResponse, callMessages []service.Message, latencyMs int64, err error) {
 	callMessages = messages
+	if err := service.ValidateReasoningEffort(reasoningEffort); err != nil {
+		return nil, callMessages, 0, fmt.Errorf("agent reasoning effort: %w", err)
+	}
+	if validator, ok := provider.(service.ReasoningEffortValidator); ok {
+		if err := validator.ValidateReasoningEffort(reasoningEffort); err != nil {
+			return nil, callMessages, 0, fmt.Errorf("agent provider reasoning effort: %w", err)
+		}
+	}
 	var opts *service.ChatOptions
 	if governor != nil {
 		// Governors recover from summarization failures by dropping old context;
 		// callers historically treat that fallback as best-effort.
 		callMessages, _ = governor.LimitWithTools(ctx, agentID, taskID, messages, tools)
 		opts = governor.ChatOptions()
+	}
+	if reasoningEffort != "" {
+		merged := service.ChatOptions{}
+		if opts != nil {
+			merged = *opts
+		}
+		merged.ReasoningEffort = reasoningEffort
+		opts = &merged
 	}
 
 	started := time.Now()
@@ -87,30 +105,33 @@ func AssistantMessage(resp *service.LLMResponse) service.Message {
 
 // GenerationRequestJSON serializes the canonical request shape recorded by
 // every agent loop after message governance has been applied.
-func GenerationRequestJSON(model string, messages []service.Message, tools []service.Tool) []byte {
+func GenerationRequestJSON(model string, messages []service.Message, tools []service.Tool, reasoningEffort string) []byte {
 	body, _ := json.Marshal(struct {
-		Model    string            `json:"model"`
-		Messages []service.Message `json:"messages"`
-		Tools    []service.Tool    `json:"tools"`
+		ReasoningEffort string            `json:"reasoning_effort,omitempty"`
+		Model           string            `json:"model"`
+		Messages        []service.Message `json:"messages"`
+		Tools           []service.Tool    `json:"tools"`
 	}{
-		Model:    model,
-		Messages: messages,
-		Tools:    tools,
+		ReasoningEffort: reasoningEffort,
+		Model:           model,
+		Messages:        messages,
+		Tools:           tools,
 	})
 	return body
 }
 
 // ObservationContext identifies observations produced by one agent-loop run.
 type ObservationContext struct {
-	Source         string
-	TraceID        string
-	SessionID      string
-	AgentID        string
-	TaskID         string
-	RunID          string
-	OrganizationID string
-	Provider       string
-	Model          string
+	Source          string
+	TraceID         string
+	SessionID       string
+	AgentID         string
+	TaskID          string
+	RunID           string
+	OrganizationID  string
+	Provider        string
+	Model           string
+	ReasoningEffort string
 }
 
 // GenerationObservationParams contains the common data around one provider
@@ -145,7 +166,7 @@ func NewGenerationObservation(p GenerationObservationParams) service.LLMCall {
 		Provider:        p.Context.Provider,
 		Model:           p.Context.Model,
 		RequestedModel:  p.Context.Provider + "/" + p.Context.Model,
-		RequestBody:     string(GenerationRequestJSON(p.Context.Model, p.Messages, p.Tools)),
+		RequestBody:     string(GenerationRequestJSON(p.Context.Model, p.Messages, p.Tools, p.Context.ReasoningEffort)),
 		LatencyMs:       p.LatencyMs,
 		Metadata:        metadata,
 	}

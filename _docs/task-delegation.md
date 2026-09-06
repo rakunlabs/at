@@ -4,6 +4,39 @@ AT supports multi-agent task delegation where a parent agent can assign work to 
 
 ## Organization-Based Delegation
 
+### Model Reasoning Effort
+
+In **Agents**, select **Reasoning effort** alongside the model configuration.
+This is a per-agent setting, not a model-name suffix or an iteration limit.
+`Default` leaves the provider/model defaults unchanged; it does not disable thinking.
+Higher effort can increase latency and token usage without reducing the number of tool calls.
+
+| Adapter | Agent options | Behavior |
+| --- | --- | --- |
+| OpenAI, Azure, OpenAI-compatible Vertex, ChatGPT/Codex | Default, low, medium, high, xhigh | Forwarded to the endpoint. The selected model must support the value; compatibility is not guaranteed for arbitrary OpenAI-compatible endpoints. |
+| Anthropic, Gemini, Vertex-Gemini, MiniMax | Default, low, medium, high | Uses the existing thinking-budget mapping. The model must support it; xhigh is rejected, not silently downgraded. |
+| Bedrock, Cohere | Default | No agent reasoning-effort override implemented by these adapters. |
+
+The value is stored in `config.reasoning_effort`, preserved in agent markdown
+import/export, and applied to organization runs, agent chat sessions and workflow
+`agent_call` nodes using an agent preset. Each delegated agent uses its own value.
+There is no node-level reasoning override: configure it on the selected agent preset.
+Canonical generation traces include `reasoning_effort` when explicitly set.
+
+After deploying the updated server and refreshing MCP tool discovery,
+`agent_create` and `agent_update` accept the same field:
+
+```json
+{
+  "id": "<agent-id>",
+  "reasoning_effort": "medium"
+}
+```
+
+For MCP updates, omission preserves the existing value and an explicit empty
+string clears it to Default. Changing a provider also validates its compatibility
+with the saved effort. This setting does not introduce a platform output-token cap.
+
 ### Organization Hierarchy
 
 Agents are organized into an org chart via the Organizations page. Each agent in an organization has:

@@ -287,7 +287,7 @@ func TestCodexProviderChatConvertsRequestAndSSE(t *testing.T) {
 	}, []service.Tool{{
 		Name: "lookup", Description: "look up data", InputSchema: map[string]any{"type": "object"},
 	}}, &service.ChatOptions{
-		ReasoningEffort:   "high",
+		ReasoningEffort:   "xhigh",
 		ParallelToolCalls: &parallel,
 		ToolChoice: map[string]any{
 			"type": "function", "function": map[string]any{"name": "lookup"},
@@ -329,7 +329,7 @@ func TestCodexProviderChatConvertsRequestAndSSE(t *testing.T) {
 		t.Fatalf("unexpected tool controls: choice=%#v parallel=%#v", choice, captured["parallel_tool_calls"])
 	}
 	reasoning, _ := captured["reasoning"].(map[string]any)
-	if reasoning["effort"] != "high" || reasoning["summary"] != "auto" {
+	if reasoning["effort"] != "xhigh" || reasoning["summary"] != "auto" {
 		t.Fatalf("reasoning = %#v", reasoning)
 	}
 	text, _ := captured["text"].(map[string]any)

@@ -101,13 +101,14 @@ type AgentConfig struct {
 	// Group is a free-form label used to organize agents in the UI (e.g.
 	// "YouTube Shorts", "QBL", "Utilities"). Purely for filtering/sorting the
 	// agent list; it has no effect on runtime behavior.
-	Group        string     `json:"group,omitempty"`
-	Provider     string     `json:"provider"`                // Provider key
-	Model        string     `json:"model,omitempty"`         // Model identifier
-	SystemPrompt string     `json:"system_prompt,omitempty"` // System prompt
-	Skills       []SkillRef `json:"skills,omitempty"`        // Skill attachments (bare string or {id, connections})
-	MCPs         []string   `json:"mcp_urls,omitempty"`      // List of MCP server URLs (legacy)
-	MCPSets      []string   `json:"mcp_sets,omitempty"`      // List of MCP Set names (internal MCPs)
+	Group           string     `json:"group,omitempty"`
+	Provider        string     `json:"provider"`                   // Provider key
+	Model           string     `json:"model,omitempty"`            // Model identifier
+	ReasoningEffort string     `json:"reasoning_effort,omitempty"` // Optional effort; adapter support does not guarantee model support
+	SystemPrompt    string     `json:"system_prompt,omitempty"`    // System prompt
+	Skills          []SkillRef `json:"skills,omitempty"`           // Skill attachments (bare string or {id, connections})
+	MCPs            []string   `json:"mcp_urls,omitempty"`         // List of MCP server URLs (legacy)
+	MCPSets         []string   `json:"mcp_sets,omitempty"`         // List of MCP Set names (internal MCPs)
 	// Workflows lists workflow NAMES exposed to the agent as callable tools.
 	// Each workflow becomes one tool named `workflow_<name>` in the agentic
 	// loop. Agents can also reach workflows indirectly via MCP sets; this

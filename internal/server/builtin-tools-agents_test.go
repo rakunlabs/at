@@ -40,9 +40,10 @@ func builtinAgentFixture() *service.Agent {
 		ID: "agent-1", Name: "original", CreatedBy: "owner",
 		Config: service.AgentConfig{
 			Provider: "provider", Model: "model", SystemPrompt: "prompt", Description: "description",
-			Skills:      []service.SkillRef{{ID: "old-skill", Connections: map[string]string{"youtube": "old-skill-connection"}}},
-			Connections: map[string]string{"youtube": "old-default", "google": "old-google"},
-			MCPSets:     []string{"mcp"}, BuiltinTools: []string{"agent_get"}, MaxIterations: 12, ToolTimeout: 30,
+			ReasoningEffort: "high",
+			Skills:          []service.SkillRef{{ID: "old-skill", Connections: map[string]string{"youtube": "old-skill-connection"}}},
+			Connections:     map[string]string{"youtube": "old-default", "google": "old-google"},
+			MCPSets:         []string{"mcp"}, BuiltinTools: []string{"agent_get"}, MaxIterations: 12, ToolTimeout: 30,
 		},
 	}
 }

@@ -89,8 +89,9 @@ type ChatOptions struct {
 	ResponseFormat map[string]any
 
 	// ReasoningEffort controls thinking depth for reasoning models.
-	// Values: "low", "medium", "high".
-	// For OpenAI o-series: forwarded directly as reasoning_effort.
+	// Agent values: "low", "medium", "high", "xhigh"; empty preserves defaults.
+	// OpenAI-compatible adapters forward the value; model support varies.
+	// xhigh is not mapped by the Anthropic/Gemini budget adapters.
 	// For Anthropic: mapped to thinking budget (low=2048, medium=8192, high=24576).
 	// For Gemini: mapped to thinkingBudget.
 	ReasoningEffort string

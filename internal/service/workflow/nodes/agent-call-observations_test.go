@@ -16,7 +16,10 @@ import (
 // generation.
 func TestAgentCall_RecordsObservations(t *testing.T) {
 	calls := 0
-	mp := &mockProvider{chatFunc: func(_ context.Context, _ string, _ []service.Message, _ []service.Tool, _ *service.ChatOptions) (*service.LLMResponse, error) {
+	mp := &mockProvider{chatFunc: func(_ context.Context, _ string, _ []service.Message, _ []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+		if opts == nil || opts.ReasoningEffort != "xhigh" || opts.MaxTokens != nil {
+			t.Fatalf("preset options = %+v", opts)
+		}
 		calls++
 		if calls == 1 {
 			return &service.LLMResponse{
@@ -28,6 +31,9 @@ func TestAgentCall_RecordsObservations(t *testing.T) {
 	}}
 
 	reg := newTestRegistryWithProvider(mp)
+	reg.AgentLookup = func(context.Context, string) (*service.Agent, error) {
+		return &service.Agent{Config: service.AgentConfig{ReasoningEffort: "xhigh"}}, nil
+	}
 
 	var mu sync.Mutex
 	var recorded []service.LLMCall
@@ -42,6 +48,7 @@ func TestAgentCall_RecordsObservations(t *testing.T) {
 	}
 
 	node := makeNode(t, "agent_call", map[string]any{
+		"agent_id":       "preset",
 		"provider":       "test-provider",
 		"max_iterations": float64(4),
 	})
@@ -72,6 +79,11 @@ func TestAgentCall_RecordsObservations(t *testing.T) {
 	if len(gens) != 2 || len(tools) != 1 {
 		t.Fatalf("expected 2 generations + 1 tool, got gens=%d tools=%d", len(gens), len(tools))
 	}
+	for _, gen := range gens {
+		if !strings.Contains(gen.RequestBody, `"reasoning_effort":"xhigh"`) {
+			t.Fatalf("missing preset effort: %s", gen.RequestBody)
+		}
+	}
 	if tools[0].ParentObservationID != gens[0].ID {
 		t.Fatalf("tool parent = %q, want first generation %q", tools[0].ParentObservationID, gens[0].ID)
 	}
@@ -87,5 +99,32 @@ func TestAgentCall_RecordsObservations(t *testing.T) {
 	// Request bodies are attached by the node; gating happens server-side.
 	if gens[0].RequestBody == "" || !strings.Contains(gens[0].RequestBody, "do the work") {
 		t.Fatalf("generation request body missing: %q", gens[0].RequestBody)
+	}
+}
+
+func TestAgentCall_NoPresetReasoningEffort(t *testing.T) {
+	calls := 0
+	provider := &mockProvider{chatFunc: func(_ context.Context, _ string, _ []service.Message, _ []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+		calls++
+		if opts != nil {
+			t.Fatalf("no preset options = %+v", opts)
+		}
+		return &service.LLMResponse{Finished: true, Content: "done"}, nil
+	}}
+	reg := newTestRegistryWithProvider(provider)
+	var observations []service.LLMCall
+	reg.RecordObservation = func(_ context.Context, obs service.LLMCall) string {
+		observations = append(observations, obs)
+		return "observation"
+	}
+	node := makeNode(t, "agent_call", map[string]any{"provider": "test-provider", "max_iterations": float64(2)})
+	if _, err := node.Run(context.Background(), reg, map[string]any{"prompt": "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || len(observations) != 1 {
+		t.Fatalf("calls=%d observations=%d", calls, len(observations))
+	}
+	if strings.Contains(observations[0].RequestBody, "reasoning_effort") {
+		t.Fatalf("unexpected effort: %s", observations[0].RequestBody)
 	}
 }

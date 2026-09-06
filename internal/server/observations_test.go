@@ -21,13 +21,15 @@ type fakeObsProvider struct {
 	mu        sync.Mutex
 	responses []*service.LLMResponse
 	requests  [][]service.Message
+	options   []*service.ChatOptions
 	calls     int
 }
 
-func (f *fakeObsProvider) Chat(_ context.Context, _ string, messages []service.Message, _ []service.Tool, _ *service.ChatOptions) (*service.LLMResponse, error) {
+func (f *fakeObsProvider) Chat(_ context.Context, _ string, messages []service.Message, _ []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests = append(f.requests, append([]service.Message(nil), messages...))
+	f.options = append(f.options, opts)
 	if f.calls >= len(f.responses) {
 		return &service.LLMResponse{Content: "out of script", Finished: true}, nil
 	}
@@ -225,7 +227,7 @@ func TestOrgDelegation_RecordsObservations(t *testing.T) {
 	}}
 	obsStore := &fakeLLMCallStore{}
 	agents := map[string]*service.Agent{
-		"agent-a": {ID: "agent-a", Name: "Alpha", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 5}},
+		"agent-a": {ID: "agent-a", Name: "Alpha", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 5, ReasoningEffort: "medium"}},
 	}
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 
@@ -315,6 +317,9 @@ func TestOrgDelegation_RecordsObservations(t *testing.T) {
 
 	// Feature store is nil → llm_audit defaults ON → bodies captured.
 	for _, g := range gens {
+		if !strings.Contains(g.RequestBody, `"reasoning_effort":"medium"`) {
+			t.Fatalf("missing effort: %s", g.RequestBody)
+		}
 		if g.RequestBody == "" || g.ResponseBody == "" {
 			t.Fatalf("expected bodies captured with llm_audit default-on: %+v", g)
 		}
@@ -323,6 +328,11 @@ func TestOrgDelegation_RecordsObservations(t *testing.T) {
 		}
 	}
 	// Skeleton fields present.
+	for _, opts := range provider.options {
+		if opts == nil || opts.ReasoningEffort != "medium" || opts.MaxTokens != nil {
+			t.Fatalf("org options = %+v", opts)
+		}
+	}
 	if gens[0].InputTokens == 0 {
 		t.Fatalf("generation tokens missing: %+v", gens[0])
 	}
@@ -515,6 +525,104 @@ func TestOrgDelegation_OutputLimitContinuesWithinIterationBudget(t *testing.T) {
 	}
 	if got.Status != service.TaskStatusCompleted || got.Result != "complete" {
 		t.Fatalf("task = status %q result %q, want completed complete", got.Status, got.Result)
+	}
+}
+
+func TestOrgDelegation_OutputLimitStreak(t *testing.T) {
+	partialProse := &service.LLMResponse{Content: "Artifact: chapters/01.md (partial)", Finished: true, FinishReason: "max_tokens"}
+	partialTool := &service.LLMResponse{
+		ToolCalls:    []service.ToolCall{{ID: "partial", Name: "task_complete", Arguments: map[string]any{"result": "must not complete"}}},
+		FinishReason: "length",
+	}
+	emptyTool := &service.LLMResponse{
+		ToolCalls:    []service.ToolCall{{ID: "empty", Name: "task_complete"}},
+		FinishReason: "max_tokens",
+	}
+	normalTool := &service.LLMResponse{ToolCalls: []service.ToolCall{{ID: "normal", Name: "task_list"}}, FinishReason: "tool_calls"}
+	complete := &service.LLMResponse{Content: "complete", Finished: true, FinishReason: "stop"}
+	tests := []struct {
+		name      string
+		responses []*service.LLMResponse
+		wantCalls int
+		blocked   bool
+	}{
+		{"repeated prose", []*service.LLMResponse{partialProse, partialProse, partialProse, complete}, 3, true},
+		{"truncated tool calls", []*service.LLMResponse{partialTool, partialTool, partialTool, complete}, 3, true},
+		{"empty tool arguments", []*service.LLMResponse{emptyTool, emptyTool, emptyTool, complete}, 3, true},
+		{"normal response resets recovery", []*service.LLMResponse{partialTool, partialProse, normalTool, emptyTool, partialProse, complete}, 6, false},
+		{"reset still bounds later streak", []*service.LLMResponse{partialProse, partialProse, normalTool, partialProse, partialProse, partialProse, complete}, 6, true},
+		{"normal completion", []*service.LLMResponse{normalTool, complete}, 2, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			provider := &fakeObsProvider{responses: tt.responses}
+			obsStore := &fakeLLMCallStore{}
+			agents := map[string]*service.Agent{
+				"agent-a": {ID: "agent-a", Name: "Alpha", Config: service.AgentConfig{Provider: "prov1", Model: "m1", MaxIterations: 40}},
+			}
+			s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
+			comments := &fakeIssueCommentStore{}
+			s.issueCommentStore = comments
+			task, err := taskStore.CreateTask(context.Background(), service.Task{
+				OrganizationID: "org1", Title: "write chapters", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+			})
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+			if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
+				t.Fatalf("runOrgDelegation: %v", err)
+			}
+			if len(provider.requests) != tt.wantCalls {
+				t.Fatalf("provider calls = %d, want %d", len(provider.requests), tt.wantCalls)
+			}
+			got, err := taskStore.GetTask(context.Background(), task.ID)
+			if err != nil {
+				t.Fatalf("GetTask: %v", err)
+			}
+			if tt.blocked {
+				if got.Status != service.TaskStatusBlocked || !strings.HasPrefix(got.Result, "[OUTPUT_LIMIT]") {
+					t.Fatalf("expected OUTPUT_LIMIT blocked task, got %+v", got)
+				}
+				for _, text := range []string{"3 consecutive output-limit responses", "small chapter/section file writes", "small tool arguments", "Preserve existing artifacts"} {
+					if !strings.Contains(got.Result, text) {
+						t.Errorf("result missing %q: %s", text, got.Result)
+					}
+				}
+				if tt.name == "repeated prose" && !strings.Contains(got.Result, "chapters/01.md") {
+					t.Errorf("partial artifact reference lost: %s", got.Result)
+				}
+			} else if got.Status != service.TaskStatusCompleted || got.Result != "complete" {
+				t.Fatalf("expected normal completion, got %+v", got)
+			}
+			// Neither subsequent requests nor saved continuation state may replay partial calls.
+			saved, err := comments.ListCommentsByTask(context.Background(), task.ID)
+			if err != nil {
+				t.Fatalf("ListCommentsByTask: %v", err)
+			}
+			foundState := false
+			for _, comment := range saved {
+				if strings.HasPrefix(comment.Body, conversationStatePrefix) {
+					foundState = true
+					if strings.Contains(comment.Body, "task_complete") {
+						t.Fatalf("partial tool persisted: %s", comment.Body)
+					}
+				}
+			}
+			if tt.blocked && !foundState {
+				t.Fatal("blocked run did not save continuation state")
+			}
+			for _, history := range provider.requests {
+				for _, message := range history {
+					if blocks, ok := message.Content.([]service.ContentBlock); ok {
+						for _, block := range blocks {
+							if block.Type == "tool_use" && block.Name == "task_complete" {
+								t.Fatal("partial tool replayed in provider request")
+							}
+						}
+					}
+				}
+			}
+		})
 	}
 }
 

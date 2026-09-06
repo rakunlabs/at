@@ -2,11 +2,19 @@ package agentloop
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/antropic"
+	"github.com/rakunlabs/at/internal/service/llm/bedrock"
+	"github.com/rakunlabs/at/internal/service/llm/cohere"
+	"github.com/rakunlabs/at/internal/service/llm/gemini"
+	"github.com/rakunlabs/at/internal/service/llm/minimax"
+	"github.com/rakunlabs/at/internal/service/llm/openai"
+	"github.com/rakunlabs/at/internal/service/llm/vertex"
 )
 
 func TestAssistantMessage(t *testing.T) {
@@ -142,17 +150,130 @@ func TestCallProvider(t *testing.T) {
 		return &service.LLMResponse{Content: "ok"}, nil
 	}}
 
-	resp, messages, _, err := CallProvider(context.Background(), governor, provider, "model", "agent", "task", []service.Message{{Role: "user", Content: "full"}}, nil)
+	resp, messages, _, err := CallProvider(context.Background(), governor, provider, "model", "agent", "task", []service.Message{{Role: "user", Content: "full"}}, nil, "")
 	if err != nil || resp.Content != "ok" || messages[0].Content != "windowed" {
 		t.Fatalf("CallProvider = resp=%+v messages=%+v err=%v", resp, messages, err)
 	}
 }
 
 type stubGovernor struct {
+	opts        *service.ChatOptions
 	windowed    []service.Message
 	replacement string
 	runID       string
 	toolName    string
+}
+
+func TestCallProviderReasoningEffort(t *testing.T) {
+	temperature := 0.7
+	for _, tt := range []struct {
+		name     string
+		effort   string
+		governor *stubGovernor
+		wantErr  bool
+	}{
+		{name: "no governor"},
+		{name: "nil governor options", governor: &stubGovernor{}},
+		{name: "existing options", governor: &stubGovernor{opts: &service.ChatOptions{Temperature: &temperature}}},
+		{name: "effort without governor", effort: "medium"},
+		{name: "effort with nil options", effort: "high", governor: &stubGovernor{}},
+		{name: "copy options", effort: "xhigh", governor: &stubGovernor{opts: &service.ChatOptions{Temperature: &temperature}}},
+		{name: "invalid", effort: "HIGH", wantErr: true},
+		{name: "whitespace", effort: " high", wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			provider := stubProvider{chat: func(_ context.Context, _ string, _ []service.Message, _ []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+				calls++
+				if tt.wantErr {
+					t.Fatal("invalid effort reached Chat")
+				}
+				var original *service.ChatOptions
+				if tt.governor != nil {
+					original = tt.governor.opts
+				}
+				if tt.effort == "" {
+					if opts != original {
+						t.Fatalf("default opts = %p, want %p", opts, original)
+					}
+				} else {
+					if opts == nil || opts.ReasoningEffort != tt.effort || opts.MaxTokens != nil || opts.MaxCompletionTokens != nil {
+						t.Fatalf("effort opts = %+v", opts)
+					}
+					if original != nil && (opts == original || opts.Temperature != original.Temperature) {
+						t.Fatal("options were not shallow copied")
+					}
+				}
+				return &service.LLMResponse{Finished: true}, nil
+			}}
+			var governor CallGovernor
+			if tt.governor != nil {
+				governor = tt.governor
+			}
+			_, _, _, err := CallProvider(context.Background(), governor, provider, "model", "agent", "task", nil, nil, tt.effort)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("error = %v", err)
+			}
+			if !tt.wantErr && calls != 1 {
+				t.Fatalf("calls = %d", calls)
+			}
+			if tt.governor != nil && tt.governor.opts != nil && tt.governor.opts.ReasoningEffort != "" {
+				t.Fatal("mutated governor options")
+			}
+		})
+	}
+}
+
+func TestProviderReasoningValidators(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		provider  service.LLMProvider
+		maxEffort string
+	}{
+		{"openai", &openai.Provider{}, "xhigh"},
+		{"codex", &openai.CodexProvider{}, "xhigh"},
+		{"vertex", &vertex.Provider{}, "xhigh"},
+		{"anthropic", &antropic.Provider{}, "high"},
+		{"gemini", &gemini.Provider{}, "high"},
+		{"minimax", &minimax.Provider{}, "high"},
+		{"bedrock", &bedrock.Provider{}, ""},
+		{"cohere", &cohere.Provider{}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			validator, ok := tt.provider.(service.ReasoningEffortValidator)
+			if !ok {
+				t.Fatal("missing validator")
+			}
+			for _, effort := range []string{"", "low", "medium", "high", "xhigh", "invalid"} {
+				wantErr := effort == "invalid" || (effort != "" && (tt.maxEffort == "" || (effort == "xhigh" && tt.maxEffort != "xhigh")))
+				if err := validator.ValidateReasoningEffort(effort); (err != nil) != wantErr {
+					t.Fatalf("effort %q: %v", effort, err)
+				}
+				if wantErr {
+					// Zero-value adapters would fail if Chat were reached.
+					if _, _, _, err := CallProvider(context.Background(), nil, tt.provider, "model", "", "", nil, nil, effort); err == nil {
+						t.Fatalf("effort %q reached Chat", effort)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestGenerationReasoningEffort(t *testing.T) {
+	for _, effort := range []string{"", "medium", "xhigh"} {
+		for _, callErr := range []error{nil, errors.New("upstream rejected")} {
+			obs := NewGenerationObservation(GenerationObservationParams{Context: ObservationContext{Model: "model", ReasoningEffort: effort}, Err: callErr})
+			var body map[string]any
+			if err := json.Unmarshal([]byte(obs.RequestBody), &body); err != nil {
+				t.Fatal(err)
+			}
+			value, exists := body["reasoning_effort"]
+			if exists != (effort != "") || (exists && value != effort) {
+				t.Fatalf("effort %q: body %s", effort, obs.RequestBody)
+			}
+		}
+	}
 }
 
 func (g *stubGovernor) LimitWithTools(_ context.Context, _, _ string, messages []service.Message, _ []service.Tool) ([]service.Message, error) {
@@ -162,7 +283,7 @@ func (g *stubGovernor) LimitWithTools(_ context.Context, _, _ string, messages [
 	return messages, nil
 }
 
-func (*stubGovernor) ChatOptions() *service.ChatOptions { return nil }
+func (g *stubGovernor) ChatOptions() *service.ChatOptions { return g.opts }
 
 func (g *stubGovernor) TruncateToolResult(runID, toolName, _ string) (string, bool) {
 	g.runID = runID

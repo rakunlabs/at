@@ -620,13 +620,18 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 	// left empty and the recorder's source ("workflow") plus agent
 	// attribution locate the run.
 	runTraceID := ulid.Make().String()
+	reasoningEffort := ""
+	if preset != nil {
+		reasoningEffort = preset.Config.ReasoningEffort
+	}
 	observationContext := agentloop.ObservationContext{
-		Source:   "workflow",
-		TraceID:  runTraceID,
-		AgentID:  n.agentID,
-		RunID:    runTraceID,
-		Provider: providerKey,
-		Model:    model,
+		Source:          "workflow",
+		TraceID:         runTraceID,
+		AgentID:         n.agentID,
+		RunID:           runTraceID,
+		Provider:        providerKey,
+		Model:           model,
+		ReasoningEffort: reasoningEffort,
 	}
 	toolResultRunID := n.agentID
 	if toolResultRunID == "" {
@@ -655,7 +660,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		}
 
 		resp, callMessages, latencyMs, err := agentloop.CallProvider(
-			ctx, reg.LoopGov, provider, model, n.agentID, "", messages, llmTools,
+			ctx, reg.LoopGov, provider, model, n.agentID, "", messages, llmTools, reasoningEffort,
 		)
 		if err != nil {
 			// Record the failed call for the usage dashboard before returning.
@@ -779,7 +784,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
 					// Execute builtin tool via dispatcher.
-					result, callErr = reg.BuiltinToolDispatcher(ctx, tc.Name, tc.Arguments)
+					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+					result, callErr = reg.BuiltinToolDispatcher(toolCtx, tc.Name, tc.Arguments)
+					cancel()
 				} else if hi.handlerType == "workflow" {
 					// Execute an agent-attached workflow via the engine-owned executor.
 					if reg.WorkflowExecutor == nil || reg.WorkflowLookup == nil {

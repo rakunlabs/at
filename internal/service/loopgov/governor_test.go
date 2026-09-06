@@ -37,6 +37,28 @@ func (s *fakeSummarizer) Summarize(ctx context.Context, system string, dropped [
 	return s.output, nil
 }
 
+func TestDefaultLongFormIterationCeiling(t *testing.T) {
+	g := New(Config{}, nil)
+	for _, tt := range []struct {
+		name              string
+		agent, task, want int
+	}{
+		{"default unchanged", 0, 0, 10},
+		{"short agent unchanged", 20, 0, 20},
+		{"long writer", 120, 0, 120},
+		{"long producer", 240, 0, 240},
+		{"task override", 20, 180, 180},
+		{"finite ceiling", 1000, 0, 240},
+		{"task ceiling", 20, 1000, 240},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := g.ClampIterations(tt.agent, tt.task); got != tt.want {
+				t.Fatalf("ClampIterations(%d, %d) = %d, want %d", tt.agent, tt.task, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClampIterations(t *testing.T) {
 	g := New(Config{MaxIterCeiling: 30}, nil)
 	tests := []struct {

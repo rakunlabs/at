@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -83,7 +84,9 @@ var builtinTools = []builtinToolDef{
 				},
 				"timeout": map[string]any{
 					"type":        "integer",
-					"description": "Execution timeout in seconds (default 60, max 300)",
+					"description": "Execution timeout in seconds (positive integer, max 3600). When omitted, uses the remaining enclosing context deadline up to 3600 seconds, or 60 seconds if there is no deadline. The enclosing deadline always takes precedence. Use timeout, not timeout_seconds.",
+					"minimum":     1,
+					"maximum":     3600,
 				},
 			},
 			"required": []string{"command"},
@@ -184,10 +187,10 @@ var builtinTools = []builtinToolDef{
 	{Name: "org_task_intake", Description: "Submit a task to an organization for processing. The task is assigned to the org's head agent who delegates to specialist agents. Returns immediately with the task ID while delegation runs in the background. This is the primary way to trigger agent pipelines (e.g. 'create a YouTube Short about X').", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"organization_id": map[string]any{"type": "string", "description": "The organization ID to submit the task to"}, "title": map[string]any{"type": "string", "description": "Task title (e.g. 'Create a short about quantum computing')"}, "description": map[string]any{"type": "string", "description": "Additional context or requirements"}, "priority_level": map[string]any{"type": "string", "description": "Priority: critical, high, medium, low", "enum": []string{"critical", "high", "medium", "low"}}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the head agent's max iterations. 0 = use agent default."}}, "required": []string{"organization_id", "title"}}},
 
 	// ─── Agent Management Tools ───
-	{Name: "agent_create", Description: "Create a new AI agent with LLM provider, model, system prompt, and tool configuration.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"name": map[string]any{"type": "string", "description": "Agent name (unique identifier)"}, "provider": map[string]any{"type": "string", "description": "LLM provider key (configured in AT providers)"}, "model": map[string]any{"type": "string", "description": "Model identifier (e.g. gpt-4o, claude-sonnet-4-20250514)"}, "system_prompt": map[string]any{"type": "string", "description": "System prompt that defines the agent's behavior and role"}, "description": map[string]any{"type": "string", "description": "Agent description"}, "skills": agentSkillsSchema(), "connections": agentConnectionsSchema(), "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "MCP Set names (internal MCPs) to assign to the agent"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Built-in tool names to enable for the agent"}, "max_iterations": map[string]any{"type": "number", "description": "Maximum agentic loop iterations (default: 10)"}, "tool_timeout": map[string]any{"type": "number", "description": "Per-tool timeout in seconds (default: 60)"}}, "required": []string{"name"}}},
+	{Name: "agent_create", Description: "Create a new AI agent with LLM provider, model, system prompt, and tool configuration.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"name": map[string]any{"type": "string", "description": "Agent name (unique identifier)"}, "provider": map[string]any{"type": "string", "description": "LLM provider key (configured in AT providers)"}, "model": map[string]any{"type": "string", "description": "Model identifier (e.g. gpt-4o, claude-sonnet-4-20250514)"}, "reasoning_effort": agentReasoningEffortSchema(), "system_prompt": map[string]any{"type": "string", "description": "System prompt that defines the agent's behavior and role"}, "description": map[string]any{"type": "string", "description": "Agent description"}, "skills": agentSkillsSchema(), "connections": agentConnectionsSchema(), "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "MCP Set names (internal MCPs) to assign to the agent"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Built-in tool names to enable for the agent"}, "max_iterations": map[string]any{"type": "number", "description": "Maximum agentic loop iterations (default: 10)"}, "tool_timeout": map[string]any{"type": "number", "description": "Per-tool timeout in seconds (default: 60)"}}, "required": []string{"name"}}},
 	{Name: "agent_list", Description: "List all AI agents with their key configuration details.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
 	{Name: "agent_get", Description: "Get an agent's full details including its complete configuration (provider, model, system prompt, skills, tools).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The agent ID"}}, "required": []string{"id"}}},
-	{Name: "agent_update", Description: "Update an agent's configuration. Only provided fields are changed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The agent ID to update"}, "name": map[string]any{"type": "string", "description": "New agent name"}, "provider": map[string]any{"type": "string", "description": "New LLM provider key"}, "model": map[string]any{"type": "string", "description": "New model identifier"}, "system_prompt": map[string]any{"type": "string", "description": "New system prompt"}, "description": map[string]any{"type": "string", "description": "New description"}, "skills": agentSkillsSchema(), "connections": agentConnectionsSchema(), "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New MCP set list (replaces existing)"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New built-in tools list (replaces existing)"}, "max_iterations": map[string]any{"type": "number", "description": "New max iterations"}, "tool_timeout": map[string]any{"type": "number", "description": "New tool timeout in seconds"}}, "required": []string{"id"}}},
+	{Name: "agent_update", Description: "Update an agent's configuration. Only provided fields are changed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The agent ID to update"}, "name": map[string]any{"type": "string", "description": "New agent name"}, "provider": map[string]any{"type": "string", "description": "New LLM provider key"}, "model": map[string]any{"type": "string", "description": "New model identifier"}, "reasoning_effort": agentReasoningEffortSchema(), "system_prompt": map[string]any{"type": "string", "description": "New system prompt"}, "description": map[string]any{"type": "string", "description": "New description"}, "skills": agentSkillsSchema(), "connections": agentConnectionsSchema(), "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New MCP set list (replaces existing)"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New built-in tools list (replaces existing)"}, "max_iterations": map[string]any{"type": "number", "description": "New max iterations"}, "tool_timeout": map[string]any{"type": "number", "description": "New tool timeout in seconds"}}, "required": []string{"id"}}},
 
 	// ─── Skill Management Tools ───
 	{Name: "skill_list", Description: "List installed skills and available skill templates. Shows both what's already installed and what templates can be installed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"category": map[string]any{"type": "string", "description": "Filter templates by category (e.g. 'Content Creation', 'Development', 'Utilities')"}}}},
@@ -885,6 +888,36 @@ func (s *Server) execHTTPRequest(ctx context.Context, args map[string]any) (stri
 	return string(data), nil
 }
 
+// resolveBashTimeout takes now explicitly so deadline resolution is deterministic.
+func resolveBashTimeout(ctx context.Context, args map[string]any, now time.Time) (time.Duration, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if _, ok := args["timeout_seconds"]; ok {
+		return 0, fmt.Errorf("unsupported argument timeout_seconds: use timeout in seconds")
+	}
+	timeout := 60 * time.Second
+	deadline, bounded := ctx.Deadline()
+	if bounded {
+		timeout = min(deadline.Sub(now), time.Hour)
+		if timeout <= 0 {
+			return 0, context.DeadlineExceeded
+		}
+	}
+	if raw, ok := args["timeout"]; ok {
+		seconds, ok := raw.(float64)
+		if !ok || math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || math.Trunc(seconds) != seconds {
+			return 0, fmt.Errorf("timeout must be a positive integer number of seconds")
+		}
+		// Clamp before converting to Duration to avoid overflow on large inputs.
+		timeout = time.Duration(min(seconds, 3600)) * time.Second
+		if bounded {
+			timeout = min(timeout, deadline.Sub(now))
+		}
+	}
+	return timeout, nil
+}
+
 // execBash executes the bash_execute built-in tool.
 // If the context has a container scope and the org/bot has containers enabled,
 // the command is executed inside the corresponding Docker container.
@@ -894,13 +927,9 @@ func (s *Server) execBash(ctx context.Context, args map[string]any) (string, err
 		return "", fmt.Errorf("command is required")
 	}
 
-	// Timeout: default 60s, max 300s.
-	timeout := 60 * time.Second
-	if t, ok := args["timeout"].(float64); ok && t > 0 {
-		timeout = time.Duration(t) * time.Second
-	}
-	if timeout > 300*time.Second {
-		timeout = 300 * time.Second
+	timeout, err := resolveBashTimeout(ctx, args, time.Now())
+	if err != nil {
+		return "", fmt.Errorf("bash execution timeout: %w", err)
 	}
 
 	// Check if we should route to a container.

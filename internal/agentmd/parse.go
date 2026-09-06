@@ -14,6 +14,7 @@ type AgentMD struct {
 	Group                     string   `yaml:"group,omitempty"`
 	Provider                  string   `yaml:"provider"`
 	Model                     string   `yaml:"model,omitempty"`
+	ReasoningEffort           string   `yaml:"reasoning_effort,omitempty"`
 	Skills                    []string `yaml:"skills,omitempty"`
 	MCPSets                   []string `yaml:"mcp_sets,omitempty"`
 	MCPs                      []string `yaml:"mcp_urls,omitempty"`

@@ -78,6 +78,7 @@
   let formGroup = $state('');
   let formProvider = $state('');
   let formModel = $state('');
+  let formReasoningEffort = $state('');
   let formSystemPrompt = $state('');
   let formSkills = $state<string[]>([]);
   let formMCPSets = $state<string[]>([]);
@@ -112,6 +113,7 @@
         group: agent.config.group || '',
         provider: agent.config.provider,
         model: agent.config.model,
+        reasoning_effort: agent.config.reasoning_effort ?? '',
         system_prompt: agent.config.system_prompt,
         skills: agent.config.skills || [],
         mcp_sets: agent.config.mcp_sets || [],
@@ -149,6 +151,7 @@
       formGroup = cfg.group || '';
       formProvider = cfg.provider || '';
       formModel = cfg.model || '';
+      formReasoningEffort = cfg.reasoning_effort ?? '';
       formSystemPrompt = cfg.system_prompt || '';
       formSkills = (cfg.skills || []).map((s: any) => (typeof s === 'string' ? s : s?.id ?? ''));
       formMCPSets = cfg.mcp_sets || [];
@@ -307,6 +310,7 @@
     formGroup = '';
     formProvider = '';
     formModel = '';
+    formReasoningEffort = '';
     formSystemPrompt = '';
     formSkills = [];
     formMCPSets = [];
@@ -342,6 +346,7 @@
     formGroup = agent.config.group || '';
     formProvider = agent.config.provider;
     formModel = agent.config.model;
+    formReasoningEffort = agent.config.reasoning_effort ?? '';
     formSystemPrompt = agent.config.system_prompt;
     formSkills = (agent.config.skills || []).map((s) => (typeof s === 'string' ? s : s.id));
     formMCPSets = [...(agent.config.mcp_sets || [])];
@@ -380,6 +385,10 @@
       addToast('Provider is required', 'warn');
       return;
     }
+    if (reasoningEffortError) {
+      addToast(reasoningEffortError, 'warn');
+      return;
+    }
 
     saving = true;
     try {
@@ -391,6 +400,7 @@
           group: formGroup.trim() || undefined,
           provider: formProvider,
           model: formModel,
+          reasoning_effort: formReasoningEffort,
           system_prompt: formSystemPrompt,
           skills: formSkills,
           mcp_sets: formMCPSets,
@@ -460,6 +470,22 @@
   // ─── Derived ───
 
   let selectedProviderConfig = $derived(providers.find(p => p.key === formProvider));
+  let reasoningAdapterType = $derived(selectedProviderConfig?.config.type ?? '');
+  let forwardsReasoningEffort = $derived(['openai', 'azure', 'vertex'].includes(reasoningAdapterType));
+  let mapsThinkingBudget = $derived(['anthropic', 'gemini', 'vertex-gemini', 'minimax'].includes(reasoningAdapterType));
+  let reasoningUnsupported = $derived(['bedrock', 'cohere'].includes(reasoningAdapterType));
+  let reasoningEffortOptions = $derived(
+    forwardsReasoningEffort ? ['low', 'medium', 'high', 'xhigh']
+      : mapsThinkingBudget ? ['low', 'medium', 'high'] : []
+  );
+  let unlistedReasoningEffort = $derived(formReasoningEffort !== '' && !reasoningEffortOptions.includes(formReasoningEffort));
+  let reasoningEffortError = $derived(
+    !['', 'low', 'medium', 'high', 'xhigh'].includes(formReasoningEffort)
+      ? 'Invalid reasoning effort. Choose Default or a listed effort before saving.'
+      : unlistedReasoningEffort && (forwardsReasoningEffort || mapsThinkingBudget || reasoningUnsupported)
+        ? 'This adapter does not support the selected reasoning effort. Choose Default or a supported effort before saving.'
+        : ''
+  );
   let availableModels = $derived(
     selectedProviderConfig?.config?.models?.length
       ? selectedProviderConfig.config.models
@@ -675,6 +701,44 @@
                   </div>
                 </div>
               </div>
+            </div>
+
+            <div>
+              <label for="form-reasoning-effort" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Reasoning effort</label>
+              <select
+                id="form-reasoning-effort"
+                bind:value={formReasoningEffort}
+                aria-describedby="form-reasoning-help form-reasoning-warning"
+                aria-invalid={!!reasoningEffortError}
+                class="w-full sm:w-64 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+              >
+                <option value="">Default</option>
+                {#each reasoningEffortOptions as effort}
+                  <option value={effort}>{effort}</option>
+                {/each}
+                {#if unlistedReasoningEffort}
+                  <option value={formReasoningEffort}>{formReasoningEffort} (current, {reasoningEffortError ? 'unsupported' : 'unverified'})</option>
+                {/if}
+              </select>
+              <p id="form-reasoning-help" class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">
+                Default uses provider/model defaults; it does not disable thinking.
+                {#if forwardsReasoningEffort}
+                  This adapter forwards the effort. The actual model and endpoint must support the chosen setting, especially xhigh; not all OpenAI-compatible endpoints do.
+                {:else if mapsThinkingBudget}
+                  This adapter maps low, medium and high to thinking budgets. The actual model and endpoint must support thinking with the mapped budget.
+                {:else if reasoningUnsupported}
+                  This adapter does not support reasoning effort overrides. Use Default.
+                {:else}
+                  Adapter support is unknown. Only Default is offered; existing values are retained but support cannot be verified.
+                {/if}
+              </p>
+              <p id="form-reasoning-warning" aria-live="polite" class="mt-1 text-xs text-amber-700 dark:text-amber-400">
+                {#if reasoningEffortError}
+                  {reasoningEffortError} Your selection has been retained.
+                {:else if unlistedReasoningEffort}
+                  The current effort is retained. Verify adapter, model and endpoint support before saving, or choose Default.
+                {/if}
+              </p>
             </div>
 
             <!-- Separator -->

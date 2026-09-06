@@ -23,6 +23,9 @@ func (s *Server) execAgentCreate(ctx context.Context, args map[string]any) (stri
 	}
 
 	config := service.AgentConfig{}
+	if err := applyAgentReasoningEffort(&config, args); err != nil {
+		return "", err
+	}
 	if v, ok := args["provider"].(string); ok {
 		config.Provider = strings.TrimSpace(v)
 	}
@@ -91,6 +94,10 @@ func (s *Server) execAgentCreate(ctx context.Context, args map[string]any) (stri
 				}
 			}
 		}
+	}
+
+	if err := s.validateAgentReasoningConfig(ctx, config); err != nil {
+		return "", err
 	}
 
 	record, err := s.agentStore.CreateAgent(ctx, service.Agent{
@@ -193,6 +200,9 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 	}
 	updated := *existing
 	existing = &updated
+	if err := applyAgentReasoningEffort(&existing.Config, args); err != nil {
+		return "", err
+	}
 	if err := applyAgentToolBindings(&existing.Config, args); err != nil {
 		return "", err
 	}
@@ -237,6 +247,10 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 		}
 	}
 
+	if err := s.validateAgentReasoningConfig(ctx, existing.Config); err != nil {
+		return "", err
+	}
+
 	record, err := s.agentStore.UpdateAgent(ctx, id, *existing)
 	if err != nil {
 		return "", fmt.Errorf("failed to update agent: %w", err)
@@ -244,6 +258,31 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 
 	data, _ := json.MarshalIndent(record, "", "  ")
 	return string(data), nil
+}
+
+func agentReasoningEffortSchema() map[string]any {
+	return map[string]any{
+		"type":        "string",
+		"enum":        []string{"", "low", "medium", "high", "xhigh"},
+		"description": "Optional reasoning effort. Omission preserves the existing value on update; an explicit empty string clears it to the provider default. Adapter support varies and the selected model may still reject it. Does not change model IDs or cap output tokens.",
+	}
+}
+
+// Omission preserves the current effort; an explicit empty string clears it.
+func applyAgentReasoningEffort(config *service.AgentConfig, args map[string]any) error {
+	raw, supplied := args["reasoning_effort"]
+	if !supplied {
+		return nil
+	}
+	effort, ok := raw.(string)
+	if !ok {
+		return fmt.Errorf("reasoning_effort must be a string; use an empty string to clear it")
+	}
+	if err := service.ValidateReasoningEffort(effort); err != nil {
+		return err
+	}
+	config.ReasoningEffort = effort
+	return nil
 }
 
 // Decode both binding levels before applying either so invalid patches are atomic.

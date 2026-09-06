@@ -63,13 +63,17 @@ Defaults are baked into `loopgov.fillDefaults` (no YAML / env knobs):
 | `WindowTokens` | 32768 | Input-token budget per Chat call |
 | `SummaryTokens` | 2000 | Cap on rolling-summary message (when summarizer is wired) |
 | `SummaryTimeout` | 10s | Bound on summarisation call |
-| `MaxIterCeiling` | 60 | Platform iteration ceiling |
+| `MaxIterCeiling` | 240 | Finite platform ceiling; individual agent/task budgets remain opt-in |
 | `ToolResultMaxBytes` | 65536 | Inline cap on every tool result; full payload spilled to dump file |
 | `ChatHistoryLimit` | 200 | Messages reloaded per chat turn |
 | `WorkspaceRoot` | `/tmp/at-tasks` | Where `.at-tool-output/<run-id>/...` dumps land |
 | `WorkspaceTTL` | 24h | How long terminal-task workspaces and tool-output dumps are kept; the janitor (see below) sweeps anything older. Set `< 0` to disable. |
 
 **No output-token cap.** Providers and agent configs already define per-model `max_tokens`. An earlier revision shipped a 4096-token platform cap; it broke structured outputs (e.g. multi-scene Script Writer JSON for video shorts) and was removed. `Governor.ChatOptions()` now always returns `nil`, the documented "no cap" sentinel for every provider adapter.
+
+Long-form agents may opt into budgets up to 240; existing smaller agent defaults remain unchanged. Positive task/Telegram-command `max_iterations` overrides the agent, so use `0` there to inherit a revised agent budget. Workflow nodes using the legacy zero/unlimited migration adopt the current ceiling. Org delegation stops after three consecutive output-limit responses rather than burning the entire budget on incomplete tool arguments; no partial tool call is executed, and recovery guidance asks for small chapter/section artifact writes.
+
+Built-in tool calls in all three agent loops inherit the configured per-tool deadline. `bash_execute` uses that remaining deadline when `timeout` is omitted (otherwise 60 seconds outside a bounded context); explicit `timeout` is in seconds, capped at 3600, and never extends an outer deadline. `timeout_seconds` is not a bash argument. Cancellation still kills the process group. Use bounded foreground chapter renders and validated artifacts rather than detached jobs with repeated sleep/poll calls.
 
 **No per-tool / per-class byte caps.** Earlier revisions classified tools (`executable`, `structured`, `freeform`) and applied per-class caps with overrides for `task_get` / `task_list`. Those over-truncated structured tool outputs (notably the video-generation suite — FAL Veo, Sora, Runway — and the `delegate_to_*` channel that carries full script JSON between agents). We now use a single generous global cap and rely on the workspace dump file to preserve the original payload, which the agent can read via `file_read` or `bash_execute cat`.
 

@@ -869,15 +869,16 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		loopRunID = traceTaskID
 	}
 	observationContext := agentloop.ObservationContext{
-		Source:         "chat",
-		TraceID:        turnTraceID,
-		SessionID:      sessionID,
-		AgentID:        session.AgentID,
-		TaskID:         traceTaskID,
-		RunID:          turnTraceID,
-		OrganizationID: session.OrganizationID,
-		Provider:       providerKey,
-		Model:          model,
+		Source:          "chat",
+		TraceID:         turnTraceID,
+		SessionID:       sessionID,
+		AgentID:         session.AgentID,
+		TaskID:          traceTaskID,
+		RunID:           turnTraceID,
+		OrganizationID:  session.OrganizationID,
+		Provider:        providerKey,
+		Model:           model,
+		ReasoningEffort: agent.Config.ReasoningEffort,
 	}
 	recordObservation := s.recordObservationFunc()
 
@@ -924,11 +925,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			}
 		}
 
-		// Apply the loop governor: window the message history (with a
-		// rolling summary fallback) and pass an explicit MaxTokens cap
-		// to bound output size.
+		// Apply the loop governor to window history with rolling summary fallback.
 		resp, windowed, latencyMs, err := agentloop.CallProvider(
-			ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools,
+			ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
 		)
 		if err != nil {
 			// Recover from corrupted tool call history — sanitize and retry once.
@@ -937,7 +936,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					"iteration", iteration, "error", err)
 				llmMessages = sanitizeLLMMessages(llmMessages)
 				resp, windowed, latencyMs, err = agentloop.CallProvider(
-					ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools,
+					ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
 				)
 			}
 			if err != nil {
@@ -1142,7 +1141,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				if hi.handlerType == "bash" {
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
 				} else if hi.handlerType == "builtin" {
-					result, callErr = s.dispatchBuiltinTool(ctx, tc.Name, tc.Arguments)
+					toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+					result, callErr = s.dispatchBuiltinTool(toolCtx, tc.Name, tc.Arguments)
+					cancel()
 					if callErr == nil && (tc.Name == "task_complete" || tc.Name == "task_block") {
 						terminalToolCalled = true
 					}

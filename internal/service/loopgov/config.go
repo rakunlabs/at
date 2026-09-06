@@ -94,10 +94,12 @@ type Config struct {
 // that mid-JSON breaks downstream parsing. Combined with the workspace
 // dump, we keep ample inline context AND preserve everything on disk.
 const (
-	DefaultWindowTokens       = 32 * 1024
-	DefaultSummaryTokens      = 2000
-	DefaultSummaryTimeout     = 10 * time.Second
-	DefaultMaxIterCeiling     = 60
+	DefaultWindowTokens   = 32 * 1024
+	DefaultSummaryTokens  = 2000
+	DefaultSummaryTimeout = 10 * time.Second
+	// Long-form production can opt into larger budgets without raising
+	// individual agents' defaults or removing the finite platform bound.
+	DefaultMaxIterCeiling     = 240
 	DefaultToolResultMaxBytes = 64 * 1024
 	DefaultChatHistoryLimit   = 200
 	DefaultWorkspaceRoot      = "/tmp/at-tasks"

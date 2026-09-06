@@ -20,6 +20,8 @@ export interface AgentConfig {
   group?: string;
   provider: string;
   model: string;
+  /** Empty or omitted uses provider/model defaults. */
+  reasoning_effort?: string;
   system_prompt: string;
   /** Accepts either plain skill names/IDs (legacy) or SkillRef objects. */
   skills: Array<string | SkillRef>;

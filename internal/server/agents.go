@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +16,39 @@ import (
 // agentsResponse wraps a list of agent records for JSON output.
 type agentsResponse struct {
 	Agents []service.Agent `json:"agents"`
+}
+
+// validateAgentReasoningConfig checks configured adapter support without calling
+// upstream. Model-specific support remains the runtime provider's responsibility.
+func (s *Server) validateAgentReasoningConfig(ctx context.Context, config service.AgentConfig) error {
+	if err := service.ValidateReasoningEffort(config.ReasoningEffort); err != nil {
+		return err
+	}
+	if config.ReasoningEffort == "" {
+		return nil
+	}
+	if s.store != nil {
+		provider, err := s.store.GetProvider(ctx, config.Provider)
+		if err != nil {
+			return fmt.Errorf("failed to validate reasoning provider %q: %w", config.Provider, err)
+		}
+		if provider == nil {
+			return fmt.Errorf("reasoning_effort requires a configured provider: provider %q not found", config.Provider)
+		}
+		return service.ValidateProviderReasoningEffort(provider.Config.Type, config.ReasoningEffort)
+	}
+	s.providerMu.RLock()
+	info, found := s.providers[config.Provider]
+	lookupAvailable := s.providers != nil
+	s.providerMu.RUnlock()
+	if found {
+		return service.ValidateProviderReasoningEffort(info.providerType, config.ReasoningEffort)
+	}
+	if lookupAvailable {
+		return fmt.Errorf("reasoning_effort requires a configured provider: provider %q not found", config.Provider)
+	}
+	// A server without either lookup can only validate syntax.
+	return nil
 }
 
 // ListAgentsAPI handles GET /api/v1/agents.
@@ -95,7 +129,12 @@ func (s *Server) CreateAgentAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set defaults if missing
+	if err := s.validateAgentReasoningConfig(r.Context(), req.Config); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Set defaults if missing.
 	if req.Config.MaxIterations == 0 {
 		req.Config.MaxIterations = 10
 	}
@@ -143,6 +182,11 @@ func (s *Server) UpdateAgentAPI(w http.ResponseWriter, r *http.Request) {
 
 	if req.Config.Provider == "" {
 		httpResponse(w, "provider is required", http.StatusBadRequest)
+		return
+	}
+
+	if err := s.validateAgentReasoningConfig(r.Context(), req.Config); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -197,6 +241,7 @@ func agentToMD(agent *service.Agent) *agentmd.AgentMD {
 		Group:                     agent.Config.Group,
 		Provider:                  agent.Config.Provider,
 		Model:                     agent.Config.Model,
+		ReasoningEffort:           agent.Config.ReasoningEffort,
 		Skills:                    service.StringsFromSkillRefs(agent.Config.Skills),
 		MCPSets:                   agent.Config.MCPSets,
 		MCPs:                      agent.Config.MCPs,
@@ -219,6 +264,7 @@ func mdToAgent(a *agentmd.AgentMD) service.Agent {
 			Group:                     a.Group,
 			Provider:                  a.Provider,
 			Model:                     a.Model,
+			ReasoningEffort:           a.ReasoningEffort,
 			SystemPrompt:              a.SystemPrompt,
 			Skills:                    service.SkillRefsFromStrings(a.Skills),
 			MCPSets:                   a.MCPSets,
@@ -332,8 +378,11 @@ func (s *Server) ImportAgentAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "agent name is required in frontmatter", http.StatusBadRequest)
 		return
 	}
-
 	agent := mdToAgent(parsed)
+	if err := s.validateAgentReasoningConfig(r.Context(), agent.Config); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	// Set defaults if missing.
 	if agent.Config.MaxIterations == 0 {
@@ -373,6 +422,10 @@ func (s *Server) PreviewImportAgentAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	agent := mdToAgent(parsed)
+	if err := s.validateAgentReasoningConfig(r.Context(), agent.Config); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
 	export := struct {
 		Name   string              `json:"name"`
