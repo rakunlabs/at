@@ -1,0 +1,31 @@
+{
+  "slug": "long-form-video",
+  "name": "Long Video Studio",
+  "description": "Standalone topic-driven long-form narrated video production by one Long Video Producer. Plans chapters, batches narration, sources economical stills and B-roll, and assembles durable media with video.json progress under assetsRoot/videos/<id> without a series dependency. Install pexels-images, fal-image, fal-cinema, elevenlabs-voice, openai-tts, video-composer and ffmpeg-guide skill templates first, then assign a provider/model to the agent. Configure credentials for the selected narration and visual providers; not every provider is required.",
+  "category": "Content Creation",
+  "icon": "film",
+  "author": "AT",
+  "version": "1.0.0",
+  "variables": [
+    {
+      "key": "pexels_api_key",
+      "description": "Pexels API key for stock stills and B-roll when using Pexels.",
+      "secret": true
+    },
+    {
+      "key": "fal_api_key",
+      "description": "FAL.ai API key when generating stills or short B-roll clips. Optional when stock or supplied media suffices.",
+      "secret": true
+    },
+    {
+      "key": "elevenlabs_api_key",
+      "description": "ElevenLabs API key when using ElevenLabs narration. Use configured OpenAI TTS instead if appropriate.",
+      "secret": true
+    },
+    {
+      "key": "openai_api_key",
+      "description": "OpenAI API key when using OpenAI narration or Whisper subtitle generation.",
+      "secret": true
+    }
+  ]
+}

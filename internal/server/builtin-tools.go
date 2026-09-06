@@ -15,6 +15,26 @@ import (
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
+func agentConnectionsSchema() map[string]any {
+	return map[string]any{
+		"type": "object", "additionalProperties": map[string]any{"type": "string"},
+		"description": "Optional connector slug to connection ID map. Full replacement when provided; omission preserves existing bindings and {} clears them. Per-skill connections override agent defaults.",
+	}
+}
+
+func agentSkillsSchema() map[string]any {
+	return map[string]any{
+		"type":        "array",
+		"description": "Skill IDs or names, or objects with id and optional connections. Full replacement when provided; omission preserves existing skills and [] clears them. Per-skill connections override agent defaults.",
+		"items": map[string]any{"anyOf": []any{
+			map[string]any{"type": "string"},
+			map[string]any{"type": "object", "required": []string{"id"}, "properties": map[string]any{
+				"id": map[string]any{"type": "string"}, "connections": agentConnectionsSchema(),
+			}},
+		}},
+	}
+}
+
 // builtinTools is the static list of server-side built-in tools.
 // Tool definitions are registered here; executors live in builtin-tools-*.go files;
 // dispatch lives in builtin-tools-dispatch.go.
@@ -164,10 +184,10 @@ var builtinTools = []builtinToolDef{
 	{Name: "org_task_intake", Description: "Submit a task to an organization for processing. The task is assigned to the org's head agent who delegates to specialist agents. Returns immediately with the task ID while delegation runs in the background. This is the primary way to trigger agent pipelines (e.g. 'create a YouTube Short about X').", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"organization_id": map[string]any{"type": "string", "description": "The organization ID to submit the task to"}, "title": map[string]any{"type": "string", "description": "Task title (e.g. 'Create a short about quantum computing')"}, "description": map[string]any{"type": "string", "description": "Additional context or requirements"}, "priority_level": map[string]any{"type": "string", "description": "Priority: critical, high, medium, low", "enum": []string{"critical", "high", "medium", "low"}}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the head agent's max iterations. 0 = use agent default."}}, "required": []string{"organization_id", "title"}}},
 
 	// ─── Agent Management Tools ───
-	{Name: "agent_create", Description: "Create a new AI agent with LLM provider, model, system prompt, and tool configuration.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"name": map[string]any{"type": "string", "description": "Agent name (unique identifier)"}, "provider": map[string]any{"type": "string", "description": "LLM provider key (configured in AT providers)"}, "model": map[string]any{"type": "string", "description": "Model identifier (e.g. gpt-4o, claude-sonnet-4-20250514)"}, "system_prompt": map[string]any{"type": "string", "description": "System prompt that defines the agent's behavior and role"}, "description": map[string]any{"type": "string", "description": "Agent description"}, "skills": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Skill IDs or names to assign to the agent"}, "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "MCP Set names (internal MCPs) to assign to the agent"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Built-in tool names to enable for the agent"}, "max_iterations": map[string]any{"type": "number", "description": "Maximum agentic loop iterations (default: 10)"}, "tool_timeout": map[string]any{"type": "number", "description": "Per-tool timeout in seconds (default: 60)"}}, "required": []string{"name"}}},
+	{Name: "agent_create", Description: "Create a new AI agent with LLM provider, model, system prompt, and tool configuration.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"name": map[string]any{"type": "string", "description": "Agent name (unique identifier)"}, "provider": map[string]any{"type": "string", "description": "LLM provider key (configured in AT providers)"}, "model": map[string]any{"type": "string", "description": "Model identifier (e.g. gpt-4o, claude-sonnet-4-20250514)"}, "system_prompt": map[string]any{"type": "string", "description": "System prompt that defines the agent's behavior and role"}, "description": map[string]any{"type": "string", "description": "Agent description"}, "skills": agentSkillsSchema(), "connections": agentConnectionsSchema(), "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "MCP Set names (internal MCPs) to assign to the agent"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Built-in tool names to enable for the agent"}, "max_iterations": map[string]any{"type": "number", "description": "Maximum agentic loop iterations (default: 10)"}, "tool_timeout": map[string]any{"type": "number", "description": "Per-tool timeout in seconds (default: 60)"}}, "required": []string{"name"}}},
 	{Name: "agent_list", Description: "List all AI agents with their key configuration details.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
 	{Name: "agent_get", Description: "Get an agent's full details including its complete configuration (provider, model, system prompt, skills, tools).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The agent ID"}}, "required": []string{"id"}}},
-	{Name: "agent_update", Description: "Update an agent's configuration. Only provided fields are changed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The agent ID to update"}, "name": map[string]any{"type": "string", "description": "New agent name"}, "provider": map[string]any{"type": "string", "description": "New LLM provider key"}, "model": map[string]any{"type": "string", "description": "New model identifier"}, "system_prompt": map[string]any{"type": "string", "description": "New system prompt"}, "description": map[string]any{"type": "string", "description": "New description"}, "skills": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New skill list (replaces existing)"}, "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New MCP set list (replaces existing)"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New built-in tools list (replaces existing)"}, "max_iterations": map[string]any{"type": "number", "description": "New max iterations"}, "tool_timeout": map[string]any{"type": "number", "description": "New tool timeout in seconds"}}, "required": []string{"id"}}},
+	{Name: "agent_update", Description: "Update an agent's configuration. Only provided fields are changed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The agent ID to update"}, "name": map[string]any{"type": "string", "description": "New agent name"}, "provider": map[string]any{"type": "string", "description": "New LLM provider key"}, "model": map[string]any{"type": "string", "description": "New model identifier"}, "system_prompt": map[string]any{"type": "string", "description": "New system prompt"}, "description": map[string]any{"type": "string", "description": "New description"}, "skills": agentSkillsSchema(), "connections": agentConnectionsSchema(), "mcp_sets": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New MCP set list (replaces existing)"}, "builtin_tools": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "New built-in tools list (replaces existing)"}, "max_iterations": map[string]any{"type": "number", "description": "New max iterations"}, "tool_timeout": map[string]any{"type": "number", "description": "New tool timeout in seconds"}}, "required": []string{"id"}}},
 
 	// ─── Skill Management Tools ───
 	{Name: "skill_list", Description: "List installed skills and available skill templates. Shows both what's already installed and what templates can be installed.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"category": map[string]any{"type": "string", "description": "Filter templates by category (e.g. 'Content Creation', 'Development', 'Utilities')"}}}},
@@ -366,17 +386,18 @@ var builtinTools = []builtinToolDef{
 			"channel_agents":    map[string]any{"type": "object", "description": "chat_id → agent_id overrides (full replacement of the map)"},
 			"custom_commands": map[string]any{
 				"type":        "array",
-				"description": "Full replacement of the bot's custom slash-command list. Each entry: {command, description?, organization_id?, agent_id?, brief?, title_prefix?, max_iterations?}. The 'command' field is stored without leading slash (a leading '/' is auto-stripped if present).",
+				"description": "Full replacement of the bot's custom slash-command list. Each entry: {command, description?, organization_id?, video_template_id?, agent_id?, brief?, title_prefix?, max_iterations?}. Video templates require organization_id and ignore brief/title_prefix. The 'command' field is stored without leading slash (a leading '/' is auto-stripped if present).",
 				"items": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
-						"command":         map[string]any{"type": "string", "description": "Slash command name without the leading slash, e.g. 'asmr'"},
-						"description":     map[string]any{"type": "string", "description": "Short text shown next to the command in /help"},
-						"organization_id": map[string]any{"type": "string", "description": "When set, the command creates a task assigned to this org's head agent (preferred for pipeline orgs)"},
-						"agent_id":        map[string]any{"type": "string", "description": "When set (and organization_id is not), the command creates a task directly assigned to this agent"},
-						"brief":           map[string]any{"type": "string", "description": "Task description template. The literal token '{args}' is replaced with whatever the user typed after the command."},
-						"title_prefix":    map[string]any{"type": "string", "description": "Prefix prepended to the new task's title, e.g. '[ASMR]'"},
-						"max_iterations":  map[string]any{"type": "number", "description": "Per-task override of the agent's max_iterations. 0 = use agent default."},
+						"command":           map[string]any{"type": "string", "description": "Slash command name without the leading slash, e.g. 'asmr'"},
+						"description":       map[string]any{"type": "string", "description": "Short text shown next to the command in /help"},
+						"organization_id":   map[string]any{"type": "string", "description": "When set, the command creates a task assigned to this org's head agent (preferred for pipeline orgs)"},
+						"agent_id":          map[string]any{"type": "string", "description": "When set (and organization_id is not), the command creates a task directly assigned to this agent"},
+						"brief":             map[string]any{"type": "string", "description": "Task description template. The literal token '{args}' is replaced with whatever the user typed after the command."},
+						"title_prefix":      map[string]any{"type": "string", "description": "Prefix prepended to the new task's title, e.g. '[ASMR]'"},
+						"video_template_id": map[string]any{"type": "string", "description": "Telegram video template ID. Requires organization_id and an explicitly approved sender on a restricted bot. Uses an immutable template snapshot; brief and title_prefix are ignored. Arguments supply the topic."},
+						"max_iterations":    map[string]any{"type": "number", "description": "Per-task override of the agent's max_iterations. 0 = use agent default."},
 					},
 					"required": []string{"command"},
 				},

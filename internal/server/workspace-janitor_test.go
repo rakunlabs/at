@@ -15,10 +15,12 @@ import (
 // janitorTaskStore is a minimal in-memory taskStore for janitor tests.
 // Only GetTask is exercised; everything else is a stub.
 type janitorTaskStore struct {
-	tasks map[string]*service.Task
+	tasks   map[string]*service.Task
+	lookups []string
 }
 
 func (s *janitorTaskStore) GetTask(_ context.Context, id string) (*service.Task, error) {
+	s.lookups = append(s.lookups, id)
 	return s.tasks[id], nil
 }
 
@@ -145,6 +147,47 @@ func TestSweepWorkspaceOnce(t *testing.T) {
 	}
 	if _, err := os.Stat(newDump); err != nil {
 		t.Errorf("young dump dir should be kept; got err=%v", err)
+	}
+}
+
+func TestSweepWorkspaceOnce_PreservesAssets(t *testing.T) {
+	for _, symlink := range []bool{false, true} {
+		name := "directory"
+		if symlink {
+			name = "symlink"
+		}
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			assets := filepath.Join(root, "assets")
+			target := assets
+			if symlink {
+				target = t.TempDir()
+				if err := os.Symlink(target, assets); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			} else {
+				mustMkdir(t, assets)
+			}
+			mustWriteFile(t, filepath.Join(target, "portrait.png"), 100)
+			old := time.Now().Add(-100 * time.Hour)
+			if err := os.Chtimes(target, old, old); err != nil {
+				t.Fatal(err)
+			}
+			store := &janitorTaskStore{tasks: map[string]*service.Task{
+				"assets": {ID: "assets", Status: service.TaskStatusDone, CompletedAt: old.UTC().Format(time.RFC3339)},
+			}}
+			s := &Server{taskStore: store}
+			s.sweepWorkspaceOnce(context.Background(), root, time.Hour)
+			if len(store.lookups) != 0 {
+				t.Fatalf("reserved assets triggered DB lookups: %v", store.lookups)
+			}
+			if _, err := os.Lstat(assets); err != nil {
+				t.Fatal(err)
+			}
+			if data, err := os.ReadFile(filepath.Join(target, "portrait.png")); err != nil || len(data) != 100 {
+				t.Fatalf("asset lost: %v", err)
+			}
+		})
 	}
 }
 

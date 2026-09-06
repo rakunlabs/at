@@ -4,15 +4,17 @@
   import { fileServeUrl } from '@/lib/api/files';
   import { loadEpisodes, loadSeriesList, episodeAssetPath, type EpisodeItem, type SeriesManifest } from '@/lib/api/studio';
   import type { Organization } from '@/lib/api/organizations';
+  import { loadVideoProjects, videoErrorMessage, type VideoProject } from '@/lib/api/studio-videos';
   import { Clapperboard, ExternalLink, Loader2, RefreshCw, Video } from 'lucide-svelte';
 
   interface Props {
     assetsRoot: string;
     avatarOrg: Organization | null;
     seriesOrg: Organization | null;
+    longVideoOrg: Organization | null;
     refreshKey?: number;
   }
-  let { assetsRoot, avatarOrg, seriesOrg, refreshKey = 0 }: Props = $props();
+  let { assetsRoot, avatarOrg, seriesOrg, longVideoOrg, refreshKey = 0 }: Props = $props();
 
   interface EpisodeVideo {
     series: SeriesManifest;
@@ -24,6 +26,8 @@
   let productions = $state<Task[]>([]);
   let episodeByTask = $state<Map<string, EpisodeVideo>>(new Map());
   let finalEpisodes = $state<EpisodeVideo[]>([]);
+  let longVideos = $state<VideoProject[]>([]);
+  let videoError = $state('');
   let pollTimer: ReturnType<typeof setInterval> | null = null;
   let lastRefreshKey = $state(0);
 
@@ -40,7 +44,7 @@
   }
 
   async function loadTasks() {
-    const orgs = [avatarOrg, seriesOrg].filter((o): o is Organization => !!o);
+    const orgs = [avatarOrg, seriesOrg, longVideoOrg].filter((o): o is Organization => !!o);
     const results = await Promise.all(
       orgs.map(async (org) => {
         try {
@@ -63,6 +67,13 @@
   }
 
   async function loadStructuredEpisodes() {
+    try {
+      const warnings: string[] = [];
+      longVideos = await loadVideoProjects(assetsRoot, (message) => warnings.push(message));
+      videoError = warnings.join('\n');
+    } catch (e) {
+      videoError = videoErrorMessage(e);
+    }
     const series = await loadSeriesList(assetsRoot);
     const taskMap = new Map<string, EpisodeVideo>();
     const videos: EpisodeVideo[] = [];
@@ -108,6 +119,8 @@
 
   /** Structured episode final_video first; free-text regex only for legacy one-offs. */
   function videoPath(t: Task): string {
+    const project = longVideos.find((video) => video.task_id === t.id);
+    if (project?.output?.final_video) return episodeAssetPath(project.dir, project.output.final_video);
     const structured = episodeByTask.get(t.id)?.videoPath;
     if (structured) return structured;
     if (!t.result) return '';
@@ -136,6 +149,31 @@
 </script>
 
 <div class="space-y-6">
+  {#if longVideoOrg || longVideos.length || videoError}
+    <section aria-label="Finished long videos">
+      <div class="flex items-center justify-between mb-2">
+        <h2 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Finished long videos</h2>
+        <button onclick={load} class="p-1 text-gray-500 dark:text-dark-text-muted" aria-label="Refresh productions"><RefreshCw size={13} /></button>
+      </div>
+      {#if videoError}<p role="alert" class="mb-2 text-xs text-red-700 dark:text-red-400">Could not load long videos: {videoError}</p>{/if}
+      {#if !longVideos.some((project) => project.output?.final_video)}
+        <p class="text-xs text-gray-500 dark:text-dark-text-muted py-6 text-center border border-dashed border-gray-200 dark:border-dark-border">No finished long videos yet. Prepare a brief in Long Videos to get started.</p>
+      {:else}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {#each longVideos.filter((project) => project.output?.final_video) as project (project.brief.id)}
+            <article class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+              <!-- svelte-ignore a11y_media_has_caption -->
+              <video controls preload="metadata" aria-label={project.brief.title} src={fileServeUrl(episodeAssetPath(project.dir, project.output?.final_video || ''), project.output?.updated_at)} class="w-full aspect-video bg-black object-contain"></video>
+              <div class="p-3 flex items-center gap-2">
+                <h3 class="min-w-0 break-words text-xs font-semibold text-gray-900 dark:text-dark-text">{project.brief.title}</h3>
+                {#if project.task_id}<a href={`#/tasks/${encodeURIComponent(project.task_id)}`} class="ml-auto shrink-0 text-gray-500 dark:text-dark-text-muted" aria-label="Open long video task"><ExternalLink size={13} /></a>{/if}
+              </div>
+            </article>
+          {/each}
+        </div>
+      {/if}
+    </section>
+  {/if}
   <section>
     <div class="flex items-center justify-between mb-2">
       <div>

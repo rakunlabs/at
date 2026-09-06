@@ -4,6 +4,8 @@
   import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, startBot, stopBot, getBotStatus, type BotConfig, type BotCustomCommand, type BotStatus } from '@/lib/api/bots';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
+  import { getInfo } from '@/lib/api/gateway';
+  import { loadVideoTemplates, type VideoTemplate } from '@/lib/api/studio-video-templates';
   import { Trash2, Plus, X, Pencil, Radio, RefreshCw, Save, Play, Square } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -49,6 +51,47 @@
   let formSpeechToText = $state('openai');
   let formWhisperModel = $state('base');
   let formCustomCommands = $state<BotCustomCommand[]>([]);
+  let videoTemplates = $state<VideoTemplate[]>([]);
+  let templatesLoading = $state(false);
+  let templatesError = $state('');
+  let templatesRequest = 0;
+
+  $effect(() => {
+    if (showForm && formPlatform === 'telegram') refreshVideoTemplates();
+  });
+
+  async function refreshVideoTemplates() {
+    const request = ++templatesRequest;
+    templatesLoading = true;
+    templatesError = '';
+    try {
+      const info = await getInfo();
+      if (request !== templatesRequest) return;
+      if (!info.assets_root) throw new Error('The server did not report its assets root.');
+      const templates = await loadVideoTemplates(info.assets_root, (message) => {
+        if (request === templatesRequest) templatesError = `${message} Retry before saving a bound command.`;
+      });
+      if (request === templatesRequest) videoTemplates = templates;
+    } catch (e: any) {
+      if (request !== templatesRequest) return;
+      templatesError = e?.response?.data?.message || e?.message || 'Could not load Long Video templates.';
+      videoTemplates = [];
+    } finally {
+      if (request === templatesRequest) templatesLoading = false;
+    }
+  }
+
+  function videoCommandError(cmd: BotCustomCommand): string {
+    if (!cmd.video_template_id) return '';
+    if (formPlatform !== 'telegram') return 'Long Video commands require Telegram. Switch back to Telegram or remove the template binding.';
+    if (!(cmd.command || '').trim().replace(/^\//, '')) return 'Enter a command name for this Long Video template.';
+    if (templatesLoading) return 'Wait for Long Video templates to finish loading before saving.';
+    if (templatesError) return 'Long Video templates could not be verified. Retry loading them or remove the template binding.';
+    if (!videoTemplates.some((t) => t.id === cmd.video_template_id)) return `Template "${cmd.video_template_id}" is unavailable. Restore it in Studio, refresh templates, or choose another template before saving.`;
+    if (!cmd.organization_id) return 'Select an organization to run this Long Video production.';
+    if (formAccessMode !== 'allowlist' || !formAllowedUsers.some((u) => u.value.trim())) return 'Paid production requires Access Mode: Allowlist and at least one Allowed User ID.';
+    return '';
+  }
 
   // ─── Load ───
 
@@ -155,7 +198,7 @@
     formContainerMemory = bot.container_memory || '2g';
     formSpeechToText = bot.speech_to_text || 'openai';
     formWhisperModel = bot.whisper_model || 'base';
-    formCustomCommands = (bot.custom_commands || []).map((c) => ({ ...c }));
+    formCustomCommands = (bot.custom_commands || []).map((c) => ({ ...c, agent_id: c.video_template_id ? '' : c.agent_id }));
     showForm = true;
   }
 
@@ -166,6 +209,12 @@
     }
     if (!formToken.trim()) {
       addToast('Bot token is required', 'warn');
+      return;
+    }
+
+    const commandError = formCustomCommands.map(videoCommandError).find(Boolean);
+    if (commandError) {
+      addToast(commandError, 'warn');
       return;
     }
 
@@ -201,7 +250,8 @@
             command: (c.command || '').trim().replace(/^\//, ''),
             description: (c.description || '').trim() || undefined,
             organization_id: c.organization_id || undefined,
-            agent_id: c.agent_id || undefined,
+            agent_id: c.video_template_id ? undefined : c.agent_id || undefined,
+            video_template_id: c.video_template_id || undefined,
             brief: (c.brief || '').trim() || undefined,
             title_prefix: (c.title_prefix || '').trim() || undefined,
             max_iterations: c.max_iterations && c.max_iterations > 0 ? c.max_iterations : undefined,
@@ -764,25 +814,41 @@
 
             <!-- Custom Commands -->
             {#if formPlatform === 'telegram'}
-              <div class="grid grid-cols-4 gap-3 items-start">
+              <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-start">
                 <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Custom Commands</span>
-                <div class="col-span-3 space-y-3">
+                <div class="sm:col-span-3 min-w-0 space-y-3">
                   <div class="text-[10px] text-gray-500 dark:text-dark-text-muted">
                     Add slash commands like <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">/asmr</code> or <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">/silent</code>. Each command creates a background task. Use <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">{'{args}'}</code> in the brief to insert whatever the user typed after the command.
                   </div>
+                  <div class="text-sm text-gray-600 dark:text-dark-text-secondary space-y-2">
+                    <p>For <code class="font-mono">/belgesel &lt;topic&gt;</code>, optionally bind a Long Video template. Create templates in <a href="#/studio" class="underline hover:text-gray-900 dark:hover:text-dark-text">Studio &gt; Long Videos</a>.</p>
+                    <div class="flex flex-wrap items-center gap-2">
+                      {#if templatesLoading}
+                        <span role="status">Loading Long Video templates...</span>
+                      {:else if templatesError}
+                        <span role="alert" class="text-red-700 dark:text-red-400">{templatesError}</span>
+                      {:else if videoTemplates.length === 0}
+                        <span>No Long Video templates yet. Create one in Studio, then refresh.</span>
+                      {/if}
+                      <button type="button" onclick={refreshVideoTemplates} disabled={templatesLoading} class="underline hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed">Refresh templates</button>
+                    </div>
+                  </div>
                   {#each formCustomCommands as cmd, i}
+                    {@const commandError = videoCommandError(cmd)}
                     <div class="border border-gray-200 dark:border-dark-border-subtle p-3 space-y-2 bg-gray-50/50 dark:bg-dark-base/40">
-                      <div class="flex items-center gap-2">
+                      <div class="flex flex-wrap items-center gap-2">
                         <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted">/</span>
                         <input
                           type="text"
                           bind:value={cmd.command}
+                          aria-label="Command name"
                           placeholder="asmr"
                           class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
                         />
                         <input
                           type="text"
                           bind:value={cmd.description}
+                          aria-label="Command description"
                           placeholder="Short description (shown in /help)"
                           class="flex-[2] border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
                         />
@@ -795,29 +861,69 @@
                           <X size={14} />
                         </button>
                       </div>
-                      <div class="grid grid-cols-2 gap-2">
+                      <label class="block">
+                        <span class="text-sm text-gray-700 dark:text-dark-text-secondary block mb-1">Long Video template (optional)</span>
+                        <select
+                          value={cmd.video_template_id || ''}
+                          onchange={(e) => {
+                            cmd.video_template_id = e.currentTarget.value || undefined;
+                            if (cmd.video_template_id) cmd.agent_id = '';
+                          }}
+                          aria-describedby={cmd.video_template_id ? `video-command-hint-${i}` : undefined}
+                          class="w-full min-w-0 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                        >
+                          <option value="">None (use free-text brief)</option>
+                          {#each videoTemplates as template (template.id)}
+                            <option value={template.id}>{template.name}</option>
+                          {/each}
+                          {#if cmd.video_template_id && !videoTemplates.some((t) => t.id === cmd.video_template_id)}
+                            <option value={cmd.video_template_id}>{templatesLoading || templatesError ? 'Saved template (not verified)' : 'Unavailable template'}: {cmd.video_template_id}</option>
+                          {/if}
+                        </select>
+                      </label>
+                      {#if cmd.video_template_id}
+                        <div id={`video-command-hint-${i}`} class="text-sm text-gray-600 dark:text-dark-text-secondary">
+                          The topic comes from command arguments; production settings come from the selected template. An organization is required. Direct agent routing and the free-text brief are disabled.
+                        </div>
+                        <div class="border border-amber-200 dark:border-amber-800/40 bg-amber-50 dark:bg-amber-900/20 p-2 text-sm text-amber-800 dark:text-amber-300">
+                          <strong>Paid production:</strong> Running this command starts video production and can incur provider charges. Restrict this bot to Allowlist access with at least one Allowed User ID. The backend checks the allowed sender before starting production.
+                        </div>
+                        {#if commandError}
+                          <p role="status" class="text-sm text-red-700 dark:text-red-400 break-words">{commandError}</p>
+                        {/if}
+                      {/if}
+                      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <label class="block">
                           <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Route to organization</span>
                           <select
                             bind:value={cmd.organization_id}
+                            required={!!cmd.video_template_id}
                             class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
                           >
                             <option value="">— none —</option>
                             {#each orgs as o (o.id)}
                               <option value={o.id}>{o.name}</option>
                             {/each}
+                            {#if cmd.organization_id && !orgs.some((o) => o.id === cmd.organization_id)}
+                              <option value={cmd.organization_id}>Saved organization ({cmd.organization_id})</option>
+                            {/if}
                           </select>
                         </label>
                         <label class="block">
                           <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">…or assign to agent</span>
                           <select
                             bind:value={cmd.agent_id}
-                            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text"
+                            disabled={!!cmd.video_template_id}
+                            aria-describedby={cmd.video_template_id ? `video-command-hint-${i}` : undefined}
+                            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             <option value="">— bot's default —</option>
                             {#each agents as a (a.id)}
                               <option value={a.id}>{a.name}</option>
                             {/each}
+                            {#if cmd.agent_id && !agents.some((a) => a.id === cmd.agent_id)}
+                              <option value={cmd.agent_id}>Saved agent ({cmd.agent_id})</option>
+                            {/if}
                           </select>
                         </label>
                       </div>
@@ -825,9 +931,11 @@
                         <span class="text-[10px] text-gray-500 dark:text-dark-text-muted uppercase tracking-wider block mb-0.5">Brief template</span>
                         <textarea
                           bind:value={cmd.brief}
+                          disabled={!!cmd.video_template_id}
+                          aria-describedby={cmd.video_template_id ? `video-command-hint-${i}` : undefined}
                           placeholder={'Generate a 25-minute ASMR session. {args}'}
                           rows="3"
-                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text dark:placeholder:text-dark-text-muted resize-y"
+                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-1 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:text-dark-text dark:placeholder:text-dark-text-muted resize-y disabled:opacity-50 disabled:cursor-not-allowed"
                         ></textarea>
                       </label>
                       <div class="grid grid-cols-2 gap-2">

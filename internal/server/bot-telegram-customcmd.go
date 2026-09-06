@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"slices"
+	"strconv"
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -74,8 +76,37 @@ func (s *Server) handleTelegramCustomCommand(
 	if cmd == nil {
 		return false
 	}
+	return s.dispatchTelegramCustomCommand(ctx, bot, msg, tgCtx, chatIDStr, platformSessionID, defaultAgentID, cmd)
+}
 
+func (s *Server) dispatchTelegramCustomCommand(
+	ctx context.Context,
+	bot *tgbotapi.BotAPI,
+	msg *tgbotapi.Message,
+	tgCtx *telegramContext,
+	chatIDStr, platformSessionID, defaultAgentID string,
+	cmd *service.BotCustomCommand,
+) bool {
 	args := strings.TrimSpace(msg.CommandArguments())
+	if cmd.VideoTemplateID != "" {
+		// Paid generation never relies on cached access policy or a public bot.
+		cfg, err := s.botConfigStore.GetBotConfig(ctx, tgCtx.botID)
+		if err != nil || cfg == nil || cfg.Platform != "telegram" || !slices.Contains(cfg.CustomCommands, *cmd) ||
+			msg.From == nil || msg.From.ID <= 0 || msg.From.IsBot || msg.SenderChat != nil ||
+			(cfg.AccessMode != "allowlist" && cfg.AccessMode != "pending") ||
+			!slices.Contains(cfg.AllowedUsers, strconv.FormatInt(msg.From.ID, 10)) {
+			sendTelegramText(bot, msg.Chat.ID, "Video commands require an explicitly approved sender on a restricted bot.")
+			return true
+		}
+		if cmd.OrganizationID == "" {
+			sendTelegramText(bot, msg.Chat.ID, "This video command requires an organization_id.")
+			return true
+		}
+		if args == "" {
+			sendTelegramText(bot, msg.Chat.ID, fmt.Sprintf("Usage: /%s <topic>", strings.TrimPrefix(cmd.Command, "/")))
+			return true
+		}
+	}
 
 	// Build the task description from the brief template. The literal
 	// token "{args}" is replaced with whatever the user typed after the
@@ -148,6 +179,9 @@ func (s *Server) handleTelegramCustomCommand(
 	)
 
 	switch {
+	case cmd.VideoTemplateID != "":
+		title = deriveBotTaskTitle(args)
+		taskID, identifier, err = s.createTelegramVideoTask(ctx, tgCtx.botID, chatID, msg.MessageID, cmd.VideoTemplateID, cmd.OrganizationID, args, cmd.MaxIterations, onDone)
 	case cmd.OrganizationID != "":
 		taskID, identifier, err = s.createBotOrgTask(ctx, cmd.OrganizationID, title, brief, cmd.MaxIterations, onDone)
 	case cmd.AgentID != "":

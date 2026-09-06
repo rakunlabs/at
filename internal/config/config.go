@@ -100,12 +100,13 @@ type Server struct {
 	Alan *alan.Config `cfg:"alan"`
 
 	// Workspace controls where per-task working directories and
-	// truncated tool-output dumps are written. Defaults baked into
+	// truncated tool-output dumps are written, and (with an explicit root)
+	// where persistent assets live. Defaults baked into
 	// `internal/service/loopgov` (`/tmp/at-tasks`, 24h TTL) apply when
 	// the block is omitted.
 	//
 	// On a small VM with a tiny boot disk, point `root` at a mounted
-	// data disk (e.g. `/mnt/disk/at-tasks`) so the video pipeline
+	// persistent data disk (e.g. `/mnt/at-workspace`) so the video pipeline
 	// doesn't fill the root filesystem.
 	Workspace *Workspace `cfg:"workspace"`
 }
@@ -118,11 +119,16 @@ type Workspace struct {
 	// Root is the directory under which `<task-id>/` workspaces and
 	// `.at-tool-output/<run-id>/` dump dirs live. Empty = use the
 	// loopgov default (`/tmp/at-tasks`).
+	// A nonblank explicit root also selects <root>/assets for persistent
+	// media; otherwise assets remain at ./data/assets. Relative paths are
+	// relative to the process working directory. No assets are moved.
+	// Use a persistent volume, not /tmp, for media to survive reboots.
 	Root string `cfg:"root"`
 
 	// TTLHours is how many hours a terminal-status task workspace is
 	// kept before the janitor sweeps it. Tool-output dumps are swept
 	// by mtime under the same TTL. 0 = use loopgov default (24h).
+	// The reserved assets/ directory is never swept.
 	// A negative value disables the janitor entirely (workspaces and
 	// dumps are kept forever; useful for debugging).
 	TTLHours int `cfg:"ttl_hours"`

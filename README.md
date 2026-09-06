@@ -140,6 +140,37 @@ When `forward_auth` is set, all management API requests are forwarded to the spe
 
 When `admin_token` is set, all `/api/v1/settings/*` endpoints require an `Authorization: Bearer <admin_token>` header. If no `admin_token` is configured, settings endpoints respond with `403 Forbidden` -- this forces explicit opt-in. The admin token only protects settings endpoints; regular management APIs (providers, tokens) are unaffected.
 
+### Workspace and persistent assets
+
+```yaml
+server:
+  workspace:
+    root: /mnt/at-workspace
+    ttl_hours: 24
+```
+
+A nonblank explicit `server.workspace.root` places the persistent media library
+at `<root>/assets` (in this example `/mnt/at-workspace/assets`). Relative roots
+resolve against the process working directory. Uploads, Studio, backend media
+helpers, and skill handlers (`AT_ASSETS_DIR`) all use this same absolute path.
+The library contains `avatars/`, `voices/`, `uploads/`, and `series/` and is
+excluded from workspace TTL cleanup, including when `ttl_hours` is set.
+
+Mount `/mnt/at-workspace` on a persistent volume, writable by the service user.
+For containers, bind-mount a durable host directory or named volume at that
+container path. A directory under `/tmp` is not reboot-persistent storage.
+Startup checks directory creation and write access; failures log the path and
+configuration guidance without shutting down the gateway or falling back to
+temporary storage.
+
+When root is unset or blank, existing installations continue using `./data/assets`
+(relative to the process working directory), independently of the default task
+workspace `/tmp/at-tasks`. Keep the existing `data` persistence mount in that case.
+Setting root does **not** automatically move, copy, or delete old assets. To adopt
+a new location, stop media producers, back up the old library, and migrate it
+manually. Manifests and other saved records may contain absolute paths: review
+and update those references or preserve their original paths before resuming.
+
 ### Store configuration
 
 Providers and API tokens are managed through the web UI and persisted in PostgreSQL — the only supported backend. Startup fails with a descriptive error when `store.postgres.datasource` is not configured.

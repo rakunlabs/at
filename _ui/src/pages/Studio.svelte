@@ -2,22 +2,24 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { getInfo } from '@/lib/api/gateway';
-  import { listOrganizations, type Organization } from '@/lib/api/organizations';
-  import { listAgents, updateAgent } from '@/lib/api/agents';
-  import { installSkillTemplate } from '@/lib/api/skills';
+  import { listOrganizations, listOrgAgents, type Organization } from '@/lib/api/organizations';
+  import { getAgent, updateAgent } from '@/lib/api/agents';
+  import { installSkillTemplate, listSkills } from '@/lib/api/skills';
   import { installIntegrationPack } from '@/lib/api/integration-packs';
   import { loadCharacters, loadSeriesList, loadVoices, type CharacterItem, type VoiceItem } from '@/lib/api/studio';
   import StudioCharacters from '@/lib/components/studio/StudioCharacters.svelte';
   import StudioSeries from '@/lib/components/studio/StudioSeries.svelte';
   import StudioProductions from '@/lib/components/studio/StudioProductions.svelte';
+  import StudioLongForm from '@/lib/components/studio/StudioLongForm.svelte';
   import { Clapperboard, Film, Loader2, RefreshCw, User, Video } from 'lucide-svelte';
 
   storeNavbar.title = 'Studio';
 
-  type StudioTab = 'characters' | 'series' | 'productions';
+  type StudioTab = 'characters' | 'series' | 'long-videos' | 'productions';
 
   const AVATAR_ORG = 'Avatar Studio';
   const SERIES_ORG = 'Series Studio';
+  const LONG_VIDEO_ORG = 'Long Video Studio';
   const SKILL_TEMPLATES = [
     'fal-avatar',
     'fal-cinema',
@@ -28,17 +30,12 @@
     'video-composer',
     'ffmpeg-guide',
     'series-library',
+    'pexels-images',
   ];
-  const PACKS = ['avatar-studio', 'video-series'];
-  const PACK_AGENTS = [
-    'Studio Director',
-    'Avatar Designer',
-    'Video Producer',
-    'Showrunner',
-    'Script Writer',
-    'Character Designer',
-    'Scene Director',
-    'Episode Editor',
+  const PACKS = [
+    { slug: 'avatar-studio', name: AVATAR_ORG },
+    { slug: 'video-series', name: SERIES_ORG },
+    { slug: 'long-form-video', name: LONG_VIDEO_ORG },
   ];
 
   let loading = $state(true);
@@ -46,6 +43,7 @@
   let tab = $state<StudioTab>('characters');
   let avatarOrg = $state<Organization | null>(null);
   let seriesOrg = $state<Organization | null>(null);
+  let longVideoOrg = $state<Organization | null>(null);
   let assetsRoot = $state('');
   let characters = $state<CharacterItem[]>([]);
   let voices = $state<VoiceItem[]>([]);
@@ -55,10 +53,14 @@
   async function load() {
     loading = true;
     try {
-      const [info, orgs] = await Promise.all([getInfo(), listOrganizations()]);
+      const [info, orgs] = await Promise.all([
+        getInfo(),
+        Promise.all(PACKS.map((pack) => listOrganizations({ name: pack.name, _limit: 1 }))),
+      ]);
       assetsRoot = info.assets_root || '';
-      avatarOrg = (orgs.data || []).find((o) => o.name === AVATAR_ORG) || null;
-      seriesOrg = (orgs.data || []).find((o) => o.name === SERIES_ORG) || null;
+      avatarOrg = orgs[0].data?.[0] || null;
+      seriesOrg = orgs[1].data?.[0] || null;
+      longVideoOrg = orgs[2].data?.[0] || null;
       await reloadLibrary();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load studio', 'alert');
@@ -86,43 +88,53 @@
   async function setupStudio() {
     installing = true;
     try {
-      // Templates sync their handlers/system prompts on server startup; install
-      // calls here are idempotent from the user's perspective.
+      const info = await getInfo();
+      const providers = (info.providers || []).map((provider) => ({
+        key: provider.key,
+        model: provider.default_model?.trim() || provider.models?.find((model) => model.trim())?.trim() || '',
+      }));
+      const fallback = providers.find((provider) => provider.key?.trim() && provider.model);
+      if (!fallback) throw new Error('Configure a provider with a usable model before setting up Video Studio.');
+
+      // Install only missing entries: the pack installer creates new teams on every call.
       for (const slug of SKILL_TEMPLATES) {
-        try {
-          await installSkillTemplate(slug);
-        } catch {
-          /* already installed */
-        }
+        const existing = await listSkills({ name: slug.replaceAll('-', '_'), _limit: 1 });
+        if (!existing.data?.length) await installSkillTemplate(slug);
       }
-      for (const slug of PACKS) {
-        try {
-          await installIntegrationPack(slug, { skills: true, mcp_sets: false, organization: true });
-        } catch {
-          /* pack or organization may already exist */
+      const selectedOrgs = [avatarOrg, seriesOrg, longVideoOrg];
+      const organizationIds = new Set<string>();
+      for (const [index, pack] of PACKS.entries()) {
+        let organizationId = selectedOrgs[index]?.id;
+        if (!organizationId) {
+          const existing = await listOrganizations({ name: pack.name, _limit: 1 });
+          organizationId = existing.data?.[0]?.id;
         }
+        if (!organizationId) {
+          const result = await installIntegrationPack(pack.slug, { skills: true, mcp_sets: false, organization: true });
+          if (!result.organization_id || !result.agents_created) throw new Error(`${pack.name} setup was incomplete. Check Organizations before retrying.`);
+          organizationId = result.organization_id;
+        }
+        organizationIds.add(organizationId);
       }
 
-      // Both packs intentionally ship provider/model empty.
-      const info = await getInfo();
-      const provider = info.providers?.[0];
-      if (provider) {
-        const model = provider.default_model || provider.models?.[0] || '';
-        const agents = await listAgents();
-        for (const agent of agents.data || []) {
-          if (PACK_AGENTS.includes(agent.name) && !agent.config?.provider) {
-            try {
-              await updateAgent(agent.id, { config: { ...agent.config, provider: provider.key, model } } as any);
-            } catch {
-              /* leave this agent for manual provider assignment */
-            }
-          }
+      // Names are not unique; only configure the actual members of these teams.
+      const memberships = await Promise.all([...organizationIds].map((id) => listOrgAgents(id)));
+      const agentIds = new Set(memberships.flatMap((members) => members.map((member) => member.agent_id)));
+      const agents = await Promise.all([...agentIds].map((id) => getAgent(id)));
+      for (const agent of agents) {
+        if (agent.config?.provider?.trim() && agent.config?.model?.trim()) continue;
+        const provider = agent.config?.provider?.trim()
+          ? providers.find((provider) => provider.key === agent.config.provider)
+          : fallback;
+        if (!provider?.model) {
+          throw new Error(`No usable model for ${agent.name} (${agent.id}) with provider ${agent.config?.provider}. Configure that provider before retrying.`);
         }
+        await updateAgent(agent.id, { config: { ...agent.config, provider: provider.key, model: provider.model } });
       }
       addToast('Video studio installed', 'info');
       await load();
     } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Setup failed', 'alert');
+      addToast(e?.response?.data?.message || e?.message || 'Setup failed', 'alert');
     } finally {
       installing = false;
     }
@@ -134,12 +146,12 @@
 <div class="h-full overflow-y-auto bg-gray-50 dark:bg-dark-base">
   {#if loading}
     <div class="flex items-center justify-center h-40 text-gray-400 dark:text-dark-text-muted"><Loader2 size={18} class="animate-spin" /></div>
-  {:else if !avatarOrg && !seriesOrg}
+  {:else if !avatarOrg && !seriesOrg && !longVideoOrg}
     <div class="max-w-xl mx-auto mt-16 border-y border-gray-200 dark:border-dark-border py-10 text-center">
       <div class="mx-auto mb-4 h-12 w-12 bg-gray-900 dark:bg-dark-highest text-white dark:text-accent flex items-center justify-center"><Film size={23} /></div>
       <h2 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Build a cast. Keep the continuity.</h2>
       <p class="mx-auto mt-2 max-w-md text-xs leading-5 text-gray-500 dark:text-dark-text-muted">
-        Create recurring characters with a visual bible and bound voice, write episodes into a structured storyboard, generate identity-consistent shots, then assemble captioned final cuts.
+        Create recurring characters, write episodic storyboards, or develop standalone long videos with an AI brief assistant. Generate visuals and narration, then assemble final cuts.
       </p>
       <div class="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-dark-text-muted">
         <span>Character bible</span><span>Style lock</span><span>Shot continuity</span><span>Structured renders</span>
@@ -157,7 +169,7 @@
         <div class="min-w-0 flex-1">
           <div class="flex items-center gap-2">
             <div class="h-8 w-8 bg-gray-900 dark:bg-dark-highest text-white dark:text-accent flex items-center justify-center"><Film size={16} /></div>
-            <div><h1 class="text-base font-semibold text-gray-900 dark:text-dark-text">Video Studio</h1><p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Characters → episodes → shots → final cuts</p></div>
+            <div><h1 class="text-base font-semibold text-gray-900 dark:text-dark-text">Video Studio</h1><p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Characters, series, and standalone long videos</p></div>
           </div>
         </div>
         <div class="flex items-center gap-4 text-[10px] text-gray-400 dark:text-dark-text-muted tabular-nums">
@@ -175,9 +187,10 @@
         </div>
       {/if}
 
-      <nav class="mt-5 flex gap-5 border-b border-gray-200 dark:border-dark-border" aria-label="Studio sections">
+      <nav class="mt-5 flex flex-wrap gap-x-5 gap-y-3 border-b border-gray-200 dark:border-dark-border" aria-label="Studio sections">
         <button onclick={() => (tab = 'characters')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'characters' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><User size={12} /> Characters</button>
         <button onclick={() => (tab = 'series')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'series' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Film size={12} /> Series</button>
+        <button onclick={() => (tab = 'long-videos')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'long-videos' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Clapperboard size={12} /> Long Videos</button>
         <button onclick={() => (tab = 'productions')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'productions' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Video size={12} /> Productions</button>
       </nav>
 
@@ -186,9 +199,13 @@
           <StudioCharacters {assetsRoot} {characters} {voices} {seriesOrg} {avatarOrg} onReload={reloadLibrary} onTaskSubmitted={taskSubmitted} />
         {:else if tab === 'series'}
           <StudioSeries {assetsRoot} {characters} {seriesOrg} onTaskSubmitted={taskSubmitted} />
-        {:else}
-          <StudioProductions {assetsRoot} {avatarOrg} {seriesOrg} refreshKey={taskRefreshKey} />
+        {:else if tab === 'productions'}
+          <StudioProductions {assetsRoot} {avatarOrg} {seriesOrg} {longVideoOrg} refreshKey={taskRefreshKey} />
         {/if}
+        <!-- Keep the editor mounted across Studio tabs so unsaved briefs and chat survive. -->
+        <div hidden={tab !== 'long-videos'}>
+          <StudioLongForm {assetsRoot} {longVideoOrg} onTaskSubmitted={taskSubmitted} />
+        </div>
       </main>
     </div>
   {/if}

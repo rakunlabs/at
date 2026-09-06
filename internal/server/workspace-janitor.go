@@ -106,6 +106,11 @@ func (s *Server) sweepWorkspaceOnce(ctx context.Context, root string, ttl time.D
 			continue
 		}
 		name := entry.Name()
+		// Persistent media is reserved, even if a task with this ID exists.
+		// IsDir above also excludes symlinks, so their targets are never swept.
+		if name == "assets" {
+			continue
+		}
 		full := filepath.Join(root, name)
 
 		// Tool-output dump dir: sweep by mtime alone.

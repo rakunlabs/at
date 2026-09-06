@@ -1,0 +1,12 @@
+{
+  "name": "Long Video Studio",
+  "description": "Standalone topic-to-video production: chapter-based narration, economical stills and B-roll, and verified durable long-form video delivery.",
+  "relationships": [
+    {
+      "agent_name": "Long Video Producer",
+      "role": "head",
+      "title": "Long Video Producer",
+      "is_head": true
+    }
+  ]
+}

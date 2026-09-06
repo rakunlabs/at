@@ -292,18 +292,21 @@ func (s *Server) switchBotAgent(ctx context.Context, botID, sessionID, targetAge
 // Returns: allowed bool, wasPending bool (true if pending_approval is on and user was added to pending).
 func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode string, pendingApproval bool, allowedUsers []string) (bool, bool) {
 	// For DB bots, fetch current config for dynamic updates.
-	if botID != "" && s.botConfigStore != nil {
+	if botID != "" {
+		if s.botConfigStore == nil {
+			return false, false
+		}
 		dbCfg, err := s.botConfigStore.GetBotConfig(ctx, botID)
 		if err == nil && dbCfg != nil {
 			accessMode = dbCfg.AccessMode
 			pendingApproval = dbCfg.PendingApproval
 			allowedUsers = dbCfg.AllowedUsers
 
-			if accessMode == "allowlist" {
+			if accessMode == "allowlist" || accessMode == "pending" {
 				if slices.Contains(allowedUsers, userID) {
 					return true, false
 				}
-				if pendingApproval {
+				if pendingApproval || accessMode == "pending" {
 					// Add to pending if not already there.
 					if !slices.Contains(dbCfg.PendingUsers, userID) {
 						dbCfg.PendingUsers = append(dbCfg.PendingUsers, userID)
@@ -317,10 +320,11 @@ func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode s
 			}
 			return true, false
 		}
+		return false, false
 	}
 
 	// Static config (YAML) or fallback.
-	if accessMode == "allowlist" && len(allowedUsers) > 0 {
+	if accessMode == "allowlist" || accessMode == "pending" {
 		return slices.Contains(allowedUsers, userID), false
 	}
 	return true, false // open mode

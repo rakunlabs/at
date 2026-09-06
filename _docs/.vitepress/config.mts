@@ -14,6 +14,7 @@ export default defineConfig({
           { text: "Runtime Dependencies", link: "/runtime" },
           { text: "Bots", link: "/bots" },
           { text: "Task Delegation", link: "/task-delegation" },
+          { text: "YouTube Publishing", link: "/youtube-publishing" },
         ],
       },
     ],

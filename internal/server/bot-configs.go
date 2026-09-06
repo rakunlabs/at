@@ -5,12 +5,40 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"regexp"
+	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
 )
 
 // ─── Bot Config CRUD ───
+
+var videoCommandNamePattern = regexp.MustCompile(`^[a-z0-9_]{1,32}$`)
+var videoCommandIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
+
+// Only template-bound commands gain stricter validation; legacy commands keep
+// their existing format and routing contract.
+func validateBotVideoCommands(cfg service.BotConfig) error {
+	for _, cmd := range cfg.CustomCommands {
+		if cmd.VideoTemplateID == "" {
+			continue
+		}
+		if cfg.Platform != "telegram" {
+			return fmt.Errorf("video_template_id is only supported on Telegram bots")
+		}
+		if !videoCommandNamePattern.MatchString(strings.TrimPrefix(cmd.Command, "/")) {
+			return fmt.Errorf("video command must contain 1-32 lowercase letters, digits or underscores")
+		}
+		if !videoCommandIDPattern.MatchString(cmd.VideoTemplateID) {
+			return fmt.Errorf("video_template_id must be a valid identifier")
+		}
+		if !videoCommandIDPattern.MatchString(cmd.OrganizationID) {
+			return fmt.Errorf("video command requires a valid organization_id")
+		}
+	}
+	return nil
+}
 
 // ListBotConfigsAPI handles GET /api/v1/bots.
 func (s *Server) ListBotConfigsAPI(w http.ResponseWriter, r *http.Request) {
@@ -90,6 +118,11 @@ func (s *Server) CreateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := validateBotVideoCommands(req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	userEmail := s.getUserEmail(r)
 	req.CreatedBy = userEmail
 	req.UpdatedBy = userEmail
@@ -125,6 +158,11 @@ func (s *Server) UpdateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 	var req service.BotConfig
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if err := validateBotVideoCommands(req); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 

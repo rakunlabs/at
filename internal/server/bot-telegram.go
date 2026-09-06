@@ -800,10 +800,16 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 					agentID = id
 				}
 				if agentID == "" {
-					continue
+					cmd := s.resolveTelegramCustomCommand(ctx, botID, update.Message.Command())
+					if cmd == nil || cmd.VideoTemplateID == "" || cmd.OrganizationID == "" {
+						continue
+					}
 				}
 
 				// Access control check.
+				if update.Message.From == nil {
+					continue
+				}
 				userIDStr := fmt.Sprintf("%d", update.Message.From.ID)
 				allowed, wasPending := s.checkBotAccess(ctx, botID, userIDStr, cfg.AccessMode, cfg.PendingApproval, cfg.AllowedUsers)
 				if !allowed {
@@ -823,12 +829,24 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 }
 
 func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, agentID string, tgCtx *telegramContext) {
+	if msg.From == nil {
+		return
+	}
 	chatIDStr := fmt.Sprintf("%d", msg.Chat.ID)
 	userIDStr := fmt.Sprintf("%d", msg.From.ID)
 	lockValue, _ := tgCtx.messageLocks.LoadOrStore(chatIDStr, &sync.Mutex{})
 	chatLock := lockValue.(*sync.Mutex)
 	chatLock.Lock()
 	defer chatLock.Unlock()
+
+	// Template-bound commands do not need a default agent or chat session.
+	if cmd := s.resolveTelegramCustomCommand(ctx, tgCtx.botID, msg.Command()); cmd != nil && cmd.VideoTemplateID != "" {
+		s.dispatchTelegramCustomCommand(ctx, bot, msg, tgCtx, chatIDStr, "", agentID, cmd)
+		return
+	}
+	if agentID == "" {
+		return
+	}
 
 	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "telegram", tgCtx.botID, userIDStr, chatIDStr, agentID)
 	if err != nil {

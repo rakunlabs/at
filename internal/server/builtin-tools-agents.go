@@ -42,13 +42,8 @@ func (s *Server) execAgentCreate(ctx context.Context, args map[string]any) (stri
 		config.ToolTimeout = int(v)
 	}
 
-	// Parse skills array.
-	if raw, ok := args["skills"]; ok {
-		data, _ := json.Marshal(raw)
-		var skills []string
-		if err := json.Unmarshal(data, &skills); err == nil {
-			config.Skills = service.SkillRefsFromStrings(skills)
-		}
+	if err := applyAgentToolBindings(&config, args); err != nil {
+		return "", err
 	}
 
 	// Parse mcp_sets array (internal MCPs).
@@ -196,6 +191,11 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 	if existing == nil {
 		return "", fmt.Errorf("agent %q not found", id)
 	}
+	updated := *existing
+	existing = &updated
+	if err := applyAgentToolBindings(&existing.Config, args); err != nil {
+		return "", err
+	}
 
 	// Merge provided fields.
 	if v, ok := args["name"].(string); ok && v != "" {
@@ -218,15 +218,6 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 	}
 	if v, ok := args["tool_timeout"].(float64); ok {
 		existing.Config.ToolTimeout = int(v)
-	}
-
-	// Replace skills if provided.
-	if raw, ok := args["skills"]; ok {
-		data, _ := json.Marshal(raw)
-		var skills []string
-		if err := json.Unmarshal(data, &skills); err == nil {
-			existing.Config.Skills = service.SkillRefsFromStrings(skills)
-		}
 	}
 
 	// Replace mcp_sets if provided.
@@ -253,6 +244,77 @@ func (s *Server) execAgentUpdate(ctx context.Context, args map[string]any) (stri
 
 	data, _ := json.MarshalIndent(record, "", "  ")
 	return string(data), nil
+}
+
+// Decode both binding levels before applying either so invalid patches are atomic.
+func applyAgentToolBindings(config *service.AgentConfig, args map[string]any) error {
+	bindings := make(map[string]any)
+	for _, key := range []string{"skills", "connections"} {
+		if value, ok := args[key]; ok {
+			if value == nil {
+				return fmt.Errorf("%s must not be null; use an empty array or object to clear it", key)
+			}
+			bindings[key] = value
+		}
+	}
+	data, err := json.Marshal(bindings)
+	if err != nil {
+		return fmt.Errorf("failed to encode agent bindings: %w", err)
+	}
+	var patch struct {
+		Skills      []service.SkillRef `json:"skills"`
+		Connections map[string]string  `json:"connections"`
+	}
+	if err := json.Unmarshal(data, &patch); err != nil {
+		return fmt.Errorf("invalid agent bindings: %w", err)
+	}
+	var rawPatch struct {
+		Skills []json.RawMessage `json:"skills"`
+	}
+	if err := json.Unmarshal(data, &rawPatch); err != nil {
+		return fmt.Errorf("invalid skill bindings: %w", err)
+	}
+	validateConnections := func(connections map[string]string) error {
+		for provider, id := range connections {
+			if strings.TrimSpace(provider) == "" || strings.TrimSpace(id) == "" {
+				return fmt.Errorf("connection provider and ID must be non-empty strings")
+			}
+		}
+		return nil
+	}
+	for i, skill := range patch.Skills {
+		if strings.TrimSpace(skill.ID) == "" {
+			return fmt.Errorf("skills[%d] must have a non-empty skill ID or name", i)
+		}
+		if err := validateConnections(skill.Connections); err != nil {
+			return fmt.Errorf("invalid skills[%d].connections: %w", i, err)
+		}
+		if rawPatch.Skills[i][0] == '{' {
+			var fields map[string]json.RawMessage
+			if err := json.Unmarshal(rawPatch.Skills[i], &fields); err != nil {
+				return fmt.Errorf("invalid skills[%d]: %w", i, err)
+			}
+			if string(fields["connections"]) == "null" {
+				return fmt.Errorf("skills[%d].connections must be an object, not null", i)
+			}
+		}
+	}
+	if err := validateConnections(patch.Connections); err != nil {
+		return fmt.Errorf("invalid connections: %w", err)
+	}
+	if _, ok := bindings["skills"]; ok && patch.Skills == nil {
+		return fmt.Errorf("skills must be an array, not null")
+	}
+	if _, ok := bindings["connections"]; ok && patch.Connections == nil {
+		return fmt.Errorf("connections must be an object, not null")
+	}
+	if _, ok := bindings["skills"]; ok {
+		config.Skills = patch.Skills
+	}
+	if _, ok := bindings["connections"]; ok {
+		config.Connections = patch.Connections
+	}
+	return nil
 }
 
 // ─── Agent Destructive Tool Executors (Phase 2) ───

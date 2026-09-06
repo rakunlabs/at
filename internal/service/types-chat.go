@@ -92,6 +92,8 @@ type ChatSessionStorer interface {
 // arguments the user typed after the command.
 //
 // Routing rules:
+//   - If VideoTemplateID is set, Telegram creates a task from an immutable
+//     template snapshot in OrganizationID; Brief and TitlePrefix are ignored.
 //   - If OrganizationID is set, the task is submitted to that org (head agent
 //     handles delegation).
 //   - Else if AgentID is set, the task is created and assigned to that agent
@@ -103,13 +105,14 @@ type ChatSessionStorer interface {
 // arguments (everything after the command in the Telegram message). If the
 // command takes no args, "{args}" expands to the empty string.
 type BotCustomCommand struct {
-	Command        string `json:"command"`                   // without leading slash, e.g. "asmr"
-	Description    string `json:"description,omitempty"`     // shown in /help
-	OrganizationID string `json:"organization_id,omitempty"` // route via org intake
-	AgentID        string `json:"agent_id,omitempty"`        // route to specific agent
-	Brief          string `json:"brief,omitempty"`           // task description template ({args} replaced)
-	TitlePrefix    string `json:"title_prefix,omitempty"`    // optional title prefix (e.g. "[ASMR]")
-	MaxIterations  int    `json:"max_iterations,omitempty"`  // optional per-task override
+	Command         string `json:"command"`                     // without leading slash, e.g. "asmr"
+	Description     string `json:"description,omitempty"`       // shown in /help
+	OrganizationID  string `json:"organization_id,omitempty"`   // route via org intake
+	VideoTemplateID string `json:"video_template_id,omitempty"` // Telegram video template; requires organization_id
+	AgentID         string `json:"agent_id,omitempty"`          // route to specific agent
+	Brief           string `json:"brief,omitempty"`             // task description template ({args} replaced)
+	TitlePrefix     string `json:"title_prefix,omitempty"`      // optional title prefix (e.g. "[ASMR]")
+	MaxIterations   int    `json:"max_iterations,omitempty"`    // optional per-task override
 }
 
 // BotConfig represents a Discord or Telegram bot configuration stored in the database.

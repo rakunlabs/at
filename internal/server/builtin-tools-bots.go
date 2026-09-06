@@ -209,18 +209,21 @@ func (s *Server) execBotUpdate(ctx context.Context, args map[string]any) (string
 		data, _ := json.Marshal(raw)
 		var cmds []service.BotCustomCommand
 		if err := json.Unmarshal(data, &cmds); err != nil {
-			return "", fmt.Errorf("custom_commands: must be an array of {command, description, organization_id?, agent_id?, brief?, title_prefix?, max_iterations?}: %w", err)
+			return "", fmt.Errorf("custom_commands: must be an array of {command, description, organization_id?, video_template_id?, agent_id?, brief?, title_prefix?, max_iterations?}: %w", err)
 		}
 		clean := make([]service.BotCustomCommand, 0, len(cmds))
 		for i := range cmds {
 			c := cmds[i]
 			c.Command = strings.TrimSpace(strings.TrimPrefix(c.Command, "/"))
-			if c.Command == "" {
+			if c.Command == "" && c.VideoTemplateID == "" {
 				continue
 			}
 			clean = append(clean, c)
 		}
 		updated.CustomCommands = clean
+	}
+	if err := validateBotVideoCommands(updated); err != nil {
+		return "", err
 	}
 
 	// Persist the merged record. The store-level UpdateBotConfig signature
@@ -302,7 +305,7 @@ func (s *Server) execBotCreate(ctx context.Context, args map[string]any) (string
 		clean := make([]service.BotCustomCommand, 0, len(customCommands))
 		for _, c := range customCommands {
 			c.Command = strings.TrimSpace(strings.TrimPrefix(c.Command, "/"))
-			if c.Command == "" {
+			if c.Command == "" && c.VideoTemplateID == "" {
 				continue
 			}
 			clean = append(clean, c)
@@ -340,6 +343,9 @@ func (s *Server) execBotCreate(ctx context.Context, args map[string]any) (string
 		UpdatedBy:       "mcp",
 	}
 
+	if err := validateBotVideoCommands(bot); err != nil {
+		return "", err
+	}
 	record, err := s.botConfigStore.CreateBotConfig(ctx, bot)
 	if err != nil {
 		return "", fmt.Errorf("create bot config: %w", err)

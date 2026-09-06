@@ -63,9 +63,11 @@
       return;
     }
     creating = true;
+    let stage = 'start character task';
     try {
       let photoPath = '';
       if (charPhoto) {
+        stage = 'upload reference photo';
         const up = await uploadFile(charPhoto, `${assetsRoot}/uploads`);
         photoPath = up.path;
       }
@@ -76,6 +78,7 @@
         makeSheet ? 'After saving the portrait, generate the turnaround sheet with character_sheet (front, profile, back).' : '',
         'Only create the character (portrait + bible) — no video in this task.',
       ].filter(Boolean);
+      stage = 'start character task';
       const res = await submitOrgTask(org.id, {
         title: `Create character: ${charName.trim()}`,
         description: lines.join('\n'),
@@ -87,7 +90,10 @@
       charPhoto = null;
       onTaskSubmitted();
     } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to start character task', 'alert');
+      const data = e?.response?.data;
+      const detail = data?.message || data?.error?.message ||
+        (typeof data === 'string' ? data.trim().slice(0, 500) : '') || e?.message || 'Unknown error';
+      addToast(`Failed to ${stage}: ${detail}`, 'alert');
     } finally {
       creating = false;
     }

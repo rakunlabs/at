@@ -8,6 +8,7 @@ export interface BotCustomCommand {
   description?: string;     // shown in /help
   organization_id?: string; // route via org intake
   agent_id?: string;        // route to specific agent
+  video_template_id?: string; // Long Video template; topic comes from command args
   brief?: string;           // task description template; "{args}" gets replaced with user args
   title_prefix?: string;    // optional prefix for the resulting task title
   max_iterations?: number;  // optional per-task override

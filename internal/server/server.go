@@ -387,6 +387,24 @@ func loopgovConfigFromYAML(ws *config.Workspace) loopgov.Config {
 // loopgovConfigFromYAML — which lets operators point per-task workdirs
 // at a mounted data disk so the boot disk doesn't fill up.
 func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version, commit, buildDate string) (*Server, error) {
+	// Configure the shared resolver before janitors, bots, or other consumers run.
+	workspaceRoot := ""
+	if cfg.Workspace != nil {
+		workspaceRoot = cfg.Workspace.Root
+	}
+	assetsErr := workflow.ConfigureAssetsDir(workspaceRoot)
+	assets := workflow.AssetsDir()
+	if assetsErr == nil {
+		assets, assetsErr = workflow.EnsureAssetsDirReady()
+	}
+	if assetsErr != nil {
+		slog.Error("startup: persistent asset library unavailable; gateway remains available",
+			"path", assets, "error", assetsErr.Error(),
+			"hint", "set server.workspace.root to a writable persistent volume and ensure the service user can write its assets directory; unset root uses ./data/assets")
+	} else {
+		slog.Info("startup: persistent asset library ready", "path", assets)
+	}
+
 	mux := ada.New()
 	mux.Use(
 		mrecover.Middleware(),
@@ -1124,8 +1142,6 @@ func (s *Server) Start(ctx context.Context) error {
 	// bash_execute fails with `chdir: no such file or directory` until the LLM
 	// burns its iteration budget. Catch that here, loudly, at startup.
 	ensureTaskWorkspaceBase(s.taskWorkspaceBase())
-	assets := workflow.EnsureAssetsDir()
-	slog.Info("startup: persistent asset library ready", "path", assets)
 
 	return s.server.StartWithContext(ctx, net.JoinHostPort(s.config.Host, s.config.Port))
 }

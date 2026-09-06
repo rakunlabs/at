@@ -193,7 +193,9 @@ Skills can ship their own connector: `SkillTemplate.connector` (`internal/server
 
 ## Persistent Assets & Avatar Studio
 
-Reusable media (character portraits, cloned-voice manifests, series state and rendered episodes) live in a **persistent asset library** at `./data/assets` (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`) — unlike per-task workspaces it is NOT swept by the workspace janitor. Bash skill handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). `EnsureAssetsDir` creates the conventional roots: `avatars/`, `voices/`, `uploads/`, and `series/`.
+Reusable media (character portraits, cloned-voice manifests, series state and rendered episodes) live in a **persistent asset library** (`workflow.AssetsDir()`, `internal/service/workflow/assets.go`). A nonblank explicit `server.workspace.root` selects absolute `<root>/assets`; unset or blank preserves shipped `./data/assets`, resolved against the process working directory. Unlike per-task workspaces it is NOT swept by the workspace janitor: `assets` is reserved before task lookups, and symlink entries are skipped. Bash skill handlers receive it as `AT_ASSETS_DIR` (alongside `AT_WORK_DIR`); `GET /api/v1/info` reports it as `assets_root`; `POST /api/v1/files/upload` (multipart `file` + optional `path`/`name`, 256 MB cap) writes into it (default target when `path` omitted). `EnsureAssetsDir` creates the conventional roots: `avatars/`, `voices/`, `uploads/`, and `series/`.
+
+`Server.New` calls the thread-safe `ConfigureAssetsDir` before starting janitors/bots. `EnsureAssetsDirReady` checks creation and actual writability with temporary probe files; startup errors include the path and `server.workspace.root` guidance but leave the gateway available. No temporary fallback or automatic migration is performed. Configure `server: {workspace: {root: /mnt/at-workspace}}` and mount that root on a persistent volume writable by the service user; `/tmp` does not guarantee reboot persistence. Existing installations leaving root unset must keep their `./data` mount. Moving an old `data/assets` library is manual: back it up, stop media producers, and review manifests/records for absolute path references before resuming; setting root never moves, copies, or deletes old media.
 
 The HeyGen-style avatar pipeline is built from three pieces:
 
@@ -206,7 +208,7 @@ The HeyGen-style avatar pipeline is built from three pieces:
 Episodic production is filesystem-backed so bash skill handlers and the UI share one durable contract without new REST endpoints:
 
 ```
-data/assets/series/<series-slug>/
+<assets-root>/series/<series-slug>/
   series.json                       # cast + style lock + model policy
   episodes/<NN>/
     episode.json                    # script + shots[] + per-shot provenance
