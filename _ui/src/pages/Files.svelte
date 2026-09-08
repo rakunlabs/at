@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { authFetch as fetch } from '@/lib/api/transport';
   import { untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';

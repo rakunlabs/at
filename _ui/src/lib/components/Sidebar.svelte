@@ -1,6 +1,7 @@
 <script lang="ts">
   import { push, location } from "svelte-spa-router";
   import { isFeatureEnabled, loadFeatures } from "@/lib/store/features.svelte";
+  import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import {
     MessageSquare,
     MessagesSquare,
@@ -27,6 +28,7 @@
     Plug,
     FolderOpen,
     Package,
+    Users,
   } from "lucide-svelte";
 
   function navigate(e: MouseEvent, path: string) {
@@ -56,18 +58,24 @@
       <span>Dashboard</span>
     </a>
     {#if isFeatureEnabled("chat_workbench")}
+      {#if isNativeAdmin()}
       <a
         href="#/chat"
         onclick={(e) => navigate(e, "/chat")}
         class={[
           "flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors",
-          $location === "/chat"
+          $location === "/chat" || $location.startsWith('/chat/')
             ? "bg-gray-900 text-white dark:bg-accent dark:text-white"
             : "text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated",
         ]}
       >
         <MessageSquare size={14} />
         <span>Chat</span>
+      </a>
+      {/if}
+      <a href="#/playground" onclick={(e) => navigate(e, '/playground')}
+        class={['flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors', $location === '/playground' || (!isNativeAdmin() && $location === '/chat') ? 'bg-gray-900 text-white dark:bg-accent dark:text-white' : 'text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated']}>
+        <SlidersHorizontal size={14} /><span>Playground</span>
       </a>
       <a
         href="#/sessions"
@@ -291,6 +299,12 @@
       >
         <CircleDollarSign size={14} />
         <span>Pricing</span>
+      </a>
+    {/if}
+    {#if isNativeAdmin()}
+      <a href="#/users" onclick={(e) => navigate(e, '/users')} aria-current={$location === '/users' ? 'page' : undefined}
+        class={['flex items-center gap-2 px-2 h-8 text-sm border-b border-gray-200 dark:border-dark-border transition-colors', $location === '/users' ? 'bg-gray-900 text-white dark:bg-accent dark:text-white' : 'text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated']}>
+        <Users size={14} /><span>Users</span>
       </a>
     {/if}
     <a

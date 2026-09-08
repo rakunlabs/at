@@ -69,8 +69,8 @@ importers:
         specifier: ^0.16.33
         version: 0.16.33
       kaykay:
-        specifier: ^0.1.8
-        version: 0.1.8(svelte@5.46.1)
+        specifier: ^0.2.0
+        version: 0.2.0(svelte@5.46.1)
       layercake:
         specifier: ^10.0.2
         version: 10.0.2(svelte@5.46.1)(typescript@5.9.3)
@@ -1628,8 +1628,8 @@ packages:
     resolution: {integrity: sha512-q3N5u+1sY9Bu7T4nlXoiRBXWfwSefNGoKeOwekV+gw0cAXQlz2Ww6BLcmBxVDeXBMUDQv6fK5bcNaJLxob3ZQA==}
     hasBin: true
 
-  kaykay@0.1.8:
-    resolution: {integrity: sha512-P9Xkz3mLo/QMZFjs9LOH9NZ+tC3MZacar5KpX4T+av/cfK/c6b5H1WTvr/vSXW3906YIBATg+27GGu6jb2XgMw==}
+  kaykay@0.2.0:
+    resolution: {integrity: sha512-EKpojEB1hvdnkPlCqizdJxX4VWsDy1EregVMZGQKl/skEV/9Y2ZgnbGpansTQ2aEw2DKGJuAHjQiGxUNlDnK3A==}
     peerDependencies:
       svelte: ^5.0.0
 
@@ -3694,7 +3694,7 @@ snapshots:
     dependencies:
       commander: 8.3.0
 
-  kaykay@0.1.8(svelte@5.46.1):
+  kaykay@0.2.0(svelte@5.46.1):
     dependencies:
       svelte: 5.46.1
 

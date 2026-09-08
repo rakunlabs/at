@@ -782,7 +782,7 @@
         {#if containerConfig.enabled}
           <div class="mt-2 text-[10px] text-gray-400 dark:text-dark-text-muted">
             All agents in this org will execute commands inside an isolated Docker container.
-            Build the image first: <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">docker build -f Dockerfile.agent-runtime -t {containerConfig.image} .</code>
+            Supply your own runtime image with the tools your agents need. Make sure <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">{containerConfig.image}</code> is available to Docker on the AT host.
           </div>
         {/if}
       </div>

@@ -1,0 +1,25 @@
+name: at_mobile
+description: A self-hosted AT mobile connection foundation for iOS and Android.
+publish_to: 'none'
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.13.2
+  flutter: '>=3.47.2'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.11.1
+  shared_preferences: ^2.5.5
+  flutter_web_auth_2: ^6.0.0-alpha.7
+  flutter_secure_storage: ^11.0.0
+  crypto: ^3.0.7
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true

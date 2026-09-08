@@ -1,3 +1,5 @@
+import { authFetch as fetch } from '../api/transport';
+
 // ─── Chat Types ───
 
 export interface ContentPart {

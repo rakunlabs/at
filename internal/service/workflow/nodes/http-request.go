@@ -10,12 +10,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-retryablehttp"
+	"github.com/rakunlabs/ok"
 	"github.com/rytsh/mugo/templatex"
 
 	"github.com/rakunlabs/at/internal/render"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/workflow"
-	"github.com/worldline-go/klient"
 )
 
 // httpRequestNode makes an HTTP request and returns the response.
@@ -201,7 +202,7 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 		req.Header.Set(k, val)
 	}
 
-	// Build klient HTTP client with proxy / TLS / retry options.
+	// Build HTTP client with proxy / TLS / retry options.
 	client, err := n.buildClient()
 	if err != nil {
 		return nil, fmt.Errorf("http_request: build client: %w", err)
@@ -248,25 +249,37 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 	return workflow.NewSelectionResult(outData, selection), nil
 }
 
-// buildClient creates a klient.Client with the node's proxy / TLS / retry settings.
-func (n *httpRequestNode) buildClient() (*klient.Client, error) {
-	opts := []klient.OptionClientFn{
-		klient.WithDisableBaseURLCheck(true),
-		klient.WithDisableEnvValues(true),
+// buildClient creates an ok.Client with the node's proxy / TLS / retry settings.
+func (n *httpRequestNode) buildClient() (*ok.Client, error) {
+	opts := []ok.OptionClientFn{
+		ok.WithEnableBaseURLCheck(false),
+		ok.WithEnableEnvValues(false),
+		ok.WithDisableRetry(true),
 	}
 	if n.proxy != "" {
-		opts = append(opts, klient.WithProxy(n.proxy))
+		opts = append(opts, ok.WithProxy(n.proxy))
 	}
 	if n.insecureSkipVerify {
-		opts = append(opts, klient.WithInsecureSkipVerify(true))
+		opts = append(opts, ok.WithInsecureSkipVerify(true))
 	}
 	if n.retry {
-		opts = append(opts, klient.WithDisableRetry(false))
-	} else {
-		opts = append(opts, klient.WithDisableRetry(true))
+		// Preserve the existing retry policy, Retry-After support and non-jittered
+		// backoff; ok's built-in retry transport has different defaults.
+		opts = append(opts, ok.WithRoundTripper(func(_ context.Context, rt http.RoundTripper) (http.RoundTripper, error) {
+			retryClient := retryablehttp.NewClient()
+			retryClient.HTTPClient.Transport = rt
+			retryClient.RetryWaitMax = 30 * time.Second
+			retryClient.ErrorHandler = func(resp *http.Response, err error, _ int) (*http.Response, error) {
+				if resp != nil {
+					return resp, nil
+				}
+				return nil, err
+			}
+			return &retryablehttp.RoundTripper{Client: retryClient}, nil
+		}))
 	}
 
-	return klient.New(opts...)
+	return ok.New(opts...)
 }
 
 // buildTemplateContext merges "data" and "values" inputs into a single map.

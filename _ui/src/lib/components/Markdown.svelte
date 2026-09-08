@@ -19,6 +19,7 @@
   //   <Markdown source={text} enhance inline />
   //   <Markdown source={text} as="article" class="guide-content" enhance />
   import { md, renderMarkdown, enhanceMarkdown } from '@/lib/helper/markdown';
+  import { safeMarkdown } from '@/lib/helper/safe-markdown';
 
   interface Props {
     /** Markdown source to render. Empty/nullish values produce nothing. */
@@ -41,6 +42,8 @@
      * block-level margins. Useful inside inline contexts.
      */
     inline?: boolean;
+    /** Text-only untrusted output: escapes HTML and disables images/diagram actions. */
+    safe?: boolean;
   }
 
   let {
@@ -49,11 +52,12 @@
     enhance = false,
     as = 'div',
     inline = false,
+    safe = false,
   }: Props = $props();
 
   // Pre-compute HTML (md() is synchronous). Empty string short-circuits
   // so we don't render an empty container.
-  const html = $derived(source ? md(source) : '');
+  const html = $derived(source ? (safe ? safeMarkdown(source) : md(source)) : '');
   const tag = $derived(inline ? 'span' : as);
   const baseClass = $derived(
     `markdown-body${inline ? ' markdown-inline' : ''}${className ? ' ' + className : ''}`,
@@ -61,7 +65,9 @@
 </script>
 
 {#if html}
-  {#if enhance}
+  {#if safe}
+    <svelte:element this={tag} class={baseClass}>{@html html}</svelte:element>
+  {:else if enhance}
     <svelte:element
       this={tag}
       class={baseClass}

@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/worldline-go/klient"
+	"github.com/rakunlabs/ok"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
@@ -33,7 +33,7 @@ type Provider struct {
 	EndpointURL string
 
 	tokenSource oauth2.TokenSource
-	client      *klient.Client
+	client      *ok.Client
 
 	// limiter is shared by all callers of this provider; nil means no
 	// rate limiting.
@@ -74,20 +74,20 @@ func New(model, endpointURL, proxy string, insecureSkipVerify bool, opts ...Opti
 		return nil, fmt.Errorf("failed to get Google credentials (set GOOGLE_APPLICATION_CREDENTIALS or run on GCE): %w", err)
 	}
 
-	klientOpts := []klient.OptionClientFn{
-		klient.WithDisableBaseURLCheck(true),
-		klient.WithLogger(slog.Default()),
-		klient.WithDisableRetry(true),
-		klient.WithDisableEnvValues(true),
+	clientOpts := []ok.OptionClientFn{
+		ok.WithEnableBaseURLCheck(false),
+		ok.WithLogger(slog.Default()),
+		ok.WithDisableRetry(true),
+		ok.WithEnableEnvValues(false),
 	}
 	if proxy != "" {
-		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+		clientOpts = append(clientOpts, ok.WithProxy(proxy))
 	}
 	if insecureSkipVerify {
-		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
+		clientOpts = append(clientOpts, ok.WithInsecureSkipVerify(true))
 	}
 
-	client, err := klient.New(klientOpts...)
+	client, err := ok.New(clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}
@@ -650,7 +650,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	}
 
 	// Disable retries for proxy requests
-	ctx := klient.CtxWithRetryPolicy(r.Context(), klient.OptionRetry.WithRetryDisable())
+	ctx := ok.CtxWithRetryPolicy(r.Context(), ok.OptionRetry.WithRetryDisable())
 	r = r.WithContext(ctx)
 
 	proxy.ServeHTTP(w, r)

@@ -14,12 +14,12 @@ sudo apt update && sudo apt install -y \
     gnupg
 ```
 
-## Go 1.26
+## Go 1.27
 
-Debian's repositories may not ship Go 1.26. Install from the official tarball:
+Debian's repositories may not ship Go 1.27. Install from the official tarball:
 
 ```sh
-GO_VERSION=1.26.0
+GO_VERSION=1.27.0
 wget "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz"
 sudo rm -rf /usr/local/go
 sudo tar -C /usr/local -xzf "go${GO_VERSION}.linux-amd64.tar.gz"
@@ -36,7 +36,7 @@ Verify:
 
 ```sh
 go version
-# go version go1.26.0 linux/amd64
+# go version go1.27.0 linux/amd64
 ```
 
 ## Node.js 24 and pnpm 10
@@ -114,7 +114,7 @@ sudo apt install -y postgresql-client
 
 | Component                   | Version | Purpose                            |
 | --------------------------- | ------- | ---------------------------------- |
-| Go                          | 1.26    | Backend build and tests            |
+| Go                          | 1.27    | Backend build and tests            |
 | Node.js                     | 24      | UI build (`_ui/`)                  |
 | pnpm                        | 10      | UI package manager                 |
 | GoReleaser                  | latest  | Binary and container releases      |

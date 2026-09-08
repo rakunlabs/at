@@ -7,6 +7,7 @@ import Marketplaces from '@/pages/Marketplaces.svelte';
 import Agents from '@/pages/Agents.svelte';
 import Secrets from '@/pages/Secrets.svelte';
 import Chat from '@/pages/Chat.svelte';
+import ChatRoute from '@/pages/ChatRoute.svelte';
 import ChatSessions from '@/pages/ChatSessions.svelte';
 import Tokens from '@/pages/Tokens.svelte';
 import NodeConfigs from '@/pages/NodeConfigs.svelte';
@@ -33,6 +34,8 @@ import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
 import Files from '@/pages/Files.svelte';
 import Features from '@/pages/Features.svelte';
 import NotFound from '@/pages/NotFound.svelte';
+import Users from '@/pages/Users.svelte';
+import { isNativeAdmin } from '@/lib/store/auth.svelte';
 import { isFeatureEnabled, loadFeatures } from '@/lib/store/features.svelte';
 import {
   FEATURE_AGENTS,
@@ -72,12 +75,19 @@ function redirect(to: string) {
 
 export default {
   '/': Home,
+  '/users': wrap({ component: Users as any, conditions: [() => {
+    if (isNativeAdmin()) return true;
+    push('/');
+    return false;
+  }] }),
   '/providers': guarded(Providers, FEATURE_PROVIDER_SETUP),
   '/skills': Skills,
   '/marketplaces': Marketplaces,
   '/agents': guarded(Agents, FEATURE_AGENTS),
   '/variables': Secrets,
-  '/chat': guarded(Chat, FEATURE_CHAT_WORKBENCH),
+  '/chat': guarded(ChatRoute, FEATURE_CHAT_WORKBENCH),
+  '/chat/:id': guarded(ChatRoute, FEATURE_CHAT_WORKBENCH),
+  '/playground': guarded(Chat, FEATURE_CHAT_WORKBENCH),
   '/sessions': guarded(ChatSessions, FEATURE_CHAT_WORKBENCH),
   '/tokens': redirect('/settings/tokens'),
   '/node-configs': guarded(NodeConfigs, FEATURE_AUTOMATION),

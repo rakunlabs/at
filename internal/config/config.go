@@ -76,6 +76,9 @@ type Server struct {
 	// authentication service.
 	ForwardAuth *mforwardauth.ForwardAuth `cfg:"forward_auth"`
 
+	// NativeAuth is opt-in, admin-only management authentication.
+	NativeAuth *NativeAuth `cfg:"native_auth"`
+
 	// AdminToken, if set, protects the /api/v1/settings/* endpoints with bearer
 	// token authentication. Requests must include "Authorization: Bearer <token>".
 	// If not set, all settings endpoints are disabled (403 Forbidden).
@@ -109,6 +112,20 @@ type Server struct {
 	// persistent data disk (e.g. `/mnt/at-workspace`) so the video pipeline
 	// doesn't fill the root filesystem.
 	Workspace *Workspace `cfg:"workspace"`
+}
+
+// NativeAuth configures the first, administrator-only local auth slice.
+type NativeAuth struct {
+	// SessionTTL is the absolute non-remembered lifetime; zero selects 8h.
+	SessionTTL time.Duration `cfg:"session_ttl"`
+	// RememberTTL is the absolute remembered lifetime; zero selects 30d.
+	RememberTTL time.Duration `cfg:"remember_ttl"`
+	Enabled     bool          `cfg:"enabled"`
+	// Origin is the exact browser origin, without BasePath or trailing slash.
+	Origin         string `cfg:"origin"`
+	BootstrapToken string `cfg:"bootstrap_token" log:"-"`
+	// InsecureHTTP permits HTTP only on a loopback origin for development.
+	InsecureHTTP bool `cfg:"insecure_http"`
 }
 
 // Workspace bundles the bootstrap-time workspace knobs. They are passed

@@ -17,7 +17,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/worldline-go/klient"
+	"github.com/rakunlabs/ok"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/common"
@@ -36,7 +36,7 @@ type Provider struct {
 	BaseURL   string
 	MaxTokens int
 
-	Client      *klient.Client
+	Client      *ok.Client
 	tokenSource TokenSource
 
 	// limiter is shared by all callers of this provider; nil means no
@@ -169,7 +169,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
 	// Apply options early so we know whether a tokenSource is configured
-	// before building the klient default headers.
+	// before building the client default headers.
 	p := &Provider{
 		APIKey:    apiKey,
 		Model:     model,
@@ -192,29 +192,29 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	}
 	// Only set X-Api-Key as a default header when using static key auth.
 	// When a tokenSource is configured (e.g. OAuth), Bearer auth is used
-	// per-request instead. We must NOT add X-Api-Key to the klient defaults
-	// here, because klient only injects defaults when the header key is
-	// absent from the request — so leaving it out ensures the OAuth paths
+	// per-request instead. We must NOT add X-Api-Key to the client defaults
+	// here, because the transport injects defaults when the header key is
+	// absent, so leaving it out ensures the OAuth paths
 	// (which never set X-Api-Key) won't accidentally send an empty one.
 	if apiKey != "" && p.tokenSource == nil {
 		headers["X-Api-Key"] = []string{apiKey}
 	}
 
-	klientOpts := []klient.OptionClientFn{
-		klient.WithBaseURL(baseURL),
-		klient.WithLogger(slog.Default()),
-		klient.WithDisableRetry(true),
-		klient.WithDisableEnvValues(true),
-		klient.WithHeaderSet(headers),
+	clientOpts := []ok.OptionClientFn{
+		ok.WithBaseURL(baseURL),
+		ok.WithLogger(slog.Default()),
+		ok.WithDisableRetry(true),
+		ok.WithEnableEnvValues(false),
+		common.WithDefaultHeaders(headers),
 	}
 	if proxy != "" {
-		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+		clientOpts = append(clientOpts, ok.WithProxy(proxy))
 	}
 	if insecureSkipVerify {
-		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
+		clientOpts = append(clientOpts, ok.WithInsecureSkipVerify(true))
 	}
 
-	client, err := klient.New(klientOpts...)
+	client, err := ok.New(clientOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -400,6 +400,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 type streamEvent struct {
 	Type  string          `json:"type"`
 	Delta json.RawMessage `json:"delta,omitempty"`
+	Usage *Usage          `json:"usage,omitempty"`
 
 	// For content_block_start
 	ContentBlock *ContentBlock `json:"content_block,omitempty"`
@@ -422,7 +423,6 @@ type toolInputDelta struct {
 
 type messageDelta struct {
 	StopReason string `json:"stop_reason"`
-	Usage      *Usage `json:"usage,omitempty"` // output_tokens on message_delta
 }
 
 // messageStartBody is the top-level structure of an Anthropic message_start event.
@@ -503,7 +503,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		"has_beta", req.Header.Get("anthropic-beta") != "",
 	)
 
-	// Use the klient's HTTP client directly for streaming.
+	// Use the underlying HTTP client directly for streaming.
 	resp, err := p.Client.HTTP.Do(req)
 	if err != nil {
 		releaseOnce()
@@ -673,14 +673,15 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				}
 
 			case "message_delta":
+				// Anthropic puts cumulative output usage beside delta, not inside it.
+				if event.Usage != nil {
+					usage.OutputTokens = event.Usage.OutputTokens
+				}
 				if len(event.Delta) == 0 {
 					continue
 				}
 				var md messageDelta
 				if err := json.Unmarshal(event.Delta, &md); err == nil {
-					if md.Usage != nil {
-						usage.OutputTokens = md.Usage.OutputTokens
-					}
 					if md.StopReason != "" {
 						// Pass the raw Anthropic stop_reason through; the gateway
 						// will map it onto OpenAI's vocabulary (end_turn → stop,
@@ -828,7 +829,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	}
 
 	// Disable retries for proxy requests
-	ctx := klient.CtxWithRetryPolicy(r.Context(), klient.OptionRetry.WithRetryDisable())
+	ctx := ok.CtxWithRetryPolicy(r.Context(), ok.OptionRetry.WithRetryDisable())
 	r = r.WithContext(ctx)
 
 	proxy.ServeHTTP(w, r)

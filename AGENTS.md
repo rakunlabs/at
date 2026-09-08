@@ -4,7 +4,7 @@
 
 OpenAI-compatible LLM gateway that routes requests to multiple providers (OpenAI, Anthropic, Vertex AI, Gemini) through a single `/gateway/v1/chat/completions` endpoint. Includes a DAG-based workflow engine and Svelte admin UI.
 
-Module: `github.com/rakunlabs/at` — Go 1.26
+Module: `github.com/rakunlabs/at` — Go 1.27
 
 ## Architecture
 

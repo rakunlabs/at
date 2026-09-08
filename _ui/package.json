@@ -54,7 +54,7 @@
     "d3-time-format": "^4.1.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.33",
-    "kaykay": "^0.1.8",
+    "kaykay": "^0.2.0",
     "layercake": "^10.0.2",
     "marked": "^17.0.3",
     "mermaid": "^11.12.3"

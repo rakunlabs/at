@@ -18,7 +18,7 @@
 //   - conditional    — if/branch via JavaScript expression (Goja)
 //   - loop           — for-each fan-out via JavaScript expression (Goja)
 //   - script         — arbitrary JavaScript execution with 3-port routing (Goja)
-//   - http_request   — HTTP client node (klient, Go templates, selection routing)
+//   - http_request   — HTTP client node (ok, Go templates, selection routing)
 //   - http_trigger   — HTTP webhook trigger (passes request body downstream)
 //   - cron_trigger   — Cron schedule trigger (merges static payload with metadata)
 //   - exec           — sandboxed shell command execution (/bin/sh -c)

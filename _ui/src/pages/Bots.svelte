@@ -807,7 +807,7 @@
                   </label>
                 </div>
                 <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">
-                  Build image: <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">docker build -f Dockerfile.agent-runtime -t {formContainerImage} .</code>
+                  Supply your own runtime image with the tools your agents need. Make sure <code class="font-mono bg-gray-100 dark:bg-dark-elevated px-1 rounded">{formContainerImage}</code> is available to Docker on the AT host.
                 </div>
               {/if}
             </div>

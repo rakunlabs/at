@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/worldline-go/klient"
+	"github.com/rakunlabs/ok"
 
 	"github.com/rakunlabs/at/internal/service"
 	antropic "github.com/rakunlabs/at/internal/service/llm/antropic"
@@ -51,7 +51,7 @@ type Provider struct {
 
 	apiKey  string
 	apiBase string // native API base, e.g. "https://api.minimax.io/v1"
-	client  *klient.Client
+	client  *ok.Client
 }
 
 // New creates a MiniMax provider.
@@ -127,20 +127,20 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 		"Authorization": []string{"Bearer " + apiKey},
 	}
 
-	klientOpts := []klient.OptionClientFn{
-		klient.WithBaseURL(nativeAPIBase),
-		klient.WithHeaderSet(headers),
-		klient.WithDisableRetry(true),
-		klient.WithDisableEnvValues(true),
+	clientOpts := []ok.OptionClientFn{
+		ok.WithBaseURL(nativeAPIBase),
+		common.WithDefaultHeaders(headers),
+		ok.WithDisableRetry(true),
+		ok.WithEnableEnvValues(false),
 	}
 	if proxy != "" {
-		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+		clientOpts = append(clientOpts, ok.WithProxy(proxy))
 	}
 	if insecureSkipVerify {
-		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
+		clientOpts = append(clientOpts, ok.WithInsecureSkipVerify(true))
 	}
 
-	client, err := klient.New(klientOpts...)
+	client, err := ok.New(clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("minimax: create http client: %w", err)
 	}

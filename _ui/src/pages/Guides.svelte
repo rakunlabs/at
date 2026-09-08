@@ -249,10 +249,10 @@ print(json.dumps({
 
 #### Use with Docker Container
 
-If you have container isolation enabled, add Whisper to the Dockerfile:
+If you have container isolation enabled, add Whisper to your own runtime image's Dockerfile:
 
 \`\`\`dockerfile
-# In Dockerfile.agent-runtime
+# In your runtime image's Dockerfile (requires Python and pip)
 RUN pip install --no-cache-dir openai-whisper
 \`\`\`
 
@@ -307,13 +307,11 @@ To switch to local Whisper, you would need to modify the \`transcribeAudio\` fun
 
 AT supports optional Docker container isolation for agent execution. Each organization or bot user can run in their own isolated container.
 
-### Build the Runtime Image
+### Supply a Runtime Image
 
-\`\`\`bash
-docker build -f Dockerfile.agent-runtime -t at-agent-runtime:latest .
-\`\`\`
+AT does not ship an agent runtime Dockerfile. Build or obtain your own image with a shell and the tools your agents need, such as Python, FFmpeg, Node.js, or Playwright, and make it available to Docker on the AT host.
 
-The image includes: Python 3.13, FFmpeg, Node.js, Playwright, common pip packages (pdfminer, Pillow, requests, etc.)
+Set the container image field to that image's tag. The default tag, \`at-agent-runtime:latest\`, is only a name; it does not provide an image.
 
 ### Per-Organization Containers
 

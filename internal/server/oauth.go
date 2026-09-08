@@ -2,8 +2,11 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log/slog"
 	"net/http"
@@ -82,6 +85,68 @@ func manualPKCEKey(provider, connectionID string) string {
 	return "manual:" + provider + ":" + connectionID
 }
 
+type nativeOAuthState struct {
+	sessionHash string
+	payload     string
+	target      string
+	expires     time.Time
+}
+
+// Native OAuth state is opaque, bounded, short-lived and tied to the exact
+// initiating session and return endpoint. Legacy state encoding stays unchanged.
+func (a *nativeAuth) newOAuthState(r *http.Request, payload, target string) (string, error) {
+	c, err := a.currentSession(r)
+	if err != nil {
+		return "", fmt.Errorf("OAuth requires a session: %w", err)
+	}
+	var nonce [32]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("generate OAuth state: %w", err)
+	}
+	a.oauthMu.Lock()
+	defer a.oauthMu.Unlock()
+	if a.oauthStates == nil {
+		a.oauthStates = make(map[string]nativeOAuthState)
+	}
+	for key, entry := range a.oauthStates {
+		if !entry.expires.After(time.Now()) {
+			delete(a.oauthStates, key)
+		}
+	}
+	if len(a.oauthStates) >= 1024 {
+		return "", fmt.Errorf("too many pending OAuth authorizations; retry later")
+	}
+	state := base64.RawURLEncoding.EncodeToString(nonce[:])
+	a.oauthStates[state] = nativeOAuthState{sessionHash: c.SessionID, payload: payload, target: target, expires: time.Now().Add(10 * time.Minute)}
+	return state, nil
+}
+
+func (a *nativeAuth) takeOAuthState(w http.ResponseWriter, r *http.Request, target string) (string, bool) {
+	c, err := a.currentSession(r)
+	state := r.URL.Query().Get("state")
+	a.oauthMu.Lock()
+	defer a.oauthMu.Unlock()
+	entry, ok := a.oauthStates[state]
+	if err != nil || !ok || !entry.expires.After(time.Now()) || entry.target != target || entry.sessionHash != c.SessionID {
+		nativeError(w, http.StatusForbidden, "invalid or expired OAuth state; restart authorization")
+		return "", false
+	}
+	delete(a.oauthStates, state)
+	return entry.payload, true
+}
+
+func (s *Server) manualOAuthPKCEKey(r *http.Request, provider, connectionID string) (string, error) {
+	key := manualPKCEKey(provider, connectionID)
+	if s.nativeAuth != nil {
+		c, err := s.nativeAuth.currentSession(r)
+		if err != nil {
+			return "", fmt.Errorf("resolve manual OAuth session: %w", err)
+		}
+		key += ":" + c.SessionID
+	}
+	return key, nil
+}
+
 // OAuthStartAPI returns the OAuth2 authorization URL for a connector.
 // GET /api/v1/oauth/start?provider=google&scopes=gmail.readonly,calendar&user_id=discord::12345
 // GET /api/v1/oauth/start?provider=youtube&connection_id=conn_01HV
@@ -128,6 +193,13 @@ func (s *Server) OAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Encode provider + optional scope (user_id OR connection_id) in state.
 	state := buildOAuthState(providerName, r.URL.Query().Get("user_id"), connectionID)
+	if s.nativeAuth != nil {
+		state, err = s.nativeAuth.newOAuthState(r, state, "callback")
+		if err != nil {
+			nativeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+	}
 
 	authURL, err := s.buildAuthorizeURL(connector, clientID, callbackURL, scopes, state, state)
 	if err != nil {
@@ -178,10 +250,22 @@ func (s *Server) OAuthManualAuthURLAPI(w http.ResponseWriter, r *http.Request) {
 	redirectURI := s.oauthBaseURL(r) + "/api/v1/oauth/code-display"
 
 	state := buildOAuthState(providerName, "", connectionID)
+	if s.nativeAuth != nil {
+		state, err = s.nativeAuth.newOAuthState(r, state, "code-display")
+		if err != nil {
+			nativeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+	}
 
 	// The manual flow has no state on the exchange call, so key the PKCE
 	// verifier by provider+connection instead.
-	authURL, err := s.buildAuthorizeURL(connector, clientID, redirectURI, scopes, state, manualPKCEKey(providerName, connectionID))
+	pkceKey, err := s.manualOAuthPKCEKey(r, providerName, connectionID)
+	if err != nil {
+		nativeError(w, http.StatusServiceUnavailable, "authentication unavailable")
+		return
+	}
+	authURL, err := s.buildAuthorizeURL(connector, clientID, redirectURI, scopes, state, pkceKey)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -215,6 +299,10 @@ func (s *Server) buildAuthorizeURL(c *service.Connector, clientID, redirectURI, 
 	for k, v := range c.OAuth.ExtraAuthParams {
 		params.Set(k, v)
 	}
+	if s.nativeAuth != nil {
+		params.Set("state", state)
+		params.Set("redirect_uri", redirectURI)
+	}
 	if c.OAuth.UsePKCE {
 		pkce, err := antropic.GeneratePKCE()
 		if err != nil {
@@ -231,6 +319,12 @@ func (s *Server) buildAuthorizeURL(c *service.Connector, clientID, redirectURI, 
 // GET /api/v1/oauth/code-display?code=...&state=...
 // This page displays the code so the user can copy it back to the AT Connections page.
 func (s *Server) OAuthCodeDisplayAPI(w http.ResponseWriter, r *http.Request) {
+	if s.nativeAuth != nil {
+		if _, ok := s.nativeAuth.takeOAuthState(w, r, "code-display"); !ok {
+			return
+		}
+	}
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	code := r.URL.Query().Get("code")
 	errMsg := r.URL.Query().Get("error")
 
@@ -245,7 +339,7 @@ func (s *Server) OAuthCodeDisplayAPI(w http.ResponseWriter, r *http.Request) {
 <h2>Authorization Failed</h2>
 <div class="error">%s</div>
 <p style="margin-top:24px;font-size:13px;color:#666">Close this tab and try again.</p>
-</body></html>`, errMsg)
+</body></html>`, html.EscapeString(errMsg))
 		return
 	}
 
@@ -274,7 +368,7 @@ body{font-family:system-ui;max-width:480px;margin:60px auto;padding:20px;text-al
 <div class="code-box" id="code">%s</div>
 <button class="btn" onclick="navigator.clipboard.writeText(document.getElementById('code').textContent).then(()=>{this.textContent='Copied!'})">Copy Code</button>
 <p class="hint">After copying, close this tab and paste the code in AT.</p>
-</body></html>`, code)
+</body></html>`, html.EscapeString(code))
 }
 
 // oauthTokenResult is the normalized output of a token exchange.
@@ -389,7 +483,12 @@ func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 
 	verifier := ""
 	if connector.OAuth.UsePKCE {
-		verifier = s.pkceTake(manualPKCEKey(req.Provider, req.ConnectionID))
+		pkceKey, err := s.manualOAuthPKCEKey(r, req.Provider, req.ConnectionID)
+		if err != nil {
+			nativeError(w, http.StatusServiceUnavailable, "authentication unavailable")
+			return
+		}
+		verifier = s.pkceTake(pkceKey)
 	}
 
 	tok, err := exchangeOAuthCode(r.Context(), connector, clientID, clientSecret, req.Code, req.RedirectURI, verifier)
@@ -426,13 +525,22 @@ func (s *Server) OAuthExchangeAPI(w http.ResponseWriter, r *http.Request) {
 
 // OAuthCallbackAPI handles the redirect from the OAuth2 provider.
 func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
+	state := r.URL.Query().Get("state")
+	payload := state
+	if s.nativeAuth != nil {
+		var ok bool
+		payload, ok = s.nativeAuth.takeOAuthState(w, r, "callback")
+		if !ok {
+			return
+		}
+	}
+	w.Header().Set("Referrer-Policy", "no-referrer")
 	if s.variableStore == nil {
 		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
 		return
 	}
 
-	state := r.URL.Query().Get("state")
-	providerName, oauthUserID, connectionID := parseOAuthState(state)
+	providerName, oauthUserID, connectionID := parseOAuthState(payload)
 	connector, err := s.resolveConnector(r.Context(), providerName)
 	if err != nil {
 		renderOAuthResult(w, false, "failed to resolve connector: "+err.Error())
@@ -532,6 +640,9 @@ func (s *Server) OAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 // oauthBaseURL returns the external base URL (scheme://host + base path) for
 // building OAuth redirect URIs from the incoming request.
 func (s *Server) oauthBaseURL(r *http.Request) string {
+	if s.nativeAuth != nil {
+		return s.nativeAuth.cfg.Origin + strings.TrimSuffix(s.config.BasePath, "/")
+	}
 	scheme := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		scheme = "https"
@@ -865,7 +976,7 @@ if (window.opener) {
   setTimeout(function() { window.close(); }, 2000);
 }
 </script>
-</body></html>`, message, status)
+</body></html>`, html.EscapeString(message), status)
 }
 
 // ─── Legacy flat connections view ───

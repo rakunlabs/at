@@ -79,6 +79,15 @@ type Postgres struct {
 	tableConnectors           exp.IdentifierExpression
 	tableFeatureSettings      exp.IdentifierExpression
 	tableLLMCalls             exp.IdentifierExpression
+	tableAuthUsers            exp.IdentifierExpression
+	tableAuthSessions         exp.IdentifierExpression
+	tableAuthCredentials      exp.IdentifierExpression
+	tableAuthMobileRequests   exp.IdentifierExpression
+	tableAuthBootstrap        exp.IdentifierExpression
+	tableAuthPasskeys         exp.IdentifierExpression
+	tableAuthChallenges       exp.IdentifierExpression
+	tableConversations        exp.IdentifierExpression
+	tablePersonalMessages     exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -176,6 +185,15 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 	return &Postgres{
 		db:                        db,
 		goqu:                      dbGoqu,
+		tableAuthUsers:            goqu.T(tablePrefix + "auth_users"),
+		tableAuthSessions:         goqu.T(tablePrefix + "auth_sessions"),
+		tableAuthCredentials:      goqu.T(tablePrefix + "auth_credentials"),
+		tableAuthMobileRequests:   goqu.T(tablePrefix + "auth_mobile_requests"),
+		tableAuthBootstrap:        goqu.T(tablePrefix + "auth_bootstrap"),
+		tableAuthPasskeys:         goqu.T(tablePrefix + "auth_passkeys"),
+		tableAuthChallenges:       goqu.T(tablePrefix + "auth_challenges"),
+		tableConversations:        goqu.T(tablePrefix + "personal_conversations"),
+		tablePersonalMessages:     goqu.T(tablePrefix + "personal_messages"),
 		tableProviders:            goqu.T(tablePrefix + "providers"),
 		tableAPITokens:            goqu.T(tablePrefix + "tokens"),
 		tableWorkflows:            goqu.T(tablePrefix + "workflows"),

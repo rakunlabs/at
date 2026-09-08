@@ -15,6 +15,13 @@ docker run -d --name at -p 8080:8080 ghcr.io/rakunlabs/at:latest
 > `at.yaml` config file is automatically loaded if present in the current working directory or use `AT_CONFIG_FILE`.
 > Uses [chu](https://github.com/rakunlabs/chu) loader which supports get config from multiple sources.
 
+### Management Authentication
+
+Native local authentication is opt-in and **administrator-only** in its first
+slice. See [activation, atomic first-admin bootstrap, and security boundaries](NATIVE_AUTH.md).
+When disabled, existing ForwardAuth and settings-token behavior is preserved.
+Gateway API tokens remain separate from management sessions.
+
 ### Providers
 
 Providers can be configured via YAML config file or the web UI (stored in Postgres). Database entries override YAML.

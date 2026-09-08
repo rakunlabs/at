@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/worldline-go/klient"
+	"github.com/rakunlabs/ok"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
@@ -189,7 +189,7 @@ func discoverCohereEmbeddingModels(ctx context.Context, cfg config.LLMConfig) ([
 		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	}
 
-	client, err := klientForConfig(cfg)
+	client, err := clientForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersi
 		req.Header.Set(k, v)
 	}
 
-	client, err := klientForConfig(cfg)
+	client, err := clientForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -394,7 +394,7 @@ func discoverChatGPTModels(ctx context.Context, cfg config.LLMConfig, parsedURL 
 	req.Header.Set("Originator", "codex_cli_rs")
 	req.Header.Set("User-Agent", "at")
 
-	client, err := klientForConfig(cfg)
+	client, err := clientForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +437,7 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 
 	modelsURL := strings.TrimSuffix(baseURL, "/") + "/v1/models"
 
-	client, err := klientForConfig(cfg)
+	client, err := clientForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -513,22 +513,22 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// klientForConfig returns a *klient.Client that routes through cfg.Proxy
+// clientForConfig returns an *ok.Client that routes through cfg.Proxy
 // when configured, with WithDisableBaseURLCheck so full URLs can be used directly.
-func klientForConfig(cfg config.LLMConfig) (*klient.Client, error) {
-	klientOpts := []klient.OptionClientFn{
-		klient.WithDisableBaseURLCheck(true),
-		klient.WithLogger(slog.Default()),
-		klient.WithDisableRetry(true),
-		klient.WithDisableEnvValues(true),
+func clientForConfig(cfg config.LLMConfig) (*ok.Client, error) {
+	clientOpts := []ok.OptionClientFn{
+		ok.WithEnableBaseURLCheck(false),
+		ok.WithLogger(slog.Default()),
+		ok.WithDisableRetry(true),
+		ok.WithEnableEnvValues(false),
 	}
 	if cfg.Proxy != "" {
-		klientOpts = append(klientOpts, klient.WithProxy(cfg.Proxy))
+		clientOpts = append(clientOpts, ok.WithProxy(cfg.Proxy))
 	}
 	if cfg.InsecureSkipVerify {
-		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
+		clientOpts = append(clientOpts, ok.WithInsecureSkipVerify(true))
 	}
-	return klient.New(klientOpts...)
+	return ok.New(clientOpts...)
 }
 
 // geminiModel represents a model returned by the Gemini /v1beta/models endpoint.
@@ -563,7 +563,7 @@ func listGeminiModels(ctx context.Context, cfg config.LLMConfig, bearerAuth bool
 		}
 	}
 
-	client, err := klientForConfig(cfg)
+	client, err := clientForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
+	"github.com/rakunlabs/ada/middleware/auth/identity"
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -68,7 +69,8 @@ func (p ProviderInfo) RetryAfterCap() time.Duration {
 type ProviderFactory func(cfg config.LLMConfig) (service.LLMProvider, error)
 
 type Server struct {
-	config config.Server
+	config     config.Server
+	nativeAuth *nativeAuth
 
 	// ctx is the server-level context used for long-lived goroutines (bots, etc.).
 	ctx context.Context
@@ -299,6 +301,12 @@ type Server struct {
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
+	if s.nativeAuth != nil {
+		if id := identity.FromContext(r.Context()); id != nil {
+			return id.Subject
+		}
+		return ""
+	}
 	if s.config.UserHeader == "" {
 		return ""
 	}
@@ -387,6 +395,10 @@ func loopgovConfigFromYAML(ws *config.Workspace) loopgov.Config {
 // loopgovConfigFromYAML — which lets operators point per-task workdirs
 // at a mounted data disk so the boot disk doesn't fill up.
 func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version, commit, buildDate string) (*Server, error) {
+	native, err := newNativeAuth(cfg, store)
+	if err != nil {
+		return nil, err
+	}
 	// Configure the shared resolver before janitors, bots, or other consumers run.
 	workspaceRoot := ""
 	if cfg.Workspace != nil {
@@ -416,6 +428,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	)
 
 	s := &Server{
+		nativeAuth:               native,
 		config:                   cfg,
 		ctx:                      ctx,
 		server:                   mux,
@@ -533,6 +546,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// video pipeline + tool-output dumps would otherwise fill /tmp.
 	// TTL is loopgov.Config.WorkspaceTTL (default 24h, < 0 disables).
 	s.startWorkspaceJanitor(ctx)
+	s.startAuthJanitor(ctx)
 
 	// Start the LLM audit janitor: prunes llm_calls rows and spilled
 	// request/response bodies older than LLMCallRetention (default 7d).
@@ -627,9 +641,30 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	}
 
 	baseGroup := mux.Group(cfg.BasePath)
+	mux.GET(cfg.BasePath+"/auth/status", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		status := map[string]any{"enabled": native != nil, "passkeys": native != nil && native.passkey != nil, "remember_me": native != nil, "passkey_login": "username-first"}
+		if native != nil && native.mobileStore != nil {
+			status["mobile_auth"] = native.mobileDescriptor()
+		}
+		httpResponseJSON(w, status, http.StatusOK)
+	})
+	if native != nil {
+		native.register(mux, cfg.BasePath)
+	}
 
 	// OpenAI-compatible gateway API (separate prefix so clients use /gateway/v1/ as base URL)
 	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
+	if native != nil {
+		gatewayGroup.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Native management cookies must never reach a provider's
+				// raw passthrough endpoint. Gateway credentials are separate.
+				r.Header.Del("Cookie")
+				next.ServeHTTP(w, r)
+			})
+		})
+	}
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
 	gatewayGroup.POST("/v1/embeddings", s.Embeddings)
@@ -663,10 +698,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.GET("/v1/claude-code/marketplaces/{name}/plugin.zip", s.ClaudeCodeMarketplacePluginZipAPI)
 	gatewayGroup.GET("/v1/claude-code/plugins/{name}/plugin.zip", s.ClaudeCodePluginZipAPI)
 
-	// Internal MCP endpoint — no auth, for agent-to-server tool resolution.
+	// Internal MCP endpoint: legacy mode has no auth; native mode requires admin.
 	// Serves tools from MCP Sets (skills/HTTP/builtins). Not under /gateway/
 	// so it's not exposed through any external reverse proxy.
 	internalGroup := mux.Group(cfg.BasePath + "/internal")
+	if native != nil {
+		internalGroup.Use(native.require(true))
+	}
 	internalGroup.POST("/v1/mcp/{name}", s.InternalMCPHandler)
 	internalGroup.POST("/v1/mcp/{name}/mcp", s.InternalMCPHandler)
 
@@ -679,6 +717,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	}
 
 	apiGroup := baseGroup.Group("/api")
+	if native != nil {
+		apiGroup.Use(native.require(true))
+	}
 	apiGroup.Use(s.featureGateMiddleware())
 
 	// Gateway info API
@@ -1048,6 +1089,17 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 
+	apiGroup.GET("/v1/conversations/models", s.PersonalChatModelsAPI)
+	apiGroup.GET("/v1/conversations", s.PersonalChatAPI)
+	apiGroup.POST("/v1/conversations", s.PersonalChatAPI)
+	apiGroup.GET("/v1/conversations/{id}", s.PersonalChatAPI)
+	apiGroup.PATCH("/v1/conversations/{id}", s.PersonalChatAPI)
+	apiGroup.DELETE("/v1/conversations/{id}", s.PersonalChatAPI)
+	apiGroup.GET("/v1/conversations/{id}/messages", s.PersonalChatAPI)
+	apiGroup.POST("/v1/conversations/{id}/messages", s.SendPersonalChatAPI)
+	apiGroup.GET("/v1/conversations/{id}/messages/{message_id}", s.PersonalChatAPI)
+	apiGroup.POST("/v1/conversations/{id}/messages/{message_id}/cancel", s.PersonalChatAPI)
+
 	// MCP proxy endpoints (used by Chat UI for tool-calling loop)
 	apiGroup.POST("/v1/mcp/list-tools", s.MCPListToolsAPI)
 	apiGroup.POST("/v1/mcp/call-tool", s.MCPCallToolAPI)
@@ -1101,7 +1153,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	folderM.SetFs(http.FS(f))
 
-	baseGroup.Handle("/*", folderM)
+	var spa http.Handler = folderM
+	if native != nil {
+		spa = nativeSPAFrameProtection(spa)
+	}
+	baseGroup.Handle("/*", spa)
 
 	// Start bot adapters from DB config (managed via the UI).
 	s.startBotsFromDB(ctx)
@@ -1212,10 +1268,14 @@ func (s *Server) removeProvider(key string) {
 	slog.Info("provider removed from registry", "key", key)
 }
 
-// adminAuthMiddleware returns middleware that protects admin endpoints.
+// adminAuthMiddleware uses native admin sessions when enabled. Otherwise it
+// preserves the legacy operator-token check for settings endpoints.
 // If no admin_token is configured, all admin requests are rejected with 403.
 // If configured, requests must provide a matching Authorization: Bearer <token> header.
 func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
+	if s.nativeAuth != nil {
+		return s.nativeAuth.require(true)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if s.config.AdminToken == "" {

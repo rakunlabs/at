@@ -44,7 +44,7 @@ sudo apt install -y \
 
 ## Agent Runtime (containerized agents)
 
-When using organization-scoped agent containers (`Dockerfile.agent-runtime`), the following are installed inside the container. You do **not** need these on the host unless running agents without container isolation.
+When using organization-scoped agent containers, supply your own runtime image and install the following tools inside it as needed. AT does not ship an agent runtime Dockerfile. You do **not** need these on the host unless running agents without container isolation.
 
 ```sh
 # System packages

@@ -13,7 +13,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/worldline-go/klient"
+	"github.com/rakunlabs/ok"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/common"
@@ -27,7 +27,7 @@ type Provider struct {
 	Model   string
 	BaseURL string
 
-	client      *klient.Client
+	client      *ok.Client
 	tokenSource TokenSource
 
 	// limiter is shared by all callers of this provider; nil means no
@@ -76,21 +76,21 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 		headers[k] = []string{v}
 	}
 
-	klientOpts := []klient.OptionClientFn{
-		klient.WithBaseURL(baseURL),
-		klient.WithLogger(slog.Default()),
-		klient.WithHeaderSet(headers),
-		klient.WithDisableRetry(true),
-		klient.WithDisableEnvValues(true),
+	clientOpts := []ok.OptionClientFn{
+		ok.WithBaseURL(baseURL),
+		ok.WithLogger(slog.Default()),
+		common.WithDefaultHeaders(headers),
+		ok.WithDisableRetry(true),
+		ok.WithEnableEnvValues(false),
 	}
 	if proxy != "" {
-		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+		clientOpts = append(clientOpts, ok.WithProxy(proxy))
 	}
 	if insecureSkipVerify {
-		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
+		clientOpts = append(clientOpts, ok.WithInsecureSkipVerify(true))
 	}
 
-	client, err := klient.New(klientOpts...)
+	client, err := ok.New(clientOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -238,8 +238,8 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	// If a token source is configured, get a fresh token and set it on the
-	// request. klient's TransportKlient only applies default headers when they
-	// are not already present, so this overrides the static APIKey header.
+	// request. The HTTP transport only applies defaults to absent headers,
+	// so this overrides the static APIKey header.
 	if p.tokenSource != nil {
 		token, err := p.tokenSource.Token(ctx)
 		if err != nil {
@@ -418,7 +418,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	// Use the klient's HTTP client which has transport with headers and base URL.
+	// Use the underlying HTTP client with headers and base URL for streaming.
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
 		releaseOnce()
@@ -692,7 +692,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	}
 
 	// Disable retries for proxy requests
-	ctx := klient.CtxWithRetryPolicy(r.Context(), klient.OptionRetry.WithRetryDisable())
+	ctx := ok.CtxWithRetryPolicy(r.Context(), ok.OptionRetry.WithRetryDisable())
 	r = r.WithContext(ctx)
 
 	proxy.ServeHTTP(w, r)

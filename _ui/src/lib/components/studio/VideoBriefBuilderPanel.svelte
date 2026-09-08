@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { authFetch as fetch } from '@/lib/api/transport';
   import { onDestroy, onMount, tick } from 'svelte';
   import { Bot, ChevronDown, Send, Square } from 'lucide-svelte';
   import { getInfo } from '@/lib/api/gateway';

@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/worldline-go/klient"
+	"github.com/rakunlabs/ok"
 	"golang.org/x/oauth2"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -20,13 +20,13 @@ func TestChatNonSuccessReturnsUpstreamError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client, err := klient.New(
-		klient.WithDisableBaseURLCheck(true),
-		klient.WithDisableRetry(true),
-		klient.WithDisableEnvValues(true),
+	client, err := ok.New(
+		ok.WithEnableBaseURLCheck(false),
+		ok.WithDisableRetry(true),
+		ok.WithEnableEnvValues(false),
 	)
 	if err != nil {
-		t.Fatalf("klient.New: %v", err)
+		t.Fatalf("ok.New: %v", err)
 	}
 	p := &Provider{
 		Model:       "test-model",

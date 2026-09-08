@@ -15,7 +15,7 @@ import (
 	"strings"
 
 	"github.com/oklog/ulid/v2"
-	"github.com/worldline-go/klient"
+	"github.com/rakunlabs/ok"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/llm/common"
@@ -36,7 +36,7 @@ type Provider struct {
 	Model   string
 	BaseURL string
 	APIKey  string
-	client  *klient.Client
+	client  *ok.Client
 
 	// limiter is shared by all callers of this provider; nil means no
 	// rate limiting.
@@ -113,22 +113,22 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	if apiKey != "" {
 		headers.Set("x-goog-api-key", apiKey)
 	}
-	klientOpts := []klient.OptionClientFn{
-		klient.WithBaseURL(baseURL),
-		klient.WithDisableBaseURLCheck(true),
-		klient.WithLogger(slog.Default()),
-		klient.WithDisableRetry(true),
-		klient.WithDisableEnvValues(true),
-		klient.WithHeaderSet(headers),
+	clientOpts := []ok.OptionClientFn{
+		ok.WithBaseURL(baseURL),
+		ok.WithEnableBaseURLCheck(false),
+		ok.WithLogger(slog.Default()),
+		ok.WithDisableRetry(true),
+		ok.WithEnableEnvValues(false),
+		common.WithDefaultHeaders(headers),
 	}
 	if proxy != "" {
-		klientOpts = append(klientOpts, klient.WithProxy(proxy))
+		clientOpts = append(clientOpts, ok.WithProxy(proxy))
 	}
 	if insecureSkipVerify {
-		klientOpts = append(klientOpts, klient.WithInsecureSkipVerify(true))
+		clientOpts = append(clientOpts, ok.WithInsecureSkipVerify(true))
 	}
 
-	client, err := klient.New(klientOpts...)
+	client, err := ok.New(clientOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create http client: %w", err)
 	}
@@ -453,9 +453,8 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		path = p.pathPrefix + fmt.Sprintf("/models/%s:streamGenerateContent?alt=sse", model)
 	}
 
-	// When the klient base URL is configured, the streaming path is
-	// relative. Resolve to absolute before passing to http.Client.Do
-	// because the klient.HTTP wrapper doesn't auto-resolve.
+	// Resolve the streaming path against the provider base URL before
+	// passing it to the underlying HTTP client.
 	fullURL := p.BaseURL + path
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewBuffer(jsonData))
@@ -463,7 +462,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		releaseOnce()
 		return nil, nil, err
 	}
-	// Carry the default headers + x-goog-api-key the klient would have
+	// Carry the default headers + x-goog-api-key the client would have
 	// injected, or override with Bearer when a token source is configured.
 	req.Header.Set("Content-Type", "application/json")
 	if p.tokenSource != nil {
@@ -477,7 +476,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		req.Header.Set("x-goog-api-key", p.APIKey)
 	}
 
-	// Use the klient's HTTP client directly for streaming.
+	// Use the underlying HTTP client directly for streaming.
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
 		releaseOnce()
@@ -658,7 +657,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	}
 
 	// Disable retries for proxy requests
-	ctx := klient.CtxWithRetryPolicy(r.Context(), klient.OptionRetry.WithRetryDisable())
+	ctx := ok.CtxWithRetryPolicy(r.Context(), ok.OptionRetry.WithRetryDisable())
 	r = r.WithContext(ctx)
 
 	proxy.ServeHTTP(w, r)

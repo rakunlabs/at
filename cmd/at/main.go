@@ -234,7 +234,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 				headers["Copilot-Integration-Id"] = "vscode-chat"
 			}
 		case "":
-			// Default: use static APIKey as Bearer token (handled by klient).
+			// Default: use static APIKey as Bearer token (handled by the HTTP client).
 		default:
 			return nil, fmt.Errorf("unknown auth_type %q for openai provider (supported: copilot, chatgpt)", cfg.AuthType)
 		}
