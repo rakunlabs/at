@@ -1,13 +1,14 @@
 package workflow
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 func preserveAssetsDir(t *testing.T) {
@@ -66,11 +67,11 @@ func TestEnsureAssetsDirSharedConsumers(t *testing.T) {
 	if err != nil || got != want {
 		t.Fatalf("EnsureAssetsDirReady() = %q, %v", got, err)
 	}
-	// Info uses AssetsDir; uploads and bash handlers use EnsureAssetsDir.
+	// Explicit compatibility admission selects the same root as legacy media.
 	if AssetsDir() != want || EnsureAssetsDir() != want {
 		t.Fatal("consumers disagree on the library root")
 	}
-	out, err := ExecuteBashHandler(context.Background(), `printf '%s' "$AT_ASSETS_DIR"`, nil, nil, 5*time.Second)
+	out, err := ExecuteBashHandler(executiontest.WithRoot(t, root), `printf '%s' "$AT_ASSETS_DIR"`, nil, nil, 5*time.Second)
 	if err != nil || strings.TrimSpace(out) != want {
 		t.Fatalf("handler assets = %q, %v; want %q", out, err, want)
 	}

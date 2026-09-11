@@ -15,7 +15,7 @@ import (
 
 // gatewayRetryAttempts is the number of upstream calls we'll attempt
 // before surfacing an error to the gateway client. Default: 1 try +
-// 2 retries on 429/529. The opencode-claude-auth reference plugin uses
+// 2 retries on typed transient upstream errors. The opencode-claude-auth reference plugin uses
 // the same shape — bounded retries with `retry-after` honoured, capped
 // so the client doesn't appear to hang on hour-long quota resets.
 const gatewayRetryAttempts = 3
@@ -68,13 +68,13 @@ func gatewayMinBackoff() time.Duration {
 }
 
 // callWithGatewayRetry calls fn() and retries on transient upstream
-// errors (HTTP 429 rate_limit, HTTP 529 overloaded — both surfaced as
-// *service.RateLimitError by the providers). Honors `Retry-After`
+// errors (RateLimitError or UpstreamError with HTTP 408/425/429/5xx).
+// Untyped errors are not retried. Honors RateLimitError's `Retry-After`
 // up to retryAfterCap (per-provider, see ProviderInfo.RetryAfterCap).
 //
 // fn is called up to gatewayRetryAttempts times. The first non-retryable
 // error or first success ends the loop. If every attempt fails with a
-// rate-limit error, the LAST error is returned so the caller can map it
+// retryable error, the LAST error is returned so the caller can map it
 // to an HTTP status code.
 //
 // retryAfterCap semantics:
@@ -101,17 +101,31 @@ func callWithGatewayRetry[T any](
 		result  T
 	)
 	for attempt := 0; attempt < gatewayRetryAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return zero, err
+		}
 		var err error
 		result, err = fn(ctx)
 		if err == nil {
 			return result, nil
 		}
 
-		// Only retry typed RateLimitError. Plain transport errors and
-		// non-rate-limit upstream errors bubble up immediately so we
-		// don't burn retries on, e.g., a 401 from a stale token.
+		// A completed/cancelled request must not consume more upstream calls.
+		if ctx.Err() != nil {
+			return zero, ctx.Err()
+		}
+		var sleep time.Duration
+		var status int
 		var rle *service.RateLimitError
-		if !errors.As(err, &rle) {
+		var upstreamErr *service.UpstreamError
+		switch {
+		case errors.As(err, &rle):
+			sleep, status = rle.RetryAfter, rle.StatusCode
+		case errors.As(err, &upstreamErr) && (upstreamErr.StatusCode == http.StatusRequestTimeout ||
+			upstreamErr.StatusCode == http.StatusTooEarly || upstreamErr.StatusCode == http.StatusTooManyRequests ||
+			(upstreamErr.StatusCode >= 500 && upstreamErr.StatusCode <= 599)):
+			status = upstreamErr.StatusCode
+		default:
 			return zero, err
 		}
 		lastErr = err
@@ -121,7 +135,7 @@ func callWithGatewayRetry[T any](
 			break
 		}
 
-		sleep := rle.RetryAfter
+		requestedSleep := sleep
 		if sleep <= 0 {
 			// No upstream guidance — backoff linearly: minBackoff,
 			// 2×minBackoff, 3×minBackoff. Default is 10s (so 10s and
@@ -133,23 +147,18 @@ func callWithGatewayRetry[T any](
 		if retryAfterCap > 0 && sleep > retryAfterCap {
 			slog.Warn("gateway: capping upstream Retry-After",
 				"provider", provider, "model", model, "attempt", attempt+1,
-				"requested", rle.RetryAfter, "capped_to", retryAfterCap,
-				"upstream_status", rle.StatusCode)
+				"requested", requestedSleep, "capped_to", retryAfterCap,
+				"upstream_status", status)
 			sleep = retryAfterCap
 		}
 
-		slog.Warn("gateway: upstream rate-limit, retrying",
+		slog.Warn("gateway: transient upstream error, retrying",
 			"provider", provider, "model", model, "attempt", attempt+1,
-			"sleep", sleep, "upstream_status", rle.StatusCode,
-			"retry_after", rle.RetryAfter)
+			"sleep", sleep, "upstream_status", status,
+			"retry_after", requestedSleep)
 
 		select {
 		case <-ctx.Done():
-			// Client gave up; return the last rate-limit error so the
-			// caller still sees the upstream signal in logs.
-			if lastErr != nil {
-				return zero, lastErr
-			}
 			return zero, ctx.Err()
 		case <-time.After(sleep):
 		}
@@ -258,9 +267,9 @@ func addGatewayRateLimitHeaders(w http.ResponseWriter, err error) {
 	}
 	if rle.RetryAfter > 0 {
 		// `Retry-After` is in seconds (integer) per RFC 7231.
-		secs := int(rle.RetryAfter.Seconds())
-		if secs < 1 {
-			secs = 1
+		secs := int64(rle.RetryAfter / time.Second)
+		if rle.RetryAfter%time.Second != 0 {
+			secs++
 		}
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", secs))
 	}

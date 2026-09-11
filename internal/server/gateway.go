@@ -269,7 +269,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 			latencyMs: totalLatency, status: "error",
 			errCode: classifyHTTPError(err), errMsg: err.Error(),
 		})
-		if !shouldFallback(err) {
+		if callCtx.Err() != nil || !shouldFallback(err) {
 			break
 		}
 	}
@@ -747,7 +747,7 @@ func (s *Server) handleStreamingChat(
 	if sp, ok := provider.(service.LLMStreamProvider); ok {
 		slog.Debug("streaming via provider", "provider", providerKey, "model", actualModel)
 
-		// Retry the upstream connect on 429/529. The retry only applies
+		// Retry the upstream connect on typed transient errors. The retry only applies
 		// to the initial open — once we start streaming chunks back to
 		// the client, we can't restart without resending headers, so a
 		// mid-stream rate-limit just surfaces as a chunk error. (In

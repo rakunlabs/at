@@ -11,7 +11,8 @@ import (
 )
 
 func TestLLMCall_RecordAndGet(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	call := service.LLMCall{
@@ -66,7 +67,8 @@ func TestLLMCall_RecordAndGet(t *testing.T) {
 }
 
 func TestLLMCall_ListPreviewClipsBody(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	big := strings.Repeat("x", service.LLMCallPreviewBytes*3)
@@ -104,7 +106,8 @@ func TestLLMCall_ListPreviewClipsBody(t *testing.T) {
 }
 
 func TestLLMCall_DeleteBefore(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	old := service.LLMCall{TraceID: "old", Source: "gateway", Provider: "openai", Model: "m", Status: "ok",
@@ -137,7 +140,8 @@ func TestLLMCall_DeleteBefore(t *testing.T) {
 }
 
 func TestLLMCall_ObservationHierarchy(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	gen := service.LLMCall{
@@ -215,7 +219,8 @@ func TestLLMCall_ObservationHierarchy(t *testing.T) {
 }
 
 func TestLLMCall_DefaultObservationType(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	// Gateway callers don't set an observation type; it must default to
@@ -236,7 +241,8 @@ func TestLLMCall_DefaultObservationType(t *testing.T) {
 }
 
 func TestLLMCall_ListTraces(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	// Trace A: 2 generations + 1 tool + 1 event, one generation errored.
@@ -298,7 +304,8 @@ func TestLLMCall_ListTraces(t *testing.T) {
 }
 
 func TestLLMCall_ExpireBodiesBefore(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	oldTS := time.Now().UTC().Add(-8 * 24 * time.Hour).Format(time.RFC3339)
@@ -367,7 +374,8 @@ func mustParseQuery(t *testing.T, raw string) *query.Query {
 }
 
 func TestLLMCall_GetNotFound(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	got, err := store.GetLLMCall(ctx, "does-not-exist")

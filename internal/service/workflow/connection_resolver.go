@@ -73,7 +73,10 @@ func WrapVarLookupWithConnections(base VarLookup, bindings ConnectionBindings) V
 	return func(key string) (string, error) {
 		provider, suffix, ok := ResolveConnectionKey(key)
 		if ok {
-			if conn, bound := bindings[provider]; bound && conn != nil {
+			if conn, bound := bindings[provider]; bound {
+				if conn == nil {
+					return "", service.ErrExecutionDenied
+				}
 				if v := ConnectionCredentialForKey(conn.Credentials, suffix, key); v != "" {
 					return v, nil
 				}
@@ -109,7 +112,7 @@ func WrapVarListerWithConnections(base VarLister, bindings ConnectionBindings) V
 		}
 		for provider, conn := range bindings {
 			if conn == nil {
-				continue
+				return nil, service.ErrExecutionDenied
 			}
 			if conn.Credentials.ClientID != "" {
 				out[provider+"_client_id"] = conn.Credentials.ClientID
@@ -162,8 +165,13 @@ func ResolveAgentConnectionBindings(
 	}
 	out := make(ConnectionBindings, len(merged))
 	for provider, id := range merged {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "connections.use", ResourceID: id}); err != nil {
+			out[provider] = nil
+			continue
+		}
 		conn, err := lookup(ctx, id)
 		if err != nil || conn == nil {
+			out[provider] = nil
 			continue
 		}
 		out[provider] = conn
@@ -172,4 +180,42 @@ func ResolveAgentConnectionBindings(
 		return nil
 	}
 	return out
+}
+
+func WrapVarLookupWithConnectionsContext(ctx context.Context, base VarLookup, bindings ConnectionBindings) VarLookup {
+	lookup := WrapVarLookupWithConnections(base, bindings)
+	return func(key string) (string, error) {
+		if provider, _, ok := ResolveConnectionKey(key); ok {
+			if conn, bound := bindings[provider]; bound {
+				if conn == nil {
+					return "", service.ErrExecutionDenied
+				}
+				if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "connections.use", ResourceID: conn.ID}); err != nil {
+					return "", err
+				}
+			}
+		}
+		if lookup == nil {
+			return "", nil
+		}
+		return lookup(key)
+	}
+}
+
+func WrapVarListerWithConnectionsContext(ctx context.Context, base VarLister, bindings ConnectionBindings) VarLister {
+	lister := WrapVarListerWithConnections(base, bindings)
+	return func() (map[string]string, error) {
+		for _, conn := range bindings {
+			if conn == nil {
+				return nil, service.ErrExecutionDenied
+			}
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "connections.use", ResourceID: conn.ID}); err != nil {
+				return nil, err
+			}
+		}
+		if lister == nil {
+			return map[string]string{}, nil
+		}
+		return lister()
+	}
 }

@@ -44,6 +44,7 @@ type WorkflowEdge struct {
 
 // Workflow represents a saved workflow definition.
 type Workflow struct {
+	WorkspaceID   string        `json:"workspace_id"`
 	ID            string        `json:"id"`
 	Name          string        `json:"name"`
 	Description   string        `json:"description"`
@@ -57,6 +58,7 @@ type Workflow struct {
 
 // WorkflowVersion represents an immutable snapshot of a workflow at a point in time.
 type WorkflowVersion struct {
+	WorkspaceID string        `json:"workspace_id"`
 	ID          string        `json:"id"`
 	WorkflowID  string        `json:"workflow_id"`
 	Version     int           `json:"version"`
@@ -93,6 +95,7 @@ type WorkflowVersionStorer interface {
 // Trigger represents a workflow trigger (HTTP webhook or cron schedule).
 // Multiple triggers can reference the same target.
 type Trigger struct {
+	WorkspaceID string         `json:"workspace_id"`
 	ID          string         `json:"id"`
 	WorkflowID  string         `json:"workflow_id,omitempty"`   // kept for backward compat (= TargetID when TargetType is "workflow")
 	TargetType  string         `json:"target_type"`             // "workflow"
@@ -132,14 +135,15 @@ type TriggerStorer interface {
 // The Data field is a JSON blob whose schema depends on the Type (e.g. type "email" stores host, port, username, password, from, tls).
 // Sensitive fields within Data (like password) are encrypted at rest.
 type NodeConfig struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"` // unique human-readable name (e.g. "Production SMTP")
-	Type      string `json:"type"` // config type discriminator (e.g. "email", "slack", "sms")
-	Data      string `json:"data"` // JSON blob with type-specific configuration
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
-	CreatedBy string `json:"created_by"`
-	UpdatedBy string `json:"updated_by"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+	Name        string `json:"name"` // unique human-readable name (e.g. "Production SMTP")
+	Type        string `json:"type"` // config type discriminator (e.g. "email", "slack", "sms")
+	Data        string `json:"data"` // JSON blob with type-specific configuration
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+	CreatedBy   string `json:"created_by"`
+	UpdatedBy   string `json:"updated_by"`
 }
 
 // NodeConfigStorer defines CRUD operations for node configs.

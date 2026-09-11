@@ -9,6 +9,13 @@
   import { updateTask } from '@/lib/api/tasks';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
+    columnDotClass,
+    defaultTaskBoardColumns,
+    dropStatus,
+    statusColumnLookup,
+    type TaskBoardColumn,
+  } from '@/lib/helper/task-board';
+  import {
     AlertTriangle,
     ArrowUp,
     ArrowDown,
@@ -22,13 +29,15 @@
 
   interface Props {
     tasks: Task[];
+    /** Workspace layout. Each column collects one or more task statuses. */
+    columns: TaskBoardColumn[];
     organizations?: Organization[];
     agents?: Agent[];
     onStatusChange?: (taskId: string, newStatus: string) => void;
     onProcess?: (task: Task) => void;
   }
 
-  let { tasks, organizations = [], agents = [], onStatusChange, onProcess }: Props = $props();
+  let { tasks, columns, organizations = [], agents = [], onStatusChange, onProcess }: Props = $props();
 
   function orgName(id: string): string {
     if (!id || !organizations.length) return '';
@@ -42,34 +51,21 @@
     return agent?.name || id.substring(0, 12);
   }
 
-  // ─── 3-Column Layout ───
-  // Merged statuses: To Do (backlog+todo+open), In Progress (in_progress+in_review+review), Done (done+completed+blocked+cancelled)
+  // ─── Layout ───
+  // Columns are workspace data, edited on the Tasks page and saved per
+  // workspace. A status left out of every column means its tasks are not drawn
+  // here at all, which is why the page renders a "not on this board" strip
+  // above the board rather than letting the work disappear quietly.
 
-  const columns = [
-    { id: 'todo', label: 'To Do', color: 'bg-blue-400', defaultStatus: 'todo' },
-    { id: 'in_progress', label: 'In Progress', color: 'bg-yellow-400', defaultStatus: 'in_progress' },
-    { id: 'done', label: 'Done', color: 'bg-green-400', defaultStatus: 'done' },
-  ] as const;
+  let cols = $derived(columns?.length ? columns : defaultTaskBoardColumns());
 
-  // Map any status to one of the 3 columns
-  function mapStatusToColumn(status: string): string {
-    switch (status) {
-      case 'backlog':
-      case 'todo':
-      case 'open':
-        return 'todo';
-      case 'in_progress':
-      case 'in_review':
-      case 'review':
-        return 'in_progress';
-      case 'done':
-      case 'completed':
-      case 'blocked':
-      case 'cancelled':
-        return 'done';
-      default:
-        return 'todo';
-    }
+  /** status → column id, rebuilt only when the layout changes. */
+  let lookup = $derived(statusColumnLookup(cols));
+
+  /** Terminal columns read newest-first; everything else keeps API order. */
+  const TERMINAL = ['done', 'cancelled'];
+  function isTerminalColumn(col: TaskBoardColumn): boolean {
+    return col.statuses.length > 0 && col.statuses.every(s => TERMINAL.includes(s));
   }
 
   // Build column items from tasks - each item needs a unique `id` for dnd
@@ -83,20 +79,33 @@
 
   $effect(() => {
     const data: Record<string, DndItem[]> = {};
-    for (const col of columns) {
+    for (const col of cols) {
       data[col.id] = [];
     }
     for (const task of tasks) {
-      const colId = mapStatusToColumn(task.status);
-      if (data[colId]) {
-        data[colId].push({ id: task.id, task });
-      } else {
-        data['todo'].push({ id: task.id, task });
-      }
+      // No column collects this status: the task is hidden, and the strip
+      // above the board reports it. Dropping it into an arbitrary column
+      // would be a lie about where the work stands.
+      const colId = lookup[task.status];
+      if (colId && data[colId]) data[colId].push({ id: task.id, task });
     }
-    // Sort "done" column descending by updated_at (newest first)
-    data['done'].sort((a, b) => (b.task.updated_at || '').localeCompare(a.task.updated_at || ''));
+    for (const col of cols) {
+      if (!isTerminalColumn(col)) continue;
+      data[col.id].sort((a, b) => (b.task.updated_at || '').localeCompare(a.task.updated_at || ''));
+    }
     columnData = data;
+  });
+
+  // Motion: the flip animation is decorative, so it collapses to an instant
+  // reorder when the reader has asked for reduced motion.
+  let flipMs = $state(200);
+  $effect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const apply = () => { flipMs = query.matches ? 0 : 200; };
+    apply();
+    query.addEventListener('change', apply);
+    return () => query.removeEventListener('change', apply);
   });
 
   // Handle DnD events
@@ -107,21 +116,19 @@
   async function handleDndFinalize(colId: string, e: CustomEvent<{ items: DndItem[] }>) {
     columnData[colId] = e.detail.items;
 
-    // Find the column definition to get the default status for drops
-    const colDef = columns.find(c => c.id === colId);
-    const newStatus = colDef?.defaultStatus || colId;
+    // A drop applies the column's first status.
+    const newStatus = dropStatus(cols.find(c => c.id === colId));
+    if (!newStatus) return;
 
     // Find task that moved to this column and update its status
     for (const item of e.detail.items) {
-      const currentMapped = mapStatusToColumn(item.task.status);
-      if (currentMapped !== colId) {
-        try {
-          await updateTask(item.task.id, { status: newStatus });
-          item.task.status = newStatus;
-          if (onStatusChange) onStatusChange(item.task.id, newStatus);
-        } catch (err: any) {
-          addToast(err?.response?.data?.message || 'Failed to update task status', 'alert');
-        }
+      if (lookup[item.task.status] === colId) continue;
+      try {
+        await updateTask(item.task.id, { status: newStatus });
+        item.task.status = newStatus;
+        if (onStatusChange) onStatusChange(item.task.id, newStatus);
+      } catch (err: any) {
+        addToast(err?.response?.data?.message || 'Failed to update task status', 'alert');
       }
     }
   }
@@ -174,24 +181,21 @@
   function statusBadgeClasses(status: string): string {
     switch (status) {
       case 'backlog':
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted';
-      case 'open':
+        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary';
       case 'todo':
         return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
       case 'in_progress':
         return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
       case 'in_review':
-      case 'review':
         return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
       case 'blocked':
         return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
-      case 'completed':
       case 'done':
         return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
       case 'cancelled':
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-400 dark:text-dark-text-faint';
+        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary';
       default:
-        return 'bg-gray-100 dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted';
+        return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary';
     }
   }
 
@@ -200,17 +204,14 @@
     switch (status) {
       case 'backlog':
         return 'border-l-gray-300 dark:border-l-gray-600';
-      case 'open':
       case 'todo':
         return 'border-l-blue-400 dark:border-l-blue-500';
       case 'in_progress':
         return 'border-l-yellow-400 dark:border-l-yellow-500';
       case 'in_review':
-      case 'review':
         return 'border-l-purple-400 dark:border-l-purple-500';
       case 'blocked':
         return 'border-l-red-400 dark:border-l-red-500';
-      case 'completed':
       case 'done':
         return 'border-l-green-400 dark:border-l-green-500';
       case 'cancelled':
@@ -234,28 +235,32 @@
 </script>
 
 <div class="flex gap-4 overflow-x-auto pb-4 h-full min-h-0">
-  {#each columns as col}
+  {#each cols as col (col.id || col.label)}
+    {@const count = columnData[col.id]?.length || 0}
     <div class="flex flex-col min-w-[300px] flex-1 bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border">
       <!-- Column header -->
       <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-200 dark:border-dark-border">
-        <div class="w-2.5 h-2.5 {col.color}"></div>
-        <span class="text-xs font-semibold text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">{col.label}</span>
-        <span class="text-xs text-gray-400 dark:text-dark-text-muted ml-auto font-mono">{columnData[col.id]?.length || 0}</span>
+        <div class="w-2.5 h-2.5 shrink-0 {columnDotClass(col.color)}"></div>
+        <h3 class="text-xs font-semibold text-gray-700 dark:text-dark-text-secondary tracking-wide truncate" title="Dropping a card here sets it to {TASK_STATUS_LABELS[dropStatus(col)] || dropStatus(col)}">{col.label}</h3>
+        <span class="text-xs text-gray-500 dark:text-dark-text-secondary ml-auto font-mono tabular-nums">
+          {count}<span class="sr-only"> {count === 1 ? 'task' : 'tasks'} in {col.label}</span>
+        </span>
       </div>
 
       <!-- Droppable zone -->
       <div
         class="flex-1 overflow-y-auto p-2.5 space-y-2.5 min-h-[100px]"
-        use:dndzone={{ items: columnData[col.id] || [], flipDurationMs: 200, dropTargetStyle: {} }}
+        aria-label="{col.label} tasks"
+        use:dndzone={{ items: columnData[col.id] || [], flipDurationMs: flipMs, dropTargetStyle: {} }}
         onconsider={(e) => handleDndConsider(col.id, e)}
         onfinalize={(e) => handleDndFinalize(col.id, e)}
       >
         {#each columnData[col.id] || [] as item (item.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            animate:flip={{ duration: 200 }}
+            animate:flip={{ duration: flipMs }}
             class={[
-              'bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border border-l-3 p-3.5 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm transition-all',
+              'bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border border-l-3 p-3.5 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm transition-all motion-reduce:transition-none',
               statusStripeColor(item.task.status),
               isFailedStatus(item.task.status) ? 'opacity-70' : '',
               'cursor-grab active:cursor-grabbing',
@@ -266,9 +271,9 @@
             <div class="flex items-center justify-between mb-1.5">
               <div class="flex items-center gap-2">
                 {#if item.task.identifier}
-                  <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{item.task.identifier}</span>
+                  <span class="text-[10px] font-mono text-gray-500 dark:text-dark-text-secondary">{item.task.identifier}</span>
                 {:else}
-                  <span class="text-[10px] font-mono text-gray-300 dark:text-dark-text-faint">{item.task.id.slice(0, 8)}</span>
+                  <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{item.task.id.slice(0, 8)}</span>
                 {/if}
                 <span class="inline-block px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide {statusBadgeClasses(item.task.status)}">
                   {TASK_STATUS_LABELS[item.task.status] || item.task.status.replace(/_/g, ' ')}
@@ -289,7 +294,7 @@
               class={[
                 'text-sm font-medium leading-snug mb-1.5 cursor-pointer hover:text-gray-600 dark:hover:text-dark-text-secondary',
                 item.task.status === 'cancelled'
-                  ? 'line-through text-gray-400 dark:text-dark-text-muted'
+                  ? 'line-through text-gray-500 dark:text-dark-text-secondary'
                   : 'text-gray-900 dark:text-dark-text',
               ]}
               onclick={() => push(`/tasks/${item.task.id}`)}
@@ -301,7 +306,7 @@
             {#if item.task.description}
               {@const preview = descriptionPreview(item.task.description)}
               {#if preview}
-                <p class="text-xs text-gray-400 dark:text-dark-text-muted leading-relaxed mb-2 line-clamp-2">
+                <p class="text-xs text-gray-500 dark:text-dark-text-secondary leading-relaxed mb-2 line-clamp-2">
                   {preview}
                 </p>
               {/if}
@@ -310,13 +315,13 @@
             <!-- Bottom row: agent + org + result indicator -->
             <div class="flex items-center gap-2 flex-wrap">
               {#if item.task.assigned_agent_id}
-                <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted">
+                <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-secondary">
                   <Circle size={8} />
                   <span class="truncate max-w-[100px]">{agentName(item.task.assigned_agent_id)}</span>
                 </div>
               {/if}
               {#if item.task.organization_id}
-                <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted">
+                <div class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-secondary">
                   <Building2 size={8} />
                   <span class="truncate max-w-[100px]">{orgName(item.task.organization_id)}</span>
                 </div>

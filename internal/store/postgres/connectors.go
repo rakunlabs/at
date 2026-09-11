@@ -15,6 +15,7 @@ import (
 )
 
 type connectorRow struct {
+	WorkspaceID string         `db:"workspace_id"`
 	Slug        string         `db:"slug"`
 	Name        string         `db:"name"`
 	Description string         `db:"description"`
@@ -30,7 +31,7 @@ type connectorRow struct {
 
 var connectorColumns = []any{
 	"slug", "name", "description", "icon", "auth_kind", "oauth", "fields",
-	"created_at", "updated_at", "created_by", "updated_by",
+	"created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 }
 
 func (p *Postgres) ListConnectors(ctx context.Context, q *query.Query) (*service.ListResult[service.Connector], error) {
@@ -71,9 +72,13 @@ func (p *Postgres) ListConnectors(ctx context.Context, q *query.Query) (*service
 }
 
 func (p *Postgres) GetConnector(ctx context.Context, slug string) (*service.Connector, error) {
+	scope, err := p.businessReadScope(ctx, p.tableConnectors)
+	if err != nil {
+		return nil, err
+	}
 	sqlStr, _, err := p.goqu.From(p.tableConnectors).
 		Select(connectorColumns...).
-		Where(goqu.I("slug").Eq(slug)).
+		Where(scope, goqu.I("slug").Eq(slug)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get connector query: %w", err)
@@ -92,6 +97,14 @@ func (p *Postgres) GetConnector(ctx context.Context, slug string) (*service.Conn
 }
 
 func (p *Postgres) CreateConnector(ctx context.Context, c service.Connector) (*service.Connector, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableConnectors, "connections.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	oauthJSON, fieldsJSON, err := marshalConnectorParts(c)
 	if err != nil {
 		return nil, err
@@ -101,31 +114,43 @@ func (p *Postgres) CreateConnector(ctx context.Context, c service.Connector) (*s
 
 	sqlStr, _, err := p.goqu.Insert(p.tableConnectors).Rows(
 		goqu.Record{
-			"slug":        c.Slug,
-			"name":        c.Name,
-			"description": c.Description,
-			"icon":        c.Icon,
-			"auth_kind":   c.AuthKind,
-			"oauth":       oauthJSON,
-			"fields":      fieldsJSON,
-			"created_at":  now,
-			"updated_at":  now,
-			"created_by":  c.CreatedBy,
-			"updated_by":  c.UpdatedBy,
+			"workspace_id": w.actor.WorkspaceID,
+			"slug":         c.Slug,
+			"name":         c.Name,
+			"description":  c.Description,
+			"icon":         c.Icon,
+			"auth_kind":    c.AuthKind,
+			"oauth":        oauthJSON,
+			"fields":       fieldsJSON,
+			"created_at":   now,
+			"updated_at":   now,
+			"created_by":   c.CreatedBy,
+			"updated_by":   c.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert connector query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, sqlStr); err != nil {
+	if _, err := w.tx.ExecContext(ctx, sqlStr); err != nil {
 		return nil, fmt.Errorf("create connector %q: %w", c.Slug, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit connector: %w", err)
 	}
 
 	return p.GetConnector(ctx, c.Slug)
 }
 
 func (p *Postgres) UpdateConnector(ctx context.Context, slug string, c service.Connector) (*service.Connector, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableConnectors, "connections.write", slug)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	oauthJSON, fieldsJSON, err := marshalConnectorParts(c)
 	if err != nil {
 		return nil, err
@@ -144,12 +169,12 @@ func (p *Postgres) UpdateConnector(ctx context.Context, slug string, c service.C
 			"updated_at":  now,
 			"updated_by":  c.UpdatedBy,
 		},
-	).Where(goqu.I("slug").Eq(slug)).ToSQL()
+	).Where(w.predicate, goqu.I("slug").Eq(slug)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update connector query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, sqlStr)
+	res, err := w.tx.ExecContext(ctx, sqlStr)
 	if err != nil {
 		return nil, fmt.Errorf("update connector %q: %w", slug, err)
 	}
@@ -161,21 +186,29 @@ func (p *Postgres) UpdateConnector(ctx context.Context, slug string, c service.C
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit connector update: %w", err)
+	}
 
 	return p.GetConnector(ctx, slug)
 }
 
 func (p *Postgres) DeleteConnector(ctx context.Context, slug string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableConnectors, "connections.write", slug)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	sqlStr, _, err := p.goqu.Delete(p.tableConnectors).
-		Where(goqu.I("slug").Eq(slug)).
+		Where(w.predicate, goqu.I("slug").Eq(slug)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete connector query: %w", err)
 	}
-	if _, err := p.db.ExecContext(ctx, sqlStr); err != nil {
+	if _, err := w.tx.ExecContext(ctx, sqlStr); err != nil {
 		return fmt.Errorf("delete connector %q: %w", slug, err)
 	}
-	return nil
+	return w.tx.Commit()
 }
 
 // ─── Helpers ───
@@ -187,7 +220,7 @@ type rowScanner interface {
 
 func scanConnectorRow(sc rowScanner, row *connectorRow) error {
 	return sc.Scan(&row.Slug, &row.Name, &row.Description, &row.Icon, &row.AuthKind,
-		&row.OAuth, &row.Fields, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+		&row.OAuth, &row.Fields, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 }
 
 func marshalConnectorParts(c service.Connector) (oauth, fields types.RawJSON, err error) {
@@ -210,6 +243,7 @@ func marshalConnectorParts(c service.Connector) (oauth, fields types.RawJSON, er
 
 func connectorRowToRecord(row connectorRow) (*service.Connector, error) {
 	c := service.Connector{
+		WorkspaceID: row.WorkspaceID,
 		Slug:        row.Slug,
 		Name:        row.Name,
 		Description: row.Description,

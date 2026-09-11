@@ -17,6 +17,7 @@ import (
 // ─── Trigger CRUD ───
 
 type triggerRow struct {
+	WorkspaceID string         `db:"workspace_id"`
 	ID          string         `db:"id"`
 	WorkflowID  sql.NullString `db:"workflow_id"`
 	TargetType  string         `db:"target_type"`
@@ -33,19 +34,23 @@ type triggerRow struct {
 	UpdatedBy   string         `db:"updated_by"`
 }
 
-var triggerSelectColumns = []string{"id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by"}
+var triggerSelectColumns = []string{"id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by", "workspace_id"}
 
 func scanTriggerRow(scanner interface{ Scan(...any) error }) (*triggerRow, error) {
 	var row triggerRow
-	if err := scanner.Scan(&row.ID, &row.WorkflowID, &row.TargetType, &row.TargetID, &row.EntryNodeID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+	if err := scanner.Scan(&row.ID, &row.WorkflowID, &row.TargetType, &row.TargetID, &row.EntryNodeID, &row.Type, &row.Config, &row.Alias, &row.Public, &row.Enabled, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 		return nil, err
 	}
 	return &row, nil
 }
 
 func (p *Postgres) ListAllTriggers(ctx context.Context) ([]service.Trigger, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTriggers)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").Where(scope).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
 	if err != nil {
@@ -76,9 +81,13 @@ func (p *Postgres) ListAllTriggers(ctx context.Context) ([]service.Trigger, erro
 }
 
 func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]service.Trigger, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTriggers)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("workflow_id").Eq(workflowID)).
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("workflow_id").Eq(workflowID)).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
 	if err != nil {
@@ -109,9 +118,13 @@ func (p *Postgres) ListTriggers(ctx context.Context, workflowID string) ([]servi
 }
 
 func (p *Postgres) GetTrigger(ctx context.Context, id string) (*service.Trigger, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTriggers)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get trigger query: %w", err)
@@ -129,9 +142,13 @@ func (p *Postgres) GetTrigger(ctx context.Context, id string) (*service.Trigger,
 }
 
 func (p *Postgres) GetTriggerByAlias(ctx context.Context, alias string) (*service.Trigger, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTriggers)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("alias").Eq(alias)).
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("alias").Eq(alias)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get trigger by alias query: %w", err)
@@ -149,6 +166,18 @@ func (p *Postgres) GetTriggerByAlias(ctx context.Context, alias string) (*servic
 }
 
 func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*service.Trigger, error) {
+	t, err := normalizeScopedTrigger(t)
+	if err != nil {
+		return nil, err
+	}
+	w, err := p.beginBusinessWrite(ctx, p.tableTriggers, "workflows.write", t.WorkflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if err = p.triggerReferences(ctx, w, t); err != nil {
+		return nil, err
+	}
 	configJSON, err := json.Marshal(t.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal trigger config: %w", err)
@@ -179,6 +208,7 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 
 	query, _, err := p.goqu.Insert(p.tableTriggers).Rows(
 		goqu.Record{
+			"workspace_id":  w.actor.WorkspaceID,
 			"id":            id,
 			"workflow_id":   workflowID,
 			"target_type":   targetType,
@@ -199,11 +229,15 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 		return nil, fmt.Errorf("build insert trigger query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create trigger: %w", err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit trigger: %w", err)
 	}
 
 	return &service.Trigger{
+		WorkspaceID: w.actor.WorkspaceID,
 		ID:          id,
 		WorkflowID:  t.WorkflowID,
 		TargetType:  targetType,
@@ -222,6 +256,18 @@ func (p *Postgres) CreateTrigger(ctx context.Context, t service.Trigger) (*servi
 }
 
 func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigger) (*service.Trigger, error) {
+	t, err := normalizeScopedTrigger(t)
+	if err != nil {
+		return nil, err
+	}
+	w, err := p.beginTriggerWrite(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if err = p.triggerReferences(ctx, w, t); err != nil {
+		return nil, err
+	}
 	configJSON, err := json.Marshal(t.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal trigger config: %w", err)
@@ -236,6 +282,7 @@ func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigg
 
 	query, _, err := p.goqu.Update(p.tableTriggers).Set(
 		goqu.Record{
+			"workflow_id":   t.WorkflowID,
 			"target_type":   t.TargetType,
 			"target_id":     t.TargetID,
 			"entry_node_id": t.EntryNodeID,
@@ -247,12 +294,12 @@ func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigg
 			"updated_at":    now,
 			"updated_by":    t.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update trigger query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update trigger %q: %w", id, err)
 	}
@@ -264,30 +311,43 @@ func (p *Postgres) UpdateTrigger(ctx context.Context, id string, t service.Trigg
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit trigger update: %w", err)
+	}
 
 	return p.GetTrigger(ctx, id)
 }
 
 func (p *Postgres) DeleteTrigger(ctx context.Context, id string) error {
+	w, err := p.beginTriggerWrite(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableTriggers).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete trigger query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete trigger %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) ListEnabledCronTriggers(ctx context.Context) ([]service.Trigger, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTriggers)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTriggers).
-		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by").
+		Select("id", "workflow_id", "target_type", "target_id", "entry_node_id", "type", "config", "alias", "public", "enabled", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
 		Where(
+			scope,
 			goqu.I("type").Eq("cron"),
 			goqu.I("enabled").Eq(true),
 		).
@@ -347,6 +407,7 @@ func triggerRowToRecord(row triggerRow) (*service.Trigger, error) {
 	}
 
 	return &service.Trigger{
+		WorkspaceID: row.WorkspaceID,
 		ID:          row.ID,
 		WorkflowID:  workflowID,
 		TargetType:  targetType,

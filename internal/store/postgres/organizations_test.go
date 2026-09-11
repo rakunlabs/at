@@ -9,15 +9,28 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
+// headAgentID creates a real agent, because an organization's head agent is a
+// scoped reference: a dangling ID is now rejected instead of silently stored.
+func headAgentID(t *testing.T, ctx context.Context, store *Postgres, name string) string {
+	t.Helper()
+	agent, err := store.CreateAgent(ctx, service.Agent{Name: name})
+	if err != nil {
+		t.Fatalf("CreateAgent(%q): %v", name, err)
+	}
+	return agent.ID
+}
+
 func TestOrganization_HeadAgentID_And_MaxDelegationDepth(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	t.Run("create with HeadAgentID and MaxDelegationDepth", func(t *testing.T) {
+		agent1 := headAgentID(t, ctx, store, "head-one")
 		org := service.Organization{
 			Name:               "Test Org",
 			Description:        "A test org",
-			HeadAgentID:        "agent-1",
+			HeadAgentID:        agent1,
 			MaxDelegationDepth: 5,
 			CreatedBy:          "tester",
 			UpdatedBy:          "tester",
@@ -27,8 +40,8 @@ func TestOrganization_HeadAgentID_And_MaxDelegationDepth(t *testing.T) {
 		if err != nil {
 			t.Fatalf("CreateOrganization: %v", err)
 		}
-		if created.HeadAgentID != "agent-1" {
-			t.Errorf("HeadAgentID: got %q, want %q", created.HeadAgentID, "agent-1")
+		if created.HeadAgentID != agent1 {
+			t.Errorf("HeadAgentID: got %q, want %q", created.HeadAgentID, agent1)
 		}
 		if created.MaxDelegationDepth != 5 {
 			t.Errorf("MaxDelegationDepth: got %d, want %d", created.MaxDelegationDepth, 5)
@@ -39,8 +52,8 @@ func TestOrganization_HeadAgentID_And_MaxDelegationDepth(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetOrganization: %v", err)
 		}
-		if fetched.HeadAgentID != "agent-1" {
-			t.Errorf("fetched HeadAgentID: got %q, want %q", fetched.HeadAgentID, "agent-1")
+		if fetched.HeadAgentID != agent1 {
+			t.Errorf("fetched HeadAgentID: got %q, want %q", fetched.HeadAgentID, agent1)
 		}
 		if fetched.MaxDelegationDepth != 5 {
 			t.Errorf("fetched MaxDelegationDepth: got %d, want %d", fetched.MaxDelegationDepth, 5)
@@ -65,10 +78,11 @@ func TestOrganization_HeadAgentID_And_MaxDelegationDepth(t *testing.T) {
 	})
 
 	t.Run("JSON marshaling includes head_agent_id and max_delegation_depth", func(t *testing.T) {
+		agent2 := "agent-2"
 		org := service.Organization{
 			ID:                 "test-id",
 			Name:               "JSON Org",
-			HeadAgentID:        "agent-2",
+			HeadAgentID:        agent2,
 			MaxDelegationDepth: 7,
 		}
 
@@ -84,8 +98,8 @@ func TestOrganization_HeadAgentID_And_MaxDelegationDepth(t *testing.T) {
 
 		if v, ok := m["head_agent_id"]; !ok {
 			t.Error("JSON missing head_agent_id field")
-		} else if v != "agent-2" {
-			t.Errorf("head_agent_id: got %v, want %q", v, "agent-2")
+		} else if v != agent2 {
+			t.Errorf("head_agent_id: got %v, want %q", v, agent2)
 		}
 
 		if v, ok := m["max_delegation_depth"]; !ok {
@@ -97,10 +111,12 @@ func TestOrganization_HeadAgentID_And_MaxDelegationDepth(t *testing.T) {
 }
 
 func TestOrganization_AllFieldsPersistence(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	t.Run("create with all enhanced fields", func(t *testing.T) {
+		agentHead := headAgentID(t, ctx, store, "head-full")
 		org := service.Organization{
 			Name:               "Full Org",
 			Description:        "Testing all fields",
@@ -114,7 +130,7 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 				BudgetResetTime: "09:15", BudgetTimezone: "Europe/Berlin",
 			},
 			RequireBoardApproval: true,
-			HeadAgentID:          "agent-head",
+			HeadAgentID:          agentHead,
 			MaxDelegationDepth:   3,
 			ContainerConfig: &service.ContainerConfig{
 				Enabled: true,
@@ -163,8 +179,8 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 		if !fetched.RequireBoardApproval {
 			t.Error("RequireBoardApproval: got false, want true")
 		}
-		if fetched.HeadAgentID != "agent-head" {
-			t.Errorf("HeadAgentID: got %q, want %q", fetched.HeadAgentID, "agent-head")
+		if fetched.HeadAgentID != agentHead {
+			t.Errorf("HeadAgentID: got %q, want %q", fetched.HeadAgentID, agentHead)
 		}
 		if fetched.MaxDelegationDepth != 3 {
 			t.Errorf("MaxDelegationDepth: got %d, want %d", fetched.MaxDelegationDepth, 3)
@@ -178,6 +194,7 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 	})
 
 	t.Run("update copies enhanced fields", func(t *testing.T) {
+		agentNew := headAgentID(t, ctx, store, "head-updated")
 		// Create initial org
 		org := service.Organization{
 			Name:        "Update Test",
@@ -195,7 +212,7 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 			Name:               "Update Test",
 			Description:        "After update",
 			IssuePrefix:        "UPD",
-			HeadAgentID:        "agent-new",
+			HeadAgentID:        agentNew,
 			MaxDelegationDepth: 8,
 			BudgetMonthlyCents: 50000,
 			SpentMonthlyCents:  1000,
@@ -220,8 +237,8 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 		if updated.IssuePrefix != "UPD" {
 			t.Errorf("IssuePrefix: got %q, want %q", updated.IssuePrefix, "UPD")
 		}
-		if updated.HeadAgentID != "agent-new" {
-			t.Errorf("HeadAgentID: got %q, want %q", updated.HeadAgentID, "agent-new")
+		if updated.HeadAgentID != agentNew {
+			t.Errorf("HeadAgentID: got %q, want %q", updated.HeadAgentID, agentNew)
 		}
 		if updated.MaxDelegationDepth != 8 {
 			t.Errorf("MaxDelegationDepth: got %d, want %d", updated.MaxDelegationDepth, 8)
@@ -241,10 +258,11 @@ func TestOrganization_AllFieldsPersistence(t *testing.T) {
 	})
 
 	t.Run("update clears HeadAgentID with empty string", func(t *testing.T) {
+		agentClear := headAgentID(t, ctx, store, "head-clear")
 		// Create org with head agent
 		org := service.Organization{
 			Name:        "Clear Head Test",
-			HeadAgentID: "agent-to-clear",
+			HeadAgentID: agentClear,
 			CreatedBy:   "tester",
 			UpdatedBy:   "tester",
 		}

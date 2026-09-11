@@ -1,12 +1,12 @@
 package workflow
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 // makeLookup builds an in-memory SkillLookup over a name->skill map. It also
@@ -27,7 +27,7 @@ func makeLookup(skills map[string]*service.Skill) SkillLookup {
 }
 
 func TestSkillRuntime_EmptyAttachment(t *testing.T) {
-	rt, err := NewSkillRuntime(context.Background(), nil, nil, nil, nil)
+	rt, err := NewSkillRuntime(executiontest.Context(t), nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestSkillRuntime_CatalogContainsAttachedSkills(t *testing.T) {
 	}
 
 	refs := []service.SkillRef{{ID: "youtube"}, {ID: "slack"}}
-	rt, err := NewSkillRuntime(context.Background(), makeLookup(skills), refs, nil, nil)
+	rt, err := NewSkillRuntime(executiontest.Context(t), makeLookup(skills), refs, nil, nil)
 	if err != nil {
 		t.Fatalf("NewSkillRuntime: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestSkillRuntime_LoadSkillToolDef(t *testing.T) {
 		"a": {ID: "a", Name: "a", Description: "first"},
 		"b": {ID: "b", Name: "b", Description: "second"},
 	}
-	rt, _ := NewSkillRuntime(context.Background(), makeLookup(skills),
+	rt, _ := NewSkillRuntime(executiontest.Context(t), makeLookup(skills),
 		[]service.SkillRef{{ID: "a"}, {ID: "b"}}, nil, nil)
 
 	def := rt.LoadSkillToolDef()
@@ -131,7 +131,7 @@ func TestSkillRuntime_HandleLoadSkill_Activates(t *testing.T) {
 			{Name: "yt_upload", Description: "Upload", Handler: "return 'ok'", HandlerType: "js"},
 		},
 	}
-	rt, _ := NewSkillRuntime(context.Background(),
+	rt, _ := NewSkillRuntime(executiontest.Context(t),
 		makeLookup(map[string]*service.Skill{"youtube": yt}),
 		[]service.SkillRef{{ID: "youtube"}}, nil, nil)
 
@@ -179,7 +179,7 @@ func TestSkillRuntime_HandleLoadSkill_Activates(t *testing.T) {
 
 func TestSkillRuntime_HandleLoadSkill_Idempotent(t *testing.T) {
 	yt := &service.Skill{ID: "skill_yt", Name: "youtube", SystemPrompt: "X"}
-	rt, _ := NewSkillRuntime(context.Background(),
+	rt, _ := NewSkillRuntime(executiontest.Context(t),
 		makeLookup(map[string]*service.Skill{"youtube": yt}),
 		[]service.SkillRef{{ID: "youtube"}}, nil, nil)
 
@@ -204,7 +204,7 @@ func TestSkillRuntime_HandleLoadSkill_Idempotent(t *testing.T) {
 }
 
 func TestSkillRuntime_HandleLoadSkill_UnknownSkill(t *testing.T) {
-	rt, _ := NewSkillRuntime(context.Background(),
+	rt, _ := NewSkillRuntime(executiontest.Context(t),
 		makeLookup(map[string]*service.Skill{"a": {ID: "a", Name: "a"}}),
 		[]service.SkillRef{{ID: "a"}}, nil, nil)
 
@@ -218,7 +218,7 @@ func TestSkillRuntime_HandleLoadSkill_UnknownSkill(t *testing.T) {
 }
 
 func TestSkillRuntime_HandleLoadSkill_MissingArg(t *testing.T) {
-	rt, _ := NewSkillRuntime(context.Background(), nil, nil, nil, nil)
+	rt, _ := NewSkillRuntime(executiontest.Context(t), nil, nil, nil, nil)
 	_, err := rt.HandleLoadSkill(map[string]any{})
 	if err == nil {
 		t.Errorf("expected error for missing skill_name")
@@ -234,7 +234,7 @@ func TestSkillRuntime_HandlerFor_OnlyLoadedSkillsVisible(t *testing.T) {
 		ID: "skill_sl", Name: "slack",
 		Tools: []service.Tool{{Name: "slack_post", Handler: "return 'sent'", HandlerType: "js"}},
 	}
-	rt, _ := NewSkillRuntime(context.Background(),
+	rt, _ := NewSkillRuntime(executiontest.Context(t),
 		makeLookup(map[string]*service.Skill{"youtube": yt, "slack": sl}),
 		[]service.SkillRef{{ID: "youtube"}, {ID: "slack"}}, nil, nil)
 
@@ -256,7 +256,7 @@ func TestSkillRuntime_ConnOverrides(t *testing.T) {
 	refs := []service.SkillRef{
 		{ID: "youtube", Connections: map[string]string{"youtube": "conn_acc1"}},
 	}
-	rt, _ := NewSkillRuntime(context.Background(),
+	rt, _ := NewSkillRuntime(executiontest.Context(t),
 		makeLookup(map[string]*service.Skill{"youtube": yt}),
 		refs, nil, nil)
 
@@ -275,7 +275,7 @@ func TestSkillRuntime_ConnOverrides(t *testing.T) {
 func TestSkillRuntime_ExtraNamesMergedAndDeduplicated(t *testing.T) {
 	a := &service.Skill{ID: "a", Name: "a", Description: "A"}
 	b := &service.Skill{ID: "b", Name: "b", Description: "B"}
-	rt, err := NewSkillRuntime(context.Background(),
+	rt, err := NewSkillRuntime(executiontest.Context(t),
 		makeLookup(map[string]*service.Skill{"a": a, "b": b}),
 		[]service.SkillRef{{ID: "a"}},
 		[]string{"b", "a", "  ", ""}, // edge inputs: includes "a" which is dup
@@ -304,7 +304,7 @@ func TestSkillRuntime_LookupErrorsAreReportedAndSwallowed(t *testing.T) {
 		warnedNames = append(warnedNames, name)
 	}
 
-	rt, err := NewSkillRuntime(context.Background(), lookup,
+	rt, err := NewSkillRuntime(executiontest.Context(t), lookup,
 		[]service.SkillRef{{ID: "good"}, {ID: "broken"}, {ID: "missing"}},
 		nil, warn)
 	if err != nil {

@@ -289,7 +289,7 @@ func (s *Server) execOrgTaskIntake(ctx context.Context, args map[string]any) (st
 		Title:           title,
 		Description:     description,
 		PriorityLevel:   priorityLevel,
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 		Identifier:      identifier,
 		RequestDepth:    0,
 		MaxIterations:   maxIterations,

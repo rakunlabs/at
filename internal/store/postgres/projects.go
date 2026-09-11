@@ -16,6 +16,7 @@ import (
 // ─── Project CRUD ───
 
 type projectRow struct {
+	WorkspaceID    string         `db:"workspace_id"`
 	ID             string         `db:"id"`
 	OrganizationID sql.NullString `db:"organization_id"`
 	GoalID         sql.NullString `db:"goal_id"`
@@ -35,7 +36,7 @@ type projectRow struct {
 var projectColumns = []interface{}{
 	"id", "organization_id", "goal_id", "lead_agent_id", "name", "description",
 	"status", "color", "target_date", "archived_at",
-	"created_at", "updated_at", "created_by", "updated_by",
+	"created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 }
 
 func scanProjectRow(scanner interface {
@@ -45,6 +46,7 @@ func scanProjectRow(scanner interface {
 		&row.ID, &row.OrganizationID, &row.GoalID, &row.LeadAgentID,
 		&row.Name, &row.Description, &row.Status, &row.Color, &row.TargetDate,
 		&row.ArchivedAt, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		&row.WorkspaceID,
 	)
 }
 
@@ -83,9 +85,13 @@ func (p *Postgres) ListProjects(ctx context.Context, q *query.Query) (*service.L
 }
 
 func (p *Postgres) GetProject(ctx context.Context, id string) (*service.Project, error) {
+	scope, err := p.businessReadScope(ctx, p.tableProjects)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableProjects).
 		Select(projectColumns...).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get project query: %w", err)
@@ -104,11 +110,23 @@ func (p *Postgres) GetProject(ctx context.Context, id string) (*service.Project,
 }
 
 func (p *Postgres) CreateProject(ctx context.Context, project service.Project) (*service.Project, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableProjects, "projects.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if project.WorkspaceID != "" && project.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.projectReferences(ctx, w, project); err != nil {
+		return nil, err
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Insert(p.tableProjects).Rows(
+	query, _, err := w.tx.Insert(p.tableProjects).Rows(
 		goqu.Record{
+			"workspace_id":    w.actor.WorkspaceID,
 			"id":              id,
 			"organization_id": nullString(project.OrganizationID),
 			"goal_id":         nullString(project.GoalID),
@@ -129,11 +147,15 @@ func (p *Postgres) CreateProject(ctx context.Context, project service.Project) (
 		return nil, fmt.Errorf("build insert project query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create project %q: %w", project.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit project: %w", err)
 	}
 
 	return &service.Project{
+		WorkspaceID:    w.actor.WorkspaceID,
 		ID:             id,
 		OrganizationID: project.OrganizationID,
 		GoalID:         project.GoalID,
@@ -151,9 +173,20 @@ func (p *Postgres) CreateProject(ctx context.Context, project service.Project) (
 }
 
 func (p *Postgres) UpdateProject(ctx context.Context, id string, project service.Project) (*service.Project, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableProjects, "projects.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if project.WorkspaceID != "" && project.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.projectReferences(ctx, w, project); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Update(p.tableProjects).Set(
+	query, _, err := w.tx.Update(p.tableProjects).Set(
 		goqu.Record{
 			"organization_id": nullString(project.OrganizationID),
 			"goal_id":         nullString(project.GoalID),
@@ -166,12 +199,12 @@ func (p *Postgres) UpdateProject(ctx context.Context, id string, project service
 			"updated_at":      now,
 			"updated_by":      project.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update project query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update project %q: %w", id, err)
 	}
@@ -183,30 +216,42 @@ func (p *Postgres) UpdateProject(ctx context.Context, id string, project service
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit project update: %w", err)
+	}
 
 	return p.GetProject(ctx, id)
 }
 
 func (p *Postgres) DeleteProject(ctx context.Context, id string) error {
-	query, _, err := p.goqu.Delete(p.tableProjects).
-		Where(goqu.I("id").Eq(id)).
+	w, err := p.beginBusinessWrite(ctx, p.tableProjects, "projects.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
+	query, _, err := w.tx.Delete(p.tableProjects).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete project query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete project %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) ListProjectsByGoal(ctx context.Context, goalID string) ([]service.Project, error) {
+	scope, err := p.businessReadScope(ctx, p.tableProjects)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableProjects).
 		Select(projectColumns...).
-		Where(goqu.I("goal_id").Eq(goalID)).
+		Where(scope, goqu.I("goal_id").Eq(goalID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list projects by goal query: %w", err)
@@ -232,9 +277,13 @@ func (p *Postgres) ListProjectsByGoal(ctx context.Context, goalID string) ([]ser
 }
 
 func (p *Postgres) ListProjectsByOrganization(ctx context.Context, orgID string) ([]service.Project, error) {
+	scope, err := p.businessReadScope(ctx, p.tableProjects)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableProjects).
 		Select(projectColumns...).
-		Where(goqu.I("organization_id").Eq(orgID)).
+		Where(scope, goqu.I("organization_id").Eq(orgID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list projects by organization query: %w", err)
@@ -266,6 +315,7 @@ func projectRowToRecord(row projectRow) *service.Project {
 	}
 
 	return &service.Project{
+		WorkspaceID:    row.WorkspaceID,
 		ID:             row.ID,
 		OrganizationID: row.OrganizationID.String,
 		GoalID:         row.GoalID.String,

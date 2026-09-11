@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
@@ -13,7 +14,7 @@ func TestAgentCall_BuiltinTimeout(t *testing.T) {
 	for _, parentTimeout := range []time.Duration{0, 30 * time.Second} {
 		t.Run(parentTimeout.String(), func(t *testing.T) {
 			type contextKey struct{}
-			ctx := context.WithValue(context.Background(), contextKey{}, "task-context")
+			ctx := context.WithValue(executiontest.Context(t), contextKey{}, "task-context")
 			if parentTimeout > 0 {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithTimeout(ctx, parentTimeout)

@@ -2,15 +2,16 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
-	"github.com/rakunlabs/at/internal/service/workflow"
+	"github.com/rakunlabs/at/internal/service"
 )
 
 type fileEntry struct {
@@ -21,298 +22,194 @@ type fileEntry struct {
 	ModTime string `json:"mod_time"`
 }
 
-// File browse / serve / delete handlers operate on the daemon's filesystem
-// directly with no allow-list. Earlier versions restricted reads to a small
-// set of /tmp/at-* roots; that was removed at the operator's request so the
-// UI can navigate the full host filesystem (debugging, log inspection,
-// arbitrary workspace browsing).
-//
-// Safety still in place:
-//   - Paths are cleaned with filepath.Abs+Clean before use, so traversal
-//     segments are normalised away.
-//   - Symlinks are resolved with EvalSymlinks where possible; the resolved
-//     path is what we open / stat / delete.
-//   - Delete refuses to remove the filesystem root ("/").
-//
-// All file I/O is still bounded by the daemon's UID — running this as an
-// unprivileged user remains the operator's responsibility.
-
-// resolvePath cleans the requested path and resolves symlinks. Returns the
-// canonical absolute path and stat info, or writes an http.Error and
-// returns ok=false. requireDir flips the not-a-dir / is-a-dir error.
-func resolvePath(w http.ResponseWriter, raw string, requireDir bool) (string, os.FileInfo, bool) {
-	if raw == "" {
-		http.Error(w, "path is required", http.StatusBadRequest)
-		return "", nil, false
+func fileAccessError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, service.ErrExecutionDenied):
+		http.Error(w, "file access denied", http.StatusForbidden)
+	case errors.Is(err, os.ErrNotExist):
+		http.Error(w, "path not found", http.StatusNotFound)
+	default:
+		http.Error(w, "file operation failed", http.StatusBadRequest)
 	}
-
-	// 1) Make absolute and clean. filepath.Clean removes "." and ".." segments.
-	cleaned, err := filepath.Abs(filepath.Clean(raw))
-	if err != nil {
-		http.Error(w, "invalid path", http.StatusBadRequest)
-		return "", nil, false
-	}
-
-	// 2) Resolve symlinks where possible. EvalSymlinks fails on non-existent
-	// paths, in which case we fall through to os.Stat for a clean 404.
-	resolved := cleaned
-	if real, err := filepath.EvalSymlinks(cleaned); err == nil {
-		resolved = real
-	}
-
-	info, err := os.Stat(resolved)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "path not found", http.StatusNotFound)
-		} else {
-			http.Error(w, fmt.Sprintf("stat failed: %v", err), http.StatusInternalServerError)
-		}
-		return "", nil, false
-	}
-
-	if requireDir && !info.IsDir() {
-		http.Error(w, "path is not a directory", http.StatusBadRequest)
-		return "", nil, false
-	}
-	if !requireDir && info.IsDir() {
-		http.Error(w, "path is a directory", http.StatusBadRequest)
-		return "", nil, false
-	}
-
-	return resolved, info, true
 }
 
-// FileBrowseAPI lists the contents of a directory.
-// GET /api/v1/files/browse?path=/tmp/at-tasks
 func (s *Server) FileBrowseAPI(w http.ResponseWriter, r *http.Request) {
-	dirPath := r.URL.Query().Get("path")
-	if dirPath == "" {
-		// Default to the configured task-workspace root since that's the
-		// most common browse target. Resolves the same way as
-		// org-delegation: loopgov.Config.WorkspaceRoot → /tmp/at-tasks.
-		dirPath = s.taskWorkspaceBase()
-	}
-
-	resolved, _, ok := resolvePath(w, dirPath, true)
-	if !ok {
+	var ok bool
+	if r, ok = s.runtimeRequest(w, r); !ok {
 		return
 	}
-
-	entries, err := os.ReadDir(resolved)
+	root, name, err := service.OpenExecutionRoot(r.Context(), r.URL.Query().Get("path"), false)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("cannot read directory: %v", err), http.StatusInternalServerError)
+		fileAccessError(w, err)
 		return
 	}
-
+	defer root.Close()
+	dir, err := service.OpenExecutionFile(root, name, os.O_RDONLY, 0)
+	if err != nil {
+		fileAccessError(w, err)
+		return
+	}
+	defer dir.Close()
+	entries, err := dir.ReadDir(-1)
+	if err != nil {
+		fileAccessError(w, err)
+		return
+	}
 	files := make([]fileEntry, 0, len(entries))
 	for _, e := range entries {
-		info, err := e.Info()
+		// Do not leak metadata from links or non-regular host devices.
+		if e.Type()&os.ModeSymlink != 0 {
+			continue
+		}
+		path := filepath.Join(name, e.Name())
+		child, err := service.OpenExecutionFile(root, path, os.O_RDONLY, 0)
 		if err != nil {
 			continue
 		}
-
-		files = append(files, fileEntry{
-			Name:    e.Name(),
-			Path:    filepath.Join(resolved, e.Name()),
-			IsDir:   e.IsDir(),
-			Size:    info.Size(),
-			ModTime: info.ModTime().Format("2006-01-02 15:04:05"),
-		})
+		info, err := child.Stat()
+		child.Close()
+		if err != nil || (!info.Mode().IsRegular() && !info.IsDir()) {
+			continue
+		}
+		if service.CheckExecution(r.Context(), service.ExecutionAction{Kind: "file", Name: "files.read", Path: path}) != nil {
+			continue
+		}
+		files = append(files, fileEntry{e.Name(), path, info.IsDir(), info.Size(), info.ModTime().Format("2006-01-02 15:04:05")})
 	}
-
-	// Sort: directories first, then by name.
 	sort.Slice(files, func(i, j int) bool {
 		if files[i].IsDir != files[j].IsDir {
 			return files[i].IsDir
 		}
 		return files[i].Name < files[j].Name
 	})
-
-	parent := filepath.Dir(resolved)
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
-		"path":    resolved,
-		"parent":  parent,
-		"entries": files,
-	})
+	httpResponseJSON(w, map[string]any{"path": name, "parent": filepath.Dir(name), "entries": files}, http.StatusOK)
 }
 
-// FileServeAPI serves a file for viewing/downloading.
-//
-// Uses http.ServeContent so HTML5 <video> / <audio> can scrub via Range
-// requests (responds with 206 Partial Content + Accept-Ranges: bytes).
-// Without this, clicking the timeline in the Files preview pane is a
-// no-op because the browser can't request a sub-range from byte 0.
-//
-// GET /api/v1/files/serve?path=/tmp/at-tasks/<id>/video.mp4
+// Authorization runs before ServeContent for every request, including Range,
+// HEAD and conditional cache requests. Open and Stat use the same rooted handle.
 func (s *Server) FileServeAPI(w http.ResponseWriter, r *http.Request) {
-	resolved, info, ok := resolvePath(w, r.URL.Query().Get("path"), false)
-	if !ok {
+	var ok bool
+	if r, ok = s.runtimeRequest(w, r); !ok {
 		return
 	}
-
-	f, err := os.Open(resolved)
+	root, name, err := service.OpenExecutionRoot(r.Context(), r.URL.Query().Get("path"), false)
 	if err != nil {
-		http.Error(w, "cannot open file", http.StatusInternalServerError)
+		fileAccessError(w, err)
+		return
+	}
+	defer root.Close()
+	f, err := service.OpenExecutionFile(root, name, os.O_RDONLY, 0)
+	if err != nil {
+		fileAccessError(w, err)
 		return
 	}
 	defer f.Close()
-
-	// Set Content-Type explicitly from the extension. http.ServeContent
-	// will fall back to sniffing the first 512 bytes when this is unset,
-	// which sometimes mis-classifies legitimate video/audio as
-	// application/octet-stream — and that prevents the browser from
-	// using its native <video> / <audio> player.
-	if ct := mime.TypeByExtension(filepath.Ext(resolved)); ct != "" {
+	info, err := f.Stat()
+	if err != nil {
+		fileAccessError(w, err)
+		return
+	}
+	if !info.Mode().IsRegular() {
+		http.Error(w, "path is not a regular file", http.StatusBadRequest)
+		return
+	}
+	if ct := mime.TypeByExtension(filepath.Ext(name)); ct != "" {
 		w.Header().Set("Content-Type", ct)
 	}
-	w.Header().Set("Content-Disposition",
-		fmt.Sprintf("inline; filename=%q", filepath.Base(resolved)))
-
-	// ServeContent writes Accept-Ranges, handles Range requests with 206,
-	// sets Last-Modified and Content-Length, and honours
-	// If-Modified-Since / If-Range. The seekable *os.File we just opened
-	// is exactly the io.ReadSeeker it expects.
-	http.ServeContent(w, r, filepath.Base(resolved), info.ModTime(), f)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "private, no-store")
+	// Untrusted active documents must not run scripts on the admin origin.
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=%q", filepath.Base(name)))
+	http.ServeContent(w, r, filepath.Base(name), info.ModTime(), f)
 }
 
-// FileDeleteAPI deletes a file or directory.
-// DELETE /api/v1/files?path=/tmp/at-tasks/<id>/scratch.png
 func (s *Server) FileDeleteAPI(w http.ResponseWriter, r *http.Request) {
-	rawPath := r.URL.Query().Get("path")
-	if rawPath == "" {
+	var ok bool
+	if r, ok = s.runtimeRequest(w, r); !ok {
+		return
+	}
+	raw := r.URL.Query().Get("path")
+	if raw == "" {
 		http.Error(w, "path is required", http.StatusBadRequest)
 		return
 	}
-
-	cleaned, err := filepath.Abs(filepath.Clean(rawPath))
+	root, name, err := service.OpenExecutionRoot(r.Context(), raw, true)
 	if err != nil {
-		http.Error(w, "invalid path", http.StatusBadRequest)
+		fileAccessError(w, err)
 		return
 	}
-
-	// Resolve symlinks before deletion so we don't follow a malicious
-	// link to delete an unintended target.
-	if real, err := filepath.EvalSymlinks(cleaned); err == nil {
-		cleaned = real
-	}
-
-	// Refuse to delete the filesystem root. Everything else is fair game
-	// for the daemon's UID.
-	if cleaned == "/" || cleaned == "." {
-		http.Error(w, "cannot delete filesystem root", http.StatusForbidden)
+	defer root.Close()
+	if name == "." {
+		http.Error(w, "cannot delete workspace root", http.StatusForbidden)
 		return
 	}
-
-	info, err := os.Stat(cleaned)
-	if err != nil {
-		if os.IsNotExist(err) {
-			http.Error(w, "path not found", http.StatusNotFound)
-		} else {
-			http.Error(w, fmt.Sprintf("stat failed: %v", err), http.StatusInternalServerError)
-		}
+	// Remove only files/empty directories. Recursive deletion could exceed a
+	// path-pattern grant covering a directory but not its descendants.
+	if err := service.RemoveExecutionFile(root, name); err != nil {
+		fileAccessError(w, err)
 		return
 	}
-
-	if info.IsDir() {
-		err = os.RemoveAll(cleaned)
-	} else {
-		err = os.Remove(cleaned)
-	}
-
-	if err != nil {
-		http.Error(w, fmt.Sprintf("delete failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"deleted": cleaned})
+	httpResponseJSON(w, map[string]any{"deleted": name}, http.StatusOK)
 }
 
-// FileUploadAPI stores an uploaded file on the daemon's filesystem.
-// POST /api/v1/files/upload — multipart form with:
-//   - file: the file contents (required)
-//   - path: target directory (optional; defaults to the persistent assets
-//     root, which is the common case: avatar reference photos and voice
-//     samples uploaded from the Studio UI)
-//   - name: file name override (optional; defaults to the uploaded name)
-//
-// The target directory is created when missing. Same trust model as the
-// rest of the files API: full filesystem access for the daemon's UID.
 func (s *Server) FileUploadAPI(w http.ResponseWriter, r *http.Request) {
-	// Bound the request body: media uploads (photos, voice samples, clips)
-	// are expected; multi-GB uploads are not.
-	r.Body = http.MaxBytesReader(w, r.Body, 256<<20) // 256 MB
-
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		http.Error(w, fmt.Sprintf("invalid multipart form: %v", err), http.StatusBadRequest)
+	var ok bool
+	if r, ok = s.runtimeRequest(w, r); !ok {
 		return
 	}
-
+	if err := service.CheckExecution(r.Context(), service.ExecutionAction{Kind: "resource", Name: "execution.run"}); err != nil {
+		fileAccessError(w, err)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 256<<20)
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		http.Error(w, "invalid multipart form", http.StatusBadRequest)
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "file field is required", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
-
-	dir := r.FormValue("path")
-	if dir == "" {
-		dir = workflow.EnsureAssetsDir()
-	}
-	cleanedDir, err := filepath.Abs(filepath.Clean(dir))
-	if err != nil {
-		http.Error(w, "invalid path", http.StatusBadRequest)
-		return
-	}
-	if real, err := filepath.EvalSymlinks(cleanedDir); err == nil {
-		cleanedDir = real
-	}
-	if err := os.MkdirAll(cleanedDir, 0o755); err != nil {
-		http.Error(w, fmt.Sprintf("cannot create directory: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	name := r.FormValue("name")
 	if name == "" {
 		name = header.Filename
 	}
-	name = filepath.Base(name)
-	if name == "" || name == "." || name == string(filepath.Separator) {
-		http.Error(w, "invalid file name", http.StatusBadRequest)
+	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
 		return
 	}
-
-	target := filepath.Join(cleanedDir, name)
-	out, err := os.CreateTemp(cleanedDir, "."+name+".upload-*")
+	dir := r.FormValue("path")
+	for _, part := range strings.Split(filepath.ToSlash(dir), "/") {
+		if part == ".." {
+			http.Error(w, "invalid upload path", http.StatusForbidden)
+			return
+		}
+	}
+	if dir == "" {
+		dir = "assets/uploads"
+	}
+	root, path, err := service.OpenExecutionRoot(r.Context(), filepath.Join(dir, name), true)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("cannot create file: %v", err), http.StatusInternalServerError)
+		fileAccessError(w, err)
 		return
 	}
-	temp := out.Name()
-	defer os.Remove(temp)
-
-	size, err := io.Copy(out, file)
+	defer root.Close()
+	if err := service.MkdirExecutionAll(root, filepath.Dir(path), 0700); err != nil {
+		fileAccessError(w, err)
+		return
+	}
+	n, err := service.ReplaceExecutionFile(root, path, file)
 	if err != nil {
-		_ = out.Close()
-		http.Error(w, fmt.Sprintf("write failed: %v", err), http.StatusInternalServerError)
+		http.Error(w, "upload failed", http.StatusInternalServerError)
 		return
 	}
-	if err := out.Chmod(0o644); err != nil {
-		_ = out.Close()
-		http.Error(w, fmt.Sprintf("set permissions failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if err := out.Close(); err != nil {
-		http.Error(w, fmt.Sprintf("close failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-	if err := os.Rename(temp, target); err != nil {
-		http.Error(w, fmt.Sprintf("replace failed: %v", err), http.StatusInternalServerError)
-		return
-	}
-
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"path": target, "size": size})
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]any{"path": path, "name": name, "size": n})
 }

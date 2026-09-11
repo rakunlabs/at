@@ -13,6 +13,20 @@ const identity = { subject: 'u1', name: 'operator', roles: ['admin'], expires_at
 const json = (status, data = {}) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } });
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
+test('external popup completion adopts only matching live me and releases refresh uncertainty', async () => {
+  const h = harness(); const {transport} = h.tab();
+  h.values.set('at-auth:/at/:blocked', '1');
+  await assert.rejects(transport.adoptExternalLogin(identity.subject), ReauthenticationRequired);
+  h.setLive(true);
+  await assert.rejects(transport.adoptExternalLogin('different-user'), ReauthenticationRequired);
+  assert.equal(h.values.get('at-auth:/at/:blocked'),'1');
+  const observed = []; transport.subscribe(value => observed.push(value));
+  await transport.adoptExternalLogin(identity.subject);
+  assert.equal(h.values.has('at-auth:/at/:blocked'),false);
+  assert.deepEqual(observed.at(-1),identity);
+  assert.equal(h.calls.some(c => c.path.endsWith('/refresh')),false);
+});
+
 function harness(options = {}) {
   let live = false;
   const calls = [];

@@ -39,9 +39,11 @@ type Scheduler struct {
 	workflowStore         service.WorkflowStorer
 	workflowVersionStore  service.WorkflowVersionStorer
 	providerLookup        ProviderLookup
+	scopedProviderLookup  func(context.Context, string) (service.LLMProvider, string, error)
 	skillLookup           SkillLookup
 	varLookup             VarLookup
 	varLister             VarLister
+	scopedVarLister       func(context.Context) (map[string]string, error)
 	nodeConfigLookup      NodeConfigLookup
 	agentStore            service.AgentStorer
 	varSave               VarSaveFunc
@@ -59,6 +61,7 @@ type Scheduler struct {
 	loopGov               LoopGovernor
 	runRegistrar          RunRegistrar
 	enabledCheck          func(context.Context) bool
+	executionContext      func(context.Context, string) (context.Context, error)
 
 	cluster *cluster.Cluster
 
@@ -104,6 +107,20 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 // Must be called before Start.
 func (s *Scheduler) SetRunRegistrar(r RunRegistrar) {
 	s.runRegistrar = r
+}
+
+// SetExecutionContext installs a resolver for persisted trigger initiators.
+// Must be called before Start. A missing resolver disables execution, not auth.
+func (s *Scheduler) SetExecutionContext(resolve func(context.Context, string) (context.Context, error)) {
+	s.executionContext = resolve
+}
+
+func (s *Scheduler) SetScopedVarLister(list func(context.Context) (map[string]string, error)) {
+	s.scopedVarLister = list
+}
+
+func (s *Scheduler) SetScopedProviderLookup(lookup func(context.Context, string) (service.LLMProvider, string, error)) {
+	s.scopedProviderLookup = lookup
 }
 
 // SetEnabledCheck installs a runtime guard for cron dispatch. When it returns
@@ -261,9 +278,33 @@ func (s *Scheduler) reload() error {
 		return nil
 	}
 
-	triggers, err := s.triggerStore.ListEnabledCronTriggers(s.ctx)
-	if err != nil {
-		return fmt.Errorf("scheduler: load cron triggers: %w", err)
+	var triggers []service.Trigger
+	if services, ok := s.triggerStore.(service.ExecutionServiceLister); ok && s.executionContext != nil {
+		bindings, err := services.ListExecutionServiceBindings(s.ctx, "trigger")
+		if err != nil {
+			return fmt.Errorf("scheduler: enumerate execution bindings: %w", err)
+		}
+		for _, binding := range bindings {
+			ctx, err := s.executionContext(s.ctx, binding.SubjectID)
+			if err != nil {
+				continue
+			}
+			trigger, err := s.triggerStore.GetTrigger(ctx, binding.SubjectID)
+			if err != nil || trigger == nil || !trigger.Enabled || trigger.Type != "cron" {
+				continue
+			}
+			triggers = append(triggers, *trigger)
+		}
+	} else {
+		// Compatibility stores require explicit scoped boot authority too.
+		if err := service.CheckExecution(s.ctx, service.ExecutionAction{Kind: "resource", Name: "execution.run"}); err != nil {
+			return fmt.Errorf("scheduler: boot authority unavailable: %w", err)
+		}
+		var err error
+		triggers, err = s.triggerStore.ListEnabledCronTriggers(s.ctx)
+		if err != nil {
+			return fmt.Errorf("scheduler: load cron triggers: %w", err)
+		}
 	}
 
 	if len(triggers) == 0 {
@@ -337,6 +378,19 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 			"workflow_id", trigger.WorkflowID)
 
 		// Load the workflow from the store.
+		if s.executionContext == nil {
+			logi.Ctx(ctx).Warn("scheduler: execution identity resolver not configured", "trigger_id", trigger.ID)
+			return nil
+		}
+		boundCtx, authErr := s.executionContext(ctx, trigger.ID)
+		if authErr == nil {
+			authErr = service.CheckExecution(boundCtx, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID})
+		}
+		if authErr != nil {
+			logi.Ctx(ctx).Warn("scheduler: execution authority denied", "trigger_id", trigger.ID, "error", authErr)
+			return nil
+		}
+		ctx = boundCtx
 		wf, err := s.workflowStore.GetWorkflow(ctx, trigger.WorkflowID)
 		if err != nil {
 			logi.Ctx(ctx).Error("scheduler: get workflow failed",
@@ -436,9 +490,11 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 
 		engine := NewEngineWithDependencies(Dependencies{
 			ProviderLookup:        s.providerLookup,
+			ScopedProviderLookup:  s.scopedProviderLookup,
 			SkillLookup:           s.skillLookup,
 			VarLookup:             s.varLookup,
 			VarLister:             s.varLister,
+			ScopedVarLister:       s.scopedVarLister,
 			NodeConfigLookup:      s.nodeConfigLookup,
 			WorkflowLookup:        workflowLookup,
 			WorkflowByNameLookup:  s.workflowByNameLookup,

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -65,6 +66,96 @@ func TestCallWithGatewayRetry_NoRetryOnNonRateLimit(t *testing.T) {
 	}
 	if calls.Load() != 1 {
 		t.Errorf("attempts = %d; should not retry on non-rate-limit error", calls.Load())
+	}
+}
+
+func TestCallWithGatewayRetry_TypedUpstreamFailures(t *testing.T) {
+	t.Setenv("AT_GATEWAY_MIN_BACKOFF_MS", "1")
+	for _, status := range []int{400, 401, 403, 404, 408, 422, 425, 429, 500, 502, 503, 504, 529, 600} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			wantRetry := status == 408 || status == 425 || status == 429 || (status >= 500 && status <= 599)
+			for _, recover := range []bool{false, true} {
+				calls := 0
+				upstream := &service.UpstreamError{Provider: "test", StatusCode: status, Message: "failure"}
+				got, err := callWithGatewayRetry(context.Background(), "test", "model", 0, func(context.Context) (string, error) {
+					calls++
+					if recover && calls > 1 {
+						return "recovered", nil
+					}
+					return "", fmt.Errorf("provider: %w", upstream)
+				})
+				wantCalls := 1
+				if wantRetry {
+					wantCalls = gatewayRetryAttempts
+					if recover {
+						wantCalls = 2
+					}
+				}
+				if calls != wantCalls {
+					t.Fatalf("recover=%v: calls=%d, want %d", recover, calls, wantCalls)
+				}
+				if wantRetry && recover {
+					if err != nil || got != "recovered" {
+						t.Fatalf("got %q, %v", got, err)
+					}
+				} else if !errors.Is(err, upstream) {
+					t.Fatalf("got %v, want original upstream error", err)
+				}
+			}
+		})
+	}
+}
+
+func TestCallWithGatewayRetry_Cancellation(t *testing.T) {
+	for _, when := range []string{"before call", "during call", "during backoff"} {
+		t.Run(when, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			if when == "before call" {
+				cancel()
+			}
+			calls := 0
+			_, err := callWithGatewayRetry(ctx, "test", "model", -1, func(context.Context) (string, error) {
+				calls++
+				if when == "during call" {
+					cancel()
+				} else if when == "during backoff" {
+					timer := time.AfterFunc(10*time.Millisecond, cancel)
+					t.Cleanup(func() { timer.Stop() })
+				}
+				return "", &service.RateLimitError{StatusCode: 429, RetryAfter: time.Hour}
+			})
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("got %v, want cancellation", err)
+			}
+			wantCalls := 1
+			if when == "before call" {
+				wantCalls = 0
+			}
+			if calls != wantCalls {
+				t.Fatalf("calls=%d, want %d", calls, wantCalls)
+			}
+		})
+	}
+}
+
+func TestAddGatewayRateLimitHeaders_RoundsUp(t *testing.T) {
+	for _, tt := range []struct {
+		delay time.Duration
+		want  string
+	}{
+		{time.Nanosecond, "1"},
+		{time.Second, "1"},
+		{1500 * time.Millisecond, "2"},
+		{7100 * time.Millisecond, "8"},
+	} {
+		t.Run(tt.delay.String(), func(t *testing.T) {
+			w := httptest.NewRecorder()
+			addGatewayRateLimitHeaders(w, &service.RateLimitError{StatusCode: 429, RetryAfter: tt.delay})
+			if got := w.Header().Get("Retry-After"); got != tt.want {
+				t.Fatalf("Retry-After=%q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

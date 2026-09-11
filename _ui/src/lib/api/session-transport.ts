@@ -3,6 +3,19 @@ import type { AuthIdentity } from './auth';
 
 export class ReauthenticationRequired extends Error {}
 
+// The server answers 403 on an unclaimed installation. That is not a broken
+// connection: the app must send the operator to first-run setup instead of
+// reporting a transport failure.
+export class InstallationSetupRequired extends Error {
+  // Explicit name so detection survives minification.
+  name = 'InstallationSetupRequired';
+}
+
+function setupRequiredError(response: Response): Error {
+  if (response.status === 403) return new InstallationSetupRequired('Installation setup required');
+  return new Error('Cannot verify your session');
+}
+
 interface Environment {
   baseURL: string;
   fetch: typeof fetch;
@@ -53,8 +66,9 @@ export function createSessionTransport(env: Environment) {
     if (target.origin !== base.origin || target.username || target.password || !target.pathname.startsWith(base.pathname)) return '';
     return target.pathname.slice(base.pathname.length);
   };
-  const protectedPath = (value: string) => value.startsWith('api/') || value === 'auth/me' || value === 'auth/users' || value.startsWith('auth/users/') || value === 'auth/passkeys' || /^auth\/mobile\/requests\/[^/]+$/.test(value);
-  const protectedMutation = (value: string) => value === 'auth/password' || value === 'auth/users' || value.startsWith('auth/users/') || value.startsWith('auth/passkeys/enroll/') || /^auth\/passkeys\/[^/]+\/delete$/.test(value) || value === 'auth/mobile/approve' || value === 'auth/mobile/deny';
+  const selfPath = (value: string) => /^auth\/(workspaces|identities|identity-providers|settings|totp)(\/|$)/.test(value);
+  const protectedPath = (value: string) => selfPath(value) || value.startsWith('api/') || value === 'auth/me' || value === 'auth/users' || value.startsWith('auth/users/') || value === 'auth/passkeys' || /^auth\/mobile\/requests\/[^/]+$/.test(value);
+  const protectedMutation = (value: string) => selfPath(value) || value.startsWith('auth/reauth/') || value === 'auth/invitations/accept' || value === 'auth/password' || value === 'auth/users' || value.startsWith('auth/users/') || value.startsWith('auth/passkeys/enroll/') || /^auth\/passkeys\/[^/]+\/delete$/.test(value) || value === 'auth/mobile/approve' || value === 'auth/mobile/deny';
   const rawMe = () => env.fetch(new URL('auth/me', base), { credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
   const readIdentity = async (response: Response) => {
     const identity = await response.json() as AuthIdentity;
@@ -79,7 +93,7 @@ export function createSessionTransport(env: Environment) {
       publish(identity);
       return true;
     }
-    if (response.status !== 401) throw new Error('Cannot verify your session');
+    if (response.status !== 401) throw setupRequiredError(response);
     if (!env.locks) return failClosed('Your session expired. This browser cannot safely renew sessions across tabs. Sign in again, or use a browser with Web Locks support.');
     try {
       if (!env.storage || localBlocked || env.storage.getItem(blockedKey)) {
@@ -119,7 +133,7 @@ export function createSessionTransport(env: Environment) {
       if (!isMe) {
         const response = await rawMe();
         if (response.ok) return false;
-        if (response.status !== 401) throw new Error('Cannot verify your session');
+        if (response.status !== 401) throw setupRequiredError(response);
       }
       if (!env.locks) return failClosed('Your session expired. This browser cannot safely renew sessions across tabs. Sign in again, or use a browser with Web Locks support.');
       return env.locks.request(lockName, () => recoverLocked(start));
@@ -136,7 +150,7 @@ export function createSessionTransport(env: Environment) {
         if (!initiatingFamily) return failClosed('Verify your session before trying this operation again.');
         await recoverLocked(start, initiatingFamily);
       }
-      const login = value === 'auth/login' || value === 'auth/passkeys/login/finish';
+      const login = value === 'auth/login' || value === 'auth/passkeys/login/finish' || value === 'auth/mfa/verify';
       const changesSession = login || value === 'auth/logout' || value === 'auth/password' || /^auth\/passkeys\/[^/]+\/delete$/.test(value) || (subject !== '' && value.startsWith(`auth/users/${encodeURIComponent(subject)}/`));
       if (changesSession) {
         localRevision++;
@@ -150,7 +164,7 @@ export function createSessionTransport(env: Environment) {
       }
       const result = await send();
       if (successful(result)) {
-        if (value === 'auth/login' || value === 'auth/passkeys/login/finish') {
+        if (login) {
           try { env.storage?.removeItem(blockedKey); localBlocked = false; blockedFamily = ''; } catch { localBlocked = true; }
         }
         if (value === 'auth/logout') publish(null, 'You have signed out.');
@@ -165,11 +179,24 @@ export function createSessionTransport(env: Environment) {
     // Check before dispatch instead, including streaming POSTs with one-shot bodies.
     const response = await rawMe();
     if (response.ok) return;
-    if (response.status !== 401) throw new Error('Cannot verify your session');
+    if (response.status !== 401) throw setupRequiredError(response);
     await recover(true);
   }
 
   return {
+    async adoptExternalLogin(expectedSubject: string) {
+      const adopt = async () => {
+        const start = revision();
+        const response = await rawMe();
+        if (!response.ok) throw new ReauthenticationRequired('Sign-in could not be verified.');
+        const identity = await readIdentity(response);
+        if (identity.subject !== expectedSubject || start !== revision()) throw new ReauthenticationRequired('The signed-in account changed. Start again.');
+        localRevision++;
+        try { env.storage?.setItem(revisionKey, crypto.randomUUID()); env.storage?.removeItem(blockedKey); localBlocked = false; blockedFamily = ''; } catch { localBlocked = true; }
+        publish(identity);
+      };
+      return env.locks ? env.locks.request(lockName, adopt) : adopt();
+    },
     setEnabled(value: boolean) { enabled = value; },
     subscribe(listener: (identity: AuthIdentity | null, notice: string) => void) {
       listeners.add(listener);

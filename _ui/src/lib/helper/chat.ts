@@ -3,9 +3,19 @@ import { authFetch as fetch } from '../api/transport';
 // ─── Chat Types ───
 
 export interface ContentPart {
-  type: 'text' | 'image_url';
+  /** `image` only ever appears on transcripts restored from playground history.
+   *  With a `media_id` the bytes live in media storage and are re-inlined as a
+   *  data URI before the request leaves the browser; without one the original
+   *  data-URI was never persisted and the part is rewritten to text. */
+  type: 'text' | 'image_url' | 'image';
   text?: string;
   image_url?: { url: string };
+  /** Media-storage object id. Present only on a stored image. */
+  media_id?: string;
+  /** Descriptor fields for a stored or omitted image. */
+  name?: string;
+  bytes?: number;
+  omitted?: boolean;
 }
 
 export interface ChatMessage {

@@ -11,9 +11,9 @@ export async function rotateKey(adminToken: string, encryptionKey: string): Prom
     '/rotate-key',
     { encryption_key: encryptionKey },
     {
-      headers: {
+      headers: adminToken ? {
         Authorization: `Bearer ${adminToken}`,
-      },
+      } : {},
     }
   );
   return res.data.message;

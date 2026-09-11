@@ -123,6 +123,7 @@ type MarketplaceStorer interface {
 // and a set of tools. Skills can be attached to agent_call workflow nodes
 // to provide the agent with domain-specific capabilities.
 type Skill struct {
+	WorkspaceID  string   `json:"workspace_id"`
 	ID           string   `json:"id"`
 	Name         string   `json:"name"`
 	Description  string   `json:"description"`
@@ -187,6 +188,7 @@ type PackSourceStorer interface {
 // or non-secret (stored as plaintext, shown in list responses).
 // Accessed from workflow JS handlers via getVar() and bash handlers via $VAR_<KEY>.
 type Variable struct {
+	WorkspaceID string `json:"workspace_id"`
 	ID          string `json:"id"`
 	Key         string `json:"key"`
 	Value       string `json:"value"`

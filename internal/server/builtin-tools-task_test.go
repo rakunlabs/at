@@ -216,7 +216,7 @@ func (m *taskWaitStore) setStatus(status, result string) {
 func TestExecTaskWait_ReturnsTerminalTaskImmediately(t *testing.T) {
 	store := &taskWaitStore{task: service.Task{
 		ID:     "child-1",
-		Status: service.TaskStatusCompleted,
+		Status: service.TaskStatusDone,
 		Result: "video ready",
 	}}
 	s := &Server{taskStore: store}

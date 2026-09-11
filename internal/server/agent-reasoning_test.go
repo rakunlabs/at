@@ -34,17 +34,17 @@ func TestAgentReasoningEffortRetry(t *testing.T) {
 				s.providers["prov1"] = ProviderInfo{provider: provider, providerType: "openai", defaultModel: "m1"}
 				count := 1
 				if loop == "org" {
-					task, err := taskStore.CreateTask(context.Background(), service.Task{OrganizationID: "org1", Title: "reason", Status: service.TaskStatusOpen, AssignedAgentID: "agent"})
+					task, err := taskStore.CreateTask(context.Background(), service.Task{OrganizationID: "org1", Title: "reason", Status: service.TaskStatusTodo, AssignedAgentID: "agent"})
 					if err != nil {
 						t.Fatal(err)
 					}
-					if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent", 0); err != nil {
+					if err := s.runOrgDelegation(s.ctx, &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent", 0); err != nil {
 						t.Fatal(err)
 					}
 					count = 3 // started, generation, completed
 				} else {
 					s.chatSessionStore = &fakeChatSessionStore{session: service.ChatSession{ID: "session", AgentID: "agent"}}
-					if err := s.RunAgenticLoop(context.Background(), "session", "reason", func(event AgenticEvent) {
+					if err := s.RunAgenticLoop(s.ctx, "session", "reason", func(event AgenticEvent) {
 						if event.Type == "error" {
 							t.Errorf("chat error: %s", event.Error)
 						}

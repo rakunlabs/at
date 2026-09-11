@@ -8,7 +8,6 @@
     FileCode, FileAudio, Download, X, ChevronRight, Home, Search,
   } from 'lucide-svelte';
   import axios from 'axios';
-  import { getInfo } from '@/lib/api/gateway';
 
   storeNavbar.title = 'Files';
 
@@ -22,19 +21,12 @@
     mod_time: string;
   }
 
-  // The file API operates on the daemon's full filesystem (no allow-list).
-  // The backend defaults `GET /files/browse` (no path) to the configured
-  // task-workspace root (loopgov.WorkspaceRoot), so we start with empty
-  // strings and let the server tell us where we landed. The actual path
-  // is filled in by the first `browse('')` call below.
+  // All paths are relative to the selected workspace's rooted file API.
   let currentPath = $state('');
   let parentPath = $state('');
-  // Free-text path input so the user can jump anywhere on the host.
+  // Relative path within the selected workspace.
   let pathInput = $state('');
-  // Effective workspace root reported by the server (GET /api/v1/info).
-  // Used for the "tasks" quick-nav button. Falls back to /tmp/at-tasks
-  // until the info request returns.
-  let workspaceRoot = $state('/tmp/at-tasks');
+  const workspaceRoot = 'tasks';
   let entries = $state<FileEntry[]>([]);
   let loading = $state(false);
   let deleteConfirm = $state<string | null>(null);
@@ -193,6 +185,7 @@
     } else if (type === 'text') {
       try {
         const res = await fetch(serveUrl(entry.path, entry.mod_time));
+        if (!res.ok) throw new Error('File unavailable');
         previewText = await res.text();
         previewFile = entry;
         previewType = 'text';
@@ -210,29 +203,19 @@
 
   // Breadcrumb parts
   let breadcrumbs = $derived.by(() => {
-    const parts = (currentPath || '/').split('/').filter(Boolean);
-    const crumbs: { name: string; path: string }[] = [{ name: '/', path: '/' }];
+    const parts = (currentPath || '').split('/').filter(part => part && part !== '.');
+    const crumbs: { name: string; path: string }[] = [{ name: 'Workspace', path: '.' }];
     let acc = '';
     for (const part of parts) {
-      acc += '/' + part;
+      acc = acc ? acc + '/' + part : part;
       crumbs.push({ name: part, path: acc });
     }
     return crumbs;
   });
 
-  // On mount: fetch the effective workspace root from the server, then
-  // browse it. We only run once — `untrack` keeps this from re-firing on
-  // every state change.
+  // Run once; workspace switches remount and discard the previous directory.
   $effect(() => {
     untrack(async () => {
-      try {
-        const info = await getInfo();
-        if (info.workspace_root) {
-          workspaceRoot = info.workspace_root;
-        }
-      } catch {
-        // Non-fatal: keep the /tmp/at-tasks fallback.
-      }
       // browse('') asks the backend for its configured default; the
       // server will resolve and return the actual path in `res.data.path`.
       browse(currentPath);
@@ -299,30 +282,28 @@
             class="w-36 pl-7 pr-2 py-1 text-[11px] border border-sky-200 dark:border-cyan-950 bg-white dark:bg-[#111719] rounded focus:outline-none focus:ring-1 focus:ring-sky-400 dark:focus:ring-cyan-700 dark:text-dark-text dark:placeholder:text-dark-text-muted"
           />
         </div>
-        <!-- Quick nav shortcuts to common agent workspace roots.
-             "tasks" jumps to the configured loopgov.WorkspaceRoot
-             (defaults to /tmp/at-tasks). -->
+        <!-- Workspace-relative conventional roots. -->
         <button
           onclick={() => browse(workspaceRoot)}
           class="px-2 py-1 text-[10px] border border-sky-200/80 dark:border-cyan-900/60 bg-sky-50 dark:bg-cyan-950/20 text-sky-700 dark:text-cyan-300 hover:bg-sky-100 dark:hover:bg-cyan-950/50 transition-colors rounded"
           title={workspaceRoot}
         >tasks</button>
         <button
-          onclick={() => browse('/tmp/at-sandbox')}
+          onclick={() => browse('assets')}
           class="px-2 py-1 text-[10px] border border-sky-200/80 dark:border-cyan-900/60 bg-sky-50 dark:bg-cyan-950/20 text-sky-700 dark:text-cyan-300 hover:bg-sky-100 dark:hover:bg-cyan-950/50 transition-colors rounded"
-        >sandbox</button>
+        >assets</button>
         <button
-          onclick={() => browse('/tmp/at-audio')}
+          onclick={() => browse('assets/uploads')}
           class="px-2 py-1 text-[10px] border border-sky-200/80 dark:border-cyan-900/60 bg-sky-50 dark:bg-cyan-950/20 text-sky-700 dark:text-cyan-300 hover:bg-sky-100 dark:hover:bg-cyan-950/50 transition-colors rounded"
-        >audio</button>
+        >uploads</button>
         <button
-          onclick={() => browse('/tmp/at-git-cache')}
+          onclick={() => browse('runs')}
           class="px-2 py-1 text-[10px] border border-sky-200/80 dark:border-cyan-900/60 bg-sky-50 dark:bg-cyan-950/20 text-sky-700 dark:text-cyan-300 hover:bg-sky-100 dark:hover:bg-cyan-950/50 transition-colors rounded"
-        >git-cache</button>
+        >runs</button>
         <button
-          onclick={() => browse('/')}
+          onclick={() => browse('.')}
           class="px-2 py-1 text-[10px] border border-sky-200/80 dark:border-cyan-900/60 bg-sky-50 dark:bg-cyan-950/20 text-sky-700 dark:text-cyan-300 hover:bg-sky-100 dark:hover:bg-cyan-950/50 transition-colors rounded"
-        >/</button>
+        >workspace</button>
         <!-- Hidden files toggle -->
         <button
           onclick={() => { showHidden = !showHidden; }}

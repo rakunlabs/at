@@ -17,6 +17,7 @@ import (
 // ─── Organization CRUD ───
 
 type orgRow struct {
+	WorkspaceID          string         `db:"workspace_id"`
 	ID                   string         `db:"id"`
 	Name                 string         `db:"name"`
 	Description          string         `db:"description"`
@@ -48,7 +49,7 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 		"budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone",
 		"require_board_approval_for_new_agents",
 		"head_agent_id", "max_delegation_depth",
-		"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
+		"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build list organizations query: %w", err)
@@ -71,6 +72,7 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 			&row.RequireBoardApproval,
 			&row.HeadAgentID, &row.MaxDelegationDepth,
 			&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+			&row.WorkspaceID,
 		); err != nil {
 			return nil, fmt.Errorf("scan organization row: %w", err)
 		}
@@ -91,6 +93,10 @@ func (p *Postgres) ListOrganizations(ctx context.Context, q *query.Query) (*serv
 }
 
 func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Organization, error) {
+	scope, err := p.businessReadScope(ctx, p.tableOrganizations)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableOrganizations).
 		Select(
 			"id", "name", "description",
@@ -99,9 +105,9 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 			"budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone",
 			"require_board_approval_for_new_agents",
 			"head_agent_id", "max_delegation_depth",
-			"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by",
+			"canvas_layout", "container_config", "created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 		).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get organization query: %w", err)
@@ -116,6 +122,7 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 		&row.RequireBoardApproval,
 		&row.HeadAgentID, &row.MaxDelegationDepth,
 		&row.CanvasLayout, &row.ContainerConfig, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		&row.WorkspaceID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -128,6 +135,20 @@ func (p *Postgres) GetOrganization(ctx context.Context, id string) (*service.Org
 }
 
 func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organization) (*service.Organization, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableOrganizations, "organizations.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if org.WorkspaceID != "" && org.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if org.ContainerConfig != nil && !w.actor.PlatformAdmin {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.businessReference(ctx, w, p.tableAgents, "id", org.HeadAgentID); err != nil {
+		return nil, err
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
@@ -142,6 +163,7 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 	}
 
 	rec := goqu.Record{
+		"workspace_id":                          w.actor.WorkspaceID,
 		"id":                                    id,
 		"name":                                  org.Name,
 		"description":                           org.Description,
@@ -172,16 +194,20 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 		rec["budget_reset_at"] = nil
 	}
 
-	query, _, err := p.goqu.Insert(p.tableOrganizations).Rows(rec).ToSQL()
+	query, _, err := w.tx.Insert(p.tableOrganizations).Rows(rec).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert organization query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create organization %q: %w", org.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit organization: %w", err)
 	}
 
 	return &service.Organization{
+		WorkspaceID:          w.actor.WorkspaceID,
 		ID:                   id,
 		Name:                 org.Name,
 		Description:          org.Description,
@@ -204,6 +230,20 @@ func (p *Postgres) CreateOrganization(ctx context.Context, org service.Organizat
 }
 
 func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org service.Organization) (*service.Organization, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableOrganizations, "organizations.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if org.WorkspaceID != "" && org.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if org.ContainerConfig != nil && !w.actor.PlatformAdmin {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.businessReference(ctx, w, p.tableAgents, "id", org.HeadAgentID); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 
 	rec := goqu.Record{
@@ -237,12 +277,12 @@ func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org servic
 		rec["budget_reset_at"] = nil
 	}
 
-	query, _, err := p.goqu.Update(p.tableOrganizations).Set(rec).Where(goqu.I("id").Eq(id)).ToSQL()
+	query, _, err := w.tx.Update(p.tableOrganizations).Set(rec).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update organization query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update organization %q: %w", id, err)
 	}
@@ -254,39 +294,49 @@ func (p *Postgres) UpdateOrganization(ctx context.Context, id string, org servic
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit organization update: %w", err)
+	}
 
 	return p.GetOrganization(ctx, id)
 }
 
 func (p *Postgres) DeleteOrganization(ctx context.Context, id string) error {
-	query, _, err := p.goqu.Delete(p.tableOrganizations).
-		Where(goqu.I("id").Eq(id)).
+	w, err := p.beginBusinessWrite(ctx, p.tableOrganizations, "organizations.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
+	query, _, err := w.tx.Delete(p.tableOrganizations).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete organization query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete organization %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) IncrementIssueCounter(ctx context.Context, orgID string) (int64, error) {
-	// Atomically increment and return the new counter value.
-	q := fmt.Sprintf(
-		`UPDATE %s SET issue_counter = issue_counter + 1, updated_at = $1 WHERE id = $2 RETURNING issue_counter`,
-		p.tableOrganizations.GetTable(),
-	)
-	now := time.Now().UTC()
+	w, err := p.beginBusinessWrite(ctx, p.tableOrganizations, "organizations.write", orgID)
+	if err != nil {
+		return 0, err
+	}
+	defer w.tx.Rollback()
 	var counter int64
-	err := p.db.QueryRowContext(ctx, q, now, orgID).Scan(&counter)
+	found, err := w.tx.Update(p.tableOrganizations).Set(goqu.Record{"issue_counter": goqu.L("issue_counter + 1"), "updated_at": time.Now().UTC()}).Where(w.predicate, goqu.C("id").Eq(orgID)).Returning("issue_counter").Executor().ScanValContext(ctx, &counter)
 	if err != nil {
 		return 0, fmt.Errorf("increment issue counter for org %q: %w", orgID, err)
 	}
-	return counter, nil
+	if !found {
+		return 0, service.ErrAccessResourceNotFound
+	}
+	return counter, w.tx.Commit()
 }
 
 func orgRowToRecord(row orgRow) *service.Organization {
@@ -301,6 +351,7 @@ func orgRowToRecord(row orgRow) *service.Organization {
 	}
 
 	return &service.Organization{
+		WorkspaceID:        row.WorkspaceID,
 		ID:                 row.ID,
 		Name:               row.Name,
 		Description:        row.Description,

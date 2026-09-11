@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 func TestResolveConnectionKey(t *testing.T) {
@@ -163,29 +164,29 @@ func TestResolveAgentConnectionBindings_SkillOverride(t *testing.T) {
 	})
 
 	// Skill override wins.
-	bindings := ResolveAgentConnectionBindings(context.Background(), lookup,
+	bindings := ResolveAgentConnectionBindings(executiontest.Context(t), lookup,
 		map[string]string{"youtube": "conn-agent"},
 		map[string]string{"youtube": "conn-skill"},
 	)
-	if bindings["youtube"].ID != "conn-skill" {
-		t.Errorf("override: got %q, want conn-skill", bindings["youtube"].ID)
+	if bindings["youtube"] == nil || bindings["youtube"].ID != "conn-skill" {
+		t.Fatalf("override: got %+v, want conn-skill", bindings["youtube"])
 	}
 
 	// No skill override: agent-level binding applies.
-	bindings = ResolveAgentConnectionBindings(context.Background(), lookup,
+	bindings = ResolveAgentConnectionBindings(executiontest.Context(t), lookup,
 		map[string]string{"youtube": "conn-agent"},
 		nil,
 	)
-	if bindings["youtube"].ID != "conn-agent" {
-		t.Errorf("agent binding: got %q, want conn-agent", bindings["youtube"].ID)
+	if bindings["youtube"] == nil || bindings["youtube"].ID != "conn-agent" {
+		t.Fatalf("agent binding: got %+v, want conn-agent", bindings["youtube"])
 	}
 
-	// Unknown connection ID: silently skipped.
-	bindings = ResolveAgentConnectionBindings(context.Background(), lookup,
+	// An explicitly configured missing binding must not fall back to globals.
+	bindings = ResolveAgentConnectionBindings(executiontest.Context(t), lookup,
 		map[string]string{"youtube": "conn-missing"},
 		nil,
 	)
-	if len(bindings) != 0 {
-		t.Errorf("missing lookup: expected empty, got %v", bindings)
+	if value, exists := bindings["youtube"]; !exists || value != nil {
+		t.Errorf("missing lookup: expected denial tombstone, got %v", bindings)
 	}
 }

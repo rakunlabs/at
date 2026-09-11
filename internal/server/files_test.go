@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 // browseRequest is a tiny helper for hitting FileBrowseAPI in tests.
@@ -18,7 +20,7 @@ func browseRequest(t *testing.T, s *Server, path string) *httptest.ResponseRecor
 	url := "/api/v1/files/browse?path=" + path
 	req := httptest.NewRequest(http.MethodGet, url, nil)
 	rec := httptest.NewRecorder()
-	s.FileBrowseAPI(rec, req)
+	s.FileBrowseAPI(rec, req.WithContext(executiontest.Context(t)))
 	return rec
 }
 
@@ -78,7 +80,7 @@ func TestFileServeAPIRangeSupport(t *testing.T) {
 	t.Run("full request advertises Accept-Ranges", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/serve?path="+target, nil)
 		rec := httptest.NewRecorder()
-		s.FileServeAPI(rec, req)
+		s.FileServeAPI(rec, req.WithContext(executiontest.Context(t)))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("want 200, got %d", rec.Code)
 		}
@@ -96,7 +98,7 @@ func TestFileServeAPIRangeSupport(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/serve?path="+target, nil)
 		req.Header.Set("Range", "bytes=6-10")
 		rec := httptest.NewRecorder()
-		s.FileServeAPI(rec, req)
+		s.FileServeAPI(rec, req.WithContext(executiontest.Context(t)))
 		if rec.Code != http.StatusPartialContent {
 			t.Fatalf("want 206, got %d", rec.Code)
 		}
@@ -115,7 +117,7 @@ func TestFileServeAPIRangeSupport(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/api/v1/files/serve?path="+target, nil)
 		req.Header.Set("Range", "bytes=20-")
 		rec := httptest.NewRecorder()
-		s.FileServeAPI(rec, req)
+		s.FileServeAPI(rec, req.WithContext(executiontest.Context(t)))
 		if rec.Code != http.StatusPartialContent {
 			t.Fatalf("want 206, got %d", rec.Code)
 		}
@@ -141,7 +143,7 @@ func TestFileServeAPISetsContentType(t *testing.T) {
 	s := &Server{}
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/files/serve?path="+target, nil)
 	rec := httptest.NewRecorder()
-	s.FileServeAPI(rec, req)
+	s.FileServeAPI(rec, req.WithContext(executiontest.Context(t)))
 
 	if got := rec.Header().Get("Content-Type"); !strings.HasPrefix(got, "video/mp4") {
 		t.Errorf("want Content-Type starting with video/mp4, got %q", got)
@@ -157,7 +159,7 @@ func TestFileDeleteAPIRejectsRoot(t *testing.T) {
 	s := &Server{}
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/files?path=/", nil)
 	rec := httptest.NewRecorder()
-	s.FileDeleteAPI(rec, req)
+	s.FileDeleteAPI(rec, req.WithContext(executiontest.Context(t)))
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("want 403 for delete /, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
 	}
@@ -176,7 +178,7 @@ func TestFileDeleteAPIDeletesArbitraryFile(t *testing.T) {
 	s := &Server{}
 	req := httptest.NewRequest(http.MethodDelete, "/api/v1/files?path="+target, nil)
 	rec := httptest.NewRecorder()
-	s.FileDeleteAPI(rec, req)
+	s.FileDeleteAPI(rec, req.WithContext(executiontest.Context(t)))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, rec.Body.String())
 	}
@@ -208,7 +210,7 @@ func TestFileUploadAPI(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rec := httptest.NewRecorder()
-	s.FileUploadAPI(rec, req)
+	s.FileUploadAPI(rec, req.WithContext(executiontest.Context(t)))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
@@ -241,7 +243,7 @@ func TestFileUploadAPIReplacesExistingFile(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rec := httptest.NewRecorder()
-	s.FileUploadAPI(rec, req)
+	s.FileUploadAPI(rec, req.WithContext(executiontest.Context(t)))
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("want 200, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
@@ -279,13 +281,13 @@ func TestFileUploadAPI_TraversalName(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/files/upload", &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	rec := httptest.NewRecorder()
-	s.FileUploadAPI(rec, req)
+	s.FileUploadAPI(rec, req.WithContext(executiontest.Context(t)))
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("want 200, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("want 400 for traversal name, got %d (%s)", rec.Code, strings.TrimSpace(rec.Body.String()))
 	}
-	if _, err := os.Stat(filepath.Join(dir, "escape.txt")); err != nil {
-		t.Errorf("expected flattened file inside target dir: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "escape.txt")); !os.IsNotExist(err) {
+		t.Errorf("rejected traversal must not create a file: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(filepath.Dir(dir)), "escape.txt")); err == nil {
 		t.Errorf("file escaped the target directory")

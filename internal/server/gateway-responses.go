@@ -329,7 +329,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 			latencyMs: totalLatency, status: "error",
 			errCode: classifyHTTPError(err), errMsg: err.Error(),
 		})
-		if !shouldFallback(err) {
+		if callCtx.Err() != nil || !shouldFallback(err) {
 			break
 		}
 	}

@@ -23,6 +23,12 @@ func agentConnectionsSchema() map[string]any {
 	}
 }
 
+func init() {
+	for _, tool := range builtinTools {
+		service.RegisterExecutionCapability("tool", tool.Name, true)
+	}
+}
+
 func agentSkillsSchema() map[string]any {
 	return map[string]any{
 		"type":        "array",
@@ -74,7 +80,7 @@ var builtinTools = []builtinToolDef{
 	},
 	{
 		Name:        "bash_execute",
-		Description: "Execute a bash command on the server. The command runs in a sandboxed shell (/bin/bash -c). Returns stdout. Use for file operations, system queries, running scripts, or any command-line task.",
+		Description: "Execute a bash command with daemon-UID host authority (/bin/bash -c). Requires an explicit platform-granted trusted-host workspace policy. This is not a tenant sandbox. Returns stdout.",
 		InputSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -159,19 +165,19 @@ var builtinTools = []builtinToolDef{
 	{Name: "trigger_delete", Description: "Delete a trigger by ID.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "Trigger ID to delete"}}, "required": []string{"id"}}},
 
 	// ─── Persistent Task (Issue Tracker) Tools ───
-	{Name: "task_create", Description: "Create a persistent task/issue in the AT database. When called while working inside an existing task, this creates a CHILD task of the current task by default. To intentionally create an unrelated root task from task context, pass root=true and a reason.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "description": "Task title"}, "description": map[string]any{"type": "string", "description": "Task description (markdown supported)"}, "organization_id": map[string]any{"type": "string", "description": "Organization ID to scope this task to"}, "assigned_agent_id": map[string]any{"type": "string", "description": "Agent ID to assign this task to"}, "priority_level": map[string]any{"type": "string", "description": "Priority: critical, high, medium, low", "enum": []string{"critical", "high", "medium", "low"}}, "parent_id": map[string]any{"type": "string", "description": "Parent task ID for sub-tasks. In task context this must be omitted or equal to the current task unless root=true is used."}, "status": map[string]any{"type": "string", "description": "Initial status (default: todo). Options: backlog, todo, in_progress, in_review, done"}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the agent's max iterations. 0 = use agent default."}, "root": map[string]any{"type": "boolean", "description": "Only in task context: create an unrelated root task instead of a child task. Requires reason."}, "reason": map[string]any{"type": "string", "description": "Required when root=true in task context; explains why this is not a child task."}}, "required": []string{"title"}}},
-	{Name: "task_list", Description: "List persistent tasks/issues with optional filtering by status, organization, or assigned agent.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"status": map[string]any{"type": "string", "description": "Filter by status (e.g. in_review, done, in_progress)"}, "organization_id": map[string]any{"type": "string", "description": "Filter by organization ID"}, "assigned_agent_id": map[string]any{"type": "string", "description": "Filter by assigned agent ID"}}}},
-	{Name: "task_get", Description: "Get full details of a task/issue including subtasks and comments.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The task ID"}}, "required": []string{"id"}}},
-	{Name: "task_update", Description: "Update a task's fields. Only provided fields are changed. Use this to change status (e.g. mark as done), reassign, update description, or set the result.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The task ID to update"}, "title": map[string]any{"type": "string", "description": "New title"}, "description": map[string]any{"type": "string", "description": "New description"}, "status": map[string]any{"type": "string", "description": "New status: backlog, todo, in_progress, in_review, blocked, done, cancelled"}, "priority_level": map[string]any{"type": "string", "description": "New priority: critical, high, medium, low"}, "assigned_agent_id": map[string]any{"type": "string", "description": "New assigned agent ID"}, "result": map[string]any{"type": "string", "description": "Task result/output (typically set when completing a task)"}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the agent's max iterations. 0 = use agent default."}}, "required": []string{"id"}}},
+	{Name: "task_create", Description: "Create a persistent task/issue in the AT database. When called while working inside an existing task, this creates a CHILD task of the current task by default. To intentionally create an unrelated root task from task context, pass root=true and a reason.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "description": "Task title"}, "description": map[string]any{"type": "string", "description": "Task description (markdown supported)"}, "organization_id": map[string]any{"type": "string", "description": "Organization ID. Required for the task to be runnable: task_process refuses a task with no organization. Omitted inside task context, where it is inherited from the current task."}, "assigned_agent_id": map[string]any{"type": "string", "description": "Agent ID to assign this task to"}, "priority_level": map[string]any{"type": "string", "description": "Priority: critical, high, medium, low", "enum": []string{"critical", "high", "medium", "low"}}, "parent_id": map[string]any{"type": "string", "description": "Parent task ID for sub-tasks. In task context this must be omitted or equal to the current task unless root=true is used."}, "status": map[string]any{"type": "string", "description": "Initial status (default: todo).", "enum": service.TaskStatuses}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the agent's max iterations. 0 = use agent default."}, "root": map[string]any{"type": "boolean", "description": "Only in task context: create an unrelated root task instead of a child task. Requires reason."}, "reason": map[string]any{"type": "string", "description": "Required when root=true in task context; explains why this is not a child task."}}, "required": []string{"title"}}},
+	{Name: "task_list", Description: "List tasks as compact summaries, newest first, with optional filtering. Returns at most `limit` rows; use `offset` to page. For one task's full detail use task_get.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"status": map[string]any{"type": "string", "description": "Filter by status.", "enum": service.TaskStatuses}, "organization_id": map[string]any{"type": "string", "description": "Filter by organization ID"}, "assigned_agent_id": map[string]any{"type": "string", "description": "Filter by assigned agent ID"}, "limit": map[string]any{"type": "number", "description": "Maximum rows to return (default 50, maximum 200)"}, "offset": map[string]any{"type": "number", "description": "Rows to skip, for paging (default 0)"}}}},
+	{Name: "task_get", Description: "Get a task with its child-task summaries and recent comments. Long comment bodies are trimmed and internal state comments are omitted; the reply states when anything was elided.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The task ID"}}, "required": []string{"id"}}},
+	{Name: "task_update", Description: "Update a task's fields. Only provided fields are changed. Use this to change status (e.g. mark as done), reassign, update description, or set the result.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The task ID to update"}, "title": map[string]any{"type": "string", "description": "New title"}, "description": map[string]any{"type": "string", "description": "New description"}, "status": map[string]any{"type": "string", "description": "New status.", "enum": service.TaskStatuses}, "priority_level": map[string]any{"type": "string", "description": "New priority.", "enum": []string{"critical", "high", "medium", "low"}}, "assigned_agent_id": map[string]any{"type": "string", "description": "New assigned agent ID"}, "result": map[string]any{"type": "string", "description": "Task result/output (typically set when completing a task)"}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the agent's max iterations. 0 = use agent default."}}, "required": []string{"id"}}},
 	{Name: "task_add_comment", Description: "Add a comment to a task/issue. Useful for providing feedback, requesting changes, or noting decisions.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"task_id": map[string]any{"type": "string", "description": "The task ID to comment on"}, "body": map[string]any{"type": "string", "description": "Comment text (markdown supported)"}, "author_name": map[string]any{"type": "string", "description": "Name of the commenter (default: mcp-user)"}}, "required": []string{"task_id", "body"}}},
 	{Name: "task_process", Description: "Trigger async organization delegation on a task. The task's assigned agent (or the org's head agent) will process the task using the LLM-driven delegation loop. Returns immediately (202 Accepted).", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The task ID to process"}}, "required": []string{"id"}}},
-	{Name: "task_wait", Description: "Wait for an asynchronously processed task to reach a terminal status and return its latest record. Use this immediately after task_process instead of shell sleep commands or repeated task_get polling. Terminal statuses are completed, done, cancelled, and blocked.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The task ID to wait for"}, "timeout_seconds": map[string]any{"type": "number", "description": "Maximum time to wait in seconds (default 300, maximum 1800)"}}, "required": []string{"id"}}},
-	{Name: "task_current", Description: "Return the currently active task, including child tasks and comments. Only available while an agent is working inside a task context.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
-	{Name: "task_children", Description: "List child tasks under the currently active task. Use this before creating duplicate follow-up work.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
-	{Name: "task_create_child", Description: "Create a child task under the currently active task. This is the correct tool for any new work item derived from the current task.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "description": "Child task title"}, "description": map[string]any{"type": "string", "description": "Child task description or acceptance criteria"}, "assigned_agent_id": map[string]any{"type": "string", "description": "Agent ID to assign this child task to"}, "priority_level": map[string]any{"type": "string", "description": "Priority: critical, high, medium, low", "enum": []string{"critical", "high", "medium", "low"}}, "status": map[string]any{"type": "string", "description": "Initial status (default: todo)"}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the assigned agent's max iterations. 0 = use agent default."}}, "required": []string{"title"}}},
-	{Name: "task_update_current", Description: "Update the currently active task only. Use this instead of task_update while working inside a task context.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "description": "New title"}, "description": map[string]any{"type": "string", "description": "New description"}, "status": map[string]any{"type": "string", "description": "New status: backlog, todo, in_progress, in_review, blocked, done, cancelled"}, "priority_level": map[string]any{"type": "string", "description": "New priority: critical, high, medium, low"}, "assigned_agent_id": map[string]any{"type": "string", "description": "New assigned agent ID"}, "result": map[string]any{"type": "string", "description": "Task result/output"}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the agent's max iterations. 0 = use agent default."}}}},
+	{Name: "task_wait", Description: "Wait for an asynchronously processed task to reach a terminal status and return its latest record. Use this immediately after task_process instead of shell sleep commands or repeated task_get polling. Terminal statuses are done, cancelled, and blocked.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "description": "The task ID to wait for"}, "timeout_seconds": map[string]any{"type": "number", "description": "Maximum time to wait in seconds (default 300). Capped by this agent's per-tool timeout, so a long wait may return early with timed_out=true; call task_wait again to keep waiting."}}, "required": []string{"id"}}},
+	{Name: "task_current", Description: "Return the currently active task with its child-task summaries and recent comments, trimmed the same way as task_get. Only available while working inside a task context.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "task_children", Description: "List child tasks of the currently active task as compact summaries. Use this before creating duplicate follow-up work. Call task_get on a child for its full description and result.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{}}},
+	{Name: "task_create_child", Description: "Create a child task under the currently active task. This is the correct tool for any new work item derived from the current task. This only records the task — it does NOT start it. Call task_process afterwards to run it, or delegate_to_* to hand the work to a teammate.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "description": "Child task title"}, "description": map[string]any{"type": "string", "description": "Child task description or acceptance criteria"}, "assigned_agent_id": map[string]any{"type": "string", "description": "Agent ID to assign this child task to"}, "priority_level": map[string]any{"type": "string", "description": "Priority: critical, high, medium, low", "enum": []string{"critical", "high", "medium", "low"}}, "status": map[string]any{"type": "string", "description": "Initial status (default: todo).", "enum": service.TaskStatuses}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the assigned agent's max iterations. 0 = use agent default."}}, "required": []string{"title"}}},
+	{Name: "task_update_current", Description: "Update the currently active task only. Use this instead of task_update while working inside a task context.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"title": map[string]any{"type": "string", "description": "New title"}, "description": map[string]any{"type": "string", "description": "New description"}, "status": map[string]any{"type": "string", "description": "New status.", "enum": service.TaskStatuses}, "priority_level": map[string]any{"type": "string", "description": "New priority.", "enum": []string{"critical", "high", "medium", "low"}}, "assigned_agent_id": map[string]any{"type": "string", "description": "New assigned agent ID"}, "result": map[string]any{"type": "string", "description": "Task result/output"}, "max_iterations": map[string]any{"type": "number", "description": "Per-task override of the agent's max iterations. 0 = use agent default."}}}},
 	{Name: "task_comment_current", Description: "Add a comment to the currently active task only.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"body": map[string]any{"type": "string", "description": "Comment text (markdown supported)"}, "author_name": map[string]any{"type": "string", "description": "Name of the commenter. Defaults to the current agent ID."}}, "required": []string{"body"}}},
-	{Name: "task_complete", Description: "Mark the currently active task as completed with a final result. The result you pass here is the definitive task output delivered to the delegator — include everything they need. In delegation runs this ends the run immediately; do not plan a follow-up response.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"result": map[string]any{"type": "string", "description": "Final task result/output"}}, "required": []string{"result"}}},
+	{Name: "task_complete", Description: "Mark the currently active task as completed with a final result. The result you pass here is the definitive task output delivered to the delegator — include everything they need. In delegation runs this ends the run immediately; do not plan a follow-up response.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"result": map[string]any{"type": "string", "description": "Final task result/output. This string is all the delegator receives — comments, child tasks and files in the workspace are not shown to them, so state any path or finding they need here."}}, "required": []string{"result"}}},
 	{Name: "task_block", Description: "Mark the currently active task as blocked with a clear reason or missing dependency. The reason you pass here is the definitive blocker report — include everything needed to unblock. In delegation runs this ends the run immediately; do not plan a follow-up response.", InputSchema: map[string]any{"type": "object", "properties": map[string]any{"reason": map[string]any{"type": "string", "description": "Why this task is blocked and what is needed to unblock it"}}, "required": []string{"reason"}}},
 
 	// ─── LLM Trace & Observation Tools ───
@@ -922,6 +928,9 @@ func resolveBashTimeout(ctx context.Context, args map[string]any, now time.Time)
 // If the context has a container scope and the org/bot has containers enabled,
 // the command is executed inside the corresponding Docker container.
 func (s *Server) execBash(ctx context.Context, args map[string]any) (string, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: "bash_execute"}); err != nil {
+		return "", err
+	}
 	command, _ := args["command"].(string)
 	if command == "" {
 		return "", fmt.Errorf("command is required")
@@ -943,15 +952,7 @@ func (s *Server) execBash(ctx context.Context, args map[string]any) (string, err
 			if workDir := workflow.WorkDirFromContext(ctx); workDir != "" {
 				env["AT_WORK_DIR"] = "/workspace"
 			}
-			// Add variable store vars
-			if s.variableStore != nil {
-				vars, err := s.variableStore.ListVariables(ctx, nil)
-				if err == nil {
-					for _, v := range vars.Data {
-						env["VAR_"+strings.ToUpper(strings.NewReplacer(".", "_", "-", "_").Replace(v.Key))] = v.Value
-					}
-				}
-			}
+			// Never inject an unscoped global variable listing into a child.
 
 			execCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
@@ -969,6 +970,8 @@ func (s *Server) execBash(ctx context.Context, args map[string]any) (string, err
 			if scope.UserID != "" {
 				containerID = "user-" + scope.UserID
 			}
+			provenance, _, _ := service.ExecutionFromContext(ctx)
+			containerID = provenance.WorkspaceID + "-" + containerID
 
 			stdout, stderr, exitCode, err := s.containerManager.Exec(execCtx, containerID, containerCfg, command, env)
 			if err != nil {
@@ -992,19 +995,6 @@ func (s *Server) execBash(ctx context.Context, args map[string]any) (string, err
 
 	// No container — execute on host (default behavior).
 	var varLister workflow.VarLister
-	if s.variableStore != nil {
-		varLister = func() (map[string]string, error) {
-			vars, err := s.variableStore.ListVariables(ctx, nil)
-			if err != nil {
-				return nil, err
-			}
-			m := make(map[string]string, len(vars.Data))
-			for _, v := range vars.Data {
-				m[v.Key] = v.Value
-			}
-			return m, nil
-		}
-	}
 
 	return workflow.ExecuteBashHandler(ctx, command, nil, varLister, timeout)
 }
@@ -1040,6 +1030,9 @@ func (s *Server) execJS(ctx context.Context, args map[string]any) (string, error
 	var varLookup workflow.VarLookup
 	if s.variableStore != nil {
 		varLookup = func(key string) (string, error) {
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
+				return "", err
+			}
 			v, err := s.variableStore.GetVariableByKey(ctx, key)
 			if err != nil {
 				return "", err
@@ -1051,7 +1044,7 @@ func (s *Server) execJS(ctx context.Context, args map[string]any) (string, error
 		}
 	}
 
-	return workflow.ExecuteJSHandler(code, nil, varLookup)
+	return workflow.ExecuteJSHandlerContext(ctx, code, nil, varLookup)
 }
 
 // execURLFetch executes the url_fetch built-in tool.

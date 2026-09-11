@@ -266,7 +266,8 @@ func NewFanOutResult(items []map[string]any) NodeResultFanOut {
 // complete dependency set without reconstructing positional arguments.
 type Dependencies struct {
 	// ProviderLookup resolves LLM provider keys to provider instances.
-	ProviderLookup ProviderLookup
+	ProviderLookup       ProviderLookup
+	ScopedProviderLookup func(context.Context, string) (service.LLMProvider, string, error)
 
 	// SkillLookup resolves a skill name or ID to a Skill definition.
 	// Used by agent_call nodes to load skill tools and system prompts.
@@ -279,6 +280,10 @@ type Dependencies struct {
 	// VarLister returns all variable key-value pairs.
 	// Used by bash tool handlers to inject variables as environment variables.
 	VarLister VarLister
+
+	// ScopedVarLister is the runtime adapter for workspace-filtered variables.
+	// Unlike VarLister it receives the current run context on each invocation.
+	ScopedVarLister func(context.Context) (map[string]string, error)
 
 	// UserPrefLookup resolves a per-user preference key to its JSON value string.
 	// Used by getUserPref() in the Goja JS VM.

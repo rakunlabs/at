@@ -169,9 +169,9 @@ func TestNormalizeFinishReason(t *testing.T) {
 
 func TestMapStreamFinishReason(t *testing.T) {
 	tests := []struct {
-		raw      string
+		raw       string
 		toolCalls bool
-		want     string
+		want      string
 	}{
 		{"stop", false, "stop"},
 		{"length", false, "length"},

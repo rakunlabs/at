@@ -16,17 +16,56 @@
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listAgents, type Agent, type SkillRef } from '@/lib/api/agents';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
-  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, Mic, MicOff } from 'lucide-svelte';
+  import {
+    type PlaygroundConversation,
+    type PlaygroundConversationInput,
+    type PlaygroundMessage,
+    type PlaygroundMessageInput,
+    type PlaygroundRole,
+    PLAYGROUND_MESSAGE_BATCH_MAX,
+    appendPlaygroundMessages,
+    createPlaygroundConversation,
+    deletePlaygroundConversation,
+    forkPlaygroundConversation,
+    getPlaygroundConversation,
+    listPlaygroundConversations,
+    listPlaygroundMessages,
+    patchPlaygroundConversation,
+    persistPlaygroundImages,
+    playgroundErrorMessage,
+    playgroundRoute,
+    playgroundTitleFrom,
+    truncatePlaygroundMessages,
+  } from '@/lib/api/playground';
+  import {
+    MEDIA_ALLOWED_LABEL,
+    MEDIA_MAX_UPLOAD_BYTES,
+    dataUrlToBlob,
+    getMediaDataURL,
+    isMediaStorageDisabled,
+    mediaImageURL,
+    mediaUploadErrorMessage,
+    uploadMedia,
+  } from '@/lib/api/media';
+  import ConversationList from '@/lib/components/playground/ConversationList.svelte';
+  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, Mic, MicOff, PanelLeft, GitBranch, CloudOff, ImageOff } from 'lucide-svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import { push } from 'svelte-spa-router';
   import axios from 'axios';
   import Markdown from '@/lib/components/Markdown.svelte';
 
-  storeNavbar.title = 'Chat';
+  storeNavbar.title = 'Playground';
+
+  // svelte-spa-router yields `{id: null}` for the bare `/playground` route.
+  let { params = {} }: { params?: { id?: string | null } } = $props();
 
   // ─── Types ───
 
   interface PendingImage {
     name: string;
     dataUrl: string;
+    /** Over the 16 MB media-storage cap: sent to the model, not saved to history. */
+    oversize?: boolean;
   }
 
   /** Maps a tool name to its source for dispatch. */
@@ -53,6 +92,23 @@
     multiple?: boolean;
     custom?: boolean;
     resolve: (answer: string) => void;
+  }
+
+  /**
+   * Durable-history bookkeeping kept strictly parallel to `messages`: index `i`
+   * of `meta` always describes `messages[i]`. `sequence` is the single source of
+   * truth for "already persisted" — `null` means the message exists only in the
+   * browser, a number is the gapless sequence the store assigned. Every append
+   * only sends the `null` ones, so a retry after a failed save can never
+   * duplicate a row.
+   */
+  interface MessageMeta {
+    sequence: number | null;
+    /** The provider/model pair that produced (or accompanied) this message. */
+    provider_key: string;
+    model: string;
+    /** Original file names of attached images, consumed when stripping. */
+    imageNames: string[];
   }
 
   // ─── Constants ───
@@ -255,6 +311,437 @@
   let toolCount = $derived(discoveredTools.length);
   let todoActiveCount = $derived(todos.filter(t => t.status === 'pending' || t.status === 'in_progress').length);
 
+  // ─── Durable history state ───
+
+  /** Empty string means "unsaved scratch buffer". */
+  let conversationId = $state('');
+  let conversation = $state<PlaygroundConversation | null>(null);
+  let parentTitle = $state('');
+  let meta = $state<MessageMeta[]>([]);
+  let conversations = $state<PlaygroundConversation[]>([]);
+  let conversationsLoading = $state(false);
+  let conversationsCursor = $state('');
+  let showConversations = $state(true);
+  let historyLoading = $state(false);
+  let historyTruncated = $state(false);
+  let saving = $state(false);
+  let saveQueued = false;
+  let confirmClear = $state(false);
+
+  // ─── Media storage ───
+
+  /**
+   * `media_id` → the re-inlined data URI. A restored transcript only carries
+   * ids, but every provider needs image content in the request body, so the
+   * bytes are fetched once and reused for the rest of the page session. Media
+   * objects are immutable server-side, so an entry can never go stale; a failed
+   * fetch is cached as `''` so a deleted object is not refetched on every
+   * message of every turn. A page reload starts from empty.
+   */
+  const mediaDataUrls = new Map<string, Promise<string>>();
+
+  /**
+   * Inline data URI → the media id it was stored as. A save retry after a
+   * partial failure then re-uses the existing object instead of uploading the
+   * same bytes twice.
+   */
+  const uploadedMedia = new Map<string, string>();
+
+  /** Set once a 503 proves storage is off: one quiet hint, never a toast per image. */
+  let mediaStorageOff = $state(false);
+  let mediaHintDismissed = $state(false);
+
+  /** Bytes for a stored image, fetched lazily and cached per id. */
+  function mediaDataUrl(id: string): Promise<string> {
+    let pending = mediaDataUrls.get(id);
+    if (!pending) {
+      pending = getMediaDataURL(id).catch(() => '');
+      mediaDataUrls.set(id, pending);
+    }
+    return pending;
+  }
+
+  /**
+   * Upload one attachment for persistence. Returns `''` when it could not be
+   * stored, which the caller turns into the omitted descriptor so the turn
+   * still persists. 413 and 415 are named per image; 503 only raises the
+   * one-time hint, because a disabled backend is a configuration fact, not a
+   * per-image error worth repeating.
+   */
+  async function uploadAttachment(dataUrl: string, name: string): Promise<string> {
+    const existing = uploadedMedia.get(dataUrl);
+    if (existing) return existing;
+    try {
+      const object = await uploadMedia(dataUrlToBlob(dataUrl), name);
+      uploadedMedia.set(dataUrl, object.id);
+      // The bytes are already inline in this tab: skip the round trip later.
+      mediaDataUrls.set(object.id, Promise.resolve(dataUrl));
+      return object.id;
+    } catch (e) {
+      if (isMediaStorageDisabled(e)) {
+        mediaStorageOff = true;
+        return '';
+      }
+      addToast(mediaUploadErrorMessage(e, name), 'alert');
+      return '';
+    }
+  }
+
+  let unsavedCount = $derived(meta.reduce((n, m) => n + (m.sequence === null ? 1 : 0), 0));
+
+  /**
+   * A restored conversation may name a model the provider list no longer
+   * advertises. Keeping it as an option is both honest and keeps the select
+   * binding from silently rewriting the conversation's stored pair.
+   */
+  let modelOptions = $derived(selectedModel && !models.includes(selectedModel) ? [selectedModel, ...models] : models);
+
+  /** Last state successfully written to the conversation row, for diffing. */
+  let savedSettings: { system_prompt: string; provider_key: string; model: string; config: string } | null = null;
+  let settingsTimer: ReturnType<typeof setTimeout> | null = null;
+  let confirmClearTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Mirrors the id currently reflected in the hash route. */
+  let routedId = '';
+
+  const HISTORY_MAX_PAGES = 10;
+  const HISTORY_PAGE_SIZE = 200;
+
+  /** `provider_key/model` — the model half may itself contain slashes. */
+  function splitModel(value: string): { provider_key: string; model: string } {
+    const at = value.indexOf('/');
+    return at < 0 ? { provider_key: value, model: '' } : { provider_key: value.slice(0, at), model: value.slice(at + 1) };
+  }
+
+  function joinModel(providerKey: string, model: string): string {
+    return model ? `${providerKey}/${model}` : providerKey;
+  }
+
+  // ─── Workbench config round-trip ───
+
+  function currentConfig(): Record<string, unknown> {
+    return {
+      mcp_urls: [...mcpUrls],
+      mcp_headers: { ...mcpHeaders },
+      mcp_sets: [...selectedMCPSetNames],
+      skills: [...selectedSkillNames],
+      builtin_tools: [...enabledBuiltinTools],
+      frontend_tools: [...enabledFrontendTools],
+    };
+  }
+
+  function applyConfig(config: Record<string, unknown> | null | undefined) {
+    const c = config ?? {};
+    const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
+    mcpUrls = names(c.mcp_urls);
+    selectedMCPSetNames = names(c.mcp_sets);
+    selectedSkillNames = names(c.skills);
+    enabledBuiltinTools = names(c.builtin_tools);
+    enabledFrontendTools = names(c.frontend_tools);
+    const headers = c.mcp_headers;
+    mcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
+      ? Object.fromEntries(Object.entries(headers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'))
+      : {};
+    showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
+  }
+
+  function settingsSnapshot() {
+    const { provider_key, model } = splitModel(selectedModel);
+    return { system_prompt: systemPrompt, provider_key, model, config: JSON.stringify(currentConfig()) };
+  }
+
+  /** Debounced: tool toggles and keystrokes must not turn into a PATCH storm. */
+  function scheduleSettingsSave() {
+    if (!conversationId) return;
+    if (settingsTimer) clearTimeout(settingsTimer);
+    settingsTimer = setTimeout(() => { settingsTimer = null; void saveSettings(); }, 800);
+  }
+
+  async function saveSettings() {
+    const id = conversationId;
+    if (!id || !savedSettings) return;
+    const next = settingsSnapshot();
+    const patch: PlaygroundConversationInput = {};
+    if (next.system_prompt !== savedSettings.system_prompt) patch.system_prompt = next.system_prompt;
+    // Never overwrite a stored pair with an empty one: a conversation whose
+    // provider was removed still deserves to remember what it ran on.
+    if (next.provider_key && next.provider_key !== savedSettings.provider_key) patch.provider_key = next.provider_key;
+    if (next.provider_key && next.model !== savedSettings.model) patch.model = next.model;
+    if (next.config !== savedSettings.config) patch.config = JSON.parse(next.config);
+    try {
+      // Returns null without calling the API when nothing changed: PATCH {} is a 400.
+      const updated = await patchPlaygroundConversation(id, patch);
+      if (!updated || conversationId !== id) return;
+      savedSettings = next;
+      conversation = updated;
+      mergeConversation(updated);
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to save conversation settings'), 'alert');
+    }
+  }
+
+  // ─── Conversation list ───
+
+  function mergeConversation(c: PlaygroundConversation) {
+    conversations = [c, ...conversations.filter(x => x.id !== c.id)];
+  }
+
+  async function loadConversations(more = false) {
+    if (conversationsLoading) return;
+    if (more && !conversationsCursor) return;
+    conversationsLoading = true;
+    try {
+      const before = more ? conversationsCursor : '';
+      const res = await listPlaygroundConversations({ limit: 50, before: before || undefined });
+      const page = res.data ?? [];
+      conversations = more
+        ? [...conversations, ...page.filter(c => !conversations.some(x => x.id === c.id))]
+        : page;
+      conversationsCursor = res.meta?.next_before ?? '';
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to load conversations'), 'alert');
+    } finally {
+      conversationsLoading = false;
+    }
+  }
+
+  function selectConversation(id: string) {
+    if (id === conversationId) return;
+    push(playgroundRoute(id));
+  }
+
+  function newConversation() {
+    // Already on the scratch route: the hash would not change, so reset directly.
+    if (!conversationId) { void openConversation(''); return; }
+    push('/playground');
+  }
+
+  async function renameConversation(id: string, title: string) {
+    const previous = conversations.find(c => c.id === id);
+    conversations = conversations.map(c => (c.id === id ? { ...c, title } : c));
+    try {
+      const updated = await patchPlaygroundConversation(id, { title });
+      if (!updated) return;
+      mergeConversation(updated);
+      if (conversationId === id) conversation = updated;
+    } catch (e) {
+      if (previous) conversations = conversations.map(c => (c.id === id ? previous : c));
+      addToast(playgroundErrorMessage(e, 'Failed to rename conversation'), 'alert');
+    }
+  }
+
+  async function removeConversation(id: string) {
+    try {
+      await deletePlaygroundConversation(id);
+      conversations = conversations.filter(c => c.id !== id);
+      if (conversationId === id) push('/playground');
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to delete conversation'), 'alert');
+    }
+  }
+
+  // ─── Open / restore ───
+
+  function resetBuffer() {
+    if (abortController) { abortController.abort(); abortController = null; }
+    streaming = false;
+    messages = [];
+    meta = [];
+    systemPrompt = '';
+    pendingImages = [];
+    todos = [];
+    pendingQuestion = null;
+    contextTokens = 0;
+    completionTokens = 0;
+    totalTokens = 0;
+    confirmClear = false;
+  }
+
+  function toChatMessage(m: PlaygroundMessage): ChatMessage {
+    const data = (m.data ?? {}) as Record<string, any>;
+    const msg: ChatMessage = { role: m.role, content: (data.content ?? '') as string | ContentPart[] };
+    if (Array.isArray(data.tool_calls)) msg.tool_calls = data.tool_calls as ToolCall[];
+    if (typeof data.tool_call_id === 'string') msg.tool_call_id = data.tool_call_id;
+    return msg;
+  }
+
+  function toMessageData(m: ChatMessage): Record<string, unknown> {
+    const data: Record<string, unknown> = { content: m.content };
+    if (m.tool_calls) data.tool_calls = m.tool_calls;
+    if (m.tool_call_id) data.tool_call_id = m.tool_call_id;
+    return data;
+  }
+
+  async function openConversation(id: string) {
+    if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; }
+    resetBuffer();
+    conversationId = id;
+    conversation = null;
+    parentTitle = '';
+    historyTruncated = false;
+    savedSettings = null;
+    if (!id) return;
+
+    historyLoading = true;
+    try {
+      const c = await getPlaygroundConversation(id);
+      if (conversationId !== id) return;
+      conversation = c;
+      systemPrompt = c.system_prompt || '';
+      const pair = joinModel(c.provider_key || '', c.model || '');
+      if (pair) selectedModel = pair;
+      applyConfig(c.config);
+      savedSettings = settingsSnapshot();
+      mergeConversation(c);
+
+      // Load the WHOLE transcript. A partial one would silently truncate the
+      // context sent upstream on the next turn, which is worse than slow.
+      const loaded: PlaygroundMessage[] = [];
+      let cursor = '';
+      let pages = 0;
+      while (pages < HISTORY_MAX_PAGES) {
+        const res = await listPlaygroundMessages(id, { limit: HISTORY_PAGE_SIZE, before: cursor || undefined });
+        if (conversationId !== id) return;
+        loaded.unshift(...(res.data ?? []));
+        cursor = res.meta?.next_before ?? '';
+        pages += 1;
+        if (!cursor) break;
+      }
+      historyTruncated = !!cursor;
+
+      messages = loaded.map(toChatMessage);
+      meta = loaded.map(m => ({ sequence: m.sequence, provider_key: m.provider_key, model: m.model, imageNames: [] }));
+      if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
+      void refreshTools();
+      scrollToBottom();
+    } catch (e) {
+      if (conversationId !== id) return;
+      addToast(playgroundErrorMessage(e, 'Failed to open conversation'), 'alert');
+    } finally {
+      if (conversationId === id) historyLoading = false;
+    }
+  }
+
+  /** A deleted parent leaves `forked_from_sequence` but drops `forked_from_id`. */
+  async function loadParentTitle(id: string) {
+    try {
+      const parent = await getPlaygroundConversation(id);
+      if (conversation?.forked_from_id === id) parentTitle = parent.title?.trim() || 'Untitled conversation';
+    } catch {
+      parentTitle = '';
+    }
+  }
+
+  $effect(() => {
+    const id = params.id ?? '';
+    if (id === routedId) return;
+    routedId = id;
+    untrack(() => { void openConversation(id); });
+  });
+
+  // ─── Persistence ───
+
+  async function ensureConversation(seedTitle: string): Promise<string> {
+    if (conversationId) return conversationId;
+    const { provider_key, model } = splitModel(selectedModel);
+    const created = await createPlaygroundConversation({
+      title: playgroundTitleFrom(seedTitle),
+      system_prompt: systemPrompt,
+      provider_key,
+      model,
+      config: currentConfig(),
+    });
+    conversationId = created.id;
+    // Claim the route before pushing so the router effect does not reload and
+    // discard the in-flight turn.
+    routedId = created.id;
+    conversation = created;
+    savedSettings = settingsSnapshot();
+    mergeConversation(created);
+    push(playgroundRoute(created.id));
+    return created.id;
+  }
+
+  /**
+   * Append every message this turn produced in one batched call. Failures are
+   * non-destructive: the transcript stays in memory with `sequence === null`,
+   * so the toolbar retry re-sends exactly the same, still-unsaved messages.
+   */
+  async function persistPending() {
+    const id = conversationId;
+    if (!id) return;
+    // A second turn can finish while the first batch is still in flight; queue
+    // instead of dropping it, so nothing silently stays unsaved.
+    if (saving) { saveQueued = true; return; }
+    const indexes: number[] = [];
+    for (let i = 0; i < messages.length; i += 1) {
+      if (meta[i]?.sequence === null && messages[i].role !== 'system') indexes.push(i);
+    }
+    if (indexes.length === 0) return;
+
+    saving = true;
+    try {
+      // An inline data-URI is never stored in `data`: it goes to media storage
+      // and leaves a `media_id` behind, or degrades to a visible descriptor.
+      const batch: PlaygroundMessageInput[] = [];
+      for (const i of indexes) {
+        batch.push({
+          role: messages[i].role as PlaygroundRole,
+          provider_key: meta[i].provider_key,
+          model: meta[i].model,
+          data: await persistPlaygroundImages(toMessageData(messages[i]), meta[i].imageNames, uploadAttachment),
+        });
+      }
+
+      for (let offset = 0; offset < batch.length; offset += PLAYGROUND_MESSAGE_BATCH_MAX) {
+        const stored = await appendPlaygroundMessages(id, batch.slice(offset, offset + PLAYGROUND_MESSAGE_BATCH_MAX));
+        if (conversationId !== id) return;
+        stored.forEach((s, k) => {
+          const index = indexes[offset + k];
+          if (meta[index]) meta[index] = { ...meta[index], sequence: s.sequence };
+        });
+      }
+      // An append bumps `updated_at` server-side, so mirror the promotion.
+      const current = conversations.find(c => c.id === id);
+      if (current) mergeConversation({ ...current, updated_at: new Date().toISOString() });
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to save messages. They are kept in the transcript — retry from the toolbar.'), 'alert');
+      saveQueued = false;
+    } finally {
+      saving = false;
+      if (saveQueued) { saveQueued = false; void persistPending(); }
+    }
+  }
+
+  /** Keep the first `keep` messages, and drop the stored tail to match. */
+  async function truncateFrom(keep: number) {
+    const removed = meta.slice(keep).map(m => m.sequence).filter((s): s is number => s !== null);
+    messages = messages.slice(0, keep);
+    meta = meta.slice(0, keep);
+    if (!conversationId || removed.length === 0) return;
+    try {
+      await truncatePlaygroundMessages(conversationId, Math.min(...removed));
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to trim stored history'), 'alert');
+    }
+  }
+
+  async function forkFrom(index: number) {
+    const sequence = meta[index]?.sequence;
+    if (!conversationId || sequence === null || sequence === undefined) return;
+    try {
+      const forked = await forkPlaygroundConversation(conversationId, sequence);
+      mergeConversation(forked);
+      push(playgroundRoute(forked.id));
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to fork conversation'), 'alert');
+    }
+  }
+
+  onDestroy(() => {
+    if (confirmClearTimer) clearTimeout(confirmClearTimer);
+    if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; void saveSettings(); }
+  });
+
   // ─── Load providers/models ───
 
   async function loadInfo() {
@@ -326,6 +813,7 @@
   loadSkills();
   loadBuiltinTools();
   loadMCPSets();
+  loadConversations();
 
   // ─── Scroll ───
 
@@ -355,9 +843,13 @@
         addToast(`Image "${file.name}" is too large (max 20MB)`, 'alert');
         continue;
       }
+      // The model still accepts it; media storage does not. Say so up front
+      // rather than reporting a 413 after the turn has already been sent.
+      const oversize = file.size > MEDIA_MAX_UPLOAD_BYTES;
+      if (oversize) addToast(`"${file.name}" is over the 16 MB storage limit — it is sent to the model but not saved to history`, 'warn');
       try {
         const dataUrl = await readFileAsDataURL(file);
-        pendingImages = [...pendingImages, { name: file.name, dataUrl }];
+        pendingImages = [...pendingImages, { name: file.name, dataUrl, oversize }];
       } catch {
         addToast(`Failed to read "${file.name}"`, 'alert');
       }
@@ -645,6 +1137,9 @@
       toolSourceMap = newSourceMap;
       skillSystemPrompts = newSkillPrompts;
       loadingTools = false;
+      // Single funnel for every tool/MCP/skill mutation. During a restore the
+      // snapshot already matches, so this resolves to no request at all.
+      scheduleSettingsSave();
     }
   }
 
@@ -740,10 +1235,11 @@
     if (streaming) return;
 
     // Build user message content
+    const images = pendingImages;
     let userContent: string | ContentPart[];
-    if (pendingImages.length > 0) {
+    if (images.length > 0) {
       const parts: ContentPart[] = [];
-      for (const img of pendingImages) {
+      for (const img of images) {
         parts.push({ type: 'image_url', image_url: { url: img.dataUrl } });
       }
       if (text) {
@@ -755,43 +1251,76 @@
     }
 
     // Add user message to chat
+    const pair = splitModel(selectedModel);
     messages = [...messages, { role: 'user', content: userContent }];
+    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, imageNames: images.map(i => i.name) }];
     userInput = '';
     pendingImages = [];
+    confirmClear = false;
     scrollToBottom();
 
+    // Lazily promote the scratch buffer. A failure here is survivable: the turn
+    // still runs, it just stays unsaved.
+    if (!conversationId) {
+      try {
+        await ensureConversation(text || images[0]?.name || 'Playground conversation');
+      } catch (e) {
+        addToast(playgroundErrorMessage(e, 'Could not start a saved conversation — this turn runs unsaved'), 'alert');
+      }
+    }
+
     await runCompletion();
+    await persistPending();
+  }
+
+  /**
+   * Restored history carries image descriptors that no provider accepts. A
+   * stored one is re-inlined from media storage — lazily, only for the messages
+   * actually going upstream, and cached per id for the page session. Anything
+   * that cannot be recovered becomes text, so a missing image never fails the
+   * turn.
+   */
+  async function outgoingContent(content: string | ContentPart[]): Promise<string | ContentPart[]> {
+    if (typeof content === 'string') return content;
+    const parts: ContentPart[] = [];
+    for (const part of content) {
+      if (part.type !== 'image') {
+        parts.push(part);
+        continue;
+      }
+      const label = part.name || 'attachment';
+      const url = part.media_id ? await mediaDataUrl(part.media_id) : '';
+      if (url) parts.push({ type: 'image_url', image_url: { url } });
+      else if (part.media_id) parts.push({ type: 'text', text: `[image "${label}" could not be loaded from history]` });
+      else parts.push({ type: 'text', text: `[image "${label}" was not saved to history]` });
+    }
+    return parts;
   }
 
   /** Recursive completion loop that handles tool calls. */
   async function runCompletion(depth: number = 0) {
     // Guard against infinite tool-call loops
+    const turnPair = splitModel(selectedModel);
+
     if (depth >= MAX_TOOL_ITERATIONS) {
       messages = [...messages, {
         role: 'assistant',
         content: `Stopped after ${MAX_TOOL_ITERATIONS} tool call iterations to prevent infinite loops.`,
       }];
+      meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, imageNames: [] }];
       return;
     }
 
-    // Build request messages
-    const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }> = [];
+    // Snapshot the history synchronously. Re-inlining stored images is async,
+    // so the turn has to be claimed (`streaming`) before the first await —
+    // otherwise a second Enter could start a concurrent completion — and the
+    // placeholder pushed below must not end up in the request.
+    const history = messages.slice();
 
-    // System prompt: combine user system prompt + skill system prompts
-    const fullSystemPrompt = [systemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n');
-    if (fullSystemPrompt) {
-      reqMessages.push({ role: 'system', content: fullSystemPrompt });
-    }
-
-    for (const m of messages) {
-      const msg: any = { role: m.role, content: m.content };
-      if (m.tool_calls) msg.tool_calls = m.tool_calls;
-      if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
-      reqMessages.push(msg);
-    }
-
-    // Add assistant placeholder
+    // Add assistant placeholder. It records the pair selected right now, so a
+    // mid-conversation switch is attributed to the turn that used it.
     messages = [...messages, { role: 'assistant', content: '' }];
+    meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, imageNames: [] }];
     streaming = true;
     const controller = new AbortController();
     abortController = controller;
@@ -800,6 +1329,22 @@
     let pendingToolCalls: ToolCall[] = [];
 
     try {
+      // Build request messages
+      const reqMessages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }> = [];
+
+      // System prompt: combine user system prompt + skill system prompts
+      const fullSystemPrompt = [systemPrompt.trim(), ...skillSystemPrompts].filter(Boolean).join('\n\n');
+      if (fullSystemPrompt) {
+        reqMessages.push({ role: 'system', content: fullSystemPrompt });
+      }
+
+      for (const m of history) {
+        const msg: any = { role: m.role, content: await outgoingContent(m.content) };
+        if (m.tool_calls) msg.tool_calls = m.tool_calls;
+        if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
+        reqMessages.push(msg);
+      }
+
       await streamChatCompletion(
         'api/v1/chat/completions',
         {
@@ -851,6 +1396,7 @@
               tool_call_id: tc.id,
             },
           ];
+          meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, imageNames: [] }];
         }
         scrollToBottom();
 
@@ -871,6 +1417,7 @@
         const lastIdx = messages.length - 1;
         if (messages[lastIdx]?.role === 'assistant' && !getTextContent(messages[lastIdx].content)) {
           messages = messages.slice(0, -1);
+          meta = meta.slice(0, -1);
         }
       }
     } finally {
@@ -885,23 +1432,41 @@
     }
   }
 
-  function clearChat() {
-    messages = [];
-    systemPrompt = '';
+  /** Two-step confirm — clearing a saved transcript deletes stored rows. */
+  function requestClear() {
+    if (streaming || saving) return;
+    if (!confirmClear) {
+      confirmClear = true;
+      if (confirmClearTimer) clearTimeout(confirmClearTimer);
+      confirmClearTimer = setTimeout(() => { confirmClear = false; }, 5000);
+      return;
+    }
+    if (confirmClearTimer) { clearTimeout(confirmClearTimer); confirmClearTimer = null; }
+    confirmClear = false;
+    void clearChat();
+  }
+
+  async function clearChat() {
+    await truncateFrom(0);
     pendingImages = [];
     todos = [];
     pendingQuestion = null;
     contextTokens = 0;
     completionTokens = 0;
     totalTokens = 0;
+    // A saved conversation keeps its system prompt; a scratch buffer resets fully.
+    if (!conversationId) systemPrompt = '';
   }
 
   /** Retry from a specific user message index. */
   async function retryFromIndex(index: number) {
-    if (streaming) return;
-    messages = messages.slice(0, index + 1);
+    // Truncating while an append is in flight would desync stored sequences.
+    if (streaming || saving) return;
+    // Trim the stored transcript first so history matches what the user sees.
+    await truncateFrom(index + 1);
     scrollToBottom();
     await runCompletion();
+    await persistPending();
   }
 
   function handleKeydown(e: KeyboardEvent) {
@@ -920,11 +1485,60 @@
 </script>
 
 <svelte:head>
-  <title>AT | Chat</title>
+  <title>AT | Playground</title>
 </svelte:head>
 
+{#snippet forkAction(index: number)}
+  {@const sequence = meta[index]?.sequence ?? null}
+  <button
+    onclick={() => forkFrom(index)}
+    disabled={sequence === null}
+    aria-label={sequence === null ? 'Fork unavailable: this message is not saved yet' : `Fork a new conversation from message ${sequence}`}
+    title={sequence === null ? 'Fork becomes available once this message is saved to history' : 'Fork a new conversation from here'}
+    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-0 disabled:group-hover:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-400 transition-opacity"
+  >
+    <GitBranch size={11} />
+    Fork
+  </button>
+{/snippet}
+
+{#snippet modelBadge(index: number)}
+  {@const m = meta[index]}
+  {#if m && joinModel(m.provider_key, m.model) && joinModel(m.provider_key, m.model) !== selectedModel}
+    <span
+      class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border px-1 py-px"
+      title={`Produced by ${joinModel(m.provider_key, m.model)}`}
+    >
+      {m.model || m.provider_key}
+    </span>
+  {/if}
+{/snippet}
+
+{#snippet omittedImage(part: ContentPart, tone: string)}
+  <div class="mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px] {tone}">
+    <ImageOff size={11} class="shrink-0" />
+    <span class="truncate">{part.name || 'image'} — image not saved to history</span>
+  </div>
+{/snippet}
+
+<div class="flex h-full">
+  {#if showConversations}
+    <ConversationList
+      {conversations}
+      activeId={conversationId}
+      loading={conversationsLoading}
+      hasMore={!!conversationsCursor}
+      scratchDirty={!conversationId && messages.length > 0}
+      onSelect={selectConversation}
+      onNew={newConversation}
+      onRename={renameConversation}
+      onDelete={removeConversation}
+      onLoadMore={() => loadConversations(true)}
+    />
+  {/if}
+
 <div
-  class="flex flex-col h-full"
+  class="flex flex-col flex-1 min-w-0 h-full relative"
   ondragover={handleDragOver}
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
@@ -933,23 +1547,36 @@
   <!-- Drag overlay -->
   {#if dragging}
     <div class="absolute inset-0 z-50 bg-gray-900/10 dark:bg-dark-base/30 border-2 border-dashed border-gray-400 dark:border-dark-border-subtle flex items-center justify-center pointer-events-none">
-      <div class="bg-white dark:bg-dark-surface px-4 py-2 text-sm text-gray-600 dark:text-dark-text-secondary shadow-sm">Drop images here</div>
+      <div class="bg-white dark:bg-dark-surface px-4 py-2 text-sm text-gray-600 dark:text-dark-text-secondary shadow-sm">Drop images here — saved to history up to 16 MB</div>
     </div>
   {/if}
 
   <!-- Toolbar -->
   <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-2 flex items-center gap-2 shrink-0">
+    <!-- Conversation panel toggle -->
+    <button
+      onclick={() => (showConversations = !showConversations)}
+      aria-label={showConversations ? 'Hide conversation list' : 'Show conversation list'}
+      aria-expanded={showConversations}
+      title={showConversations ? 'Hide conversations' : 'Show conversations'}
+      class="p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-muted dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+    >
+      <PanelLeft size={14} />
+    </button>
+
     <!-- Model selector -->
     <div class="relative flex-1 max-w-xs">
       <select
         bind:value={selectedModel}
+        onchange={scheduleSettingsSave}
+        aria-label="Model"
         disabled={loading || models.length === 0}
         class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
       >
-        {#if models.length === 0}
+        {#if modelOptions.length === 0}
           <option value="">No models available</option>
         {/if}
-        {#each models as model}
+        {#each modelOptions as model}
           <option value={model}>{model}</option>
         {/each}
       </select>
@@ -1006,29 +1633,73 @@
       </button>
     {/if}
 
-    <!-- Token usage (right-aligned) -->
-    {#if totalTokens > 0}
-      <div class="ml-auto text-[11px] text-gray-400 dark:text-dark-text-muted font-mono tabular-nums" title="Context: {contextTokens.toLocaleString()} prompt + {completionTokens.toLocaleString()} completion = {totalTokens.toLocaleString()} total tokens">
-        {totalTokens.toLocaleString()} tok
-      </div>
-    {/if}
+    <!-- Unsaved / saving indicator (right-aligned) -->
+    <div class="ml-auto flex items-center gap-2">
+      {#if saving}
+        <span class="flex items-center gap-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
+          <Loader2 size={11} class="animate-spin" />
+          Saving
+        </span>
+      {:else if unsavedCount > 0 && conversationId}
+        <button
+          onclick={() => persistPending()}
+          aria-label={`Retry saving ${unsavedCount} unsaved message${unsavedCount === 1 ? '' : 's'}`}
+          title="These messages are only in this browser tab. Click to retry saving them."
+          class="flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-amber-300 dark:border-amber-900/60 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+        >
+          <CloudOff size={11} />
+          {unsavedCount} unsaved
+        </button>
+      {/if}
 
-    <!-- Clear -->
-    <button
-      onclick={clearChat}
-      disabled={messages.length === 0 && !systemPrompt && pendingImages.length === 0}
-      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-400 transition-colors {totalTokens === 0 ? 'ml-auto' : ''}"
-      title="Clear chat"
-    >
-      <Trash2 size={14} />
-    </button>
+      <!-- Token usage -->
+      {#if totalTokens > 0}
+        <div class="text-[11px] text-gray-400 dark:text-dark-text-muted font-mono tabular-nums" title="Context: {contextTokens.toLocaleString()} prompt + {completionTokens.toLocaleString()} completion = {totalTokens.toLocaleString()} total tokens">
+          {totalTokens.toLocaleString()} tok
+        </div>
+      {/if}
+
+      <!-- Clear transcript (two-step confirm: this deletes stored messages) -->
+      <button
+        onclick={requestClear}
+        onblur={() => (confirmClear = false)}
+        disabled={streaming || saving || (messages.length === 0 && !systemPrompt && pendingImages.length === 0)}
+        aria-label={confirmClear ? 'Confirm clearing the transcript' : 'Clear transcript'}
+        title={conversationId ? 'Clear transcript (deletes saved messages)' : 'Clear transcript'}
+        class={['flex items-center gap-1 px-1.5 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed', confirmClear ? 'bg-red-600 text-white hover:bg-red-700' : 'text-gray-400 dark:text-dark-text-muted hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400']}
+      >
+        <Trash2 size={14} />
+        {#if confirmClear}Confirm?{/if}
+      </button>
+    </div>
   </div>
+
+  <!-- Fork lineage -->
+  {#if conversation?.forked_from_sequence}
+    <div class="border-b border-gray-200 dark:border-dark-border bg-purple-50/60 dark:bg-purple-900/10 px-4 py-1.5 shrink-0 flex items-center gap-1.5 text-[11px] text-purple-800 dark:text-purple-300">
+      <GitBranch size={12} class="shrink-0" />
+      {#if conversation.forked_from_id}
+        <span>
+          Forked from
+          <a
+            href={`#${playgroundRoute(conversation.forked_from_id)}`}
+            class="underline underline-offset-2 hover:text-purple-950 dark:hover:text-purple-200 focus-visible:outline-2 focus-visible:outline-accent"
+          >{parentTitle || 'the source conversation'}</a>
+          at message {conversation.forked_from_sequence}
+        </span>
+      {:else}
+        <span>Forked at message {conversation.forked_from_sequence} — the source conversation was deleted</span>
+      {/if}
+    </div>
+  {/if}
 
   <!-- System prompt -->
   {#if showSystemPrompt}
     <div class="border-b border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50 px-4 py-2.5 shrink-0">
       <textarea
         bind:value={systemPrompt}
+        oninput={scheduleSettingsSave}
+        aria-label="System prompt"
         placeholder="System prompt (optional)"
         rows={2}
         class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
@@ -1307,8 +1978,11 @@
     bind:this={chatContainer}
     class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
   >
-    {#if loading}
-      <div class="text-center py-12 text-gray-400 dark:text-dark-text-muted text-sm">Loading providers...</div>
+    {#if loading || historyLoading}
+      <div class="flex items-center justify-center gap-2 py-12 text-gray-400 dark:text-dark-text-muted text-sm">
+        <Loader2 size={14} class="animate-spin" />
+        {historyLoading ? 'Loading conversation…' : 'Loading providers...'}
+      </div>
     {:else if models.length === 0}
       <div class="text-center py-12">
         <div class="text-gray-400 dark:text-dark-text-muted mb-2">No providers configured</div>
@@ -1327,9 +2001,14 @@
         </div>
       </div>
     {:else}
+      {#if historyTruncated}
+        <div class="text-center text-[11px] text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-900/10 px-3 py-1.5">
+          Only the most recent part of this transcript is loaded. Fork from a message to continue from a bounded prefix.
+        </div>
+      {/if}
       {#each messages as msg, i}
         {#if msg.role === 'user'}
-          <div class="flex justify-end">
+          <div class="flex justify-end group">
             <div class="max-w-[75%]">
               <div class="px-4 py-2.5 text-sm leading-relaxed bg-gray-900 dark:bg-accent text-white">
                 {#if typeof msg.content === 'string'}
@@ -1338,28 +2017,40 @@
                   {#each msg.content as part}
                     {#if part.type === 'image_url' && part.image_url?.url}
                       <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-600 dark:border-accent/50" />
+                    {:else if part.type === 'image' && part.media_id}
+                      <img
+                        src={mediaImageURL(part.media_id)}
+                        alt={part.name || 'Stored image attachment'}
+                        loading="lazy"
+                        class="max-w-full max-h-64 mb-2 border border-gray-600 dark:border-accent/50"
+                      />
+                    {:else if part.type === 'image'}
+                      {@render omittedImage(part, 'border-white/40 text-white/80')}
                     {:else if part.type === 'text' && part.text}
                       <span class="whitespace-pre-wrap">{part.text}</span>
                     {/if}
                   {/each}
                 {/if}
               </div>
-              {#if !streaming}
-                <div class="mt-1 flex justify-end">
+              <div class="mt-1 flex justify-end items-center gap-3">
+                {@render forkAction(i)}
+                {#if !streaming}
                   <button
                     onclick={() => retryFromIndex(i)}
-                    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 transition-colors"
+                    disabled={saving}
+                    aria-label="Retry from this message"
+                    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
                     title="Retry from this message"
                   >
                     <RotateCcw size={11} />
                     Retry
                   </button>
-                </div>
-              {/if}
+                {/if}
+              </div>
             </div>
           </div>
         {:else if msg.role === 'assistant'}
-          <div class="flex justify-start">
+          <div class="flex justify-start group">
             <div class="max-w-[75%]">
               <div class="px-4 py-2.5 text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-800 dark:text-dark-text">
                 {#if typeof msg.content === 'string'}
@@ -1372,6 +2063,15 @@
                   {#each msg.content as part}
                     {#if part.type === 'image_url' && part.image_url?.url}
                       <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border" />
+                    {:else if part.type === 'image' && part.media_id}
+                      <img
+                        src={mediaImageURL(part.media_id)}
+                        alt={part.name || 'Stored image attachment'}
+                        loading="lazy"
+                        class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border"
+                      />
+                    {:else if part.type === 'image'}
+                      {@render omittedImage(part, 'border-gray-300 dark:border-dark-border text-gray-500 dark:text-dark-text-muted')}
                     {:else if part.type === 'text' && part.text}
                       <Markdown source={part.text} />
                     {/if}
@@ -1400,6 +2100,10 @@
                   </div>
                 {/if}
               </div>
+              <div class="mt-1 flex items-center gap-3">
+                {@render modelBadge(i)}
+                {@render forkAction(i)}
+              </div>
             </div>
           </div>
         {/if}
@@ -1410,6 +2114,28 @@
 
   <!-- Input area -->
   <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-3 shrink-0">
+    <!-- Media storage hint: one quiet, dismissible notice, never a toast per image -->
+    {#if mediaStorageOff && !mediaHintDismissed}
+      <div role="status" class="mb-2 flex items-start gap-2 border border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-900/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
+        <ImageOff size={12} class="shrink-0 mt-0.5" />
+        <span class="flex-1">
+          Media storage is not configured, so attached images stay in this tab only and conversation history keeps a
+          placeholder instead.
+          <a
+            href="#/settings/media"
+            class="underline underline-offset-2 hover:text-amber-950 dark:hover:text-amber-200 focus-visible:outline-2 focus-visible:outline-accent"
+          >Configure media storage</a>
+        </span>
+        <button
+          onclick={() => (mediaHintDismissed = true)}
+          aria-label="Dismiss the media storage notice"
+          class="shrink-0 hover:text-amber-950 dark:hover:text-amber-200 focus-visible:outline-2 focus-visible:outline-accent"
+        >
+          <X size={12} />
+        </button>
+      </div>
+    {/if}
+
     <!-- Pending image previews -->
     {#if pendingImages.length > 0}
       <div class="flex gap-2 mb-2 flex-wrap">
@@ -1422,11 +2148,20 @@
             />
             <button
               onclick={() => removeImage(i)}
-              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 dark:bg-accent text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+              aria-label={`Remove ${img.name}`}
+              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 dark:bg-accent text-white flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent transition-opacity"
               title="Remove"
             >
               <X size={12} />
             </button>
+            {#if img.oversize}
+              <span
+                class="absolute top-0 left-0 bg-amber-500 text-white text-[9px] px-1"
+                title="Over the 16 MB storage limit — sent to the model but not saved to history"
+              >
+                &gt;16MB
+              </span>
+            {/if}
             <div class="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[9px] px-1 truncate">
               {img.name}
             </div>
@@ -1450,8 +2185,9 @@
       <button
         onclick={() => fileInput?.click()}
         disabled={models.length === 0}
-        class="px-2.5 py-2 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 transition-colors"
-        title="Attach image"
+        aria-label="Attach image"
+        class="px-2.5 py-2 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+        title={`Attach image — paste or drop works too. Saved to history up to 16 MB (${MEDIA_ALLOWED_LABEL}).`}
       >
         <ImagePlus size={14} />
       </button>
@@ -1614,6 +2350,7 @@
       </div>
     </div>
   {/if}
+</div>
 </div>
 
 <!-- Markdown typography is provided globally via `.markdown-body` rules in

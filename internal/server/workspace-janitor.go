@@ -18,15 +18,8 @@ import (
 // already wake on server start. Once an hour is the right cadence.
 const workspaceJanitorInterval = 1 * time.Hour
 
-// terminalTaskStatuses are the statuses for which a task workspace is
-// safe to remove (after the TTL has elapsed). Anything else — backlog,
-// todo, open, in_progress, in_review, review — keeps its workspace.
-var terminalTaskStatuses = map[string]bool{
-	service.TaskStatusDone:      true,
-	service.TaskStatusCompleted: true,
-	service.TaskStatusCancelled: true,
-	service.TaskStatusBlocked:   true,
-}
+// A task workspace is safe to remove once the task is terminal and the TTL has
+// elapsed. Anything still in motion keeps its workspace.
 
 // startWorkspaceJanitor starts a background goroutine that periodically
 // sweeps WorkspaceRoot for old task workspaces and tool-output dumps.
@@ -108,6 +101,10 @@ func (s *Server) sweepWorkspaceOnce(ctx context.Context, root string, ttl time.D
 		name := entry.Name()
 		// Persistent media is reserved, even if a task with this ID exists.
 		// IsDir above also excludes symlinks, so their targets are never swept.
+		if name == "workspaces" {
+			removedTasks += s.sweepExecutionWorkspaces(ctx, root, now, ttl)
+			continue
+		}
 		if name == "assets" {
 			continue
 		}
@@ -167,7 +164,7 @@ func (s *Server) maybeRemoveTaskWorkspace(ctx context.Context, fullPath, taskID 
 		// these by mtime + a longer TTL, but that's a future change.
 		return false, 0
 	}
-	if !terminalTaskStatuses[task.Status] {
+	if !service.IsTerminalTaskStatus(task.Status) {
 		return false, 0
 	}
 

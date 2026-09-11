@@ -18,6 +18,7 @@ import (
 // ─── Bot Config CRUD ───
 
 type botConfigRow struct {
+	WorkspaceID     string         `db:"workspace_id"`
 	ID              string         `db:"id"`
 	Platform        string         `db:"platform"`
 	Name            string         `db:"name"`
@@ -50,7 +51,7 @@ var botConfigColumns = []any{
 	"enabled",
 	"user_containers", "container_image", "container_cpu", "container_memory",
 	"speech_to_text", "whisper_model",
-	"created_at", "updated_at", "created_by", "updated_by",
+	"created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 }
 
 func scanBotConfigRow(scanner interface {
@@ -64,10 +65,15 @@ func scanBotConfigRow(scanner interface {
 		&row.UserContainers, &row.ContainerImage, &row.ContainerCPU, &row.ContainerMemory,
 		&row.SpeechToText, &row.WhisperModel,
 		&row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		&row.WorkspaceID,
 	)
 }
 
 func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service.ListResult[service.BotConfig], error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
 	sql, total, err := p.buildListQuery(ctx, p.tableBotConfigs, q, botConfigColumns...)
 	if err != nil {
 		return nil, fmt.Errorf("build list bot configs query: %w", err)
@@ -86,6 +92,9 @@ func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service
 			return nil, fmt.Errorf("scan bot config row: %w", err)
 		}
 
+		if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+			row.Token = "***"
+		}
 		rec, err := botConfigRowToRecord(row)
 		if err != nil {
 			return nil, err
@@ -106,9 +115,17 @@ func (p *Postgres) ListBotConfigs(ctx context.Context, q *query.Query) (*service
 }
 
 func (p *Postgres) GetBotConfig(ctx context.Context, id string) (*service.BotConfig, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableBotConfigs)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableBotConfigs).
 		Select(botConfigColumns...).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get bot config query: %w", err)
@@ -123,10 +140,27 @@ func (p *Postgres) GetBotConfig(ctx context.Context, id string) (*service.BotCon
 		return nil, fmt.Errorf("get bot config %q: %w", id, err)
 	}
 
+	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+		row.Token = "***"
+	}
 	return botConfigRowToRecord(row)
 }
 
 func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (*service.BotConfig, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableBotConfigs, "bots.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if bot.WorkspaceID != "" && bot.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.botReferences(ctx, w, bot); err != nil {
+		return nil, err
+	}
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
@@ -157,6 +191,7 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 
 	query, _, err := p.goqu.Insert(p.tableBotConfigs).Rows(
 		goqu.Record{
+			"workspace_id":      w.actor.WorkspaceID,
 			"id":                id,
 			"platform":          bot.Platform,
 			"name":              bot.Name,
@@ -186,14 +221,42 @@ func (p *Postgres) CreateBotConfig(ctx context.Context, bot service.BotConfig) (
 		return nil, fmt.Errorf("build insert bot config query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create bot config: %w", err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit bot config: %w", err)
 	}
 
 	return p.GetBotConfig(ctx, id)
 }
 
 func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.BotConfig) (*service.BotConfig, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableBotConfigs, "bots.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if bot.WorkspaceID != "" && bot.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}) {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.botReferences(ctx, w, bot); err != nil {
+		return nil, err
+	}
+	if bot.Token == "***" {
+		var token string
+		found, e := w.tx.From(p.tableBotConfigs).Select("token").Where(w.predicate, goqu.C("id").Eq(id)).ScanValContext(ctx, &token)
+		if e != nil {
+			return nil, fmt.Errorf("preserve bot token: %w", e)
+		}
+		if !found {
+			return nil, nil
+		}
+		bot.Token = token
+	}
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {
 		return nil, fmt.Errorf("marshal channel_agents: %w", err)
@@ -244,12 +307,12 @@ func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.B
 		"updated_by":        bot.UpdatedBy,
 	}
 
-	query, _, err := p.goqu.Update(p.tableBotConfigs).Set(record).Where(goqu.I("id").Eq(id)).ToSQL()
+	query, _, err := p.goqu.Update(p.tableBotConfigs).Set(record).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update bot config query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update bot config %q: %w", id, err)
 	}
@@ -261,24 +324,32 @@ func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.B
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit bot config update: %w", err)
+	}
 
 	return p.GetBotConfig(ctx, id)
 }
 
 func (p *Postgres) DeleteBotConfig(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableBotConfigs, "bots.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableBotConfigs).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete bot config query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete bot config %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
@@ -323,6 +394,7 @@ func botConfigRowToRecord(row botConfigRow) (*service.BotConfig, error) {
 	}
 
 	return &service.BotConfig{
+		WorkspaceID:     row.WorkspaceID,
 		ID:              row.ID,
 		Platform:        row.Platform,
 		Name:            row.Name,

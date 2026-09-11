@@ -13,6 +13,7 @@ import (
 )
 
 type orgAgentRow struct {
+	WorkspaceID       string         `db:"workspace_id"`
 	ID                string         `db:"id"`
 	OrganizationID    string         `db:"organization_id"`
 	AgentID           string         `db:"agent_id"`
@@ -27,6 +28,7 @@ type orgAgentRow struct {
 
 func orgAgentRowToRecord(row orgAgentRow) service.OrganizationAgent {
 	return service.OrganizationAgent{
+		WorkspaceID:       row.WorkspaceID,
 		ID:                row.ID,
 		OrganizationID:    row.OrganizationID,
 		AgentID:           row.AgentID,
@@ -47,17 +49,22 @@ func (p *Postgres) scanOrgAgentRow(scanner interface{ Scan(...any) error }) (org
 		&row.Role, &row.Title, &row.ParentAgentID,
 		&row.Status, &row.HeartbeatSchedule,
 		&row.CreatedAt, &row.UpdatedAt,
+		&row.WorkspaceID,
 	)
 
 	return row, err
 }
 
-var orgAgentCols = []any{"id", "organization_id", "agent_id", "role", "title", "parent_agent_id", "status", "heartbeat_schedule", "created_at", "updated_at"}
+var orgAgentCols = []any{"id", "organization_id", "agent_id", "role", "title", "parent_agent_id", "status", "heartbeat_schedule", "created_at", "updated_at", "workspace_id"}
 
 func (p *Postgres) ListOrganizationAgents(ctx context.Context, orgID string) ([]service.OrganizationAgent, error) {
+	scope, err := p.orgAgentReadScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q, _, err := p.goqu.From(p.tableOrganizationAgents).
 		Select(orgAgentCols...).
-		Where(goqu.I("organization_id").Eq(orgID)).
+		Where(scope, goqu.I("organization_id").Eq(orgID)).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
 	if err != nil {
@@ -84,9 +91,13 @@ func (p *Postgres) ListOrganizationAgents(ctx context.Context, orgID string) ([]
 }
 
 func (p *Postgres) ListAgentOrganizations(ctx context.Context, agentID string) ([]service.OrganizationAgent, error) {
+	scope, err := p.orgAgentReadScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q, _, err := p.goqu.From(p.tableOrganizationAgents).
 		Select(orgAgentCols...).
-		Where(goqu.I("agent_id").Eq(agentID)).
+		Where(scope, goqu.I("agent_id").Eq(agentID)).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
 	if err != nil {
@@ -113,9 +124,13 @@ func (p *Postgres) ListAgentOrganizations(ctx context.Context, agentID string) (
 }
 
 func (p *Postgres) GetOrganizationAgent(ctx context.Context, id string) (*service.OrganizationAgent, error) {
+	scope, err := p.orgAgentReadScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q, _, err := p.goqu.From(p.tableOrganizationAgents).
 		Select(orgAgentCols...).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get organization agent query: %w", err)
@@ -135,9 +150,13 @@ func (p *Postgres) GetOrganizationAgent(ctx context.Context, id string) (*servic
 }
 
 func (p *Postgres) GetOrganizationAgentByPair(ctx context.Context, orgID, agentID string) (*service.OrganizationAgent, error) {
+	scope, err := p.orgAgentReadScope(ctx)
+	if err != nil {
+		return nil, err
+	}
 	q, _, err := p.goqu.From(p.tableOrganizationAgents).
 		Select(orgAgentCols...).
-		Where(goqu.I("organization_id").Eq(orgID), goqu.I("agent_id").Eq(agentID)).
+		Where(scope, goqu.I("organization_id").Eq(orgID), goqu.I("agent_id").Eq(agentID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get organization agent by pair query: %w", err)
@@ -157,6 +176,17 @@ func (p *Postgres) GetOrganizationAgentByPair(ctx context.Context, orgID, agentI
 }
 
 func (p *Postgres) CreateOrganizationAgent(ctx context.Context, oa service.OrganizationAgent) (*service.OrganizationAgent, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableOrganizationAgents, "organizations.write", oa.OrganizationID)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if oa.WorkspaceID != "" && oa.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.orgAgentReferences(ctx, w, oa); err != nil {
+		return nil, err
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC().Format(time.RFC3339)
 
@@ -167,6 +197,7 @@ func (p *Postgres) CreateOrganizationAgent(ctx context.Context, oa service.Organ
 
 	q, _, err := p.goqu.Insert(p.tableOrganizationAgents).Rows(
 		goqu.Record{
+			"workspace_id":       w.actor.WorkspaceID,
 			"id":                 id,
 			"organization_id":    oa.OrganizationID,
 			"agent_id":           oa.AgentID,
@@ -183,11 +214,15 @@ func (p *Postgres) CreateOrganizationAgent(ctx context.Context, oa service.Organ
 		return nil, fmt.Errorf("build insert organization agent query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, q); err != nil {
+	if _, err := w.tx.ExecContext(ctx, q); err != nil {
 		return nil, fmt.Errorf("create organization agent (%q, %q): %w", oa.OrganizationID, oa.AgentID, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit organization agent: %w", err)
 	}
 
 	return &service.OrganizationAgent{
+		WorkspaceID:       w.actor.WorkspaceID,
 		ID:                id,
 		OrganizationID:    oa.OrganizationID,
 		AgentID:           oa.AgentID,
@@ -202,6 +237,17 @@ func (p *Postgres) CreateOrganizationAgent(ctx context.Context, oa service.Organ
 }
 
 func (p *Postgres) UpdateOrganizationAgent(ctx context.Context, id string, oa service.OrganizationAgent) (*service.OrganizationAgent, error) {
+	w, err := p.beginOrgAgentWrite(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if oa.WorkspaceID != "" && oa.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.businessReference(ctx, w, p.tableAgents, "id", oa.ParentAgentID); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 
 	q, _, err := p.goqu.Update(p.tableOrganizationAgents).Set(
@@ -213,12 +259,12 @@ func (p *Postgres) UpdateOrganizationAgent(ctx context.Context, id string, oa se
 			"heartbeat_schedule": oa.HeartbeatSchedule,
 			"updated_at":         now,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update organization agent query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, q)
+	res, err := w.tx.ExecContext(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("update organization agent %q: %w", id, err)
 	}
@@ -230,38 +276,51 @@ func (p *Postgres) UpdateOrganizationAgent(ctx context.Context, id string, oa se
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit organization agent update: %w", err)
+	}
 
 	return p.GetOrganizationAgent(ctx, id)
 }
 
 func (p *Postgres) DeleteOrganizationAgent(ctx context.Context, id string) error {
+	w, err := p.beginOrgAgentWrite(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	q, _, err := p.goqu.Delete(p.tableOrganizationAgents).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete organization agent query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, q)
+	_, err = w.tx.ExecContext(ctx, q)
 	if err != nil {
 		return fmt.Errorf("delete organization agent %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) DeleteOrganizationAgentByPair(ctx context.Context, orgID, agentID string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableOrganizationAgents, "organizations.write", orgID)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	q, _, err := p.goqu.Delete(p.tableOrganizationAgents).
-		Where(goqu.I("organization_id").Eq(orgID), goqu.I("agent_id").Eq(agentID)).
+		Where(w.predicate, goqu.I("organization_id").Eq(orgID), goqu.I("agent_id").Eq(agentID)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete organization agent by pair query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, q)
+	_, err = w.tx.ExecContext(ctx, q)
 	if err != nil {
 		return fmt.Errorf("delete organization agent pair (%q, %q): %w", orgID, agentID, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }

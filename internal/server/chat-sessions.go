@@ -316,6 +316,21 @@ const confirmationTimeout = 5 * time.Minute
 // RunAgenticLoop runs the agentic loop for a chat session, calling onEvent for each event.
 // This is the core loop shared by the HTTP SSE handler and bot adapters.
 func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, onEvent func(AgenticEvent)) error {
+	var bindErr error
+	ctx, bindErr = s.bindRuntimePrincipal(ctx, "chat")
+	if bindErr != nil {
+		return bindErr
+	}
+	var resultGovernor workflow.LoopGovernor
+	if s.loopGov != nil {
+		resultGovernor = workflow.ScopeToolResults(ctx, s.loopGov)
+	}
+	if err := s.persistRuntimeRun(ctx); err != nil {
+		return err
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "chats.run", ResourceID: sessionID}); err != nil {
+		return err
+	}
 	// 1. Load session.
 	session, err := s.chatSessionStore.GetChatSession(ctx, sessionID)
 	if err != nil {
@@ -330,6 +345,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		return fmt.Errorf("agent store not configured")
 	}
 
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: session.AgentID}); err != nil {
+		return err
+	}
 	agent, err := s.agentStore.GetAgent(ctx, session.AgentID)
 	if err != nil {
 		return fmt.Errorf("get agent: %w", err)
@@ -344,12 +362,16 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		return fmt.Errorf("agent has no provider configured")
 	}
 
-	info, ok := s.getProviderInfo(providerKey)
-	if !ok {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "providers.use", ResourceID: providerKey}); err != nil {
+		return err
+	}
+	info, lookupErr := s.getExecutionProviderInfo(ctx, providerKey)
+	if lookupErr != nil {
 		return fmt.Errorf("provider %q not found", providerKey)
 	}
 
 	model := agent.Config.Model
+	scopedProvider := service.ScopedExecutionProvider(info.provider, providerKey)
 	if model == "" {
 		model = info.defaultModel
 	}
@@ -418,6 +440,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	var mcpSetUpstreams []service.MCPUpstream
 	if s.mcpSetStore != nil {
 		for _, setName := range agent.Config.MCPSets {
+			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: setName}) != nil {
+				continue
+			}
 			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
 			if err != nil {
 				slog.Warn("agentic loop: failed to get MCP set", "set", setName, "error", err)
@@ -442,7 +467,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			// resolve them directly — no HTTP loopback.
 			if len(set.Config.HTTPTools) > 0 ||
 				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 {
-				setTools, err := s.listMCPSetTools(ctx, setName)
+				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
 				if err != nil {
 					slog.Warn("agentic loop: failed to list MCP set tools", "set", setName, "error", err)
 				} else {
@@ -461,7 +486,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	// MCP tools — HTTP URLs.
 	for _, url := range mcpURLs {
-		client, err := service.NewHTTPMCPClient(ctx, url)
+		client, err := service.NewExecutionHTTPMCPClient(ctx, url)
 		if err != nil {
 			slog.Warn("agentic loop: failed to connect to MCP server, skipping", "url", url, "error", err)
 			continue
@@ -481,7 +506,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	// MCP tools — direct upstreams from MCP sets (HTTP or stdio).
 	for _, upstream := range mcpSetUpstreams {
-		client, err := s.newMCPClient(ctx, upstream)
+		client, err := s.newExecutionMCPClient(ctx, upstream)
 		if err != nil {
 			slog.Warn("agentic loop: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
 			continue
@@ -508,6 +533,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	var skillLookup workflow.SkillLookup
 	if s.skillStore != nil {
 		skillLookup = func(nameOrID string) (*service.Skill, error) {
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: nameOrID}); err != nil {
+				return nil, err
+			}
 			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
 			if err != nil {
 				return nil, err
@@ -528,6 +556,9 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	// Builtin tools (from agent config).
 	for _, toolName := range agent.Config.BuiltinTools {
+		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: toolName}) != nil {
+			continue
+		}
 		if !isKnownBuiltinTool(toolName) {
 			slog.Warn("agentic loop: unknown builtin tool in agent config", "tool", toolName, "agent", agent.ID)
 			continue
@@ -780,12 +811,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	// Derive a user identity for per-user variable scoping (e.g. OAuth tokens).
 	// For bot sessions this is "platform::platform_user_id"; for web sessions
 	// it falls back to the session creator.
-	sessionUserID := ""
-	if session.Config.Platform != "" && session.Config.PlatformUserID != "" {
-		sessionUserID = session.Config.Platform + "::" + session.Config.PlatformUserID
-	} else if session.CreatedBy != "" {
-		sessionUserID = session.CreatedBy
-	}
+	principal, _, _ := service.ExecutionFromContext(ctx)
+	sessionUserID := principal.UserID
 
 	// Store session user ID and agent ID in context for builtin tool executors.
 	ctx = contextWithSessionUserID(ctx, sessionUserID)
@@ -799,21 +826,16 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 	// Build variable lookup/lister for skill tools.
 	// The lookup checks per-user preferences first, then per-user variables, then global.
-	varLookup := s.userScopedVarLookup(ctx, sessionUserID)
-	var varLister workflow.VarLister
-	if s.variableStore != nil {
-		varLister = func() (map[string]string, error) {
-			vars, err := s.variableStore.ListVariables(ctx, nil)
-			if err != nil {
-				return nil, err
-			}
-			m := make(map[string]string, len(vars.Data))
-			for _, v := range vars.Data {
-				m[v.Key] = v.Value
-			}
-			return m, nil
+	baseVarLookup := s.userScopedVarLookup(ctx, sessionUserID)
+	varLookup := func(key string) (string, error) {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
+			return "", err
 		}
+		return baseVarLookup(key)
 	}
+	var varLister workflow.VarLister
+	varLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
+	// Explicit connection bindings supply shell credentials; no global listing.
 
 	// Build user preference lookup for JS skill handlers.
 	var userPrefLookup workflow.UserPrefLookup
@@ -927,7 +949,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 		// Apply the loop governor to window history with rolling summary fallback.
 		resp, windowed, latencyMs, err := agentloop.CallProvider(
-			ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
+			ctx, s.loopGov, scopedProvider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
 		)
 		if err != nil {
 			// Recover from corrupted tool call history — sanitize and retry once.
@@ -936,7 +958,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					"iteration", iteration, "error", err)
 				llmMessages = sanitizeLLMMessages(llmMessages)
 				resp, windowed, latencyMs, err = agentloop.CallProvider(
-					ctx, s.loopGov, info.provider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
+					ctx, s.loopGov, scopedProvider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
 				)
 			}
 			if err != nil {
@@ -1021,7 +1043,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			// Skipped when task_complete / task_block already finalized the
 			// task this turn — the tool-provided status+result wins.
 			if taskLinked != nil && resp.Content != "" && s.taskStore != nil && !session.Config.DisableTaskResultSync && !terminalToolCalled {
-				newStatus := service.TaskStatusCompleted
+				newStatus := service.TaskStatusDone
 				if taskLinked.ParentID != "" {
 					// Sub-tasks complete as "done" to let the parent know.
 					newStatus = service.TaskStatusDone
@@ -1107,7 +1129,10 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 				result, callErr = skillRuntime.HandleLoadSkill(tc.Arguments)
 			} else if setName, ok := mcpSetToolMap[tc.Name]; ok {
 				// Direct MCPSet tool — no HTTP round-trip.
-				result, callErr = s.callMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
+				callErr = workflow.AuthorizeMCPSetTool(ctx, setName, tc.Name)
+				if callErr == nil {
+					result, callErr = s.callExecutionMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
+				}
 			} else if mcpToolNames[tc.Name] {
 				result, callErr = callMCPToolFromClients(ctx, mcpClients, tc.Name, tc.Arguments)
 			} else if hi, ok := toolHandlers[tc.Name]; ok || isSkillTool {
@@ -1119,6 +1144,11 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					}
 				}
 				// Build per-tool VarLookup/VarLister that maps provider-scoped
+				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, hi.skillID, hi.handler); err != nil {
+					_, block := agentloop.ToolResult(resultGovernor, loopRunID, tc, "Error: execution authority denied")
+					toolResults = append(toolResults, block)
+					continue
+				}
 				// keys (e.g. "youtube_refresh_token") to the agent's bound
 				// Connection, falling back to the user-scoped / global lookups.
 				toolVarLookup := varLookup
@@ -1133,8 +1163,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 						agent.Config.Connections, perSkill,
 					)
 					if len(bindings) > 0 {
-						toolVarLookup = workflow.WrapVarLookupWithConnections(varLookup, bindings)
-						toolVarLister = workflow.WrapVarListerWithConnections(varLister, bindings)
+						toolVarLookup = workflow.WrapVarLookupWithConnectionsContext(ctx, varLookup, bindings)
+						toolVarLister = workflow.WrapVarListerWithConnectionsContext(ctx, varLister, bindings)
 					}
 				}
 
@@ -1187,6 +1217,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 					}
 				} else {
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
+						Context:        ctx,
 						VarLookup:      toolVarLookup,
 						UserPrefLookup: userPrefLookup,
 					})
@@ -1213,7 +1244,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 			// LLM message history. The full payload is preserved on
 			// disk under the workspace root (when configured); the LLM
 			// sees a marker pointing at the file.
-			result, block := agentloop.ToolResult(s.loopGov, loopRunID, tc, result)
+			result, block := agentloop.ToolResult(resultGovernor, loopRunID, tc, result)
 
 			// Observation: tool call, parented to this iteration's
 			// generation. Captures the input arguments and the

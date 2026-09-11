@@ -106,7 +106,7 @@
   <!-- Quick actions -->
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
     <a
-      href="#/chat"
+      href="#/playground"
       class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group transition-all"
     >
       <div class="flex items-center gap-3">
@@ -114,8 +114,8 @@
           <MessageSquare size={16} class="text-gray-600 dark:text-dark-text-secondary" />
         </div>
         <div>
-          <div class="font-medium text-sm text-gray-900 dark:text-dark-text">Chat</div>
-          <div class="text-xs text-gray-500 dark:text-dark-text-muted">Send messages to your providers</div>
+          <div class="font-medium text-sm text-gray-900 dark:text-dark-text">Playground</div>
+          <div class="text-xs text-gray-500 dark:text-dark-text-muted">Test models with MCP servers, skills and tools</div>
         </div>
       </div>
       <ArrowRight size={16} class="text-gray-300 dark:text-dark-text-faint group-hover:text-gray-500 dark:group-hover:text-dark-text-muted transition-colors" />

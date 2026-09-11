@@ -1,6 +1,7 @@
 # Native Management Authentication
 
-This opt-in vertical slice is **administrator-only**, not multi-tenant authorization.
+Native authentication is enabled by default. Installation administration is
+**administrator-only**; workspace authorization is a separate layer.
 Administrators control the entire AT installation, including secrets, files, tools,
 agents, gateway tokens, and every organization. Non-admin accounts may sign in,
 inspect their own identity, change their password, manage their own passkeys, and sign out, but cannot use
@@ -9,40 +10,36 @@ Do not expose AT as a shared untrusted-user service on the strength of this slic
 
 ## Activation
 
-Native auth is off unless `server.native_auth.enabled: true`. When off, existing
-ForwardAuth, `user_header`, settings `admin_token`, and gateway-token behavior are
-unchanged. Setting native auth and any `forward_auth` block together fails startup.
-Native mode uses administrator sessions for settings too; `admin_token` is not an
-alternative login credential or a bypass. The bootstrap token is a separate secret.
+Start AT with its usual PostgreSQL, bind, encryption and telemetry configuration,
+then open the app to create the first local administrator and sign in. There is no
+required `native_auth.enabled`, origin YAML, or bootstrap-token copy/paste step.
+Authentication product settings live in PostgreSQL and are managed in Settings.
+Administrator sessions protect Settings; `admin_token` and forwarded user headers
+are not alternative login credentials. Gateway tokens remain separate.
 
 ```yaml
 server:
   base_path: /at  # optional; omit for the root. No trailing slash.
-  native_auth:
-    enabled: true
-    origin: https://at.example.com  # exact browser origin, NOT /at
-    session_ttl: 8h  # absolute lifetime without remember_me; configurable up to 24h
-    remember_ttl: 720h  # absolute remembered lifetime, at most 30 days
-    # Inject bootstrap_token from a secret source for first activation only.
+  external_url: https://at.example.com/at  # optional pre-setup deployment anchor
 store:
   postgres:
     datasource: postgres://at:REPLACE@postgres/at?sslmode=require
 ```
 
-Set `AT_SERVER_NATIVE_AUTH_BOOTSTRAP_TOKEN` to a cryptographically random value
-(for example the output of `openssl rand -hex 32`). At least 32 bytes are required.
-Use a secret manager or a restricted environment file, not a tracked YAML file.
-The secret is excluded from AT's configuration logs. Keep request-body/header
-logging disabled at your reverse proxy for `/auth/*` as well.
+For automation migrating an existing bootstrap-token deployment, the optional
+`POST /auth/bootstrap` API remains available when its legacy token is configured
+(at least 32 bytes). The normal first-run UI uses `POST /auth/setup` instead.
 
-All replicas must share the database, native-auth mode, BasePath, and origin.
+All replicas must share the database and BasePath. They load the canonical origin
+and product policy from the database on every authentication request.
 Run behind HTTPS, redirect plaintext to HTTPS at the edge, and keep the backend
 listener private. Cookies are always Secure in HTTPS mode, even behind TLS
-termination; AT does not trust `Host` or `X-Forwarded-*` to choose cookie security
-or the CSRF origin. `insecure_http: true` permits **only a loopback HTTP origin**
-for local development. With Vite, use `origin: http://localhost:3000`; the dev
-server proxies `/auth`, `/api`, and `/gateway` to AT. Do not use this option on a
-public deployment. Set the backend bind host to loopback in local development.
+termination. Setup requires an exact browser Origin matching Host and any
+configured deployment anchor. Reverse proxies must preserve the intended Host;
+`X-Forwarded-*` never establishes trust. After setup the persisted origin is
+authoritative. HTTP is allowed only on loopback for development, without an extra
+flag. With Vite, preserve `Host: localhost:3000` when proxying setup, or perform
+setup on the final deployment origin. Set the backend bind host to loopback locally.
 
 Build the UI into the binary with the normal `make build-ui` / release build
 pipeline when deploying this change. `pnpm run build` alone writes `_ui/dist`,
@@ -51,11 +48,22 @@ The static SPA remains public, while management data is authenticated server-sid
 
 ## First Administrator
 
-Supply a restricted JSON file with `username` and `password` (15 or more
-characters, at most 1024 UTF-8 bytes). Usernames normalize to lowercase, trim
+The public status endpoint reports `setup_required:true` only while the durable
+bootstrap latch is unclaimed. Open the Create administrator screen and supply a
+username and password. The UI posts `{username,password,origin}` to `/auth/setup`,
+which atomically pins the canonical origin/settings and creates a LOCAL installation
+administrator. A 201 response returns the new identity; sign in afterward through
+the normal password/MFA flow. Setup itself does not issue a session.
+
+Passwords must have 8 or more
+characters and at most 1024 UTF-8 bytes, matching NIST SP 800-63B's minimum for
+user-chosen secrets. That floor is deliberately low, so enrol a second factor on
+administrator accounts rather than relying on length. Usernames normalize to lowercase, trim
 surrounding whitespace, and allow 3-128 ASCII letters, digits, or `._@+-`.
 For example, use `operator@example.com` as the username. Choose a unique generated
 password or long passphrase, not an example password from documentation.
+
+For legacy token-based automation only, supply a private JSON credential file:
 
 ```sh
 curl --fail-with-body https://at.example.com/at/auth/bootstrap \
@@ -76,14 +84,31 @@ and inserts the administrator. Exactly one concurrent request can win across all
 replicas. A failed insert rolls the latch back. Deleting or disabling users does
 **not** reopen bootstrap. There is no public registration/count-then-create path.
 
+Migration 37 stores versioned auth settings. Existing configured native deployments
+import their origin and session TTLs once; keep those values for the first upgraded
+startup. Subsequent YAML changes do not overwrite DB settings. Old claimed stores
+without an origin fail closed until one is provided for import. Old nonnative
+installations enter setup-required mode with management APIs gated, preserving
+their data. Plan the operator's first upgraded visit to claim the installation.
+`enabled:false` no longer disables authentication or restores anonymous management.
+
+Settings exposes session and remembered lifetimes, local primary login, invitation
+or approval admission, and display title. Identity providers use the existing
+`/auth/identity-providers` APIs. `PUT /auth/settings` requires the current `version`;
+stale edits return 409. The canonical origin is pinned and cannot be changed there.
+Enrolled MFA is always required and the 20-session ceiling cannot be bypassed.
+Disabling local login requires a linked, active installation administrator on an
+enabled external provider. The DB also prevents later provider/link/admin changes
+from removing that last usable external primary while local login is disabled.
+
 Migration `25_native_auth.sql` is additive and uses AT's configured table prefix.
 Back up the database normally; do not reset the bootstrap latch as a recovery
 mechanism. Before relying on native auth, create a second securely held admin
 account. A live administrator can reset passwords and re-enable disabled accounts.
 There is no unauthenticated recovery flow; recovery after losing access to every
 administrator requires a separate reviewed operator procedure.
-Turning native auth off is **not** safe recovery unless equivalent perimeter
-authentication is already in place. No automatic user/data migration is performed.
+Use the authenticated recovery flow or operator recovery command after losing
+access; resetting the bootstrap latch or disabling auth is not a recovery path.
 
 ## API
 
@@ -94,7 +119,10 @@ send it automatically; scripts must set it explicitly. Do not use GET for writes
 
 | Endpoint | Access | Body / result |
 | --- | --- | --- |
-| `GET /auth/status` | Public, also when off | `{ "enabled": true, "passkeys": true, "remember_me": true, "passkey_login": "username-first", "mobile_auth": {...} }`; mobile descriptor below; omitted when native auth is off |
+| `GET /auth/status` | Public | `{ "enabled": true, "setup_required": false, "local_login": true, "display_title": "AT", "signup_admission": "invite_only", "passkeys": true, "remember_me": true, "passkey_login": "username-first", "mobile_auth": {...} }`; DB failure returns 503 |
+| `POST /auth/setup` | Unclaimed installation + exact Origin/Host | `{ "username": "...", "password": "...", "origin": "https://at.example.com" }`; local first admin, 201; no session |
+| `GET /auth/settings` | Platform admin | Versioned auth product policy |
+| `PUT /auth/settings` | Platform admin + Origin | Full policy with expected `version`; 200 new policy, stale/lockout 409 |
 | `POST /auth/bootstrap` | Operator bearer secret + Origin | `{ "username": "...", "password": "..." }`; first admin only, 201 |
 | `POST /auth/login` | Public + Origin | `{ "username": "...", "password": "...", "remember_me": false }`; 200 identity + two HttpOnly cookies |
 | `GET /auth/me` | Live web access cookie OR mobile access bearer, never both | 200 identity and nonsecret session metadata; expired access returns 401 without refreshing |
@@ -161,13 +189,12 @@ on every fresh login, including login as the same user. There is no top-level
 metadata because it does not sign the created user in.
 
 - Access expiry is `min(now + 10 minutes, absolute session deadline)`.
-- `remember_me` omitted/false selects `server.native_auth.session_ttl`, default
-  `8h`; valid configured values are `10m` through `24h`, inclusive.
-- `remember_me: true` selects `server.native_auth.remember_ttl`, default `720h`;
-  it must be at least `session_ttl` and at most `720h` (30 days).
-- Zero duration selects the default. Negative or out-of-bounds durations fail
-  startup. Environment equivalents are `AT_SERVER_NATIVE_AUTH_SESSION_TTL` and
-  `AT_SERVER_NATIVE_AUTH_REMEMBER_TTL`. Clients cannot supply arbitrary TTLs.
+- `remember_me` omitted/false selects Settings `session_ttl_seconds`, default
+  `28800` (8h); valid values are 600 through 86400, inclusive.
+- `remember_me: true` selects Settings `remember_ttl_seconds`, default 2592000
+  (30 days); it must be at least the ordinary session lifetime and at most 30 days.
+- Invalid durations are rejected by the settings API. Legacy YAML/environment
+  duration fields are import-only. Login clients cannot supply arbitrary TTLs.
 - Neither requests nor rotations move the absolute deadline. Changing config does
   not rewrite existing sessions. Both modes survive server restarts; browser
   session restoration can restore nonpersistent cookies, so the database deadline
@@ -321,7 +348,7 @@ use `data: []`. Unknown/duplicate query parameters and malformed queries return
 400. Pagination is not a snapshot across concurrent account creation.
 
 Both password endpoints require JSON, reject unknown fields, and retain the
-4 KiB body cap and password policy (15 characters minimum, 1024 UTF-8 bytes
+4 KiB body cap and password policy (8 characters minimum, 1024 UTF-8 bytes
 maximum). Self-change requires the current password, not just a session; an admin
 reset does not require the target's old password. A reset does not change roles
 or enable a disabled user. Enable does not change the password or role. Even

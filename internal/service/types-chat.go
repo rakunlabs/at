@@ -117,6 +117,7 @@ type BotCustomCommand struct {
 
 // BotConfig represents a Discord or Telegram bot configuration stored in the database.
 type BotConfig struct {
+	WorkspaceID     string             `json:"workspace_id"`
 	ID              string             `json:"id"`
 	Platform        string             `json:"platform"`
 	Name            string             `json:"name"`

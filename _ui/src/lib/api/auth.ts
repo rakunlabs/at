@@ -20,6 +20,9 @@ export interface AuthIdentity {
 export interface AuthStatus {
   enabled: boolean;
   passkeys: boolean;
+  setup_required: boolean;
+  local_login: boolean;
+  display_title: string;
 }
 
 export interface AuthPasskey {
@@ -74,11 +77,13 @@ export async function decideMobileAuthRequest(id: string, approve: boolean, sign
 export async function getAuthStatus(): Promise<AuthStatus> {
   const { data } = await api.get<AuthStatus>('status', { headers: { 'Cache-Control': 'no-cache' } });
   if (data?.enabled !== true && data?.enabled !== false) throw new Error('Invalid authentication status');
-  return { enabled: data.enabled, passkeys: data.enabled === true && data.passkeys === true };
+  return { ...data, passkeys: data.enabled === true && data.passkeys === true };
 }
 
-export async function loginWithPassword(username: string, password: string, remember_me = false, signal?: AbortSignal): Promise<AuthIdentity> {
-  return (await api.post<AuthIdentity>('login', { username, password, remember_me }, { signal })).data;
+export interface MFAChallenge { mfa_required: true; challenge: string; expires_in: number; methods: string[] }
+export type LoginResult = AuthIdentity | MFAChallenge;
+export async function loginWithPassword(username: string, password: string, remember_me = false, signal?: AbortSignal): Promise<LoginResult> {
+  return (await api.post<LoginResult>('login', { username, password, remember_me }, { signal })).data;
 }
 
 export async function listAuthPasskeys(signal?: AbortSignal): Promise<{ items: AuthPasskey[] }> {
@@ -97,8 +102,8 @@ export async function beginPasskeyLogin(username: string, remember_me: boolean, 
   return (await api.post('passkeys/login/begin', { username, remember_me }, { signal })).data;
 }
 
-export async function finishPasskeyLogin(credential: RawCredential, signal: AbortSignal): Promise<AuthIdentity> {
-  return (await api.post<AuthIdentity>('passkeys/login/finish', credential, { signal })).data;
+export async function finishPasskeyLogin(credential: RawCredential, signal: AbortSignal): Promise<LoginResult> {
+  return (await api.post<LoginResult>('passkeys/login/finish', credential, { signal })).data;
 }
 
 export async function deleteAuthPasskey(id: string, current_password: string, signal: AbortSignal): Promise<void> {
@@ -163,7 +168,20 @@ export function isAuthUnauthorized(error: unknown): boolean {
   return axios.isAxiosError(error) && error.response?.status === 401;
 }
 
+// An unclaimed installation refuses management with 403 and a fixed message.
+// Detect it so a stale or cached client still reaches the setup screen.
+export function isSetupRequired(error: unknown): boolean {
+  // Compared by name, not by class: this module is also loaded standalone,
+  // so it must not take a runtime dependency on the transport.
+  if (error instanceof Error && error.name === 'InstallationSetupRequired') return true;
+  if (!axios.isAxiosError(error) || error.response?.status !== 403) return false;
+  const data = error.response?.data as { message?: string } | undefined;
+  return data?.message === 'installation setup required';
+}
+
+// The byte ceiling is an implementation bound, not guidance, so it is reported
+// only when a password actually exceeds it.
 export function passwordPolicyError(password: string): string {
-  return Array.from(password).length < 15 || new TextEncoder().encode(password).length > 1024
-    ? 'Use at least 15 characters and at most 1024 UTF-8 bytes.' : '';
+  if (new TextEncoder().encode(password).length > 1024) return 'Use at most 1024 UTF-8 bytes.';
+  return Array.from(password).length < 8 ? 'Use at least 8 characters.' : '';
 }

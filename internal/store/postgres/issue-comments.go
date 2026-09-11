@@ -15,19 +15,20 @@ import (
 // ─── Issue Comments ───
 
 type issueCommentRow struct {
-	ID         string         `db:"id"`
-	TaskID     string         `db:"task_id"`
-	AuthorType string         `db:"author_type"`
-	AuthorID   string         `db:"author_id"`
-	Body       string         `db:"body"`
-	ParentID   sql.NullString `db:"parent_id"`
-	CreatedAt  time.Time      `db:"created_at"`
-	UpdatedAt  time.Time      `db:"updated_at"`
+	WorkspaceID string         `db:"workspace_id"`
+	ID          string         `db:"id"`
+	TaskID      string         `db:"task_id"`
+	AuthorType  string         `db:"author_type"`
+	AuthorID    string         `db:"author_id"`
+	Body        string         `db:"body"`
+	ParentID    sql.NullString `db:"parent_id"`
+	CreatedAt   time.Time      `db:"created_at"`
+	UpdatedAt   time.Time      `db:"updated_at"`
 }
 
 var issueCommentColumns = []interface{}{
 	"id", "task_id", "author_type", "author_id", "body", "parent_id",
-	"created_at", "updated_at",
+	"created_at", "updated_at", "workspace_id",
 }
 
 func scanIssueCommentRow(scanner interface {
@@ -36,13 +37,23 @@ func scanIssueCommentRow(scanner interface {
 	return scanner.Scan(
 		&row.ID, &row.TaskID, &row.AuthorType, &row.AuthorID,
 		&row.Body, &row.ParentID, &row.CreatedAt, &row.UpdatedAt,
+		&row.WorkspaceID,
 	)
 }
 
 func (p *Postgres) ListCommentsByTask(ctx context.Context, taskID string) ([]service.IssueComment, error) {
+	scope, err := p.businessReadScope(ctx, p.tableIssueComments)
+	if err != nil {
+		return nil, err
+	}
+	if parent, err := p.GetTask(ctx, taskID); err != nil {
+		return nil, err
+	} else if parent == nil {
+		return nil, service.ErrAccessResourceNotFound
+	}
 	query, _, err := p.goqu.From(p.tableIssueComments).
 		Select(issueCommentColumns...).
-		Where(goqu.I("task_id").Eq(taskID)).
+		Where(scope, goqu.I("task_id").Eq(taskID)).
 		Order(goqu.I("created_at").Asc()).
 		ToSQL()
 	if err != nil {
@@ -69,9 +80,13 @@ func (p *Postgres) ListCommentsByTask(ctx context.Context, taskID string) ([]ser
 }
 
 func (p *Postgres) GetComment(ctx context.Context, id string) (*service.IssueComment, error) {
+	scope, err := p.businessReadScope(ctx, p.tableIssueComments)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableIssueComments).
 		Select(issueCommentColumns...).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get comment query: %w", err)
@@ -90,42 +105,87 @@ func (p *Postgres) GetComment(ctx context.Context, id string) (*service.IssueCom
 }
 
 func (p *Postgres) CreateComment(ctx context.Context, comment service.IssueComment) (*service.IssueComment, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableIssueComments, "comments.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if comment.WorkspaceID != "" && comment.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if comment.TaskID == "" {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	if err = p.businessReference(ctx, w, p.tableTasks, "id", comment.TaskID); err != nil {
+		return nil, err
+	}
+	if comment.ParentID != "" {
+		var parent string
+		found, e := w.tx.From(p.tableIssueComments).Select("id").Where(w.predicate, goqu.Ex{"id": comment.ParentID, "task_id": comment.TaskID}).ForKeyShare(goqu.Wait).ScanValContext(ctx, &parent)
+		if e != nil {
+			return nil, fmt.Errorf("validate comment parent: %w", e)
+		}
+		if !found {
+			return nil, service.ErrAccessResourceNotFound
+		}
+	}
+	if comment.AuthorType == "agent" {
+		if err = p.businessReference(ctx, w, p.tableAgents, "id", comment.AuthorID); err != nil {
+			return nil, err
+		}
+	} else if w.actor.UserID != "" {
+		comment.AuthorType = "user"
+		comment.AuthorID = w.actor.UserID
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Insert(p.tableIssueComments).Rows(
+	query, _, err := w.tx.Insert(p.tableIssueComments).Rows(
 		goqu.Record{
-			"id":          id,
-			"task_id":     comment.TaskID,
-			"author_type": comment.AuthorType,
-			"author_id":   comment.AuthorID,
-			"body":        comment.Body,
-			"parent_id":   nullString(comment.ParentID),
-			"created_at":  now,
-			"updated_at":  now,
+			"workspace_id": w.actor.WorkspaceID,
+			"id":           id,
+			"task_id":      comment.TaskID,
+			"author_type":  comment.AuthorType,
+			"author_id":    comment.AuthorID,
+			"body":         comment.Body,
+			"parent_id":    nullString(comment.ParentID),
+			"created_at":   now,
+			"updated_at":   now,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert comment query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create comment: %w", err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit comment: %w", err)
 	}
 
 	return &service.IssueComment{
-		ID:         id,
-		TaskID:     comment.TaskID,
-		AuthorType: comment.AuthorType,
-		AuthorID:   comment.AuthorID,
-		Body:       comment.Body,
-		ParentID:   comment.ParentID,
-		CreatedAt:  now.Format(time.RFC3339),
-		UpdatedAt:  now.Format(time.RFC3339),
+		WorkspaceID: w.actor.WorkspaceID,
+		ID:          id,
+		TaskID:      comment.TaskID,
+		AuthorType:  comment.AuthorType,
+		AuthorID:    comment.AuthorID,
+		Body:        comment.Body,
+		ParentID:    comment.ParentID,
+		CreatedAt:   now.Format(time.RFC3339),
+		UpdatedAt:   now.Format(time.RFC3339),
 	}, nil
 }
 
 func (p *Postgres) UpdateComment(ctx context.Context, id string, comment service.IssueComment) (*service.IssueComment, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableIssueComments, "comments.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if comment.WorkspaceID != "" && comment.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	now := time.Now().UTC()
 
 	query, _, err := p.goqu.Update(p.tableIssueComments).Set(
@@ -133,12 +193,12 @@ func (p *Postgres) UpdateComment(ctx context.Context, id string, comment service
 			"body":       comment.Body,
 			"updated_at": now,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update comment query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update comment %q: %w", id, err)
 	}
@@ -150,35 +210,44 @@ func (p *Postgres) UpdateComment(ctx context.Context, id string, comment service
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit comment update: %w", err)
+	}
 
 	return p.GetComment(ctx, id)
 }
 
 func (p *Postgres) DeleteComment(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableIssueComments, "comments.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableIssueComments).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete comment query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete comment %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func issueCommentRowToRecord(row issueCommentRow) *service.IssueComment {
 	return &service.IssueComment{
-		ID:         row.ID,
-		TaskID:     row.TaskID,
-		AuthorType: row.AuthorType,
-		AuthorID:   row.AuthorID,
-		Body:       row.Body,
-		ParentID:   row.ParentID.String,
-		CreatedAt:  row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt:  row.UpdatedAt.Format(time.RFC3339),
+		WorkspaceID: row.WorkspaceID,
+		ID:          row.ID,
+		TaskID:      row.TaskID,
+		AuthorType:  row.AuthorType,
+		AuthorID:    row.AuthorID,
+		Body:        row.Body,
+		ParentID:    row.ParentID.String,
+		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
 	}
 }

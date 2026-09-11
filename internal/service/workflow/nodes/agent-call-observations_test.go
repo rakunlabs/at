@@ -8,6 +8,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 // TestAgentCall_RecordsObservations verifies the workflow agent_call node
@@ -53,7 +54,7 @@ func TestAgentCall_RecordsObservations(t *testing.T) {
 		"max_iterations": float64(4),
 	})
 
-	res, err := node.Run(context.Background(), reg, map[string]any{"prompt": "do the work"})
+	res, err := node.Run(executiontest.Context(t), reg, map[string]any{"prompt": "do the work"})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -118,7 +119,7 @@ func TestAgentCall_NoPresetReasoningEffort(t *testing.T) {
 		return "observation"
 	}
 	node := makeNode(t, "agent_call", map[string]any{"provider": "test-provider", "max_iterations": float64(2)})
-	if _, err := node.Run(context.Background(), reg, map[string]any{"prompt": "hello"}); err != nil {
+	if _, err := node.Run(executiontest.Context(t), reg, map[string]any{"prompt": "hello"}); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 || len(observations) != 1 {

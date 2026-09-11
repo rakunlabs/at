@@ -37,6 +37,7 @@ type ConnectionCredentials struct {
 // Connection represents a named, reusable credential set for a single external
 // provider instance.
 type Connection struct {
+	WorkspaceID  string                `json:"workspace_id"`
 	ID           string                `json:"id"`
 	Provider     string                `json:"provider"`                // "youtube", "google", "twitter", or skill slug for token-only
 	Name         string                `json:"name"`                    // unique within provider, e.g. "Main Channel"

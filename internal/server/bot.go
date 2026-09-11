@@ -11,7 +11,6 @@ import (
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
-	"github.com/rakunlabs/query"
 )
 
 // findOrCreateBotSession looks up an existing chat session by platform identifiers
@@ -23,15 +22,28 @@ import (
 // two bots talking to the same Telegram/Discord chat would share a single session
 // row and conversation history.
 func (s *Server) findOrCreateBotSession(ctx context.Context, platform, botConfigID, userID, channelID, defaultAgentID string) (string, string, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: botConfigID}); err != nil {
+		return "", "", err
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: defaultAgentID}); err != nil {
+		return "", "", err
+	}
 	if s.chatSessionStore == nil {
 		return "", "", fmt.Errorf("chat session store not configured")
 	}
 
-	session, err := s.chatSessionStore.GetChatSessionByPlatform(ctx, platform, userID, channelID, botConfigID)
+	store, ok := s.store.(service.ExecutionChatStorer)
+	if !ok {
+		return "", "", fmt.Errorf("scoped bot session store unavailable: %w", service.ErrExecutionDenied)
+	}
+	session, err := store.GetExecutionBotSession(ctx, platform, userID, channelID, botConfigID)
 	if err != nil {
 		return "", "", fmt.Errorf("lookup platform session: %w", err)
 	}
 	if session != nil {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "chats.run", ResourceID: session.ID}); err != nil {
+			return "", "", err
+		}
 		// Return the session's current agent — respect /switch choices.
 		return session.ID, session.AgentID, nil
 	}
@@ -42,7 +54,7 @@ func (s *Server) findOrCreateBotSession(ctx context.Context, platform, botConfig
 		name = fmt.Sprintf("%s-%s", platform, userID)
 	}
 
-	newSession, err := s.chatSessionStore.CreateChatSession(ctx, service.ChatSession{
+	newSession, err := store.CreateExecutionBotSession(ctx, service.ChatSession{
 		AgentID: defaultAgentID,
 		Name:    name,
 		Config: service.ChatSessionConfig{
@@ -104,18 +116,29 @@ func (s *Server) startBotsFromDB(ctx context.Context) {
 		return
 	}
 
-	result, err := s.botConfigStore.ListBotConfigs(ctx, nil)
-	if err != nil {
-		slog.Error("failed to load bot configs from DB", "error", err)
+	services, ok := s.store.(service.ExecutionServiceLister)
+	if !ok {
+		slog.Warn("bot service binding catalog unavailable")
 		return
 	}
-
-	for i := range result.Data {
-		bot := &result.Data[i]
+	bindings, err := services.ListExecutionServiceBindings(ctx, "bot")
+	if err != nil {
+		slog.Warn("bot service enumeration requires boot maintenance authority", "error", err)
+		return
+	}
+	for _, binding := range bindings {
+		bound, err := s.ResumeRuntimeSubject(ctx, "bot", binding.SubjectID, nil)
+		if err != nil {
+			continue
+		}
+		bot, err := s.botConfigStore.GetBotConfig(bound, binding.SubjectID)
+		if err != nil || bot == nil {
+			continue
+		}
 		if !bot.Enabled || bot.Token == "" {
 			continue
 		}
-		s.startBotFromConfig(ctx, bot)
+		s.startBotFromConfig(bound, bot)
 	}
 }
 
@@ -163,6 +186,15 @@ func (s *Server) getBotRunningInfo(botID string) *runningBot {
 // startBotFromConfig starts a single bot based on its DB configuration.
 func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig) {
 	// Stop any existing instance first.
+	bound, err := s.ResumeRuntimeSubject(ctx, "bot", bot.ID, nil)
+	if err == nil {
+		err = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: bot.ID})
+	}
+	if err != nil {
+		slog.Warn("bot execution binding unavailable", "bot_id", bot.ID, "error", err)
+		return
+	}
+	ctx = bound
 	s.stopBot(bot.ID)
 
 	// Create per-bot cancellable context.
@@ -220,6 +252,9 @@ func (s *Server) listAllowedAgents(ctx context.Context, botID string, allowedAge
 
 	var agents []service.Agent
 	for _, id := range allowedAgentIDs {
+		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: id}) != nil {
+			continue
+		}
 		agent, err := s.agentStore.GetAgent(ctx, id)
 		if err != nil || agent == nil {
 			continue
@@ -233,6 +268,9 @@ func (s *Server) listAllowedAgents(ctx context.Context, botID string, allowedAge
 // switchBotAgent switches the session to a different agent and clears conversation history.
 // It returns the agent name on success, or an error message on failure.
 func (s *Server) switchBotAgent(ctx context.Context, botID, sessionID, targetAgent string, allowedAgentIDs []string) (string, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "chats.run", ResourceID: sessionID}); err != nil {
+		return "", err
+	}
 	// For DB bots, fetch current config for dynamic updates.
 	if botID != "" && s.botConfigStore != nil {
 		dbCfg, err := s.botConfigStore.GetBotConfig(ctx, botID)
@@ -252,6 +290,9 @@ func (s *Server) switchBotAgent(ctx context.Context, botID, sessionID, targetAge
 
 	var matchedAgent *service.Agent
 	for _, id := range allowedAgentIDs {
+		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: id}) != nil {
+			continue
+		}
 		agent, err := s.agentStore.GetAgent(ctx, id)
 		if err != nil || agent == nil {
 			continue
@@ -291,6 +332,9 @@ func (s *Server) switchBotAgent(ctx context.Context, botID, sessionID, targetAge
 // checkBotAccess checks if a user is allowed to use the bot.
 // Returns: allowed bool, wasPending bool (true if pending_approval is on and user was added to pending).
 func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode string, pendingApproval bool, allowedUsers []string) (bool, bool) {
+	if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: botID}) != nil {
+		return false, false
+	}
 	// For DB bots, fetch current config for dynamic updates.
 	if botID != "" {
 		if s.botConfigStore == nil {
@@ -396,6 +440,9 @@ func (s *Server) createBotTask(ctx context.Context, agentID, topic string, onDon
 // overrides such as max_iterations. Kept as a separate function so existing
 // call sites (other bots, slash commands, etc.) don't need to change.
 func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic string, opts BotTaskOptions, onDone ...TaskDoneCallback) (string, string, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: agentID}); err != nil {
+		return "", "", err
+	}
 	if s.orgAgentStore == nil || s.organizationStore == nil || s.taskStore == nil {
 		return "", "", fmt.Errorf("task/org stores not configured")
 	}
@@ -464,20 +511,20 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 		AssignedAgentID: org.HeadAgentID,
 		Title:           title,
 		Description:     description,
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 		Identifier:      identifier,
 		RequestDepth:    0,
 		MaxIterations:   opts.MaxIterations,
 		CreatedBy:       "telegram-bot",
 	}
 
-	record, err := s.taskStore.CreateTask(ctx, task)
+	record, err := s.createRuntimeTask(ctx, task)
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
 
 	completion := s.botTaskDoneCallback(record.ID, identifier, onDone)
-	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, completion); err != nil {
+	if err := s.startDelegationRun(context.WithoutCancel(ctx), org, record, org.HeadAgentID, 0, completion); err != nil {
 		return "", "", fmt.Errorf("start delegation: %w", err)
 	}
 
@@ -486,6 +533,12 @@ func (s *Server) createBotTaskWithOptions(ctx context.Context, agentID, topic st
 
 // createBotSubtask creates a subtask under a parent task and runs it in background.
 func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task, title, description string, onDone ...TaskDoneCallback) (string, string, error) {
+	if parentTask == nil {
+		return "", "", service.ErrExecutionDenied
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "tasks.run", ResourceID: parentTask.ID}); err != nil {
+		return "", "", err
+	}
 	if s.taskStore == nil || s.organizationStore == nil {
 		return "", "", fmt.Errorf("stores not configured")
 	}
@@ -520,19 +573,19 @@ func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task,
 		AssignedAgentID: org.HeadAgentID,
 		Title:           title,
 		Description:     description,
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 		Identifier:      identifier,
 		RequestDepth:    0,
 		CreatedBy:       "telegram-bot",
 	}
 
-	record, err := s.taskStore.CreateTask(ctx, task)
+	record, err := s.createRuntimeTask(ctx, task)
 	if err != nil {
 		return "", "", fmt.Errorf("create subtask: %w", err)
 	}
 
 	completion := s.botTaskDoneCallback(record.ID, identifier, onDone)
-	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, completion); err != nil {
+	if err := s.startDelegationRun(context.WithoutCancel(ctx), org, record, org.HeadAgentID, 0, completion); err != nil {
 		return "", "", fmt.Errorf("start delegation: %w", err)
 	}
 
@@ -551,6 +604,12 @@ func (s *Server) createBotSubtask(ctx context.Context, parentTask *service.Task,
 // Status is reset to TaskStatusOpen before the goroutine starts so any UI /
 // status query sees that the task is back in motion.
 func (s *Server) resumeBotTask(ctx context.Context, task *service.Task, onDone ...TaskDoneCallback) error {
+	if task == nil {
+		return service.ErrExecutionDenied
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "tasks.run", ResourceID: task.ID}); err != nil {
+		return err
+	}
 	if s.taskStore == nil || s.organizationStore == nil {
 		return fmt.Errorf("stores not configured")
 	}
@@ -569,20 +628,20 @@ func (s *Server) resumeBotTask(ctx context.Context, task *service.Task, onDone .
 		return fmt.Errorf("organization or head agent missing")
 	}
 
-	reservation, err := s.reserveDelegationRun(s.ctx, task.ID, org.HeadAgentID, org.ID)
+	reservation, err := s.reserveDelegationRun(context.WithoutCancel(ctx), task.ID, org.HeadAgentID, org.ID)
 	if err != nil {
 		return fmt.Errorf("reserve delegation: %w", err)
 	}
 
 	// Reset to open so the resumed run is reflected in status views and the
 	// next blocking iteration can write a fresh [CONVERSATION_STATE] comment.
-	if err := s.taskStore.UpdateTaskStatus(ctx, task.ID, service.TaskStatusOpen, ""); err != nil {
+	if err := s.taskStore.UpdateTaskStatus(ctx, task.ID, service.TaskStatusTodo, ""); err != nil {
 		reservation.cleanup()
 		return fmt.Errorf("reset task status: %w", err)
 	}
 
 	runTask := *task
-	runTask.Status = service.TaskStatusOpen
+	runTask.Status = service.TaskStatusTodo
 	runTask.Result = ""
 	completion := s.botTaskDoneCallback(task.ID, task.Identifier, onDone)
 	s.startReservedDelegationRun(reservation, org, &runTask, org.HeadAgentID, runTask.RequestDepth, completion)
@@ -592,6 +651,9 @@ func (s *Server) resumeBotTask(ctx context.Context, task *service.Task, onDone .
 
 // agentOrgIDs returns all organization IDs this agent belongs to (via membership or as head agent).
 func (s *Server) agentOrgIDs(ctx context.Context, agentID string) []string {
+	if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: agentID}) != nil {
+		return nil
+	}
 	orgIDs := make(map[string]bool)
 
 	if s.orgAgentStore != nil {
@@ -602,7 +664,11 @@ func (s *Server) agentOrgIDs(ctx context.Context, agentID string) []string {
 	}
 
 	if s.organizationStore != nil {
-		q := query.New().SetLimit(100)
+		q, err := runtimeWorkspaceQuery(ctx)
+		if err != nil {
+			return nil
+		}
+		q.SetLimit(100)
 		allOrgs, _ := s.organizationStore.ListOrganizations(ctx, q)
 		if allOrgs != nil {
 			for _, o := range allOrgs.Data {
@@ -615,6 +681,9 @@ func (s *Server) agentOrgIDs(ctx context.Context, agentID string) []string {
 
 	result := make([]string, 0, len(orgIDs))
 	for id := range orgIDs {
+		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "organizations.run", ResourceID: id}) != nil {
+			continue
+		}
 		result = append(result, id)
 	}
 	return result
@@ -628,7 +697,11 @@ func (s *Server) findTaskByIdentifier(ctx context.Context, agentID, identifier s
 
 	identifier = strings.TrimSpace(identifier)
 
-	result, err := s.taskStore.ListTasks(ctx, nil)
+	q, err := runtimeWorkspaceQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.taskStore.ListTasks(ctx, q)
 	if err != nil {
 		return nil, err
 	}
@@ -636,6 +709,9 @@ func (s *Server) findTaskByIdentifier(ctx context.Context, agentID, identifier s
 	for i := range result.Data {
 		t := &result.Data[i]
 		if strings.EqualFold(t.Identifier, identifier) || t.ID == identifier {
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "tasks.run", ResourceID: t.ID}); err != nil {
+				return nil, err
+			}
 			return t, nil
 		}
 	}
@@ -660,7 +736,11 @@ func (s *Server) listBotTasks(ctx context.Context, agentID string) ([]service.Ta
 	}
 
 	// Simple approach: get all tasks, filter + sort in Go
-	result, err := s.taskStore.ListTasks(ctx, nil)
+	q, err := runtimeWorkspaceQuery(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result, err := s.taskStore.ListTasks(ctx, q)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -671,6 +751,9 @@ func (s *Server) listBotTasks(ctx context.Context, agentID string) ([]service.Ta
 	var tasks []service.Task
 	for i := range result.Data {
 		t := result.Data[i]
+		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "tasks.run", ResourceID: t.ID}) != nil {
+			continue
+		}
 		if t.ParentID != "" {
 			continue // skip subtasks
 		}

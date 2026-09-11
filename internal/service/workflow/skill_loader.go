@@ -61,7 +61,8 @@ type SkillToolHandlerInfo struct {
 // guards loadedSkills mutation with a mutex (a single agentic loop is
 // sequential but defensive locking keeps misuse cheap).
 type SkillRuntime struct {
-	mu sync.Mutex
+	ctx context.Context
+	mu  sync.Mutex
 
 	// registry maps lookup key (name AND id, when both are known) to the full
 	// resolved Skill. Populated once in NewSkillRuntime; never mutated.
@@ -96,6 +97,7 @@ func NewSkillRuntime(
 	warn func(skill string, err error),
 ) (*SkillRuntime, error) {
 	rt := &SkillRuntime{
+		ctx:           ctx,
 		registry:      map[string]*service.Skill{},
 		loadedSkills:  map[string]bool{},
 		connOverrides: map[string]map[string]string{},
@@ -139,6 +141,9 @@ func NewSkillRuntime(
 	// Resolve each ref to a full skill; populate registry + catalog.
 	catalogSeen := map[string]bool{}
 	for _, key := range ordered {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: key}); err != nil {
+			return nil, err
+		}
 		skill, err := lookup(key)
 		if err != nil {
 			if warn != nil {
@@ -153,6 +158,9 @@ func NewSkillRuntime(
 			continue
 		}
 
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: skill.ID}); err != nil {
+			return nil, err
+		}
 		// Index by every plausible lookup key.
 		if skill.ID != "" {
 			rt.registry[skill.ID] = skill
@@ -280,6 +288,9 @@ func (r *SkillRuntime) HandleLoadSkill(args map[string]any) (resultText string, 
 	if !ok || skill == nil {
 		return fmt.Sprintf("Error: skill %q is not attached to this agent. Available skills: %s", name, r.catalogNames()), nil
 	}
+	if err := service.CheckExecution(r.ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: skill.ID}); err != nil {
+		return "", err
+	}
 
 	canonical := skill.Name
 	if canonical == "" {
@@ -354,6 +365,9 @@ func (r *SkillRuntime) ActiveSkillTools() []service.Tool {
 			continue
 		}
 		for _, t := range skill.Tools {
+			if service.CheckExecution(r.ctx, service.ExecutionAction{Kind: "skill_tool", Name: t.Name, ResourceID: skill.ID}) != nil {
+				continue
+			}
 			if t.Name == "" || seen[t.Name] {
 				continue
 			}

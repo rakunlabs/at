@@ -76,7 +76,8 @@ type Server struct {
 	// authentication service.
 	ForwardAuth *mforwardauth.ForwardAuth `cfg:"forward_auth"`
 
-	// NativeAuth is opt-in, admin-only management authentication.
+	// NativeAuth is a migration-only import of legacy product settings. Runtime
+	// authentication is enabled by default; settings live in PostgreSQL.
 	NativeAuth *NativeAuth `cfg:"native_auth"`
 
 	// AdminToken, if set, protects the /api/v1/settings/* endpoints with bearer
@@ -114,7 +115,8 @@ type Server struct {
 	Workspace *Workspace `cfg:"workspace"`
 }
 
-// NativeAuth configures the first, administrator-only local auth slice.
+// NativeAuth retains backwards-compatible import fields. New installations use
+// /auth/setup and /auth/settings instead of configuring these product knobs.
 type NativeAuth struct {
 	// SessionTTL is the absolute non-remembered lifetime; zero selects 8h.
 	SessionTTL time.Duration `cfg:"session_ttl"`

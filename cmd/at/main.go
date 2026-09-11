@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"os"
 	"strings"
 	"time"
 
@@ -348,6 +349,11 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 }
 
 func run(ctx context.Context) error {
+	// Operator recovery runs before the server boots so an installation with
+	// no usable administrator credential can still be recovered.
+	if handled, err := runAuthCommand(ctx, os.Args[1:]); handled {
+		return err
+	}
 	cfg, err := config.Load(ctx, name)
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -363,7 +369,10 @@ func run(ctx context.Context) error {
 
 	// Build LLM providers from the database. Provider definitions are
 	// no longer accepted via YAML — add them through the UI / API.
-	dbRecords, err := st.ListProviders(ctx, nil)
+	// The boot registry holds installation-owned providers. Workspace-owned
+	// providers are never cached globally: scoped execution resolves those
+	// per request through the workspace provider grants.
+	dbRecords, err := st.ListProviders(service.WithLegacyWorkspaceAccess(ctx), nil)
 	if err != nil {
 		return fmt.Errorf("failed to load providers from DB: %w", err)
 	}

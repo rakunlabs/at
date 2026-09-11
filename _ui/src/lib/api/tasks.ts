@@ -7,15 +7,15 @@ export const TASK_STATUSES = [
   'backlog', 'todo', 'in_progress', 'in_review', 'blocked', 'done', 'cancelled',
 ] as const;
 
+// One label per status. `open`, `review` and `completed` were retired as exact
+// synonyms of `todo`, `in_review` and `done`; the database no longer accepts
+// them, so they are not listed here either.
 export const TASK_STATUS_LABELS: Record<string, string> = {
   backlog: 'Backlog',
-  open: 'Open',
   todo: 'To Do',
   in_progress: 'In Progress',
   in_review: 'In Review',
   blocked: 'Blocked',
-  review: 'Review',
-  completed: 'Completed',
   done: 'Done',
   cancelled: 'Cancelled',
 };

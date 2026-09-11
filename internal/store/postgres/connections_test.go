@@ -9,7 +9,8 @@ import (
 )
 
 func TestConnection_EncryptionRoundTrip(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	key, err := atcrypto.DeriveKey("test-passphrase")
 	if err != nil {
 		t.Fatalf("DeriveKey: %v", err)
@@ -63,7 +64,8 @@ func TestConnection_EncryptionRoundTrip(t *testing.T) {
 }
 
 func TestConnection_UniqueProviderName(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	_, err := store.CreateConnection(ctx, service.Connection{
@@ -103,7 +105,8 @@ func TestConnection_UniqueProviderName(t *testing.T) {
 }
 
 func TestConnection_ListByProvider(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	for _, n := range []string{"Main", "Backup", "Client B"} {

@@ -236,7 +236,7 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hot reload: register the new provider in the live registry.
-	if err := s.reloadProvider(req.Key, req.Config); err != nil {
+	if err := s.reloadWorkspaceProvider(r.Context(), req.Key, req.Config); err != nil {
 		slog.Warn("provider created in DB but failed to hot-reload", "key", req.Key, "error", err)
 	}
 
@@ -305,7 +305,7 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hot reload: update the provider in the live registry.
-	if err := s.reloadProvider(key, req.Config); err != nil {
+	if err := s.reloadWorkspaceProvider(r.Context(), key, req.Config); err != nil {
 		slog.Warn("provider updated in DB but failed to hot-reload", "key", key, "error", err)
 	}
 
@@ -332,7 +332,7 @@ func (s *Server) DeleteProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Hot reload: remove the provider from the live registry.
-	s.removeProvider(key)
+	s.removeWorkspaceProvider(r.Context(), key)
 
 	httpResponse(w, "deleted", http.StatusOK)
 }

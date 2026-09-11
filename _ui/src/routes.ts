@@ -7,7 +7,6 @@ import Marketplaces from '@/pages/Marketplaces.svelte';
 import Agents from '@/pages/Agents.svelte';
 import Secrets from '@/pages/Secrets.svelte';
 import Chat from '@/pages/Chat.svelte';
-import ChatRoute from '@/pages/ChatRoute.svelte';
 import ChatSessions from '@/pages/ChatSessions.svelte';
 import Tokens from '@/pages/Tokens.svelte';
 import NodeConfigs from '@/pages/NodeConfigs.svelte';
@@ -19,6 +18,13 @@ import Mcps from '@/pages/Mcps.svelte';
 import Bots from '@/pages/Bots.svelte';
 import Docs from '@/pages/Docs.svelte';
 import Settings from '@/pages/Settings.svelte';
+import SystemSettings from '@/pages/SystemSettings.svelte';
+import AccountSecurity from '@/pages/AccountSecurity.svelte';
+import AuthenticationSettings from '@/pages/AuthenticationSettings.svelte';
+import WorkspaceSettings from '@/pages/WorkspaceSettings.svelte';
+import Permissions from '@/pages/Permissions.svelte';
+import ExecutionSettings from '@/pages/ExecutionSettings.svelte';
+import MediaSettings from '@/pages/MediaSettings.svelte';
 import Organizations from '@/pages/Organizations.svelte';
 import OrganizationDetail from '@/pages/OrganizationDetail.svelte';
 import Tasks from '@/pages/Tasks.svelte';
@@ -85,9 +91,11 @@ export default {
   '/marketplaces': Marketplaces,
   '/agents': guarded(Agents, FEATURE_AGENTS),
   '/variables': Secrets,
-  '/chat': guarded(ChatRoute, FEATURE_CHAT_WORKBENCH),
-  '/chat/:id': guarded(ChatRoute, FEATURE_CHAT_WORKBENCH),
-  '/playground': guarded(Chat, FEATURE_CHAT_WORKBENCH),
+  // One entry, optional param. Two separate entries would be two distinct
+  // wrapped objects and would straddle the router's `{#if componentParams}`
+  // boundary, so navigating `/playground` → `/playground/:id` would unmount and
+  // remount the page — killing the in-flight turn the lazy save depends on.
+  '/playground/:id?': guarded(Chat, FEATURE_CHAT_WORKBENCH),
   '/sessions': guarded(ChatSessions, FEATURE_CHAT_WORKBENCH),
   '/tokens': redirect('/settings/tokens'),
   '/node-configs': guarded(NodeConfigs, FEATURE_AUTOMATION),
@@ -103,6 +111,14 @@ export default {
   '/bots': guarded(Bots, FEATURE_CHAT_WORKBENCH),
   '/docs': Docs,
   '/settings': Settings,
+  '/settings/system': SystemSettings,
+  '/settings/account': AccountSecurity,
+  '/settings/authentication': AuthenticationSettings,
+  '/settings/workspace': WorkspaceSettings,
+  '/settings/permissions': Permissions,
+  '/settings/execution': ExecutionSettings,
+  '/settings/media': MediaSettings,
+  '/settings/users': Users,
   '/settings/features': Features,
   '/settings/tokens': Tokens,
   '/features': redirect('/settings/features'),

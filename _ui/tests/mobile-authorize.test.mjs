@@ -102,12 +102,13 @@ test('401 returns to login; conflict and uncertain decisions never retry or expo
   }
 });
 
-test('App handles only the exact consent route outside the admin Router and preserves the hash at login', async () => {
+test('App handles the exact consent route after login and before workspace authorization', async () => {
   const app = await readFile(new URL('../src/App.svelte', import.meta.url), 'utf8');
-  assert.match(app, /\$location === '\/mobile-authorize' && \(authState === 'admin' \|\| authState === 'denied' \|\| authState === 'legacy'\)/);
-  const branch = app.slice(app.indexOf('{:else if $location'), app.indexOf("{:else if authState === 'loading'"));
+  assert.match(app, /\$location === '\/mobile-authorize'/);
+  assert.ok(app.indexOf("authState === 'login'}") < app.indexOf("$location === '/mobile-authorize'}"));
+  const branch = app.slice(app.indexOf('{:else if $location'), app.indexOf('<div class={[', app.indexOf('{:else if $location')));
   assert.ok(branch.includes('<MobileAuthorize'));
   assert.ok(!branch.includes('<Router'));
   const login = await readFile(new URL('../src/lib/components/NativeLogin.svelte', import.meta.url), 'utf8');
-  assert.ok(!login.includes('location.hash'));
+  assert.doesNotMatch(login, /location\.hash\s*=/);
 });

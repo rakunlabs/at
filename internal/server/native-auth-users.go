@@ -72,7 +72,7 @@ func (a *nativeAuth) enableUser(w http.ResponseWriter, r *http.Request) {
 
 func (a *nativeAuth) changePassword(admin bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var current, next string
+		var current, next, proof string
 		if admin {
 			var req struct {
 				Password string `json:"password"`
@@ -90,11 +90,13 @@ func (a *nativeAuth) changePassword(admin bool) http.HandlerFunc {
 			var req struct {
 				CurrentPassword string `json:"current_password"`
 				NewPassword     string `json:"new_password"`
+				Proof           string `json:"proof"`
 			}
 			if !decodeNativeBody(w, r, &req) {
 				return
 			}
 			current, next = req.CurrentPassword, req.NewPassword
+			proof = req.Proof
 		}
 		if !a.passwordSlot(w) {
 			return
@@ -110,7 +112,7 @@ func (a *nativeAuth) changePassword(admin bool) http.HandlerFunc {
 				nativeError(w, 503, "authentication unavailable")
 				return
 			}
-			if u == nil || u.Disabled || a.password.Verify(u.PasswordHash, current) != nil {
+			if u == nil || u.Disabled || (proof == "" && a.password.Verify(u.PasswordHash, current) != nil) {
 				nativeError(w, 401, "invalid credentials")
 				return
 			}
@@ -118,7 +120,29 @@ func (a *nativeAuth) changePassword(admin bool) http.HandlerFunc {
 		}
 		hash, err := a.password.Hash(next)
 		if err != nil {
-			nativeError(w, 400, "password must be at least 15 characters and at most 1024 bytes")
+			nativeError(w, 400, nativePasswordMessage(next))
+			return
+		}
+		if !admin && proof != "" {
+			u, sid, err := a.securitySelf(r)
+			if err == nil && a.security != nil {
+				err = a.security.UpdateAuthSecurity(r.Context(), u.ID, sid, *version, func(update *service.AuthSecurityUpdate) error {
+					if !consumeSecurityProof(update, sid, "password.change", proof) {
+						return service.ErrAuthConflict
+					}
+					update.PasswordHash = hash
+					update.Revoke = true
+					return nil
+				})
+			} else if err == nil {
+				err = service.ErrAuthConflict
+			}
+			if err != nil {
+				a.securityError(w, err)
+				return
+			}
+			a.clearCredentialCookies(w)
+			w.WriteHeader(204)
 			return
 		}
 		found, err := a.store.SetAuthUserPassword(r.Context(), id, hash, version)

@@ -1,11 +1,8 @@
 package loopgov
 
 import (
-	"errors"
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sync/atomic"
 	"unicode/utf8"
 )
@@ -100,23 +97,7 @@ func (g *Governor) toolCap(_ string) int {
 // that callers should embed in the truncation marker. If WorkspaceRoot
 // is empty, no file is written; the function returns an error.
 func (g *Governor) dumpToolOutput(runID, toolName, body string) (string, error) {
-	if g.cfg.WorkspaceRoot == "" {
-		return "", errors.New("no workspace root configured")
-	}
-
-	dir := filepath.Join(g.cfg.WorkspaceRoot, ".at-tool-output", runID)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir: %w", err)
-	}
-
-	seq := g.nextDumpSeq(runID)
-	name := fmt.Sprintf("%s-%d.txt", sanitizeForFilename(toolName), seq)
-	full := filepath.Join(dir, name)
-	if err := os.WriteFile(full, []byte(body), 0o644); err != nil {
-		return "", fmt.Errorf("write: %w", err)
-	}
-
-	return filepath.Join(".at-tool-output", runID, name), nil
+	return g.dumpToolOutputRooted(runID, toolName, body)
 }
 
 // nextDumpSeq returns a monotonic integer for the given runID.

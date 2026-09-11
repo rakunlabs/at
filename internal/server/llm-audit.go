@@ -150,8 +150,8 @@ func (s *Server) recordLLMCallAsync(ctx context.Context, p llmAuditParams) strin
 	go func() {
 		bg := context.WithoutCancel(ctx)
 		if bodies {
-			s.spillLLMCallBodies(&call, reqBody, respBody)
-			s.spillObservationIO(&call, p.input, p.output)
+			s.spillLLMCallBodies(&call, reqBody, respBody, bg)
+			s.spillObservationIO(&call, p.input, p.output, bg)
 		}
 		if err := s.llmCallStore.RecordLLMCall(bg, call); err != nil {
 			slog.Error("failed to record llm call", "trace_id", call.TraceID, "model", call.Model, "error", err.Error())
@@ -165,6 +165,15 @@ func (s *Server) recordLLMCallAsync(ctx context.Context, p llmAuditParams) strin
 // buildLLMCall assembles the service.LLMCall record (minus body spill, which
 // happens in the goroutine because it touches disk).
 func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLMCall {
+	// Copy caller metadata before the asynchronous writer retains it. Runtime
+	// provenance is server-owned and cannot be overwritten by tool arguments.
+	metadata := make(map[string]any, len(p.metadata)+1)
+	for key, value := range p.metadata {
+		metadata[key] = value
+	}
+	if principal, _, ok := service.ExecutionFromContext(ctx); ok {
+		metadata["execution"] = map[string]any{"workspace_id": principal.WorkspaceID, "initiator_user_id": principal.UserID, "run_id": principal.RunID, "source": principal.Source, "service_id": principal.ServiceID, "service_version": principal.ServiceVersion}
+	}
 	provider, model := splitProviderModel(p.fullModel)
 
 	status := p.status
@@ -205,7 +214,7 @@ func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLM
 		Input:               service.TruncateObservationIO(p.input),
 		Output:              service.TruncateObservationIO(p.output),
 		Level:               level,
-		Metadata:            p.metadata,
+		Metadata:            metadata,
 
 		TraceID:            traceID,
 		SessionID:          p.sessionID,
@@ -242,31 +251,36 @@ func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLM
 // spillLLMCallBodies clips oversized bodies inline and writes the full
 // payload to a spill file, recording its path on the call. Best-effort:
 // a spill failure just means we keep the truncated body with no ref.
-func (s *Server) spillLLMCallBodies(call *service.LLMCall, reqBody, respBody []byte) {
-	call.RequestBody, call.RequestTruncated, call.RequestRef = s.clipOrSpill(call.ID, "request", reqBody)
-	call.ResponseBody, call.ResponseTruncated, call.ResponseRef = s.clipOrSpill(call.ID, "response", respBody)
+func (s *Server) spillLLMCallBodies(call *service.LLMCall, reqBody, respBody []byte, contexts ...context.Context) {
+	call.RequestBody, call.RequestTruncated, call.RequestRef = s.clipOrSpill(call.ID, "request", reqBody, contexts...)
+	call.ResponseBody, call.ResponseTruncated, call.ResponseRef = s.clipOrSpill(call.ID, "response", respBody, contexts...)
 }
 
 // spillObservationIO preserves oversized tool/event input and output when
 // full-body capture is enabled: the inline columns keep the preview (set in
 // buildLLMCall) and the full payloads are written to spill files referenced
 // by RequestRef / ResponseRef (unused by non-generation observations).
-func (s *Server) spillObservationIO(call *service.LLMCall, input, output string) {
+func (s *Server) spillObservationIO(call *service.LLMCall, input, output string, contexts ...context.Context) {
 	if call.ObservationType == service.ObservationGeneration {
 		return
 	}
 	if len(input) > service.ObservationPreviewBytes {
-		call.RequestRef = s.spillPayload(call.ID, "input", []byte(input))
+		call.RequestRef = s.spillPayload(call.ID, "input", []byte(input), contexts...)
 	}
 	if len(output) > service.ObservationPreviewBytes {
-		call.ResponseRef = s.spillPayload(call.ID, "output", []byte(output))
+		call.ResponseRef = s.spillPayload(call.ID, "output", []byte(output), contexts...)
 	}
 }
 
 // spillPayload writes a full payload to
 // <workspace>/.at-llm-audit/<yyyy-mm-dd>/<id>-<side>.json and returns its
 // path, or "" when spilling is unavailable or fails. Best-effort.
-func (s *Server) spillPayload(id, side string, body []byte) string {
+func (s *Server) spillPayload(id, side string, body []byte, contexts ...context.Context) string {
+	if len(contexts) > 0 {
+		if _, base, ok := service.ExecutionFromContext(contexts[0]); ok {
+			return s.spillExecutionPayload(base, id, side, body)
+		}
+	}
 	root := s.llmAuditRoot()
 	if root == "" {
 		return ""
@@ -288,12 +302,12 @@ func (s *Server) spillPayload(id, side string, body []byte) string {
 // LLMCallBodyMaxBytes it is returned verbatim. Otherwise the full body is
 // written to <workspace>/.at-llm-audit/<yyyy-mm-dd>/<id>-<side>.json and the
 // inline copy is truncated.
-func (s *Server) clipOrSpill(id, side string, body []byte) (string, bool, string) {
+func (s *Server) clipOrSpill(id, side string, body []byte, contexts ...context.Context) (string, bool, string) {
 	if len(body) <= service.LLMCallBodyMaxBytes {
 		return string(body), false, ""
 	}
 
-	ref := s.spillPayload(id, side, body)
+	ref := s.spillPayload(id, side, body, contexts...)
 
 	return string(body[:service.LLMCallBodyMaxBytes]) + "\n...[truncated, full payload in spill file]", true, ref
 }

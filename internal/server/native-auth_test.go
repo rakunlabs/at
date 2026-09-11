@@ -130,7 +130,7 @@ func nativeFixture(t *testing.T) (*nativeAuth, *fakeAuthStore, *ada.Server) {
 	return a, f, mux
 }
 
-func nativeRequest(handler http.Handler, method, target, body, origin string, c *http.Cookie) *httptest.ResponseRecorder {
+func nativeRequest(handler http.Handler, method, target, body, origin string, c *http.Cookie, opts ...func(*http.Request)) *httptest.ResponseRecorder {
 	r := httptest.NewRequest(method, target, strings.NewReader(body))
 	r.Header.Set("Content-Type", "application/json")
 	if origin != "" {
@@ -138,6 +138,9 @@ func nativeRequest(handler http.Handler, method, target, body, origin string, c 
 	}
 	if c != nil {
 		r.AddCookie(c)
+	}
+	for _, opt := range opts {
+		opt(r)
 	}
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, r)
@@ -371,8 +374,9 @@ func TestNativeAuthProductionRoutesPostgres(t *testing.T) {
 		code         int
 	}{
 		{"GET", "/at/", 200}, {"GET", "/at/auth/status", 200},
-		{"GET", "/at/api/v1/info", 401}, {"GET", "/at/api/v1/providers", 401},
-		{"POST", "/at/api/v1/settings/rotate-key", 401}, {"POST", "/at/internal/v1/mcp/test", 401},
+		// An unclaimed installation refuses management before authentication.
+		{"GET", "/at/api/v1/info", 403}, {"GET", "/at/api/v1/providers", 403},
+		{"POST", "/at/api/v1/settings/rotate-key", 403}, {"POST", "/at/internal/v1/mcp/test", 403},
 		{"GET", "/at/gateway/v1/health", 200},
 	} {
 		w := nativeRequest(s.server, tt.method, tt.path, "{}", "", nil)
@@ -408,8 +412,16 @@ func TestNativeAuthProductionRoutesPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	reader := nativeLoginCookie(t, s.server, "reader")
-	if w := nativeRequest(s.server, "GET", "/at/api/v1/files/browse", "", "", reader); w.Code != 403 {
-		t.Fatalf("reader file access: %d", w.Code)
+	// Files are a scoped runtime resource: a signed-in user with no selected
+	// workspace cannot browse the host, and naming one it cannot access fails.
+	if w := nativeRequest(s.server, "GET", "/at/api/v1/files/browse", "", "", reader); w.Code != 400 {
+		t.Fatalf("reader file access without workspace: %d", w.Code)
+	}
+	scoped := nativeRequest(s.server, "GET", "/at/api/v1/files/browse", "", "", reader, func(r *http.Request) {
+		r.Header.Set("X-AT-Workspace-ID", "legacy-default")
+	})
+	if scoped.Code != 403 && scoped.Code != 404 {
+		t.Fatalf("reader file access with foreign workspace: %d %s", scoped.Code, scoped.Body)
 	}
 	if w := nativeRequest(s.server, "POST", "/at/auth/users/"+readerID.Subject+"/disable", "", "https://at.example", admin); w.Code != 204 {
 		t.Fatalf("disable: %d %s", w.Code, w.Body)
@@ -420,8 +432,8 @@ func TestNativeAuthProductionRoutesPostgres(t *testing.T) {
 	if w := nativeRequest(s.server, "POST", "/at/auth/users/"+readerID.Subject+"/revoke-sessions", "", "https://at.example", admin); w.Code != 204 {
 		t.Fatalf("revoke: %d %s", w.Code, w.Body)
 	}
-	// Disabling the opt-in preserves the existing unguarded management routes
-	// and separately guarded settings; it does not enable a gateway cookie login.
+	// Human authentication is no longer opt-in: dropping the obsolete YAML
+	// block must not reopen anonymous management on a claimed installation.
 	cfg.NativeAuth = nil
 	legacy, err := New(ctx, cfg, nil, store, "postgres", nil, nil, "test", "", "")
 	if err != nil {
@@ -431,8 +443,8 @@ func TestNativeAuthProductionRoutesPostgres(t *testing.T) {
 		method, path string
 		code         int
 	}{
-		{"GET", "/at/api/v1/info", 200},
-		{"POST", "/at/api/v1/settings/rotate-key", 403},
+		{"GET", "/at/api/v1/info", 401},
+		{"POST", "/at/api/v1/settings/rotate-key", 401},
 		{"GET", "/at/gateway/v1/models", 401},
 	} {
 		w := nativeRequest(legacy.server, tt.method, tt.path, "{}", "", nil)

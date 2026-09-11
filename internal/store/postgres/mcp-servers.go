@@ -16,6 +16,7 @@ import (
 )
 
 type mcpServerRow struct {
+	WorkspaceID string         `db:"workspace_id"`
 	ID          string         `db:"id"`
 	Name        string         `db:"name"`
 	Description string         `db:"description"`
@@ -30,7 +31,11 @@ type mcpServerRow struct {
 }
 
 func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service.ListResult[service.MCPServer], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableMCPServers, q, "id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sql, total, err := p.buildListQuery(ctx, p.tableMCPServers, q, "id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list mcp servers query: %w", err)
 	}
@@ -44,7 +49,7 @@ func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service
 	var items []service.MCPServer
 	for rows.Next() {
 		var row mcpServerRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan mcp server row: %w", err)
 		}
 
@@ -52,6 +57,7 @@ func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service
 		if err != nil {
 			return nil, err
 		}
+		mcpReadDTO(a, rec.ID, rec.WorkspaceID, &rec.Config, &rec.URLs)
 		items = append(items, *rec)
 	}
 
@@ -68,16 +74,24 @@ func (p *Postgres) ListMCPServers(ctx context.Context, q *query.Query) (*service
 }
 
 func (p *Postgres) GetMCPServer(ctx context.Context, id string) (*service.MCPServer, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableMCPServers)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableMCPServers).
-		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get mcp server query: %w", err)
 	}
 
 	var row mcpServerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -85,20 +99,33 @@ func (p *Postgres) GetMCPServer(ctx context.Context, id string) (*service.MCPSer
 		return nil, fmt.Errorf("get mcp server %q: %w", id, err)
 	}
 
-	return mcpServerRowToRecord(row)
+	rec, err := mcpServerRowToRecord(row)
+	if err != nil {
+		return nil, err
+	}
+	mcpReadDTO(a, rec.ID, rec.WorkspaceID, &rec.Config, &rec.URLs)
+	return rec, nil
 }
 
 func (p *Postgres) GetMCPServerByName(ctx context.Context, name string) (*service.MCPServer, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableMCPServers)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableMCPServers).
-		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("name").Eq(name)).
+		Select("id", "name", "description", "public", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get mcp server by name query: %w", err)
 	}
 
 	var row mcpServerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Public, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -106,10 +133,26 @@ func (p *Postgres) GetMCPServerByName(ctx context.Context, name string) (*servic
 		return nil, fmt.Errorf("get mcp server by name %q: %w", name, err)
 	}
 
-	return mcpServerRowToRecord(row)
+	rec, err := mcpServerRowToRecord(row)
+	if err != nil {
+		return nil, err
+	}
+	mcpReadDTO(a, rec.ID, rec.WorkspaceID, &rec.Config, &rec.URLs)
+	return rec, nil
 }
 
 func (p *Postgres) CreateMCPServer(ctx context.Context, s service.MCPServer) (*service.MCPServer, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableMCPServers, "mcp.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.mcpReferences(ctx, w, s.Config, s.Servers); err != nil {
+		return nil, err
+	}
 	configJSON, err := json.Marshal(s.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal mcp server config: %w", err)
@@ -128,28 +171,33 @@ func (p *Postgres) CreateMCPServer(ctx context.Context, s service.MCPServer) (*s
 
 	query, _, err := p.goqu.Insert(p.tableMCPServers).Rows(
 		goqu.Record{
-			"id":          id,
-			"name":        s.Name,
-			"description": s.Description,
-			"public":      s.Public,
-			"config":      types.RawJSON(configJSON),
-			"servers":     types.RawJSON(serversJSON),
-			"urls":        types.RawJSON(urlsJSON),
-			"created_at":  now,
-			"updated_at":  now,
-			"created_by":  s.CreatedBy,
-			"updated_by":  s.UpdatedBy,
+			"workspace_id": w.actor.WorkspaceID,
+			"id":           id,
+			"name":         s.Name,
+			"description":  s.Description,
+			"public":       s.Public,
+			"config":       types.RawJSON(configJSON),
+			"servers":      types.RawJSON(serversJSON),
+			"urls":         types.RawJSON(urlsJSON),
+			"created_at":   now,
+			"updated_at":   now,
+			"created_by":   s.CreatedBy,
+			"updated_by":   s.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert mcp server query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create mcp server %q: %w", s.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit MCP server: %w", err)
 	}
 
 	return &service.MCPServer{
+		WorkspaceID: w.actor.WorkspaceID,
 		ID:          id,
 		Name:        s.Name,
 		Description: s.Description,
@@ -165,6 +213,17 @@ func (p *Postgres) CreateMCPServer(ctx context.Context, s service.MCPServer) (*s
 }
 
 func (p *Postgres) UpdateMCPServer(ctx context.Context, id string, s service.MCPServer) (*service.MCPServer, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableMCPServers, "mcp.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.mcpReferences(ctx, w, s.Config, s.Servers); err != nil {
+		return nil, err
+	}
 	configJSON, err := json.Marshal(s.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal mcp server config: %w", err)
@@ -191,12 +250,12 @@ func (p *Postgres) UpdateMCPServer(ctx context.Context, id string, s service.MCP
 			"updated_at":  now,
 			"updated_by":  s.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update mcp server query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update mcp server %q: %w", id, err)
 	}
@@ -208,24 +267,32 @@ func (p *Postgres) UpdateMCPServer(ctx context.Context, id string, s service.MCP
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit MCP server update: %w", err)
+	}
 
 	return p.GetMCPServer(ctx, id)
 }
 
 func (p *Postgres) DeleteMCPServer(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableMCPServers, "mcp.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableMCPServers).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete mcp server query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete mcp server %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func mcpServerRowToRecord(row mcpServerRow) (*service.MCPServer, error) {
@@ -251,6 +318,7 @@ func mcpServerRowToRecord(row mcpServerRow) (*service.MCPServer, error) {
 	}
 
 	return &service.MCPServer{
+		WorkspaceID: row.WorkspaceID,
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: row.Description,

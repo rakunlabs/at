@@ -443,7 +443,7 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 
 	syncMode, _ := args["sync"].(bool)
 
-	engine := s.buildWorkflowEngine()
+	engine := s.buildWorkflowEngine(ctx)
 
 	// Find input nodes as entry points.
 	var entryNodeIDs []string
@@ -472,7 +472,7 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 
 	// Async execution.
 	go func() {
-		_, _ = engine.Run(context.Background(), graphToRun, inputs, entryNodeIDs, nil)
+		_, _ = engine.Run(context.WithoutCancel(ctx), graphToRun, inputs, entryNodeIDs, nil)
 	}()
 
 	return fmt.Sprintf("Workflow %q started asynchronously.", id), nil
@@ -680,13 +680,11 @@ func (s *Server) execTriggerDelete(ctx context.Context, args map[string]any) (st
 // buildWorkflowEngine creates a workflow engine with all the server's
 // lookup functions wired in. This is a helper shared by workflow execution
 // tools and the chat_reply node.
-func (s *Server) buildWorkflowEngine() *workflow.Engine {
+func (s *Server) buildWorkflowEngine(ctx context.Context) *workflow.Engine {
 	providerLookup := func(key string) (service.LLMProvider, string, error) {
-		s.providerMu.RLock()
-		info, ok := s.providers[key]
-		s.providerMu.RUnlock()
-		if !ok {
-			return nil, "", fmt.Errorf("provider %q not found", key)
+		info, err := s.getExecutionProviderInfo(ctx, key)
+		if err != nil {
+			return nil, "", err
 		}
 		return info.provider, info.defaultModel, nil
 	}
@@ -694,14 +692,14 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 	var skillLookup workflow.SkillLookup
 	if s.skillStore != nil {
 		skillLookup = func(nameOrID string) (*service.Skill, error) {
-			sk, err := s.skillStore.GetSkill(context.Background(), nameOrID)
+			sk, err := s.skillStore.GetSkill(ctx, nameOrID)
 			if err != nil {
 				return nil, err
 			}
 			if sk != nil {
 				return sk, nil
 			}
-			return s.skillStore.GetSkillByName(context.Background(), nameOrID)
+			return s.skillStore.GetSkillByName(ctx, nameOrID)
 		}
 	}
 
@@ -709,7 +707,7 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 	var varLister workflow.VarLister
 	if s.variableStore != nil {
 		varLookup = func(key string) (string, error) {
-			v, err := s.variableStore.GetVariableByKey(context.Background(), key)
+			v, err := s.variableStore.GetVariableByKey(ctx, key)
 			if err != nil {
 				return "", err
 			}
@@ -719,7 +717,11 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 			return v.Value, nil
 		}
 		varLister = func() (map[string]string, error) {
-			vars, err := s.variableStore.ListVariables(context.Background(), nil)
+			q, err := runtimeWorkspaceQuery(ctx)
+			if err != nil {
+				return nil, err
+			}
+			vars, err := s.variableStore.ListVariables(ctx, q)
 			if err != nil {
 				return nil, err
 			}
@@ -734,7 +736,7 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 	var nodeConfigLookup workflow.NodeConfigLookup
 	if s.nodeConfigStore != nil {
 		nodeConfigLookup = func(id string) (*service.NodeConfig, error) {
-			return s.nodeConfigStore.GetNodeConfig(context.Background(), id)
+			return s.nodeConfigStore.GetNodeConfig(ctx, id)
 		}
 	}
 
@@ -754,9 +756,11 @@ func (s *Server) buildWorkflowEngine() *workflow.Engine {
 
 	return workflow.NewEngineWithDependencies(workflow.Dependencies{
 		ProviderLookup:        providerLookup,
+		ScopedProviderLookup:  s.runtimeProviderLookup,
 		SkillLookup:           skillLookup,
 		VarLookup:             varLookup,
 		VarLister:             varLister,
+		ScopedVarLister:       s.runtimeVariableLister,
 		NodeConfigLookup:      nodeConfigLookup,
 		WorkflowLookup:        workflowLookup,
 		WorkflowByNameLookup:  s.workflowByNameLookupFunc(),
@@ -932,6 +936,12 @@ func (s *Server) activeWorkflowToolDef(ctx context.Context, wf *service.Workflow
 // If args contains an "entry" field, only the matching input node is used as
 // the entry point. Otherwise all input nodes are triggered.
 func (s *Server) executeWorkflowTool(ctx context.Context, wf *service.Workflow, args map[string]any) (string, error) {
+	if wf == nil {
+		return "", service.ErrExecutionDenied
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: wf.ID}); err != nil {
+		return "", err
+	}
 	graphToRun := wf.Graph
 	if wf.ActiveVersion != nil && s.workflowVersionStore != nil {
 		ver, err := s.workflowVersionStore.GetWorkflowVersion(ctx, wf.ID, *wf.ActiveVersion)
@@ -945,7 +955,7 @@ func (s *Server) executeWorkflowTool(ctx context.Context, wf *service.Workflow, 
 		inputs = make(map[string]any)
 	}
 
-	engine := s.buildWorkflowEngine()
+	engine := s.buildWorkflowEngine(ctx)
 
 	// Resolve entry node IDs.
 	entryName, _ := args["entry"].(string)

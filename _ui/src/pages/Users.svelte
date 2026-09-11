@@ -5,8 +5,7 @@
   import { isNativeAdmin, returnToLogin, storeAuth } from '@/lib/store/auth.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import ChangePassword from '@/lib/components/ChangePassword.svelte';
-  import Passkeys from '@/lib/components/Passkeys.svelte';
+  import AdminRecovery from '@/lib/components/AdminRecovery.svelte';
 
   storeNavbar.title = 'Users';
   let users = $state<AuthUser[]>([]);
@@ -108,7 +107,7 @@
     <header class="flex flex-wrap items-start justify-between gap-4">
       <div class="max-w-2xl">
         <h1 class="text-2xl font-semibold">Users</h1>
-        <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Manage local accounts and access to this server. Administrators control the entire installation; other users can only manage their own password and passkeys.</p>
+        <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Manage installation accounts. Installation administrators configure this server; workspace roles and permissions determine member access. Admit pending accounts by their user ID in Workspace settings.</p>
       </div>
       <button class={primaryClass} disabled={busy || loading} aria-expanded={creating} aria-controls="create-user" onclick={() => { creating = !creating; resetTarget = null; password = resetPassword = formError = ''; }}><Plus size={16} />{creating ? 'Close form' : 'Create user'}</button>
     </header>
@@ -123,7 +122,7 @@
               <p id="username-help" class="mt-1.5 text-sm text-gray-600 dark:text-dark-text-secondary">3-128 letters, digits, or . _ @ + -. Stored in lowercase.</p></div>
             <div><label for="user-password" class="block text-sm font-medium mb-1.5">Initial password</label>
               <input id="user-password" type="password" bind:value={password} autocomplete="new-password" required aria-describedby="create-password-help" class={inputClass} />
-              <p id="create-password-help" class="mt-1.5 text-sm text-gray-600 dark:text-dark-text-secondary">At least 15 characters, at most 1024 UTF-8 bytes. Share securely; passwords cannot be retrieved later.</p></div>
+              <p id="create-password-help" class="mt-1.5 text-sm text-gray-600 dark:text-dark-text-secondary">At least 8 characters. Share securely; passwords cannot be retrieved later.</p></div>
             <label class="flex items-start gap-3 text-sm leading-6"><input type="checkbox" bind:checked={admin} class="mt-1 size-4 accent-accent" /><span>Administrator access<br /><span class="text-gray-600 dark:text-dark-text-secondary">Full access to secrets, files, tools, organizations and users. Roles cannot be edited after creation.</span></span></label>
           </fieldset>
           {#if formError}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{formError}</p>{/if}
@@ -160,11 +159,12 @@
                 <button class={buttonClass} disabled={busy || loading || (!user.disabled && user.id === storeAuth.identity?.subject)} title={user.id === storeAuth.identity?.subject ? 'You cannot disable your own account' : undefined} onclick={() => mutate(user, user.disabled ? 'enable' : 'disable')}>{user.disabled ? 'Enable' : 'Disable'}</button>
               </div>
             </div>
+            <AdminRecovery userID={user.id} username={user.username} />
             {#if resetTarget?.id === user.id}
               <form id="reset-user-password" onsubmit={(event) => { event.preventDefault(); void mutate(user, 'password'); }} aria-busy={busy} class="mt-5 border-t border-gray-200 dark:border-dark-border pt-4 max-w-md space-y-3">
                 <label for="reset-password" class="block text-sm font-medium">New password for {user.username}</label>
                 <input id="reset-password" type="password" required autocomplete="new-password" disabled={busy} bind:value={resetPassword} aria-describedby="reset-help" class={inputClass} />
-                <p id="reset-help" class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">At least 15 characters, at most 1024 UTF-8 bytes. All sessions will end.{user.id === storeAuth.identity?.subject ? ' You will be signed out.' : ' Share the new password securely.'}</p>
+                <p id="reset-help" class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">At least 8 characters. All sessions will end.{user.id === storeAuth.identity?.subject ? ' You will be signed out.' : ' Share the new password securely.'}</p>
                 {#if formError}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{formError}</p>{/if}
                 <div class="flex flex-wrap gap-2"><button disabled={busy || loading} class={primaryClass}>{busy ? 'Resetting password...' : 'Reset password'}</button><button type="button" disabled={busy} class={buttonClass} onclick={() => { resetTarget = null; resetPassword = formError = ''; }}>Cancel</button></div>
               </form>
@@ -178,7 +178,6 @@
       </nav>
     </section>
 
-    <div class="border-t border-gray-200 dark:border-dark-border pt-6"><ChangePassword /></div>
-    <div class="border-t border-gray-200 dark:border-dark-border pt-6"><Passkeys /></div>
+    <a href="#/settings/account" class="settings-button inline-block">Manage your account security</a>
   </main>
 {/if}

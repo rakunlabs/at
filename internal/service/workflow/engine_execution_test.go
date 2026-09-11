@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 const characterizationNodeType = "_engine_characterization"
@@ -41,6 +42,7 @@ type characterizationNode struct {
 }
 
 func init() {
+	service.RegisterExecutionCapability("node", characterizationNodeType, false)
 	RegisterNodeType(characterizationNodeType, func(node service.WorkflowNode) (Noder, error) {
 		recorder, _ := node.Data["recorder"].(*characterizationRecorder)
 		behavior, _ := node.Data["behavior"].(string)
@@ -107,7 +109,7 @@ func runCharacterizationGraph(t *testing.T, graph service.WorkflowGraph, entry s
 	engine := NewEngineWithDependencies(Dependencies{})
 	eventCh := make(chan NodeEvent, 128)
 	engine.SetEventChannel(eventCh)
-	result, err := engine.Run(context.Background(), graph, nil, []string{entry}, nil)
+	result, err := engine.Run(executiontest.Context(t), graph, nil, []string{entry}, nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

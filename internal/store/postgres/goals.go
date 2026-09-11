@@ -16,6 +16,7 @@ import (
 // ─── Goal CRUD ───
 
 type goalRow struct {
+	WorkspaceID    string         `db:"workspace_id"`
 	ID             string         `db:"id"`
 	OrganizationID sql.NullString `db:"organization_id"`
 	ParentGoalID   sql.NullString `db:"parent_goal_id"`
@@ -32,7 +33,7 @@ type goalRow struct {
 func (p *Postgres) ListGoals(ctx context.Context, q *query.Query) (*service.ListResult[service.Goal], error) {
 	sql, total, err := p.buildListQuery(ctx, p.tableGoals, q,
 		"id", "organization_id", "parent_goal_id", "name", "description", "status", "priority",
-		"created_at", "updated_at", "created_by", "updated_by",
+		"created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build list goals query: %w", err)
@@ -50,6 +51,7 @@ func (p *Postgres) ListGoals(ctx context.Context, q *query.Query) (*service.List
 		if err := rows.Scan(
 			&row.ID, &row.OrganizationID, &row.ParentGoalID, &row.Name, &row.Description,
 			&row.Status, &row.Priority, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+			&row.WorkspaceID,
 		); err != nil {
 			return nil, fmt.Errorf("scan goal row: %w", err)
 		}
@@ -70,10 +72,14 @@ func (p *Postgres) ListGoals(ctx context.Context, q *query.Query) (*service.List
 }
 
 func (p *Postgres) GetGoal(ctx context.Context, id string) (*service.Goal, error) {
+	scope, err := p.businessReadScope(ctx, p.tableGoals)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableGoals).
 		Select("id", "organization_id", "parent_goal_id", "name", "description", "status", "priority",
-			"created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+			"created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get goal query: %w", err)
@@ -83,6 +89,7 @@ func (p *Postgres) GetGoal(ctx context.Context, id string) (*service.Goal, error
 	err = p.db.QueryRowContext(ctx, query).Scan(
 		&row.ID, &row.OrganizationID, &row.ParentGoalID, &row.Name, &row.Description,
 		&row.Status, &row.Priority, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		&row.WorkspaceID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -95,11 +102,23 @@ func (p *Postgres) GetGoal(ctx context.Context, id string) (*service.Goal, error
 }
 
 func (p *Postgres) CreateGoal(ctx context.Context, goal service.Goal) (*service.Goal, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableGoals, "goals.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if goal.WorkspaceID != "" && goal.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.goalReferences(ctx, w, goal); err != nil {
+		return nil, err
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Insert(p.tableGoals).Rows(
+	query, _, err := w.tx.Insert(p.tableGoals).Rows(
 		goqu.Record{
+			"workspace_id":    w.actor.WorkspaceID,
 			"id":              id,
 			"organization_id": nullString(goal.OrganizationID),
 			"parent_goal_id":  nullString(goal.ParentGoalID),
@@ -117,11 +136,15 @@ func (p *Postgres) CreateGoal(ctx context.Context, goal service.Goal) (*service.
 		return nil, fmt.Errorf("build insert goal query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create goal %q: %w", goal.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit goal: %w", err)
 	}
 
 	return &service.Goal{
+		WorkspaceID:    w.actor.WorkspaceID,
 		ID:             id,
 		OrganizationID: goal.OrganizationID,
 		ParentGoalID:   goal.ParentGoalID,
@@ -137,9 +160,23 @@ func (p *Postgres) CreateGoal(ctx context.Context, goal service.Goal) (*service.
 }
 
 func (p *Postgres) UpdateGoal(ctx context.Context, id string, goal service.Goal) (*service.Goal, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableGoals, "goals.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if goal.WorkspaceID != "" && goal.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if goal.ParentGoalID == id {
+		return nil, service.ErrWorkspaceConflict
+	}
+	if err = p.goalReferences(ctx, w, goal); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Update(p.tableGoals).Set(
+	query, _, err := w.tx.Update(p.tableGoals).Set(
 		goqu.Record{
 			"organization_id": nullString(goal.OrganizationID),
 			"parent_goal_id":  nullString(goal.ParentGoalID),
@@ -150,12 +187,12 @@ func (p *Postgres) UpdateGoal(ctx context.Context, id string, goal service.Goal)
 			"updated_at":      now,
 			"updated_by":      goal.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update goal query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update goal %q: %w", id, err)
 	}
@@ -167,31 +204,43 @@ func (p *Postgres) UpdateGoal(ctx context.Context, id string, goal service.Goal)
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit goal update: %w", err)
+	}
 
 	return p.GetGoal(ctx, id)
 }
 
 func (p *Postgres) DeleteGoal(ctx context.Context, id string) error {
-	query, _, err := p.goqu.Delete(p.tableGoals).
-		Where(goqu.I("id").Eq(id)).
+	w, err := p.beginBusinessWrite(ctx, p.tableGoals, "goals.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
+	query, _, err := w.tx.Delete(p.tableGoals).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete goal query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete goal %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) ListGoalsByParent(ctx context.Context, parentID string) ([]service.Goal, error) {
+	scope, err := p.businessReadScope(ctx, p.tableGoals)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableGoals).
 		Select("id", "organization_id", "parent_goal_id", "name", "description", "status", "priority",
-			"created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("parent_goal_id").Eq(parentID)).
+			"created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("parent_goal_id").Eq(parentID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list goals by parent query: %w", err)
@@ -209,6 +258,7 @@ func (p *Postgres) ListGoalsByParent(ctx context.Context, parentID string) ([]se
 		if err := rows.Scan(
 			&row.ID, &row.OrganizationID, &row.ParentGoalID, &row.Name, &row.Description,
 			&row.Status, &row.Priority, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+			&row.WorkspaceID,
 		); err != nil {
 			return nil, fmt.Errorf("scan goal row: %w", err)
 		}
@@ -222,8 +272,13 @@ func (p *Postgres) ListGoalsByParent(ctx context.Context, parentID string) ([]se
 func (p *Postgres) GetGoalAncestry(ctx context.Context, id string) ([]service.Goal, error) {
 	var ancestry []service.Goal
 	currentID := id
+	seen := map[string]bool{}
 
 	for currentID != "" {
+		if seen[currentID] {
+			return nil, service.ErrWorkspaceConflict
+		}
+		seen[currentID] = true
 		goal, err := p.GetGoal(ctx, currentID)
 		if err != nil {
 			return nil, fmt.Errorf("get goal ancestry for %q: %w", currentID, err)
@@ -241,6 +296,7 @@ func (p *Postgres) GetGoalAncestry(ctx context.Context, id string) ([]service.Go
 
 func goalRowToRecord(row goalRow) *service.Goal {
 	return &service.Goal{
+		WorkspaceID:    row.WorkspaceID,
 		ID:             row.ID,
 		OrganizationID: row.OrganizationID.String,
 		ParentGoalID:   row.ParentGoalID.String,

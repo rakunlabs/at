@@ -91,6 +91,9 @@ func (s *Server) CreateApprovalAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.approvalStore.CreateApproval(r.Context(), req)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("create approval failed", "type", req.Type, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create approval: %v", err), http.StatusInternalServerError)
 		return
@@ -143,6 +146,9 @@ func (s *Server) UpdateApprovalAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.approvalStore.UpdateApproval(r.Context(), id, updated)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("update approval failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update approval: %v", err), http.StatusInternalServerError)
 		return

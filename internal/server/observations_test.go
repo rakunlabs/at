@@ -208,6 +208,7 @@ func newObsTestServer(t *testing.T, provider *fakeObsProvider, obsStore *fakeLLM
 			"prov1": {provider: provider, providerType: "openai", defaultModel: "m1"},
 		},
 	}
+	installRuntimeFixture(t, s)
 	return s, taskStore
 }
 
@@ -232,14 +233,14 @@ func TestOrgDelegation_RecordsObservations(t *testing.T) {
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "trace me", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "trace me", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
 	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
-	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, org, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 
@@ -356,14 +357,14 @@ func TestOrgDelegation_TaskCompleteToolStopsLoop(t *testing.T) {
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "finish me", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "finish me", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
 	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
-	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, org, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 
@@ -377,7 +378,7 @@ func TestOrgDelegation_TaskCompleteToolStopsLoop(t *testing.T) {
 
 	// Status and result come from the tool executor, not a closing generation.
 	updated, _ := taskStore.GetTask(context.Background(), task.ID)
-	if updated == nil || updated.Status != service.TaskStatusCompleted {
+	if updated == nil || updated.Status != service.TaskStatusDone {
 		t.Fatalf("expected task completed, got %+v", updated)
 	}
 	if updated.Result != "final deliverable ready" {
@@ -425,14 +426,14 @@ func TestOrgDelegation_TaskBlockToolStopsLoop(t *testing.T) {
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "block me", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "block me", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
 	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
-	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, org, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 
@@ -464,14 +465,14 @@ func TestOrgDelegation_SkeletonOnlyWhenAuditOff(t *testing.T) {
 	s.featureStore = &fakeFeatureStore{key: service.FeatureLLMAudit, enabled: false}
 
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "skeleton run", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "skeleton run", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
 	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
-	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, org, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 
@@ -507,13 +508,13 @@ func TestOrgDelegation_OutputLimitContinuesWithinIterationBudget(t *testing.T) {
 	}
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "finish output", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "finish output", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 	got, err := taskStore.GetTask(context.Background(), task.ID)
@@ -523,7 +524,7 @@ func TestOrgDelegation_OutputLimitContinuesWithinIterationBudget(t *testing.T) {
 	if provider.calls != 2 {
 		t.Fatalf("provider calls = %d, want 2", provider.calls)
 	}
-	if got.Status != service.TaskStatusCompleted || got.Result != "complete" {
+	if got.Status != service.TaskStatusDone || got.Result != "complete" {
 		t.Fatalf("task = status %q result %q, want completed complete", got.Status, got.Result)
 	}
 }
@@ -564,12 +565,12 @@ func TestOrgDelegation_OutputLimitStreak(t *testing.T) {
 			comments := &fakeIssueCommentStore{}
 			s.issueCommentStore = comments
 			task, err := taskStore.CreateTask(context.Background(), service.Task{
-				OrganizationID: "org1", Title: "write chapters", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+				OrganizationID: "org1", Title: "write chapters", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 			})
 			if err != nil {
 				t.Fatalf("CreateTask: %v", err)
 			}
-			if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
+			if err := s.runOrgDelegation(s.ctx, &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
 				t.Fatalf("runOrgDelegation: %v", err)
 			}
 			if len(provider.requests) != tt.wantCalls {
@@ -591,7 +592,7 @@ func TestOrgDelegation_OutputLimitStreak(t *testing.T) {
 				if tt.name == "repeated prose" && !strings.Contains(got.Result, "chapters/01.md") {
 					t.Errorf("partial artifact reference lost: %s", got.Result)
 				}
-			} else if got.Status != service.TaskStatusCompleted || got.Result != "complete" {
+			} else if got.Status != service.TaskStatusDone || got.Result != "complete" {
 				t.Fatalf("expected normal completion, got %+v", got)
 			}
 			// Neither subsequent requests nor saved continuation state may replay partial calls.
@@ -637,13 +638,13 @@ func TestOrgDelegation_OutputLimitIsNotReportedAsIterationLimit(t *testing.T) {
 	}
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "too much output", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "too much output", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 	got, err := taskStore.GetTask(context.Background(), task.ID)
@@ -672,13 +673,13 @@ func TestOrgDelegation_ReportsIterationLimitOnlyAfterAllRounds(t *testing.T) {
 	}
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "too many rounds", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "too many rounds", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 	got, err := taskStore.GetTask(context.Background(), task.ID)
@@ -716,14 +717,14 @@ func TestOrgDelegation_ResumeGetsFreshIterationBudget(t *testing.T) {
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, nil)
 	s.issueCommentStore = &fakeIssueCommentStore{}
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "resume me", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "resume me", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	org := &service.Organization{ID: "org1", IssuePrefix: "OBS"}
 
-	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, org, task, "agent-a", 0); err != nil {
 		t.Fatalf("first runOrgDelegation: %v", err)
 	}
 	paused, err := taskStore.GetTask(context.Background(), task.ID)
@@ -734,7 +735,7 @@ func TestOrgDelegation_ResumeGetsFreshIterationBudget(t *testing.T) {
 		t.Fatalf("first run = status %q result %q, want blocked ITERATION_LIMIT", paused.Status, paused.Result)
 	}
 
-	if err := s.runOrgDelegation(context.Background(), org, paused, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, org, paused, "agent-a", 0); err != nil {
 		t.Fatalf("resumed runOrgDelegation: %v", err)
 	}
 	completed, err := taskStore.GetTask(context.Background(), task.ID)
@@ -744,7 +745,7 @@ func TestOrgDelegation_ResumeGetsFreshIterationBudget(t *testing.T) {
 	if provider.calls != 4 {
 		t.Fatalf("provider calls = %d, want 4 (2 per run)", provider.calls)
 	}
-	if completed.Status != service.TaskStatusCompleted || completed.Result != "completed after resume" {
+	if completed.Status != service.TaskStatusDone || completed.Result != "completed after resume" {
 		t.Fatalf("resumed task = status %q result %q", completed.Status, completed.Result)
 	}
 	if len(provider.requests) < 3 || len(provider.requests[2]) == 0 {
@@ -773,13 +774,13 @@ func TestOrgDelegation_BlockMarkerPersistsBlockedStatus(t *testing.T) {
 	}
 	s, taskStore := newObsTestServer(t, provider, &fakeLLMCallStore{}, agents, nil)
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "blocked work", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "blocked work", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
-	if err := s.runOrgDelegation(context.Background(), &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, &service.Organization{ID: "org1", IssuePrefix: "OBS"}, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 	got, err := taskStore.GetTask(context.Background(), task.ID)
@@ -812,14 +813,14 @@ func TestOrgDelegation_DelegationCrossLinksChildTrace(t *testing.T) {
 	s, taskStore := newObsTestServer(t, provider, obsStore, agents, orgAgents)
 
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "parent work", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "parent work", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
 	org := &service.Organization{ID: "org1", IssuePrefix: "OBS", MaxDelegationDepth: 5}
-	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(s.ctx, org, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 
@@ -972,7 +973,7 @@ func TestChatSessionLoop_RecordsObservations(t *testing.T) {
 	s, _ := newObsTestServer(t, provider, obsStore, agents, nil)
 	s.chatSessionStore = &fakeChatSessionStore{session: service.ChatSession{ID: "sess-1", AgentID: "agent-a"}}
 
-	if err := s.RunAgenticLoop(context.Background(), "sess-1", "hello there", func(AgenticEvent) {}); err != nil {
+	if err := s.RunAgenticLoop(s.ctx, "sess-1", "hello there", func(AgenticEvent) {}); err != nil {
 		t.Fatalf("RunAgenticLoop: %v", err)
 	}
 

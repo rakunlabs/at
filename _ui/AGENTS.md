@@ -33,7 +33,12 @@ src/
 
 ## Pages (routes.ts)
 
-`/` Home, `/providers`, `/workflows`, `/workflows/:id` WorkflowEditor, `/chat`, `/tokens`, `/secrets`, `/skills`, `/node-configs`, `/runs`, `/settings`, `/docs`, `*` NotFound
+`/` Home, `/providers`, `/workflows`, `/workflows/:id` WorkflowEditor, `/playground/:id?` Playground (`pages/Chat.svelte`), `/sessions`, `/tokens`, `/secrets`, `/skills`, `/node-configs`, `/runs`, `/settings`, `/docs`, `*` NotFound
+
+The Playground is a single route with an optional param: `/playground` is an
+unsaved scratch buffer and `/playground/:id` opens a saved conversation. Two
+separate route entries would remount the page on navigation and kill the
+in-flight turn, so they must stay merged.
 
 ## Patterns
 

@@ -18,6 +18,7 @@ import (
 // ─── Workflow CRUD ───
 
 type workflowRow struct {
+	WorkspaceID   string        `db:"workspace_id"`
 	ID            string        `db:"id"`
 	Name          string        `db:"name"`
 	Description   string        `db:"description"`
@@ -30,7 +31,7 @@ type workflowRow struct {
 }
 
 func (p *Postgres) ListWorkflows(ctx context.Context, q *query.Query) (*service.ListResult[service.Workflow], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableWorkflows, q, "id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableWorkflows, q, "id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list workflows query: %w", err)
 	}
@@ -44,7 +45,7 @@ func (p *Postgres) ListWorkflows(ctx context.Context, q *query.Query) (*service.
 	var items []service.Workflow
 	for rows.Next() {
 		var row workflowRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan workflow row: %w", err)
 		}
 
@@ -68,16 +69,20 @@ func (p *Postgres) ListWorkflows(ctx context.Context, q *query.Query) (*service.
 }
 
 func (p *Postgres) GetWorkflow(ctx context.Context, id string) (*service.Workflow, error) {
+	scope, err := p.businessReadScope(ctx, p.tableWorkflows)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableWorkflows).
-		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get workflow query: %w", err)
 	}
 
 	var row workflowRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -89,9 +94,13 @@ func (p *Postgres) GetWorkflow(ctx context.Context, id string) (*service.Workflo
 }
 
 func (p *Postgres) GetWorkflowByName(ctx context.Context, name string) (*service.Workflow, error) {
+	scope, err := p.businessReadScope(ctx, p.tableWorkflows)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableWorkflows).
-		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("name").Eq(name)).
+		Select("id", "name", "description", "graph", "active_version", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("name").Eq(name)).
 		Limit(1).
 		ToSQL()
 	if err != nil {
@@ -99,7 +108,7 @@ func (p *Postgres) GetWorkflowByName(ctx context.Context, name string) (*service
 	}
 
 	var row workflowRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Graph, &row.ActiveVersion, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -111,6 +120,17 @@ func (p *Postgres) GetWorkflowByName(ctx context.Context, name string) (*service
 }
 
 func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*service.Workflow, error) {
+	bw, err := p.beginBusinessWrite(ctx, p.tableWorkflows, "workflows.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer bw.tx.Rollback()
+	if w.WorkspaceID != "" && w.WorkspaceID != bw.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.workflowReferences(ctx, bw, w.Graph); err != nil {
+		return nil, err
+	}
 	graphJSON, err := json.Marshal(w.Graph)
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflow graph: %w", err)
@@ -121,25 +141,30 @@ func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*ser
 
 	query, _, err := p.goqu.Insert(p.tableWorkflows).Rows(
 		goqu.Record{
-			"id":          id,
-			"name":        w.Name,
-			"description": w.Description,
-			"graph":       types.RawJSON(graphJSON),
-			"created_at":  now,
-			"updated_at":  now,
-			"created_by":  w.CreatedBy,
-			"updated_by":  w.UpdatedBy,
+			"workspace_id": bw.actor.WorkspaceID,
+			"id":           id,
+			"name":         w.Name,
+			"description":  w.Description,
+			"graph":        types.RawJSON(graphJSON),
+			"created_at":   now,
+			"updated_at":   now,
+			"created_by":   w.CreatedBy,
+			"updated_by":   w.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert workflow query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := bw.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create workflow %q: %w", w.Name, err)
+	}
+	if err = bw.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit workflow: %w", err)
 	}
 
 	return &service.Workflow{
+		WorkspaceID: bw.actor.WorkspaceID,
 		ID:          id,
 		Name:        w.Name,
 		Description: w.Description,
@@ -152,6 +177,17 @@ func (p *Postgres) CreateWorkflow(ctx context.Context, w service.Workflow) (*ser
 }
 
 func (p *Postgres) UpdateWorkflow(ctx context.Context, id string, w service.Workflow) (*service.Workflow, error) {
+	bw, err := p.beginBusinessWrite(ctx, p.tableWorkflows, "workflows.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer bw.tx.Rollback()
+	if w.WorkspaceID != "" && w.WorkspaceID != bw.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.workflowReferences(ctx, bw, w.Graph); err != nil {
+		return nil, err
+	}
 	graphJSON, err := json.Marshal(w.Graph)
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflow graph: %w", err)
@@ -167,12 +203,12 @@ func (p *Postgres) UpdateWorkflow(ctx context.Context, id string, w service.Work
 			"updated_at":  now,
 			"updated_by":  w.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(bw.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update workflow query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := bw.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update workflow %q: %w", id, err)
 	}
@@ -184,24 +220,32 @@ func (p *Postgres) UpdateWorkflow(ctx context.Context, id string, w service.Work
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = bw.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit workflow update: %w", err)
+	}
 
 	return p.GetWorkflow(ctx, id)
 }
 
 func (p *Postgres) DeleteWorkflow(ctx context.Context, id string) error {
+	bw, err := p.beginBusinessWrite(ctx, p.tableWorkflows, "workflows.write", id)
+	if err != nil {
+		return err
+	}
+	defer bw.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableWorkflows).
-		Where(goqu.I("id").Eq(id)).
+		Where(bw.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete workflow query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = bw.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete workflow %q: %w", id, err)
 	}
 
-	return nil
+	return bw.tx.Commit()
 }
 
 // workflowRowToRecord converts a database row to a Workflow.
@@ -212,6 +256,7 @@ func workflowRowToRecord(row workflowRow) (*service.Workflow, error) {
 	}
 
 	return &service.Workflow{
+		WorkspaceID:   row.WorkspaceID,
 		ID:            row.ID,
 		Name:          row.Name,
 		Description:   row.Description,

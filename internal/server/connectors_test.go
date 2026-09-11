@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -38,7 +37,7 @@ func newConnectorTestServer(t *testing.T) *Server {
 }
 
 func TestConnectorRegistry_MergeAndResolve(t *testing.T) {
-	ctx := context.Background()
+	ctx := legacyScopedContext()
 	s := newConnectorTestServer(t)
 
 	// Only the built-in is present initially.
@@ -92,7 +91,7 @@ func TestConnectorCRUDAPI(t *testing.T) {
 		"oauth": {"auth_url": "https://api.notion.com/v1/oauth/authorize", "token_url": "https://api.notion.com/v1/oauth/token"},
 		"fields": [{"key": "notion_client_id", "type": "text", "required": true}]
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/connectors", bytes.NewBufferString(body))
+	req := legacyScopedRequest(http.MethodPost, "/api/v1/connectors", bytes.NewBufferString(body))
 	w := httptest.NewRecorder()
 	s.CreateConnectorAPI(w, req)
 	if w.Code != http.StatusCreated {
@@ -101,7 +100,7 @@ func TestConnectorCRUDAPI(t *testing.T) {
 
 	// Editing the built-in 'google' (no DB row yet) must create an override.
 	put := `{"slug": "google", "name": "G", "auth_kind": "oauth2", "oauth": {"auth_url": "x", "token_url": "y"}}`
-	req = httptest.NewRequest(http.MethodPut, "/api/v1/connectors/google", bytes.NewBufferString(put))
+	req = legacyScopedRequest(http.MethodPut, "/api/v1/connectors/google", bytes.NewBufferString(put))
 	req.SetPathValue("slug", "google")
 	w = httptest.NewRecorder()
 	s.UpdateConnectorAPI(w, req)
@@ -111,7 +110,7 @@ func TestConnectorCRUDAPI(t *testing.T) {
 
 	// Deleting a pure built-in (no DB row) is rejected; here google now has an
 	// override row, so deletion reverts it.
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/connectors/google", nil)
+	req = legacyScopedRequest(http.MethodDelete, "/api/v1/connectors/google", nil)
 	req.SetPathValue("slug", "google")
 	w = httptest.NewRecorder()
 	s.DeleteConnectorAPI(w, req)
@@ -121,7 +120,7 @@ func TestConnectorCRUDAPI(t *testing.T) {
 
 	// Invalid auth kind rejected.
 	bad := `{"slug": "x", "auth_kind": "weird"}`
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/connectors", bytes.NewBufferString(bad))
+	req = legacyScopedRequest(http.MethodPost, "/api/v1/connectors", bytes.NewBufferString(bad))
 	w = httptest.NewRecorder()
 	s.CreateConnectorAPI(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -130,7 +129,7 @@ func TestConnectorCRUDAPI(t *testing.T) {
 
 	// oauth2 without endpoints rejected.
 	bad = `{"slug": "y", "auth_kind": "oauth2"}`
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/connectors", bytes.NewBufferString(bad))
+	req = legacyScopedRequest(http.MethodPost, "/api/v1/connectors", bytes.NewBufferString(bad))
 	w = httptest.NewRecorder()
 	s.CreateConnectorAPI(w, req)
 	if w.Code != http.StatusBadRequest {
@@ -140,7 +139,7 @@ func TestConnectorCRUDAPI(t *testing.T) {
 
 func TestDeletePureBuiltinConnectorRejected(t *testing.T) {
 	s := newConnectorTestServer(t)
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/connectors/google", nil)
+	req := legacyScopedRequest(http.MethodDelete, "/api/v1/connectors/google", nil)
 	req.SetPathValue("slug", "google")
 	w := httptest.NewRecorder()
 	s.DeleteConnectorAPI(w, req)

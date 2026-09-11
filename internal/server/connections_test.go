@@ -2,7 +2,6 @@ package server
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -38,7 +37,7 @@ func TestConnectionAPI_CreateAndList(t *testing.T) {
 			"refresh_token": "refresh-1"
 		}
 	}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/connections", bytes.NewBufferString(body))
+	req := legacyScopedRequest(http.MethodPost, "/api/v1/connections", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.CreateConnectionAPI(w, req)
@@ -60,7 +59,7 @@ func TestConnectionAPI_CreateAndList(t *testing.T) {
 	}
 
 	// List: filter by provider.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/connections?provider=youtube", nil)
+	req = legacyScopedRequest(http.MethodGet, "/api/v1/connections?provider=youtube", nil)
 	w = httptest.NewRecorder()
 	s.ListConnectionsAPI(w, req)
 	if w.Code != http.StatusOK {
@@ -80,7 +79,7 @@ func TestConnectionAPI_UniqueViolation(t *testing.T) {
 
 	body := `{"provider":"youtube","name":"X","credentials":{"refresh_token":"r"}}`
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest(http.MethodPost, "/api/v1/connections", bytes.NewBufferString(body))
+		req := legacyScopedRequest(http.MethodPost, "/api/v1/connections", bytes.NewBufferString(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
 		s.CreateConnectionAPI(w, req)
@@ -95,9 +94,10 @@ func TestConnectionAPI_UniqueViolation(t *testing.T) {
 
 func TestConnectionAPI_DeleteWithReferences(t *testing.T) {
 	s, store := newConnTestServer(t)
+	seedTestProvider(t, store, "anthropic")
 
 	// Create the connection.
-	conn, err := store.CreateConnection(context.Background(), service.Connection{
+	conn, err := store.CreateConnection(legacyScopedContext(), service.Connection{
 		Provider: "youtube",
 		Name:     "Main",
 		Credentials: service.ConnectionCredentials{
@@ -109,7 +109,7 @@ func TestConnectionAPI_DeleteWithReferences(t *testing.T) {
 	}
 
 	// Create two agents referencing it.
-	agent1, err := store.CreateAgent(context.Background(), service.Agent{
+	agent1, err := store.CreateAgent(legacyScopedContext(), service.Agent{
 		Name: "Agent One",
 		Config: service.AgentConfig{
 			Provider:    "anthropic",
@@ -119,7 +119,8 @@ func TestConnectionAPI_DeleteWithReferences(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateAgent 1: %v", err)
 	}
-	agent2, err := store.CreateAgent(context.Background(), service.Agent{
+	seedTestSkill(t, store, "youtube_publish")
+	agent2, err := store.CreateAgent(legacyScopedContext(), service.Agent{
 		Name: "Agent Two",
 		Config: service.AgentConfig{
 			Provider: "anthropic",
@@ -133,7 +134,7 @@ func TestConnectionAPI_DeleteWithReferences(t *testing.T) {
 	}
 
 	// Delete without force: should 409 with the list.
-	req := httptest.NewRequest(http.MethodDelete, "/api/v1/connections/"+conn.ID, nil)
+	req := legacyScopedRequest(http.MethodDelete, "/api/v1/connections/"+conn.ID, nil)
 	req.SetPathValue("id", conn.ID)
 	w := httptest.NewRecorder()
 	s.DeleteConnectionAPI(w, req)
@@ -148,7 +149,7 @@ func TestConnectionAPI_DeleteWithReferences(t *testing.T) {
 	}
 
 	// Delete with force: should succeed and strip references.
-	req = httptest.NewRequest(http.MethodDelete, "/api/v1/connections/"+conn.ID+"?force=true", nil)
+	req = legacyScopedRequest(http.MethodDelete, "/api/v1/connections/"+conn.ID+"?force=true", nil)
 	req.SetPathValue("id", conn.ID)
 	w = httptest.NewRecorder()
 	s.DeleteConnectionAPI(w, req)
@@ -157,15 +158,15 @@ func TestConnectionAPI_DeleteWithReferences(t *testing.T) {
 	}
 
 	// Verify references were stripped.
-	a1, _ := store.GetAgent(context.Background(), agent1.ID)
+	a1, _ := store.GetAgent(legacyScopedContext(), agent1.ID)
 	if a1 != nil && a1.Config.Connections["youtube"] != "" {
 		t.Errorf("agent1 still references connection: %v", a1.Config.Connections)
 	}
-	a2, _ := store.GetAgent(context.Background(), agent2.ID)
+	a2, _ := store.GetAgent(legacyScopedContext(), agent2.ID)
 	if a2 != nil && len(a2.Config.Skills) > 0 && a2.Config.Skills[0].Connections["youtube"] != "" {
 		t.Errorf("agent2 skill override still present: %v", a2.Config.Skills[0].Connections)
 	}
-	gone, _ := store.GetConnection(context.Background(), conn.ID)
+	gone, _ := store.GetConnection(legacyScopedContext(), conn.ID)
 	if gone != nil {
 		t.Errorf("connection not deleted: %+v", gone)
 	}
@@ -173,8 +174,9 @@ func TestConnectionAPI_DeleteWithReferences(t *testing.T) {
 
 func TestConnectionAPI_ListIncludesUsage(t *testing.T) {
 	s, store := newConnTestServer(t)
+	seedTestProvider(t, store, "anthropic")
 
-	conn, _ := store.CreateConnection(context.Background(), service.Connection{
+	conn, _ := store.CreateConnection(legacyScopedContext(), service.Connection{
 		Provider: "youtube",
 		Name:     "Shared",
 		Credentials: service.ConnectionCredentials{
@@ -183,7 +185,7 @@ func TestConnectionAPI_ListIncludesUsage(t *testing.T) {
 	})
 	// Two agents share the same connection.
 	for _, name := range []string{"A", "B"} {
-		_, err := store.CreateAgent(context.Background(), service.Agent{
+		_, err := store.CreateAgent(legacyScopedContext(), service.Agent{
 			Name: name,
 			Config: service.AgentConfig{
 				Provider:    "anthropic",
@@ -195,7 +197,7 @@ func TestConnectionAPI_ListIncludesUsage(t *testing.T) {
 		}
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/connections", nil)
+	req := legacyScopedRequest(http.MethodGet, "/api/v1/connections", nil)
 	w := httptest.NewRecorder()
 	s.ListConnectionsAPI(w, req)
 	if w.Code != http.StatusOK {
@@ -214,7 +216,7 @@ func TestConnectionAPI_ListIncludesUsage(t *testing.T) {
 func TestConnectionAPI_RevealSecrets(t *testing.T) {
 	s, store := newConnTestServer(t)
 
-	conn, _ := store.CreateConnection(context.Background(), service.Connection{
+	conn, _ := store.CreateConnection(legacyScopedContext(), service.Connection{
 		Provider: "youtube",
 		Name:     "Secret",
 		Credentials: service.ConnectionCredentials{
@@ -225,7 +227,7 @@ func TestConnectionAPI_RevealSecrets(t *testing.T) {
 	})
 
 	// Without ?reveal: secrets redacted.
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/connections/"+conn.ID, nil)
+	req := legacyScopedRequest(http.MethodGet, "/api/v1/connections/"+conn.ID, nil)
 	req.SetPathValue("id", conn.ID)
 	w := httptest.NewRecorder()
 	s.GetConnectionAPI(w, req)
@@ -242,7 +244,7 @@ func TestConnectionAPI_RevealSecrets(t *testing.T) {
 	}
 
 	// With ?reveal=true: secrets returned.
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/connections/"+conn.ID+"?reveal=true", nil)
+	req = legacyScopedRequest(http.MethodGet, "/api/v1/connections/"+conn.ID+"?reveal=true", nil)
 	req.SetPathValue("id", conn.ID)
 	w = httptest.NewRecorder()
 	s.GetConnectionAPI(w, req)

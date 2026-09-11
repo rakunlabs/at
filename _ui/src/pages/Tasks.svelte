@@ -19,15 +19,25 @@
   } from '@/lib/api/tasks';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { getTaskBoard } from '@/lib/api/task-board';
+  import {
+    defaultTaskBoard,
+    hiddenTaskSummary,
+    taskStatusText,
+    type TaskBoard,
+  } from '@/lib/helper/task-board';
+  import { can } from '@/lib/store/workspace.svelte';
+  import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import { formatDate } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
   import KanbanBoard from '@/lib/components/KanbanBoard.svelte';
+  import TaskBoardEditor from '@/lib/components/TaskBoardEditor.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import {
     ClipboardList, Plus, Pencil, Trash2, X, Save, RefreshCw,
     UserCheck, UserX, List, LayoutGrid, ExternalLink, Building2, Play,
-    GitBranch,
+    GitBranch, Columns3, EyeOff, TriangleAlert,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Tasks';
@@ -160,17 +170,14 @@
     switch (status) {
       case 'backlog':
         return 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-muted';
-      case 'open':
       case 'todo':
         return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
       case 'in_progress':
         return 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400';
       case 'in_review':
-      case 'review':
         return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
       case 'blocked':
         return 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400';
-      case 'completed':
       case 'done':
         return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
       case 'cancelled':
@@ -408,6 +415,50 @@
   function handleBoardStatusChange(taskId: string, newStatus: string) {
     refresh();
   }
+
+  // ─── Board columns ───
+  // The layout is workspace data. A failed fetch falls back to the shipped
+  // columns rather than blanking the board: stale is more useful than absent,
+  // and the notice says which one you are looking at.
+
+  let board = $state<TaskBoard>(defaultTaskBoard());
+  let boardLoading = $state(true);
+  let boardFailed = $state(false);
+  let showBoardEditor = $state(false);
+
+  let mayEditBoard = $derived(isNativeAdmin() || can('tasks.write'));
+
+  async function loadBoard() {
+    boardLoading = true;
+    try {
+      board = await getTaskBoard();
+      boardFailed = false;
+    } catch {
+      board = defaultTaskBoard();
+      boardFailed = true;
+    } finally {
+      boardLoading = false;
+    }
+  }
+
+  loadBoard();
+
+  // Work the current layout does not draw, counted from the tasks actually
+  // loaded. A board that omits tasks without saying so is the one thing this
+  // must never do.
+  let hidden = $derived(hiddenTaskSummary(filteredAllTasks, board.columns));
+
+  let statusCounts = $derived.by(() => {
+    const counts: Record<string, number> = {};
+    for (const task of filteredAllTasks) counts[task.status] = (counts[task.status] || 0) + 1;
+    return counts;
+  });
+
+  function hiddenSentence(): string {
+    const names = hidden.statuses.map(taskStatusText).join(', ');
+    const count = hidden.count === 1 ? '1 task is' : `${hidden.count} tasks are`;
+    return `${count} not on this board. No column collects ${hidden.statuses.length === 1 ? 'the status' : 'the statuses'} ${names}.`;
+  }
 </script>
 
 <svelte:head>
@@ -440,6 +491,19 @@
           <LayoutGrid size={14} />
         </button>
       </div>
+
+      <!-- Column editor (board view only, and only when it can be saved) -->
+      {#if viewMode === 'board' && mayEditBoard}
+        <button
+          onclick={() => (showBoardEditor = true)}
+          disabled={boardLoading}
+          class="flex items-center gap-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+          title="Choose which columns the board shows and which statuses each one collects"
+        >
+          <Columns3 size={12} />
+          Columns
+        </button>
+      {/if}
 
       <!-- Sub-task toggle -->
       <button
@@ -627,14 +691,60 @@
 
   <!-- Board view -->
   {#if viewMode === 'board'}
-    <div class="flex-1 min-h-0">
-      {#if loading}
-        <div class="flex items-center justify-center h-full">
-          <div class="text-sm text-gray-400 dark:text-dark-text-muted">Loading tasks...</div>
+    <div class="flex-1 min-h-0 flex flex-col gap-2">
+      <!-- The board could not be read: say which columns are on screen. -->
+      {#if boardFailed}
+        <div class="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+          <TriangleAlert size={14} class="shrink-0 text-amber-600 dark:text-amber-400" />
+          <p class="text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">
+            The saved board columns could not be loaded, so this is the default layout.
+          </p>
+          <button
+            onclick={loadBoard}
+            disabled={boardLoading}
+            class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+          >
+            {boardLoading ? 'Retrying…' : 'Try again'}
+          </button>
         </div>
-      {:else}
-        <KanbanBoard tasks={filteredAllTasks} {organizations} {agents} onStatusChange={handleBoardStatusChange} onProcess={handleProcess} />
       {/if}
+
+      <!-- Hidden work: never silent. -->
+      {#if hidden.count > 0}
+        <div class="flex flex-wrap items-center gap-2 px-3 py-2 shrink-0 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+          <EyeOff size={14} class="shrink-0 text-gray-600 dark:text-dark-text-secondary" />
+          <p class="text-xs leading-relaxed text-gray-700 dark:text-dark-text-secondary">{hiddenSentence()}</p>
+          {#if mayEditBoard}
+            <button
+              onclick={() => (showBoardEditor = true)}
+              class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+            >
+              Edit columns
+            </button>
+          {:else}
+            <span class="ml-auto text-xs text-gray-600 dark:text-dark-text-secondary">
+              Changing the columns needs the tasks.write capability.
+            </span>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="flex-1 min-h-0">
+        {#if loading}
+          <div class="flex items-center justify-center h-full">
+            <div class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading tasks...</div>
+          </div>
+        {:else}
+          <KanbanBoard
+            tasks={filteredAllTasks}
+            columns={board.columns}
+            {organizations}
+            {agents}
+            onStatusChange={handleBoardStatusChange}
+            onProcess={handleProcess}
+          />
+        {/if}
+      </div>
     </div>
   {:else}
     <!-- List view -->
@@ -778,7 +888,7 @@
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = task.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary hover:text-red-700 dark:hover:text-red-400 transition-colors motion-reduce:transition-none"
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -793,6 +903,16 @@
     </div>
   {/if}
 </div>
+
+<!-- Board column editor -->
+{#if showBoardEditor}
+  <TaskBoardEditor
+    {board}
+    {statusCounts}
+    onclose={() => (showBoardEditor = false)}
+    onsaved={(saved) => { board = saved; boardFailed = false; }}
+  />
+{/if}
 
 <!-- Context menu -->
 {#if contextMenu}

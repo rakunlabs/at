@@ -140,6 +140,9 @@ func (a *nativeAuth) passkeyReauth(w http.ResponseWriter, r *http.Request, curre
 		nativeError(w, 503, "authentication unavailable")
 		return nil, ""
 	}
+	if u != nil && !a.admitSecurityAccount(w, r, u.ID) {
+		return nil, ""
+	}
 	if u == nil || u.Disabled || u.SessionVersion != live.SessionVersion || a.password.Verify(u.PasswordHash, currentPassword) != nil {
 		nativeError(w, 401, "reauthentication required")
 		return nil, ""
@@ -151,6 +154,7 @@ func (a *nativeAuth) passkeyEnrollBegin(w http.ResponseWriter, r *http.Request) 
 	var req struct {
 		Name            string `json:"name"`
 		CurrentPassword string `json:"current_password"`
+		Proof           string `json:"proof"`
 	}
 	if !decodeNativeBody(w, r, &req) {
 		return
@@ -160,7 +164,7 @@ func (a *nativeAuth) passkeyEnrollBegin(w http.ResponseWriter, r *http.Request) 
 		nativeError(w, 400, "name must be 1-80 bytes without control characters")
 		return
 	}
-	u, hash := a.passkeyReauth(w, r, req.CurrentPassword)
+	u, hash := a.passkeySecurityReauth(w, r, req.CurrentPassword, req.Proof, "passkey.enroll")
 	if u == nil {
 		return
 	}
@@ -203,6 +207,9 @@ func (a *nativeAuth) passkeyLoginBegin(w http.ResponseWriter, r *http.Request) {
 	}
 	if u == nil || u.Disabled {
 		nativeError(w, 401, "passkey login unavailable; use password")
+		return
+	}
+	if !a.admitSecurityAccount(w, r, u.ID) {
 		return
 	}
 	keys, err := a.keyStore.ListAuthPasskeys(r.Context(), u.ID)
@@ -339,7 +346,7 @@ func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
 				return
 			}
 			ctx := context.WithValue(r.Context(), nativeCeremonyDeadlineContextKey{}, c.Data.Expires)
-			a.finishLogin(w, r.WithContext(ctx), u, c.Remember)
+			a.finishPrimaryLogin(w, r.WithContext(ctx), u, c.Remember, "passkey")
 			return
 		}
 		nativeError(w, 401, "invalid passkey response")
@@ -349,11 +356,12 @@ func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
 func (a *nativeAuth) passkeyDelete(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		CurrentPassword string `json:"current_password"`
+		Proof           string `json:"proof"`
 	}
 	if !decodeNativeBody(w, r, &req) {
 		return
 	}
-	u, hash := a.passkeyReauth(w, r, req.CurrentPassword)
+	u, hash := a.passkeySecurityReauth(w, r, req.CurrentPassword, req.Proof, "passkey.delete")
 	if u == nil {
 		return
 	}
@@ -367,4 +375,19 @@ func (a *nativeAuth) passkeyDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	a.clearCredentialCookies(w)
 	w.WriteHeader(204)
+}
+
+func (a *nativeAuth) passkeySecurityReauth(w http.ResponseWriter, r *http.Request, password, proof, purpose string) (*service.AuthUser, string) {
+	if proof == "" {
+		return a.passkeyReauth(w, r, password)
+	}
+	u, sid, err := a.securitySelf(r)
+	if err == nil {
+		err = a.consumeRecentAuthProof(r.Context(), u.ID, sid, u.SessionVersion, purpose, proof)
+	}
+	if err != nil {
+		a.securityError(w, err)
+		return nil, ""
+	}
+	return u, sid
 }

@@ -35,7 +35,7 @@
 <section aria-labelledby="change-password-title" class="space-y-4">
   <div>
     <h2 id="change-password-title" class="text-base font-semibold">Change your password</h2>
-    <p id="password-policy" class="mt-1 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Use at least 15 characters (maximum 1024 UTF-8 bytes). Changing your password signs you out on every device.</p>
+    <p id="password-policy" class="mt-1 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Use at least 8 characters. Changing your password signs you out on every device.</p>
   </div>
   <form onsubmit={submit} aria-busy={busy} class="space-y-4 max-w-md">
     <fieldset disabled={busy} class="space-y-4">

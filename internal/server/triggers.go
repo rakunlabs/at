@@ -459,6 +459,18 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load the workflow.
+	bound, bindErr := s.ResumeRuntimeSubject(r.Context(), "trigger", trigger.ID, nil)
+	if bindErr == nil {
+		bindErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "triggers.use", ResourceID: trigger.ID})
+	}
+	if bindErr == nil {
+		bindErr = service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "workflows.run", ResourceID: trigger.WorkflowID})
+	}
+	if bindErr != nil {
+		httpResponse(w, "trigger execution identity unavailable", http.StatusForbidden)
+		return
+	}
+	r = r.WithContext(bound)
 	wf, err := s.workflowStore.GetWorkflow(r.Context(), trigger.WorkflowID)
 	if err != nil {
 		slog.Error("webhook: get workflow failed",
@@ -532,7 +544,7 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 	// Both sync and async modes run the engine in a goroutine that outlives
 	// the HTTP request. Use context.Background() so the request context
 	// cancellation does not kill background graph execution.
-	parentCtx := context.Background()
+	parentCtx := context.WithoutCancel(r.Context())
 
 	// Enrich context with workflow metadata for structured logging.
 	requestID := r.Header.Get(mrequestid.HeaderXRequestID)
@@ -548,11 +560,9 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Build a provider lookup function for the engine.
 	providerLookup := func(key string) (service.LLMProvider, string, error) {
-		s.providerMu.RLock()
-		info, ok := s.providers[key]
-		s.providerMu.RUnlock()
-		if !ok {
-			return nil, "", fmt.Errorf("provider %q not found", key)
+		info, err := s.getExecutionProviderInfo(ctx, key)
+		if err != nil {
+			return nil, "", err
 		}
 		return info.provider, info.defaultModel, nil
 	}
@@ -625,9 +635,11 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 
 	engine := workflow.NewEngineWithDependencies(workflow.Dependencies{
 		ProviderLookup:        providerLookup,
+		ScopedProviderLookup:  s.runtimeProviderLookup,
 		SkillLookup:           skillLookup,
 		VarLookup:             varLookup,
 		VarLister:             varLister,
+		ScopedVarLister:       s.runtimeVariableLister,
 		NodeConfigLookup:      nodeConfigLookup,
 		WorkflowLookup:        workflowLookup,
 		WorkflowByNameLookup:  s.workflowByNameLookupFunc(),

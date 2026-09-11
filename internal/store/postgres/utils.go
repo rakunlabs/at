@@ -14,7 +14,11 @@ func (p *Postgres) buildListQuery(
 	q *query.Query,
 	cols ...interface{},
 ) (string, uint64, error) {
-	ds := p.goqu.From(table)
+	scope, err := p.businessReadScope(ctx, table)
+	if err != nil {
+		return "", 0, err
+	}
+	ds := p.goqu.From(table).Where(scope)
 
 	// 1. Calculate Total Count (applying only Where)
 	countDs := ds

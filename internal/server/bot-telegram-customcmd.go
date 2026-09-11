@@ -252,14 +252,14 @@ func (s *Server) createBotOrgTask(
 		AssignedAgentID: org.HeadAgentID,
 		Title:           title,
 		Description:     description,
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 		Identifier:      identifier,
 		RequestDepth:    0,
 		MaxIterations:   maxIterations,
 		CreatedBy:       "telegram-bot",
 	}
 
-	record, err := s.taskStore.CreateTask(ctx, task)
+	record, err := s.createRuntimeTask(ctx, task)
 	if err != nil {
 		return "", "", fmt.Errorf("create task: %w", err)
 	}
@@ -268,7 +268,7 @@ func (s *Server) createBotOrgTask(
 	if onDone != nil {
 		completion = s.botTaskDoneCallback(record.ID, identifier, []TaskDoneCallback{onDone})
 	}
-	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, completion); err != nil {
+	if err := s.startDelegationRun(context.WithoutCancel(ctx), org, record, org.HeadAgentID, 0, completion); err != nil {
 		return "", "", fmt.Errorf("start delegation: %w", err)
 	}
 

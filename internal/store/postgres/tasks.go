@@ -16,6 +16,7 @@ import (
 // ─── Task CRUD ───
 
 type taskRow struct {
+	WorkspaceID     string         `db:"workspace_id"`
 	ID              string         `db:"id"`
 	OrganizationID  sql.NullString `db:"organization_id"`
 	ProjectID       sql.NullString `db:"project_id"`
@@ -49,7 +50,7 @@ var taskColumns = []interface{}{
 	"identifier", "title", "description", "status", "priority_level", "priority", "result",
 	"billing_code", "request_depth", "max_iterations", "checked_out_by", "checked_out_at",
 	"started_at", "completed_at", "cancelled_at", "hidden_at",
-	"created_at", "updated_at", "created_by", "updated_by",
+	"created_at", "updated_at", "created_by", "updated_by", "workspace_id",
 }
 
 func scanTaskRow(scanner interface {
@@ -63,6 +64,7 @@ func scanTaskRow(scanner interface {
 		&row.CheckedOutBy, &row.CheckedOutAt,
 		&row.StartedAt, &row.CompletedAt, &row.CancelledAt, &row.HiddenAt,
 		&row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy,
+		&row.WorkspaceID,
 	)
 }
 
@@ -101,9 +103,13 @@ func (p *Postgres) ListTasks(ctx context.Context, q *query.Query) (*service.List
 }
 
 func (p *Postgres) GetTask(ctx context.Context, id string) (*service.Task, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTasks)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTasks).
 		Select(taskColumns...).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get task query: %w", err)
@@ -122,11 +128,35 @@ func (p *Postgres) GetTask(ctx context.Context, id string) (*service.Task, error
 }
 
 func (p *Postgres) CreateTask(ctx context.Context, task service.Task) (*service.Task, error) {
+	// Fold retired synonyms and reject anything outside the vocabulary here, so
+	// an internal caller gets a named error instead of a raw check-constraint
+	// violation from Postgres.
+	if task.Status == "" {
+		task.Status = service.TaskStatusTodo
+	}
+	status, err := service.ParseTaskStatus(task.Status)
+	if err != nil {
+		return nil, err
+	}
+	task.Status = status
+
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if task.WorkspaceID != "" && task.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.taskReferences(ctx, w, task); err != nil {
+		return nil, err
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Insert(p.tableTasks).Rows(
+	query, _, err := w.tx.Insert(p.tableTasks).Rows(
 		goqu.Record{
+			"workspace_id":      w.actor.WorkspaceID,
 			"id":                id,
 			"organization_id":   nullString(task.OrganizationID),
 			"project_id":        nullString(task.ProjectID),
@@ -159,11 +189,15 @@ func (p *Postgres) CreateTask(ctx context.Context, task service.Task) (*service.
 		return nil, fmt.Errorf("build insert task query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create task %q: %w", task.Title, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit task: %w", err)
 	}
 
 	return &service.Task{
+		WorkspaceID:     w.actor.WorkspaceID,
 		ID:              id,
 		OrganizationID:  task.OrganizationID,
 		ProjectID:       task.ProjectID,
@@ -187,10 +221,73 @@ func (p *Postgres) CreateTask(ctx context.Context, task service.Task) (*service.
 	}, nil
 }
 
+// taskStatusStamps returns the lifecycle timestamp columns a status change
+// should set, given what is already stamped. Entering a state stamps it once;
+// leaving and re-entering keeps the original moment.
+//
+// Both write paths use this. UpdateTask used to skip it entirely, so a task
+// moved to `done` through the generic update — which is what the agent tool and
+// the REST handler both call — ended up terminal with no completed_at. That
+// silently broke duration reporting and made the workspace janitor skip the
+// task forever, because it sweeps on the terminal timestamp.
+func taskStatusStamps(status, startedAt, completedAt, cancelledAt string, now time.Time) map[string]any {
+	stamps := map[string]any{}
+	if status == service.TaskStatusInProgress && startedAt == "" {
+		stamps["started_at"] = now
+	}
+	if status == service.TaskStatusDone && completedAt == "" {
+		stamps["completed_at"] = now
+	}
+	if status == service.TaskStatusCancelled && cancelledAt == "" {
+		stamps["cancelled_at"] = now
+	}
+	return stamps
+}
+
 func (p *Postgres) UpdateTask(ctx context.Context, id string, task service.Task) (*service.Task, error) {
+	// Fold retired synonyms and reject anything outside the vocabulary here, so
+	// an internal caller gets a named error instead of a raw check-constraint
+	// violation from Postgres.
+	if task.Status == "" {
+		task.Status = service.TaskStatusTodo
+	}
+	status, err := service.ParseTaskStatus(task.Status)
+	if err != nil {
+		return nil, err
+	}
+	task.Status = status
+
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if task.WorkspaceID != "" && task.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if task.ParentID == id {
+		return nil, service.ErrWorkspaceConflict
+	}
+	if err = p.taskReferences(ctx, w, task); err != nil {
+		return nil, err
+	}
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Update(p.tableTasks).Set(
+	// Stamp the lifecycle timestamps this status change implies before writing.
+	stamped := task
+	for column, value := range taskStatusStamps(task.Status, task.StartedAt, task.CompletedAt, task.CancelledAt, now) {
+		stamp, _ := value.(time.Time)
+		switch column {
+		case "started_at":
+			stamped.StartedAt = stamp.Format(time.RFC3339)
+		case "completed_at":
+			stamped.CompletedAt = stamp.Format(time.RFC3339)
+		case "cancelled_at":
+			stamped.CancelledAt = stamp.Format(time.RFC3339)
+		}
+	}
+
+	query, _, err := w.tx.Update(p.tableTasks).Set(
 		goqu.Record{
 			"organization_id":   nullString(task.OrganizationID),
 			"project_id":        nullString(task.ProjectID),
@@ -207,19 +304,19 @@ func (p *Postgres) UpdateTask(ctx context.Context, id string, task service.Task)
 			"billing_code":      nullString(task.BillingCode),
 			"request_depth":     task.RequestDepth,
 			"max_iterations":    task.MaxIterations,
-			"started_at":        nullTimeString(task.StartedAt),
-			"completed_at":      nullTimeString(task.CompletedAt),
-			"cancelled_at":      nullTimeString(task.CancelledAt),
+			"started_at":        nullTimeString(stamped.StartedAt),
+			"completed_at":      nullTimeString(stamped.CompletedAt),
+			"cancelled_at":      nullTimeString(stamped.CancelledAt),
 			"hidden_at":         nullTimeString(task.HiddenAt),
 			"updated_at":        now,
 			"updated_by":        task.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update task query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update task %q: %w", id, err)
 	}
@@ -231,30 +328,42 @@ func (p *Postgres) UpdateTask(ctx context.Context, id string, task service.Task)
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit task update: %w", err)
+	}
 
 	return p.GetTask(ctx, id)
 }
 
 func (p *Postgres) DeleteTask(ctx context.Context, id string) error {
-	query, _, err := p.goqu.Delete(p.tableTasks).
-		Where(goqu.I("id").Eq(id)).
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
+	query, _, err := w.tx.Delete(p.tableTasks).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete task query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete task %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) ListTasksByAgent(ctx context.Context, agentID string) ([]service.Task, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTasks)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTasks).
 		Select(taskColumns...).
-		Where(goqu.I("assigned_agent_id").Eq(agentID)).
+		Where(scope, goqu.I("assigned_agent_id").Eq(agentID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list tasks by agent query: %w", err)
@@ -280,9 +389,13 @@ func (p *Postgres) ListTasksByAgent(ctx context.Context, agentID string) ([]serv
 }
 
 func (p *Postgres) ListTasksByGoal(ctx context.Context, goalID string) ([]service.Task, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTasks)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTasks).
 		Select(taskColumns...).
-		Where(goqu.I("goal_id").Eq(goalID)).
+		Where(scope, goqu.I("goal_id").Eq(goalID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list tasks by goal query: %w", err)
@@ -308,16 +421,23 @@ func (p *Postgres) ListTasksByGoal(ctx context.Context, goalID string) ([]servic
 }
 
 func (p *Postgres) CheckoutTask(ctx context.Context, taskID, agentID string) error {
-	tx, err := p.db.BeginTx(ctx, nil)
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", taskID)
 	if err != nil {
-		return fmt.Errorf("begin transaction: %w", err)
+		return err
 	}
+	tx := w.tx
 	defer tx.Rollback() //nolint:errcheck
+	if agentID == "" {
+		return service.ErrAccessResourceNotFound
+	}
+	if err = p.businessReference(ctx, w, p.tableAgents, "id", agentID); err != nil {
+		return err
+	}
 
 	// SELECT the task to check current checkout status.
 	selectQuery, _, err := p.goqu.From(p.tableTasks).
 		Select("checked_out_by").
-		Where(goqu.I("id").Eq(taskID)).
+		Where(w.predicate, goqu.I("id").Eq(taskID)).ForUpdate(goqu.Wait).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build select task query: %w", err)
@@ -345,7 +465,7 @@ func (p *Postgres) CheckoutTask(ctx context.Context, taskID, agentID string) err
 			"checked_out_at": now,
 			"updated_at":     now,
 		},
-	).Where(goqu.I("id").Eq(taskID)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(taskID)).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build update task checkout query: %w", err)
 	}
@@ -362,6 +482,11 @@ func (p *Postgres) CheckoutTask(ctx context.Context, taskID, agentID string) err
 }
 
 func (p *Postgres) ReleaseTask(ctx context.Context, taskID string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", taskID)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	now := time.Now().UTC()
 
 	query, _, err := p.goqu.Update(p.tableTasks).Set(
@@ -370,23 +495,27 @@ func (p *Postgres) ReleaseTask(ctx context.Context, taskID string) error {
 			"checked_out_at": nil,
 			"updated_at":     now,
 		},
-	).Where(goqu.I("id").Eq(taskID)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(taskID)).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build release task query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("release task %q: %w", taskID, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) ListChildTasks(ctx context.Context, parentID string) ([]service.Task, error) {
+	scope, err := p.businessReadScope(ctx, p.tableTasks)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableTasks).
 		Select(taskColumns...).
-		Where(goqu.I("parent_id").Eq(parentID)).
+		Where(scope, goqu.I("parent_id").Eq(parentID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list child tasks query: %w", err)
@@ -412,10 +541,25 @@ func (p *Postgres) ListChildTasks(ctx context.Context, parentID string) ([]servi
 }
 
 func (p *Postgres) UpdateTaskStatus(ctx context.Context, id string, status string, result string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	now := time.Now().UTC()
-	current, err := p.GetTask(ctx, id)
+	var row taskRow
+	found, err := w.tx.From(p.tableTasks).Select(taskColumns...).Where(w.predicate, goqu.C("id").Eq(id)).ForUpdate(goqu.Wait).ScanStructContext(ctx, &row)
 	if err != nil {
 		return fmt.Errorf("get task for status update %q: %w", id, err)
+	}
+	if !found {
+		return service.ErrAccessResourceNotFound
+	}
+	current := taskRowToRecord(row)
+
+	status, err = service.ParseTaskStatus(status)
+	if err != nil {
+		return err
 	}
 
 	record := goqu.Record{
@@ -425,50 +569,47 @@ func (p *Postgres) UpdateTaskStatus(ctx context.Context, id string, status strin
 	if result != "" {
 		record["result"] = result
 	}
-	if current == nil || current.StartedAt == "" {
-		if status == service.TaskStatusInProgress {
-			record["started_at"] = now
-		}
+	var started, completed, cancelled string
+	if current != nil {
+		started, completed, cancelled = current.StartedAt, current.CompletedAt, current.CancelledAt
 	}
-	if current == nil || current.CompletedAt == "" {
-		if status == service.TaskStatusCompleted || status == service.TaskStatusDone {
-			record["completed_at"] = now
-		}
-	}
-	if current == nil || current.CancelledAt == "" {
-		if status == service.TaskStatusCancelled {
-			record["cancelled_at"] = now
-		}
+	for column, value := range taskStatusStamps(status, started, completed, cancelled, now) {
+		record[column] = value
 	}
 
 	query, _, err := p.goqu.Update(p.tableTasks).Set(record).
-		Where(goqu.I("id").Eq(id)).ToSQL()
+		Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build update task status query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("update task status %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) UpdateTaskResult(ctx context.Context, id string, result string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Update(p.tableTasks).Set(goqu.Record{
 		"result":     nullString(result),
 		"updated_at": time.Now().UTC(),
-	}).Where(goqu.I("id").Eq(id)).ToSQL()
+	}).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build update task result query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return fmt.Errorf("update task result %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func taskRowToRecord(row taskRow) *service.Task {
@@ -498,6 +639,7 @@ func taskRowToRecord(row taskRow) *service.Task {
 	}
 
 	return &service.Task{
+		WorkspaceID:     row.WorkspaceID,
 		ID:              row.ID,
 		OrganizationID:  row.OrganizationID.String,
 		ProjectID:       row.ProjectID.String,

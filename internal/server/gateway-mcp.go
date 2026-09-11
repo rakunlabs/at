@@ -380,6 +380,9 @@ func (s *Server) callGatewayMCPHTTPTool(ctx context.Context, tool service.MCPHTT
 
 // executeSkillTool runs a skill tool's handler (bash or JS) and returns the result.
 func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args map[string]any) (string, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "inline_tool", Name: tool.Name}); err != nil {
+		return "", err
+	}
 	if tool.Handler == "" {
 		return "", fmt.Errorf("tool %q has no handler", tool.Name)
 	}
@@ -388,7 +391,11 @@ func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args 
 		var varLister workflow.VarLister
 		if s.variableStore != nil {
 			varLister = func() (map[string]string, error) {
-				vars, err := s.variableStore.ListVariables(ctx, nil)
+				q, err := runtimeWorkspaceQuery(ctx)
+				if err != nil {
+					return nil, err
+				}
+				vars, err := s.variableStore.ListVariables(ctx, q)
 				if err != nil {
 					return nil, err
 				}
@@ -406,6 +413,9 @@ func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args 
 	var varLookup workflow.VarLookup
 	if s.variableStore != nil {
 		varLookup = func(key string) (string, error) {
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
+				return "", err
+			}
 			v, err := s.variableStore.GetVariableByKey(ctx, key)
 			if err != nil {
 				return "", err
@@ -416,7 +426,7 @@ func (s *Server) executeSkillTool(ctx context.Context, tool *service.Tool, args 
 			return v.Value, nil
 		}
 	}
-	return workflow.ExecuteJSHandler(tool.Handler, args, varLookup)
+	return workflow.ExecuteJSHandlerContext(ctx, tool.Handler, args, varLookup)
 }
 
 // resolveVarRefs resolves {{var:key}} references in val against the

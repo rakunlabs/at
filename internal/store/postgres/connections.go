@@ -17,6 +17,7 @@ import (
 )
 
 type connectionRow struct {
+	WorkspaceID  string         `db:"workspace_id"`
 	ID           string         `db:"id"`
 	Provider     string         `db:"provider"`
 	Name         string         `db:"name"`
@@ -31,9 +32,13 @@ type connectionRow struct {
 }
 
 func (p *Postgres) ListConnections(ctx context.Context, q *query.Query) (*service.ListResult[service.Connection], error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
 	sqlStr, total, err := p.buildListQuery(ctx, p.tableConnections, q,
 		"id", "provider", "name", "account_label", "description",
-		"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by")
+		"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list connections query: %w", err)
 	}
@@ -52,8 +57,11 @@ func (p *Postgres) ListConnections(ctx context.Context, q *query.Query) (*servic
 	for rows.Next() {
 		var row connectionRow
 		if err := rows.Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan connection row: %w", err)
+		}
+		if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+			row.Credentials = "{}"
 		}
 		rec, err := connectionRowToRecord(row, encKey)
 		if err != nil {
@@ -75,10 +83,18 @@ func (p *Postgres) ListConnections(ctx context.Context, q *query.Query) (*servic
 }
 
 func (p *Postgres) ListConnectionsByProvider(ctx context.Context, provider string) ([]service.Connection, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableConnections)
+	if err != nil {
+		return nil, err
+	}
 	sqlStr, _, err := p.goqu.From(p.tableConnections).
 		Select("id", "provider", "name", "account_label", "description",
-			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("provider").Eq(provider)).
+			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("provider").Eq(provider)).
 		Order(goqu.I("name").Asc()).
 		ToSQL()
 	if err != nil {
@@ -99,8 +115,11 @@ func (p *Postgres) ListConnectionsByProvider(ctx context.Context, provider strin
 	for rows.Next() {
 		var row connectionRow
 		if err := rows.Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+			&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan connection row: %w", err)
+		}
+		if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+			row.Credentials = "{}"
 		}
 		rec, err := connectionRowToRecord(row, encKey)
 		if err != nil {
@@ -113,10 +132,18 @@ func (p *Postgres) ListConnectionsByProvider(ctx context.Context, provider strin
 }
 
 func (p *Postgres) GetConnection(ctx context.Context, id string) (*service.Connection, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableConnections)
+	if err != nil {
+		return nil, err
+	}
 	sqlStr, _, err := p.goqu.From(p.tableConnections).
 		Select("id", "provider", "name", "account_label", "description",
-			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get connection query: %w", err)
@@ -124,7 +151,7 @@ func (p *Postgres) GetConnection(ctx context.Context, id string) (*service.Conne
 
 	var row connectionRow
 	err = p.db.QueryRowContext(ctx, sqlStr).Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -136,14 +163,25 @@ func (p *Postgres) GetConnection(ctx context.Context, id string) (*service.Conne
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
+	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+		row.Credentials = "{}"
+	}
 	return connectionRowToRecord(row, encKey)
 }
 
 func (p *Postgres) GetConnectionByName(ctx context.Context, provider, name string) (*service.Connection, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableConnections)
+	if err != nil {
+		return nil, err
+	}
 	sqlStr, _, err := p.goqu.From(p.tableConnections).
 		Select("id", "provider", "name", "account_label", "description",
-			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("provider").Eq(provider), goqu.I("name").Eq(name)).
+			"credentials", "metadata", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("provider").Eq(provider), goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get connection by name query: %w", err)
@@ -151,7 +189,7 @@ func (p *Postgres) GetConnectionByName(ctx context.Context, provider, name strin
 
 	var row connectionRow
 	err = p.db.QueryRowContext(ctx, sqlStr).Scan(&row.ID, &row.Provider, &row.Name, &row.AccountLabel, &row.Description,
-		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+		&row.Credentials, &row.Metadata, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -163,10 +201,24 @@ func (p *Postgres) GetConnectionByName(ctx context.Context, provider, name strin
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
+	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+		row.Credentials = "{}"
+	}
 	return connectionRowToRecord(row, encKey)
 }
 
 func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (*service.Connection, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
+		return nil, service.ErrAccessDenied
+	}
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
@@ -189,6 +241,7 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 
 	sqlStr, _, err := p.goqu.Insert(p.tableConnections).Rows(
 		goqu.Record{
+			"workspace_id":  w.actor.WorkspaceID,
 			"id":            id,
 			"provider":      c.Provider,
 			"name":          c.Name,
@@ -206,11 +259,15 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 		return nil, fmt.Errorf("build insert connection query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, sqlStr); err != nil {
+	if _, err := w.tx.ExecContext(ctx, sqlStr); err != nil {
 		return nil, fmt.Errorf("create connection (%s, %s): %w", c.Provider, c.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit connection: %w", err)
 	}
 
 	return &service.Connection{
+		WorkspaceID:  w.actor.WorkspaceID,
 		ID:           id,
 		Provider:     c.Provider,
 		Name:         c.Name,
@@ -226,6 +283,17 @@ func (p *Postgres) CreateConnection(ctx context.Context, c service.Connection) (
 }
 
 func (p *Postgres) UpdateConnection(ctx context.Context, id string, c service.Connection) (*service.Connection, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if c.WorkspaceID != "" && c.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}) {
+		return nil, service.ErrAccessDenied
+	}
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
@@ -256,12 +324,12 @@ func (p *Postgres) UpdateConnection(ctx context.Context, id string, c service.Co
 			"updated_at":    now,
 			"updated_by":    c.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update connection query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, sqlStr)
+	res, err := w.tx.ExecContext(ctx, sqlStr)
 	if err != nil {
 		return nil, fmt.Errorf("update connection %q: %w", id, err)
 	}
@@ -273,21 +341,29 @@ func (p *Postgres) UpdateConnection(ctx context.Context, id string, c service.Co
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit connection update: %w", err)
+	}
 
 	return p.GetConnection(ctx, id)
 }
 
 func (p *Postgres) DeleteConnection(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableConnections, "connections.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	sqlStr, _, err := p.goqu.Delete(p.tableConnections).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete connection query: %w", err)
 	}
-	if _, err := p.db.ExecContext(ctx, sqlStr); err != nil {
+	if _, err := w.tx.ExecContext(ctx, sqlStr); err != nil {
 		return fmt.Errorf("delete connection %q: %w", id, err)
 	}
-	return nil
+	return w.tx.Commit()
 }
 
 // ─── Helpers ───
@@ -340,6 +416,7 @@ func connectionRowToRecord(row connectionRow, encKey []byte) (*service.Connectio
 	}
 
 	return &service.Connection{
+		WorkspaceID:  row.WorkspaceID,
 		ID:           row.ID,
 		Provider:     row.Provider,
 		Name:         row.Name,

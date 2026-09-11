@@ -15,6 +15,7 @@ import (
 // ─── Labels ───
 
 type labelRow struct {
+	WorkspaceID    string         `db:"workspace_id"`
 	ID             string         `db:"id"`
 	OrganizationID sql.NullString `db:"organization_id"`
 	Name           string         `db:"name"`
@@ -24,7 +25,7 @@ type labelRow struct {
 }
 
 var labelColumns = []interface{}{
-	"id", "organization_id", "name", "color", "created_at", "updated_at",
+	"id", "organization_id", "name", "color", "created_at", "updated_at", "workspace_id",
 }
 
 func scanLabelRow(scanner interface {
@@ -33,13 +34,18 @@ func scanLabelRow(scanner interface {
 	return scanner.Scan(
 		&row.ID, &row.OrganizationID, &row.Name, &row.Color,
 		&row.CreatedAt, &row.UpdatedAt,
+		&row.WorkspaceID,
 	)
 }
 
 func (p *Postgres) ListLabels(ctx context.Context, orgID string) ([]service.Label, error) {
+	scope, err := p.businessReadScope(ctx, p.tableLabels)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableLabels).
 		Select(labelColumns...).
-		Where(goqu.I("organization_id").Eq(orgID)).
+		Where(scope, goqu.I("organization_id").Eq(orgID)).
 		Order(goqu.I("name").Asc()).
 		ToSQL()
 	if err != nil {
@@ -66,9 +72,13 @@ func (p *Postgres) ListLabels(ctx context.Context, orgID string) ([]service.Labe
 }
 
 func (p *Postgres) GetLabel(ctx context.Context, id string) (*service.Label, error) {
+	scope, err := p.businessReadScope(ctx, p.tableLabels)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableLabels).
 		Select(labelColumns...).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get label query: %w", err)
@@ -87,11 +97,23 @@ func (p *Postgres) GetLabel(ctx context.Context, id string) (*service.Label, err
 }
 
 func (p *Postgres) CreateLabel(ctx context.Context, label service.Label) (*service.Label, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableLabels, "labels.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if label.WorkspaceID != "" && label.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.businessReference(ctx, w, p.tableOrganizations, "id", label.OrganizationID); err != nil {
+		return nil, err
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Insert(p.tableLabels).Rows(
+	query, _, err := w.tx.Insert(p.tableLabels).Rows(
 		goqu.Record{
+			"workspace_id":    w.actor.WorkspaceID,
 			"id":              id,
 			"organization_id": nullString(label.OrganizationID),
 			"name":            label.Name,
@@ -104,11 +126,15 @@ func (p *Postgres) CreateLabel(ctx context.Context, label service.Label) (*servi
 		return nil, fmt.Errorf("build insert label query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create label %q: %w", label.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit label: %w", err)
 	}
 
 	return &service.Label{
+		WorkspaceID:    w.actor.WorkspaceID,
 		ID:             id,
 		OrganizationID: label.OrganizationID,
 		Name:           label.Name,
@@ -119,6 +145,14 @@ func (p *Postgres) CreateLabel(ctx context.Context, label service.Label) (*servi
 }
 
 func (p *Postgres) UpdateLabel(ctx context.Context, id string, label service.Label) (*service.Label, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableLabels, "labels.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if label.WorkspaceID != "" && label.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	now := time.Now().UTC()
 
 	query, _, err := p.goqu.Update(p.tableLabels).Set(
@@ -127,12 +161,12 @@ func (p *Postgres) UpdateLabel(ctx context.Context, id string, label service.Lab
 			"color":      label.Color,
 			"updated_at": now,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update label query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update label %q: %w", id, err)
 	}
@@ -144,64 +178,91 @@ func (p *Postgres) UpdateLabel(ctx context.Context, id string, label service.Lab
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit label update: %w", err)
+	}
 
 	return p.GetLabel(ctx, id)
 }
 
 func (p *Postgres) DeleteLabel(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableLabels, "labels.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	// Delete task-label associations first.
 	delAssocQuery, _, err := p.goqu.Delete(p.tableTaskLabels).
-		Where(goqu.I("label_id").Eq(id)).
+		Where(w.predicate, goqu.I("label_id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete task-label associations query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, delAssocQuery); err != nil {
+	if _, err := w.tx.ExecContext(ctx, delAssocQuery); err != nil {
 		return fmt.Errorf("delete task-label associations for label %q: %w", id, err)
 	}
 
 	query, _, err := p.goqu.Delete(p.tableLabels).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete label query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete label %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) AddLabelToTask(ctx context.Context, taskID, labelID string) error {
-	id := ulid.Make().String()
-	now := time.Now().UTC()
-
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", taskID)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
+	if taskID == "" || labelID == "" {
+		return service.ErrAccessResourceNotFound
+	}
+	if err = p.businessReference(ctx, w, p.tableTasks, "id", taskID); err != nil {
+		return err
+	}
+	if err = p.businessReference(ctx, w, p.tableLabels, "id", labelID); err != nil {
+		return err
+	}
+	if !w.actor.Allows("labels.read", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: labelID}) {
+		return service.ErrAccessDenied
+	}
 	query, _, err := p.goqu.Insert(p.tableTaskLabels).Rows(
 		goqu.Record{
-			"id":         id,
-			"task_id":    taskID,
-			"label_id":   labelID,
-			"created_at": now,
+			"workspace_id": w.actor.WorkspaceID,
+			"task_id":      taskID,
+			"label_id":     labelID,
 		},
 	).OnConflict(goqu.DoNothing()).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build add label to task query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return fmt.Errorf("add label %q to task %q: %w", labelID, taskID, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) RemoveLabelFromTask(ctx context.Context, taskID, labelID string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableTasks, "tasks.write", taskID)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableTaskLabels).
 		Where(
+			w.predicate,
 			goqu.I("task_id").Eq(taskID),
 			goqu.I("label_id").Eq(labelID),
 		).
@@ -210,24 +271,29 @@ func (p *Postgres) RemoveLabelFromTask(ctx context.Context, taskID, labelID stri
 		return fmt.Errorf("build remove label from task query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("remove label %q from task %q: %w", labelID, taskID, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func (p *Postgres) ListLabelsForTask(ctx context.Context, taskID string) ([]service.Label, error) {
-	// Join task_labels with labels to get full label records.
-	query, _, err := p.goqu.From(p.tableTaskLabels).
-		InnerJoin(p.tableLabels, goqu.On(goqu.I("label_id").Eq(goqu.I("id")))).
-		Select(
-			goqu.I("id"), goqu.I("organization_id"), goqu.I("name"),
-			goqu.I("color"), goqu.I("created_at"), goqu.I("updated_at"),
-		).
-		Where(goqu.I("task_id").Eq(taskID)).
-		ToSQL()
+	scope, err := p.businessReadScope(ctx, p.tableLabels)
+	if err != nil {
+		return nil, err
+	}
+	links, err := p.businessReadScope(ctx, p.tableTaskLabels)
+	if err != nil {
+		return nil, err
+	}
+	if task, err := p.GetTask(ctx, taskID); err != nil {
+		return nil, err
+	} else if task == nil {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	query, _, err := p.goqu.From(p.tableLabels).Select(labelColumns...).Where(scope, goqu.C("id").In(p.goqu.From(p.tableTaskLabels).Select("label_id").Where(links, goqu.C("task_id").Eq(taskID)))).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list labels for task query: %w", err)
 	}
@@ -252,10 +318,20 @@ func (p *Postgres) ListLabelsForTask(ctx context.Context, taskID string) ([]serv
 }
 
 func (p *Postgres) ListTasksForLabel(ctx context.Context, labelID string) ([]string, error) {
-	query, _, err := p.goqu.From(p.tableTaskLabels).
-		Select("task_id").
-		Where(goqu.I("label_id").Eq(labelID)).
-		ToSQL()
+	scope, err := p.businessReadScope(ctx, p.tableTasks)
+	if err != nil {
+		return nil, err
+	}
+	links, err := p.businessReadScope(ctx, p.tableTaskLabels)
+	if err != nil {
+		return nil, err
+	}
+	if label, err := p.GetLabel(ctx, labelID); err != nil {
+		return nil, err
+	} else if label == nil {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	query, _, err := p.goqu.From(p.tableTasks).Select("id").Where(scope, goqu.C("id").In(p.goqu.From(p.tableTaskLabels).Select("task_id").Where(links, goqu.C("label_id").Eq(labelID)))).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list tasks for label query: %w", err)
 	}
@@ -281,6 +357,7 @@ func (p *Postgres) ListTasksForLabel(ctx context.Context, labelID string) ([]str
 
 func labelRowToRecord(row labelRow) *service.Label {
 	return &service.Label{
+		WorkspaceID:    row.WorkspaceID,
 		ID:             row.ID,
 		OrganizationID: row.OrganizationID.String,
 		Name:           row.Name,

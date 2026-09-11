@@ -18,14 +18,15 @@ import (
 // ─── Node Config CRUD ───
 
 type nodeConfigRow struct {
-	ID        string    `db:"id"`
-	Name      string    `db:"name"`
-	Type      string    `db:"type"`
-	Data      string    `db:"data"`
-	CreatedAt time.Time `db:"created_at"`
-	UpdatedAt time.Time `db:"updated_at"`
-	CreatedBy string    `db:"created_by"`
-	UpdatedBy string    `db:"updated_by"`
+	WorkspaceID string    `db:"workspace_id"`
+	ID          string    `db:"id"`
+	Name        string    `db:"name"`
+	Type        string    `db:"type"`
+	Data        string    `db:"data"`
+	CreatedAt   time.Time `db:"created_at"`
+	UpdatedAt   time.Time `db:"updated_at"`
+	CreatedBy   string    `db:"created_by"`
+	UpdatedBy   string    `db:"updated_by"`
 }
 
 // sensitiveFields lists fields that should be encrypted/decrypted within
@@ -35,7 +36,11 @@ var sensitiveFields = map[string][]string{
 }
 
 func (p *Postgres) ListNodeConfigs(ctx context.Context, q *query.Query) (*service.ListResult[service.NodeConfig], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableNodeConfigs, q, "id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by")
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sql, total, err := p.buildListQuery(ctx, p.tableNodeConfigs, q, "id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list node configs query: %w", err)
 	}
@@ -53,10 +58,13 @@ func (p *Postgres) ListNodeConfigs(ctx context.Context, q *query.Query) (*servic
 	var items []service.NodeConfig
 	for rows.Next() {
 		var row nodeConfigRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan node config row: %w", err)
 		}
 
+		if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+			row.Data = "{}"
+		}
 		rec, err := nodeConfigRowToRecord(row, encKey)
 		if err != nil {
 			return nil, err
@@ -77,9 +85,17 @@ func (p *Postgres) ListNodeConfigs(ctx context.Context, q *query.Query) (*servic
 }
 
 func (p *Postgres) ListNodeConfigsByType(ctx context.Context, configType string) ([]service.NodeConfig, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableNodeConfigs)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableNodeConfigs).
-		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("type").Eq(configType)).
+		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("type").Eq(configType)).
 		Order(goqu.I("name").Asc()).
 		ToSQL()
 	if err != nil {
@@ -99,10 +115,13 @@ func (p *Postgres) ListNodeConfigsByType(ctx context.Context, configType string)
 	var result []service.NodeConfig
 	for rows.Next() {
 		var row nodeConfigRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan node config row: %w", err)
 		}
 
+		if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+			row.Data = "{}"
+		}
 		rec, err := nodeConfigRowToRecord(row, encKey)
 		if err != nil {
 			return nil, err
@@ -114,16 +133,24 @@ func (p *Postgres) ListNodeConfigsByType(ctx context.Context, configType string)
 }
 
 func (p *Postgres) GetNodeConfig(ctx context.Context, id string) (*service.NodeConfig, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableNodeConfigs)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableNodeConfigs).
-		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+		Select("id", "name", "type", "data", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get node config query: %w", err)
 	}
 
 	var row nodeConfigRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Type, &row.Data, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -135,10 +162,21 @@ func (p *Postgres) GetNodeConfig(ctx context.Context, id string) (*service.NodeC
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
+	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: row.WorkspaceID, ID: row.ID}) {
+		row.Data = "{}"
+	}
 	return nodeConfigRowToRecord(row, encKey)
 }
 
 func (p *Postgres) CreateNodeConfig(ctx context.Context, nc service.NodeConfig) (*service.NodeConfig, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableNodeConfigs, "credentials.manage", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if nc.WorkspaceID != "" && nc.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
@@ -153,37 +191,50 @@ func (p *Postgres) CreateNodeConfig(ctx context.Context, nc service.NodeConfig) 
 
 	query, _, err := p.goqu.Insert(p.tableNodeConfigs).Rows(
 		goqu.Record{
-			"id":         id,
-			"name":       nc.Name,
-			"type":       nc.Type,
-			"data":       storeData,
-			"created_at": now,
-			"updated_at": now,
-			"created_by": nc.CreatedBy,
-			"updated_by": nc.UpdatedBy,
+			"workspace_id": w.actor.WorkspaceID,
+			"id":           id,
+			"name":         nc.Name,
+			"type":         nc.Type,
+			"data":         storeData,
+			"created_at":   now,
+			"updated_at":   now,
+			"created_by":   nc.CreatedBy,
+			"updated_by":   nc.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert node config query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create node config %q: %w", nc.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit node config: %w", err)
 	}
 
 	return &service.NodeConfig{
-		ID:        id,
-		Name:      nc.Name,
-		Type:      nc.Type,
-		Data:      nc.Data,
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		CreatedBy: nc.CreatedBy,
-		UpdatedBy: nc.UpdatedBy,
+		WorkspaceID: w.actor.WorkspaceID,
+		ID:          id,
+		Name:        nc.Name,
+		Type:        nc.Type,
+		Data:        nc.Data,
+		CreatedAt:   now.Format(time.RFC3339),
+		UpdatedAt:   now.Format(time.RFC3339),
+		CreatedBy:   nc.CreatedBy,
+		UpdatedBy:   nc.UpdatedBy,
 	}, nil
 }
 
 func (p *Postgres) UpdateNodeConfig(ctx context.Context, id string, nc service.NodeConfig) (*service.NodeConfig, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableNodeConfigs, "credentials.manage", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if nc.WorkspaceID != "" && nc.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
@@ -203,12 +254,12 @@ func (p *Postgres) UpdateNodeConfig(ctx context.Context, id string, nc service.N
 			"updated_at": now,
 			"updated_by": nc.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update node config query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update node config %q: %w", id, err)
 	}
@@ -220,24 +271,32 @@ func (p *Postgres) UpdateNodeConfig(ctx context.Context, id string, nc service.N
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit node config update: %w", err)
+	}
 
 	return p.GetNodeConfig(ctx, id)
 }
 
 func (p *Postgres) DeleteNodeConfig(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableNodeConfigs, "credentials.manage", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableNodeConfigs).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete node config query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete node config %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 // nodeConfigRowToRecord converts a database row to a NodeConfig, decrypting sensitive fields.
@@ -248,14 +307,15 @@ func nodeConfigRowToRecord(row nodeConfigRow, encKey []byte) (*service.NodeConfi
 	}
 
 	return &service.NodeConfig{
-		ID:        row.ID,
-		Name:      row.Name,
-		Type:      row.Type,
-		Data:      data,
-		CreatedAt: row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy: row.CreatedBy,
-		UpdatedBy: row.UpdatedBy,
+		WorkspaceID: row.WorkspaceID,
+		ID:          row.ID,
+		Name:        row.Name,
+		Type:        row.Type,
+		Data:        data,
+		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:   row.CreatedBy,
+		UpdatedBy:   row.UpdatedBy,
 	}, nil
 }
 

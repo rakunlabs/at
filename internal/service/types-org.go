@@ -11,6 +11,7 @@ import (
 
 // Organization represents a tenant scope for grouping agents, goals, and tasks.
 type Organization struct {
+	WorkspaceID string `json:"workspace_id"`
 	BudgetSchedule
 	ID                   string           `json:"id"`
 	Name                 string           `json:"name"`
@@ -55,6 +56,7 @@ type OrganizationStorer interface {
 // OrganizationAgent represents the many-to-many relationship between an
 // organization and an agent.
 type OrganizationAgent struct {
+	WorkspaceID       string `json:"workspace_id"`
 	ID                string `json:"id"`
 	OrganizationID    string `json:"organization_id"`
 	AgentID           string `json:"agent_id"`
@@ -91,6 +93,7 @@ const (
 
 // Goal represents a hierarchical objective in an organization.
 type Goal struct {
+	WorkspaceID    string `json:"workspace_id"`
 	ID             string `json:"id"`
 	OrganizationID string `json:"organization_id,omitempty"`
 	ParentGoalID   string `json:"parent_goal_id,omitempty"`
@@ -120,6 +123,7 @@ type GoalStorer interface {
 
 // Project links goals to actual work, tracking progress and ownership.
 type Project struct {
+	WorkspaceID    string `json:"workspace_id"`
 	ID             string `json:"id"`
 	OrganizationID string `json:"organization_id,omitempty"`
 	GoalID         string `json:"goal_id,omitempty"`

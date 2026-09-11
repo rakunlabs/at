@@ -23,6 +23,9 @@ func (s *Server) migrateAgentCallMaxIterations(ctx context.Context) {
 	if s.workflowStore == nil {
 		return
 	}
+	// A startup data migration is installation-wide maintenance, so it runs
+	// under explicit installation scope rather than any user's workspace.
+	ctx = service.WithLegacyWorkspaceAccess(ctx)
 	if s.loopGov == nil {
 		return
 	}

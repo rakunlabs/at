@@ -254,14 +254,14 @@ func TestOrgDelegation_EnrichedPromptsEndToEnd(t *testing.T) {
 	}
 
 	task, err := taskStore.CreateTask(context.Background(), service.Task{
-		OrganizationID: "org1", Title: "Make an otter short", Status: service.TaskStatusOpen, AssignedAgentID: "agent-a",
+		OrganizationID: "org1", Title: "Make an otter short", Status: service.TaskStatusTodo, AssignedAgentID: "agent-a",
 	})
 	if err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 
 	org := &service.Organization{ID: "org1", Name: "Otter Studio", Description: "We make short animal videos.", IssuePrefix: "OTR", MaxDelegationDepth: 5}
-	if err := s.runOrgDelegation(context.Background(), org, task, "agent-a", 0); err != nil {
+	if err := s.runOrgDelegation(installRuntimeFixture(t, s), org, task, "agent-a", 0); err != nil {
 		t.Fatalf("runOrgDelegation: %v", err)
 	}
 

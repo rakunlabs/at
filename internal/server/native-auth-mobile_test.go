@@ -45,19 +45,28 @@ func TestMobileProductionRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// An unclaimed installation reports setup, not a usable login descriptor.
 	w := nativeRequest(s.server, "GET", "/at/auth/status", "", "", nil)
 	var status struct {
-		Mobile map[string]any `json:"mobile_auth"`
+		SetupRequired bool           `json:"setup_required"`
+		Mobile        map[string]any `json:"mobile_auth"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
 		t.Fatal(err)
 	}
-	if status.Mobile["version"] != float64(1) || status.Mobile["issuer"] != "https://at.example/at" || status.Mobile["callback_uri"] != nativeMobileCallback {
-		t.Fatal(status)
+	if !status.SetupRequired || status.Mobile != nil {
+		t.Fatal("unclaimed installation exposed mobile auth", status)
 	}
 	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy}, true)
 	if err != nil {
 		t.Fatal(err)
+	}
+	w = nativeRequest(s.server, "GET", "/at/auth/status", "", "", nil)
+	if err := json.Unmarshal(w.Body.Bytes(), &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.SetupRequired || status.Mobile["version"] != float64(1) || status.Mobile["issuer"] != "https://at.example/at" || status.Mobile["callback_uri"] != nativeMobileCallback {
+		t.Fatal(status)
 	}
 	access, refresh, err := nativeCredentialPair()
 	if err != nil {

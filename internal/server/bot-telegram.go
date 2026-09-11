@@ -154,7 +154,10 @@ func (s *Server) transcribeOpenAI(ctx context.Context, audioPath string) string 
 }
 
 // transcribeLocal uses locally installed whisper or faster-whisper via uvx.
-func (s *Server) transcribeLocal(_ context.Context, audioPath, model, pkg string) string {
+func (s *Server) transcribeLocal(ctx context.Context, audioPath, model, pkg string) string {
+	if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: "transcribe_local"}) != nil {
+		return ""
+	}
 	var script string
 	if pkg == "faster-whisper" {
 		script = fmt.Sprintf(`
@@ -179,22 +182,22 @@ print(result["text"].strip())
 		uvxPkg = "faster-whisper"
 	}
 
-	cmd := exec.CommandContext(context.Background(), "uvx", "--from", uvxPkg, "python3", "-c", script)
+	cmd := exec.CommandContext(ctx, "uvx", "--from", uvxPkg, "python3", "-c", script)
 	cmd.Env = append(os.Environ(), "PIP_BREAK_SYSTEM_PACKAGES=1", "UV_SYSTEM_PYTHON=1")
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	if err := cmd.Run(); err != nil {
+	if err := workflow.RunExecutionProcess(ctx, cmd); err != nil {
 		// Fallback: try direct python3 (in case uvx is not available or package is already installed)
 		slog.Debug("transcribeLocal: uvx failed, trying direct python3", "error", err)
-		cmd2 := exec.CommandContext(context.Background(), "python3", "-c", script)
+		cmd2 := exec.CommandContext(ctx, "python3", "-c", script)
 		cmd2.Env = append(os.Environ(), "PIP_BREAK_SYSTEM_PACKAGES=1")
 		var stdout2, stderr2 bytes.Buffer
 		cmd2.Stdout = &stdout2
 		cmd2.Stderr = &stderr2
-		if err2 := cmd2.Run(); err2 != nil {
+		if err2 := workflow.RunExecutionProcess(ctx, cmd2); err2 != nil {
 			slog.Warn("transcribeLocal: both uvx and direct python3 failed", "pkg", pkg, "model", model, "uvx_err", err, "py_err", err2)
 			return ""
 		}
@@ -470,14 +473,7 @@ func sanitizeUTF8(s string) string {
 // isFinishedTaskStatus returns true when the task has reached a terminal state.
 // Used to decide whether the active task is a candidate for revision-spawning.
 func isFinishedTaskStatus(status string) bool {
-	switch status {
-	case service.TaskStatusDone,
-		service.TaskStatusCompleted,
-		service.TaskStatusCancelled,
-		service.TaskStatusBlocked:
-		return true
-	}
-	return false
+	return service.IsTerminalTaskStatus(status)
 }
 
 // isRunningTaskStatus returns true when the task is still in motion.
@@ -485,8 +481,6 @@ func isRunningTaskStatus(status string) bool {
 	switch status {
 	case service.TaskStatusInProgress,
 		service.TaskStatusInReview,
-		service.TaskStatusReview,
-		service.TaskStatusOpen,
 		service.TaskStatusTodo,
 		service.TaskStatusBacklog:
 		return true
@@ -1620,7 +1614,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 			// Only terminal states make sense to resume. Open / in-progress
 			// tasks that aren't actively running indicate a server restart;
 			// allow resume in that case too by also accepting Open.
-			if !isFinishedTaskStatus(task.Status) && task.Status != service.TaskStatusOpen {
+			if !isFinishedTaskStatus(task.Status) && task.Status != service.TaskStatusTodo {
 				sendTelegramText(bot, msg.Chat.ID,
 					fmt.Sprintf("Task %s status is %s — nothing to resume.",
 						sanitizeUTF8(identifier), sanitizeUTF8(task.Status)))

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rakunlabs/query"
+
 	"github.com/rakunlabs/at/internal/service"
 )
 
@@ -510,10 +512,12 @@ func (s *Server) execTaskChildren(ctx context.Context, _ map[string]any) (string
 	if err != nil {
 		return "", fmt.Errorf("failed to list child tasks: %w", err)
 	}
-	if children == nil {
-		children = []service.Task{}
+	summaries, omitted := summarizeChildren(children)
+	out := map[string]any{"task_id": currentTask.ID, "children": summaries, "total": len(children)}
+	if notes := elisionNotes(omitted, 0, 0); len(notes) > 0 {
+		out["elided"] = notes
 	}
-	data, _ := json.MarshalIndent(map[string]any{"task_id": currentTask.ID, "children": children, "total": len(children)}, "", "  ")
+	data, _ := json.MarshalIndent(out, "", "  ")
 	return string(data), nil
 }
 
@@ -571,7 +575,7 @@ func (s *Server) execTaskComplete(ctx context.Context, args map[string]any) (str
 	if result == "" {
 		return "", fmt.Errorf("result is required")
 	}
-	if err := s.completeTaskWithStatus(ctx, currentTask, service.TaskStatusCompleted, result); err != nil {
+	if err := s.completeTaskWithStatus(ctx, currentTask, service.TaskStatusDone, result); err != nil {
 		return "", fmt.Errorf("failed to complete current task: %w", err)
 	}
 	return fmt.Sprintf(`{"status":"completed","task_id":%q}`, currentTask.ID), nil
@@ -598,59 +602,58 @@ func (s *Server) execTaskList(ctx context.Context, args map[string]any) (string,
 		return "", fmt.Errorf("task store not configured")
 	}
 
-	result, err := s.taskStore.ListTasks(ctx, nil)
+	limit := intArg(args["limit"], taskListDefaultLimit)
+	if limit <= 0 {
+		limit = taskListDefaultLimit
+	}
+	if limit > taskListMaxLimit {
+		limit = taskListMaxLimit
+	}
+	offset := intArg(args["offset"], 0)
+	if offset < 0 {
+		offset = 0
+	}
+
+	// Filtering, ordering and paging all run in SQL. This used to fetch every
+	// task in the workspace and filter in Go, so a busy installation paid a
+	// full table read to answer "show me three blocked tasks".
+	q := &query.Query{Sort: []query.ExpressionSort{{Field: "updated_at", Desc: true}}}
+	limit64, offset64 := uint64(limit), uint64(offset)
+	q.Limit, q.Offset = &limit64, &offset64
+
+	if raw, _ := args["status"].(string); raw != "" {
+		status, err := service.ParseTaskStatus(raw)
+		if err != nil {
+			return "", err
+		}
+		q.Where = append(q.Where, &query.ExpressionCmp{Operator: query.OperatorEq, Field: "status", Value: status})
+	}
+	if v, _ := args["organization_id"].(string); v != "" {
+		q.Where = append(q.Where, &query.ExpressionCmp{Operator: query.OperatorEq, Field: "organization_id", Value: v})
+	}
+	if v, _ := args["assigned_agent_id"].(string); v != "" {
+		q.Where = append(q.Where, &query.ExpressionCmp{Operator: query.OperatorEq, Field: "assigned_agent_id", Value: v})
+	}
+
+	result, err := s.taskStore.ListTasks(ctx, q)
 	if err != nil {
 		return "", fmt.Errorf("failed to list tasks: %w", err)
 	}
 
-	// Apply client-side filters (store may not support all filters via query).
-	statusFilter, _ := args["status"].(string)
-	orgFilter, _ := args["organization_id"].(string)
-	agentFilter, _ := args["assigned_agent_id"].(string)
-
-	type taskSummary struct {
-		ID              string `json:"id"`
-		Identifier      string `json:"identifier,omitempty"`
-		Title           string `json:"title"`
-		Status          string `json:"status"`
-		PriorityLevel   string `json:"priority_level,omitempty"`
-		OrganizationID  string `json:"organization_id,omitempty"`
-		AssignedAgentID string `json:"assigned_agent_id,omitempty"`
-		ParentID        string `json:"parent_id,omitempty"`
-		UpdatedAt       string `json:"updated_at"`
-	}
-
-	var summaries []taskSummary
+	summaries := make([]taskSummary, 0, len(result.Data))
 	for _, t := range result.Data {
-		if statusFilter != "" && t.Status != statusFilter {
-			continue
-		}
-		if orgFilter != "" && t.OrganizationID != orgFilter {
-			continue
-		}
-		if agentFilter != "" && t.AssignedAgentID != agentFilter {
-			continue
-		}
-		summaries = append(summaries, taskSummary{
-			ID:              t.ID,
-			Identifier:      t.Identifier,
-			Title:           t.Title,
-			Status:          t.Status,
-			PriorityLevel:   t.PriorityLevel,
-			OrganizationID:  t.OrganizationID,
-			AssignedAgentID: t.AssignedAgentID,
-			ParentID:        t.ParentID,
-			UpdatedAt:       t.UpdatedAt,
-		})
-	}
-
-	if summaries == nil {
-		summaries = []taskSummary{}
+		summaries = append(summaries, newTaskSummary(t))
 	}
 
 	out := map[string]any{
-		"tasks": summaries,
-		"total": len(summaries),
+		"tasks":    summaries,
+		"returned": len(summaries),
+		"total":    result.Meta.Total,
+		"offset":   offset,
+		"limit":    limit,
+	}
+	if uint64(offset+len(summaries)) < result.Meta.Total {
+		out["more"] = "More tasks match. Call again with offset=" + itoa(offset+len(summaries)) + "."
 	}
 
 	data, _ := json.MarshalIndent(out, "", "  ")
@@ -680,22 +683,36 @@ func (s *Server) execTaskGet(ctx context.Context, args map[string]any) (string, 
 		"task": task,
 	}
 
-	// Include subtasks.
+	// Children are summarised: a director with ten finished children would
+	// otherwise pull ten full result documents into its context.
+	var omittedChildren int
 	children, err := s.taskStore.ListChildTasks(ctx, id)
 	if err != nil {
 		slog.Warn("failed to list child tasks", "task_id", id, "error", err)
 	} else if len(children) > 0 {
-		result["subtasks"] = children
+		summaries, omitted := summarizeChildren(children)
+		omittedChildren = omitted
+		result["subtasks"] = summaries
+		result["subtask_total"] = len(children)
 	}
 
-	// Include comments if available.
+	var olderComments, stateComments int
 	if s.issueCommentStore != nil {
 		comments, err := s.issueCommentStore.ListCommentsByTask(ctx, id)
 		if err != nil {
 			slog.Warn("failed to list task comments", "task_id", id, "error", err)
 		} else if len(comments) > 0 {
-			result["comments"] = comments
+			views, older, state := summarizeComments(comments)
+			olderComments, stateComments = older, state
+			if len(views) > 0 {
+				result["comments"] = views
+			}
+			result["comment_total"] = len(comments) - state
 		}
+	}
+
+	if notes := elisionNotes(omittedChildren, olderComments, stateComments); len(notes) > 0 {
+		result["elided"] = notes
 	}
 
 	data, _ := json.MarshalIndent(result, "", "  ")
@@ -730,7 +747,11 @@ func (s *Server) execTaskUpdate(ctx context.Context, args map[string]any) (strin
 		existing.Description = v
 	}
 	if v, ok := args["status"].(string); ok && v != "" {
-		existing.Status = v
+		status, err := service.ParseTaskStatus(v)
+		if err != nil {
+			return "", err
+		}
+		existing.Status = status
 	}
 	if v, ok := args["priority_level"].(string); ok {
 		existing.PriorityLevel = v
@@ -862,15 +883,6 @@ const (
 	taskWaitPollInterval   = time.Second
 )
 
-func isTaskTerminal(status string) bool {
-	switch status {
-	case service.TaskStatusCompleted, service.TaskStatusDone, service.TaskStatusCancelled, service.TaskStatusBlocked:
-		return true
-	default:
-		return false
-	}
-}
-
 // execTaskWait waits server-side for async task processing to finish. Keeping
 // the wait inside AT avoids burning agent iterations on shell sleeps and
 // repeated task_get calls.
@@ -902,7 +914,7 @@ func (s *Server) execTaskWait(ctx context.Context, args map[string]any) (string,
 
 	data, err := json.MarshalIndent(map[string]any{
 		"task":      task,
-		"terminal":  isTaskTerminal(task.Status),
+		"terminal":  service.IsTerminalTaskStatus(task.Status),
 		"timed_out": timedOut,
 	}, "", "  ")
 	if err != nil {
@@ -933,7 +945,7 @@ func (s *Server) waitForTask(ctx context.Context, id string, timeout, pollInterv
 		if task == nil {
 			return nil, false, fmt.Errorf("task %q not found", id)
 		}
-		if isTaskTerminal(task.Status) {
+		if service.IsTerminalTaskStatus(task.Status) {
 			return task, false, nil
 		}
 

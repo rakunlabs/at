@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 type fakeRuntimeMCPClient struct {
@@ -167,7 +168,7 @@ func (s *runtimeSkillStore) GetSkillByName(ctx context.Context, _ string) (*serv
 
 func TestMCPSetRuntimePropagatesContextAndPreservesPrecedence(t *testing.T) {
 	type contextKey string
-	ctx := context.WithValue(context.Background(), contextKey("request"), "request-2")
+	ctx := context.WithValue(executiontest.Context(t), contextKey("request"), "request-2")
 	setStore := &runtimeMCPSetStore{set: &service.MCPSet{
 		Name: "media",
 		Config: service.MCPServerConfig{
@@ -257,7 +258,7 @@ func TestGatewayMCPRuntimeLocalToolSkipsUnavailableUpstream(t *testing.T) {
 	}})
 	defer runtime.Close(context.Background())
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(executiontest.Context(t), 100*time.Millisecond)
 	defer cancel()
 	result, err := runtime.CallTool(ctx, "local", nil)
 	if err != nil {

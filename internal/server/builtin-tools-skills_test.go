@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 	"github.com/rakunlabs/query"
 )
 
@@ -83,7 +84,7 @@ func (f *fakeSkillStore) DeleteSkill(_ context.Context, id string) error {
 func TestDispatch_SkillCRUD(t *testing.T) {
 	store := newFakeSkillStore()
 	s := &Server{skillStore: store}
-	ctx := context.Background()
+	ctx := executiontest.Context(t)
 
 	// skill_create
 	out, err := s.dispatchBuiltinTool(ctx, "skill_create", map[string]any{
@@ -169,7 +170,7 @@ func TestDispatch_SkillCRUD(t *testing.T) {
 // required" guard fires before we hit the store.
 func TestDispatch_SkillCreate_RequiresName(t *testing.T) {
 	s := &Server{skillStore: newFakeSkillStore()}
-	if _, err := s.dispatchBuiltinTool(context.Background(), "skill_create", map[string]any{}); err == nil {
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "skill_create", map[string]any{}); err == nil {
 		t.Fatal("expected error when name is missing")
 	}
 }
@@ -276,7 +277,7 @@ func TestDispatch_MCPServerCreate_DecodesNestedConfig(t *testing.T) {
 	store := newFakeMCPServerStore()
 	s := &Server{mcpServerStore: store}
 
-	_, err := s.dispatchBuiltinTool(context.Background(), "mcp_server_create", map[string]any{
+	_, err := s.dispatchBuiltinTool(executiontest.Context(t), "mcp_server_create", map[string]any{
 		"name":        "my-mcp",
 		"description": "Test",
 		"config": map[string]any{
@@ -382,7 +383,7 @@ func TestDispatch_MCPSetCreate_NormalizesEmptyArrays(t *testing.T) {
 	store := newFakeMCPSetStore()
 	s := &Server{mcpSetStore: store}
 
-	if _, err := s.dispatchBuiltinTool(context.Background(), "mcp_set_create", map[string]any{
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "mcp_set_create", map[string]any{
 		"name":        "scratch-set",
 		"description": "Test",
 		"config": map[string]any{

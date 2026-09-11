@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 	"github.com/rakunlabs/at/internal/service/workflow"
 
 	// Blank import to trigger init() registrations for all node types.
@@ -692,7 +693,7 @@ func TestAgentCall_SimplePrompt_NoTools(t *testing.T) {
 		t.Fatalf("Validate: %v", err)
 	}
 
-	result, err := node.Run(context.Background(), reg, map[string]any{
+	result, err := node.Run(executiontest.Context(t), reg, map[string]any{
 		"prompt": "Hello agent",
 	})
 	if err != nil {
@@ -755,7 +756,7 @@ func TestAgentCall_ToolCallLoop(t *testing.T) {
 		},
 	})
 
-	result, err := node.Run(context.Background(), reg, map[string]any{
+	result, err := node.Run(executiontest.Context(t), reg, map[string]any{
 		"prompt": "Use the tool",
 	})
 	if err != nil {
@@ -793,7 +794,7 @@ func TestExec_AllowInputOverride_DefaultFalse(t *testing.T) {
 	})
 
 	reg := newTestRegistry()
-	result, err := node.Run(context.Background(), reg, map[string]any{
+	result, err := node.Run(executiontest.Context(t), reg, map[string]any{
 		"command": "echo INJECTED",
 	})
 	if err != nil {
@@ -814,7 +815,7 @@ func TestExec_AllowInputOverride_True(t *testing.T) {
 	})
 
 	reg := newTestRegistry()
-	result, err := node.Run(context.Background(), reg, map[string]any{
+	result, err := node.Run(executiontest.Context(t), reg, map[string]any{
 		"command": "echo OVERRIDE",
 	})
 	if err != nil {
@@ -833,7 +834,7 @@ func TestExec_JSONErrorOutputSelectsFailure(t *testing.T) {
 		"command": `printf '%s\n' '{"error":"scenes array is required"}'`,
 	})
 
-	result, err := node.Run(context.Background(), newTestRegistry(), nil)
+	result, err := node.Run(executiontest.Context(t), newTestRegistry(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -852,7 +853,7 @@ func TestExec_UnwrapsSingleDataPortForNodeInput(t *testing.T) {
 		"command": `printf '%s' "$AT_NODE_INPUT"`,
 	})
 
-	result, err := node.Run(context.Background(), newTestRegistry(), map[string]any{
+	result, err := node.Run(executiontest.Context(t), newTestRegistry(), map[string]any{
 		"data": map[string]any{
 			"audio":    "audio_0.mp3",
 			"work_dir": "/work",

@@ -8,6 +8,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 	"github.com/rakunlabs/query"
 )
 
@@ -97,7 +98,7 @@ func (f *fakeVariableStore) DeleteVariable(_ context.Context, id string) error {
 func TestDispatch_VariableCreate_UpsertsByKey(t *testing.T) {
 	store := newFakeVariableStore()
 	s := &Server{variableStore: store}
-	ctx := context.Background()
+	ctx := executiontest.Context(t)
 
 	if _, err := s.dispatchBuiltinTool(ctx, "variable_create", map[string]any{
 		"key":   "OPENAI_KEY",
@@ -141,7 +142,7 @@ func TestDispatch_VariableList_RedactsSecrets(t *testing.T) {
 	store.vars["v2"] = &service.Variable{ID: "v2", Key: "SECRET", Value: "supersecret", Secret: true}
 	s := &Server{variableStore: store}
 
-	out, err := s.dispatchBuiltinTool(context.Background(), "variable_list", nil)
+	out, err := s.dispatchBuiltinTool(executiontest.Context(t), "variable_list", nil)
 	if err != nil {
 		t.Fatalf("variable_list: %v", err)
 	}
@@ -156,7 +157,7 @@ func TestDispatch_VariableList_RedactsSecrets(t *testing.T) {
 	}
 
 	// Get should return the unredacted value.
-	getOut, err := s.dispatchBuiltinTool(context.Background(), "variable_get", map[string]any{"id": "v2"})
+	getOut, err := s.dispatchBuiltinTool(executiontest.Context(t), "variable_get", map[string]any{"id": "v2"})
 	if err != nil {
 		t.Fatalf("variable_get: %v", err)
 	}
@@ -249,7 +250,7 @@ func TestDispatch_ConnectionGet_RedactionPolicy(t *testing.T) {
 	s := &Server{connectionStore: store}
 
 	// Default Get: redacted.
-	defaultOut, err := s.dispatchBuiltinTool(context.Background(), "connection_get", map[string]any{"id": "c1"})
+	defaultOut, err := s.dispatchBuiltinTool(executiontest.Context(t), "connection_get", map[string]any{"id": "c1"})
 	if err != nil {
 		t.Fatalf("connection_get default: %v", err)
 	}
@@ -270,7 +271,7 @@ func TestDispatch_ConnectionGet_RedactionPolicy(t *testing.T) {
 	}
 
 	// Reveal: plaintext.
-	revealOut, err := s.dispatchBuiltinTool(context.Background(), "connection_get", map[string]any{
+	revealOut, err := s.dispatchBuiltinTool(executiontest.Context(t), "connection_get", map[string]any{
 		"id":     "c1",
 		"reveal": true,
 	})
@@ -284,7 +285,7 @@ func TestDispatch_ConnectionGet_RedactionPolicy(t *testing.T) {
 	}
 
 	// List: always redacted, even though we don't pass reveal anywhere.
-	listOut, err := s.dispatchBuiltinTool(context.Background(), "connection_list", nil)
+	listOut, err := s.dispatchBuiltinTool(executiontest.Context(t), "connection_list", nil)
 	if err != nil {
 		t.Fatalf("connection_list: %v", err)
 	}
@@ -313,7 +314,7 @@ func TestDispatch_ConnectionUpdate_PreservesSecrets(t *testing.T) {
 	s := &Server{connectionStore: store}
 
 	// Update with empty credentials, only changing name.
-	if _, err := s.dispatchBuiltinTool(context.Background(), "connection_update", map[string]any{
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "connection_update", map[string]any{
 		"id":   "c1",
 		"name": "New Name",
 		// Note: no `credentials` field — empty map. Should preserve.
@@ -412,7 +413,7 @@ func TestDispatch_ProviderUpdate_PreservesAPIKey(t *testing.T) {
 	s.store = store
 
 	// Update with empty api_key/refresh_token — should preserve existing.
-	if _, err := s.dispatchBuiltinTool(context.Background(), "provider_update", map[string]any{
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "provider_update", map[string]any{
 		"key": "openai-prod",
 		"config": map[string]any{
 			"type":      "openai",
@@ -454,7 +455,7 @@ func TestDispatch_ProviderUpdate_DoesNotReuseCredentialAcrossAuthTypes(t *testin
 		},
 	}
 	s := &Server{store: store}
-	if _, err := s.dispatchBuiltinTool(context.Background(), "provider_update", map[string]any{
+	if _, err := s.dispatchBuiltinTool(executiontest.Context(t), "provider_update", map[string]any{
 		"key": "chatgpt",
 		"config": map[string]any{
 			"type":  "openai",
@@ -478,7 +479,7 @@ func TestDispatch_ProviderCreate_RejectsDuplicateKey(t *testing.T) {
 	s := &Server{}
 	s.store = store
 
-	_, err := s.dispatchBuiltinTool(context.Background(), "provider_create", map[string]any{
+	_, err := s.dispatchBuiltinTool(executiontest.Context(t), "provider_create", map[string]any{
 		"key": "existing",
 		"config": map[string]any{
 			"type": "openai",
@@ -553,7 +554,7 @@ func TestDispatch_APITokenCreate_ReturnsPlaintextOnce(t *testing.T) {
 	store := newFakeAPITokenStore()
 	s := &Server{tokenStore: store}
 
-	out, err := s.dispatchBuiltinTool(context.Background(), "apitoken_create", map[string]any{
+	out, err := s.dispatchBuiltinTool(executiontest.Context(t), "apitoken_create", map[string]any{
 		"name": "ci-bot",
 	})
 	if err != nil {
@@ -602,11 +603,11 @@ func TestDispatch_APITokenCreate_ReturnsPlaintextOnce(t *testing.T) {
 // the same bytes on every call.
 func TestDispatch_APITokenCreate_TwoCallsProduceDifferentTokens(t *testing.T) {
 	s := &Server{tokenStore: newFakeAPITokenStore()}
-	out1, err := s.dispatchBuiltinTool(context.Background(), "apitoken_create", map[string]any{"name": "a"})
+	out1, err := s.dispatchBuiltinTool(executiontest.Context(t), "apitoken_create", map[string]any{"name": "a"})
 	if err != nil {
 		t.Fatalf("create 1: %v", err)
 	}
-	out2, err := s.dispatchBuiltinTool(context.Background(), "apitoken_create", map[string]any{"name": "b"})
+	out2, err := s.dispatchBuiltinTool(executiontest.Context(t), "apitoken_create", map[string]any{"name": "b"})
 	if err != nil {
 		t.Fatalf("create 2: %v", err)
 	}
@@ -636,7 +637,7 @@ func TestDispatch_BotCreate_RejectsRedactedToken(t *testing.T) {
 	type minimalBotStore struct{ service.BotConfigStorer }
 	s.botConfigStore = minimalBotStore{}
 
-	_, err := s.dispatchBuiltinTool(context.Background(), "bot_create", map[string]any{
+	_, err := s.dispatchBuiltinTool(executiontest.Context(t), "bot_create", map[string]any{
 		"platform": "telegram",
 		"token":    botTokenRedacted, // the placeholder
 	})

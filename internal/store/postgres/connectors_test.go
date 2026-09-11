@@ -8,7 +8,8 @@ import (
 )
 
 func TestConnector_CRUD(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	in := service.Connector{
@@ -89,7 +90,8 @@ func TestConnector_CRUD(t *testing.T) {
 }
 
 func TestConnector_TokenKindNoOAuth(t *testing.T) {
-	ctx := context.Background()
+	// Installation-scope tests act as the platform operator on the legacy workspace.
+	ctx := service.WithLegacyWorkspaceAccess(context.Background())
 	store := newTestStore(t, nil)
 
 	_, err := store.CreateConnector(ctx, service.Connector{

@@ -368,6 +368,11 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	}
 
 	reg := NewRegistryWithDependencies(e.ensureDependencies(), inputs)
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "execution.run"}); err != nil {
+		signalOutput(nil, err)
+		return nil, err
+	}
+	reg.Dependencies = ScopeDependencies(ctx, *reg.Dependencies)
 	reg.engine = e
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
@@ -378,6 +383,14 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 	}
 
 	// Phase 1: Parse & Validate (only reachable nodes).
+	for _, node := range graph.Nodes {
+		if reachable[node.ID] {
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "node", Name: node.Type}); err != nil {
+				signalOutput(nil, err)
+				return nil, err
+			}
+		}
+	}
 	states, err := e.parseGraph(ctx, graph, reg, reachable)
 	if err != nil {
 		err = fmt.Errorf("validation: %w", err)
@@ -466,6 +479,9 @@ type outputSignal func(map[string]any, error)
 
 // executeNode is the single execution path for main and fan-out nodes.
 func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, inputs map[string]any, signalOutput outputSignal) (NodeResult, bool, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "node", Name: st.noder.Type()}); err != nil {
+		return nil, false, err
+	}
 	e.emitEvent(NodeEvent{
 		NodeID:    st.node.ID,
 		NodeType:  st.noder.Type(),

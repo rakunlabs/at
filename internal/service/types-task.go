@@ -2,25 +2,100 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/rakunlabs/query"
 )
 
 // ─── Tasks (Ticket System) ───
 
-// Task status constants.
+// Task status constants — the canonical vocabulary.
+//
+// Every value here is a distinct state. Three earlier constants were pure
+// synonyms that forced both models and humans to guess: `open` meant `todo`,
+// `review` meant `in_review`, and `completed` meant `done`. They are folded on
+// read by NormalizeTaskStatus and rewritten in the database by migration 46.
 const (
 	TaskStatusBacklog    = "backlog"
-	TaskStatusOpen       = "open"
 	TaskStatusTodo       = "todo"
 	TaskStatusInProgress = "in_progress"
 	TaskStatusInReview   = "in_review"
 	TaskStatusBlocked    = "blocked"
-	TaskStatusReview     = "review"
-	TaskStatusCompleted  = "completed"
 	TaskStatusDone       = "done"
 	TaskStatusCancelled  = "cancelled"
 )
+
+// TaskStatuses is the canonical vocabulary in board order. It is the single
+// source for the JSON-Schema enums the agent tools advertise, so a model can
+// never be offered a value the server would reject.
+var TaskStatuses = []string{
+	TaskStatusBacklog,
+	TaskStatusTodo,
+	TaskStatusInProgress,
+	TaskStatusInReview,
+	TaskStatusBlocked,
+	TaskStatusDone,
+	TaskStatusCancelled,
+}
+
+// legacyTaskStatuses maps retired synonyms onto their canonical value. Rows
+// written before migration 46, and any client still sending the old words,
+// keep working.
+var legacyTaskStatuses = map[string]string{
+	"open":      TaskStatusTodo,
+	"review":    TaskStatusInReview,
+	"completed": TaskStatusDone,
+}
+
+// terminalTaskStatuses is the one definition of "this task is finished". It
+// used to be spelled out independently in the wait tool, the workspace janitor
+// and the Telegram adapter.
+var terminalTaskStatuses = map[string]bool{
+	TaskStatusDone:      true,
+	TaskStatusCancelled: true,
+	TaskStatusBlocked:   true,
+}
+
+// NormalizeTaskStatus folds legacy synonyms and trims surrounding whitespace.
+// An unknown value is returned unchanged so the caller can reject it with a
+// message naming what was actually received.
+func NormalizeTaskStatus(status string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(status))
+	if canonical, ok := legacyTaskStatuses[trimmed]; ok {
+		return canonical
+	}
+	return trimmed
+}
+
+// ValidTaskStatus reports whether a status is canonical. Callers should
+// normalize first.
+func ValidTaskStatus(status string) bool {
+	return terminalTaskStatuses[status] ||
+		status == TaskStatusBacklog ||
+		status == TaskStatusTodo ||
+		status == TaskStatusInProgress ||
+		status == TaskStatusInReview
+}
+
+// ParseTaskStatus normalizes and validates in one step.
+func ParseTaskStatus(status string) (string, error) {
+	normalized := NormalizeTaskStatus(status)
+	if !ValidTaskStatus(normalized) {
+		return "", fmt.Errorf("%w: %q is not one of %s", ErrInvalidTaskStatus, status, strings.Join(TaskStatuses, ", "))
+	}
+	return normalized, nil
+}
+
+// IsTerminalTaskStatus reports whether a task has finished, successfully or
+// not. Legacy synonyms are folded first.
+func IsTerminalTaskStatus(status string) bool {
+	return terminalTaskStatuses[NormalizeTaskStatus(status)]
+}
+
+// ErrInvalidTaskStatus is returned for a status outside TaskStatuses.
+var ErrInvalidTaskStatus = errors.New("invalid task status")
 
 // Task priority constants.
 const (
@@ -32,6 +107,7 @@ const (
 
 // Task represents a unit of work (issue) assigned to an agent, linked to a goal.
 type Task struct {
+	WorkspaceID     string `json:"workspace_id"`
 	ID              string `json:"id"`
 	OrganizationID  string `json:"organization_id,omitempty"`
 	ProjectID       string `json:"project_id,omitempty"`
@@ -86,14 +162,15 @@ type TaskStorer interface {
 
 // IssueComment represents a threaded comment on a task/issue.
 type IssueComment struct {
-	ID         string `json:"id"`
-	TaskID     string `json:"task_id"`
-	AuthorType string `json:"author_type"`
-	AuthorID   string `json:"author_id"`
-	Body       string `json:"body"`
-	ParentID   string `json:"parent_id,omitempty"`
-	CreatedAt  string `json:"created_at"`
-	UpdatedAt  string `json:"updated_at"`
+	WorkspaceID string `json:"workspace_id"`
+	ID          string `json:"id"`
+	TaskID      string `json:"task_id"`
+	AuthorType  string `json:"author_type"`
+	AuthorID    string `json:"author_id"`
+	Body        string `json:"body"`
+	ParentID    string `json:"parent_id,omitempty"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // IssueCommentStorer defines operations for issue comments.
@@ -109,6 +186,7 @@ type IssueCommentStorer interface {
 
 // Label represents a per-organization label with a color, used to tag tasks.
 type Label struct {
+	WorkspaceID    string `json:"workspace_id"`
 	ID             string `json:"id"`
 	OrganizationID string `json:"organization_id,omitempty"`
 	Name           string `json:"name"`
@@ -133,10 +211,14 @@ type LabelStorer interface {
 // ─── Approvals ───
 
 // Approval type constants.
+//
+// `task_escalate` was declared here but never referenced by any producer or
+// consumer: no tool created one and no handler acted on one. A dead value in a
+// registry an LLM can read is worse than no value, because the model will
+// eventually try to use it.
 const (
 	ApprovalTypeHireAgent    = "hire_agent"
 	ApprovalTypeBudgetChange = "budget_change"
-	ApprovalTypeTaskEscalate = "task_escalate"
 )
 
 // Approval status constants.
@@ -150,6 +232,7 @@ const (
 
 // Approval represents a governance approval request.
 type Approval struct {
+	WorkspaceID     string         `json:"workspace_id"`
 	ID              string         `json:"id"`
 	OrganizationID  string         `json:"organization_id,omitempty"`
 	Type            string         `json:"type"`

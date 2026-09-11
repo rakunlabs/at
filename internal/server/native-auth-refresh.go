@@ -148,11 +148,20 @@ func (a *nativeAuth) refresh(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, pair.Identity, 200)
 }
 
+// The janitor only needs the durable credential/mobile stores, so it runs even
+// while the installation is unclaimed and independently of any policy version.
 func (s *Server) startAuthJanitor(ctx context.Context) {
-	if s.nativeAuth == nil {
+	if s.nativeAuth != nil {
+		go s.nativeAuth.runAuthJanitor(ctx)
 		return
 	}
-	go s.nativeAuth.runAuthJanitor(ctx)
+	credentials, ok := s.store.(service.AuthCredentialStorer)
+	if !ok {
+		return
+	}
+	a := &nativeAuth{credentials: credentials}
+	a.mobileStore, _ = s.store.(service.AuthMobileStorer)
+	go a.runAuthJanitor(ctx)
 }
 
 func (a *nativeAuth) runAuthJanitor(ctx context.Context) {

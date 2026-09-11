@@ -25,7 +25,6 @@ import (
 
 	mfolder "github.com/rakunlabs/ada/handler/folder"
 	mcors "github.com/rakunlabs/ada/middleware/cors"
-	mforwardauth "github.com/rakunlabs/ada/middleware/forwardauth"
 	mlog "github.com/rakunlabs/ada/middleware/log"
 	mrecover "github.com/rakunlabs/ada/middleware/recover"
 	mrequestid "github.com/rakunlabs/ada/middleware/requestid"
@@ -71,6 +70,12 @@ type ProviderFactory func(cfg config.LLMConfig) (service.LLMProvider, error)
 type Server struct {
 	config     config.Server
 	nativeAuth *nativeAuth
+
+	// authSettings owns the database-backed authentication policy and the
+	// immutable per-version coordinator each request runs under. It is the
+	// runtime replacement for the boot-time nativeAuth singleton: product
+	// auth knobs live in the database, not YAML.
+	authSettings *nativeAuthSettings
 
 	// ctx is the server-level context used for long-lived goroutines (bots, etc.).
 	ctx context.Context
@@ -301,7 +306,7 @@ type Server struct {
 }
 
 func (s *Server) getUserEmail(r *http.Request) string {
-	if s.nativeAuth != nil {
+	if s.authSettings != nil || s.nativeAuth != nil {
 		if id := identity.FromContext(r.Context()); id != nil {
 			return id.Subject
 		}
@@ -395,7 +400,17 @@ func loopgovConfigFromYAML(ws *config.Workspace) loopgov.Config {
 // loopgovConfigFromYAML — which lets operators point per-task workdirs
 // at a mounted data disk so the boot disk doesn't fill up.
 func New(ctx context.Context, cfg config.Server, providers map[string]ProviderInfo, store service.Storer, storeType string, factory ProviderFactory, cl *cluster.Cluster, version, commit, buildDate string) (*Server, error) {
+	// Boot-time catalog enumeration (schedulers, bots, migrations, janitors)
+	// runs under maintenance authority. It only permits discovery: every
+	// discovered subject still resolves its own live workspace binding.
+	ctx = service.WithExecutionMaintenance(ctx)
 	native, err := newNativeAuth(cfg, store)
+	if err != nil {
+		return nil, err
+	}
+	// Authentication policy is database-backed and enabled by default, so an
+	// unclaimed installation still gates management behind first-run setup.
+	runtimeAuth, err := newNativeAuthSettings(ctx, cfg, store)
 	if err != nil {
 		return nil, err
 	}
@@ -429,6 +444,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	s := &Server{
 		nativeAuth:               native,
+		authSettings:             runtimeAuth,
 		config:                   cfg,
 		ctx:                      ctx,
 		server:                   mux,
@@ -616,6 +632,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 		s.scheduler = workflow.NewScheduler(store, providerLookup, schedulerSkillLookup, schedulerVarLookup, schedulerVarLister, schedulerNodeConfigLookup, s.varSaveFunc(), s.dispatchBuiltinTool, builtinToolDefsForWorkflow(), s.chatMessageCreatorFunc(), s.chatSessionLookupFunc(), s.recordUsageFunc(), s.checkBudgetFunc(), s.recordObservationFunc(), s.goalAncestryFunc(), cl)
 		s.scheduler.SetRunRegistrar(s.registerRun)
+		// Cron runs execute under the trigger's persisted workspace principal,
+		// never an ambient installation-wide context.
+		s.scheduler.SetExecutionContext(s.runtimeSchedulerContext)
+		s.scheduler.SetScopedVarLister(s.runtimeVariableLister)
+		s.scheduler.SetScopedProviderLookup(s.runtimeProviderLookup)
 		s.scheduler.SetConnectionLookup(s.connectionLookupFunc())
 		s.scheduler.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
@@ -641,30 +662,23 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	}
 
 	baseGroup := mux.Group(cfg.BasePath)
-	mux.GET(cfg.BasePath+"/auth/status", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		status := map[string]any{"enabled": native != nil, "passkeys": native != nil && native.passkey != nil, "remember_me": native != nil, "passkey_login": "username-first"}
-		if native != nil && native.mobileStore != nil {
-			status["mobile_auth"] = native.mobileDescriptor()
-		}
-		httpResponseJSON(w, status, http.StatusOK)
-	})
-	if native != nil {
-		native.register(mux, cfg.BasePath)
-	}
+	// The runtime manager owns every /auth/* route, including status, first-run
+	// setup, policy settings, and the per-version native/external coordinators.
+	// Registering native auth again here would bypass that runtime dispatch.
+	runtimeAuth.register(mux, cfg.BasePath)
+	s.registerWorkspaceRoutes(mux, cfg.BasePath)
+	s.registerRuntimeRoutes(mux, cfg.BasePath)
 
 	// OpenAI-compatible gateway API (separate prefix so clients use /gateway/v1/ as base URL)
 	gatewayGroup := mux.Group(cfg.BasePath + "/gateway")
-	if native != nil {
-		gatewayGroup.Use(func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Native management cookies must never reach a provider's
-				// raw passthrough endpoint. Gateway credentials are separate.
-				r.Header.Del("Cookie")
-				next.ServeHTTP(w, r)
-			})
+	gatewayGroup.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Human session cookies must never reach a provider's raw
+			// passthrough endpoint. Gateway credentials are separate.
+			r.Header.Del("Cookie")
+			next.ServeHTTP(w, r)
 		})
-	}
+	})
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
 	gatewayGroup.GET("/v1/models", s.ListModels)
 	gatewayGroup.POST("/v1/embeddings", s.Embeddings)
@@ -698,28 +712,25 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.GET("/v1/claude-code/marketplaces/{name}/plugin.zip", s.ClaudeCodeMarketplacePluginZipAPI)
 	gatewayGroup.GET("/v1/claude-code/plugins/{name}/plugin.zip", s.ClaudeCodePluginZipAPI)
 
-	// Internal MCP endpoint: legacy mode has no auth; native mode requires admin.
-	// Serves tools from MCP Sets (skills/HTTP/builtins). Not under /gateway/
-	// so it's not exposed through any external reverse proxy.
+	// Internal MCP endpoint: installation administrators only. Serves tools
+	// from MCP Sets (skills/HTTP/builtins). Not under /gateway/ so it's not
+	// exposed through any external reverse proxy.
 	internalGroup := mux.Group(cfg.BasePath + "/internal")
-	if native != nil {
-		internalGroup.Use(native.require(true))
-	}
+	internalGroup.Use(runtimeAuth.require(true))
 	internalGroup.POST("/v1/mcp/{name}", s.InternalMCPHandler)
 	internalGroup.POST("/v1/mcp/{name}/mcp", s.InternalMCPHandler)
 
 	// ////////////////////////////////////////////
+	// Human identity is always native now, so forward auth is no longer an
+	// admission path. Configure an identity provider in Settings instead.
 	if cfg.ForwardAuth != nil {
-		slog.Info("forward auth enabled", "url", cfg.ForwardAuth.Address)
-		baseGroup.Use(mforwardauth.Middleware(mforwardauth.WithConfig(*cfg.ForwardAuth)))
-	} else {
-		slog.Info("forward auth disabled (no forward_auth config)")
+		slog.Warn("forward_auth is ignored: human authentication is managed in Settings")
 	}
 
 	apiGroup := baseGroup.Group("/api")
-	if native != nil {
-		apiGroup.Use(native.require(true))
-	}
+	// Workspace-classified business routes admit scoped members; every other
+	// management route stays installation-only until its whole path is scoped.
+	apiGroup.Use(runtimeAuth.withRuntime, s.workspaceBusinessAuthentication())
 	apiGroup.Use(s.featureGateMiddleware())
 
 	// Gateway info API
@@ -1028,6 +1039,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/marketplace/import", s.MarketplaceImportAPI)
 
 	// User preferences management
+	// Kanban board layout (per workspace, governed by the task capabilities)
+	apiGroup.GET("/v1/task-board", s.GetTaskBoardAPI)
+	apiGroup.PUT("/v1/task-board", s.SaveTaskBoardAPI)
+	apiGroup.DELETE("/v1/task-board", s.ResetTaskBoardAPI)
+
 	apiGroup.GET("/v1/user-preferences", s.ListUserPreferencesAPI)
 	apiGroup.GET("/v1/user-preferences/{user_id}/{key}", s.GetUserPreferenceAPI)
 	apiGroup.PUT("/v1/user-preferences", s.SetUserPreferenceAPI)
@@ -1089,16 +1105,25 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Admin chat completions (used by workflow editor AI panel)
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 
-	apiGroup.GET("/v1/conversations/models", s.PersonalChatModelsAPI)
-	apiGroup.GET("/v1/conversations", s.PersonalChatAPI)
-	apiGroup.POST("/v1/conversations", s.PersonalChatAPI)
-	apiGroup.GET("/v1/conversations/{id}", s.PersonalChatAPI)
-	apiGroup.PATCH("/v1/conversations/{id}", s.PersonalChatAPI)
-	apiGroup.DELETE("/v1/conversations/{id}", s.PersonalChatAPI)
-	apiGroup.GET("/v1/conversations/{id}/messages", s.PersonalChatAPI)
-	apiGroup.POST("/v1/conversations/{id}/messages", s.SendPersonalChatAPI)
-	apiGroup.GET("/v1/conversations/{id}/messages/{message_id}", s.PersonalChatAPI)
-	apiGroup.POST("/v1/conversations/{id}/messages/{message_id}/cancel", s.PersonalChatAPI)
+	// Playground history (per-user private transcripts of the Chat playground).
+	apiGroup.GET("/v1/playground/conversations", s.PlaygroundConversationsAPI)
+	apiGroup.POST("/v1/playground/conversations", s.PlaygroundConversationsAPI)
+	apiGroup.GET("/v1/playground/conversations/{id}", s.PlaygroundConversationAPI)
+	apiGroup.PATCH("/v1/playground/conversations/{id}", s.PlaygroundConversationAPI)
+	apiGroup.DELETE("/v1/playground/conversations/{id}", s.PlaygroundConversationAPI)
+	apiGroup.POST("/v1/playground/conversations/{id}/fork", s.PlaygroundForkAPI)
+	apiGroup.GET("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+	apiGroup.POST("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+	apiGroup.DELETE("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+
+	// Configurable media storage: administrator settings plus per-user,
+	// owner-scoped image objects (Playground attachments).
+	apiGroup.GET("/v1/media/settings", s.MediaSettingsAPI)
+	apiGroup.PUT("/v1/media/settings", s.MediaSettingsAPI)
+	apiGroup.POST("/v1/media/settings/test", s.MediaSettingsTestAPI)
+	apiGroup.POST("/v1/media", s.MediaUploadAPI)
+	apiGroup.GET("/v1/media/{id}", s.MediaObjectAPI)
+	apiGroup.DELETE("/v1/media/{id}", s.MediaObjectAPI)
 
 	// MCP proxy endpoints (used by Chat UI for tool-calling loop)
 	apiGroup.POST("/v1/mcp/list-tools", s.MCPListToolsAPI)
@@ -1113,11 +1138,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/runs", s.ListActiveRunsAPI)
 	apiGroup.POST("/v1/runs/{id}/cancel", s.CancelRunAPI)
 
-	// File browser
-	apiGroup.GET("/v1/files/browse", s.FileBrowseAPI)
-	apiGroup.GET("/v1/files/serve", s.FileServeAPI)
-	apiGroup.POST("/v1/files/upload", s.FileUploadAPI)
-	apiGroup.DELETE("/v1/files", s.FileDeleteAPI)
+	// File browser and execution-policy routes are registered by
+	// registerRuntimeRoutes so they run under scoped execution authority.
 
 	// Audio transcription
 	apiGroup.POST("/v1/audio/transcribe", s.TranscribeAudioAPI)
@@ -1153,10 +1175,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	folderM.SetFs(http.FS(f))
 
-	var spa http.Handler = folderM
-	if native != nil {
-		spa = nativeSPAFrameProtection(spa)
-	}
+	spa := nativeSPAFrameProtection(http.Handler(folderM))
 	baseGroup.Handle("/*", spa)
 
 	// Start bot adapters from DB config (managed via the UI).
@@ -1273,6 +1292,9 @@ func (s *Server) removeProvider(key string) {
 // If no admin_token is configured, all admin requests are rejected with 403.
 // If configured, requests must provide a matching Authorization: Bearer <token> header.
 func (s *Server) adminAuthMiddleware() func(http.Handler) http.Handler {
+	if s.authSettings != nil {
+		return s.authSettings.require(true)
+	}
 	if s.nativeAuth != nil {
 		return s.nativeAuth.require(true)
 	}

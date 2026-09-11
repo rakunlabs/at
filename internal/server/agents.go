@@ -148,6 +148,9 @@ func (s *Server) CreateAgentAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.agentStore.CreateAgent(r.Context(), req)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("create agent failed", "name", req.Name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create agent: %v", err), http.StatusInternalServerError)
 		return
@@ -196,6 +199,9 @@ func (s *Server) UpdateAgentAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.agentStore.UpdateAgent(r.Context(), id, req)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("update agent failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update agent: %v", err), http.StatusInternalServerError)
 		return

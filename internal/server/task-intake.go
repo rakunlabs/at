@@ -116,7 +116,7 @@ func (s *Server) IntakeTaskAPI(w http.ResponseWriter, r *http.Request) {
 		Description:     req.Description,
 		GoalID:          req.GoalID,
 		PriorityLevel:   req.PriorityLevel,
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 		Identifier:      identifier,
 		RequestDepth:    0,
 		MaxIterations:   req.MaxIterations,

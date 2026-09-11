@@ -40,6 +40,20 @@
 
 @variant dark (&:where(.dark, .dark *));
 
+@layer components {
+  .settings-page { @apply mx-auto w-full max-w-4xl p-5 sm:p-8 space-y-8; }
+  .settings-form { @apply text-sm; }
+  .settings-form label { @apply block font-medium; }
+  .settings-form input:not([type=checkbox]), .settings-form select, .settings-form textarea { @apply block mt-2 w-full rounded-md border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-3 py-2.5 text-sm font-normal; }
+  .settings-form input[type=checkbox] { @apply mr-2 accent-accent; }
+  .settings-form :is(input,select,textarea,button,a):focus-visible { @apply outline-2 outline-offset-2 outline-accent; }
+  .settings-primary { @apply rounded-md bg-gray-900 text-white dark:bg-accent dark:text-gray-950 px-4 py-2.5 font-medium hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed; }
+  .settings-button { @apply rounded-md border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 disabled:cursor-not-allowed; }
+  .settings-note { @apply text-sm font-normal leading-6 text-gray-600 dark:text-dark-text-secondary; }
+  .settings-error { @apply text-sm leading-6 text-red-700 dark:text-red-300; }
+  .settings-section { @apply border-t border-gray-200 dark:border-dark-border pt-6 space-y-4; }
+}
+
 html,
 body {
   @apply h-full w-full bg-gray-50 dark:bg-dark-base text-gray-900 dark:text-dark-text;

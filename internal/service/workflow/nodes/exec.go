@@ -161,11 +161,16 @@ func (n *execNode) Validate(_ context.Context, _ *workflow.Registry) error {
 }
 
 func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
-	// Resolve the sandbox root to an absolute path.
-	sandboxAbs, err := filepath.Abs(n.sandboxRoot)
-	if err != nil {
-		return nil, fmt.Errorf("exec: resolve sandbox root: %w", err)
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "node", Name: "exec"}); err != nil {
+		return nil, err
 	}
+	// Runtime scope selects the root. The historical sandbox_root field is a
+	// working-directory hint, not authority to select a tenant or host root.
+	provenance, base, _ := service.ExecutionFromContext(ctx)
+	if !filepath.IsLocal(provenance.RunID) {
+		return nil, service.ErrExecutionDenied
+	}
+	sandboxAbs := filepath.Join(base, "runs", provenance.RunID)
 
 	// Ensure the sandbox directory exists.
 	if err := os.MkdirAll(sandboxAbs, 0o755); err != nil {
@@ -246,6 +251,10 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 		"UV_SYSTEM_PYTHON=1",
 		"PIP_BREAK_SYSTEM_PACKAGES=1",
 	}
+	assets, err := service.ExecutionAssetsDir(ctx)
+	if err != nil {
+		return nil, err
+	}
 	for k, v := range n.env {
 		cmdEnv = append(cmdEnv, k+"="+v)
 	}
@@ -268,7 +277,7 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 		cmdEnv = append(cmdEnv, "AT_NODE_INPUT="+string(inputJSON))
 	}
 
-	cmd.Env = cmdEnv
+	cmd.Env = append(cmdEnv, "AT_ASSETS_DIR="+assets, "AT_WORK_DIR="+workDirAbs)
 
 	// Capture stdout and stderr.
 	var stdout, stderr bytes.Buffer
@@ -276,7 +285,7 @@ func (n *execNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[s
 	cmd.Stderr = &stderr
 
 	// Execute.
-	runErr := cmd.Run()
+	runErr := workflow.RunExecutionProcess(execCtx, cmd)
 
 	exitCode := 0
 	if runErr != nil {

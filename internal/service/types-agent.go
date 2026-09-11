@@ -136,13 +136,14 @@ type AgentConfig struct {
 // Agent represents a reusable agent configuration that can be referenced
 // by agent_call nodes in workflows.
 type Agent struct {
-	ID        string      `json:"id"`
-	Name      string      `json:"name"`
-	Config    AgentConfig `json:"config"`
-	CreatedAt string      `json:"created_at"`
-	UpdatedAt string      `json:"updated_at"`
-	CreatedBy string      `json:"created_by"`
-	UpdatedBy string      `json:"updated_by"`
+	ID          string      `json:"id"`
+	WorkspaceID string      `json:"workspace_id"`
+	Name        string      `json:"name"`
+	Config      AgentConfig `json:"config"`
+	CreatedAt   string      `json:"created_at"`
+	UpdatedAt   string      `json:"updated_at"`
+	CreatedBy   string      `json:"created_by"`
+	UpdatedBy   string      `json:"updated_by"`
 }
 
 // AgentStorer defines CRUD operations for agents.

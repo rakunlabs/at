@@ -1,7 +1,8 @@
 import type { AuthIdentity } from '@/lib/api/auth';
 
 // App adopts verified /me and refresh identities in memory; legacy auth never grants access.
-export const storeAuth = $state<{ identity: AuthIdentity | null; passkeys: boolean }>({ identity: null, passkeys: false });
+export const storeAuth = $state<{ identity: AuthIdentity | null; passkeys: boolean; localLogin: boolean; title: string; securityHold: boolean }>({ identity: null, passkeys: false, localLogin: true, title: 'AT', securityHold: false });
+export const securityCodes = $state<{ values: string[] }>({ values: [] });
 
 export function isNativeAdmin(): boolean {
   return storeAuth.identity?.roles?.includes('admin') === true;

@@ -41,12 +41,11 @@ func TestNativeSPAFrameProtectionProduction(t *testing.T) {
 				if w.Code != 200 && w.Code != 301 && w.Code != 302 {
 					t.Fatalf("SPA %s: %d", base+path, w.Code)
 				}
-				if enabled {
-					if w.Header().Get("X-Frame-Options") != "DENY" || !slices.Contains(w.Header().Values("Content-Security-Policy"), "frame-ancestors 'none'") {
-						t.Fatal("unprotected SPA", base+path, w.Header())
-					}
-				} else if w.Header().Get("X-Frame-Options") != "" || w.Header().Get("Content-Security-Policy") != "" {
-					t.Fatal("changed legacy headers", base+path)
+				// Human auth is always native now, so the SPA is framed-protected
+				// regardless of the obsolete native_auth.enabled config flag.
+				_ = enabled
+				if w.Header().Get("X-Frame-Options") != "DENY" || !slices.Contains(w.Header().Values("Content-Security-Policy"), "frame-ancestors 'none'") {
+					t.Fatal("unprotected SPA", base+path, w.Header())
 				}
 			}
 			w := nativeRequest(s.server, "GET", base+"/gateway/v1/health", "", "", nil)

@@ -15,6 +15,8 @@ import (
 	"github.com/dop251/goja"
 	"github.com/rakunlabs/logi"
 	"golang.org/x/sync/semaphore"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // ExecuteJSHandler runs a JS function body with the tool arguments as input.
@@ -27,19 +29,34 @@ import (
 //
 // JSHandlerOptions holds optional lookups for JS handler execution.
 type JSHandlerOptions struct {
+	Context        context.Context
 	VarLookup      VarLookup
 	UserPrefLookup UserPrefLookup
 }
 
 func ExecuteJSHandler(handler string, args map[string]any, varLookup ...VarLookup) (string, error) {
+	return ExecuteJSHandlerContext(context.Background(), handler, args, varLookup...)
+}
+
+func ExecuteJSHandlerContext(ctx context.Context, handler string, args map[string]any, varLookup ...VarLookup) (string, error) {
 	return ExecuteJSHandlerWithOptions(handler, args, JSHandlerOptions{
+		Context:   ctx,
 		VarLookup: firstVarLookup(varLookup),
 	})
 }
 
 // ExecuteJSHandlerWithOptions is like ExecuteJSHandler but accepts all optional lookups.
 func ExecuteJSHandlerWithOptions(handler string, args map[string]any, opts JSHandlerOptions) (string, error) {
+	ctx := opts.Context
+	if ctx == nil {
+		return "", service.ErrExecutionDenied
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "handler", Name: "javascript"}); err != nil {
+		return "", err
+	}
 	vm := goja.New()
+	stop := context.AfterFunc(ctx, func() { vm.Interrupt(ctx.Err()) })
+	defer stop()
 
 	// Register all shared helpers (toString, jsonParse, btoa, atob,
 	// JSON_stringify, httpGet, httpPost, httpPut, httpDelete, getVar, getUserPref).
@@ -164,6 +181,9 @@ func WorkDirFromContext(ctx context.Context) string {
 // The timeout parameter controls execution duration; zero means the default 60s.
 // The command's stdout is returned as the tool result.
 func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any, varLister VarLister, timeout time.Duration) (string, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "handler", Name: "bash"}); err != nil {
+		return "", err
+	}
 	if timeout <= 0 {
 		timeout = defaultBashTimeout
 	}
@@ -172,6 +192,8 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "bash", "-c", handler)
+	_, base, _ := service.ExecutionFromContext(ctx)
+	cmd.Dir = base
 
 	// Start with the parent process environment so that PATH, HOME,
 	// SSH_AUTH_SOCK, git config, etc. are available to the subprocess.
@@ -206,7 +228,7 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	if varLister != nil {
 		vars, err := varLister()
 		if err != nil {
-			logi.Ctx(ctx).Warn("bash handler: failed to list variables", "error", err)
+			return "", fmt.Errorf("bash handler: list authorized variables: %w", err)
 		} else {
 			for k, v := range vars {
 				envKey := "VAR_" + strings.ToUpper(
@@ -242,7 +264,11 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 	// Inject the persistent asset library root (avatar images, cloned-voice
 	// manifests, …). Unlike AT_WORK_DIR this survives task completion and
 	// the workspace janitor.
-	env = append(env, "AT_ASSETS_DIR="+EnsureAssetsDir())
+	assets, err := service.ExecutionAssetsDir(ctx)
+	if err != nil {
+		return "", err
+	}
+	env = append(env, "AT_ASSETS_DIR="+assets)
 
 	cmd.Env = env
 
@@ -277,26 +303,7 @@ func ExecuteBashHandler(ctx context.Context, handler string, args map[string]any
 		}
 	}
 
-	if err := cmd.Start(); err != nil {
-		return "", fmt.Errorf("bash handler: failed to start: %w", err)
-	}
-
-	// Watch ctx and SIGKILL the entire process group on cancel /
-	// timeout. We use SIGKILL (not SIGTERM) on purpose: ffmpeg ignores
-	// SIGTERM mid-encode in some configurations, and the user-visible
-	// promise is "Stop means stop". The done channel keeps the watcher
-	// from leaking after the command exits normally.
-	watcherDone := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			killProcessGroup(cmd)
-		case <-watcherDone:
-		}
-	}()
-
-	waitErr := cmd.Wait()
-	close(watcherDone)
+	waitErr := RunExecutionProcess(ctx, cmd)
 
 	if waitErr != nil {
 		stderrStr := strings.TrimSpace(stderr.String())

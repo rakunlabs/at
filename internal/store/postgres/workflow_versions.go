@@ -17,6 +17,7 @@ import (
 // ─── Workflow Version CRUD ───
 
 type workflowVersionRow struct {
+	WorkspaceID string        `db:"workspace_id"`
 	ID          string        `db:"id"`
 	WorkflowID  string        `db:"workflow_id"`
 	Version     int           `db:"version"`
@@ -28,9 +29,13 @@ type workflowVersionRow struct {
 }
 
 func (p *Postgres) ListWorkflowVersions(ctx context.Context, workflowID string) ([]service.WorkflowVersion, error) {
+	scope, err := p.businessReadScope(ctx, p.tableWorkflowVersions)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableWorkflowVersions).
-		Select("id", "workflow_id", "version", "name", "description", "graph", "created_at", "created_by").
-		Where(goqu.I("workflow_id").Eq(workflowID)).
+		Select("id", "workflow_id", "version", "name", "description", "graph", "created_at", "created_by", "workspace_id").
+		Where(scope, goqu.I("workflow_id").Eq(workflowID)).
 		Order(goqu.I("version").Desc()).
 		ToSQL()
 	if err != nil {
@@ -46,7 +51,7 @@ func (p *Postgres) ListWorkflowVersions(ctx context.Context, workflowID string) 
 	var result []service.WorkflowVersion
 	for rows.Next() {
 		var row workflowVersionRow
-		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Version, &row.Name, &row.Description, &row.Graph, &row.CreatedAt, &row.CreatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.WorkflowID, &row.Version, &row.Name, &row.Description, &row.Graph, &row.CreatedAt, &row.CreatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan workflow version row: %w", err)
 		}
 
@@ -61,9 +66,14 @@ func (p *Postgres) ListWorkflowVersions(ctx context.Context, workflowID string) 
 }
 
 func (p *Postgres) GetWorkflowVersion(ctx context.Context, workflowID string, version int) (*service.WorkflowVersion, error) {
+	scope, err := p.businessReadScope(ctx, p.tableWorkflowVersions)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableWorkflowVersions).
-		Select("id", "workflow_id", "version", "name", "description", "graph", "created_at", "created_by").
+		Select("id", "workflow_id", "version", "name", "description", "graph", "created_at", "created_by", "workspace_id").
 		Where(
+			scope,
 			goqu.I("workflow_id").Eq(workflowID),
 			goqu.I("version").Eq(version),
 		).
@@ -73,7 +83,7 @@ func (p *Postgres) GetWorkflowVersion(ctx context.Context, workflowID string, ve
 	}
 
 	var row workflowVersionRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Version, &row.Name, &row.Description, &row.Graph, &row.CreatedAt, &row.CreatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.WorkflowID, &row.Version, &row.Name, &row.Description, &row.Graph, &row.CreatedAt, &row.CreatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -85,6 +95,23 @@ func (p *Postgres) GetWorkflowVersion(ctx context.Context, workflowID string, ve
 }
 
 func (p *Postgres) CreateWorkflowVersion(ctx context.Context, v service.WorkflowVersion) (*service.WorkflowVersion, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableWorkflows, "workflows.write", v.WorkflowID)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if v.WorkspaceID != "" && v.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if v.WorkflowID == "" {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	if err = p.businessReference(ctx, w, p.tableWorkflows, "id", v.WorkflowID); err != nil {
+		return nil, err
+	}
+	if err = p.workflowReferences(ctx, w, v.Graph); err != nil {
+		return nil, err
+	}
 	graphJSON, err := json.Marshal(v.Graph)
 	if err != nil {
 		return nil, fmt.Errorf("marshal workflow version graph: %w", err)
@@ -96,39 +123,44 @@ func (p *Postgres) CreateWorkflowVersion(ctx context.Context, v service.Workflow
 	// Compute next version number: MAX(version) + 1 for this workflow.
 	maxQuery, _, err := p.goqu.From(p.tableWorkflowVersions).
 		Select(goqu.COALESCE(goqu.MAX("version"), 0)).
-		Where(goqu.I("workflow_id").Eq(v.WorkflowID)).
+		Where(w.predicate, goqu.I("workflow_id").Eq(v.WorkflowID)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build max version query: %w", err)
 	}
 
 	var maxVersion int
-	if err := p.db.QueryRowContext(ctx, maxQuery).Scan(&maxVersion); err != nil {
+	if err := w.tx.QueryRowContext(ctx, maxQuery).Scan(&maxVersion); err != nil {
 		return nil, fmt.Errorf("get max version for workflow %q: %w", v.WorkflowID, err)
 	}
 	nextVersion := maxVersion + 1
 
 	query, _, err := p.goqu.Insert(p.tableWorkflowVersions).Rows(
 		goqu.Record{
-			"id":          id,
-			"workflow_id": v.WorkflowID,
-			"version":     nextVersion,
-			"name":        v.Name,
-			"description": v.Description,
-			"graph":       types.RawJSON(graphJSON),
-			"created_at":  now,
-			"created_by":  v.CreatedBy,
+			"workspace_id": w.actor.WorkspaceID,
+			"id":           id,
+			"workflow_id":  v.WorkflowID,
+			"version":      nextVersion,
+			"name":         v.Name,
+			"description":  v.Description,
+			"graph":        types.RawJSON(graphJSON),
+			"created_at":   now,
+			"created_by":   v.CreatedBy,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert workflow version query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create workflow version for %q: %w", v.WorkflowID, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit workflow version: %w", err)
 	}
 
 	return &service.WorkflowVersion{
+		WorkspaceID: w.actor.WorkspaceID,
 		ID:          id,
 		WorkflowID:  v.WorkflowID,
 		Version:     nextVersion,
@@ -141,17 +173,30 @@ func (p *Postgres) CreateWorkflowVersion(ctx context.Context, v service.Workflow
 }
 
 func (p *Postgres) SetActiveVersion(ctx context.Context, workflowID string, version int) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableWorkflows, "workflows.write", workflowID)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
+	var versionID string
+	found, err := w.tx.From(p.tableWorkflowVersions).Select("id").Where(w.predicate, goqu.Ex{"workflow_id": workflowID, "version": version}).ForKeyShare(goqu.Wait).ScanValContext(ctx, &versionID)
+	if err != nil {
+		return fmt.Errorf("validate active workflow version: %w", err)
+	}
+	if !found {
+		return service.ErrAccessResourceNotFound
+	}
 	query, _, err := p.goqu.Update(p.tableWorkflows).Set(
 		goqu.Record{
 			"active_version": version,
 			"updated_at":     time.Now().UTC(),
 		},
-	).Where(goqu.I("id").Eq(workflowID)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(workflowID)).ToSQL()
 	if err != nil {
 		return fmt.Errorf("build set active version query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("set active version for workflow %q: %w", workflowID, err)
 	}
@@ -164,7 +209,7 @@ func (p *Postgres) SetActiveVersion(ctx context.Context, workflowID string, vers
 		return fmt.Errorf("workflow %q not found", workflowID)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 // workflowVersionRowToRecord converts a database row to a WorkflowVersion.
@@ -175,6 +220,7 @@ func workflowVersionRowToRecord(row workflowVersionRow) (*service.WorkflowVersio
 	}
 
 	return &service.WorkflowVersion{
+		WorkspaceID: row.WorkspaceID,
 		ID:          row.ID,
 		WorkflowID:  row.WorkflowID,
 		Version:     row.Version,

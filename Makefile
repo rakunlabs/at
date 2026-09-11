@@ -1,5 +1,7 @@
 PROJECT    := at
-MAIN_FILE := cmd/$(PROJECT)/main.go
+# Package path, not a single file: `go run pkg/main.go` compiles only that one
+# file and misses its siblings (for example the auth recovery command).
+MAIN_PKG := ./cmd/$(PROJECT)
 
 LOCAL_BIN_DIR := $(PWD)/bin
 
@@ -11,7 +13,7 @@ VERSION := $(or $(IMAGE_TAG),$(shell git describe --tags --first-parent --match 
 
 .PHONY: run
 run: ## Run the at command-line tool
-	@go run $(MAIN_FILE)
+	@go run $(MAIN_PKG)
 
 .PHONY: run-ui
 run-ui: ## Run the UI in development mode

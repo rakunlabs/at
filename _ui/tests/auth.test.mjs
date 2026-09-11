@@ -102,11 +102,15 @@ test('mutations encode IDs, send exact bodies and accept empty 204 responses', a
 });
 
 test('policy counts Unicode characters and UTF-8 bytes without trimming passwords', () => {
-  assert.ok(api.passwordPolicyError('a'.repeat(14)));
-  assert.equal(api.passwordPolicyError('a'.repeat(15)), '');
+  assert.match(api.passwordPolicyError('a'.repeat(7)), /at least 8 characters/);
+  assert.equal(api.passwordPolicyError('a'.repeat(8)), '');
   assert.equal(api.passwordPolicyError('a'.repeat(1024)), '');
-  assert.ok(api.passwordPolicyError('a'.repeat(1025)));
-  assert.ok(api.passwordPolicyError('😀'.repeat(14)));
+  // Only an actual overrun mentions the byte ceiling.
+  assert.match(api.passwordPolicyError('a'.repeat(1025)), /at most 1024 UTF-8 bytes/);
+  // One emoji is one character but four UTF-8 bytes: the floor counts
+  // characters while the ceiling counts bytes.
+  assert.ok(api.passwordPolicyError('😀'.repeat(7)));
+  assert.equal(api.passwordPolicyError('😀'.repeat(8)), '');
   assert.equal(api.passwordPolicyError('😀'.repeat(256)), '');
   assert.ok(api.passwordPolicyError('😀'.repeat(257)));
 });
@@ -134,7 +138,7 @@ test('public status strictly opts into passkeys and rejects invalid native mode'
   for (const enabled of [false, true]) {
     for (const passkeys of [undefined, null, false, true, 'true', 1]) {
       response = { enabled, passkeys, remember_me: true, passkey_login: 'username-first' };
-      assert.deepEqual(await api.getAuthStatus(), { enabled, passkeys: enabled && passkeys === true });
+      assert.deepEqual(await api.getAuthStatus(), { ...response, passkeys: enabled && passkeys === true });
     }
   }
   for (response of [undefined, null, {}, { enabled: 'true' }, { enabled: 1 }]) await assert.rejects(api.getAuthStatus());
@@ -160,6 +164,15 @@ test('password and username-first passkey login send explicit remember choices o
     ['post', 'passkeys/login/begin', { username: 'operator', remember_me: true }, { signal }],
     ['post', 'passkeys/login/finish', raw, { signal }],
   ]);
+});
+
+test('durable setup status is preserved and MFA is never coerced to an identity', async () => {
+  response = { enabled: true, passkeys: true, setup_required: true, local_login: false, display_title: 'Team AT' };
+  assert.deepEqual(await api.getAuthStatus(), response);
+  response = { mfa_required: true, challenge: 'opaque', expires_in: 300, methods: ['totp', 'backup_code'] };
+  assert.deepEqual(await api.loginWithPassword('user', 'a long password'), response);
+  assert.deepEqual(await api.finishPasskeyLogin({}, new AbortController().signal), response);
+  assert.equal((await api.loginWithPassword('user', 'a long password')).subject, undefined);
 });
 
 test('own passkeys preserve metadata, raw enrollment, encoded record ID and empty 204s', async () => {

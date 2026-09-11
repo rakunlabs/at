@@ -11,13 +11,14 @@ import (
 
 // ProviderRecord represents a provider configuration stored in the database.
 type ProviderRecord struct {
-	ID        string           `json:"id"`
-	Key       string           `json:"key"`
-	Config    config.LLMConfig `json:"config"`
-	CreatedAt string           `json:"created_at"`
-	UpdatedAt string           `json:"updated_at"`
-	CreatedBy string           `json:"created_by"`
-	UpdatedBy string           `json:"updated_by"`
+	WorkspaceID string           `json:"workspace_id"`
+	ID          string           `json:"id"`
+	Key         string           `json:"key"`
+	Config      config.LLMConfig `json:"config"`
+	CreatedAt   string           `json:"created_at"`
+	UpdatedAt   string           `json:"updated_at"`
+	CreatedBy   string           `json:"created_by"`
+	UpdatedBy   string           `json:"updated_by"`
 }
 
 // ProviderStorer defines CRUD operations for provider configurations
@@ -28,6 +29,21 @@ type ProviderStorer interface {
 	CreateProvider(ctx context.Context, record ProviderRecord) (*ProviderRecord, error)
 	UpdateProvider(ctx context.Context, key string, record ProviderRecord) (*ProviderRecord, error)
 	DeleteProvider(ctx context.Context, key string) error
+}
+
+type WorkspaceProviderGrant struct {
+	WorkspaceID   string   `json:"workspace_id" db:"workspace_id"`
+	ProviderID    string   `json:"provider_id" db:"provider_id"`
+	ModelPatterns []string `json:"model_patterns"`
+}
+
+// ResolveWorkspaceProviderForUse is internal credential resolution for one model
+// admission, never a credential DTO endpoint. Every call rechecks live grants.
+type WorkspaceProviderStorer interface {
+	ResolveWorkspaceProviderForUse(context.Context, string, string) (*ProviderRecord, error)
+	ListWorkspaceProviderGrants(context.Context) ([]WorkspaceProviderGrant, error)
+	SaveWorkspaceProviderGrant(context.Context, WorkspaceProviderGrant) error
+	DeleteWorkspaceProviderGrant(context.Context, string) error
 }
 
 // KeyRotator is optionally implemented by stores that support encryption

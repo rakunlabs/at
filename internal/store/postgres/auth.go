@@ -202,6 +202,11 @@ func (p *Postgres) insertAuthSession(ctx context.Context, tx *goqu.TxDatabase, s
 			return err
 		}
 	}
+	// External provenance commits with the family so a disabled provider or a
+	// removed link cannot leave an orphaned externally authenticated session.
+	if err := p.recordAuthExternalSession(ctx, tx, s); err != nil {
+		return err
+	}
 	if err := checkAuthAdmissionDeadline(ctx, tx, s.ExpiresAt); err != nil {
 		return err
 	}

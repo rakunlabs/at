@@ -21,7 +21,7 @@ export async function browseFiles(path: string): Promise<BrowseResult> {
   return res.data;
 }
 
-/** URL for streaming/preview of a server-side file (Range supported). */
+/** Native media URL; workspace-media.js adds this tab's header and preserves Range. */
 export function fileServeUrl(path: string, cacheKey?: string): string {
   const bust = cacheKey ? `&v=${encodeURIComponent(cacheKey)}` : '';
   return `api/v1/files/serve?path=${encodeURIComponent(path)}${bust}`;

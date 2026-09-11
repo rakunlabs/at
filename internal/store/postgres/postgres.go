@@ -86,8 +86,11 @@ type Postgres struct {
 	tableAuthBootstrap        exp.IdentifierExpression
 	tableAuthPasskeys         exp.IdentifierExpression
 	tableAuthChallenges       exp.IdentifierExpression
-	tableConversations        exp.IdentifierExpression
-	tablePersonalMessages     exp.IdentifierExpression
+	tablePlaygroundChats      exp.IdentifierExpression
+	tablePlaygroundMessages   exp.IdentifierExpression
+	tableMediaSettings        exp.IdentifierExpression
+	tableTaskBoard            exp.IdentifierExpression
+	tableMediaObjects         exp.IdentifierExpression
 
 	// encKey is the AES-256 key used to encrypt/decrypt sensitive provider
 	// fields. nil means encryption is disabled. Protected by encKeyMu.
@@ -192,8 +195,11 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableAuthBootstrap:        goqu.T(tablePrefix + "auth_bootstrap"),
 		tableAuthPasskeys:         goqu.T(tablePrefix + "auth_passkeys"),
 		tableAuthChallenges:       goqu.T(tablePrefix + "auth_challenges"),
-		tableConversations:        goqu.T(tablePrefix + "personal_conversations"),
-		tablePersonalMessages:     goqu.T(tablePrefix + "personal_messages"),
+		tablePlaygroundChats:      goqu.T(tablePrefix + "playground_conversations"),
+		tablePlaygroundMessages:   goqu.T(tablePrefix + "playground_messages"),
+		tableMediaSettings:        goqu.T(tablePrefix + "media_settings"),
+		tableTaskBoard:            goqu.T(tablePrefix + "task_board_settings"),
+		tableMediaObjects:         goqu.T(tablePrefix + "media_objects"),
 		tableProviders:            goqu.T(tablePrefix + "providers"),
 		tableAPITokens:            goqu.T(tablePrefix + "tokens"),
 		tableWorkflows:            goqu.T(tablePrefix + "workflows"),
@@ -252,17 +258,22 @@ func (p *Postgres) Close() {
 // ─── Provider CRUD ───
 
 type providerRow struct {
-	ID        string        `db:"id" goqu:"skipupdate"`
-	Key       string        `db:"key"`
-	Config    types.RawJSON `db:"config"`
-	CreatedAt time.Time     `db:"created_at" goqu:"skipupdate"`
-	UpdatedAt time.Time     `db:"updated_at"`
-	CreatedBy string        `db:"created_by" goqu:"skipupdate"`
-	UpdatedBy string        `db:"updated_by"`
+	WorkspaceID string        `db:"workspace_id" goqu:"skipupdate"`
+	ID          string        `db:"id" goqu:"skipupdate"`
+	Key         string        `db:"key"`
+	Config      types.RawJSON `db:"config"`
+	CreatedAt   time.Time     `db:"created_at" goqu:"skipupdate"`
+	UpdatedAt   time.Time     `db:"updated_at"`
+	CreatedBy   string        `db:"created_by" goqu:"skipupdate"`
+	UpdatedBy   string        `db:"updated_by"`
 }
 
 func (p *Postgres) ListProviders(ctx context.Context, q *query.Query) (*service.ListResult[service.ProviderRecord], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableProviders, q, "id", "key", "config", "created_at", "updated_at", "created_by", "updated_by")
+	actor, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sql, total, err := p.buildListQuery(ctx, p.tableProviders, q, "id", "key", "config", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list query: %w", err)
 	}
@@ -280,7 +291,7 @@ func (p *Postgres) ListProviders(ctx context.Context, q *query.Query) (*service.
 	var items []service.ProviderRecord
 	for rows.Next() {
 		var row providerRow
-		if err := rows.Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan provider row: %w", err)
 		}
 
@@ -288,6 +299,7 @@ func (p *Postgres) ListProviders(ctx context.Context, q *query.Query) (*service.
 		if err != nil {
 			return nil, err
 		}
+		providerReadDTO(actor, rec)
 		items = append(items, *rec)
 	}
 
@@ -304,16 +316,20 @@ func (p *Postgres) ListProviders(ctx context.Context, q *query.Query) (*service.
 }
 
 func (p *Postgres) GetProvider(ctx context.Context, key string) (*service.ProviderRecord, error) {
+	scope, err := p.businessReadScope(ctx, p.tableProviders)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableProviders).
-		Select("id", "key", "config", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("key").Eq(key)).
+		Select("id", "key", "config", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("key").Eq(key)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get query: %w", err)
 	}
 
 	var row providerRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Key, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -325,10 +341,30 @@ func (p *Postgres) GetProvider(ctx context.Context, key string) (*service.Provid
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
 
-	return rowToRecord(row, encKey)
+	rec, err := rowToRecord(row, encKey)
+	if err != nil {
+		return nil, err
+	}
+	actor, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	providerReadDTO(actor, rec)
+	return rec, nil
 }
 
 func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRecord) (*service.ProviderRecord, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableProviders, "providers.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if record.WorkspaceID != "" && record.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
+		return nil, service.ErrAccessDenied
+	}
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
@@ -349,35 +385,51 @@ func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRe
 
 	query, _, err := p.goqu.Insert(p.tableProviders).Rows(
 		goqu.Record{
-			"id":         id,
-			"key":        key,
-			"config":     types.RawJSON(configJSON),
-			"created_at": now,
-			"updated_at": now,
-			"created_by": record.CreatedBy,
-			"updated_by": record.UpdatedBy,
+			"workspace_id": w.actor.WorkspaceID,
+			"id":           id,
+			"key":          key,
+			"config":       types.RawJSON(configJSON),
+			"created_at":   now,
+			"updated_at":   now,
+			"created_by":   record.CreatedBy,
+			"updated_by":   record.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create provider %q: %w", key, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit provider: %w", err)
 	}
 
 	return &service.ProviderRecord{
-		ID:        id,
-		Key:       key,
-		Config:    record.Config,
-		CreatedAt: now.Format(time.RFC3339),
-		UpdatedAt: now.Format(time.RFC3339),
-		CreatedBy: record.CreatedBy,
-		UpdatedBy: record.UpdatedBy,
+		WorkspaceID: w.actor.WorkspaceID,
+		ID:          id,
+		Key:         key,
+		Config:      record.Config,
+		CreatedAt:   now.Format(time.RFC3339),
+		UpdatedAt:   now.Format(time.RFC3339),
+		CreatedBy:   record.CreatedBy,
+		UpdatedBy:   record.UpdatedBy,
 	}, nil
 }
 
 func (p *Postgres) UpdateProvider(ctx context.Context, key string, record service.ProviderRecord) (*service.ProviderRecord, error) {
+	w, err := p.beginBusinessNamedWrite(ctx, p.tableProviders, "key", key, "providers.write")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if record.WorkspaceID != "" && record.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
+		return nil, service.ErrAccessDenied
+	}
 	p.encKeyMu.RLock()
 	encKey := p.encKey
 	p.encKeyMu.RUnlock()
@@ -400,12 +452,12 @@ func (p *Postgres) UpdateProvider(ctx context.Context, key string, record servic
 			"updated_at": now,
 			"updated_by": record.UpdatedBy,
 		},
-	).Where(goqu.I("key").Eq(key)).ToSQL()
+	).Where(w.predicate, goqu.I("key").Eq(key)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update provider %q: %w", key, err)
 	}
@@ -417,24 +469,32 @@ func (p *Postgres) UpdateProvider(ctx context.Context, key string, record servic
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit provider update: %w", err)
+	}
 
 	return p.GetProvider(ctx, key)
 }
 
 func (p *Postgres) DeleteProvider(ctx context.Context, key string) error {
+	w, err := p.beginBusinessNamedWrite(ctx, p.tableProviders, "key", key, "providers.write")
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableProviders).
-		Where(goqu.I("key").Eq(key)).
+		Where(w.predicate, goqu.I("key").Eq(key)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete provider %q: %w", key, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 // ─── Helpers ───
@@ -451,13 +511,14 @@ func rowToRecord(row providerRow, encKey []byte) (*service.ProviderRecord, error
 	}
 
 	return &service.ProviderRecord{
-		ID:        row.ID,
-		Key:       row.Key,
-		Config:    cfg,
-		CreatedAt: row.CreatedAt.Format(time.RFC3339),
-		UpdatedAt: row.UpdatedAt.Format(time.RFC3339),
-		CreatedBy: row.CreatedBy,
-		UpdatedBy: row.UpdatedBy,
+		WorkspaceID: row.WorkspaceID,
+		ID:          row.ID,
+		Key:         row.Key,
+		Config:      cfg,
+		CreatedAt:   row.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:   row.UpdatedAt.Format(time.RFC3339),
+		CreatedBy:   row.CreatedBy,
+		UpdatedBy:   row.UpdatedBy,
 	}, nil
 }
 
@@ -547,6 +608,20 @@ func (p *Postgres) RotateEncryptionKey(ctx context.Context, newKey []byte) error
 		if _, err := tx.ExecContext(ctx, updateQuery); err != nil {
 			return fmt.Errorf("update provider %q: %w", r.key, err)
 		}
+	}
+
+	// Account-security factors and human identity-provider secrets rotate in
+	// the same transaction; a partial rotation would strand encrypted rows.
+	if err := p.rotateAuthSecurityKey(ctx, tx, p.encKey, newKey); err != nil {
+		return fmt.Errorf("rotate account security: %w", err)
+	}
+	if err := p.rotateAuthExternalSecrets(ctx, tx, p.encKey, newKey); err != nil {
+		return fmt.Errorf("rotate external identity secrets: %w", err)
+	}
+	// The media settings blob carries the S3 secret access key; leaving it
+	// behind would orphan it under the previous key.
+	if err := p.rotateMediaSettingsKey(ctx, tx, p.encKey, newKey); err != nil {
+		return fmt.Errorf("rotate media storage settings: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

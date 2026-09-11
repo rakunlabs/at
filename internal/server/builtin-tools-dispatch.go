@@ -3,10 +3,28 @@ package server
 import (
 	"context"
 	"fmt"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // dispatchBuiltinTool dispatches a tool call to the appropriate executor by name.
 func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[string]any) (string, error) {
+	var bindErr error
+	ctx, bindErr = s.bindRuntimePrincipal(ctx, "tool")
+	if bindErr != nil {
+		return "", bindErr
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: name}); err != nil {
+		return "", err
+	}
+	switch name {
+	case "file_edit", "file_multiedit", "file_patch", "file_glob", "file_grep":
+		// These legacy implementations still use host paths. They are not the
+		// rooted workspace file API, even under a trusted-host execution policy.
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "file", Name: "files.host"}); err != nil {
+			return "", err
+		}
+	}
 	if featureKey := builtinToolFeatureKey(name); featureKey != "" {
 		enabled, err := s.isFeatureEnabled(ctx, featureKey)
 		if err != nil {
@@ -30,9 +48,9 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 
 	// File tools.
 	case "file_read":
-		return s.execFileRead(ctx, args)
+		return s.execScopedFileRead(ctx, args)
 	case "file_write":
-		return s.execFileWrite(ctx, args)
+		return s.execScopedFileWrite(ctx, args)
 	case "file_edit":
 		return s.execFileEdit(ctx, args)
 	case "file_multiedit":
@@ -44,7 +62,7 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 	case "file_grep":
 		return s.execFileGrep(ctx, args)
 	case "file_list":
-		return s.execFileList(ctx, args)
+		return s.execScopedFileList(ctx, args)
 
 	// Task management tools.
 	case "todo_write":

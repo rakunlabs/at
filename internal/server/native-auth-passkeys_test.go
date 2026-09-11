@@ -645,7 +645,9 @@ func TestNativePasskeyGuardsPostgres(t *testing.T) {
 
 func TestNativePasskeyProductionBasePath(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	_, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	// Claim the installation: passkey capability is only advertised once the
+	// deployment has a first administrator and a live policy version.
+	_, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

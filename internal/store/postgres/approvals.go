@@ -18,6 +18,7 @@ import (
 // ─── Approvals ───
 
 type approvalRow struct {
+	WorkspaceID     string         `db:"workspace_id"`
 	ID              string         `db:"id"`
 	OrganizationID  sql.NullString `db:"organization_id"`
 	Type            string         `db:"type"`
@@ -36,7 +37,7 @@ var approvalColumns = []interface{}{
 	"id", "organization_id", "type", "status",
 	"requested_by_type", "requested_by_id", "request_details",
 	"decision_note", "decided_by_user_id", "decided_at",
-	"created_at", "updated_at",
+	"created_at", "updated_at", "workspace_id",
 }
 
 func scanApprovalRow(scanner interface {
@@ -47,6 +48,7 @@ func scanApprovalRow(scanner interface {
 		&row.RequestedByType, &row.RequestedByID, &row.RequestDetails,
 		&row.DecisionNote, &row.DecidedByUserID, &row.DecidedAt,
 		&row.CreatedAt, &row.UpdatedAt,
+		&row.WorkspaceID,
 	)
 }
 
@@ -89,9 +91,13 @@ func (p *Postgres) ListApprovals(ctx context.Context, q *query.Query) (*service.
 }
 
 func (p *Postgres) GetApproval(ctx context.Context, id string) (*service.Approval, error) {
+	scope, err := p.businessReadScope(ctx, p.tableApprovals)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableApprovals).
 		Select(approvalColumns...).
-		Where(goqu.I("id").Eq(id)).
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get approval query: %w", err)
@@ -110,6 +116,21 @@ func (p *Postgres) GetApproval(ctx context.Context, id string) (*service.Approva
 }
 
 func (p *Postgres) CreateApproval(ctx context.Context, approval service.Approval) (*service.Approval, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableApprovals, "approvals.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if approval.WorkspaceID != "" && approval.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.approvalReferences(ctx, w, approval); err != nil {
+		return nil, err
+	}
+	if approval.RequestedByType != "agent" && w.actor.UserID != "" {
+		approval.RequestedByType = "user"
+		approval.RequestedByID = w.actor.UserID
+	}
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
@@ -123,8 +144,9 @@ func (p *Postgres) CreateApproval(ctx context.Context, approval service.Approval
 		detailsJSON = types.RawJSON(d)
 	}
 
-	query, _, err := p.goqu.Insert(p.tableApprovals).Rows(
+	query, _, err := w.tx.Insert(p.tableApprovals).Rows(
 		goqu.Record{
+			"workspace_id":       w.actor.WorkspaceID,
 			"id":                 id,
 			"organization_id":    nullString(approval.OrganizationID),
 			"type":               approval.Type,
@@ -143,11 +165,15 @@ func (p *Postgres) CreateApproval(ctx context.Context, approval service.Approval
 		return nil, fmt.Errorf("build insert approval query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create approval: %w", err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit approval: %w", err)
 	}
 
 	return &service.Approval{
+		WorkspaceID:     w.actor.WorkspaceID,
 		ID:              id,
 		OrganizationID:  approval.OrganizationID,
 		Type:            approval.Type,
@@ -163,6 +189,20 @@ func (p *Postgres) CreateApproval(ctx context.Context, approval service.Approval
 }
 
 func (p *Postgres) UpdateApproval(ctx context.Context, id string, approval service.Approval) (*service.Approval, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableApprovals, "approvals.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if approval.WorkspaceID != "" && approval.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.approvalReferences(ctx, w, approval); err != nil {
+		return nil, err
+	}
+	if approval.DecidedByUserID != "" && w.actor.UserID != "" {
+		approval.DecidedByUserID = w.actor.UserID
+	}
 	now := time.Now().UTC()
 
 	var detailsJSON types.RawJSON
@@ -189,12 +229,12 @@ func (p *Postgres) UpdateApproval(ctx context.Context, id string, approval servi
 	}
 
 	query, _, err := p.goqu.Update(p.tableApprovals).Set(record).
-		Where(goqu.I("id").Eq(id)).ToSQL()
+		Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update approval query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update approval %q: %w", id, err)
 	}
@@ -206,14 +246,21 @@ func (p *Postgres) UpdateApproval(ctx context.Context, id string, approval servi
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit approval update: %w", err)
+	}
 
 	return p.GetApproval(ctx, id)
 }
 
 func (p *Postgres) ListPendingApprovals(ctx context.Context, orgID string) ([]service.Approval, error) {
+	scope, err := p.businessReadScope(ctx, p.tableApprovals)
+	if err != nil {
+		return nil, err
+	}
 	ds := p.goqu.From(p.tableApprovals).
 		Select(approvalColumns...).
-		Where(goqu.I("status").Eq("pending")).
+		Where(scope, goqu.I("status").Eq("pending")).
 		Order(goqu.I("created_at").Asc())
 	if orgID != "" {
 		ds = ds.Where(goqu.I("organization_id").Eq(orgID))
@@ -260,6 +307,7 @@ func approvalRowToRecord(row approvalRow) (*service.Approval, error) {
 	}
 
 	return &service.Approval{
+		WorkspaceID:     row.WorkspaceID,
 		ID:              row.ID,
 		OrganizationID:  row.OrganizationID.String,
 		Type:            row.Type,

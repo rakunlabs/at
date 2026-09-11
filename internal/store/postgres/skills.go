@@ -18,6 +18,7 @@ import (
 // ─── Skill CRUD ───
 
 type skillRow struct {
+	WorkspaceID    string        `db:"workspace_id"`
 	ID             string        `db:"id"`
 	Name           string        `db:"name"`
 	Description    string        `db:"description"`
@@ -37,7 +38,7 @@ type skillRow struct {
 }
 
 func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.ListResult[service.Skill], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableSkills, q, "id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableSkills, q, "id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list skills query: %w", err)
 	}
@@ -51,7 +52,7 @@ func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.Lis
 	var items []service.Skill
 	for rows.Next() {
 		var row skillRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan skill row: %w", err)
 		}
 
@@ -75,16 +76,20 @@ func (p *Postgres) ListSkills(ctx context.Context, q *query.Query) (*service.Lis
 }
 
 func (p *Postgres) GetSkill(ctx context.Context, id string) (*service.Skill, error) {
+	scope, err := p.businessReadScope(ctx, p.tableSkills)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableSkills).
-		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get skill query: %w", err)
 	}
 
 	var row skillRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -96,16 +101,20 @@ func (p *Postgres) GetSkill(ctx context.Context, id string) (*service.Skill, err
 }
 
 func (p *Postgres) GetSkillByName(ctx context.Context, name string) (*service.Skill, error) {
+	scope, err := p.businessReadScope(ctx, p.tableSkills)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableSkills).
-		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("name").Eq(name)).
+		Select("id", "name", "description", "category", "tags", "system_prompt", "tools", "version", "author", "license", "source_url", "source_checksum", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get skill by name query: %w", err)
 	}
 
 	var row skillRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.SystemPrompt, &row.Tools, &row.Version, &row.Author, &row.License, &row.SourceURL, &row.SourceChecksum, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -117,6 +126,14 @@ func (p *Postgres) GetSkillByName(ctx context.Context, name string) (*service.Sk
 }
 
 func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.Skill, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableSkills, "skills.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if sk.WorkspaceID != "" && sk.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	toolsJSON, err := json.Marshal(sk.Tools)
 	if err != nil {
 		return nil, fmt.Errorf("marshal skill tools: %w", err)
@@ -131,6 +148,7 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 
 	query, _, err := p.goqu.Insert(p.tableSkills).Rows(
 		goqu.Record{
+			"workspace_id":    w.actor.WorkspaceID,
 			"id":              id,
 			"name":            sk.Name,
 			"description":     sk.Description,
@@ -153,11 +171,15 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 		return nil, fmt.Errorf("build insert skill query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create skill %q: %w", sk.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit skill: %w", err)
 	}
 
 	return &service.Skill{
+		WorkspaceID:    w.actor.WorkspaceID,
 		ID:             id,
 		Name:           sk.Name,
 		Description:    sk.Description,
@@ -178,6 +200,14 @@ func (p *Postgres) CreateSkill(ctx context.Context, sk service.Skill) (*service.
 }
 
 func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill) (*service.Skill, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableSkills, "skills.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if sk.WorkspaceID != "" && sk.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
 	toolsJSON, err := json.Marshal(sk.Tools)
 	if err != nil {
 		return nil, fmt.Errorf("marshal skill tools: %w", err)
@@ -205,12 +235,12 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 			"updated_at":      now,
 			"updated_by":      sk.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update skill query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update skill %q: %w", id, err)
 	}
@@ -222,24 +252,32 @@ func (p *Postgres) UpdateSkill(ctx context.Context, id string, sk service.Skill)
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit skill update: %w", err)
+	}
 
 	return p.GetSkill(ctx, id)
 }
 
 func (p *Postgres) DeleteSkill(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableSkills, "skills.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableSkills).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete skill query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete skill %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 // skillRowToRecord converts a database row to a Skill.
@@ -257,6 +295,7 @@ func skillRowToRecord(row skillRow) (*service.Skill, error) {
 	}
 
 	return &service.Skill{
+		WorkspaceID:    row.WorkspaceID,
 		ID:             row.ID,
 		Name:           row.Name,
 		Description:    row.Description,

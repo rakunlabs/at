@@ -124,8 +124,8 @@ func TestIntakeTask_ValidOrgAndHeadAgent(t *testing.T) {
 	if resp.Identifier != "PAP-1" {
 		t.Fatalf("expected identifier PAP-1, got %q", resp.Identifier)
 	}
-	if resp.Status != service.TaskStatusOpen {
-		t.Fatalf("expected status %q, got %q", service.TaskStatusOpen, resp.Status)
+	if resp.Status != service.TaskStatusTodo {
+		t.Fatalf("expected status %q, got %q", service.TaskStatusTodo, resp.Status)
 	}
 
 	// Verify task was created with correct fields.

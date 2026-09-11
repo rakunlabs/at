@@ -223,17 +223,20 @@ func (m *mockAgentStoreForDelegation) DeleteAgent(_ context.Context, _ string) e
 // --- Helper ---
 
 func testServerWithStores(
+	t *testing.T,
 	orgAgentStore service.OrganizationAgentStorer,
 	taskStore service.TaskStorer,
 	orgStore service.OrganizationStorer,
 	agentStore service.AgentStorer,
 ) *Server {
-	return &Server{
+	s := &Server{
 		orgAgentStore:     orgAgentStore,
 		taskStore:         taskStore,
 		organizationStore: orgStore,
 		agentStore:        agentStore,
 	}
+	installRuntimeFixture(t, s)
+	return s
 }
 
 func TestExecOrgTaskIntakeLinksTaskContextAsParent(t *testing.T) {
@@ -243,7 +246,7 @@ func TestExecOrgTaskIntakeLinksTaskContextAsParent(t *testing.T) {
 		IssuePrefix: "ORG",
 	}
 	taskStore := &mockTaskStoreForDelegation{}
-	s := testServerWithStores(
+	s := testServerWithStores(t,
 		&mockOrgAgentStoreForDelegation{agents: []service.OrganizationAgent{
 			{OrganizationID: org.ID, AgentID: org.HeadAgentID, Status: "active"},
 		}},
@@ -284,7 +287,7 @@ func TestGetDirectReports(t *testing.T) {
 		{ID: "4", OrganizationID: "org1", AgentID: "D", ParentAgentID: "B", Status: "active"},
 	}
 
-	s := testServerWithStores(
+	s := testServerWithStores(t,
 		&mockOrgAgentStoreForDelegation{agents: agents},
 		nil, nil, nil,
 	)
@@ -352,7 +355,7 @@ func TestCreateDelegationTask(t *testing.T) {
 	}
 	taskStore := &mockTaskStoreForDelegation{}
 
-	s := testServerWithStores(nil, taskStore, orgStore, nil)
+	s := testServerWithStores(t, nil, taskStore, orgStore, nil)
 
 	org := &service.Organization{
 		ID:          "org1",
@@ -365,7 +368,7 @@ func TestCreateDelegationTask(t *testing.T) {
 	}
 
 	child, err := s.createDelegationTask(
-		context.Background(),
+		s.ctx,
 		org,
 		parentTask,
 		"agent-bob",
@@ -386,8 +389,8 @@ func TestCreateDelegationTask(t *testing.T) {
 	if child.OrganizationID != "org1" {
 		t.Errorf("expected OrganizationID %q, got %q", "org1", child.OrganizationID)
 	}
-	if child.Status != service.TaskStatusOpen {
-		t.Errorf("expected Status %q, got %q", service.TaskStatusOpen, child.Status)
+	if child.Status != service.TaskStatusTodo {
+		t.Errorf("expected Status %q, got %q", service.TaskStatusTodo, child.Status)
 	}
 	if child.RequestDepth != 3 { // depth + 1 = 2 + 1 = 3
 		t.Errorf("expected RequestDepth 3, got %d", child.RequestDepth)
@@ -411,10 +414,10 @@ func TestCreateDelegationTask_MaxDepthPreventsChild(t *testing.T) {
 		},
 	}
 	taskStore := &mockTaskStoreForDelegation{}
-	s := testServerWithStores(nil, taskStore, orgStore, nil)
+	s := testServerWithStores(t, nil, taskStore, orgStore, nil)
 
 	_, err := s.createDelegationTask(
-		context.Background(),
+		s.ctx,
 		&service.Organization{ID: "org1", IssuePrefix: "ENG", MaxDelegationDepth: 2},
 		&service.Task{ID: "parent-1", OrganizationID: "org1", Title: "Build"},
 		"agent-bob",
@@ -500,12 +503,12 @@ func TestStatusPropagation_NoAutoComplete(t *testing.T) {
 	taskStore := &mockTaskStoreForDelegation{
 		tasks: []service.Task{
 			{ID: "P1", Status: service.TaskStatusInProgress},
-			{ID: "C1", ParentID: "P1", Status: service.TaskStatusCompleted},
-			{ID: "C2", ParentID: "P1", Status: service.TaskStatusCompleted},
+			{ID: "C1", ParentID: "P1", Status: service.TaskStatusDone},
+			{ID: "C2", ParentID: "P1", Status: service.TaskStatusDone},
 		},
 	}
 
-	s := testServerWithStores(nil, taskStore, nil, nil)
+	s := testServerWithStores(t, nil, taskStore, nil, nil)
 
 	childTask := &service.Task{ID: "C2", ParentID: "P1"}
 	s.propagateStatusToParent(context.Background(), childTask)
@@ -527,12 +530,12 @@ func TestAutoCompletion_NoAutoComplete(t *testing.T) {
 	taskStore := &mockTaskStoreForDelegation{
 		tasks: []service.Task{
 			{ID: "P1", Status: service.TaskStatusInProgress},
-			{ID: "C1", ParentID: "P1", Status: service.TaskStatusCompleted},
+			{ID: "C1", ParentID: "P1", Status: service.TaskStatusDone},
 			{ID: "C2", ParentID: "P1", Status: service.TaskStatusInProgress},
 		},
 	}
 
-	s := testServerWithStores(nil, taskStore, nil, nil)
+	s := testServerWithStores(t, nil, taskStore, nil, nil)
 
 	// C1 is completed but C2 is still in_progress — parent should NOT be completed.
 	childTask := &service.Task{ID: "C1", ParentID: "P1"}
@@ -551,7 +554,7 @@ func TestAutoCompletion_NoAutoComplete(t *testing.T) {
 	// Now update C2 to completed and propagate again.
 	for i, t2 := range taskStore.tasks {
 		if t2.ID == "C2" {
-			taskStore.tasks[i].Status = service.TaskStatusCompleted
+			taskStore.tasks[i].Status = service.TaskStatusDone
 			break
 		}
 	}
@@ -577,12 +580,12 @@ func TestFailurePropagation_NoAutoComplete(t *testing.T) {
 	taskStore := &mockTaskStoreForDelegation{
 		tasks: []service.Task{
 			{ID: "P1", Status: service.TaskStatusInProgress},
-			{ID: "C1", ParentID: "P1", Status: service.TaskStatusCompleted},
+			{ID: "C1", ParentID: "P1", Status: service.TaskStatusDone},
 			{ID: "C2", ParentID: "P1", Status: service.TaskStatusCancelled},
 		},
 	}
 
-	s := testServerWithStores(nil, taskStore, nil, nil)
+	s := testServerWithStores(t, nil, taskStore, nil, nil)
 
 	childTask := &service.Task{ID: "C2", ParentID: "P1"}
 	s.propagateStatusToParent(context.Background(), childTask)
@@ -608,7 +611,7 @@ func TestRootTaskPropagation_Noop(t *testing.T) {
 		},
 	}
 
-	s := testServerWithStores(nil, taskStore, nil, nil)
+	s := testServerWithStores(t, nil, taskStore, nil, nil)
 
 	// Root task (no ParentID) — propagateStatusToParent should be a no-op.
 	rootTask := &service.Task{ID: "R1", ParentID: ""}
@@ -629,14 +632,14 @@ func TestRootTaskPropagation_Noop(t *testing.T) {
 func TestGetTaskWithSubtasks(t *testing.T) {
 	taskStore := &mockTaskStoreForDelegation{
 		tasks: []service.Task{
-			{ID: "root", Status: service.TaskStatusCompleted, Title: "Root Task"},
-			{ID: "child1", ParentID: "root", Status: service.TaskStatusCompleted, Title: "Child 1"},
-			{ID: "child2", ParentID: "root", Status: service.TaskStatusCompleted, Title: "Child 2"},
-			{ID: "grandchild1", ParentID: "child1", Status: service.TaskStatusCompleted, Title: "Grandchild 1"},
+			{ID: "root", Status: service.TaskStatusDone, Title: "Root Task"},
+			{ID: "child1", ParentID: "root", Status: service.TaskStatusDone, Title: "Child 1"},
+			{ID: "child2", ParentID: "root", Status: service.TaskStatusDone, Title: "Child 2"},
+			{ID: "grandchild1", ParentID: "child1", Status: service.TaskStatusDone, Title: "Grandchild 1"},
 		},
 	}
 
-	s := testServerWithStores(nil, taskStore, nil, nil)
+	s := testServerWithStores(t, nil, taskStore, nil, nil)
 
 	tree, err := s.buildTaskTree(context.Background(), "root", 20)
 	if err != nil {
@@ -696,7 +699,7 @@ func TestConcurrentDelegation(t *testing.T) {
 	}
 	taskStore := &mockTaskStoreForDelegation{}
 
-	s := testServerWithStores(nil, taskStore, orgStore, nil)
+	s := testServerWithStores(t, nil, taskStore, orgStore, nil)
 
 	org := &service.Organization{
 		ID:          "org1",
@@ -719,7 +722,7 @@ func TestConcurrentDelegation(t *testing.T) {
 		go func(idx int, aid string) {
 			defer wg.Done()
 			child, err := s.createDelegationTask(
-				context.Background(),
+				s.ctx,
 				org,
 				parentTask,
 				aid,
@@ -841,7 +844,7 @@ func TestDeepDelegation(t *testing.T) {
 	}
 	taskStore := &mockTaskStoreForDelegation{}
 
-	s := testServerWithStores(nil, taskStore, orgStore, nil)
+	s := testServerWithStores(t, nil, taskStore, orgStore, nil)
 
 	org := &service.Organization{
 		ID:          "org1",
@@ -857,7 +860,7 @@ func TestDeepDelegation(t *testing.T) {
 	}
 
 	// Level 1: head → VP (depth 0 → child gets depth 1).
-	child1, err := s.createDelegationTask(context.Background(), org, rootTask, "agent-vp", "VP task", 0)
+	child1, err := s.createDelegationTask(s.ctx, org, rootTask, "agent-vp", "VP task", 0)
 	if err != nil {
 		t.Fatalf("Level 1 createDelegationTask failed: %v", err)
 	}
@@ -869,7 +872,7 @@ func TestDeepDelegation(t *testing.T) {
 	}
 
 	// Level 2: VP → director (depth 1 → child gets depth 2).
-	child2, err := s.createDelegationTask(context.Background(), org, child1, "agent-director", "Director task", 1)
+	child2, err := s.createDelegationTask(s.ctx, org, child1, "agent-director", "Director task", 1)
 	if err != nil {
 		t.Fatalf("Level 2 createDelegationTask failed: %v", err)
 	}
@@ -881,7 +884,7 @@ func TestDeepDelegation(t *testing.T) {
 	}
 
 	// Level 3: director → worker (depth 2 → child gets depth 3).
-	child3, err := s.createDelegationTask(context.Background(), org, child2, "agent-worker", "Worker task", 2)
+	child3, err := s.createDelegationTask(s.ctx, org, child2, "agent-worker", "Worker task", 2)
 	if err != nil {
 		t.Fatalf("Level 3 createDelegationTask failed: %v", err)
 	}
@@ -1016,7 +1019,7 @@ func TestResolveRootTaskID(t *testing.T) {
 		},
 	}
 
-	s := testServerWithStores(nil, taskStore, nil, nil)
+	s := testServerWithStores(t, nil, taskStore, nil, nil)
 
 	tests := []struct {
 		name   string

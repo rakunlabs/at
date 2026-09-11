@@ -71,6 +71,7 @@ type ConnectorOAuth struct {
 
 // Connector is a data-driven definition of an external-service connection type.
 type Connector struct {
+	WorkspaceID string           `json:"workspace_id,omitempty"`
 	Slug        string           `json:"slug"`
 	Name        string           `json:"name"`
 	Description string           `json:"description,omitempty"`

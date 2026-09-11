@@ -73,6 +73,7 @@ type MCPUpstream struct {
 
 // MCPServer represents a named, gateway-facing MCP endpoint.
 type MCPServer struct {
+	WorkspaceID string          `json:"workspace_id"`
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
@@ -100,6 +101,7 @@ type MCPServerStorer interface {
 
 // MCPSet represents an internal MCP configuration that agents use.
 type MCPSet struct {
+	WorkspaceID string          `json:"workspace_id"`
 	ID          string          `json:"id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`

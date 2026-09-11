@@ -173,8 +173,14 @@ func (s *Server) CreateTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Status == "" {
-		req.Status = "open"
+		req.Status = service.TaskStatusTodo
 	}
+	status, err := service.ParseTaskStatus(req.Status)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	req.Status = status
 
 	userEmail := s.getUserEmail(r)
 	req.CreatedBy = userEmail
@@ -182,6 +188,9 @@ func (s *Server) CreateTaskAPI(w http.ResponseWriter, r *http.Request) {
 
 	record, err := s.taskStore.CreateTask(r.Context(), req)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("create task failed", "title", req.Title, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create task: %v", err), http.StatusInternalServerError)
 		return
@@ -226,11 +235,17 @@ func (s *Server) UpdateTaskAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Merge: start from existing, overlay only the fields present in the request.
 	merged := *existing
-	applyTaskFields(&merged, fields)
+	if err := applyTaskFields(&merged, fields); err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 	merged.UpdatedBy = s.getUserEmail(r)
 
 	record, err := s.taskStore.UpdateTask(r.Context(), id, merged)
 	if err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("update task failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to update task: %v", err), http.StatusInternalServerError)
 		return
@@ -245,7 +260,9 @@ func (s *Server) UpdateTaskAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // applyTaskFields overlays only the JSON keys present in fields onto the task.
-func applyTaskFields(t *service.Task, fields map[string]any) {
+// It returns an error for a value the task model rejects, so an unknown status
+// fails at the boundary instead of being stored and disappearing from boards.
+func applyTaskFields(t *service.Task, fields map[string]any) error {
 	if v, ok := fields["organization_id"]; ok {
 		t.OrganizationID, _ = v.(string)
 	}
@@ -271,7 +288,12 @@ func applyTaskFields(t *service.Task, fields map[string]any) {
 		t.Description, _ = v.(string)
 	}
 	if v, ok := fields["status"]; ok {
-		t.Status, _ = v.(string)
+		raw, _ := v.(string)
+		status, err := service.ParseTaskStatus(raw)
+		if err != nil {
+			return err
+		}
+		t.Status = status
 	}
 	if v, ok := fields["priority_level"]; ok {
 		t.PriorityLevel, _ = v.(string)
@@ -324,6 +346,7 @@ func applyTaskFields(t *service.Task, fields map[string]any) {
 	if v, ok := fields["hidden_at"]; ok {
 		t.HiddenAt, _ = v.(string)
 	}
+	return nil
 }
 
 // DeleteTaskAPI handles DELETE /api/v1/tasks/{id}.
@@ -449,7 +472,7 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 	if task.OrganizationID != orgID || task.AssignedAgentID != org.HeadAgentID {
 		task.OrganizationID = orgID
 		task.AssignedAgentID = org.HeadAgentID
-		task.Status = service.TaskStatusOpen
+		task.Status = service.TaskStatusTodo
 		task, err = s.taskStore.UpdateTask(ctx, taskID, *task)
 		if err != nil {
 			slog.Error("process task: update task failed", "id", taskID, "error", err)

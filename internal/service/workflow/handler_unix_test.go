@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 // TestExecuteBashHandler_KillsChildProcessGroupOnCancel proves the
@@ -41,7 +43,7 @@ echo $CHILD > %q
 wait $CHILD
 `, pidPath)
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(executiontest.Context(t))
 
 	// Run the handler in a goroutine so we can cancel from the test.
 	done := make(chan error, 1)
@@ -132,7 +134,7 @@ echo %q
 `, label)
 	}
 
-	ctx := context.Background()
+	ctx := executiontest.Context(t)
 	type result struct {
 		out  string
 		took time.Duration

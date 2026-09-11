@@ -20,6 +20,14 @@ import (
 
 const conversationStatePrefix = "[CONVERSATION_STATE]"
 
+// Caps on what a task's own history contributes to the opening prompt. Without
+// them a long-running task spends its window re-reading itself.
+const (
+	delegationPreviousResultLimit  = 4000
+	delegationFeedbackCommentLimit = 20
+	delegationFeedbackBodyLimit    = 2000
+)
+
 // defaultTaskWorkspaceBase is the fallback base directory under which
 // per-task workspaces are created when no other configuration applies.
 // In production the actual base comes from
@@ -54,7 +62,27 @@ func (s *Server) taskWorkspaceBase() string {
 // where the agent can delegate work to its direct reports. Each delegation
 // creates a child Task and recursively invokes the same function.
 func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization, task *service.Task, agentID string, depth int) error {
+	var bindErr error
+	ctx, bindErr = s.bindRuntimePrincipal(ctx, "task")
+	if bindErr != nil {
+		return bindErr
+	}
+	if org == nil || task == nil {
+		return service.ErrExecutionDenied
+	}
+	for _, action := range []service.ExecutionAction{
+		{Kind: "resource", Name: "agents.run", ResourceID: agentID},
+		{Kind: "resource", Name: "tasks.run", ResourceID: task.ID},
+		{Kind: "resource", Name: "organizations.run", ResourceID: org.ID},
+	} {
+		if err := service.CheckExecution(ctx, action); err != nil {
+			return err
+		}
+	}
 	// Guard: required stores must be set.
+	if err := s.PersistRuntimeSubject(ctx, "task", task.ID); err != nil {
+		return fmt.Errorf("persist task execution initiator: %w", err)
+	}
 	if s.agentStore == nil || s.taskStore == nil || s.orgAgentStore == nil {
 		return fmt.Errorf("org-delegation: required stores not configured")
 	}
@@ -91,15 +119,20 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	taskWorkDir := workflow.WorkDirFromContext(ctx)
 	if taskWorkDir == "" {
 		rootID := s.resolveRootTaskID(ctx, task)
-		taskWorkDir = filepath.Join(s.taskWorkspaceBase(), rootID)
-		if err := os.MkdirAll(taskWorkDir, 0o755); err != nil {
-			slog.Warn("org-delegation: failed to create task workspace",
-				"task_id", task.ID, "root_id", rootID, "path", taskWorkDir, "error", err)
-			// Non-fatal: agents can still run, they just won't have a shared directory.
-		} else {
-			slog.Info("org-delegation: task workspace ready",
-				"task_id", task.ID, "root_id", rootID, "path", taskWorkDir)
+		_, base, _ := service.ExecutionFromContext(ctx)
+		if !filepath.IsLocal(rootID) || filepath.Base(rootID) != rootID {
+			return service.ErrExecutionDenied
 		}
+		root, err := os.OpenRoot(base)
+		if err != nil {
+			return fmt.Errorf("open task workspace: %w", err)
+		}
+		err = root.MkdirAll(filepath.Join("tasks", rootID), 0700)
+		root.Close()
+		if err != nil {
+			return fmt.Errorf("create task workspace: %w", err)
+		}
+		taskWorkDir = filepath.Join(base, "tasks", rootID)
 		ctx = workflow.ContextWithWorkDir(ctx, taskWorkDir)
 	}
 
@@ -118,6 +151,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	// agents that forget to pass parent_id end up creating orphaned tasks.
 	ctx = contextWithAgentID(ctx, agentID)
 	ctx = contextWithTaskID(ctx, task.ID)
+	var resultGovernor workflow.LoopGovernor
+	if s.loopGov != nil {
+		resultGovernor = workflow.ScopeToolResults(ctx, s.loopGov)
+	}
 
 	// b) Load the agent.
 	agent, err := s.agentStore.GetAgent(ctx, agentID)
@@ -126,24 +163,28 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 	if agent == nil {
 		slog.Warn("org-delegation: agent not found", "agent_id", agentID, "task_id", task.ID)
-		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, fmt.Sprintf("agent %s not found", agentID)); updateErr != nil {
+		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusDone, fmt.Sprintf("agent %s not found", agentID)); updateErr != nil {
 			return fmt.Errorf("org-delegation: update task for missing agent: %w", updateErr)
 		}
 		return nil
 	}
 
 	// c) Resolve provider.
-	info, ok := s.getProviderInfo(agent.Config.Provider)
-	if !ok {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "providers.use", ResourceID: agent.Config.Provider}); err != nil {
+		return err
+	}
+	info, lookupErr := s.getExecutionProviderInfo(ctx, agent.Config.Provider)
+	if lookupErr != nil {
 		slog.Warn("org-delegation: provider not found",
 			"provider", agent.Config.Provider, "agent_id", agentID, "task_id", task.ID)
-		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusCompleted, fmt.Sprintf("provider %s not found", agent.Config.Provider)); updateErr != nil {
+		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusDone, fmt.Sprintf("provider %s not found", agent.Config.Provider)); updateErr != nil {
 			return fmt.Errorf("org-delegation: update task for missing provider: %w", updateErr)
 		}
 		return nil
 	}
 
 	model := agent.Config.Model
+	scopedProvider := service.ScopedExecutionProvider(info.provider, agent.Config.Provider)
 	if model == "" {
 		model = info.defaultModel
 	}
@@ -176,6 +217,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	var reportInfos []reportInfo
 
 	for _, oa := range reports {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: oa.AgentID}); err != nil {
+			continue
+		}
 		reportAgent, err := s.agentStore.GetAgent(ctx, oa.AgentID)
 		if err != nil {
 			slog.Warn("org-delegation: failed to load report agent",
@@ -195,6 +239,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		var subReports []string
 		if subs, err := s.getDirectReports(ctx, org.ID, oa.AgentID); err == nil {
 			for _, sub := range subs {
+				if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: sub.AgentID}) != nil {
+					continue
+				}
 				if sa, err := s.agentStore.GetAgent(ctx, sub.AgentID); err == nil && sa != nil {
 					subReports = append(subReports, sa.Name)
 				}
@@ -269,6 +316,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if s.skillStore != nil {
 		for _, skillRef := range agent.Config.Skills {
 			nameOrID := skillRef.ID
+			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: nameOrID}) != nil {
+				continue
+			}
 			skill, err := s.skillStore.GetSkill(ctx, nameOrID)
 			if err != nil {
 				slog.Warn("org-delegation: skill lookup failed", "skill", nameOrID, "error", err)
@@ -283,6 +333,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 
 			if skill.SystemPrompt != "" {
+				if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "skills.use", ResourceID: skill.ID}) != nil {
+					continue
+				}
 				skillPromptFragments = append(skillPromptFragments, skill.SystemPrompt)
 			}
 			for _, t := range skill.Tools {
@@ -306,6 +359,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	var builtinToolDefs []service.Tool
 
 	for _, toolName := range agent.Config.BuiltinTools {
+		if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: toolName}) != nil {
+			continue
+		}
 		if !isKnownBuiltinTool(toolName) {
 			slog.Warn("org-delegation: unknown builtin tool in agent config", "tool", toolName, "agent", agentID)
 			continue
@@ -357,6 +413,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		var mcpSetUpstreams []service.MCPUpstream
 
 		for _, setName := range agent.Config.MCPSets {
+			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: setName}) != nil {
+				continue
+			}
 			set, err := s.mcpSetStore.GetMCPSetByName(ctx, setName)
 			if err != nil || set == nil {
 				slog.Warn("org-delegation: MCP set not found", "set", setName, "error", err)
@@ -375,7 +434,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			if len(set.Config.HTTPTools) > 0 ||
 				len(set.Config.EnabledSkills) > 0 || len(set.Config.EnabledBuiltinTools) > 0 ||
 				len(set.Config.WorkflowIDs) > 0 {
-				setTools, err := s.listMCPSetTools(ctx, setName)
+				setTools, err := s.listExecutionMCPSetTools(ctx, setName)
 				if err != nil {
 					slog.Warn("org-delegation: failed to list MCP set tools", "set", setName, "error", err)
 				} else {
@@ -390,7 +449,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 		// HTTP MCP endpoints (gateway loopback + custom URLs + legacy mcp_urls).
 		for _, url := range mcpURLs {
-			client, err := service.NewHTTPMCPClient(ctx, url)
+			client, err := service.NewExecutionHTTPMCPClient(ctx, url)
 			if err != nil {
 				slog.Warn("org-delegation: failed to connect to MCP server, skipping", "url", url, "error", err)
 				continue
@@ -410,7 +469,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		// Direct upstreams (stdio/HTTP) declared on MCP sets — e.g. the
 		// ElevenLabs `uvx elevenlabs-mcp` stdio server.
 		for _, upstream := range mcpSetUpstreams {
-			client, err := s.newMCPClient(ctx, upstream)
+			client, err := s.newExecutionMCPClient(ctx, upstream)
 			if err != nil {
 				slog.Warn("org-delegation: failed to connect to MCP upstream, skipping", "upstream", upstream.URL+upstream.Command, "error", err)
 				continue
@@ -432,6 +491,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	var varLookup workflow.VarLookup
 	if s.variableStore != nil {
 		varLookup = func(key string) (string, error) {
+			if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "variables.read", ResourceID: key}); err != nil {
+				return "", err
+			}
 			v, err := s.variableStore.GetVariableByKey(ctx, key)
 			if err != nil {
 				return "", err
@@ -443,19 +505,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 	}
 	var varLister workflow.VarLister
-	if s.variableStore != nil {
-		varLister = func() (map[string]string, error) {
-			vars, err := s.variableStore.ListVariables(ctx, nil)
-			if err != nil {
-				return nil, err
-			}
-			m := make(map[string]string, len(vars.Data))
-			for _, v := range vars.Data {
-				m[v.Key] = v.Value
-			}
-			return m, nil
-		}
-	}
+	varLister = func() (map[string]string, error) { return s.runtimeVariableLister(ctx) }
+	// Only explicit, authorized connection bindings are injected into shell
+	// handlers. Do not enumerate every workspace's global credentials.
 
 	toolTimeout := time.Duration(agent.Config.ToolTimeout) * time.Second
 	if toolTimeout <= 0 {
@@ -606,8 +658,12 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 
 	// Inject previous result if the task is being re-processed (revision workflow).
+	// Trimmed: a prior run's result can be an entire document, and it competes
+	// for the same window as the work still to do. The chat path has always
+	// capped this; the delegation path did not.
 	if task.Result != "" {
-		userPrompt += "\n\n## Previous Result\nThis task was processed before. Here is the previous output:\n\n" + task.Result
+		userPrompt += "\n\n## Previous Result\nThis task was processed before. Here is the previous output:\n\n" +
+			truncateRunes(task.Result, delegationPreviousResultLimit)
 	}
 
 	// Inject review feedback (comments) if any exist on this task.
@@ -619,10 +675,11 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			slog.Warn("org-delegation: failed to load task comments",
 				"task_id", task.ID, "error", err)
 		} else if len(comments) > 0 {
-			var feedback strings.Builder
-			hasFeedback := false
+			// Two passes: first separate resume state from discussion, then
+			// render only the discussion. Mixing the two made the "keep the
+			// newest N" budget count machine records as if they were feedback.
+			var feedbackComments []service.IssueComment
 			for _, c := range comments {
-				// Check for conversation state (saved from exhausted iterations).
 				if strings.HasPrefix(c.Body, conversationStatePrefix) {
 					stateJSON := strings.TrimPrefix(c.Body, conversationStatePrefix)
 					var restored []service.Message
@@ -631,22 +688,36 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						slog.Info("org-delegation: restored conversation state from previous run",
 							"task_id", task.ID, "messages_count", len(restored))
 					}
-					// Delete the conversation state comment after loading it.
+					// Consume it: the state is replayed as messages, not as text.
 					_ = s.issueCommentStore.DeleteComment(ctx, c.ID)
 					continue
 				}
-				// Regular feedback comment.
-				if !hasFeedback {
-					feedback.WriteString("\n\n## Review Feedback\nThe following comments were left by reviewers. Address their feedback:\n\n")
-					hasFeedback = true
-				}
-				author := c.AuthorID
-				if c.AuthorType != "" {
-					author = fmt.Sprintf("%s (%s)", c.AuthorID, c.AuthorType)
-				}
-				feedback.WriteString(fmt.Sprintf("**%s** [%s]:\n%s\n\n", author, c.CreatedAt, c.Body))
+				feedbackComments = append(feedbackComments, c)
 			}
-			if hasFeedback {
+
+			// Newest comments carry the instructions that still apply, so a long
+			// review thread loses its oldest entries rather than its newest.
+			skipped := 0
+			if len(feedbackComments) > delegationFeedbackCommentLimit {
+				skipped = len(feedbackComments) - delegationFeedbackCommentLimit
+				feedbackComments = feedbackComments[skipped:]
+			}
+
+			if len(feedbackComments) > 0 {
+				var feedback strings.Builder
+				feedback.WriteString("\n\n## Review Feedback\nThe following comments were left by reviewers. Address their feedback:\n\n")
+				for _, c := range feedbackComments {
+					author := c.AuthorID
+					if c.AuthorType != "" {
+						author = fmt.Sprintf("%s (%s)", c.AuthorID, c.AuthorType)
+					}
+					feedback.WriteString(fmt.Sprintf("**%s** [%s]:\n%s\n\n", author,
+						c.CreatedAt, truncateRunes(c.Body, delegationFeedbackBodyLimit)))
+				}
+				if skipped > 0 {
+					feedback.WriteString(fmt.Sprintf("_%s older; showing the most recent %d. Call task_get for the full thread._\n\n",
+						plural(skipped, "comment is", "comments are"), delegationFeedbackCommentLimit))
+				}
 				userPrompt += feedback.String()
 			}
 		}
@@ -769,7 +840,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		var windowed []service.Message
 		for attempt := 0; attempt < 3; attempt++ {
 			resp, windowed, latencyMs, chatErr = agentloop.CallProvider(
-				ctx, s.loopGov, info.provider, model, agentID, task.ID, messages, llmTools, agent.Config.ReasoningEffort,
+				ctx, s.loopGov, scopedProvider, model, agentID, task.ID, messages, llmTools, agent.Config.ReasoningEffort,
 			)
 			if chatErr == nil {
 				break
@@ -953,6 +1024,20 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		}
 
 		for i, tc := range resp.ToolCalls {
+			actionErr := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "execution.run"})
+			if target, ok := delegateToolMap[tc.Name]; ok {
+				actionErr = workflow.AuthorizeToolHandler(ctx, tc.Name, "delegate", "", target)
+			}
+			if hi, ok := skillToolMap[tc.Name]; ok {
+				actionErr = workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, hi.skillID, hi.handler)
+			}
+			if set, ok := mcpSetToolMap[tc.Name]; ok {
+				actionErr = workflow.AuthorizeMCPSetTool(ctx, set, tc.Name)
+			}
+			if actionErr != nil {
+				_, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, "Error: execution authority denied")
+				continue
+			}
 			toolStarted := time.Now()
 			slog.Debug("org-delegation: tool call",
 				"tool", tc.Name, "task_id", task.ID, "iteration", iteration)
@@ -977,7 +1062,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 					childTask, err := s.createDelegationTask(ctx, org, task, targetAgentID, taskText, depth)
 					if err != nil {
-						_, block := agentloop.ToolResult(s.loopGov, task.ID, toolCall, fmt.Sprintf("Error: failed to create delegation task: %v", err))
+						_, block := agentloop.ToolResult(resultGovernor, task.ID, toolCall, fmt.Sprintf("Error: failed to create delegation task: %v", err))
 						resultMu.Lock()
 						toolResults[idx] = block
 						resultMu.Unlock()
@@ -1010,7 +1095,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					// Cap the child-task result before it enters the
 					// parent's LLM message history. Long child results
 					// otherwise compound through the delegation chain.
-					result, block := agentloop.ToolResult(s.loopGov, task.ID, toolCall, result)
+					result, block := agentloop.ToolResult(resultGovernor, task.ID, toolCall, result)
 					resultMu.Lock()
 					toolResults[idx] = block
 					resultMu.Unlock()
@@ -1050,15 +1135,15 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						agent.Config.Connections, perSkill,
 					)
 					if len(bindings) > 0 {
-						toolVarLookup = workflow.WrapVarLookupWithConnections(varLookup, bindings)
-						toolVarLister = workflow.WrapVarListerWithConnections(varLister, bindings)
+						toolVarLookup = workflow.WrapVarLookupWithConnectionsContext(ctx, varLookup, bindings)
+						toolVarLister = workflow.WrapVarListerWithConnectionsContext(ctx, varLister, bindings)
 					}
 				}
 
 				if hi.handlerType == "bash" {
 					result, callErr = workflow.ExecuteBashHandler(ctx, hi.handler, tc.Arguments, toolVarLister, toolTimeout)
 				} else {
-					result, callErr = workflow.ExecuteJSHandler(hi.handler, tc.Arguments, toolVarLookup)
+					result, callErr = workflow.ExecuteJSHandlerContext(ctx, hi.handler, tc.Arguments, toolVarLookup)
 				}
 
 				if callErr != nil {
@@ -1079,7 +1164,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// are unbounded by default; this cap is the only
 				// thing standing between a noisy handler and a O(K²)
 				// context blow-up.
-				result, toolResults[i] = agentloop.ToolResult(s.loopGov, task.ID, tc, result)
+				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
 
 				// Observation: skill tool call (JS/bash handler) with its
 				// arguments and (post-truncation) result.
@@ -1102,7 +1187,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					// persisted status+result and emitted the lifecycle event.
 					switch tc.Name {
 					case "task_complete":
-						terminalToolStatus = service.TaskStatusCompleted
+						terminalToolStatus = service.TaskStatusDone
 					case "task_block":
 						terminalToolStatus = service.TaskStatusBlocked
 					}
@@ -1117,7 +1202,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// Apply governor truncation. bash_execute is the most
 				// common offender — full stdout would otherwise be
 				// re-shipped on every subsequent iteration.
-				result, toolResults[i] = agentloop.ToolResult(s.loopGov, task.ID, tc, result)
+				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
 
 				// Observation: builtin tool call (task_create /
 				// bash_execute / mem_save ...) with structured input and
@@ -1127,13 +1212,13 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				// MCP-set tool resolved server-side (workflow exposed as a
 				// wf_* tool, or a skill/builtin/HTTP tool declared via
 				// mcp_sets) — no HTTP round-trip.
-				result, callErr := s.callMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
+				result, callErr := s.callExecutionMCPSetTool(ctx, setName, tc.Name, tc.Arguments)
 				if callErr != nil {
 					slog.Error("org-delegation: mcp-set tool call failed",
 						"tool", tc.Name, "set", setName, "task_id", task.ID, "error", callErr)
 					result = fmt.Sprintf("Error: %v", callErr)
 				}
-				result, toolResults[i] = agentloop.ToolResult(s.loopGov, task.ID, tc, result)
+				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
 				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
 			} else if mcpToolNames[tc.Name] {
 				// MCP tool served by a connected client (HTTP endpoint or a
@@ -1144,12 +1229,12 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						"tool", tc.Name, "task_id", task.ID, "error", callErr)
 					result = fmt.Sprintf("Error: %v", callErr)
 				}
-				result, toolResults[i] = agentloop.ToolResult(s.loopGov, task.ID, tc, result)
+				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
 				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
 			} else {
 				// Unknown tool — handle synchronously (no goroutine needed).
 				unknownErr := fmt.Errorf("unknown tool %q", tc.Name)
-				result, block := agentloop.ToolResult(s.loopGov, task.ID, tc, "Error: "+unknownErr.Error())
+				result, block := agentloop.ToolResult(resultGovernor, task.ID, tc, "Error: "+unknownErr.Error())
 				toolResults[i] = block
 
 				// Observation: unknown tool call. The output is the
@@ -1270,7 +1355,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		return nil
 	}
 
-	completionStatus := service.TaskStatusCompleted
+	completionStatus := service.TaskStatusDone
 	if strings.HasPrefix(strings.TrimSpace(finalContent), "[BLOCKED]") {
 		completionStatus = service.TaskStatusBlocked
 	}
@@ -1377,6 +1462,21 @@ func (s *Server) getDirectReports(ctx context.Context, orgID, agentID string) ([
 // createDelegationTask creates a child task linked to the parent task via ParentID.
 // It generates a human-readable identifier from the organization's issue prefix and counter.
 func (s *Server) createDelegationTask(ctx context.Context, org *service.Organization, parentTask *service.Task, assigneeAgentID, description string, depth int) (*service.Task, error) {
+	if org == nil || parentTask == nil {
+		return nil, service.ErrExecutionDenied
+	}
+	for name, id := range map[string]string{"tasks.run": parentTask.ID, "organizations.run": org.ID} {
+		if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: name, ResourceID: id}); err != nil {
+			return nil, err
+		}
+	}
+	creator, ok := s.store.(service.ExecutionTaskCreator)
+	if !ok {
+		return nil, fmt.Errorf("scoped child task writer unavailable: %w", service.ErrExecutionDenied)
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "agents.run", ResourceID: assigneeAgentID}); err != nil {
+		return nil, err
+	}
 	maxDepth := org.MaxDelegationDepth
 	if maxDepth == 0 {
 		maxDepth = 10
@@ -1403,13 +1503,13 @@ func (s *Server) createDelegationTask(ctx context.Context, org *service.Organiza
 	identifier := fmt.Sprintf("%s-%d", prefix, counter)
 
 	// Create the child task.
-	childTask, err := s.taskStore.CreateTask(ctx, service.Task{
+	childTask, err := creator.CreateExecutionChildTask(ctx, service.Task{
 		OrganizationID:  org.ID,
 		ParentID:        parentTask.ID,
 		AssignedAgentID: assigneeAgentID,
 		Title:           parentTask.Title,
 		Description:     description,
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 		Identifier:      identifier,
 		RequestDepth:    depth + 1,
 	})

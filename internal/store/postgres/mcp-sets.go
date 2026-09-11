@@ -16,6 +16,7 @@ import (
 )
 
 type mcpSetRow struct {
+	WorkspaceID string         `db:"workspace_id"`
 	ID          string         `db:"id"`
 	Name        string         `db:"name"`
 	Description string         `db:"description"`
@@ -31,7 +32,11 @@ type mcpSetRow struct {
 }
 
 func (p *Postgres) ListMCPSets(ctx context.Context, q *query.Query) (*service.ListResult[service.MCPSet], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableMCPSets, q, "id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by")
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sql, total, err := p.buildListQuery(ctx, p.tableMCPSets, q, "id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list mcp sets query: %w", err)
 	}
@@ -45,7 +50,7 @@ func (p *Postgres) ListMCPSets(ctx context.Context, q *query.Query) (*service.Li
 	var items []service.MCPSet
 	for rows.Next() {
 		var row mcpSetRow
-		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		if err := rows.Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID); err != nil {
 			return nil, fmt.Errorf("scan mcp set row: %w", err)
 		}
 
@@ -53,6 +58,7 @@ func (p *Postgres) ListMCPSets(ctx context.Context, q *query.Query) (*service.Li
 		if err != nil {
 			return nil, err
 		}
+		mcpReadDTO(a, rec.ID, rec.WorkspaceID, &rec.Config, &rec.URLs)
 		items = append(items, *rec)
 	}
 
@@ -69,16 +75,24 @@ func (p *Postgres) ListMCPSets(ctx context.Context, q *query.Query) (*service.Li
 }
 
 func (p *Postgres) GetMCPSet(ctx context.Context, id string) (*service.MCPSet, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableMCPSets)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableMCPSets).
-		Select("id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("id").Eq(id)).
+		Select("id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get mcp set query: %w", err)
 	}
 
 	var row mcpSetRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -86,20 +100,33 @@ func (p *Postgres) GetMCPSet(ctx context.Context, id string) (*service.MCPSet, e
 		return nil, fmt.Errorf("get mcp set %q: %w", id, err)
 	}
 
-	return mcpSetRowToRecord(row)
+	rec, err := mcpSetRowToRecord(row)
+	if err != nil {
+		return nil, err
+	}
+	mcpReadDTO(a, rec.ID, rec.WorkspaceID, &rec.Config, &rec.URLs)
+	return rec, nil
 }
 
 func (p *Postgres) GetMCPSetByName(ctx context.Context, name string) (*service.MCPSet, error) {
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := p.businessReadScope(ctx, p.tableMCPSets)
+	if err != nil {
+		return nil, err
+	}
 	query, _, err := p.goqu.From(p.tableMCPSets).
-		Select("id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by").
-		Where(goqu.I("name").Eq(name)).
+		Select("id", "name", "description", "category", "tags", "config", "servers", "urls", "created_at", "updated_at", "created_by", "updated_by", "workspace_id").
+		Where(scope, goqu.I("name").Eq(name)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get mcp set by name query: %w", err)
 	}
 
 	var row mcpSetRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.Name, &row.Description, &row.Category, &row.Tags, &row.Config, &row.Servers, &row.URLs, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy, &row.WorkspaceID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -107,10 +134,26 @@ func (p *Postgres) GetMCPSetByName(ctx context.Context, name string) (*service.M
 		return nil, fmt.Errorf("get mcp set by name %q: %w", name, err)
 	}
 
-	return mcpSetRowToRecord(row)
+	rec, err := mcpSetRowToRecord(row)
+	if err != nil {
+		return nil, err
+	}
+	mcpReadDTO(a, rec.ID, rec.WorkspaceID, &rec.Config, &rec.URLs)
+	return rec, nil
 }
 
 func (p *Postgres) CreateMCPSet(ctx context.Context, s service.MCPSet) (*service.MCPSet, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableMCPSets, "mcp.write", "")
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.mcpReferences(ctx, w, s.Config, s.Servers); err != nil {
+		return nil, err
+	}
 	configJSON, err := json.Marshal(s.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal mcp set config: %w", err)
@@ -133,29 +176,34 @@ func (p *Postgres) CreateMCPSet(ctx context.Context, s service.MCPSet) (*service
 
 	query, _, err := p.goqu.Insert(p.tableMCPSets).Rows(
 		goqu.Record{
-			"id":          id,
-			"name":        s.Name,
-			"description": s.Description,
-			"category":    s.Category,
-			"tags":        types.RawJSON(tagsJSON),
-			"config":      types.RawJSON(configJSON),
-			"servers":     types.RawJSON(serversJSON),
-			"urls":        types.RawJSON(urlsJSON),
-			"created_at":  now,
-			"updated_at":  now,
-			"created_by":  s.CreatedBy,
-			"updated_by":  s.UpdatedBy,
+			"workspace_id": w.actor.WorkspaceID,
+			"id":           id,
+			"name":         s.Name,
+			"description":  s.Description,
+			"category":     s.Category,
+			"tags":         types.RawJSON(tagsJSON),
+			"config":       types.RawJSON(configJSON),
+			"servers":      types.RawJSON(serversJSON),
+			"urls":         types.RawJSON(urlsJSON),
+			"created_at":   now,
+			"updated_at":   now,
+			"created_by":   s.CreatedBy,
+			"updated_by":   s.UpdatedBy,
 		},
 	).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert mcp set query: %w", err)
 	}
 
-	if _, err := p.db.ExecContext(ctx, query); err != nil {
+	if _, err := w.tx.ExecContext(ctx, query); err != nil {
 		return nil, fmt.Errorf("create mcp set %q: %w", s.Name, err)
+	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit MCP set: %w", err)
 	}
 
 	return &service.MCPSet{
+		WorkspaceID: w.actor.WorkspaceID,
 		ID:          id,
 		Name:        s.Name,
 		Description: s.Description,
@@ -172,6 +220,17 @@ func (p *Postgres) CreateMCPSet(ctx context.Context, s service.MCPSet) (*service
 }
 
 func (p *Postgres) UpdateMCPSet(ctx context.Context, id string, s service.MCPSet) (*service.MCPSet, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableMCPSets, "mcp.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+	if s.WorkspaceID != "" && s.WorkspaceID != w.actor.WorkspaceID {
+		return nil, service.ErrAccessDenied
+	}
+	if err = p.mcpReferences(ctx, w, s.Config, s.Servers); err != nil {
+		return nil, err
+	}
 	configJSON, err := json.Marshal(s.Config)
 	if err != nil {
 		return nil, fmt.Errorf("marshal mcp set config: %w", err)
@@ -203,12 +262,12 @@ func (p *Postgres) UpdateMCPSet(ctx context.Context, id string, s service.MCPSet
 			"updated_at":  now,
 			"updated_by":  s.UpdatedBy,
 		},
-	).Where(goqu.I("id").Eq(id)).ToSQL()
+	).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build update mcp set query: %w", err)
 	}
 
-	res, err := p.db.ExecContext(ctx, query)
+	res, err := w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("update mcp set %q: %w", id, err)
 	}
@@ -220,24 +279,32 @@ func (p *Postgres) UpdateMCPSet(ctx context.Context, id string, s service.MCPSet
 	if affected == 0 {
 		return nil, nil
 	}
+	if err = w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit MCP set update: %w", err)
+	}
 
 	return p.GetMCPSet(ctx, id)
 }
 
 func (p *Postgres) DeleteMCPSet(ctx context.Context, id string) error {
+	w, err := p.beginBusinessWrite(ctx, p.tableMCPSets, "mcp.write", id)
+	if err != nil {
+		return err
+	}
+	defer w.tx.Rollback()
 	query, _, err := p.goqu.Delete(p.tableMCPSets).
-		Where(goqu.I("id").Eq(id)).
+		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return fmt.Errorf("build delete mcp set query: %w", err)
 	}
 
-	_, err = p.db.ExecContext(ctx, query)
+	_, err = w.tx.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete mcp set %q: %w", id, err)
 	}
 
-	return nil
+	return w.tx.Commit()
 }
 
 func mcpSetRowToRecord(row mcpSetRow) (*service.MCPSet, error) {
@@ -270,6 +337,7 @@ func mcpSetRowToRecord(row mcpSetRow) (*service.MCPSet, error) {
 	}
 
 	return &service.MCPSet{
+		WorkspaceID: row.WorkspaceID,
 		ID:          row.ID,
 		Name:        row.Name,
 		Description: row.Description,

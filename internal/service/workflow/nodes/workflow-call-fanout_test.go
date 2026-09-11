@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 	"github.com/rakunlabs/at/internal/service/workflow"
 )
 
@@ -17,6 +18,7 @@ type childDependencyNode struct {
 }
 
 func init() {
+	service.RegisterExecutionCapability("node", childDependencyNodeType, false)
 	workflow.RegisterNodeType(childDependencyNodeType, func(node service.WorkflowNode) (workflow.Noder, error) {
 		calls, _ := node.Data["calls"].(*atomic.Int32)
 		return &childDependencyNode{calls: calls}, nil
@@ -103,7 +105,7 @@ func TestWorkflowCallInsideFanOutExecutesChildWithInheritedDependencies(t *testi
 		},
 	}
 
-	result, err := engine.Run(context.Background(), graph, map[string]any{
+	result, err := engine.Run(executiontest.Context(t), graph, map[string]any{
 		"items": []any{map[string]any{"value": "a"}, map[string]any{"value": "b"}},
 	}, []string{"input"}, nil)
 	if err != nil {

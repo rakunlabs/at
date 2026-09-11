@@ -194,6 +194,10 @@ func (n *agentCallNode) Validate(_ context.Context, reg *workflow.Registry) erro
 }
 
 func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs map[string]any) (workflow.NodeResult, error) {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "node", Name: "agent_call"}); err != nil {
+		return nil, err
+	}
+	reg = workflow.NewRegistryWithDependencies(workflow.ScopeDependencies(ctx, *reg.Dependencies), reg.RunInputs)
 	// 1. Load Agent preset if configured.
 	var preset *service.Agent
 	if n.agentID != "" {
@@ -310,7 +314,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 
 	// 1. MCP tools
 	for _, url := range uniqueMCPs {
-		client, err := service.NewHTTPMCPClient(ctx, url)
+		client, err := service.NewExecutionHTTPMCPClient(ctx, url)
 		if err != nil {
 			logi.Ctx(ctx).Warn("agent_call: failed to connect to MCP server, skipping",
 				"url", url, "error", err)
@@ -384,6 +388,9 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 			enabledSet[name] = true
 		}
 		for _, def := range reg.BuiltinToolDefs {
+			if service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: def.Name}) != nil {
+				continue
+			}
 			if !enabledSet[def.Name] {
 				continue
 			}
@@ -757,6 +764,11 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					}
 				}
 				// Build per-tool VarLookup / VarLister that maps provider-scoped
+				if err := workflow.AuthorizeToolHandler(ctx, tc.Name, hi.handlerType, hi.skillID, hi.handler); err != nil {
+					_, block := agentloop.ToolResult(reg.LoopGov, toolResultRunID, tc, "Error: execution authority denied")
+					toolResults = append(toolResults, block)
+					continue
+				}
 				// keys (e.g. "youtube_refresh_token") to the agent's bound
 				// Connection, falling back to the registry's global lookup.
 				// Per-skill overrides on the owning SkillRef take priority.
@@ -774,8 +786,8 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 						preset.Config.Connections, perSkill,
 					)
 					if len(bindings) > 0 {
-						toolVarLookup = workflow.WrapVarLookupWithConnections(reg.VarLookup, bindings)
-						toolVarLister = workflow.WrapVarListerWithConnections(reg.VarLister, bindings)
+						toolVarLookup = workflow.WrapVarLookupWithConnectionsContext(ctx, reg.VarLookup, bindings)
+						toolVarLister = workflow.WrapVarListerWithConnectionsContext(ctx, reg.VarLister, bindings)
 					}
 				}
 
@@ -841,6 +853,7 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 					// VarLookup so that provider-scoped keys resolve through
 					// the agent's connection bindings before global variables.
 					result, callErr = workflow.ExecuteJSHandlerWithOptions(hi.handler, tc.Arguments, workflow.JSHandlerOptions{
+						Context:        ctx,
 						VarLookup:      toolVarLookup,
 						UserPrefLookup: reg.UserPrefLookup,
 					})

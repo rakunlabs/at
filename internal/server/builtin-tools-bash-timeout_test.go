@@ -6,6 +6,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/rakunlabs/at/internal/service/executiontest"
 	"time"
 )
 
@@ -62,7 +64,7 @@ func TestResolveBashTimeout(t *testing.T) {
 
 func TestExecBashTimeoutValidation(t *testing.T) {
 	s := &Server{}
-	_, err := s.execBash(context.Background(), map[string]any{"command": "exit 0", "timeout_seconds": float64(3600)})
+	_, err := s.execBash(executiontest.Context(t), map[string]any{"command": "exit 0", "timeout_seconds": float64(3600)})
 	if err == nil || !strings.Contains(err.Error(), "use timeout in seconds") {
 		t.Fatalf("expected actionable timeout_seconds error, got %v", err)
 	}

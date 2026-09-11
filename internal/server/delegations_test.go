@@ -93,9 +93,10 @@ func TestDelegationCleanupDoesNotDeleteNewerRegistration(t *testing.T) {
 }
 
 func TestStartDelegationRunPersistsFailureBeforeCallback(t *testing.T) {
-	task := service.Task{ID: "task-1", Status: service.TaskStatusOpen}
+	task := service.Task{ID: "task-1", Status: service.TaskStatusTodo}
 	taskStore := &mockTaskStoreForDelegation{tasks: []service.Task{task}}
 	s := &Server{ctx: context.Background(), taskStore: taskStore}
+	installRuntimeFixture(t, s)
 	org := &service.Organization{ID: "org-1"}
 
 	type completion struct {
@@ -142,7 +143,7 @@ func TestProcessTaskRejectsDuplicateDelegation(t *testing.T) {
 		ID:              "task-1",
 		OrganizationID:  "org-1",
 		AssignedAgentID: "agent-1",
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 	}
 	org := &service.Organization{ID: "org-1", HeadAgentID: "agent-1"}
 	s := &Server{
@@ -180,7 +181,7 @@ func TestExecTaskProcessRejectsDuplicateDelegation(t *testing.T) {
 		ID:              "task-1",
 		OrganizationID:  "org-1",
 		AssignedAgentID: "agent-1",
-		Status:          service.TaskStatusOpen,
+		Status:          service.TaskStatusTodo,
 	}
 	org := &service.Organization{ID: "org-1", HeadAgentID: "agent-1"}
 	s := &Server{
@@ -252,7 +253,7 @@ func TestResumeBotTaskRejectsDuplicateBeforeStatusReset(t *testing.T) {
 	}
 	defer cleanup()
 
-	err = s.resumeBotTask(context.Background(), &task)
+	err = s.resumeBotTask(installRuntimeFixture(t, s), &task)
 	if !errors.Is(err, errDelegationAlreadyRunning) {
 		t.Fatalf("resumeBotTask error = %v, want duplicate delegation", err)
 	}
@@ -266,7 +267,7 @@ func TestResumeBotTaskRejectsDuplicateBeforeStatusReset(t *testing.T) {
 }
 
 func TestRunOrgDelegationRejectsRegistrationOwnedByAnotherContext(t *testing.T) {
-	task := service.Task{ID: "task-1", OrganizationID: "org-1", Status: service.TaskStatusOpen}
+	task := service.Task{ID: "task-1", OrganizationID: "org-1", Status: service.TaskStatusTodo}
 	org := &service.Organization{ID: "org-1", HeadAgentID: "agent-1", MaxDelegationDepth: 1}
 	taskStore := &mockTaskStoreForDelegation{tasks: []service.Task{task}}
 	s := &Server{
@@ -280,7 +281,7 @@ func TestRunOrgDelegationRejectsRegistrationOwnedByAnotherContext(t *testing.T) 
 	}
 	defer cleanup()
 
-	err = s.runOrgDelegation(context.Background(), org, &task, org.HeadAgentID, 1)
+	err = s.runOrgDelegation(installRuntimeFixture(t, s), org, &task, org.HeadAgentID, 1)
 	if !errors.Is(err, errDelegationAlreadyRunning) {
 		t.Fatalf("runOrgDelegation error = %v, want duplicate delegation", err)
 	}
@@ -288,7 +289,7 @@ func TestRunOrgDelegationRejectsRegistrationOwnedByAnotherContext(t *testing.T) 
 	if getErr != nil || stored == nil {
 		t.Fatalf("get task after recursive duplicate: task=%v error=%v", stored, getErr)
 	}
-	if stored.Status != service.TaskStatusOpen {
+	if stored.Status != service.TaskStatusTodo {
 		t.Fatalf("recursive duplicate mutated task status to %q", stored.Status)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 // TestTwoAgentsTwoConnections exercises the complete resolution flow that
@@ -59,7 +60,7 @@ func TestTwoAgentsTwoConnections(t *testing.T) {
 	agentA := map[string]string{"youtube": connMain.ID}
 	agentB := map[string]string{"youtube": connClientB.ID}
 
-	ctx := context.Background()
+	ctx := executiontest.Context(t)
 
 	bindingsA := ResolveAgentConnectionBindings(ctx, lookup, agentA, nil)
 	bindingsB := ResolveAgentConnectionBindings(ctx, lookup, agentB, nil)
@@ -116,7 +117,7 @@ func TestSharedConnection(t *testing.T) {
 	agentA := map[string]string{"youtube": shared.ID}
 	agentB := map[string]string{"youtube": shared.ID}
 
-	ctx := context.Background()
+	ctx := executiontest.Context(t)
 	lookupA := WrapVarLookupWithConnections(baseLookup,
 		ResolveAgentConnectionBindings(ctx, lookup, agentA, nil))
 	lookupB := WrapVarLookupWithConnections(baseLookup,
@@ -167,7 +168,7 @@ func TestPerSkillOverride(t *testing.T) {
 
 	agentConns := map[string]string{"youtube": connDefault.ID}
 
-	ctx := context.Background()
+	ctx := executiontest.Context(t)
 
 	// Tool owned by a skill with NO override:
 	noOverride := WrapVarLookupWithConnections(base,

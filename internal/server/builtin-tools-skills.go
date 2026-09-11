@@ -418,7 +418,7 @@ func (s *Server) execSkillTestHandler(ctx context.Context, args map[string]any) 
 				return v.Value, nil
 			}
 		}
-		result, execErr = workflow.ExecuteJSHandler(handler, arguments, varLookup)
+		result, execErr = workflow.ExecuteJSHandlerContext(ctx, handler, arguments, varLookup)
 	}
 
 	resp := map[string]any{
