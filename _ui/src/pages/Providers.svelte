@@ -1485,6 +1485,10 @@
   }
 
   async function handleDiscoverEmbeddingModels() {
+    if (formAuthType === 'chatgpt') {
+      addToast('ChatGPT/Codex does not support embeddings. Use a separate OpenAI provider with an API key.', 'warn');
+      return;
+    }
     if (!formType) {
       addToast('Select a provider type first', 'warn');
       return;
@@ -1497,7 +1501,7 @@
 
     discoveringEmbeddingModels = true;
     try {
-      const cfg: Record<string, any> = { type: formType };
+      const cfg: Record<string, any> = { type: formType, auth_type: formAuthType };
       if (formApiKey) cfg.api_key = formApiKey;
       if (formBaseUrl) cfg.base_url = formBaseUrl;
       if (formProxy) cfg.proxy = formProxy;
@@ -2193,6 +2197,11 @@
         <div class="grid grid-cols-4 gap-3">
           <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary pt-1.5">Embedding Models</span>
           <div class="col-span-3 space-y-2">
+            {#if formAuthType === 'chatgpt'}
+              <p class="text-sm text-gray-600 dark:text-dark-text-secondary leading-6">
+                ChatGPT/Codex does not support embeddings. Add a separate OpenAI provider with an API key to use embedding models.
+              </p>
+            {:else}
             {#each formEmbeddingModels as model, i}
               <div class="flex gap-2 items-center">
                 <span class="flex-1 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono text-gray-700 dark:text-dark-text-secondary">{model}</span>
@@ -2232,6 +2241,7 @@
               </button>
             </div>
             <p class="text-xs text-gray-400 dark:text-dark-text-muted">Served via <span class="font-mono">/gateway/v1/embeddings</span> and advertised by <span class="font-mono">/gateway/v1/models</span>.</p>
+            {/if}
           </div>
         </div>
 

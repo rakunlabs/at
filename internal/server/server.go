@@ -763,6 +763,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/api-tokens", s.ListAPITokensAPI)
 	apiGroup.POST("/v1/api-tokens", s.CreateAPITokenAPI)
 	apiGroup.PUT("/v1/api-tokens/{id}", s.UpdateAPITokenAPI)
+	apiGroup.PUT("/v1/api-tokens/{id}/pause", s.SetAPITokenPausedAPI)
 	apiGroup.DELETE("/v1/api-tokens/{id}", s.DeleteAPITokenAPI)
 	apiGroup.GET("/v1/api-tokens/{id}/usage", s.GetTokenUsageAPI)
 	apiGroup.POST("/v1/api-tokens/{id}/usage/reset", s.ResetTokenUsageAPI)

@@ -20,6 +20,7 @@ const (
 
 // APIToken represents a bearer token stored in the database for gateway auth.
 type APIToken struct {
+	Paused               bool                   `json:"paused"`
 	WorkspaceID          string                 `json:"workspace_id"`
 	ID                   string                 `json:"id"`
 	Name                 string                 `json:"name"`
@@ -68,6 +69,11 @@ type APITokenStorer interface {
 }
 
 // ─── Token Usage Tracking ───
+
+// APITokenPauseStorer changes availability without overwriting token settings.
+type APITokenPauseStorer interface {
+	SetAPITokenPaused(ctx context.Context, id string, paused bool, updatedBy string) error
+}
 
 // APITokenManagementStorer guards human/tool management operations. Gateway
 // authentication and budget accounting use their separate credential boundary.

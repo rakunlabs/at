@@ -6,6 +6,7 @@ const api = axios.create({
 });
 
 export interface APIToken {
+  paused: boolean;
   id: string;
   name: string;
   token_prefix: string;
@@ -102,4 +103,9 @@ export async function getTokenUsage(id: string): Promise<TokenUsage[]> {
 
 export async function resetTokenUsage(id: string): Promise<void> {
   await api.post(`/api-tokens/${id}/usage/reset`);
+}
+
+export async function setTokenPaused(id: string, paused: boolean): Promise<{ paused: boolean }> {
+  const res = await api.put<{ paused: boolean }>(`/api-tokens/${id}/pause`, { paused });
+  return res.data;
 }

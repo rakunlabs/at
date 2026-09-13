@@ -1,12 +1,12 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listTokens, createToken, deleteToken, updateToken, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
+  import { listTokens, createToken, deleteToken, updateToken, setTokenPaused, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listAllTriggers, type Trigger } from '@/lib/api/triggers';
   import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
-  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw } from 'lucide-svelte';
+  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw, Pause, Play } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
   import { formatDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -18,6 +18,7 @@
   // ─── State ───
   let tokens = $state<APIToken[]>([]);
   let loading = $state(true);
+  let changingPause = $state<Record<string, boolean>>({});
   
   // Pagination
   let offset = $state(0);
@@ -265,6 +266,20 @@
       await loadTokens();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete token', 'alert');
+    }
+  }
+
+  async function togglePaused(token: APIToken) {
+    if (changingPause[token.id]) return;
+    changingPause[token.id] = true;
+    try {
+      const result = await setTokenPaused(token.id, !token.paused);
+      tokens = tokens.map((item) => item.id === token.id ? { ...item, paused: result.paused } : item);
+      addToast(result.paused ? 'Token paused. New requests will be rejected.' : 'Token resumed. Existing limits and expiry still apply.', 'info');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to change token status. Try again.', 'alert');
+    } finally {
+      changingPause[token.id] = false;
     }
   }
 
@@ -1260,7 +1275,14 @@
 
     {#snippet row(token)}
         <tr class={editingTokenId === token.id ? 'bg-red-50/30 dark:bg-red-900/10' : 'hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors'}>
-          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">{token.name}</td>
+          <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">
+            {token.name}
+            {#if token.paused}
+              <span class="mt-1 flex items-center gap-1 text-xs text-amber-800 dark:text-amber-300" title="New requests are rejected until this token is resumed.">
+                <Pause size={12} aria-hidden="true" /> Paused
+              </span>
+            {/if}
+          </td>
           <td class="px-4 py-2.5">
             <code class="text-xs font-mono text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated px-1.5 py-0.5">{token.token_prefix}...</code>
           </td>
@@ -1367,6 +1389,16 @@
                   title="View Config"
                 >
                   <FileCode size={14} />
+                </button>
+                <button
+                  onclick={() => togglePaused(token)}
+                  disabled={changingPause[token.id]}
+                  aria-label={`${token.paused ? 'Resume' : 'Pause'} token ${token.name}`}
+                  title={token.paused ? 'Resume requests with this token' : 'Pause new requests with this token'}
+                  class="inline-flex min-h-8 items-center gap-1 px-2 text-xs text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-wait"
+                >
+                  {#if token.paused}<Play size={14} aria-hidden="true" />{:else}<Pause size={14} aria-hidden="true" />{/if}
+                  {changingPause[token.id] ? 'Saving…' : token.paused ? 'Resume' : 'Pause'}
                 </button>
                 <button
                   onclick={() => startEditing(token)}

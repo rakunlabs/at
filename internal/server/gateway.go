@@ -597,6 +597,8 @@ func isJSONContentType(contentType string) bool {
 	return strings.Contains(contentType, "json")
 }
 
+const tokenPausedMessage = "token is paused; resume it in API Tokens to send requests"
+
 // authenticateRequest validates the Authorization header.
 // Returns an authResult on success, or an error message string on failure.
 // When no token store is configured, all requests are rejected — at
@@ -630,6 +632,9 @@ func (s *Server) authenticateRequest(r *http.Request) (*authResult, string) {
 		}
 
 		if token != nil {
+			if token.Paused {
+				return nil, tokenPausedMessage
+			}
 			// Check expiry.
 			if token.ExpiresAt.Valid && token.ExpiresAt.V.Time.Before(time.Now().UTC()) {
 				return nil, "token has expired"

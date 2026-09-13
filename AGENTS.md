@@ -199,6 +199,14 @@ usage access has its own ownership guard, separate from gateway accounting.
 Workspace switching preserves the current hash route and reloads it to clear
 the previous workspace's cached data.
 
+API Tokens exposes **Pause / Resume**, persisted as `tokens.paused` (migration
+50, default false). PUT `/api/v1/api-tokens/{id}/pause` accepts `{paused: bool}`
+under selected-workspace `tokens.write` admission and changes only availability
+and the update actor. Ordinary token edits preserve pause. Authentication rejects
+paused tokens before usage tracking with HTTP 401 and an actionable message;
+MCP requests presenting a paused token cannot fall back to public admission.
+Pause blocks new authenticated requests; already admitted requests/streams continue.
+
 Workspace startup selection is account-configurable under **Settings → Workspace
 → Workspace on sign-in**: Default (the shipped default), last used, or a specific
 accessible workspace. Migration 49 stores `workspace_preferences`; GET/PUT
@@ -297,6 +305,9 @@ The Codex model catalog uses `openai.CodexClientVersion`, independent of AT's
 release version. Standard OpenAI preset URLs are normalized to the Codex Responses
 endpoint for ChatGPT auth; custom relay URLs remain explicit overrides. Empty
 Codex catalogs are reported as errors rather than silently returning no models.
+ChatGPT/Codex auth does not support embeddings: embedding discovery returns an
+explicit 400 after resolving stored auth, and the Providers editor explains that
+a separate API-key OpenAI provider is required instead of offering an empty Fetch.
 
 LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
 

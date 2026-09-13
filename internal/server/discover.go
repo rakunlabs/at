@@ -133,6 +133,10 @@ func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 	if _, admitted := s.discoveryConfig(w, r, &req); !admitted {
 		return
 	}
+	if req.Config.AuthType == "chatgpt" {
+		httpResponse(w, "ChatGPT/Codex authorization does not support embeddings. Add a separate OpenAI provider with an API key to use embedding models.", http.StatusBadRequest)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()

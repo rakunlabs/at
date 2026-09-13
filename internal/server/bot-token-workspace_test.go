@@ -43,6 +43,7 @@ func TestBotAndTokenHTTPWorkspaceIsolation(t *testing.T) {
 	api.GET("/v1/api-tokens", f.s.ListAPITokensAPI)
 	api.POST("/v1/api-tokens", f.s.CreateAPITokenAPI)
 	api.PUT("/v1/api-tokens/{id}", f.s.UpdateAPITokenAPI)
+	api.PUT("/v1/api-tokens/{id}/pause", f.s.SetAPITokenPausedAPI)
 	api.DELETE("/v1/api-tokens/{id}", f.s.DeleteAPITokenAPI)
 	api.GET("/v1/api-tokens/{id}/usage", f.s.GetTokenUsageAPI)
 	api.POST("/v1/api-tokens/{id}/usage/reset", f.s.ResetTokenUsageAPI)
@@ -90,6 +91,33 @@ func TestBotAndTokenHTTPWorkspaceIsolation(t *testing.T) {
 		if strings.Contains(w.Body.String(), token.Token) {
 			t.Fatal("list leaked plaintext token")
 		}
+		for _, body := range []string{`{}`, `{"paused":null}`, `{"paused":"true"}`} {
+			if w := call(http.MethodPut, "/api-tokens/"+token.Info.ID+"/pause", workspace, body); w.Code != 400 {
+				t.Fatalf("invalid pause: %d %s", w.Code, w.Body.String())
+			}
+		}
+		for _, paused := range []bool{true, false} {
+			body, _ := json.Marshal(map[string]bool{"paused": paused})
+			if w := call(http.MethodPut, "/api-tokens/"+token.Info.ID+"/pause", workspace, string(body)); w.Code != 200 {
+				t.Fatalf("set pause: %d %s", w.Code, w.Body.String())
+			}
+			// Editing other settings must not silently resume a paused token.
+			w := call(http.MethodPut, "/api-tokens/"+token.Info.ID, workspace, `{"name":"renamed"}`)
+			var updated service.APIToken
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &updated) != nil || updated.Paused != paused {
+				t.Fatalf("update preserved pause: %d %s", w.Code, w.Body.String())
+			}
+			w = call(http.MethodGet, "/api-tokens", workspace, "")
+			if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &tokenList) != nil || len(tokenList.Data) != 1 || tokenList.Data[0].Paused != paused {
+				t.Fatalf("list pause: %d %s", w.Code, w.Body.String())
+			}
+			r := httptest.NewRequest(http.MethodGet, "/gateway/v1/models", nil)
+			r.Header.Set("Authorization", "Bearer "+token.Token)
+			auth, reason := f.s.authenticateRequest(r)
+			if paused && (auth != nil || !strings.Contains(reason, "paused")) || !paused && (auth == nil || reason != "") {
+				t.Fatalf("paused=%v auth=%v reason=%q", paused, auth, reason)
+			}
+		}
 	}
 	foreignBot, foreignToken := bots[other.ID].ID, tokens[other.ID].ID
 	running, cancel := context.WithCancel(t.Context())
@@ -104,6 +132,7 @@ func TestBotAndTokenHTTPWorkspaceIsolation(t *testing.T) {
 		{http.MethodPost, "/bots/" + foreignBot + "/start", ""},
 		{http.MethodPost, "/bots/" + foreignBot + "/stop", ""},
 		{http.MethodPut, "/api-tokens/" + foreignToken, `{"name":"changed"}`},
+		{http.MethodPut, "/api-tokens/" + foreignToken + "/pause", `{"paused":true}`},
 		{http.MethodDelete, "/api-tokens/" + foreignToken, ""},
 		{http.MethodGet, "/api-tokens/" + foreignToken + "/usage", ""},
 		{http.MethodPost, "/api-tokens/" + foreignToken + "/usage/reset", ""},

@@ -30,6 +30,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/api-tokens", "tokens.read", "", ""},
 		{"POST", "/api-tokens", "tokens.write", "", ""},
 		{"PUT", "/api-tokens/{id}", "tokens.write", "tokens", "id"},
+		{"PUT", "/api-tokens/{id}/pause", "tokens.write", "tokens", "id"},
 		{"DELETE", "/api-tokens/{id}", "tokens.write", "tokens", "id"},
 		{"GET", "/api-tokens/{id}/usage", "tokens.read", "tokens", "id"},
 		{"POST", "/api-tokens/{id}/usage/reset", "tokens.write", "tokens", "id"},

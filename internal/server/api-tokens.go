@@ -294,6 +294,32 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, updated, http.StatusOK)
 }
 
+// SetAPITokenPausedAPI changes token availability without changing its settings.
+func (s *Server) SetAPITokenPausedAPI(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.tokenStore.(service.APITokenPauseStorer)
+	if !ok {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "token id is required", http.StatusBadRequest)
+		return
+	}
+	var req struct {
+		Paused *bool `json:"paused"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Paused == nil {
+		httpResponse(w, "paused must be a boolean", http.StatusBadRequest)
+		return
+	}
+	if err := store.SetAPITokenPaused(r.Context(), id, *req.Paused, s.getUserEmail(r)); err != nil {
+		workspaceError(w, err)
+		return
+	}
+	httpResponseJSON(w, map[string]bool{"paused": *req.Paused}, http.StatusOK)
+}
+
 // GetTokenUsageAPI handles GET /api/v1/api-tokens/:id/usage.
 func (s *Server) GetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
 	if s.tokenUsageStore == nil {

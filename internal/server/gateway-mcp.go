@@ -117,6 +117,10 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 	}
 
 	auth, errMsg := s.authenticateRequest(r)
+	if errMsg == tokenPausedMessage {
+		httpResponse(w, errMsg, http.StatusUnauthorized)
+		return nil, false
+	}
 
 	var mcpSrv *service.MCPServer
 	var err error
