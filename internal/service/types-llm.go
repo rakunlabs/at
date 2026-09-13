@@ -120,8 +120,8 @@ type ChatOptions struct {
 	// (inverted). Gemini accepts it via toolConfig (best-effort).
 	ParallelToolCalls *bool
 
-	// N is the number of completions to generate. OpenAI/Vertex passthrough
-	// only; non-OpenAI providers always return 1.
+	// N is the requested choice count. Only 1 is representable by the current
+	// provider response contract; adapters reject other values before inference.
 	N *int
 
 	// PresencePenalty (−2.0..2.0). OpenAI/Vertex passthrough.

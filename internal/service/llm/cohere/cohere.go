@@ -205,6 +205,9 @@ type contentBlock struct {
 
 // Chat implements service.LLMProvider.
 func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, err
+	}
 	if model == "" {
 		model = p.model
 	}
@@ -237,7 +240,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		ct := chatTool{Type: "function"}
 		ct.Function.Name = t.Name
 		ct.Function.Description = t.Description
-		ct.Function.Parameters = service.SanitizeSchema(t.InputSchema)
+		ct.Function.Parameters = service.CopyJSONSchema(t.InputSchema)
 		body.Tools = append(body.Tools, ct)
 	}
 
@@ -295,8 +298,13 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		}
 	}
 	for _, tc := range parsed.Message.ToolCalls {
-		var args map[string]any
-		_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+		if parsed.FinishReason == "MAX_TOKENS" || parsed.FinishReason == "ERROR_TOXIC" {
+			break
+		}
+		args, err := common.ParseToolArguments(tc.Function.Arguments)
+		if err != nil {
+			return nil, fmt.Errorf("decode Cohere tool arguments: %w", err)
+		}
 		out.ToolCalls = append(out.ToolCalls, service.ToolCall{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
@@ -351,19 +359,33 @@ func cohereErrorField(value any) string {
 func translateMessagesToCohere(messages []service.Message) []chatMessage {
 	out := make([]chatMessage, 0, len(messages))
 	for _, m := range messages {
+		if blocks, ok := m.Content.([]service.ContentBlock); ok {
+			for _, converted := range common.ConvertContentBlocksToOpenAI(m.Role, blocks) {
+				role, _ := converted["role"].(string)
+				out = append(out, translateMessagesToCohere([]service.Message{{Role: role, Content: converted}})...)
+			}
+			continue
+		}
 		cm := chatMessage{Role: m.Role}
+		if cm.Role == "developer" {
+			cm.Role = "system"
+		}
 		switch c := m.Content.(type) {
 		case string:
 			cm.Content = c
 		case map[string]any:
 			// Gateway passthrough — OpenAI-shape.
-			if txt, ok := c["content"].(string); ok {
-				cm.Content = txt
-			}
+			cm.Content = c["content"]
 			if tcID, ok := c["tool_call_id"].(string); ok {
 				cm.ToolCallID = tcID
 			}
-			if raw, ok := c["tool_calls"].([]any); ok {
+			raw, _ := c["tool_calls"].([]any)
+			if maps, ok := c["tool_calls"].([]map[string]any); ok {
+				for _, tc := range maps {
+					raw = append(raw, tc)
+				}
+			}
+			if len(raw) > 0 {
 				for _, x := range raw {
 					tcMap, ok := x.(map[string]any)
 					if !ok {
@@ -573,7 +595,7 @@ func (p *Provider) Rerank(ctx context.Context, req service.RerankRequest) (*serv
 		}
 		if r.Document != nil {
 			entry.Document = r.Document.Text
-		} else if req.ReturnDocuments != nil && *req.ReturnDocuments && r.Index < len(req.Documents) {
+		} else if req.ReturnDocuments != nil && *req.ReturnDocuments && r.Index >= 0 && r.Index < len(req.Documents) {
 			entry.Document = req.Documents[r.Index]
 		}
 		out.Results = append(out.Results, entry)
@@ -598,7 +620,7 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 		return err
 	}
 	for k, v := range r.Header {
-		if strings.EqualFold(k, "authorization") || strings.EqualFold(k, "host") {
+		if strings.EqualFold(k, "authorization") || strings.EqualFold(k, "host") || strings.EqualFold(k, "cookie") {
 			continue
 		}
 		req.Header[k] = v

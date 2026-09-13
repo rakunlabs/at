@@ -63,6 +63,7 @@ type Tool struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
+	Strict      *bool          `json:"strict,omitempty"`
 	Handler     string         `json:"handler,omitempty"`      // function body for skill/inline tools
 	HandlerType string         `json:"handler_type,omitempty"` // "js" (default) or "bash"
 }

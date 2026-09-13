@@ -1,5 +1,17 @@
 package service
 
+import "strings"
+
+// CopyJSONSchema preserves full JSON Schema semantics for native schema
+// providers. Restrictive Gemini filtering must not remove $refs, required
+// properties or validation constraints from OpenAI/Anthropic tool definitions.
+func CopyJSONSchema(schema map[string]any) map[string]any {
+	if schema == nil {
+		return map[string]any{"type": "object", "properties": map[string]any{}}
+	}
+	return deepCopyValue(schema).(map[string]any)
+}
+
 // SanitizeSchema returns a deep copy of the given JSON Schema map with fields
 // removed that are not supported by restrictive provider APIs (e.g. Google Gemini).
 //
@@ -181,7 +193,55 @@ func SanitizeSchemaForGemini(schema map[string]any) map[string]any {
 	if schema == nil {
 		return nil
 	}
-	return sanitizeGeminiMap(schema)
+	return sanitizeGeminiMap(expandLocalSchemaRefs(schema, schema, map[string]bool{}, 0).(map[string]any))
+}
+
+// Inline acyclic local references before Gemini's schema subset removes $defs
+// and $ref. Otherwise an entire referenced tool argument silently disappears.
+// Recursive/external references cannot be represented by this schema subset;
+// do not fetch external schemas or recurse indefinitely.
+func expandLocalSchemaRefs(value any, root map[string]any, visiting map[string]bool, depth int) any {
+	if depth > 64 {
+		return deepCopyValue(value)
+	}
+	switch v := value.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(v))
+		if ref, ok := v["$ref"].(string); ok && strings.HasPrefix(ref, "#/") && !visiting[ref] {
+			var target any = root
+			for _, key := range strings.Split(ref[2:], "/") {
+				key = strings.ReplaceAll(strings.ReplaceAll(key, "~1", "/"), "~0", "~")
+				if m, ok := target.(map[string]any); ok {
+					target = m[key]
+				} else {
+					target = nil
+					break
+				}
+			}
+			if resolved, ok := target.(map[string]any); ok {
+				visiting[ref] = true
+				out = expandLocalSchemaRefs(resolved, root, visiting, depth+1).(map[string]any)
+				delete(visiting, ref)
+			}
+		}
+		for key, child := range v {
+			switch key {
+			case "default", "enum", "examples", "$defs", "definitions":
+				out[key] = deepCopyValue(child)
+			default:
+				out[key] = expandLocalSchemaRefs(child, root, visiting, depth+1)
+			}
+		}
+		return out
+	case []any:
+		out := make([]any, len(v))
+		for i, child := range v {
+			out[i] = expandLocalSchemaRefs(child, root, visiting, depth+1)
+		}
+		return out
+	default:
+		return deepCopyValue(value)
+	}
 }
 
 // geminiAllowedKeys is the set of JSON Schema keywords Gemini's Schema type
@@ -423,6 +483,14 @@ func deepCopyValue(v any) any {
 		cp := make([]any, len(val))
 		for i, x := range val {
 			cp[i] = deepCopyValue(x)
+		}
+		return cp
+	case []string:
+		return append([]string(nil), val...)
+	case []map[string]any:
+		cp := make([]map[string]any, len(val))
+		for i, x := range val {
+			cp[i] = deepCopyValue(x).(map[string]any)
 		}
 		return cp
 	default:

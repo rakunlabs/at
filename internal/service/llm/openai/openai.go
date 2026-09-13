@@ -73,7 +73,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 		headers["Authorization"] = []string{"Bearer " + apiKey}
 	}
 	for k, v := range extraHeaders {
-		headers[k] = []string{v}
+		headers.Set(k, v)
 	}
 
 	clientOpts := []ok.OptionClientFn{
@@ -214,6 +214,9 @@ type FunctionCall struct {
 }
 
 func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, err
+	}
 	if model == "" {
 		model = p.Model
 	}
@@ -338,8 +341,11 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 
 	for _, tc := range choice.Message.ToolCalls {
-		var args map[string]any
-		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+		if choice.FinishReason == "length" || choice.FinishReason == "content_filter" {
+			break // incomplete calls must never be executed
+		}
+		args, err := parseToolArguments(tc.Function.Arguments)
+		if err != nil {
 			return nil, fmt.Errorf("failed to parse tool call arguments: %w", err)
 		}
 
@@ -376,6 +382,9 @@ type streamResponse struct {
 
 // ChatStream implements service.LLMStreamProvider for true SSE streaming.
 func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, nil, err
+	}
 	if model == "" {
 		model = p.Model
 	}
@@ -481,17 +490,18 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 		var toolOrder []int
 		toolsByIndex := map[int]*toolAccum{}
+		finished := false
 
-		flushToolCalls := func() []service.ToolCall {
+		flushToolCalls := func() ([]service.ToolCall, error) {
 			if len(toolOrder) == 0 {
-				return nil
+				return nil, nil
 			}
 			out := make([]service.ToolCall, 0, len(toolOrder))
 			for _, idx := range toolOrder {
 				t := toolsByIndex[idx]
-				args := map[string]any{}
-				if s := t.arguments.String(); s != "" {
-					_ = json.Unmarshal([]byte(s), &args)
+				args, err := parseToolArguments(t.arguments.String())
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse tool call %q arguments: %w", t.name, err)
 				}
 				out = append(out, service.ToolCall{
 					ID:        t.id,
@@ -502,7 +512,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			// Reset so a second tool-call burst in the same stream starts clean.
 			toolOrder = toolOrder[:0]
 			toolsByIndex = map[int]*toolAccum{}
-			return out
+			return out, nil
 		}
 
 		scanner := bufio.NewScanner(resp.Body)
@@ -516,15 +526,17 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			}
 
 			// SSE data lines
-			if !strings.HasPrefix(line, "data: ") {
+			if !strings.HasPrefix(line, "data:") {
 				continue
 			}
 
-			data := strings.TrimPrefix(line, "data: ")
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 
 			// End of stream
 			if data == "[DONE]" {
-				if tcs := flushToolCalls(); len(tcs) > 0 {
+				if tcs, err := flushToolCalls(); err != nil {
+					ch <- service.StreamChunk{Error: err}
+				} else if len(tcs) > 0 {
 					ch <- service.StreamChunk{ToolCalls: tcs}
 				}
 				return
@@ -541,14 +553,14 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				return
 			}
 
-			// OpenAI sends a final chunk with empty choices but populated
-			// usage when stream_options.include_usage is set. Capture it.
-			if len(sr.Choices) == 0 {
-				if sr.Usage != nil {
-					ch <- service.StreamChunk{
-						Usage: usagePtr(openAIServiceUsage(sr.Usage)),
-					}
+			// Some compatible providers attach usage to the final choice rather
+			// than a separate empty-choices event. Account for either shape.
+			if sr.Usage != nil {
+				ch <- service.StreamChunk{
+					Usage: usagePtr(openAIServiceUsage(sr.Usage)),
 				}
+			}
+			if len(sr.Choices) == 0 {
 				continue
 			}
 
@@ -586,9 +598,19 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			if choice.FinishReason != nil {
 				chunk.FinishReason = *choice.FinishReason
+				finished = chunk.FinishReason != ""
+				if chunk.FinishReason == "length" || chunk.FinishReason == "content_filter" {
+					// Preserve the upstream stop reason so callers can recover, but
+					// do not turn incomplete tool JSON into an executable call.
+					toolOrder = nil
+					toolsByIndex = map[int]*toolAccum{}
+				}
 				// Flush accumulated tool calls alongside the finish signal
 				// so downstream code sees them before/with the terminator.
-				if tcs := flushToolCalls(); len(tcs) > 0 {
+				if tcs, err := flushToolCalls(); err != nil {
+					ch <- service.StreamChunk{Error: err}
+					return
+				} else if len(tcs) > 0 {
 					chunk.ToolCalls = tcs
 				}
 			}
@@ -607,14 +629,18 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			return
 		}
 
-		// Scanner exited cleanly without a [DONE] marker — flush any
-		// tool calls we accumulated so they aren't silently dropped.
-		if tcs := flushToolCalls(); len(tcs) > 0 {
-			ch <- service.StreamChunk{ToolCalls: tcs}
+		if !finished {
+			ch <- service.StreamChunk{Error: fmt.Errorf("OpenAI stream closed before finish_reason: %w", io.ErrUnexpectedEOF)}
 		}
 	}()
 
-	return ch, resp.Header, nil
+	return common.StreamWithContext(ctx, ch, resp.Body), resp.Header, nil
+}
+
+// Tool calls must contain a JSON object. Empty arguments are accepted for
+// no-argument tools, while null, arrays and partial JSON are rejected.
+func parseToolArguments(raw string) (map[string]any, error) {
+	return common.ParseToolArguments(raw)
 }
 
 func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {
@@ -663,21 +689,30 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	}
 	defer release()
 
+	// Resolve credentials before forwarding. A refresh failure must never
+	// forward the caller's AT bearer token to the upstream provider.
+	authToken := p.APIKey
+	if p.tokenSource != nil {
+		authToken, err = p.tokenSource.Token(r.Context())
+		if err != nil {
+			return fmt.Errorf("get proxy auth token: %w", err)
+		}
+		if authToken == "" {
+			return fmt.Errorf("proxy auth token is empty")
+		}
+	}
+	r = r.Clone(r.Context())
+	r.Header.Del("Authorization")
+	r.Header.Del("Cookie")
+	r.Header.Del("Api-Key")
+	r.Header.Del("X-Api-Key")
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL = targetURL
 			req.Host = targetURL.Host
 
-			// Auth
-			if p.tokenSource != nil {
-				token, err := p.tokenSource.Token(req.Context())
-				if err != nil {
-					slog.Error("failed to get auth token in proxy", "error", err)
-				} else {
-					req.Header.Set("Authorization", "Bearer "+token)
-				}
-			} else if p.APIKey != "" {
-				req.Header.Set("Authorization", "Bearer "+p.APIKey)
+			if authToken != "" {
+				req.Header.Set("Authorization", "Bearer "+authToken)
 			}
 		},
 		Transport: p.client.HTTP.Transport,
@@ -708,8 +743,11 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 			"function": map[string]any{
 				"name":        tool.Name,
 				"description": tool.Description,
-				"parameters":  service.SanitizeSchema(tool.InputSchema),
+				"parameters":  service.CopyJSONSchema(tool.InputSchema),
 			},
+		}
+		if tool.Strict != nil {
+			openaiTools[i]["function"].(map[string]any)["strict"] = *tool.Strict
 		}
 	}
 

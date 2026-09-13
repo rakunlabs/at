@@ -167,6 +167,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			opts = append(opts, antropic.WithPromptCachingDisabled(true))
 		}
 
+		opts = append(opts, antropic.WithExtraHeaders(cfg.ExtraHeaders))
 		return antropic.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
 	case "openai":
 		var opts []openai.Option

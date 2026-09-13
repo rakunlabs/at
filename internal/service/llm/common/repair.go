@@ -50,15 +50,38 @@ func RepairOpenAIToolPairs(messages []any) []any {
 		}
 	}
 
+	// A matching ID elsewhere in history is insufficient: results must be in
+	// the contiguous tool-message run immediately following their assistant.
+	adjacentIDs := make(map[string]struct{})
+	for i, raw := range messages {
+		assistant, ok := raw.(map[string]any)
+		if !ok || assistant["role"] != "assistant" {
+			continue
+		}
+		expected := make(map[string]bool)
+		for _, id := range extractToolCallIDs(assistant) {
+			expected[id] = true
+		}
+		for j := i + 1; j < len(messages); j++ {
+			result, ok := messages[j].(map[string]any)
+			if !ok || result["role"] != "tool" {
+				break
+			}
+			if id, ok := result["tool_call_id"].(string); ok && expected[id] {
+				adjacentIDs[id] = struct{}{}
+			}
+		}
+	}
+
 	orphanCalls := make(map[string]struct{})
 	for id := range callIDs {
-		if _, ok := resultIDs[id]; !ok {
+		if _, ok := adjacentIDs[id]; !ok {
 			orphanCalls[id] = struct{}{}
 		}
 	}
 	orphanResults := make(map[string]struct{})
 	for id := range resultIDs {
-		if _, ok := callIDs[id]; !ok {
+		if _, ok := adjacentIDs[id]; !ok {
 			orphanResults[id] = struct{}{}
 		}
 	}

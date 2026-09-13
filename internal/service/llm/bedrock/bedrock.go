@@ -38,6 +38,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -79,13 +80,9 @@ func WithRateLimiter(l *ratelimit.Limiter) Option {
 // endpoint URL — we derive the region from it.
 func New(apiKey, model, baseURL string, proxyURL string, insecureSkipVerify bool, opts ...Option) (*Provider, error) {
 	access, secret, session := splitAPIKey(apiKey)
-	if access == "" {
+	if apiKey == "" {
 		access = os.Getenv("AWS_ACCESS_KEY_ID")
-	}
-	if secret == "" {
 		secret = os.Getenv("AWS_SECRET_ACCESS_KEY")
-	}
-	if session == "" {
 		session = os.Getenv("AWS_SESSION_TOKEN")
 	}
 	if access == "" || secret == "" {
@@ -100,9 +97,9 @@ func New(apiKey, model, baseURL string, proxyURL string, insecureSkipVerify bool
 	if endpoint != "" {
 		if parsed, perr := url.Parse(endpoint); perr == nil && parsed.Host != "" {
 			// Endpoints look like bedrock-runtime.<region>.amazonaws.com
-			if h := parsed.Host; strings.Contains(h, ".") {
+			if h := parsed.Hostname(); (strings.HasPrefix(h, "bedrock-runtime.") || strings.HasPrefix(h, "bedrock-runtime-fips.")) && (strings.HasSuffix(h, ".amazonaws.com") || strings.HasSuffix(h, ".amazonaws.com.cn")) {
 				parts := strings.Split(h, ".")
-				if len(parts) >= 3 && region == "" {
+				if len(parts) >= 3 {
 					region = parts[1]
 				}
 			}
@@ -156,7 +153,7 @@ func splitAPIKey(s string) (access, secret, session string) {
 	if s == "" {
 		return "", "", ""
 	}
-	parts := strings.Split(s, ":")
+	parts := strings.SplitN(s, ":", 3)
 	if len(parts) < 2 {
 		return "", "", ""
 	}
@@ -189,6 +186,7 @@ type converseContentB struct {
 	ToolUse    *converseToolUse    `json:"toolUse,omitempty"`
 	ToolResult *converseToolResult `json:"toolResult,omitempty"`
 	Image      *converseImage      `json:"image,omitempty"`
+	Document   *converseDocument   `json:"document,omitempty"`
 }
 
 type converseSystemBlock struct {
@@ -237,8 +235,14 @@ type converseToolResult struct {
 }
 
 type converseToolResultBlk struct {
-	Text string `json:"text,omitempty"`
-	JSON any    `json:"json,omitempty"`
+	Text *string `json:"text,omitempty"`
+	JSON any     `json:"json,omitempty"`
+}
+
+type converseDocument struct {
+	Format string               `json:"format"`
+	Name   string               `json:"name"`
+	Source converseImageSourceB `json:"source"`
 }
 
 type converseImage struct {
@@ -276,6 +280,9 @@ type converseResponse struct {
 
 // Chat implements service.LLMProvider.
 func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, err
+	}
 	if model == "" {
 		model = p.model
 	}
@@ -293,6 +300,19 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal bedrock request: %w", err)
+	}
+	if opts != nil && len(opts.ExtraBody) > 0 {
+		var wire map[string]any
+		if err := json.Unmarshal(bodyBytes, &wire); err != nil {
+			return nil, fmt.Errorf("decode bedrock request: %w", err)
+		}
+		for k, v := range opts.ExtraBody {
+			wire[k] = v
+		}
+		bodyBytes, err = json.Marshal(wire)
+		if err != nil {
+			return nil, fmt.Errorf("marshal bedrock extra body: %w", err)
+		}
 	}
 
 	// Path: /model/{modelId}/converse
@@ -398,7 +418,7 @@ func (p *Provider) buildConverseRequest(messages []service.Message, tools []serv
 
 	for _, msg := range messages {
 		switch msg.Role {
-		case "system":
+		case "system", "developer":
 			if s, ok := msg.Content.(string); ok && s != "" {
 				out.System = append(out.System, converseSystemBlock{Text: s})
 			}
@@ -440,9 +460,6 @@ func (p *Provider) buildConverseRequest(messages []service.Message, tools []serv
 		if hasIC {
 			out.InferenceConfig = ic
 		}
-		if len(opts.ExtraBody) > 0 {
-			out.AdditionalFields = opts.ExtraBody
-		}
 	}
 
 	// Tools. The Converse API has no "none" tool choice — emulate it by
@@ -454,7 +471,7 @@ func (p *Provider) buildConverseRequest(messages []service.Message, tools []serv
 				ToolSpec: &converseToolSpec{
 					Name:        t.Name,
 					Description: t.Description,
-					InputSchema: map[string]any{"json": service.SanitizeSchema(t.InputSchema)},
+					InputSchema: map[string]any{"json": service.CopyJSONSchema(t.InputSchema)},
 				},
 			})
 		}
@@ -485,15 +502,19 @@ func convertContentToConverse(content any) []converseContentB {
 					out = append(out, converseContentB{Text: b.Text})
 				}
 			case "tool_use":
+				input := b.Input
+				if input == nil {
+					input = map[string]any{}
+				}
 				out = append(out, converseContentB{ToolUse: &converseToolUse{
 					ToolUseID: b.ID,
 					Name:      b.Name,
-					Input:     b.Input,
+					Input:     input,
 				}})
 			case "tool_result":
 				out = append(out, converseContentB{ToolResult: &converseToolResult{
 					ToolUseID: b.ToolUseID,
-					Content:   []converseToolResultBlk{{Text: b.Content}},
+					Content:   []converseToolResultBlk{{Text: &b.Content}},
 				}})
 			case "image":
 				if b.Source != nil && b.Source.Data != "" {
@@ -502,6 +523,11 @@ func convertContentToConverse(content any) []converseContentB {
 						Format: format,
 						Source: converseImageSourceB{Bytes: b.Source.Data},
 					}})
+				}
+			case "document":
+				if b.Source != nil && b.Source.Data != "" {
+					format := documentFormatFromMime(b.Source.MediaType)
+					out = append(out, converseContentB{Document: &converseDocument{Format: format, Name: "document", Source: converseImageSourceB{Bytes: b.Source.Data}}})
 				}
 			}
 		}
@@ -553,7 +579,7 @@ func convertContentToConverse(content any) []converseContentB {
 			text, _ := c["content"].(string)
 			out = append(out, converseContentB{ToolResult: &converseToolResult{
 				ToolUseID: tcID,
-				Content:   []converseToolResultBlk{{Text: text}},
+				Content:   []converseToolResultBlk{{Text: &text}},
 			}})
 		}
 		return out
@@ -629,6 +655,31 @@ func imageFormatFromMime(mime string) string {
 	return "png"
 }
 
+func documentFormatFromMime(mime string) string {
+	switch strings.ToLower(mime) {
+	case "application/pdf":
+		return "pdf"
+	case "text/plain":
+		return "txt"
+	case "text/csv":
+		return "csv"
+	case "text/html":
+		return "html"
+	case "text/markdown":
+		return "md"
+	case "application/msword":
+		return "doc"
+	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+		return "docx"
+	case "application/vnd.ms-excel":
+		return "xls"
+	case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+		return "xlsx"
+	default:
+		return mime // let the API reject an unsupported format, never relabel as PDF
+	}
+}
+
 // ─── SigV4 signing ───
 
 // signSigV4 attaches AWS Signature Version 4 headers to req for the
@@ -653,7 +704,11 @@ func (p *Provider) signSigV4(req *http.Request, body []byte) error {
 
 	// Canonical request
 	canonicalHeaders, signedHeaders := canonicalHeaders(req)
-	canonicalQuery := req.URL.RawQuery // already in canonical form for our use
+	query := req.URL.Query()
+	for key := range query {
+		sort.Strings(query[key])
+	}
+	canonicalQuery := strings.ReplaceAll(query.Encode(), "+", "%20")
 	canonicalRequest := strings.Join([]string{
 		req.Method,
 		req.URL.EscapedPath(),
@@ -719,7 +774,7 @@ func canonicalHeaders(req *http.Request) (string, string) {
 		case "host":
 			v = req.URL.Host
 		default:
-			v = strings.TrimSpace(req.Header.Get(n))
+			v = strings.Join(strings.Fields(req.Header.Get(n)), " ")
 		}
 		canonical.WriteString(n)
 		canonical.WriteString(":")

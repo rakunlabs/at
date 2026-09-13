@@ -43,7 +43,7 @@ func TestSplitAPIKey(t *testing.T) {
 		{"OnlyAccess", "", "", ""},
 		{"AK:SK", "AK", "SK", ""},
 		{"AK:SK:SESS", "AK", "SK", "SESS"},
-		{"AK:SK:SESS:EXTRA", "AK", "SK", "SESS"},
+		{"AK:SK:SESS:EXTRA", "AK", "SK", "SESS:EXTRA"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

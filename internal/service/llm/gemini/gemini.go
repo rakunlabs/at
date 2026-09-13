@@ -311,6 +311,9 @@ type googleError struct {
 // ─── Chat (non-streaming) ───
 
 func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, err
+	}
 	if model == "" {
 		model = p.Model
 	}
@@ -349,7 +352,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			return nil, fmt.Errorf("gemini auth: %w", terr)
 		}
 		req.Header.Set("Authorization", "Bearer "+tk)
-		req.Header.Del("x-goog-api-key")
+		req.Header["X-Goog-Api-Key"] = nil
 	}
 
 	var result generateContentResponse
@@ -420,6 +423,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 // ChatStream implements service.LLMStreamProvider using Google's
 // streamGenerateContent endpoint with alt=sse for server-sent events.
 func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, nil, err
+	}
 	if model == "" {
 		model = p.Model
 	}
@@ -472,6 +478,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			return nil, nil, fmt.Errorf("gemini auth: %w", terr)
 		}
 		req.Header.Set("Authorization", "Bearer "+tk)
+		req.Header["X-Goog-Api-Key"] = nil
 	} else if p.APIKey != "" {
 		req.Header.Set("x-goog-api-key", p.APIKey)
 	}
@@ -525,10 +532,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		// When finishReason arrives we need to know if the response contained
 		// tool calls so we can emit "tool_calls" instead of "stop".
 		hasToolCalls := false
+		var pendingToolCalls []service.ToolCall
 
 		// Track the last usage metadata seen. Gemini may include usageMetadata
 		// in multiple chunks; the last one seen has the final totals.
 		var lastUsage *service.Usage
+		finished := false
 
 		scanner := bufio.NewScanner(resp.Body)
 		scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // 10MB max line size (images can produce large SSE events)
@@ -540,11 +549,11 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				continue
 			}
 
-			if !strings.HasPrefix(line, "data: ") {
+			if !strings.HasPrefix(line, "data:") {
 				continue
 			}
 
-			data := strings.TrimPrefix(line, "data: ")
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 
 			var sr generateContentResponse
 			if err := json.Unmarshal([]byte(data), &sr); err != nil {
@@ -561,6 +570,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			if sr.UsageMetadata != nil {
 				usage := geminiServiceUsage(sr.UsageMetadata)
 				lastUsage = &usage
+				ch <- service.StreamChunk{Usage: lastUsage}
 			}
 
 			if len(sr.Candidates) == 0 {
@@ -568,6 +578,10 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			}
 
 			cand := sr.Candidates[0]
+			if cand.FinishReason == "MALFORMED_FUNCTION_CALL" {
+				ch <- service.StreamChunk{Error: fmt.Errorf("Gemini returned MALFORMED_FUNCTION_CALL")}
+				return
+			}
 			chunk := service.StreamChunk{}
 
 			if cand.Content != nil {
@@ -598,10 +612,17 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			if len(chunk.ToolCalls) > 0 {
 				hasToolCalls = true
+				pendingToolCalls = append(pendingToolCalls, chunk.ToolCalls...)
+				chunk.ToolCalls = nil
 			}
 
 			if cand.FinishReason != "" {
+				finished = true
 				chunk.FinishReason = normalizeGeminiFinishReason(cand.FinishReason, hasToolCalls)
+				if chunk.FinishReason == "tool_calls" {
+					chunk.ToolCalls = pendingToolCalls
+				}
+				pendingToolCalls = nil
 				// Attach accumulated usage to the final chunk.
 				chunk.Usage = lastUsage
 			}
@@ -611,10 +632,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 		if err := scanner.Err(); err != nil {
 			ch <- service.StreamChunk{Error: fmt.Errorf("stream read error: %w", err)}
+		} else if !finished {
+			ch <- service.StreamChunk{Error: fmt.Errorf("Gemini stream closed before finishReason: %w", io.ErrUnexpectedEOF)}
 		}
 	}()
 
-	return ch, resp.Header, nil
+	return common.StreamWithContext(ctx, ch, resp.Body), resp.Header, nil
 }
 
 func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {
@@ -639,11 +662,29 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	}
 	defer release()
 
+	var token string
+	if p.tokenSource != nil {
+		token, err = p.tokenSource.Token()
+		if err != nil {
+			return fmt.Errorf("get Gemini proxy token: %w", err)
+		}
+		if token == "" {
+			return fmt.Errorf("Gemini proxy token is empty")
+		}
+	}
+	r = r.Clone(r.Context())
+	r.Header.Del("Authorization")
+	r.Header.Del("Cookie")
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL = targetURL
 			req.Host = targetURL.Host
-			req.Header.Set("x-goog-api-key", p.APIKey)
+			if p.tokenSource != nil {
+				req.Header.Set("Authorization", "Bearer "+token)
+				req.Header["X-Goog-Api-Key"] = nil
+			} else {
+				req.Header.Set("x-goog-api-key", p.APIKey)
+			}
 		},
 		Transport: p.client.HTTP.Transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -808,6 +849,13 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 		if msg.Role != "assistant" {
 			continue
 		}
+		if blocks, ok := msg.Content.([]service.ContentBlock); ok {
+			for _, block := range blocks {
+				if block.Type == "tool_use" {
+					toolCallNames[block.ID] = block.Name
+				}
+			}
+		}
 		m, ok := msg.Content.(map[string]any)
 		if !ok {
 			continue
@@ -835,14 +883,24 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 
 	// Convert messages to Google's contents format.
 	for _, msg := range messages {
+		if blocks, ok := msg.Content.([]service.ContentBlock); ok {
+			blocks = append([]service.ContentBlock(nil), blocks...)
+			for i := range blocks {
+				if blocks[i].Type == "tool_result" && blocks[i].Name == "" {
+					blocks[i].Name = toolCallNames[blocks[i].ToolUseID]
+				}
+			}
+			msg.Content = blocks
+		}
 		switch msg.Role {
-		case "system":
+		case "system", "developer":
 			// System messages become systemInstruction.
 			text := extractText(msg.Content)
 			if text != "" {
-				req.SystemInstruction = &content{
-					Parts: []part{{Text: text}},
+				if req.SystemInstruction == nil {
+					req.SystemInstruction = &content{}
 				}
+				req.SystemInstruction.Parts = append(req.SystemInstruction.Parts, part{Text: text})
 			}
 
 		case "user":
@@ -952,6 +1010,12 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 				// OpenAI-format file block: {type:"file", file:{filename:"...", file_data:{mime_type:"...", data:"<base64>"}}}
 				file, _ := block["file"].(map[string]any)
 				if file == nil {
+					continue
+				}
+				if dataURL, ok := file["file_data"].(string); ok {
+					if mime, data := parseGeminiDataURL(dataURL); data != "" {
+						parts = append(parts, part{InlineData: &inlineData{MimeType: mime, Data: data}})
+					}
 					continue
 				}
 				fileData, _ := file["file_data"].(map[string]any)
@@ -1087,113 +1151,13 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 		return parts
 
 	case map[string]any:
-		// Single pre-built message (passthrough from gateway).
-		// Extract role/content if present.
-		if contentArr, ok := c["content"].([]any); ok {
-			// Content may be an array of content blocks (multi-part with media).
-			var parts []part
-			hasNonText := false
-			for _, item := range contentArr {
-				block, ok := item.(map[string]any)
-				if !ok {
-					continue
-				}
-				blockType, _ := block["type"].(string)
-				if blockType != "text" {
-					hasNonText = true
-					break
-				}
-			}
-			if hasNonText {
-				for _, item := range contentArr {
-					block, ok := item.(map[string]any)
-					if !ok {
-						continue
-					}
-					blockType, _ := block["type"].(string)
-					switch blockType {
-					case "text":
-						if text, ok := block["text"].(string); ok && text != "" {
-							parts = append(parts, part{Text: text})
-						}
-					case "image_url":
-						imageURL, _ := block["image_url"].(map[string]any)
-						if imageURL == nil {
-							continue
-						}
-						url, _ := imageURL["url"].(string)
-						mimeType, data := parseGeminiDataURL(url)
-						if data != "" {
-							parts = append(parts, part{
-								InlineData: &inlineData{MimeType: mimeType, Data: data},
-							})
-						} else if url != "" {
-							if id, err := p.fetchImageAsInlineData(ctx, url); err == nil {
-								parts = append(parts, part{InlineData: id})
-							} else {
-								slog.Warn("failed to fetch remote image for Gemini", "url", url, "error", err)
-							}
-						}
-					case "input_audio":
-						audio, _ := block["input_audio"].(map[string]any)
-						if audio == nil {
-							continue
-						}
-						data, _ := audio["data"].(string)
-						format, _ := audio["format"].(string)
-						if data == "" {
-							continue
-						}
-						mimeType := "audio/" + format
-						if format == "" {
-							mimeType = "audio/wav"
-						}
-						parts = append(parts, part{
-							InlineData: &inlineData{MimeType: mimeType, Data: data},
-						})
-					case "file":
-						file, _ := block["file"].(map[string]any)
-						if file == nil {
-							continue
-						}
-						fileData, _ := file["file_data"].(map[string]any)
-						if fileData == nil {
-							continue
-						}
-						mimeType, _ := fileData["mime_type"].(string)
-						data, _ := fileData["data"].(string)
-						if data == "" {
-							continue
-						}
-						parts = append(parts, part{
-							InlineData: &inlineData{MimeType: mimeType, Data: data},
-						})
-					case "video_url":
-						videoURL, _ := block["video_url"].(map[string]any)
-						if videoURL == nil {
-							continue
-						}
-						url, _ := videoURL["url"].(string)
-						mimeType, data := parseGeminiDataURL(url)
-						if data != "" {
-							parts = append(parts, part{
-								InlineData: &inlineData{MimeType: mimeType, Data: data},
-							})
-						}
-					}
-				}
-				return parts
-			}
-		}
+		// Reuse the block converter for both text-only and multipart content;
+		// then append tool calls instead of returning early and losing them.
+		parts := p.convertToParts(ctx, service.Message{Role: msg.Role, Content: c["content"]})
 		// Handle OpenAI-style tool_calls in assistant messages.
 		// Check this before plain text to avoid dropping tool_calls when
 		// both content and tool_calls are present.
 		if toolCalls, ok := c["tool_calls"].([]any); ok && len(toolCalls) > 0 {
-			var parts []part
-			// Add text content if present.
-			if text, ok := c["content"].(string); ok && text != "" {
-				parts = append(parts, part{Text: text})
-			}
 			for _, tc := range toolCalls {
 				tcMap, ok := tc.(map[string]any)
 				if !ok {
@@ -1220,10 +1184,7 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 			}
 			return parts
 		}
-		if text, ok := c["content"].(string); ok && text != "" {
-			return []part{{Text: text}}
-		}
-		return nil
+		return parts
 
 	default:
 		return nil
@@ -1285,6 +1246,9 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 	}
 
 	cand := resp.Candidates[0]
+	if cand.FinishReason == "MALFORMED_FUNCTION_CALL" {
+		return nil, fmt.Errorf("Gemini returned MALFORMED_FUNCTION_CALL")
+	}
 	llmResp := &service.LLMResponse{
 		Finished:     true,
 		FinishReason: normalizeGeminiFinishReason(cand.FinishReason, false),
@@ -1323,7 +1287,9 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 	}
 
 	// If there are tool calls, the response is not finished (needs tool execution).
-	if len(llmResp.ToolCalls) > 0 {
+	if llmResp.FinishReason == "length" || llmResp.FinishReason == "content_filter" {
+		llmResp.ToolCalls = nil
+	} else if len(llmResp.ToolCalls) > 0 {
 		llmResp.Finished = false
 		llmResp.FinishReason = "tool_calls"
 	}
@@ -1369,9 +1335,17 @@ func extractText(content any) string {
 	case string:
 		return c
 	case map[string]any:
-		if text, ok := c["content"].(string); ok {
-			return text
+		return extractText(c["content"])
+	case []any:
+		var text strings.Builder
+		for _, raw := range c {
+			if block, ok := raw.(map[string]any); ok && block["type"] == "text" {
+				if s, ok := block["text"].(string); ok {
+					text.WriteString(s)
+				}
+			}
 		}
+		return text.String()
 	}
 	return ""
 }
@@ -1393,6 +1367,10 @@ func (p *Provider) fetchImageAsInlineData(ctx context.Context, url string) (*inl
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
+	// This URL belongs to the caller, not Google. Explicit empty entries
+	// suppress the provider transport's default credential injection.
+	req.Header["X-Goog-Api-Key"] = nil
+	req.Header["Authorization"] = nil
 
 	resp, err := p.client.HTTP.Do(req)
 	if err != nil {
@@ -1405,9 +1383,12 @@ func (p *Provider) fetchImageAsInlineData(ctx context.Context, url string) (*inl
 	}
 
 	const maxSize = 20 << 20 // 20 MB
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read image body: %w", err)
+	}
+	if len(body) > maxSize {
+		return nil, fmt.Errorf("image exceeds 20 MB limit")
 	}
 
 	mimeType := resp.Header.Get("Content-Type")

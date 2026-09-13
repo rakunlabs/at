@@ -202,10 +202,9 @@ func TestChatStreamEmitsTextDeltas(t *testing.T) {
 	}
 }
 
-// TestChatStreamFlushesOnScannerEndWithoutDone guards against providers
-// that close the SSE stream without sending the [DONE] terminator — we
-// should still emit any accumulated tool calls.
-func TestChatStreamFlushesOnScannerEndWithoutDone(t *testing.T) {
+// A closed transport is not evidence that a tool call finished. Do not
+// execute buffered calls without any protocol-level completion signal.
+func TestChatStreamRejectsScannerEndWithoutCompletion(t *testing.T) {
 	events := []string{
 		`{"choices":[{"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_x","type":"function","function":{"name":"f","arguments":"{\"k\":\"v\"}"}}]},"finish_reason":null}]}`,
 		// No finish_reason chunk, no [DONE]. Just EOF.
@@ -225,18 +224,16 @@ func TestChatStreamFlushesOnScannerEndWithoutDone(t *testing.T) {
 		t.Fatalf("ChatStream: %v", err)
 	}
 
-	var toolCalls []service.ToolCall
+	var streamErr error
 	for c := range ch {
 		if c.Error != nil {
-			t.Fatalf("stream error: %v", c.Error)
+			streamErr = c.Error
 		}
-		toolCalls = append(toolCalls, c.ToolCalls...)
+		if len(c.ToolCalls) > 0 {
+			t.Errorf("incomplete stream emitted calls: %+v", c.ToolCalls)
+		}
 	}
-
-	if len(toolCalls) != 1 {
-		t.Fatalf("expected tool call flushed on EOF, got %d: %+v", len(toolCalls), toolCalls)
-	}
-	if v, _ := toolCalls[0].Arguments["k"].(string); v != "v" {
-		t.Errorf("arguments: %+v", toolCalls[0].Arguments)
+	if streamErr == nil {
+		t.Fatal("expected incomplete stream error")
 	}
 }

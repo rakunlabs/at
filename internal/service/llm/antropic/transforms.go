@@ -197,6 +197,20 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 	// "type" field and a fixed name Anthropic requires verbatim — never
 	// rename those. Regular custom tools built by buildRequestBody have
 	// no "type" key.
+	var names []string
+	for _, raw := range contentToAnySlice(body["tools"]) {
+		if tool, ok := raw.(map[string]any); ok && tool["type"] == nil {
+			if name, ok := tool["name"].(string); ok {
+				names = append(names, name)
+			}
+		}
+	}
+	wireNames := oauthToolNames(names)
+	if choice, ok := body["tool_choice"].(map[string]any); ok && choice["type"] == "tool" {
+		if name, ok := choice["name"].(string); ok && wireNames[name] != "" {
+			choice["name"] = wireNames[name]
+		}
+	}
 	if tools, ok := body["tools"].([]any); ok {
 		for i, t := range tools {
 			tm, tok := t.(map[string]any)
@@ -207,7 +221,7 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 				continue
 			}
 			if name, nok := tm["name"].(string); nok && name != "" {
-				tm["name"] = prefixToolName(name)
+				tm["name"] = wireNames[name]
 				tools[i] = tm
 			}
 		}
@@ -218,7 +232,7 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 				continue
 			}
 			if name, nok := tm["name"].(string); nok && name != "" {
-				tm["name"] = prefixToolName(name)
+				tm["name"] = wireNames[name]
 			}
 		}
 	}
@@ -231,7 +245,14 @@ func transformAnthropicSystem(body map[string]any, cliVersion, entrypoint string
 			if !mok {
 				continue
 			}
-			renameToolUseBlocksInContent(mm["content"])
+			for _, raw := range contentToAnySlice(mm["content"]) {
+				if block, ok := raw.(map[string]any); ok && block["type"] == "tool_use" {
+					name, _ := block["name"].(string)
+					if wire := wireNames[name]; wire != "" {
+						block["name"] = wire
+					}
+				}
+			}
 		}
 	}
 

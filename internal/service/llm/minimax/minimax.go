@@ -104,6 +104,7 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 		pathPrefix = anthropicBaseURL[idx:]
 	}
 
+	anthropicOpts = append(anthropicOpts, antropic.WithExtraHeaders(extraHeaders))
 	anthProvider, err := antropic.New(apiKey, model, rootBaseURL, proxy, insecureSkipVerify, anthropicOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("minimax: create anthropic provider: %w", err)
@@ -125,6 +126,11 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, extraHea
 	headers := http.Header{
 		"Content-Type":  []string{"application/json"},
 		"Authorization": []string{"Bearer " + apiKey},
+	}
+	for key, value := range extraHeaders {
+		if !strings.EqualFold(key, "at-prompt-caching") {
+			headers.Set(key, value)
+		}
 	}
 
 	clientOpts := []ok.OptionClientFn{

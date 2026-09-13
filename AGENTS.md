@@ -142,11 +142,15 @@ Provider-specific compatibility notes:
   - Cohere: `json_object` / `json_schema` → v2 `response_format` (`{"type":"json_object","schema":{...}}`)
   - Anthropic: no native equivalent — we append a system-prompt instruction asking for JSON output (and embed the schema for `json_schema`). Strict structured-output guarantees require the tool-call grammar pattern instead.
 - **`logprobs`/`top_logprobs`** are OpenAI/Vertex only; non-OpenAI providers ignore them.
-- **`n` > 1** is honoured by OpenAI/Vertex (and Gemini via `candidateCount`); Anthropic returns one choice.
+- **`n`** currently supports only `1`. Other values return HTTP 400 before inference across all providers. The internal response/stream contract represents one choice; forwarding `n > 1` previously paid for extra candidates and silently discarded them. Multi-choice response support requires extending that contract end-to-end.
 - **`seed`** is honoured by OpenAI/Vertex/Gemini/Cohere; Anthropic ignores it.
 - **Web search**: a synthetic tool named `web_search` (or `__google_search` / `google_search` on Gemini, `__web_search` on Anthropic) activates the provider's native internet search — Gemini/vertex-gemini `googleSearch` grounding, Anthropic server-side `web_search_20250305`. OpenAI search-preview models take `web_search_options` (also forwarded by the vertex adapter). Note the tool name is consumed by the provider: a user-defined function tool with the same name will not be called on those providers.
 - Upstream provider errors surface as real gateway errors (429/5xx envelopes), never as HTTP-200 responses with error text in `content`.
 - Provider `type` strings are validated on create/update against `service.SupportedProviderTypes` (openai, anthropic, azure, bedrock, vertex, vertex-gemini, gemini, cohere, minimax).
+
+Provider contract regressions are covered by `internal/service/llm/contracts_test.go`, per-adapter `contracts_test.go` files, and the gateway translation tests. Native JSON Schema providers use `service.CopyJSONSchema`; do not apply Gemini's restrictive filter to their tools (it removes referenced arguments and constraints). Gemini inlines acyclic local references before applying its schema subset. OpenAI/Vertex/Codex preserve explicit tool `strict` settings; Responses tools use their native flat shape and are normalized before adapter dispatch.
+
+Streaming adapters relay through `common.StreamWithContext` so cancellation closes the upstream body and drains blocked parser sends, allowing limiter slots to be released. Missing completion signals are errors rather than successful EOFs. Shared `common.ParseToolArguments` rejects malformed/non-object arguments. OAuth proxy credentials are resolved before forwarding; caller bearer tokens/cookies are not fallback upstream credentials. Gemini remote-image requests explicitly suppress provider credential injection.
 
 Error envelope conforms to OpenAI's shape including `param` where applicable:
 

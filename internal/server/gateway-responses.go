@@ -50,7 +50,7 @@ type responsesRequest struct {
 	Model              string              `json:"model"`
 	Input              json.RawMessage     `json:"input"` // string OR []InputItem
 	Instructions       string              `json:"instructions,omitempty"`
-	Tools              []OpenAITool        `json:"tools,omitempty"`
+	Tools              []responsesTool     `json:"tools,omitempty"`
 	ToolChoice         json.RawMessage     `json:"tool_choice,omitempty"`
 	Temperature        *float64            `json:"temperature,omitempty"`
 	TopP               *float64            `json:"top_p,omitempty"`
@@ -74,6 +74,29 @@ type responsesRequest struct {
 
 type responsesReasoning struct {
 	Effort string `json:"effort,omitempty"` // "low" | "medium" | "high"
+}
+
+// Responses function tools are flat, unlike Chat Completions' nested function
+// envelope. Accept the old AT nested shape as a backwards-compatible fallback.
+type responsesTool struct {
+	Type        string         `json:"type"`
+	Name        string         `json:"name,omitempty"`
+	Description string         `json:"description,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+	Strict      *bool          `json:"strict,omitempty"`
+	Function    OpenAIFunction `json:"function,omitempty"`
+}
+
+func translateResponsesTools(tools []responsesTool) []service.Tool {
+	var chatTools []OpenAITool
+	for _, tool := range tools {
+		fn := tool.Function
+		if tool.Name != "" {
+			fn = OpenAIFunction{Name: tool.Name, Description: tool.Description, Parameters: tool.Parameters, Strict: tool.Strict}
+		}
+		chatTools = append(chatTools, OpenAITool{Type: tool.Type, Function: fn})
+	}
+	return translateOpenAITools(chatTools)
 }
 
 type responsesText struct {
@@ -259,7 +282,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tools := translateOpenAITools(req.Tools)
+	tools := translateResponsesTools(req.Tools)
 
 	baseOpts := responsesRequestToChatOptions(&req)
 
@@ -904,12 +927,22 @@ func responsesMessageItemToOpenAI(item map[string]any) (OpenAIMessage, error) {
 				if url == "" {
 					continue
 				}
+				image := map[string]any{"url": url}
+				if detail, ok := p["detail"]; ok {
+					image["detail"] = detail
+				}
 				parts = append(parts, map[string]any{
 					"type":      "image_url",
-					"image_url": map[string]any{"url": url},
+					"image_url": image,
 				})
 			case "input_file":
-				parts = append(parts, p)
+				file := map[string]any{}
+				for _, key := range []string{"filename", "file_id", "file_data", "file_url"} {
+					if value, ok := p[key]; ok {
+						file[key] = value
+					}
+				}
+				parts = append(parts, map[string]any{"type": "file", "file": file})
 			default:
 				parts = append(parts, p)
 			}
@@ -955,6 +988,11 @@ func responsesRequestToChatOptions(req *responsesRequest) *service.ChatOptions {
 		hasAny = true
 	}
 	if tc := parseToolChoice(req.ToolChoice); tc != nil {
+		if object, ok := tc.(map[string]any); ok && object["type"] == "function" {
+			if name, ok := object["name"].(string); ok && name != "" {
+				tc = map[string]any{"type": "function", "function": map[string]any{"name": name}}
+			}
+		}
 		opts.ToolChoice = tc
 		hasAny = true
 	}

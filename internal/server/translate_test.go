@@ -7,6 +7,26 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 )
 
+func TestBuildProviderMessagesPreservesSystemInstructions(t *testing.T) {
+	msgs := []OpenAIMessage{
+		{Role: "system", Content: json.RawMessage(`"First instruction"`)},
+		{Role: "developer", Content: json.RawMessage(`[{"type":"text","text":"Second instruction"}]`)},
+		{Role: "system", Content: json.RawMessage(`""`)},
+		{Role: "user", Content: json.RawMessage(`"Hello"`)},
+	}
+	for _, provider := range []string{"anthropic", "minimax", "bedrock"} {
+		t.Run(provider, func(t *testing.T) {
+			messages, _ := (&Server{}).buildProviderMessages(provider, msgs, nil)
+			if len(messages) != 2 || messages[0].Role != "system" || messages[0].Content != "First instruction\n\nSecond instruction" {
+				t.Fatalf("system instructions lost: %+v", messages)
+			}
+			if messages[1].Role != "user" || messages[1].Content != "Hello" {
+				t.Fatalf("user message changed: %+v", messages[1])
+			}
+		})
+	}
+}
+
 func TestBuildChatOptions_ToolChoice(t *testing.T) {
 	tests := []struct {
 		name string

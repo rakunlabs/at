@@ -2,6 +2,24 @@ package common
 
 import "testing"
 
+func TestRepairToolPairsRequiresAdjacentResults(t *testing.T) {
+	in := []any{
+		map[string]any{"role": "assistant", "content": "checking", "tool_calls": []any{map[string]any{"id": "call_1"}}},
+		map[string]any{"role": "user", "content": "interrupted"},
+		map[string]any{"role": "tool", "tool_call_id": "call_1", "content": "stale result"},
+	}
+	out := RepairOpenAIToolPairs(in)
+	if len(out) != 2 {
+		t.Fatalf("stale result survived: %#v", out)
+	}
+	if _, exists := out[0].(map[string]any)["tool_calls"]; exists {
+		t.Fatal("non-adjacent tool call survived")
+	}
+	if out[0].(map[string]any)["content"] != "checking" {
+		t.Fatal("assistant text lost")
+	}
+}
+
 func TestRepairOpenAIToolPairs_NoOpWhenAllPaired(t *testing.T) {
 	in := []any{
 		map[string]any{"role": "user", "content": "hi"},

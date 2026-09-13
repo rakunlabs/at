@@ -57,9 +57,9 @@ func TestGeminiResponseFormat(t *testing.T) {
 
 func TestNormalizeGeminiFinishReason(t *testing.T) {
 	tests := []struct {
-		raw      string
+		raw       string
 		toolCalls bool
-		want     string
+		want      string
 	}{
 		{"STOP", false, "stop"},
 		{"STOP", true, "tool_calls"},

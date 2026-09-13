@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -64,10 +65,28 @@ type Provider struct {
 	// caching IS applied (best-effort, no behaviour change if the model
 	// doesn't support it — the field is ignored).
 	promptCachingDisabled bool
+	extraHeaders          http.Header
 }
 
 // Option configures the Provider.
 type Option func(*Provider)
+
+// WithExtraHeaders installs operator-configured upstream headers. Internal AT
+// controls are consumed locally and OAuth credentials always take precedence.
+func WithExtraHeaders(values map[string]string) Option {
+	return func(p *Provider) {
+		p.extraHeaders = make(http.Header)
+		for key, value := range values {
+			if strings.EqualFold(key, "at-prompt-caching") {
+				if strings.EqualFold(value, "off") {
+					p.promptCachingDisabled = true
+				}
+				continue
+			}
+			p.extraHeaders.Set(key, value)
+		}
+	}
+}
 
 // WithTokenSource sets a token source for per-request authentication.
 // When set, the token source is called before each request and the returned
@@ -199,6 +218,13 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	if apiKey != "" && p.tokenSource == nil {
 		headers["X-Api-Key"] = []string{apiKey}
 	}
+	for key, values := range p.extraHeaders {
+		headers[key] = append([]string(nil), values...)
+	}
+	if p.tokenSource != nil {
+		headers.Del("X-Api-Key")
+		headers.Del("Authorization")
+	}
 
 	clientOpts := []ok.OptionClientFn{
 		ok.WithBaseURL(baseURL),
@@ -225,6 +251,9 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 }
 
 func (p *Provider) Chat(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, err
+	}
 	if model == "" {
 		model = p.Model
 	}
@@ -381,7 +410,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			// the original name) sees the call.
 			name := block.Name
 			if p.tokenSource != nil {
-				name = unprefixToolName(name)
+				name = restoreOAuthToolName(name, tools)
 			}
 			llmResp.ToolCalls = append(llmResp.ToolCalls, service.ToolCall{
 				ID:        block.ID,
@@ -437,6 +466,9 @@ type messageStartMessage struct {
 
 // ChatStream implements service.LLMStreamProvider for Anthropic's SSE format.
 func (p *Provider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, nil, err
+	}
 	if model == "" {
 		model = p.Model
 	}
@@ -497,7 +529,6 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 	// Log outgoing headers for debugging auth issues.
 	slog.Debug("anthropic stream request headers",
-		"headers", fmt.Sprintf("%v", req.Header),
 		"has_auth", req.Header.Get("Authorization") != "",
 		"has_x_api_key", req.Header.Get("X-Api-Key") != "",
 		"has_beta", req.Header.Get("anthropic-beta") != "",
@@ -581,11 +612,11 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 			}
 
 			// We only care about data lines
-			if !strings.HasPrefix(line, "data: ") {
+			if !strings.HasPrefix(line, "data:") {
 				continue
 			}
 
-			data := strings.TrimPrefix(line, "data: ")
+			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 
 			var event streamEvent
 			if err := json.Unmarshal([]byte(data), &event); err != nil {
@@ -614,7 +645,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 						// going out — see transformAnthropicSystem).
 						name := event.ContentBlock.Name
 						if p.tokenSource != nil {
-							name = unprefixToolName(name)
+							name = restoreOAuthToolName(name, tools)
 						}
 						currentToolName = name
 						toolInputBuf.Reset()
@@ -658,7 +689,14 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 				if currentToolID != "" {
 					args := map[string]any{}
 					if toolInputBuf.Len() > 0 {
-						json.Unmarshal([]byte(toolInputBuf.String()), &args)
+						if err := json.Unmarshal([]byte(toolInputBuf.String()), &args); err != nil {
+							ch <- service.StreamChunk{Error: fmt.Errorf("failed to decode tool arguments for %q: %w", currentToolName, err)}
+							return
+						}
+						if args == nil {
+							ch <- service.StreamChunk{Error: fmt.Errorf("invalid tool arguments for %q: expected a JSON object", currentToolName)}
+							return
+						}
 					}
 					ch <- service.StreamChunk{
 						ToolCalls: []service.ToolCall{{
@@ -717,10 +755,12 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 		if err := scanner.Err(); err != nil {
 			ch <- service.StreamChunk{Error: fmt.Errorf("stream read error: %w", err)}
+		} else {
+			ch <- service.StreamChunk{Error: fmt.Errorf("Anthropic stream closed before message_stop: %w", io.ErrUnexpectedEOF)}
 		}
 	}()
 
-	return ch, resp.Header, nil
+	return common.StreamWithContext(ctx, ch, resp.Body), resp.Header, nil
 }
 
 func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) error {
@@ -757,6 +797,31 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 	}
 	defer release()
 
+	r = r.Clone(r.Context())
+	r.Header.Del("Authorization")
+	r.Header.Del("Cookie")
+	var token, bodyModel string
+	var bodyMap map[string]any
+	if p.tokenSource != nil {
+		token, err = p.tokenSource.Token(r.Context())
+		if err != nil {
+			return fmt.Errorf("get Anthropic proxy token: %w", err)
+		}
+		if token == "" {
+			return fmt.Errorf("Anthropic proxy token is empty")
+		}
+		if r.Body != nil {
+			bodyBytes, readErr := io.ReadAll(r.Body)
+			_ = r.Body.Close()
+			if readErr != nil {
+				return fmt.Errorf("read Anthropic proxy body: %w", readErr)
+			}
+			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+			if json.Unmarshal(bodyBytes, &bodyMap) == nil {
+				bodyModel, _ = bodyMap["model"].(string)
+			}
+		}
+	}
 	proxy := &httputil.ReverseProxy{
 		Director: func(req *http.Request) {
 			req.URL = targetURL
@@ -764,53 +829,32 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 
 			// Auth
 			if p.tokenSource != nil {
-				token, err := p.tokenSource.Token(req.Context())
-				if err != nil {
-					slog.Error("failed to get auth token in proxy", "error", err)
+				req.Header.Set("Authorization", "Bearer "+token)
+				oauthFlags := oauthBetaHeader(bodyModel, bodyMap)
+				// Merge beta flags for OAuth compatibility.
+				beta := req.Header.Get("anthropic-beta")
+				if beta != "" {
+					// Merge unique flags.
+					existing := strings.Split(beta, ",")
+					required := strings.Split(oauthFlags, ",")
+					seen := make(map[string]bool)
+					var merged []string
+					for _, f := range append(required, existing...) {
+						f = strings.TrimSpace(f)
+						if f != "" && !seen[f] {
+							seen[f] = true
+							merged = append(merged, f)
+						}
+					}
+					beta = strings.Join(merged, ",")
 				} else {
-					req.Header.Set("Authorization", "Bearer "+token)
-					// Read the body so we can pass the model name to the
-					// beta-flag computer (Haiku excludes
-					// interleaved-thinking, etc.) and so the request can
-					// be re-sent downstream.
-					var bodyMap map[string]any
-					var bodyModel string
-					if req.Body != nil {
-						if bodyBytes, readErr := io.ReadAll(req.Body); readErr == nil && len(bodyBytes) > 0 {
-							req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-							if json.Unmarshal(bodyBytes, &bodyMap) == nil {
-								if m, ok := bodyMap["model"].(string); ok {
-									bodyModel = m
-								}
-							}
-						}
-					}
-					oauthFlags := oauthBetaHeader(bodyModel, bodyMap)
-					// Merge beta flags for OAuth compatibility.
-					beta := req.Header.Get("anthropic-beta")
-					if beta != "" {
-						// Merge unique flags.
-						existing := strings.Split(beta, ",")
-						required := strings.Split(oauthFlags, ",")
-						seen := make(map[string]bool)
-						var merged []string
-						for _, f := range append(required, existing...) {
-							f = strings.TrimSpace(f)
-							if f != "" && !seen[f] {
-								seen[f] = true
-								merged = append(merged, f)
-							}
-						}
-						beta = strings.Join(merged, ",")
-					} else {
-						beta = oauthFlags
-					}
-					req.Header.Set("anthropic-beta", beta)
-					// Set OAuth-required headers (Stainless, session id,
-					// request id, x-app, dangerous-direct-browser, etc.).
-					// setOAuthHeaders also clears x-api-key for us.
-					p.setOAuthHeaders(req, bodyModel)
+					beta = oauthFlags
 				}
+				req.Header.Set("anthropic-beta", beta)
+				// Set OAuth-required headers (Stainless, session id,
+				// request id, x-app, dangerous-direct-browser, etc.).
+				// setOAuthHeaders also clears x-api-key for us.
+				p.setOAuthHeaders(req, bodyModel)
 				req.Header.Set("anthropic-version", "2023-06-01")
 			} else if p.APIKey != "" {
 				req.Header.Set("x-api-key", p.APIKey)
@@ -876,11 +920,9 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 			}
 			webSearchAdded = true
 		}
-		// First apply the generic schema sanitization (strips $ref, $defs,
-		// additionalProperties, etc.) that all other providers also use, then
-		// clean Anthropic-specific issues like stray "title" fields from MCP
-		// tool providers.
-		sanitized := service.SanitizeSchema(tool.InputSchema)
+		// Preserve native JSON Schema references and constraints. Only clean
+		// annotation metadata; never apply Gemini's restrictive schema filter.
+		sanitized := service.CopyJSONSchema(tool.InputSchema)
 		cleanedSchema := cleanToolSchema(sanitized)
 		anthropicTools = append(anthropicTools, map[string]any{
 			"name":         tool.Name,
@@ -1246,9 +1288,10 @@ func markMessageContent(content any, cacheMark map[string]any, set func(any)) {
 				"cache_control": cacheMark,
 			}})
 		}
-	case []any:
-		if n := len(c); n > 0 {
-			if last, ok := c[n-1].(map[string]any); ok {
+	default:
+		blocks := contentToAnySlice(content)
+		if n := len(blocks); n > 0 {
+			if last, ok := blocks[n-1].(map[string]any); ok {
 				if _, has := last["cache_control"]; !has {
 					last["cache_control"] = cacheMark
 				}
@@ -1340,14 +1383,15 @@ func cleanToolSchema(schema any) any {
 		// Recursively clean nested schemas, but skip the "properties" map's
 		// direct children keys (those are field names, not schema metadata).
 		for key, val := range v {
-			if key == "properties" {
+			switch key {
+			case "properties", "$defs", "definitions", "patternProperties":
 				// Inside "properties", each value is a schema definition — clean those.
 				if propsMap, ok := val.(map[string]any); ok {
 					for propName, propSchema := range propsMap {
 						propsMap[propName] = cleanToolSchema(propSchema)
 					}
 				}
-			} else {
+			case "items", "additionalProperties", "anyOf", "oneOf", "allOf", "not", "if", "then", "else":
 				v[key] = cleanToolSchema(val)
 			}
 		}
@@ -1564,13 +1608,19 @@ func modelRequiresThinking(model string) bool {
 func convertContent(content any) any {
 	switch blocks := content.(type) {
 	case []service.ContentBlock:
-		out := make([]map[string]any, 0, len(blocks))
+		// Keep one block-slice representation through repair, OAuth transforms,
+		// and cache installation. A []map slice serializes identically but was
+		// silently skipped by those []any consumers, losing conversation cache
+		// breakpoints and leaving historical tool names untransformed.
+		out := make([]any, 0, len(blocks))
 		for _, b := range blocks {
 			if block := contentBlockToMap(b); block != nil {
 				out = append(out, block)
 			}
 		}
 		return out
+	case []map[string]any:
+		return convertContent(contentToAnySlice(blocks))
 	case []any:
 		out := make([]any, 0, len(blocks))
 		for _, b := range blocks {
@@ -1583,6 +1633,7 @@ func convertContent(content any) any {
 					out = append(out, block)
 				}
 			case map[string]any:
+				elem = maps.Clone(elem)
 				if elem["type"] == "thinking" {
 					signature, _ := elem["signature"].(string)
 					if signature == "" {

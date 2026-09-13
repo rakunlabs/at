@@ -194,6 +194,9 @@ func (p *CodexProvider) Chat(ctx context.Context, model string, messages []servi
 
 // ChatStream implements service.LLMStreamProvider using the Responses SSE protocol.
 func (p *CodexProvider) ChatStream(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (<-chan service.StreamChunk, http.Header, error) {
+	if err := common.ValidateSingleChoice(opts); err != nil {
+		return nil, nil, err
+	}
 	if model == "" {
 		model = p.Model
 	}
@@ -242,7 +245,7 @@ func (p *CodexProvider) ChatStream(ctx context.Context, model string, messages [
 
 	ch := make(chan service.StreamChunk, 64)
 	go p.readCodexStream(resp, ch, releaseOnce)
-	return ch, resp.Header, nil
+	return common.StreamWithContext(ctx, ch, resp.Body), resp.Header, nil
 }
 
 // Models returns the model slugs available to the connected ChatGPT account.
@@ -359,11 +362,14 @@ func codexHTTPError(resp *http.Response, body []byte) error {
 }
 
 type codexSSEEvent struct {
-	Type     string          `json:"type"`
-	Delta    string          `json:"delta"`
-	Text     string          `json:"text"`
-	Item     json.RawMessage `json:"item"`
-	Response json.RawMessage `json:"response"`
+	OutputIndex  int             `json:"output_index"`
+	ContentIndex int             `json:"content_index"`
+	SummaryIndex int             `json:"summary_index"`
+	Type         string          `json:"type"`
+	Delta        string          `json:"delta"`
+	Text         string          `json:"text"`
+	Item         json.RawMessage `json:"item"`
+	Response     json.RawMessage `json:"response"`
 }
 
 type codexResponseItem struct {
@@ -404,8 +410,11 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 	defer release()
 
 	var completed bool
-	var emittedText bool
-	var emittedReasoning bool
+	// Done events repeat deltas, but only for their own output/content part.
+	// A response-wide flag drops later messages and summary parts.
+	type partKey struct{ output, part int }
+	emittedText := make(map[partKey]bool)
+	emittedReasoning := make(map[partKey]bool)
 	var sawToolCall bool
 	var pendingReasoningState string
 	scanner := bufio.NewScanner(resp.Body)
@@ -425,25 +434,27 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 			return
 		}
 
+		textKey := partKey{event.OutputIndex, event.ContentIndex}
+		reasoningKey := partKey{event.OutputIndex, event.SummaryIndex}
 		switch event.Type {
 		case "response.output_text.delta":
-			emittedText = emittedText || event.Delta != ""
 			if event.Delta != "" {
+				emittedText[textKey] = true
 				ch <- service.StreamChunk{Content: event.Delta}
 			}
 		case "response.output_text.done":
-			if !emittedText && event.Text != "" {
-				emittedText = true
+			if !emittedText[textKey] && event.Text != "" {
+				emittedText[textKey] = true
 				ch <- service.StreamChunk{Content: event.Text}
 			}
 		case "response.reasoning_summary_text.delta":
-			emittedReasoning = emittedReasoning || event.Delta != ""
 			if event.Delta != "" {
+				emittedReasoning[reasoningKey] = true
 				ch <- service.StreamChunk{ReasoningContent: event.Delta}
 			}
 		case "response.reasoning_summary_text.done":
-			if !emittedReasoning && event.Text != "" {
-				emittedReasoning = true
+			if !emittedReasoning[reasoningKey] && event.Text != "" {
+				emittedReasoning[reasoningKey] = true
 				ch <- service.StreamChunk{ReasoningContent: event.Text}
 			}
 		case "response.output_item.done":
@@ -458,12 +469,10 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 					pendingReasoningState = string(event.Item)
 				}
 			case "function_call":
-				arguments := map[string]any{}
-				if item.Arguments != "" {
-					if err := json.Unmarshal([]byte(item.Arguments), &arguments); err != nil {
-						ch <- service.StreamChunk{Error: fmt.Errorf("parse Codex function arguments: %w", err)}
-						return
-					}
+				arguments, err := parseToolArguments(item.Arguments)
+				if err != nil {
+					ch <- service.StreamChunk{Error: fmt.Errorf("parse Codex function arguments: %w", err)}
+					return
 				}
 				sawToolCall = true
 				ch <- service.StreamChunk{ToolCalls: []service.ToolCall{{
@@ -474,16 +483,11 @@ func (p *CodexProvider) readCodexStream(resp *http.Response, ch chan<- service.S
 				}}}
 				pendingReasoningState = ""
 			case "message":
-				if !emittedText {
-					var text strings.Builder
-					for _, content := range item.Content {
-						if content.Type == "output_text" {
-							text.WriteString(content.Text)
-						}
-					}
-					if text.Len() > 0 {
-						emittedText = true
-						ch <- service.StreamChunk{Content: text.String()}
+				for i, content := range item.Content {
+					key := partKey{event.OutputIndex, i}
+					if content.Type == "output_text" && content.Text != "" && !emittedText[key] {
+						emittedText[key] = true
+						ch <- service.StreamChunk{Content: content.Text}
 					}
 				}
 			}
@@ -572,6 +576,8 @@ func (p *CodexProvider) Proxy(w http.ResponseWriter, r *http.Request, path strin
 		return err
 	}
 	defer release()
+	r = r.Clone(r.Context())
+	r.Header.Del("Cookie")
 	if err := p.authorize(r.Context(), r); err != nil {
 		return err
 	}
@@ -613,12 +619,16 @@ func (p *CodexProvider) proxyURL(path, rawQuery string) (*url.URL, error) {
 func buildCodexRequest(model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) map[string]any {
 	requestTools := make([]map[string]any, 0, len(tools))
 	for _, tool := range tools {
+		strict := false
+		if tool.Strict != nil {
+			strict = *tool.Strict
+		}
 		requestTools = append(requestTools, map[string]any{
 			"type":        "function",
 			"name":        tool.Name,
 			"description": tool.Description,
-			"parameters":  service.SanitizeSchema(tool.InputSchema),
-			"strict":      false,
+			"parameters":  service.CopyJSONSchema(tool.InputSchema),
+			"strict":      strict,
 		})
 	}
 
@@ -736,7 +746,11 @@ func codexContentBlockInput(role string, blocks []service.ContentBlock) []any {
 				content = append(content, map[string]any{"type": "input_image", "image_url": imageURL})
 			}
 		case "tool_use":
-			arguments, _ := json.Marshal(block.Input)
+			args := block.Input
+			if args == nil {
+				args = map[string]any{}
+			}
+			arguments, _ := json.Marshal(args)
 			input = appendMessageContent(input, role, content)
 			content = nil
 			input = appendCodexReasoningState(input, block.ThoughtSignature)
@@ -773,9 +787,7 @@ func codexMapMessageInput(message map[string]any) []any {
 		}}
 	}
 	var input []any
-	if text := codexContentText(message["content"]); text != "" {
-		input = append(input, codexMessageItem(role, text))
-	}
+	input = appendMessageContent(input, role, codexMapContent(role, message["content"]))
 	for _, call := range codexObjectSlice(message["tool_calls"]) {
 		function, _ := call["function"].(map[string]any)
 		thoughtSignature, _ := call["thought_signature"].(string)
@@ -788,6 +800,48 @@ func codexMapMessageInput(message map[string]any) []any {
 		})
 	}
 	return input
+}
+
+// Translate Chat Completions multipart content without flattening away media.
+// Native Responses content is already in the correct shape and is preserved.
+func codexMapContent(role string, value any) []any {
+	if text, ok := value.(string); ok {
+		if text == "" {
+			return nil
+		}
+		return []any{codexTextItem(role, text)}
+	}
+	var content []any
+	for _, part := range codexObjectSlice(value) {
+		switch part["type"] {
+		case "text":
+			if text, ok := part["text"].(string); ok {
+				content = append(content, codexTextItem(role, text))
+			}
+		case "image_url":
+			image, _ := part["image_url"].(map[string]any)
+			if url, ok := image["url"].(string); ok && url != "" {
+				block := map[string]any{"type": "input_image", "image_url": url}
+				if detail, ok := image["detail"]; ok {
+					block["detail"] = detail
+				}
+				content = append(content, block)
+			}
+		case "file":
+			if file, ok := part["file"].(map[string]any); ok {
+				block := map[string]any{"type": "input_file"}
+				for _, key := range []string{"file_id", "filename", "file_data", "file_url"} {
+					if v, ok := file[key]; ok {
+						block[key] = v
+					}
+				}
+				content = append(content, block)
+			}
+		case "input_text", "output_text", "input_image", "input_file", "refusal":
+			content = append(content, part)
+		}
+	}
+	return content
 }
 
 func appendCodexReasoningState(input []any, signature string) []any {

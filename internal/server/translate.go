@@ -121,6 +121,7 @@ type OpenAIFunction struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
+	Strict      *bool          `json:"strict,omitempty"`
 }
 
 // ChatCompletionResponse is the OpenAI-compatible response body.
@@ -304,11 +305,14 @@ func translateOpenAIToAnthropic(msgs []OpenAIMessage) (systemPrompt string, mess
 	for _, msg := range msgs {
 		switch msg.Role {
 		case "system", "developer":
-			// Anthropic handles system messages separately, but since we're
-			// passing through the service.Message interface, we include it
-			// as a user message or extract it. For simplicity, prepend to
-			// first user message or pass as-is (Anthropic API accepts system param).
-			systemPrompt = extractContentString(msg.Content)
+			// Preserve every instruction in order. Clients commonly send base
+			// instructions and project context in separate messages.
+			if text := extractContentString(msg.Content); text != "" {
+				if systemPrompt != "" {
+					systemPrompt += "\n\n"
+				}
+				systemPrompt += text
+			}
 
 		case "user":
 			if hasMultiPartContent(msg.Content) {
@@ -408,6 +412,7 @@ func translateOpenAITools(tools []OpenAITool) []service.Tool {
 			Name:        t.Function.Name,
 			Description: t.Function.Description,
 			InputSchema: t.Function.Parameters,
+			Strict:      t.Function.Strict,
 		})
 	}
 	return result
@@ -620,9 +625,9 @@ func mapStreamFinishReason(raw string, hasToolCalls bool) string {
 		return "stop"
 	case "length", "max_tokens", "max_output_tokens":
 		return "length"
-	case "content_filter", "safety", "blocklist", "prohibited_content", "spii", "recitation":
+	case "content_filter", "safety", "blocklist", "prohibited_content", "spii", "recitation", "guardrail_intervened", "error_toxic", "refusal":
 		return "content_filter"
-	case "tool_calls", "tool_use":
+	case "tool_calls", "tool_use", "tool_call":
 		return "tool_calls"
 	case "function_call":
 		return "function_call"
@@ -651,9 +656,9 @@ func normalizeFinishReason(resp *service.LLMResponse) string {
 		return "stop"
 	case "length", "max_tokens", "max_output_tokens":
 		return "length"
-	case "content_filter", "safety", "blocklist", "prohibited_content", "spii", "recitation":
+	case "content_filter", "safety", "blocklist", "prohibited_content", "spii", "recitation", "guardrail_intervened", "error_toxic", "refusal":
 		return "content_filter"
-	case "tool_calls", "tool_use":
+	case "tool_calls", "tool_use", "tool_call":
 		return "tool_calls"
 	case "function_call":
 		return "function_call"
@@ -836,6 +841,12 @@ func convertOpenAIContentToAnthropic(raw json.RawMessage) []service.ContentBlock
 			// Anthropic: {type:"document", source:{type:"base64", media_type:"application/pdf", data:"..."}}
 			file, _ := p["file"].(map[string]any)
 			if file == nil {
+				continue
+			}
+			if dataURL, ok := file["file_data"].(string); ok {
+				if mime, data := parseDataURL(dataURL); data != "" {
+					blocks = append(blocks, service.ContentBlock{Type: "document", Source: &service.MediaSource{Type: "base64", MediaType: mime, Data: data}})
+				}
 				continue
 			}
 			fileData, _ := file["file_data"].(map[string]any)
