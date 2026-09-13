@@ -174,6 +174,35 @@ upstream OpenAI when none of them are present.
 
 ## Runtime configuration
 
+### Bot and gateway MCP execution identities
+
+Bot dispatch and gateway MCP execution use revocable `execution_service_bindings`
+(`bot` / `mcp` / `trigger`), independent of browser sessions. Bots and MCP Servers
+editors expose **Execution identity → Run as**: select an active non-platform
+workspace member. For existing records, configure this once; there is no inferred
+administrator identity. Configure the workspace's execution policy first (the
+current builtin registry requires trusted-host plus explicit `allowed_tools`),
+then bind/renew. A policy or membership version change requires renewal. Bot
+binding renewal stops the old adapter; **Bind & start bot** starts the new one.
+
+Gateway MCP admission resolves routing metadata using the authenticated token's
+persisted `workspace_id`; anonymous requests can resolve only a uniquely named
+public server. It then resumes the server's `mcp` service binding and retains that
+context through initialize/list/call. Private token MCP allowlists still apply.
+Missing/stale bindings return actionable 403s; ambiguous public names return 409.
+Machine credential accessors in `postgres/execution-machine.go` check the exact
+service subject/version before returning executable configuration or bot tokens,
+so human secret DTO redaction does not break bot startup. The scoped gateway
+runtime supports builtins, skills, workflows and referenced MCP Sets; legacy
+custom HTTP templates, pooled stdio and unowned URL routing remain outside that
+scoped runtime.
+
+Regression coverage: `internal/server/machine-admission_test.go` uses real
+PostgreSQL for gateway initialize/list/tool-call, token workspace scoping,
+browser logout, identity revocation, bot message persistence/reply, binding UI
+APIs and credential redaction. Set `AT_TEST_POSTGRES_DSN` or run `make env` so
+these tests execute rather than skip. Migration 48 adds the `mcp` binding kind.
+
 LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
 
 ## Unified LLM Tracing (traces / observations)

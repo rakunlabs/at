@@ -14,7 +14,7 @@ import (
 // This lookup is machine-admission metadata only; it does not authenticate the
 // caller and is never exposed as a bearer-by-ID HTTP operation.
 func (p *Postgres) GetExecutionServiceBinding(ctx context.Context, kind, id string) (*service.ExecutionServiceBinding, error) {
-	if kind != "bot" && kind != "trigger" && kind != "id" {
+	if kind != "bot" && kind != "trigger" && kind != "mcp" && kind != "id" {
 		return nil, service.ErrExecutionDenied
 	}
 	var b service.ExecutionServiceBinding
@@ -58,6 +58,8 @@ func (p *Postgres) SaveExecutionServiceBinding(ctx context.Context, b service.Ex
 	kind, cap := "bots", "bots.write"
 	if b.Kind == "trigger" {
 		kind, cap = "triggers", "workflows.write"
+	} else if b.Kind == "mcp" {
+		kind, cap = "mcp_servers", "mcp.write"
 	} else if b.Kind != "bot" {
 		return nil, service.ErrExecutionDenied
 	}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -259,13 +260,25 @@ func (s *Server) StartBotAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.startBotFromConfig(s.ctx, record)
+	if err := s.startBotFromConfig(s.ctx, record); err != nil {
+		slog.Warn("start bot failed", "bot_id", id, "error", err)
+		status := http.StatusBadGateway
+		if errors.Is(err, service.ErrExecutionDenied) || errors.Is(err, service.ErrAccessDenied) {
+			status = http.StatusForbidden
+		}
+		httpResponse(w, "Bot could not start. Check its execution binding, workspace permissions and platform token.", status)
+		return
+	}
 
 	// Update enabled flag in DB.
 	if !record.Enabled {
 		record.Enabled = true
 		record.UpdatedBy = s.getUserEmail(r)
-		s.botConfigStore.UpdateBotConfig(r.Context(), id, *record)
+		if _, err := s.botConfigStore.UpdateBotConfig(r.Context(), id, *record); err != nil {
+			s.stopBot(id)
+			httpResponse(w, "Bot stopped because its enabled state could not be saved. Retry starting it.", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	httpResponseJSON(w, map[string]any{

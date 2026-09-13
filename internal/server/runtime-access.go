@@ -74,6 +74,10 @@ func (s *Server) registerRuntimeRoutes(mux *ada.Server, base string) {
 		{"POST", "/api/v1/bots/{id}/execution-binding", s.RuntimeBotBindingAPI},
 		{"DELETE", "/api/v1/triggers/{id}/execution-binding", s.RuntimeTriggerBindingAPI},
 		{"DELETE", "/api/v1/bots/{id}/execution-binding", s.RuntimeBotBindingAPI},
+		{"GET", "/api/v1/bots/{id}/execution-binding", s.RuntimeBotBindingAPI},
+		{"GET", "/api/v1/mcp/servers/{id}/execution-binding", s.RuntimeMCPBindingAPI},
+		{"POST", "/api/v1/mcp/servers/{id}/execution-binding", s.RuntimeMCPBindingAPI},
+		{"DELETE", "/api/v1/mcp/servers/{id}/execution-binding", s.RuntimeMCPBindingAPI},
 	} {
 		handler := s.runtimeRouteHandler(route.handler)
 		mux.HandleWithMethod(route.method, base+route.path, handler.ServeHTTP)
@@ -260,6 +264,8 @@ func (s *Server) revalidateRuntimeExecution(ctx context.Context, provenance serv
 			kind, cap = "chats", "agents.execute"
 		case "mcp.use":
 			kind, cap = "mcp", "mcp.read"
+		case "mcp_servers.use":
+			kind, cap = "mcp_servers", "mcp.read"
 		case "node_configs.use":
 			kind, cap = "node_configs", "credentials.manage"
 		}

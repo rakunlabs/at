@@ -1,6 +1,7 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
+  import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
   import {
     listMCPServers,
     createMCPServer,
@@ -217,8 +218,11 @@
         await updateMCPServer(editingId, payload);
         addToast(`MCP server "${formName}" updated`);
       } else {
-        await createMCPServer(payload);
-        addToast(`MCP server "${formName}" created`);
+        const created = await createMCPServer(payload);
+        editingId = created.id;
+        addToast('MCP server saved. Configure its execution identity below before connecting.');
+        await loadServers();
+        return;
       }
       resetForm();
       await loadServers();
@@ -352,6 +356,11 @@
       </div>
 
       <form novalidate onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+        {#if editingId}
+          {#key editingId}<ExecutionBinding kind="mcp" subjectId={editingId} />{/key}
+        {:else}
+          <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Save the server first, then select its execution identity before connecting an MCP client.</p>
+        {/if}
         <!-- Name -->
         <div class="grid grid-cols-4 gap-3 items-center">
           <label for="mcp-name" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Name</label>

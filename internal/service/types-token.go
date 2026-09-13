@@ -20,6 +20,7 @@ const (
 
 // APIToken represents a bearer token stored in the database for gateway auth.
 type APIToken struct {
+	WorkspaceID          string                 `json:"workspace_id"`
 	ID                   string                 `json:"id"`
 	Name                 string                 `json:"name"`
 	TokenPrefix          string                 `json:"token_prefix"`           // first 8 chars for display (e.g. "at_xxxx…")

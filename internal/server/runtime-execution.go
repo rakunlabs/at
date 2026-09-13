@@ -168,10 +168,10 @@ func (s *Server) PersistRuntimeSubject(ctx context.Context, kind, id string) err
 // ResumeRuntimeSubject is ONLY for authenticated machine dispatch or the
 // scheduler. Never call it merely because a browser supplied a subject ID.
 func (s *Server) ResumeRuntimeSubject(ctx context.Context, kind, id string, validate service.ExecutionRevalidator) (context.Context, error) {
-	if kind != "task" && kind != "trigger" && kind != "bot" {
+	if kind != "task" && kind != "trigger" && kind != "bot" && kind != "mcp" {
 		return nil, service.ErrExecutionDenied
 	}
-	if (kind == "trigger" || kind == "bot") && validate == nil {
+	if (kind == "trigger" || kind == "bot" || kind == "mcp") && validate == nil {
 		if services, ok := s.store.(service.ExecutionServiceStorer); ok {
 			binding, err := services.GetExecutionServiceBinding(ctx, kind, id)
 			if err != nil {
@@ -282,16 +282,51 @@ func (s *Server) runtimeSchedulerContext(ctx context.Context, triggerID string) 
 }
 
 func (s *Server) RuntimeBotBindingAPI(w http.ResponseWriter, r *http.Request) {
+	s.runtimeServiceBindingAPI(w, r, "bot", "bots.use")
+}
+
+func (s *Server) RuntimeMCPBindingAPI(w http.ResponseWriter, r *http.Request) {
+	s.runtimeServiceBindingAPI(w, r, "mcp", "mcp_servers.use")
+}
+
+func (s *Server) runtimeServiceBindingAPI(w http.ResponseWriter, r *http.Request, kind, action string) {
 	var ok bool
 	if r, ok = s.runtimeRequest(w, r); !ok {
 		return
 	}
-	if r.Method == http.MethodDelete {
-		s.revokeRuntimeBinding(w, r, "bot")
+	if err := service.CheckExecution(r.Context(), service.ExecutionAction{Kind: "resource", Name: action, ResourceID: r.PathValue("id")}); err != nil {
+		httpResponse(w, "service access denied", http.StatusForbidden)
 		return
 	}
-	if err := service.CheckExecution(r.Context(), service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: r.PathValue("id")}); err != nil {
-		httpResponse(w, "bot access denied", http.StatusForbidden)
+	if r.Method == http.MethodGet {
+		store, ok := s.store.(service.ExecutionServiceStorer)
+		if !ok {
+			httpResponse(w, "execution binding store unavailable", http.StatusServiceUnavailable)
+			return
+		}
+		binding, err := store.GetExecutionServiceBinding(r.Context(), kind, r.PathValue("id"))
+		if err != nil {
+			httpResponse(w, "failed to load execution binding", http.StatusInternalServerError)
+			return
+		}
+		candidates, err := s.runtimeBindingCandidates(r.Context())
+		if err != nil {
+			httpResponse(w, "Could not load workspace members for execution identity selection", http.StatusForbidden)
+			return
+		}
+		httpResponseJSON(w, map[string]any{"binding": binding, "candidates": candidates}, http.StatusOK)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		s.revokeRuntimeBinding(w, r, kind)
+		if kind == "bot" {
+			// Stop only after confirming the binding was actually revoked.
+			if store, ok := s.store.(service.ExecutionServiceStorer); ok {
+				if b, err := store.GetExecutionServiceBinding(r.Context(), kind, r.PathValue("id")); err == nil && b != nil && b.Revoked {
+					s.stopBot(r.PathValue("id"))
+				}
+			}
+		}
 		return
 	}
 	runAs, decodeErr := runtimeBindingUser(w, r)
@@ -299,12 +334,57 @@ func (s *Server) RuntimeBotBindingAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, "invalid execution binding", http.StatusBadRequest)
 		return
 	}
-	binding, err := s.saveRuntimeBinding(r.Context(), "bot", r.PathValue("id"), r.Method == http.MethodDelete, runAs)
+	binding, err := s.saveRuntimeBinding(r.Context(), kind, r.PathValue("id"), false, runAs)
 	if err != nil {
-		httpResponse(w, "bot execution binding denied", http.StatusForbidden)
+		httpResponse(w, "execution binding denied: select an active non-platform workspace member whose permissions you can delegate", http.StatusForbidden)
 		return
 	}
+	if kind == "bot" {
+		// A renewal invalidates the running context's version. Restart explicitly
+		// rather than leaving a connected adapter that silently rejects messages.
+		s.stopBot(binding.SubjectID)
+	}
 	httpResponseJSON(w, binding, http.StatusOK)
+}
+
+type runtimeBindingCandidate struct {
+	UserID string `json:"user_id"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+}
+
+func (s *Server) runtimeBindingCandidates(ctx context.Context) ([]runtimeBindingCandidate, error) {
+	actor, ok := service.AccessPrincipalFromContext(ctx)
+	if !ok {
+		return nil, service.ErrAccessDenied
+	}
+	store, ok := s.store.(service.WorkspaceStorer)
+	if !ok {
+		return nil, service.ErrAccessDenied
+	}
+	members := []service.WorkspaceMembership{{UserID: actor.UserID}}
+	if actor.PlatformAdmin {
+		var err error
+		members, err = store.ListWorkspaceMembers(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	out := make([]runtimeBindingCandidate, 0, len(members))
+	for _, member := range members {
+		live, _, err := store.ResolveWorkspaceAccess(ctx, actor.WorkspaceID, member.UserID, "")
+		if err != nil || live.PlatformAdmin || live.ExecutionDisabled {
+			continue
+		}
+		name := member.UserID
+		if users, ok := s.store.(service.AuthStorer); ok {
+			if user, err := users.GetAuthUserByID(ctx, member.UserID); err == nil && user != nil {
+				name = user.Username
+			}
+		}
+		out = append(out, runtimeBindingCandidate{UserID: member.UserID, Name: name, Role: live.Role})
+	}
+	return out, nil
 }
 
 func (s *Server) saveRuntimeBinding(ctx context.Context, kind, id string, revoked bool, runAs ...string) (*service.ExecutionServiceBinding, error) {

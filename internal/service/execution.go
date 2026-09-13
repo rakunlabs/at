@@ -203,7 +203,7 @@ func CheckExecution(ctx context.Context, action ExecutionAction) error {
 		}
 	case "resource":
 		switch action.Name {
-		case "execution.run", "providers.use", "skills.use", "variables.read", "connections.use", "agents.run", "workflows.run", "mcp.use", "node_configs.use", "tasks.run", "organizations.run", "chats.run", "triggers.use", "bots.use":
+		case "execution.run", "providers.use", "skills.use", "variables.read", "connections.use", "agents.run", "workflows.run", "mcp.use", "mcp_servers.use", "node_configs.use", "tasks.run", "organizations.run", "chats.run", "triggers.use", "bots.use":
 		default:
 			return ErrExecutionDenied
 		}

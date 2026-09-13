@@ -754,11 +754,10 @@ func (s *Server) findOrCreateTelegramTaskSession(ctx context.Context, task *serv
 }
 
 // startTelegramBot starts a Telegram bot that routes messages to the agentic loop.
-func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config.TelegramBotConfig) {
+func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config.TelegramBotConfig) error {
 	bot, err := tgbotapi.NewBotAPI(cfg.Token)
 	if err != nil {
-		slog.Error("telegram bot: failed to create bot", "error", err)
-		return
+		return fmt.Errorf("telegram bot connection failed: %w", err)
 	}
 
 	slog.Info("telegram bot started", "user", bot.Self.UserName)
@@ -782,7 +781,10 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 				slog.Info("telegram bot: shutting down")
 				bot.StopReceivingUpdates()
 				return
-			case update := <-updates:
+			case update, ok := <-updates:
+				if !ok {
+					return
+				}
 				if update.Message == nil {
 					continue
 				}
@@ -820,6 +822,7 @@ func (s *Server) startTelegramBot(ctx context.Context, botID string, cfg *config
 			}
 		}
 	}()
+	return nil
 }
 
 func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI, msg *tgbotapi.Message, agentID string, tgCtx *telegramContext) {
@@ -845,6 +848,7 @@ func (s *Server) handleTelegramMessage(ctx context.Context, bot *tgbotapi.BotAPI
 	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "telegram", tgCtx.botID, userIDStr, chatIDStr, agentID)
 	if err != nil {
 		slog.Error("telegram bot: session lookup failed", "error", err)
+		sendTelegramText(bot, msg.Chat.ID, "Your message could not be processed. Ask the bot administrator to check its execution identity and agent permissions.")
 		return
 	}
 	// Use the session's actual agent (respects /switch), not the bot's default.

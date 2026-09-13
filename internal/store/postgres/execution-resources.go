@@ -44,6 +44,8 @@ func (p *Postgres) ResolveExecutionResource(ctx context.Context, kind, key strin
 		table = "node_configs"
 	case "mcp":
 		table, alias = "mcp_sets", "name"
+	case "mcp_servers":
+		table, alias = "mcp_servers", "name"
 	default:
 		return service.AccessResource{}, service.ErrAccessDenied
 	}

@@ -129,6 +129,7 @@ func (s *Server) startBotsFromDB(ctx context.Context) {
 	for _, binding := range bindings {
 		bound, err := s.ResumeRuntimeSubject(ctx, "bot", binding.SubjectID, nil)
 		if err != nil {
+			slog.Warn("bot execution identity unavailable at startup", "bot_id", binding.SubjectID, "error", err)
 			continue
 		}
 		bot, err := s.botConfigStore.GetBotConfig(bound, binding.SubjectID)
@@ -138,7 +139,9 @@ func (s *Server) startBotsFromDB(ctx context.Context) {
 		if !bot.Enabled || bot.Token == "" {
 			continue
 		}
-		s.startBotFromConfig(bound, bot)
+		if err := s.startBotFromConfig(bound, bot); err != nil {
+			slog.Error("failed to start bot", "bot_id", bot.ID, "error", err)
+		}
 	}
 }
 
@@ -147,6 +150,7 @@ type runningBot struct {
 	cancel    context.CancelFunc
 	platform  string
 	startedAt string
+	runID     string
 }
 
 // stopBot stops a running bot by cancelling its context.
@@ -184,7 +188,7 @@ func (s *Server) getBotRunningInfo(botID string) *runningBot {
 }
 
 // startBotFromConfig starts a single bot based on its DB configuration.
-func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig) {
+func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig) error {
 	// Stop any existing instance first.
 	bound, err := s.ResumeRuntimeSubject(ctx, "bot", bot.ID, nil)
 	if err == nil {
@@ -192,23 +196,37 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 	}
 	if err != nil {
 		slog.Warn("bot execution binding unavailable", "bot_id", bot.ID, "error", err)
-		return
+		return fmt.Errorf("bot execution identity unavailable; configure or renew its execution binding: %w", err)
 	}
 	ctx = bound
+	if store, ok := s.botConfigStore.(service.ExecutionBotConfigStorer); ok {
+		bot, err = store.GetExecutionBotConfig(ctx, bot.ID)
+		if err != nil {
+			return fmt.Errorf("load bot credentials: %w", err)
+		}
+		if bot == nil {
+			return fmt.Errorf("bot no longer exists")
+		}
+	}
+	if bot.Token == "" || bot.Token == "***" {
+		return fmt.Errorf("bot token is unavailable")
+	}
 	s.stopBot(bot.ID)
 
 	// Create per-bot cancellable context.
 	botCtx, cancel := context.WithCancel(ctx)
 
+	provenance, _, _ := service.ExecutionFromContext(botCtx)
 	rb := &runningBot{
 		cancel:    cancel,
 		platform:  bot.Platform,
 		startedAt: time.Now().UTC().Format(time.RFC3339),
+		runID:     provenance.RunID,
 	}
 	s.runningBots.Store(bot.ID, rb)
 	switch bot.Platform {
 	case "discord":
-		s.startDiscordBot(botCtx, bot.ID, &config.DiscordBotConfig{
+		err = s.startDiscordBot(botCtx, bot.ID, &config.DiscordBotConfig{
 			Token:           bot.Token,
 			DefaultAgentID:  bot.DefaultAgentID,
 			ChannelAgents:   bot.ChannelAgents,
@@ -218,7 +236,7 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 			AllowedUsers:    bot.AllowedUsers,
 		})
 	case "telegram":
-		s.startTelegramBot(botCtx, bot.ID, &config.TelegramBotConfig{
+		err = s.startTelegramBot(botCtx, bot.ID, &config.TelegramBotConfig{
 			Token:           bot.Token,
 			DefaultAgentID:  bot.DefaultAgentID,
 			ChatAgents:      bot.ChannelAgents,
@@ -228,10 +246,18 @@ func (s *Server) startBotFromConfig(ctx context.Context, bot *service.BotConfig)
 			AllowedUsers:    bot.AllowedUsers,
 		})
 	default:
-		cancel() // no bot started, clean up context
-		s.runningBots.Delete(bot.ID)
-		slog.Warn("unknown bot platform", "platform", bot.Platform, "id", bot.ID)
+		err = fmt.Errorf("unknown bot platform %q", bot.Platform)
 	}
+	if err != nil {
+		cancel()
+		s.runningBots.CompareAndDelete(bot.ID, rb)
+		return err
+	}
+	go func() {
+		<-botCtx.Done()
+		s.runningBots.CompareAndDelete(bot.ID, rb)
+	}()
+	return nil
 }
 
 // listAllowedAgents returns the agents a user may switch to.
@@ -332,7 +358,13 @@ func (s *Server) switchBotAgent(ctx context.Context, botID, sessionID, targetAge
 // checkBotAccess checks if a user is allowed to use the bot.
 // Returns: allowed bool, wasPending bool (true if pending_approval is on and user was added to pending).
 func (s *Server) checkBotAccess(ctx context.Context, botID, userID, accessMode string, pendingApproval bool, allowedUsers []string) (bool, bool) {
-	if service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: botID}) != nil {
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: botID}); err != nil {
+		slog.Warn("bot message denied by execution identity", "bot_id", botID, "error", err)
+		if p, _, ok := service.ExecutionFromContext(ctx); ok {
+			if rb := s.getBotRunningInfo(botID); rb != nil && rb.runID == p.RunID && s.runningBots.CompareAndDelete(botID, rb) {
+				rb.cancel()
+			}
+		}
 		return false, false
 	}
 	// For DB bots, fetch current config for dynamic updates.

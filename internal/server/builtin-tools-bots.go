@@ -402,7 +402,9 @@ func (s *Server) execBotStart(ctx context.Context, args map[string]any) (string,
 		return "", fmt.Errorf("bot %q is already running", id)
 	}
 
-	s.startBotFromConfig(s.ctx, record)
+	if err := s.startBotFromConfig(s.ctx, record); err != nil {
+		return "", fmt.Errorf("start bot: %w", err)
+	}
 
 	if !record.Enabled {
 		// Persist enabled=true so the bot auto-starts on next process

@@ -9,6 +9,7 @@
   import { Trash2, Plus, X, Pencil, Radio, RefreshCw, Save, Play, Square } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
+  import ExecutionBinding from '@/lib/components/ExecutionBinding.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
 
   storeNavbar.title = 'Bots';
@@ -263,8 +264,11 @@
         await updateBotConfig(editingId, payload);
         addToast(`Bot "${formName || formPlatform}" updated`);
       } else {
-        await createBotConfig(payload);
-        addToast(`Bot "${formName || formPlatform}" created`);
+        const created = await createBotConfig(payload);
+        editingId = created.id;
+        addToast('Bot saved. Configure its execution identity below to start receiving messages.');
+        await loadData();
+        return;
       }
       resetForm();
       await loadData();
@@ -408,6 +412,11 @@
           </div>
 
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+            {#if editingId}
+              {#key editingId}<ExecutionBinding kind="bot" subjectId={editingId} onchange={loadStatuses} />{/key}
+            {:else}
+              <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Save the bot first, then select its execution identity to start receiving messages.</p>
+            {/if}
             <!-- Platform -->
             <div class="grid grid-cols-4 gap-3 items-center">
               <label for="form-platform" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Platform</label>

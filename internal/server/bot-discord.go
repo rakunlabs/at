@@ -20,11 +20,10 @@ type discordContext struct {
 }
 
 // startDiscordBot starts a Discord bot that routes messages to the agentic loop.
-func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.DiscordBotConfig) {
+func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.DiscordBotConfig) error {
 	dg, err := discordgo.New("Bot " + cfg.Token)
 	if err != nil {
-		slog.Error("discord bot: failed to create session", "error", err)
-		return
+		return fmt.Errorf("discord bot session failed: %w", err)
 	}
 
 	dg.Identify.Intents = discordgo.IntentsGuildMessages | discordgo.IntentsDirectMessages | discordgo.IntentsMessageContent
@@ -66,8 +65,7 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 	})
 
 	if err := dg.Open(); err != nil {
-		slog.Error("discord bot: failed to open connection", "error", err)
-		return
+		return fmt.Errorf("discord bot connection failed: %w", err)
 	}
 
 	slog.Info("discord bot started", "user", dg.State.User.Username)
@@ -78,12 +76,14 @@ func (s *Server) startDiscordBot(ctx context.Context, botID string, cfg *config.
 		slog.Info("discord bot: shutting down")
 		dg.Close()
 	}()
+	return nil
 }
 
 func (s *Server) handleDiscordMessage(ctx context.Context, sess *discordgo.Session, m *discordgo.MessageCreate, agentID string, dcCtx *discordContext) {
 	sessionID, sessionAgentID, err := s.findOrCreateBotSession(ctx, "discord", dcCtx.botID, m.Author.ID, m.ChannelID, agentID)
 	if err != nil {
 		slog.Error("discord bot: session lookup failed", "error", err)
+		sess.ChannelMessageSend(m.ChannelID, "Your message could not be processed. Ask the bot administrator to check its execution identity and agent permissions.") //nolint:errcheck
 		return
 	}
 	// Use the session's actual agent (respects !switch), not the bot's default.

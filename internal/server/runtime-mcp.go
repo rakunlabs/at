@@ -32,6 +32,10 @@ func (s *Server) buildExecutionMCPSet(ctx context.Context, setName string) (*mcp
 	if err != nil {
 		return nil, err
 	}
+	return s.buildExecutionMCPConfig(ctx, srv)
+}
+
+func (s *Server) buildExecutionMCPConfig(ctx context.Context, srv *service.MCPServer) (*mcpRuntime, error) {
 	runtime := newMCPRuntime()
 	for _, name := range srv.Config.EnabledSkills {
 		if s.skillStore == nil {
@@ -80,6 +84,39 @@ func (s *Server) buildExecutionMCPSet(ctx context.Context, setName string) (*mcp
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)
 	// Custom HTTP templates still use unscoped credential expansion in the
 	// legacy builder. They are intentionally not executable in this runtime.
+	return runtime, nil
+}
+
+func (s *Server) gatewayMCPRuntime(ctx context.Context, srv *service.MCPServer) (*mcpRuntime, error) {
+	if _, _, bound := service.ExecutionFromContext(ctx); !bound {
+		return s.newMCPRuntimeBuilder().buildGateway(ctx, srv), nil
+	}
+	if srv.ID == "" {
+		return s.buildExecutionMCPSet(ctx, srv.Name)
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp_servers.use", ResourceID: srv.ID}); err != nil {
+		return nil, err
+	}
+	runtime, err := s.buildExecutionMCPConfig(ctx, srv)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range srv.Servers {
+		child, err := s.buildExecutionMCPSet(ctx, name)
+		if err != nil {
+			closeMCPRuntime(ctx, runtime)
+			return nil, err
+		}
+		runtime.children = append(runtime.children, child)
+		for _, tool := range child.ListTools(ctx) {
+			runtime.addTool(tool, "scoped MCP set", func(ctx context.Context, args map[string]any) (string, error) {
+				if err := workflow.AuthorizeMCPSetTool(ctx, name, tool.Name); err != nil {
+					return "", err
+				}
+				return child.CallTool(ctx, tool.Name, args)
+			})
+		}
+	}
 	return runtime, nil
 }
 

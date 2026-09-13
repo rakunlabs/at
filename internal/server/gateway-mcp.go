@@ -118,9 +118,32 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 
 	auth, errMsg := s.authenticateRequest(r)
 
-	mcpSrv, err := s.mcpServerStore.GetMCPServerByName(r.Context(), name)
+	var mcpSrv *service.MCPServer
+	var err error
+	machineStore, machine := s.mcpServerStore.(service.GatewayMCPAdmissionStorer)
+	if machine {
+		workspace := ""
+		if auth != nil && auth.token != nil {
+			workspace = auth.token.WorkspaceID
+			if workspace == "" {
+				httpResponse(w, "gateway token has no workspace binding", http.StatusForbidden)
+				return nil, false
+			}
+		}
+		mcpSrv, err = machineStore.GetGatewayMCPRoute(r.Context(), name, workspace)
+	} else {
+		mcpSrv, err = s.mcpServerStore.GetMCPServerByName(r.Context(), name)
+	}
 	if err != nil {
 		slog.Error("get mcp server failed", "name", name, "error", err)
+		if errors.Is(err, service.ErrWorkspaceConflict) {
+			httpResponse(w, "MCP name is ambiguous; use a gateway token bound to its workspace", http.StatusConflict)
+			return nil, false
+		}
+		if errors.Is(err, service.ErrWorkspaceRequired) || errors.Is(err, service.ErrAccessDenied) {
+			httpResponse(w, "MCP workspace access denied", http.StatusForbidden)
+			return nil, false
+		}
 		httpResponse(w, "internal error looking up MCP server", http.StatusInternalServerError)
 		return nil, false
 	}
@@ -130,7 +153,7 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 			httpResponse(w, errMsg, http.StatusUnauthorized)
 			return nil, false
 		}
-		return mcpSrv, true
+		return s.bindGatewayMCPServer(w, r, mcpSrv, machineStore)
 	}
 
 	if mcpSrv == nil {
@@ -138,7 +161,7 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 		return nil, false
 	}
 	if mcpSrv.Public {
-		return mcpSrv, true
+		return s.bindGatewayMCPServer(w, r, mcpSrv, machineStore)
 	}
 
 	if auth.token != nil {
@@ -153,7 +176,38 @@ func (s *Server) authorizeGatewayMCPServer(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	return mcpSrv, true
+	return s.bindGatewayMCPServer(w, r, mcpSrv, machineStore)
+}
+
+func (s *Server) bindGatewayMCPServer(w http.ResponseWriter, r *http.Request, srv *service.MCPServer, store service.GatewayMCPAdmissionStorer) (*service.MCPServer, bool) {
+	if store == nil {
+		return srv, true
+	}
+	ctx, err := s.ResumeRuntimeSubject(r.Context(), "mcp", srv.ID, nil)
+	if err != nil {
+		slog.Warn("gateway MCP execution binding unavailable", "mcp_id", srv.ID, "error", err)
+		httpResponse(w, "MCP execution identity unavailable; configure or renew its execution binding in MCP Servers", http.StatusForbidden)
+		return nil, false
+	}
+	p, _, ok := service.ExecutionFromContext(ctx)
+	if !ok || p.WorkspaceID != srv.WorkspaceID {
+		httpResponse(w, "MCP workspace access denied", http.StatusForbidden)
+		return nil, false
+	}
+	full, err := store.GetExecutionMCPServer(ctx, srv.ID)
+	if err != nil || full == nil {
+		slog.Warn("gateway MCP execution access denied", "mcp_id", srv.ID, "error", err)
+		httpResponse(w, "MCP execution access denied", http.StatusForbidden)
+		return nil, false
+	}
+	if full.Public != srv.Public {
+		httpResponse(w, "MCP access configuration changed; retry the request", http.StatusForbidden)
+		return nil, false
+	}
+	// All JSON-RPC methods (including tools/list and tools/call) must retain
+	// this context; authentication alone is not an execution identity.
+	*r = *r.WithContext(ctx)
+	return full, true
 }
 
 // ─── Initialize ───
@@ -202,7 +256,11 @@ func (s *Server) gwGenMCPInitialize(w http.ResponseWriter, req service.MCPReques
 // ─── List Tools ───
 
 func (s *Server) gwGenMCPListTools(ctx context.Context, w http.ResponseWriter, req service.MCPRequest, srv *service.MCPServer) {
-	runtime := s.newMCPRuntimeBuilder().buildGateway(ctx, srv)
+	runtime, err := s.gatewayMCPRuntime(ctx, srv)
+	if err != nil {
+		mcpError(w, req.ID, -32000, err.Error())
+		return
+	}
 	defer closeMCPRuntime(ctx, runtime)
 	mcpResult(w, req.ID, map[string]any{"tools": runtime.ListTools(ctx)})
 }
@@ -230,7 +288,11 @@ func (s *Server) gwGenMCPCallTool(w http.ResponseWriter, r *http.Request, req se
 		return
 	}
 
-	runtime := s.newMCPRuntimeBuilder().buildGateway(r.Context(), srv)
+	runtime, err := s.gatewayMCPRuntime(r.Context(), srv)
+	if err != nil {
+		mcpError(w, req.ID, -32000, err.Error())
+		return
+	}
 	defer closeMCPRuntime(r.Context(), runtime)
 	result, err := runtime.CallTool(r.Context(), params.Name, params.Arguments)
 	if err != nil {
