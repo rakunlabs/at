@@ -316,6 +316,10 @@ const confirmationTimeout = 5 * time.Minute
 // RunAgenticLoop runs the agentic loop for a chat session, calling onEvent for each event.
 // This is the core loop shared by the HTTP SSE handler and bot adapters.
 func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, onEvent func(AgenticEvent)) error {
+	return s.runAgenticLoopMessage(ctx, sessionID, service.ChatMessageData{Content: content}, onEvent)
+}
+
+func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, data service.ChatMessageData, onEvent func(AgenticEvent)) error {
 	var bindErr error
 	ctx, bindErr = s.bindRuntimePrincipal(ctx, "chat")
 	if bindErr != nil {
@@ -403,9 +407,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	userMsg := service.ChatMessage{
 		SessionID: sessionID,
 		Role:      "user",
-		Data: service.ChatMessageData{
-			Content: content,
-		},
+		Data:      data,
 	}
 	if _, err := s.chatSessionStore.CreateChatMessage(ctx, userMsg); err != nil {
 		return fmt.Errorf("persist user message: %w", err)
@@ -736,7 +738,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 		msg := service.Message{
 			Role:    m.Role,
-			Content: m.Data.Content,
+			Content: chatMessageContent(m.Data),
 		}
 
 		// Reconstruct tool_use content blocks for assistant messages with tool_calls.
@@ -775,7 +777,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	// Add current user message.
 	llmMessages = append(llmMessages, service.Message{
 		Role:    "user",
-		Content: content,
+		Content: chatMessageContent(data),
 	})
 
 	// Strip handlers from tools sent to the LLM. Skill tools are appended
@@ -1310,7 +1312,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 // sendChatMessageRequest is the request body for SendChatMessageAPI.
 type sendChatMessageRequest struct {
-	Content string `json:"content"`
+	Content     string                   `json:"content"`
+	Attachments []service.ChatAttachment `json:"attachments,omitempty"`
 }
 
 // SendChatMessageAPI handles POST /api/v1/chat/sessions/{id}/messages.
@@ -1328,13 +1331,7 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req sendChatMessageRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
-		return
-	}
-
-	if req.Content == "" {
-		httpResponse(w, "content is required", http.StatusBadRequest)
+	if !decodeChatMessage(w, r, &req) {
 		return
 	}
 
@@ -1376,7 +1373,7 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if err := s.RunAgenticLoop(r.Context(), sessionID, req.Content, onEvent); err != nil {
+	if err := s.runAgenticLoopMessage(r.Context(), sessionID, service.ChatMessageData{Content: req.Content, Attachments: req.Attachments}, onEvent); err != nil {
 		slog.Error("send message: agentic loop failed", "session_id", sessionID, "error", err)
 		writeSSE("error", map[string]string{"error": err.Error()})
 	}

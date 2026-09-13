@@ -76,9 +76,12 @@ func ConvertContentBlocksToOpenAI(role string, blocks []service.ContentBlock) []
 			case "image":
 				content = append(content, map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}})
 			case "document":
-				filename := "document"
-				if b.Source.MediaType == "application/pdf" {
-					filename += ".pdf"
+				filename := b.Source.Filename
+				if filename == "" {
+					filename = "document"
+					if b.Source.MediaType == "application/pdf" {
+						filename += ".pdf"
+					}
 				}
 				content = append(content, map[string]any{"type": "file", "file": map[string]any{"file_data": url, "filename": filename}})
 			case "video":

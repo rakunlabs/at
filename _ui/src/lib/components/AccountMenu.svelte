@@ -1,6 +1,7 @@
 <script lang="ts">
   import { storeInfo } from '@/lib/store/store.svelte';
-  import { MoreHorizontal, LogOut } from 'lucide-svelte';
+  import { ChevronDown, LogOut, Settings, ShieldCheck, User } from 'lucide-svelte';
+  import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
   import { expoOut } from 'svelte/easing';
 
   interface Props { onlogout?: () => Promise<void>; loggingOut?: boolean }
@@ -12,7 +13,8 @@
 
   // An empty menu is a dead control, so the trigger only exists when it has
   // something to hold.
-  const hasContent = $derived(!!(storeInfo.name || storeInfo.user || onlogout));
+  const hasContent = $derived(!!(storeInfo.name || storeAuth.identity || onlogout));
+  const accountLabel = $derived(isNativeAdmin() ? 'Admin' : storeAuth.identity?.name || 'Account');
 
   const items = () =>
     Array.from(panel?.querySelectorAll<HTMLElement>('[role="menuitem"]:not([disabled])') ?? []);
@@ -115,23 +117,25 @@
       aria-haspopup="menu"
       aria-expanded={open}
       aria-controls="account-menu"
-      aria-label={storeInfo.user ? `Account menu for ${storeInfo.user}` : 'Account menu'}
+      aria-label={`Account menu for ${accountLabel}`}
       onclick={toggle}
       onkeydown={onTriggerKeydown}
-      class="p-1.5 text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent transition-colors {open
+      class="inline-flex h-8 items-center gap-1.5 rounded px-2 text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent transition-colors {open
         ? 'bg-gray-100 dark:bg-dark-elevated text-gray-900 dark:text-dark-text'
         : ''}"
     >
-      <MoreHorizontal size={16} />
+      {#if isNativeAdmin()}<ShieldCheck size={16} class="shrink-0" />{:else}<User size={16} class="shrink-0" />{/if}
+      <span class="max-w-20 truncate text-xs font-medium">{accountLabel}</span>
+      <ChevronDown size={12} class="shrink-0" />
     </button>
 
     {#if open}
       <div
         bind:this={panel}
         transition:reveal={{}}
-        class="absolute right-0 top-full z-50 mt-1 w-64 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-lg"
+        class="absolute right-0 top-full z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-lg"
       >
-        {#if storeInfo.name || storeInfo.user}
+        {#if storeInfo.name || storeAuth.identity}
           <div class="border-b border-gray-200 dark:border-dark-border px-3 py-2.5">
             {#if storeInfo.name}
               <p class="flex items-baseline gap-1.5 text-sm font-semibold text-gray-900 dark:text-dark-text">
@@ -143,12 +147,12 @@
                 {/if}
               </p>
             {/if}
-            {#if storeInfo.user}
+            {#if storeAuth.identity}
               <p
                 class="mt-0.5 truncate text-xs text-gray-600 dark:text-dark-text-secondary"
-                title={storeInfo.user}
+                title={accountLabel}
               >
-                {storeInfo.user}
+                {storeAuth.identity.name || 'Account'} · {isNativeAdmin() ? 'Administrator' : 'Member'}
               </p>
             {/if}
           </div>
@@ -167,6 +171,7 @@
           class="py-1 focus:outline-none"
           onkeydown={onMenuKeydown}
         >
+          <a href="#/settings/account" role="menuitem" onclick={() => close(false)} class="flex min-h-10 w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><Settings size={14} class="shrink-0" />Account settings</a>
           {#if onlogout}
             <button
               type="button"

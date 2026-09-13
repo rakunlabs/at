@@ -1007,6 +1007,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// LLM call audit (full request/response bodies, Langfuse-style tracing)
 	apiGroup.GET("/v1/llm-calls", s.ListLLMCallsAPI)
 	apiGroup.GET("/v1/llm-calls/traces", s.ListLLMCallTracesAPI)
+	apiGroup.GET("/v1/llm-calls/conversations", s.ListLLMCallConversationsAPI)
 	apiGroup.GET("/v1/llm-calls/{id}", s.GetLLMCallAPI)
 
 	// Chat session management

@@ -199,6 +199,9 @@ type ContentBlock struct {
 // Used by Anthropic-format content blocks where the source contains base64-encoded data
 // or a URL reference.
 type MediaSource struct {
+	// Filename is adapter-only metadata for native file inputs. It is not part
+	// of Anthropic's source object and must not be marshaled into that object.
+	Filename  string `json:"-"`
 	Type      string `json:"type"`                 // "base64" or "url"
 	MediaType string `json:"media_type,omitempty"` // e.g. "image/png", "application/pdf", "audio/wav"
 	Data      string `json:"data,omitempty"`       // base64-encoded data (when type="base64")

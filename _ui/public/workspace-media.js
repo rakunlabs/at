@@ -69,6 +69,6 @@ async function serve(event) {
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
   const target = new URL('api/v1/files/serve', self.registration.scope);
-  if (url.origin !== target.origin || url.pathname !== target.pathname || !['GET', 'HEAD'].includes(event.request.method) || event.request.headers.has('X-AT-Workspace-ID')) return;
+  if (url.origin !== target.origin || url.pathname !== target.pathname || !['GET', 'HEAD'].includes(event.request.method) || event.request.headers.has('X-AT-Workspace-ID') || url.searchParams.has('workspace_id')) return;
   event.respondWith(serve(event));
 });

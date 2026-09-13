@@ -215,6 +215,11 @@ func (a *nativeAuth) runAuthJanitor(ctx context.Context) {
 				err = mobileErr
 			}
 		}
+		if store, ok := a.credentials.(service.AuthLoginEventStorer); ok {
+			if eventErr := store.CleanupAuthLoginEvents(sweep, 500); eventErr != nil && err == nil {
+				err = eventErr
+			}
+		}
 		cancel()
 		if err != nil && ctx.Err() == nil {
 			slog.Warn("auth credential cleanup failed", "error", err.Error())

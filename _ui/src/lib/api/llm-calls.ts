@@ -74,6 +74,15 @@ export interface LLMCallTrace {
   ended_at: string;
 }
 
+export interface LLMCallConversation extends LLMCallTrace {
+  token_id: string;
+  trace_count: number;
+}
+
+export async function listLLMCallConversations(params?: ListParams): Promise<ListResult<LLMCallConversation>> {
+  return (await api.get<ListResult<LLMCallConversation>>('/llm-calls/conversations', { params })).data;
+}
+
 export async function listLLMCalls(params?: ListParams): Promise<ListResult<LLMCall>> {
   const res = await api.get<ListResult<LLMCall>>('/llm-calls', { params });
   return res.data;

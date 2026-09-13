@@ -8,6 +8,7 @@
   import { isWebAuthnSupported, startRegistration } from '../lib/helper/webauthn';
   import { storeAuth, returnToLogin, securityCodes } from '../lib/store/auth.svelte';
   import { storeNavbar } from '../lib/store/store.svelte';
+  import { Copy } from 'lucide-svelte';
   storeNavbar.title = 'Account security';
   let status = $state<{enabled: boolean; backup_codes_remaining: number} | null>(null);
   let keys = $state<AuthPasskey[]>([]); let links = $state<IdentityLink[]>([]); let providers = $state<{id: string; label: string}[]>([]);
@@ -46,9 +47,25 @@
     const popup = externalPopup(provider, { purpose: 'link', recent_proof: linkProof }, controller.signal); linkProof = ''; busy = true;
     popup.then(async () => { notice = 'Account linked.'; await load(); }).catch((e) => { error = e instanceof Error ? e.message + ' Verify again to retry linking.' : 'Linking failed. Verify again and retry.'; }).finally(() => busy = false);
   }
+  async function copyUserID() {
+    if (!storeAuth.identity?.subject) return;
+    try { await navigator.clipboard.writeText(storeAuth.identity.subject); notice = 'User ID copied.'; }
+    catch { error = 'Could not copy the user ID. Select the field and copy it manually.'; }
+  }
 </script>
 <div class="settings-page settings-form">
   <header><h1 class="text-2xl font-semibold">Account security</h1><p class="settings-note mt-2">Manage sign-in methods for {storeAuth.identity?.name || 'your account'}.</p></header>
+  {#if storeAuth.identity}
+    <section class="settings-section" aria-labelledby="account-identity-title">
+      <h2 id="account-identity-title" class="text-lg font-semibold">Your account</h2>
+      <p class="settings-note">{storeAuth.identity.name} · {storeAuth.identity.roles?.includes('admin') ? 'Administrator' : 'Member'}</p>
+      <div class="flex flex-wrap items-end gap-2">
+        <label class="min-w-0 flex-1 basis-56">User ID<input readonly value={storeAuth.identity.subject} class="font-mono" onclick={e => e.currentTarget.select()} /></label>
+        <button type="button" class="settings-button inline-flex items-center gap-2" onclick={copyUserID}><Copy size={16} />Copy ID</button>
+      </div>
+      <p class="settings-note">Use this ID when requesting workspace access or contacting your administrator.</p>
+    </section>
+  {/if}
     {#if error}<p role="alert" class="settings-error">{error}</p>{/if}{#if notice}<p role="status" class="settings-note">{notice}</p>{/if}
     {#if !loaded}<button class="settings-button" onclick={load} disabled={busy}>{busy ? 'Loading security…' : 'Reload security'}</button>{:else}
     {#if purpose}<RecentAuth {purpose} onproof={authorized} oncancel={() => { purpose = ''; action = undefined; }} />{/if}

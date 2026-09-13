@@ -40,6 +40,23 @@ test('sign-in errors distinguish credentials, origin, rate limits, sessions and 
   assert.match(api.loginErrorMessage(new Error('Browser session could not be verified')), /could not be verified/);
 });
 
+test('password locks show remaining wait and administrator recovery', () => {
+  const error = { isAxiosError: true, response: { status: 429, data: { message: 'password sign-in temporarily locked after 5 incorrect attempts' }, headers: { 'retry-after': '899' } } };
+  assert.match(api.loginErrorMessage(error), /15 minute/);
+  assert.match(api.loginErrorMessage(error), /administrator/);
+  error.response.headers['retry-after'] = '61';
+  assert.match(api.loginErrorMessage(error), /2 minute/);
+  delete error.response.headers;
+  assert.match(api.loginErrorMessage(error), /15 minute/);
+});
+
+test('administrator login history and unlock use encoded user routes', async () => {
+  response = { data: [], retention_days: 90 };
+  assert.deepEqual(await api.listAuthLoginEvents('a/b'), response);
+  await api.unlockAuthUserLogin('a/b');
+  assert.deepEqual(calls, [['get', 'users/a%2Fb/login-events'], ['post', 'users/a%2Fb/unlock-login']]);
+});
+
 test('mobile request IDs require one canonical 32-byte identifier', () => {
   const id = 'A'.repeat(43);
   assert.equal(api.mobileRequestID(`request_id=${id}`), id);

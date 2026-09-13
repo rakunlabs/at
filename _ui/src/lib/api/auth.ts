@@ -117,6 +117,22 @@ export interface AuthUser {
   username: string;
   admin: boolean;
   disabled: boolean;
+  password_locked_until?: string;
+  last_login?: { at: string; source_ip: string };
+}
+
+export interface AuthLoginEvent {
+  id: string;
+  user_id: string;
+  action: 'login_success' | 'login_failed' | 'login_locked' | 'login_blocked' | 'login_unlocked' | 'sessions_revoked';
+  source_ip: string;
+  user_agent: string;
+  actor_id?: string;
+  created_at: string;
+}
+
+export async function listAuthLoginEvents(id: string): Promise<{ data: AuthLoginEvent[]; retention_days: number }> {
+  return (await api.get(`users/${encodeURIComponent(id)}/login-events`)).data;
 }
 
 export interface AuthUserPage {
@@ -154,6 +170,10 @@ export async function revokeAuthUserSessions(id: string): Promise<void> {
   await api.post(`users/${encodeURIComponent(id)}/revoke-sessions`);
 }
 
+export async function unlockAuthUserLogin(id: string): Promise<void> {
+  await api.post(`users/${encodeURIComponent(id)}/unlock-login`);
+}
+
 export async function resetAuthUserPassword(id: string, password: string): Promise<void> {
   await api.post(`users/${encodeURIComponent(id)}/password`, { password });
 }
@@ -175,6 +195,12 @@ export function loginErrorMessage(error: unknown): string {
   if (status === 401) return 'The username or password is incorrect.';
   if (status === 403 && message === 'same-origin request required') return 'This site address is not allowed for sign-in. An administrator must update the primary or additional sign-in addresses in Authentication settings.';
   if (status === 403 && message === 'local login is disabled') return 'Password sign-in is disabled. Use a configured sign-in provider.';
+  if (status === 429 && message?.startsWith('password sign-in temporarily locked')) {
+    const seconds = Number(error.response?.headers?.['retry-after']);
+    const minutes = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds / 60) : 15;
+    const wait = `about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+    return `Password sign-in is temporarily locked after 5 incorrect attempts. Try again in ${wait}, or ask an administrator to unlock it.`;
+  }
   if (status === 429) return message?.includes('maximum 20') ? 'Your account has 20 active sessions. Sign out on another device or ask an administrator to revoke old sessions.' : 'Too many sign-in attempts. Wait a moment before trying again.';
   if (status && status >= 500) return 'The authentication service is unavailable. Your password could not be checked; please try again shortly.';
   if (!error.response) return 'Cannot reach the authentication service. Check your connection and try again.';

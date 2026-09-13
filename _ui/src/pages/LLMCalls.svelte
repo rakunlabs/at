@@ -6,9 +6,11 @@
   import {
     listLLMCalls,
     listLLMCallTraces,
+    listLLMCallConversations,
     getLLMCall,
     type LLMCall,
     type LLMCallTrace,
+    type LLMCallConversation,
   } from '@/lib/api/llm-calls';
   import { formatDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -26,14 +28,24 @@
     ExternalLink,
     ListTree,
     List,
+    MessagesSquare,
   } from 'lucide-svelte';
 
   storeNavbar.title = 'Traces';
 
   // ─── State ───
 
-  type ViewMode = 'traces' | 'calls';
-  let view = $state<ViewMode>('traces');
+  type ViewMode = 'conversations' | 'traces' | 'calls';
+  let view = $state<ViewMode>('conversations');
+  let conversations = $state<LLMCallConversation[]>([]);
+  let conversationsLoading = $state(true);
+  let conversationsOffset = $state(0);
+  let conversationsLimit = $state(25);
+  let conversationsTotal = $state(0);
+  let selectedConversation = $state<LLMCallConversation | null>(null);
+  let conversationRequest = 0;
+  let observationRequest = 0;
+  let traceListRequest = 0;
 
   // Trace list
   let traces = $state<LLMCallTrace[]>([]);
@@ -79,8 +91,10 @@
     if (ids.join(',') !== untrack(() => taskFilter).join(',')) {
       taskFilter = ids;
       tracesOffset = 0;
+      conversationsOffset = 0;
       offset = 0;
-      if (untrack(() => view) === 'traces') loadTraces();
+      if (untrack(() => view) === 'conversations') loadConversations();
+      else if (untrack(() => view) === 'traces') loadTraces();
       else load();
     }
   });
@@ -91,20 +105,73 @@
 
   // ─── Load: traces ───
 
+  async function loadConversations() {
+    const request = ++conversationRequest;
+    conversationsLoading = true;
+    try {
+      const params: any = { _offset: conversationsOffset, _limit: conversationsLimit };
+      if (sourceFilter) params.source = sourceFilter;
+      if (statusFilter) params.status = statusFilter;
+      if (taskFilter.length) params['task_id[in]'] = taskFilter.join(',');
+      const result = await listLLMCallConversations(params);
+      if (request !== conversationRequest) return;
+      conversations = result.data || [];
+      conversationsTotal = result.meta?.total || 0;
+    } catch (e: any) {
+      if (request === conversationRequest) addToast(e?.response?.data?.message || 'Could not load conversations', 'alert');
+    } finally { if (request === conversationRequest) conversationsLoading = false; }
+  }
+
+  function conversationFilters(params: Record<string, any>) {
+    const conversation = selectedConversation;
+    if (!conversation) return params;
+    params.token_id = conversation.token_id;
+    if (conversation.session_id) params.session_id = conversation.session_id;
+    else params.trace_id = conversation.trace_id;
+    if (conversation.source === 'gateway') params['source[in]'] = 'gateway,gateway_stream,responses';
+    else params.source = conversation.source;
+    return params;
+  }
+
+  async function openConversation(conversation: LLMCallConversation) {
+    selectedConversation = conversation;
+    selectedTrace = null;
+    tracesOffset = 0;
+    if (!conversation.session_id) await openTrace(conversation);
+    else await loadTraces();
+  }
+
+  function closeConversation() {
+    selectedConversation = null;
+    selectedTrace = null;
+    ++observationRequest;
+    ++traceListRequest;
+    void loadConversations();
+  }
+
+  function refreshView() {
+    if (selectedTrace) return loadTraceObservations(selectedTrace.trace_id);
+    if (view === 'conversations' && !selectedConversation) return loadConversations();
+    if (view !== 'calls') return loadTraces();
+    return load();
+  }
+
   async function loadTraces() {
+    const request = ++traceListRequest;
     tracesLoading = true;
     try {
       const params: any = { _offset: tracesOffset, _limit: tracesLimit };
       if (sourceFilter) params['source'] = sourceFilter;
       if (statusFilter) params['status'] = statusFilter;
       if (taskFilter.length > 0) params['task_id[in]'] = taskFilter.join(',');
-      const res = await listLLMCallTraces(params);
+      const res = await listLLMCallTraces(conversationFilters(params));
+      if (request !== traceListRequest) return;
       traces = res.data || [];
       tracesTotal = res.meta?.total || 0;
     } catch (e: any) {
-      addToast(e?.response?.data?.message || 'Failed to load traces', 'alert');
+      if (request === traceListRequest) addToast(e?.response?.data?.message || 'Failed to load traces', 'alert');
     } finally {
-      tracesLoading = false;
+      if (request === traceListRequest) tracesLoading = false;
     }
   }
 
@@ -114,6 +181,7 @@
   }
 
   async function openTraceByID(traceID: string) {
+    selectedConversation = null; // A delegation cross-link can enter another session.
     // Cross-link navigation: synthesize a minimal trace row, the header
     // fills in from the loaded observations.
     selectedTrace = { trace_id: traceID } as LLMCallTrace;
@@ -121,25 +189,29 @@
   }
 
   async function loadTraceObservations(traceID: string) {
+    const request = ++observationRequest;
     traceObsLoading = true;
     traceObservations = [];
     try {
-      const res = await listLLMCalls({
+      const res = await listLLMCalls(conversationFilters({
         trace_id: traceID,
         _limit: 500,
         _sort: 'created_at',
-      } as any);
+      }) as any);
+      if (request !== observationRequest) return;
       traceObservations = res.data || [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load trace observations', 'alert');
     } finally {
-      traceObsLoading = false;
+      if (request === observationRequest) traceObsLoading = false;
     }
   }
 
   function closeTrace() {
+    ++observationRequest;
     selectedTrace = null;
     traceObservations = [];
+    if (selectedConversation && !selectedConversation.session_id) closeConversation();
   }
 
   // Observation tree: chronological roots with tool observations nested
@@ -205,7 +277,10 @@
   }
 
   function applyFilters() {
-    if (view === 'traces') {
+    if (view === 'conversations' && !selectedConversation) {
+      conversationsOffset = 0;
+      loadConversations();
+    } else if (view !== 'calls') {
       tracesOffset = 0;
       loadTraces();
     } else {
@@ -226,7 +301,10 @@
   function switchView(v: ViewMode) {
     view = v;
     selectedTrace = null;
-    if (v === 'traces') loadTraces();
+    selectedConversation = null;
+    ++observationRequest;
+    if (v === 'conversations') loadConversations();
+    else if (v === 'traces') loadTraces();
     else load();
   }
 
@@ -256,7 +334,7 @@
     }
   }
 
-  loadTraces();
+  loadConversations();
 
   // ─── Formatting ───
 
@@ -331,17 +409,18 @@
   <title>AT | Traces</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto">
+<div class="p-3 sm:p-6 max-w-6xl mx-auto">
   <!-- Header -->
-  <div class="flex items-center justify-between mb-4">
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
     <div class="flex items-center gap-2">
       <Activity size={16} class="text-gray-500 dark:text-dark-text-muted" />
       <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Traces</h2>
       <span class="text-xs text-gray-400 dark:text-dark-text-muted">
-        ({view === 'traces' ? tracesTotal : total})
+        ({view === 'calls' ? total : view === 'conversations' && !selectedConversation ? conversationsTotal : tracesTotal})
       </span>
     </div>
     <div class="flex items-center gap-1">
+      <button onclick={() => switchView('conversations')} aria-pressed={view === 'conversations'} class={['flex h-9 items-center gap-1 px-2 text-xs rounded border focus-visible:outline-2 focus-visible:outline-accent', view === 'conversations' ? 'bg-gray-100 dark:bg-dark-elevated border-gray-300 dark:border-dark-border text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}><MessagesSquare size={14} />Conversations</button>
       <button
         onclick={() => switchView('traces')}
         class={[
@@ -361,11 +440,11 @@
         ]}
       ><List size={12} /> Observations</button>
       <button
-        onclick={() => (view === 'traces' ? (selectedTrace ? loadTraceObservations(selectedTrace.trace_id) : loadTraces()) : load())}
+        onclick={refreshView}
         class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
         title="Refresh"
       >
-        <RefreshCw size={14} class={loading || tracesLoading || traceObsLoading ? 'animate-spin' : ''} />
+        <RefreshCw size={14} class={(view === 'calls' ? loading : view === 'conversations' && !selectedConversation ? conversationsLoading : selectedTrace ? traceObsLoading : tracesLoading) ? 'animate-spin motion-reduce:animate-none' : ''} />
       </button>
     </div>
   </div>
@@ -381,13 +460,21 @@
     </div>
   {/if}
 
-  {#if view === 'traces' && selectedTrace}
+  {#if view === 'conversations' && selectedConversation}
+    <div class="mb-4 space-y-2">
+      <button onclick={closeConversation} class="inline-flex min-h-9 items-center gap-2 text-sm text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text"><ArrowLeft size={16} />All conversations</button>
+      <h3 class="break-all text-sm font-medium text-gray-900 dark:text-dark-text">{selectedConversation.session_id || 'Single request without a session ID'}</h3>
+      <p class="text-xs leading-5 text-gray-500 dark:text-dark-text-secondary">{selectedConversation.trace_count} traces · {selectedConversation.generation_count} model calls · {formatCost(selectedConversation.cost_cents)} · {formatTokens(selectedConversation.cache_read_tokens)} cache-read tokens</p>
+    </div>
+  {/if}
+
+  {#if view !== 'calls' && selectedTrace}
     <!-- ─── Trace detail: observation tree ─── -->
     <div class="mb-3 flex items-center gap-2">
       <button
         onclick={closeTrace}
         class="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary"
-      ><ArrowLeft size={12} /> All traces</button>
+      ><ArrowLeft size={12} /> {selectedConversation ? 'Conversation traces' : 'All traces'}</button>
       <span class="text-xs font-mono text-gray-400 dark:text-dark-text-muted truncate" title={selectedTrace.trace_id}>
         {selectedTrace.trace_id}
       </span>
@@ -473,7 +560,36 @@
       {/if}
     </div>
 
-    {#if view === 'traces'}
+    {#if view === 'conversations' && !selectedConversation}
+      <details class="mb-4 rounded-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-3 text-sm">
+        <summary class="cursor-pointer font-medium text-gray-700 dark:text-dark-text">How gateway conversations are grouped</summary>
+        <p class="mt-2 leading-6 text-gray-600 dark:text-dark-text-secondary">Send the same <code class="font-mono">x-at-session-id</code> for each request in a conversation. <code>X-Session-Id</code>, <code>x-opencode-session</code>, and request <code>metadata.session_id</code> or <code>metadata.conversation_id</code> are also recognized. Each API token is grouped separately. Cache reuse alone does not identify a conversation; requests without an ID stay separate.</p>
+      </details>
+      <DataTable items={conversations} loading={conversationsLoading} total={conversationsTotal} bind:limit={conversationsLimit} bind:offset={conversationsOffset} onchange={loadConversations} emptyIcon={MessagesSquare} emptyTitle="No conversations" emptyDescription="Send gateway requests with a session ID or chat with an agent to see related traces together.">
+        {#snippet header()}
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Last activity</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Conversation</th>
+          <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Source</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Model calls</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Tokens in / out</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Cache read / write</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Cost</th>
+          <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-dark-text-secondary">Errors</th>
+        {/snippet}
+        {#snippet row(conversation)}
+          <tr class="hover:bg-gray-50 dark:hover:bg-dark-elevated">
+            <td class="whitespace-nowrap px-4 py-3 text-xs tabular-nums text-gray-600 dark:text-dark-text-secondary">{formatDateTime(conversation.ended_at)}</td>
+            <td class="px-4 py-3 text-sm"><button onclick={() => openConversation(conversation)} class="max-w-60 text-left rounded focus-visible:outline-2 focus-visible:outline-accent"><span class="block truncate font-medium text-gray-900 dark:text-dark-text" title={conversation.session_id || conversation.trace_id}>{conversation.session_id || conversation.name || 'Single request'}</span><span class="text-xs text-gray-500 dark:text-dark-text-secondary">{conversation.session_id ? `${conversation.trace_count} traces` : 'No session ID'}{conversation.token_id ? ` · token ${conversation.token_id.slice(0, 8)}…` : ''}</span></button></td>
+            <td class="px-4 py-3 text-xs text-gray-600 dark:text-dark-text-secondary">{conversation.source}</td>
+            <td class="px-4 py-3 text-right text-xs tabular-nums">{conversation.generation_count}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-right text-xs tabular-nums">{formatTokens(conversation.input_tokens)} / {formatTokens(conversation.output_tokens)}</td>
+            <td class="whitespace-nowrap px-4 py-3 text-right text-xs tabular-nums">{formatTokens(conversation.cache_read_tokens)} / {formatTokens(conversation.cache_write_tokens)}</td>
+            <td class="px-4 py-3 text-right text-xs font-medium tabular-nums">{formatCost(conversation.cost_cents)}</td>
+            <td class="px-4 py-3 text-right text-xs tabular-nums">{conversation.error_count}</td>
+          </tr>
+        {/snippet}
+      </DataTable>
+    {:else if view !== 'calls'}
       <!-- ─── Trace list ─── -->
       <DataTable
         items={traces}
@@ -506,7 +622,7 @@
           >
             <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap font-mono">{formatDateTime(trace.started_at)}</td>
             <td class="px-4 py-2.5 text-xs text-gray-700 dark:text-dark-text-secondary max-w-56">
-              <div class="truncate" title={trace.name || trace.trace_id}>{trace.name || trace.trace_id}</div>
+              <button class="max-w-full truncate rounded text-left hover:underline focus-visible:outline-2 focus-visible:outline-accent" title={trace.name || trace.trace_id} onclick={(e) => { e.stopPropagation(); void openTrace(trace); }}>{trace.name || trace.trace_id}</button>
               {#if trace.task_id}
                 <div class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono truncate" title={trace.task_id}>task: {trace.task_id}</div>
               {/if}

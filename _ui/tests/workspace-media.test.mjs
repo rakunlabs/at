@@ -30,6 +30,7 @@ test('unknown media clients fail closed; unrelated or already scoped requests by
   const h=worker(); assert.equal((await h.dispatch('unknown')).status,403);assert.equal(h.requests.length,0);
   for (const path of ['auth/me','api/v1/tasks','https://foreign.example/at/api/v1/files/serve']) assert.equal(h.dispatch('tab-a',path),undefined);
   assert.equal(h.dispatch('tab-a','api/v1/files/serve',{ 'X-AT-Workspace-ID':'workspace-a' }),undefined);
+  assert.equal(h.dispatch('tab-a','api/v1/files/serve?workspace_id=workspace-b'),undefined, 'explicit file links retain their own server-validated workspace');
 });
 test('workspace switch cancels only that client’s active media', async () => {
   const h=worker();const a=await h.dispatch('tab-a');const b=await h.dispatch('tab-b');

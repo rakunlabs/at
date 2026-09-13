@@ -58,7 +58,7 @@
 {:else}
 <div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[9rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
   {#if storeNavbar.sideBarOpen}<Sidebar />{/if}
-  <div class="grid grid-rows-[3rem_minmax(0,1fr)] min-h-0 min-w-0"><Navbar onlogout={logout} {loggingOut} /><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto']}>
+  <div class="grid grid-rows-[auto_minmax(0,1fr)] min-h-0 min-w-0"><Navbar onlogout={logout} {loggingOut} /><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto']}>
     {#if error}<p role="alert" class="settings-error px-5 py-2">{error}</p>{/if}
     {#if !workspaceState.access && !isNativeAdmin() && $location !== '/settings/account'}
       <div class="settings-page"><h1 class="text-2xl font-semibold">Waiting for workspace access</h1><p class="settings-note">You’re signed in. Ask a workspace owner to admit your user ID <code class="break-all">{storeAuth.identity?.subject}</code>, or accept an invitation below.</p><div class="flex flex-wrap gap-3"><button class="settings-button" onclick={checkSession}>Check access again</button><a class="settings-button" href="#/settings/account">Account security</a></div></div><WorkspaceSettings />

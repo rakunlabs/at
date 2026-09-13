@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/rakunlabs/ada/middleware/auth/identity"
@@ -90,6 +91,23 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 			p := service.AccessPrincipal{UserID: pair.Identity.Subject, SessionID: pair.SessionID, PlatformAdmin: pair.Identity.HasRole("admin")}
 			if selected {
 				values := r.Header.Values("X-AT-Workspace-ID")
+				// Native media elements and download/new-tab navigations cannot set
+				// custom headers. A nonsecret, explicit workspace selector is allowed
+				// only for file reads; all live admission below remains mandatory.
+				if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == a.session.Cookie.Path+"api/v1/files/serve" {
+					q, parseErr := url.ParseQuery(r.URL.RawQuery)
+					if parseErr != nil {
+						nativeError(w, 400, "invalid file query")
+						return
+					}
+					if ids, exists := q["workspace_id"]; exists {
+						if len(ids) != 1 || strings.TrimSpace(ids[0]) == "" || len(values) > 1 || (len(values) == 1 && values[0] != ids[0]) {
+							nativeError(w, 400, "file workspace selection is ambiguous")
+							return
+						}
+						values = ids
+					}
+				}
 				if len(values) != 1 || strings.TrimSpace(values[0]) == "" || strings.Contains(values[0], ",") {
 					nativeError(w, 400, "X-AT-Workspace-ID is required")
 					return

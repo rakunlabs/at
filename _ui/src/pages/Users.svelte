@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Plus, RefreshCw } from 'lucide-svelte';
-  import { authErrorMessage, createAuthUser, isAuthUnauthorized, listAuthUsers, passwordPolicyError, resetAuthUserPassword, revokeAuthUserSessions, setAuthUserEnabled, type AuthUser } from '@/lib/api/auth';
+  import { authErrorMessage, createAuthUser, isAuthUnauthorized, listAuthUsers, passwordPolicyError, resetAuthUserPassword, revokeAuthUserSessions, setAuthUserEnabled, unlockAuthUserLogin, type AuthUser } from '@/lib/api/auth';
   import { isNativeAdmin, returnToLogin, storeAuth } from '@/lib/store/auth.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import AdminRecovery from '@/lib/components/AdminRecovery.svelte';
+  import UserLoginHistory from '@/lib/components/UserLoginHistory.svelte';
 
   storeNavbar.title = 'Users';
   let users = $state<AuthUser[]>([]);
@@ -68,7 +69,7 @@
     } finally { password = ''; busy = false; }
   }
 
-  async function mutate(user: AuthUser, action: 'enable' | 'disable' | 'revoke' | 'password') {
+  async function mutate(user: AuthUser, action: 'enable' | 'disable' | 'revoke' | 'password' | 'unlock') {
     if (busy || loading) return;
     const self = user.id === storeAuth.identity?.subject;
     if (action === 'password') {
@@ -76,20 +77,22 @@
       if (formError) return;
     }
     const description = action === 'disable' ? 'Disable this account and end all its sessions? It cannot sign in until re-enabled.'
+      : action === 'unlock' ? 'Clear the incorrect-password counter and allow password sign-in now?'
       : action === 'enable' ? 'Enable this account? Any existing sessions will also end.'
       : action === 'password' ? 'Replace this account password and end all its sessions? Its role and enabled status will not change.'
       : 'End all sessions for this account? It can sign in again with its existing password.';
-    if (!window.confirm(`${user.username}\n\n${description}${self ? '\n\nThis is your account. You will need to sign in again.' : ''}`)) return;
+    if (!window.confirm(`${user.username}\n\n${description}${self && action !== 'unlock' ? '\n\nThis is your account. You will need to sign in again.' : ''}`)) return;
     busy = true;
     error = '';
     formError = '';
     try {
       if (action === 'password') await resetAuthUserPassword(user.id, resetPassword);
+      else if (action === 'unlock') await unlockAuthUserLogin(user.id);
       else if (action === 'revoke') await revokeAuthUserSessions(user.id);
       else await setAuthUserEnabled(user.id, action === 'enable');
-      if (self) { returnToLogin(); return; }
+      if (self && action !== 'unlock') { returnToLogin(); return; }
       resetTarget = null;
-      addToast(action === 'password' ? `Password reset for ${user.username}.` : action === 'revoke' ? `Sessions revoked for ${user.username}.` : `${user.username} ${action}d.`);
+      addToast(action === 'unlock' ? `Password sign-in unlocked for ${user.username}.` : action === 'password' ? `Password reset for ${user.username}.` : action === 'revoke' ? `Sessions revoked for ${user.username}.` : `${user.username} ${action}d.`);
       await load();
     } catch (e) {
       if (isAuthUnauthorized(e)) returnToLogin();
@@ -152,14 +155,22 @@
                   <span class={['px-2 py-0.5 text-xs font-medium', user.disabled ? 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300' : 'bg-green-50 text-green-700 dark:bg-green-900/20 dark:text-green-400']}>{user.disabled ? 'Disabled' : 'Enabled'}</span>
                 </div>
                 <p class="font-mono text-xs text-gray-600 dark:text-dark-text-secondary break-all">{user.id}</p>
+                <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Last sign-in: {#if user.last_login}<time datetime={user.last_login.at}>{new Date(user.last_login.at).toLocaleString()}</time>{#if user.last_login.source_ip} · <span class="font-mono">{user.last_login.source_ip}</span>{/if}{:else}Not recorded yet{/if}</p>
+                {#if user.password_locked_until}
+                  <p class="text-sm text-red-700 dark:text-red-300">Password sign-in locked until <time datetime={user.password_locked_until}>{new Date(user.password_locked_until).toLocaleString()}</time>. Automatically unlocks after 15 minutes.</p>
+                {/if}
               </div>
               <div class="flex flex-wrap gap-2 shrink-0">
+                {#if user.password_locked_until}
+                  <button class={buttonClass} disabled={busy || loading} onclick={() => mutate(user, 'unlock')}>Unlock sign-in</button>
+                {/if}
                 <button class={buttonClass} disabled={busy || loading} aria-expanded={resetTarget?.id === user.id} aria-controls={resetTarget?.id === user.id ? 'reset-user-password' : undefined} onclick={() => { resetTarget = resetTarget?.id === user.id ? null : user; creating = false; password = resetPassword = formError = ''; }}>Reset password</button>
-                <button class={buttonClass} disabled={busy || loading} onclick={() => mutate(user, 'revoke')}>Revoke sessions</button>
+                <button class={buttonClass} disabled={busy || loading} onclick={() => mutate(user, 'revoke')} title="Revoke all browser and mobile sessions for this user">Sign out all sessions</button>
                 <button class={buttonClass} disabled={busy || loading || (!user.disabled && user.id === storeAuth.identity?.subject)} title={user.id === storeAuth.identity?.subject ? 'You cannot disable your own account' : undefined} onclick={() => mutate(user, user.disabled ? 'enable' : 'disable')}>{user.disabled ? 'Enable' : 'Disable'}</button>
               </div>
             </div>
             <AdminRecovery userID={user.id} username={user.username} />
+            <UserLoginHistory userID={user.id} username={user.username} />
             {#if resetTarget?.id === user.id}
               <form id="reset-user-password" onsubmit={(event) => { event.preventDefault(); void mutate(user, 'password'); }} aria-busy={busy} class="mt-5 border-t border-gray-200 dark:border-dark-border pt-4 max-w-md space-y-3">
                 <label for="reset-password" class="block text-sm font-medium">New password for {user.username}</label>

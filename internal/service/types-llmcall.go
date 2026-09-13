@@ -173,6 +173,18 @@ type LLMCallTrace struct {
 	EndedAt          string  `json:"ended_at"`
 }
 
+// LLMCallConversation groups explicit session IDs within a token/source namespace.
+// Without a session ID it remains a single trace, never a cache-based inference.
+type LLMCallConversation struct {
+	LLMCallTrace
+	TokenID    string `json:"token_id"`
+	TraceCount int64  `json:"trace_count"`
+}
+
+type LLMCallConversationStorer interface {
+	ListLLMCallConversations(context.Context, *query.Query) (*ListResult[LLMCallConversation], error)
+}
+
 // NewToolObservation builds a tool observation skeleton. Callers fill in
 // attribution (trace/session/task/agent/org) and parent afterwards or via
 // the recorder params.

@@ -73,6 +73,26 @@ func (s *Server) ListLLMCallTracesAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, records, http.StatusOK)
 }
 
+func (s *Server) ListLLMCallConversationsAPI(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.llmCallStore.(service.LLMCallConversationStorer)
+	if !ok {
+		httpResponse(w, "conversation tracing unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	q, err := query.Parse(r.URL.RawQuery)
+	if err != nil {
+		httpResponse(w, "invalid conversation query", http.StatusBadRequest)
+		return
+	}
+	result, err := store.ListLLMCallConversations(r.Context(), q)
+	if err != nil {
+		slog.Error("list trace conversations failed", "error", err)
+		httpResponse(w, "failed to load trace conversations", http.StatusInternalServerError)
+		return
+	}
+	httpResponseJSON(w, result, http.StatusOK)
+}
+
 // GetLLMCallAPI handles GET /api/v1/llm-calls/{id}. Returns the full record
 // including complete request/response bodies. When a body was spilled to a
 // file (large payloads), the file contents are loaded back inline so the

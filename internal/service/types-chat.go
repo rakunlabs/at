@@ -47,9 +47,18 @@ type ChatSession struct {
 
 // ChatMessageData holds the extensible payload of a chat message.
 type ChatMessageData struct {
-	Content    any    `json:"content"`                // string or []ContentBlock
-	ToolCalls  any    `json:"tool_calls,omitempty"`   // []ToolCall for assistant messages
-	ToolCallID string `json:"tool_call_id,omitempty"` // for tool result messages
+	Content     any              `json:"content"`                // string or []ContentBlock
+	ToolCalls   any              `json:"tool_calls,omitempty"`   // []ToolCall for assistant messages
+	ToolCallID  string           `json:"tool_call_id,omitempty"` // for tool result messages
+	Attachments []ChatAttachment `json:"attachments,omitempty"`
+}
+
+// ChatAttachment is an immutable, bounded upload stored with its workspace-owned
+// message. Data is base64, not an arbitrary URL or a host filesystem path.
+type ChatAttachment struct {
+	Name      string `json:"name"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 // ChatMessage represents a single message in a chat session.

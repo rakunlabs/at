@@ -396,20 +396,16 @@ func (a *nativeAuth) login(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, 503, "authentication unavailable")
 		return
 	}
-	hash := password.Dummy
 	if u != nil {
 		if !a.admitSecurityAccount(w, r, u.ID) {
 			return
 		}
-		hash = u.PasswordHash
-	}
-	err = a.password.Verify(hash, req.Password)
-	if err != nil || u == nil || u.Disabled {
-		userID := ""
-		if u != nil {
-			userID = u.ID
+		if !a.verifyLoginPassword(w, r, u, req.Password) {
+			return
 		}
-		securityAudit("login", userID, "rejected")
+	} else {
+		_ = a.password.Verify(password.Dummy, req.Password)
+		securityAudit("login", "", "rejected")
 		nativeError(w, 401, "invalid credentials")
 		return
 	}
@@ -446,6 +442,7 @@ func (a *nativeAuth) finishCompletedLogin(w http.ResponseWriter, r *http.Request
 	}
 	a.setCredentialCookies(w, r, pair, remember)
 	securityAudit("login", u.ID, "success")
+	a.recordLoginEvent(r, u.ID, "login_success")
 	w.Header().Set("Cache-Control", "no-store")
 	httpResponseJSON(w, pair.Identity, 200)
 }
@@ -536,6 +533,7 @@ func (a *nativeAuth) invalidateUser(disable bool) http.HandlerFunc {
 			nativeError(w, 404, "user not found")
 			return
 		}
+		a.recordLoginEvent(r, r.PathValue("id"), "sessions_revoked")
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -561,6 +559,8 @@ func (a *nativeAuth) register(mux *ada.Server, base string) {
 	admin.POST("", a.createUser(false))
 	admin.GET("", a.listUsers)
 	admin.POST("/{id}/enable", a.enableUser)
+	admin.POST("/{id}/unlock-login", a.unlockLogin)
+	admin.GET("/{id}/login-events", a.loginEvents)
 	admin.POST("/{id}/password", a.changePassword(true))
 	admin.POST("/{id}/disable", a.invalidateUser(true))
 	admin.POST("/{id}/revoke-sessions", a.invalidateUser(false))

@@ -8,8 +8,11 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
@@ -24,16 +27,35 @@ import (
 // recorder to mint a fresh ULID, grouping only the fallback attempts of this
 // one request. Clients that want to stitch a multi-turn conversation set
 // x-at-session-id (or the standard OpenAI-ecosystem headers) to a stable value.
-func auditTraceInfo(r *http.Request) (traceID, sessionID string) {
-	traceID = firstNonEmpty(
+func auditTraceInfo(r *http.Request, metadata ...map[string]any) (traceID, sessionID string) {
+	traceID = auditCorrelationID(
 		r.Header.Get("x-at-trace-id"),
 		r.Header.Get("x-trace-id"),
 	)
-	sessionID = firstNonEmpty(
+	sessionID = auditCorrelationID(
 		r.Header.Get("x-at-session-id"),
 		r.Header.Get("x-session-id"),
+		r.Header.Get("x-opencode-session"),
 	)
+	if sessionID == "" && len(metadata) > 0 {
+		for _, key := range []string{"session_id", "conversation_id"} {
+			if id, ok := metadata[0][key].(string); ok && auditCorrelationID(id) != "" {
+				sessionID = auditCorrelationID(id)
+				break
+			}
+		}
+	}
 	return traceID, sessionID
+}
+
+func auditCorrelationID(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && len(value) <= 256 && utf8.ValidString(value) && strings.IndexFunc(value, unicode.IsControl) < 0 {
+			return value
+		}
+	}
+	return ""
 }
 
 // llmAuditDumpDir is the sub-directory (under the loop-governor workspace

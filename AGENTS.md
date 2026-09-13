@@ -174,6 +174,34 @@ upstream OpenAI when none of them are present.
 
 ## Runtime configuration
 
+### Password login lockout
+
+Native password login locks an account after five consecutive incorrect passwords
+for 15 minutes. Successful password verification resets the counter; expiry starts
+a fresh budget. Blocked attempts never extend the deadline. Counters and deadlines
+live in the existing `auth_security.data` record and verification runs under the
+account row lock, so restarts and concurrent replicas cannot reset or overrun it.
+Existing source/account admission limits and process-wide hashing slots still apply.
+The lock covers password sign-in; existing sessions and passkey/SSO flows retain
+their own admission controls.
+
+The installation-admin Users list exposes only active `password_locked_until`
+metadata. **Unlock sign-in** calls POST `/auth/users/{id}/unlock-login`, clears the
+password counter/deadline and logs the actor and target. It does not enable disabled
+accounts or revoke sessions. No migration is required: absent JSON fields default
+to zero. Regression coverage: `TestPasswordLoginLockoutPostgres`.
+
+Migration 51 adds `auth_login_events` and persistent `auth_users.last_login_at` /
+`last_login_ip`. Password failures, lock/blocked attempts, completed sign-ins,
+administrator unlocks and session revocations are recorded with socket-peer IP,
+bounded client User-Agent and actor ID for administrator actions. Users displays
+last sign-in and an expandable **Sign-in history** (latest 50 events, retained for
+90 days by the bounded auth janitor); **Sign out all sessions** uses the existing
+session-version revocation. GET `/auth/users/{id}/login-events` is installation-
+admin-only. Forwarded IP headers are deliberately not trusted: proxy deployments
+show the proxy peer. Audit storage failures are logged explicitly; last successful
+sign-in metadata survives event retention. History begins at deployment.
+
 ### Selected-workspace provider catalog and workflows
 
 `GET /api/v1/info` is workspace-admitted. Its provider/model list comes from
@@ -232,6 +260,27 @@ a text-only final response, repairs one empty response within its existing budge
 and persists final/interruption text before sending `done`. A persistence failure
 emits an error so the UI retains the received answer. Task-chat imports expose the
 task result as an assistant message, including task_complete-only delegation runs.
+
+The Sessions composer has aligned 40px controls, agent grouping by `config.group`,
+and file picker / drag-and-drop / paste attachments. All file types are accepted
+within 4 files, 5 MiB each and 8 MiB total; the message JSON is capped at 12 MiB.
+Attachments are base64 payloads in the workspace-owned message JSON (not personal
+Playground media). Standard-library MIME sniffing normalizes types without image
+processing dependencies. Small UTF-8 text is sent as text, common images as image
+blocks, and other files as native document blocks with their original filenames
+where the adapter supports them. Model/provider format limitations still apply
+and surface as errors. History replay and Retry preserve the files; the transcript
+offers image previews and download actions. No attachment migration is required.
+
+Files uses the shared `fileServeUrl` helper, which pins a nonsecret `workspace_id`
+query selector to native media/download URLs. Only GET/HEAD `/api/v1/files/serve`
+accepts this alternative to `X-AT-Workspace-ID`; ambiguous query/header selections
+are rejected and session, membership, execution policy and rooted path admission
+still run on every request (including Range). The media service worker leaves
+explicitly scoped URLs alone, so previews/downloads work without its intervention.
+Files has neutral theme tokens, wrapping controls, always-visible touch actions
+and a full-width mobile preview. Navbar account menus display the verified role /
+username; the opaque account ID is copyable under Settings → Account security.
 
 Model discovery endpoints retain the selected workspace when resolving stored
 credentials. Anthropic discovery uses `/v1/models`, refreshes/persists Claude
@@ -322,6 +371,17 @@ Langfuse-style trace → observation tracing covering the gateway **and** all th
 - **Hybrid OTEL export**: `emitLLMSpan` emits gen-ai spans for generations (`gen_ai.*`, `langfuse.trace.id`/`session.id`) and tool spans (`gen_ai.tool.name`, `gen_ai.operation.name=execute_tool`); events are DB-only. No-op when telemetry is off.
 - **Retention (two-phase)**: `startLLMAuditJanitor` (`internal/server/llm-audit-janitor.go`) hourly — phase 1 nulls bodies (`ExpireLLMCallBodiesBefore`) after `LLMCallRetention` (7d) and sweeps spill dirs; phase 2 deletes rows after `ObservationRetention` (90d). Skeletons stay queryable between the two windows.
 - **API/UI**: `GET /api/v1/llm-calls` (list, newest-first, filters incl. `observation_type`/`trace_id`/`task_id`/`session_id`), `GET /api/v1/llm-calls/traces` (GROUP BY trace aggregate: counts, token/cost sums, duration, error count), `GET /api/v1/llm-calls/{id}` (full record, spill-rehydrated). UI: `_ui/src/pages/LLMCalls.svelte` (route `/llm-calls`, "Traces" sidebar link) — trace list → nested observation tree with child-trace cross-links + detail drawer; the TaskDetail "Events" tab is the same data filtered by the task tree's `task_id`s (live-polled during delegation).
+
+The Traces page defaults to **Conversations** (`GET /api/v1/llm-calls/conversations`):
+server-paginated grouping by explicit session ID, token ID and source family.
+`gateway`, `gateway_stream` and `responses` share a source family; requests without
+a session ID remain separate traces, and different API tokens never share a group.
+Totals include model calls, input/output tokens, cache read/write, errors and cost;
+drilldown retains the conversation's token/session/source filters. Gateway correlation
+recognizes `x-at-session-id`, `X-Session-Id`, `x-opencode-session`, then string
+`metadata.session_id` / `metadata.conversation_id`. Cache keys and the `user` field
+are not conversation identities. Existing rows with session IDs group immediately;
+missing historical IDs are not guessed or rewritten.
 
 ## Connections & Connectors
 

@@ -39,6 +39,13 @@ export interface ChatMessageData {
   content: any;
   tool_calls?: any;
   tool_call_id?: string;
+  attachments?: ChatAttachment[];
+}
+
+export interface ChatAttachment {
+  name: string;
+  media_type: string;
+  data: string;
 }
 
 export interface ChatMessage {
@@ -102,6 +109,7 @@ export function sendMessage(
   onEvent: (event: any) => void,
   onError: (error: string) => void,
   onDone: () => void | Promise<void>,
+  attachments: ChatAttachment[] = [],
 ): AbortController {
   const controller = new AbortController();
 
@@ -110,13 +118,15 @@ export function sendMessage(
   fetch(`${basePath}api/v1/chat/sessions/${sessionId}/messages`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, attachments }),
     signal: controller.signal,
   })
     .then(async (response) => {
       if (!response.ok) {
         const text = await response.text();
-        onError(text || `HTTP ${response.status}`);
+        let message = text;
+        try { message = JSON.parse(text)?.message || text; } catch { /* Non-JSON proxy response. */ }
+        onError(message || `HTTP ${response.status}`);
         return;
       }
 

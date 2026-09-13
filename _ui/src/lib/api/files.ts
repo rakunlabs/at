@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { workspaceTransport } from './transport';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
@@ -21,10 +22,11 @@ export async function browseFiles(path: string): Promise<BrowseResult> {
   return res.data;
 }
 
-/** Native media URL; workspace-media.js adds this tab's header and preserves Range. */
+/** Explicit, nonsecret workspace selection also works in native media and new tabs. */
 export function fileServeUrl(path: string, cacheKey?: string): string {
   const bust = cacheKey ? `&v=${encodeURIComponent(cacheKey)}` : '';
-  return `api/v1/files/serve?path=${encodeURIComponent(path)}${bust}`;
+  const workspace = workspaceTransport.selected ? `&workspace_id=${encodeURIComponent(workspaceTransport.selected)}` : '';
+  return `api/v1/files/serve?path=${encodeURIComponent(path)}${workspace}${bust}`;
 }
 
 /** Fetch a small server-side file (e.g. a JSON manifest) as text. */

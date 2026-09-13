@@ -8,13 +8,15 @@ import (
 // AuthSecurityState is private, bounded state operated on only under the account
 // row lock. Secret fields are encrypted by the store, never serialized to HTTP.
 type AuthSecurityState struct {
-	Secret       string
-	LastStep     int64
-	Generation   int64
-	BackupHashes []string
-	Transactions []AuthTransaction
-	Window       time.Time
-	Attempts     int
+	Secret              string
+	LastStep            int64
+	Generation          int64
+	BackupHashes        []string
+	Transactions        []AuthTransaction
+	Window              time.Time
+	Attempts            int
+	PasswordFailures    int
+	PasswordLockedUntil time.Time
 }
 
 type AuthTransaction struct {
@@ -54,6 +56,11 @@ type AuthSecurityStorer interface {
 
 type AuthSecurityAdmissionStorer interface {
 	AdmitAuthSecuritySource(context.Context, string) (bool, error)
+}
+
+// AuthLoginLockoutReader exposes only active password locks to administrator lists.
+type AuthLoginLockoutReader interface {
+	ListAuthLoginLocks(context.Context, []string) (map[string]time.Time, error)
 }
 
 type AuthRecoveryIssuer interface {

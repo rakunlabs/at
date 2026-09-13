@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/rakunlabs/ada/middleware/auth/identity"
 
@@ -12,10 +13,12 @@ import (
 )
 
 type nativeUser struct {
-	ID       string `json:"id"`
-	Username string `json:"username"`
-	Admin    bool   `json:"admin"`
-	Disabled bool   `json:"disabled"`
+	ID                  string                 `json:"id"`
+	Username            string                 `json:"username"`
+	Admin               bool                   `json:"admin"`
+	Disabled            bool                   `json:"disabled"`
+	PasswordLockedUntil *time.Time             `json:"password_locked_until,omitempty"`
+	LastLogin           *service.AuthLastLogin `json:"last_login,omitempty"`
 }
 
 func (a *nativeAuth) listUsers(w http.ResponseWriter, r *http.Request) {
@@ -51,8 +54,35 @@ func (a *nativeAuth) listUsers(w http.ResponseWriter, r *http.Request) {
 		users = users[:limit]
 		result.NextCursor = users[len(users)-1].ID
 	}
+	var locks map[string]time.Time
+	ids := make([]string, 0, len(users))
 	for _, u := range users {
-		result.Data = append(result.Data, nativeUser{ID: u.ID, Username: u.Username, Admin: u.Admin, Disabled: u.Disabled})
+		ids = append(ids, u.ID)
+	}
+	if reader, ok := a.security.(service.AuthLoginLockoutReader); ok {
+		locks, err = reader.ListAuthLoginLocks(r.Context(), ids)
+		if err != nil {
+			nativeError(w, 503, "account security unavailable")
+			return
+		}
+	}
+	var lastLogins map[string]service.AuthLastLogin
+	if store, ok := a.store.(service.AuthLoginEventStorer); ok {
+		lastLogins, err = store.ListAuthLastLogins(r.Context(), ids)
+		if err != nil {
+			nativeError(w, 503, "login history unavailable")
+			return
+		}
+	}
+	for _, u := range users {
+		item := nativeUser{ID: u.ID, Username: u.Username, Admin: u.Admin, Disabled: u.Disabled}
+		if until, ok := locks[u.ID]; ok {
+			item.PasswordLockedUntil = &until
+		}
+		if last, ok := lastLogins[u.ID]; ok {
+			item.LastLogin = &last
+		}
+		result.Data = append(result.Data, item)
 	}
 	httpResponseJSON(w, result, 200)
 }

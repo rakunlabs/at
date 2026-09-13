@@ -783,6 +783,27 @@ func codexContentBlockInput(role string, blocks []service.ContentBlock) []any {
 			if imageURL != "" {
 				content = append(content, map[string]any{"type": "input_image", "image_url": imageURL})
 			}
+		case "document":
+			if role == "assistant" || block.Source == nil {
+				continue
+			}
+			file := map[string]any{"type": "input_file"}
+			if block.Source.Data != "" {
+				filename := block.Source.Filename
+				if filename == "" {
+					filename = "document"
+					if block.Source.MediaType == "application/pdf" {
+						filename += ".pdf"
+					}
+				}
+				file["filename"] = filename
+				file["file_data"] = "data:" + block.Source.MediaType + ";base64," + block.Source.Data
+			} else if block.Source.URL != "" {
+				file["file_url"] = block.Source.URL
+			} else {
+				continue
+			}
+			content = append(content, file)
 		case "tool_use":
 			args := block.Input
 			if args == nil {

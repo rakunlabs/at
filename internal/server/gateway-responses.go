@@ -197,7 +197,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusBadRequest)
 		return
 	}
-	traceID, sessionID := auditTraceInfo(r)
+	traceID, sessionID := auditTraceInfo(r, req.Metadata)
 
 	if req.PreviousResponseID != "" {
 		httpResponseJSON(w, map[string]any{

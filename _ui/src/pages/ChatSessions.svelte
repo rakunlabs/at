@@ -15,11 +15,13 @@
     confirmToolCall,
     type ChatSession,
     type ChatMessage,
+    type ChatAttachment,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, User, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download, Settings2 } from 'lucide-svelte';
   import axios from 'axios';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
+  import { CHAT_ATTACHMENT_COUNT, CHAT_ATTACHMENT_TOTAL, attachmentBytes, attachmentSize, attachmentIsImage, attachmentImageURL, readChatAttachment, downloadChatAttachment } from '@/lib/helper/chat-attachments';
 
   storeNavbar.title = 'Sessions';
 
@@ -51,6 +53,57 @@
   // Per-message toggle: when true, render the raw markdown source instead
   // of the rendered HTML so users can inspect / copy the original content.
   let rawSourceMode = $state<Record<string, boolean>>({});
+  let attachments = $state<ChatAttachment[]>([]);
+  let readingAttachments = $state(false);
+  let attachmentError = $state('');
+  let draggingFiles = $state(false);
+  let fileInput = $state<HTMLInputElement>();
+  const composerControl = 'inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
+  const secondaryControl = `${composerControl} border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated`;
+
+  async function addAttachments(files: File[]) {
+    if (sending || loadingMessages || readingAttachments || !files.length) return;
+    const selection = selectionVersion;
+    attachmentError = '';
+    if (attachments.length + files.length > CHAT_ATTACHMENT_COUNT) { attachmentError = 'Attach up to 4 files per message.'; return; }
+    if (attachments.reduce((total, file) => total + attachmentBytes(file), 0) + files.reduce((total, file) => total + file.size, 0) > CHAT_ATTACHMENT_TOTAL) {
+      attachmentError = 'Attachments must be at most 8 MB in total.'; return;
+    }
+    readingAttachments = true;
+    try {
+      const added = await Promise.all(files.map(readChatAttachment));
+      if (selection === selectionVersion) attachments = [...attachments, ...added];
+    } catch (e) {
+      if (selection === selectionVersion) attachmentError = e instanceof Error ? e.message : 'Could not read the files. Try adding them again.';
+    } finally {
+      if (selection === selectionVersion) readingAttachments = false;
+    }
+  }
+
+  function pasteAttachments(event: ClipboardEvent) {
+    const files = Array.from(event.clipboardData?.files || []);
+    if (!files.length) return;
+    event.preventDefault();
+    void addAttachments(files);
+  }
+
+  function resetComposer() {
+    attachments = [];
+    readingAttachments = false;
+    attachmentError = '';
+    draggingFiles = false;
+    inputText = '';
+    showVoiceSettings = false;
+    if (mediaRecorder) {
+      mediaRecorder.onstop = null;
+      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
+      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      mediaRecorder = null;
+    }
+    recording = false;
+    transcribing = false;
+    if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; }
+  }
 
   // Voice recording
   let voiceMethod = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-method') || 'openai') : 'openai');
@@ -69,8 +122,11 @@
   let recordingDuration = $state(0);
 
   async function startRecording() {
+    if (sending || loadingMessages || recording || transcribing) return;
+    const selection = selectionVersion;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (selection !== selectionVersion) { stream.getTracks().forEach(track => track.stop()); return; }
 
       // Pick a supported mime type
       let mimeType = 'audio/webm';
@@ -116,12 +172,14 @@
   }
 
   async function transcribeBlob(blob: Blob, ext: string) {
+    const selection = selectionVersion;
     transcribing = true;
     try {
       const form = new FormData();
       form.append('file', blob, `voice${ext}`);
       const params = voiceMethod !== 'openai' ? `?method=${voiceMethod}&model=${voiceModel}` : '';
       const res = await axios.post(`api/v1/audio/transcribe${params}`, form);
+      if (selection !== selectionVersion) return;
       const text = res.data?.text;
       if (text) {
         inputText = (inputText ? inputText + ' ' : '') + text;
@@ -130,9 +188,9 @@
         addToast('Transcription returned empty', 'warn');
       }
     } catch (e: any) {
-      addToast('Transcription failed: ' + (e?.response?.data || e.message), 'alert');
+      if (selection === selectionVersion) addToast('Transcription failed: ' + (e?.response?.data?.message || e.message), 'alert');
     } finally {
-      transcribing = false;
+      if (selection === selectionVersion) transcribing = false;
     }
   }
 
@@ -219,6 +277,17 @@
   // Agent pre-selected for new session creation (before a session exists).
   let pendingAgentId = $state<string | null>(null);
   let pendingAgent = $derived(pendingAgentId ? agents.find(a => a.id === pendingAgentId) : null);
+  let groupedAgents = $derived.by(() => {
+    const groups = new Map<string, Agent[]>();
+    for (const agent of agents) {
+      const group = agent.config.group?.trim() || '';
+      groups.set(group, [...(groups.get(group) || []), agent]);
+    }
+    return [...groups.entries()]
+      .sort(([a], [b]) => a === '' ? 1 : b === '' ? -1 : a.localeCompare(b))
+      .map(([name, members]) => ({ name, agents: members.slice().sort((a, b) => a.name.localeCompare(b.name)) }));
+  });
+  let hasAgentGroups = $derived(groupedAgents.some(group => !!group.name));
 
   const slashCommands = [
     { cmd: '/agents', label: 'Switch agent', desc: 'Change the agent for this session' },
@@ -369,6 +438,7 @@
 
   async function selectSession(id: string) {
     const selection = ++selectionVersion;
+    resetComposer();
     ++turnVersion;
     if (abortController) {
       abortController.abort();
@@ -420,6 +490,7 @@
 
   /** Create a new session with the first available agent (or specified). */
   async function quickCreateSession(agentId?: string) {
+    const selection = selectionVersion;
     const aid = agentId || (agents.length > 0 ? agents[0].id : '');
     if (!aid) {
       addToast('No agents configured. Create an agent first.', 'alert');
@@ -431,9 +502,12 @@
         name: 'New Session',
       });
       sessions = [session, ...sessions];
+      if (selection !== selectionVersion) return null;
       await selectSession(session.id);
+      return selectedSessionId === session.id ? session.id : null;
     } catch (e: any) {
       addToast(e.message || 'Failed to create session', 'alert');
+      return null;
     }
   }
 
@@ -443,6 +517,7 @@
       sessions = sessions.filter(s => s.id !== id);
       if (selectedSessionId === id) {
         ++selectionVersion;
+        resetComposer();
         ++turnVersion;
         abortController?.abort();
         abortController = null;
@@ -511,10 +586,10 @@
   }
 
   async function handleSend() {
-    if (!inputText.trim() || sending || loadingMessages) return;
+    if ((!inputText.trim() && !attachments.length) || sending || loadingMessages || readingAttachments || recording || transcribing) return;
 
     // Handle slash commands.
-    if (inputText.startsWith('/')) {
+    if (inputText.startsWith('/') && attachments.length === 0) {
       const match = slashCommands.find(c => c.cmd === inputText.trim());
       if (match) {
         handleSlashCommand(match.cmd);
@@ -523,15 +598,21 @@
     }
 
     const content = inputText.trim();
+    const sentAttachments = attachments.slice();
     // Lock submission before awaiting session creation.
     sending = true;
     if (!selectedSessionId) {
-      await quickCreateSession(pendingAgentId || undefined);
+      const createdID = await quickCreateSession(pendingAgentId || undefined);
+      if (!createdID || selectedSessionId !== createdID) {
+        if (!selectedSessionId) sending = false;
+        return;
+      }
       pendingAgentId = null;
-      if (!selectedSessionId) { sending = false; return; }
     }
 
     inputText = '';
+    attachments = [];
+    attachmentError = '';
     showSlashMenu = false;
     sending = true;
     streamContent = '';
@@ -545,7 +626,7 @@
         id: 'pending-' + Date.now(),
         session_id: selectedSessionId!,
         role: 'user',
-        data: { content },
+        data: { content, attachments: sentAttachments },
         created_at: nowIso,
       },
     ];
@@ -556,10 +637,10 @@
     nearBottom = true;
     scrollToBottom();
 
-    startTurn(selectedSessionId!, content);
+    startTurn(selectedSessionId!, content, sentAttachments);
   }
 
-  function startTurn(sessionId: string, content: string) {
+  function startTurn(sessionId: string, content: string, sentAttachments: ChatAttachment[] = []) {
     const turn = ++turnVersion;
     let lastResponse = '';
     ++messageRequest; // Discard a background refresh started before this turn.
@@ -613,6 +694,7 @@
         }
         scrollToBottom();
       },
+      sentAttachments,
     );
   }
 
@@ -620,7 +702,7 @@
     if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       // If slash menu is open and there's an exact or single match, select it.
-      if (showSlashMenu && filteredSlashCommands.length > 0) {
+      if (showSlashMenu && filteredSlashCommands.length > 0 && attachments.length === 0) {
         handleSlashCommand(filteredSlashCommands[0].cmd);
         return;
       }
@@ -634,6 +716,11 @@
 
   function stopGeneration() {
     ++turnVersion;
+    if (!abortController && sending) {
+      ++selectionVersion; // Cancel an in-flight lazy session creation.
+      sending = false;
+      return;
+    }
     if (abortController) {
       abortController.abort();
       abortController = null;
@@ -651,11 +738,12 @@
     if (!lastUserMsg) return;
 
     const content = getMessageText(lastUserMsg.data);
-    if (!content) return;
+    const savedAttachments = lastUserMsg.data.attachments || [];
+    if (!content && !savedAttachments.length) return;
 
     bumpSessionToTop(selectedSessionId!);
     nearBottom = true;
-    startTurn(selectedSessionId, content);
+    startTurn(selectedSessionId, content, savedAttachments);
   }
 
   async function handleConfirmation(approved: boolean) {
@@ -803,7 +891,7 @@
     loadBots();
     let refreshing = false;
     const timer = setInterval(async () => {
-      if (document.hidden || refreshing || sending || streamContent || toolEvents.length) return;
+      if (document.hidden || refreshing || sending || turnError || streamContent || toolEvents.length) return;
       refreshing = true;
       try { await refreshMessages(); } finally { refreshing = false; }
     }, 3000);
@@ -811,6 +899,7 @@
       disposed = true;
       ++selectionVersion;
       ++turnVersion;
+      resetComposer();
       clearInterval(timer);
       abortController?.abort();
       if (recordingTimer) clearInterval(recordingTimer);
@@ -976,27 +1065,38 @@
     <!-- Messages area -->
     <div bind:this={messagesContainer} onscroll={handleMessagesScroll} class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-base leading-7">
       {#if !selectedSessionId}
-        <div class="flex items-center justify-center h-full text-gray-400 dark:text-dark-text-muted">
-          <div class="text-center text-sm max-w-md">
-            <p class="text-gray-500 dark:text-dark-text-secondary font-medium mb-2">Select an agent to start</p>
+        <div class="flex min-h-full items-center justify-center px-4 py-8 sm:px-6">
+          <div class="w-full max-w-2xl text-sm">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-dark-text">Select an agent to start</h2>
+            <p class="mt-1 mb-6 text-sm text-gray-500 dark:text-dark-text-secondary">Choose who to work with, then send a message or attach a file.</p>
             {#if agents.length > 0}
-              <div class="flex flex-wrap gap-2 justify-center mb-3">
-                {#each agents as agent (agent.id)}
+              <div class="space-y-5 mb-4">
+                {#each groupedAgents as group (group.name)}
+                  <section aria-label={group.name || 'Ungrouped agents'}>
+                    {#if hasAgentGroups}<h3 class="mb-2 flex items-baseline gap-2 text-sm font-medium text-gray-700 dark:text-dark-text"><span class="break-words">{group.name || 'Ungrouped'}</span><span class="text-xs font-normal text-gray-500 dark:text-dark-text-secondary">{group.agents.length}</span></h3>{/if}
+                    <div class="flex flex-wrap gap-2">
+                {#each group.agents as agent (agent.id)}
                   <button
                     onclick={() => { pendingAgentId = agent.id; inputEl?.focus(); }}
+                    aria-pressed={pendingAgentId === agent.id}
+                    title={agent.config.description || agent.name}
                     class={[
-                      'flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-lg border transition-all',
+                      'inline-flex min-h-10 max-w-full items-center gap-2 px-3 py-2 text-sm rounded-md border transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
                       pendingAgentId === agent.id
-                        ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white shadow-sm'
+                        ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white dark:text-gray-950'
                         : 'border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated',
                     ]}
                   >
                     <img src={agentAvatar(agent.config.avatar_seed, agent.name, 16)} alt="" class="w-4 h-4 rounded-full bg-gray-100 dark:bg-dark-elevated" />
-                    {agent.name}
+                    <span class="break-words text-left">{agent.name}</span>
+                    {#if pendingAgentId === agent.id}<Check size={14} class="shrink-0" />{/if}
                   </button>
                 {/each}
+                    </div>
+                  </section>
+                {/each}
               </div>
-              <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">{pendingAgentId ? 'Type a message to start chatting' : 'Pick an agent, then type a message'}</p>
+              {#if pendingAgent}<p role="status" class="text-sm text-gray-500 dark:text-dark-text-secondary">Ready to chat with {pendingAgent.name}.</p>{/if}
             {:else}
               <p class="text-[11px]">No agents configured. Create an agent first.</p>
             {/if}
@@ -1039,7 +1139,19 @@
                     <span class="text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums whitespace-nowrap">{formatTime(msg.created_at)}</span>
                     <span class="text-xs font-semibold text-blue-600 dark:text-blue-400">You</span>
                   </div>
-                  <div class="px-4 py-2.5 bg-gray-900 dark:bg-accent text-white dark:text-gray-950 whitespace-pre-wrap break-words text-base sm:text-sm leading-relaxed">{getMessageText(msg.data)}</div>
+                  {#if msg.data.attachments?.length}
+                    <div class="mb-2 flex max-w-full flex-wrap justify-end gap-2">
+                      {#each msg.data.attachments as file}
+                        <button onclick={() => downloadChatAttachment(file)} class="max-w-full overflow-hidden rounded-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface text-left text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title={`Download ${file.name}`}>
+                          {#if attachmentIsImage(file)}
+                            <img src={attachmentImageURL(file)} alt={file.name} class="max-h-56 max-w-full object-contain" loading="lazy" />
+                          {/if}
+                          <span class="flex items-center gap-2 px-3 py-2 text-sm"><FileText size={16} class="shrink-0" /><span class="min-w-0 max-w-56 truncate">{file.name}</span><Download size={14} class="shrink-0" /></span>
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                  {#if getMessageText(msg.data)}<div class="px-4 py-2.5 bg-gray-900 dark:bg-accent text-white dark:text-gray-950 whitespace-pre-wrap break-words text-base sm:text-sm leading-relaxed">{getMessageText(msg.data)}</div>{/if}
                 </div>
               </div>
 
@@ -1172,7 +1284,7 @@
           {#if missingFinalReply}
             <div class="flex flex-wrap items-center gap-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 text-sm text-gray-600 dark:text-dark-text-secondary">
               <span>This saved turn has tool activity but no final reply.</span>
-              <button disabled={!!inputText.trim()} class="font-medium underline underline-offset-4 disabled:opacity-40" onclick={() => { inputText = 'Please summarize the results of the work above in the language of my previous messages. Reply directly to me without running any additional tools.'; void handleSend(); }}>Ask for a summary</button>
+              <button disabled={!!inputText.trim() || attachments.length > 0 || readingAttachments} class="font-medium underline underline-offset-4 disabled:opacity-40" onclick={() => { inputText = 'Please summarize the results of the work above in the language of my previous messages. Reply directly to me without running any additional tools.'; void handleSend(); }}>Ask for a summary</button>
             </div>
           {/if}
           {#if sending && !streamContent && toolEvents.length === 0 && !pendingConfirmation}
@@ -1317,7 +1429,7 @@
       <div class="flex justify-center py-2"><button onclick={() => { nearBottom = true; scrollToBottom(); }} class="flex items-center gap-2 rounded-full border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-2 text-sm shadow-sm"><ArrowDown size={16} /> Latest messages</button></div>
     {/if}
     <!-- Input bar -->
-    <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated relative">
+    <section aria-label="Message composer" ondragover={(e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); draggingFiles = true; } }} ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) draggingFiles = false; }} ondrop={(e) => { e.preventDefault(); draggingFiles = false; void addAttachments(Array.from(e.dataTransfer?.files || [])); }} class={['relative shrink-0 border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface', draggingFiles ? 'ring-2 ring-inset ring-accent' : '']}>
       <!-- Slash command menu -->
       {#if showSlashMenu && filteredSlashCommands.length > 0}
         <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded-lg shadow-lg overflow-hidden z-10">
@@ -1336,7 +1448,7 @@
       <!-- Agent picker dropdown -->
       {#if showAgentPicker}
         <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-lg shadow-lg overflow-hidden z-10">
-          <div class="px-3 py-1.5 text-[10px] font-semibold text-gray-400 dark:text-dark-text-muted uppercase tracking-wider border-b border-gray-100 dark:border-dark-border/50">Switch Agent</div>
+          <div class="px-3 py-2 text-sm font-medium text-gray-600 dark:text-dark-text-secondary border-b border-gray-100 dark:border-dark-border/50">Switch agent</div>
           {#each agents as agent (agent.id)}
             <button
               onclick={() => switchAgent(agent.id)}
@@ -1348,6 +1460,7 @@
               <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
               <div>
                 <span class="font-medium text-gray-700 dark:text-dark-text">{agent.name}</span>
+                {#if agent.config.group}<span class="ml-2 text-xs text-gray-500 dark:text-dark-text-secondary">{agent.config.group}</span>{/if}
                 {#if agent.config.description}
                   <span class="text-gray-400 dark:text-dark-text-muted ml-1">— {agent.config.description}</span>
                 {/if}
@@ -1363,71 +1476,99 @@
         </div>
       {/if}
 
-      <div class="flex flex-wrap items-end gap-2 w-full px-4 py-3">
+      <div class="flex flex-wrap items-center gap-2 w-full p-3 sm:p-4">
+        <input bind:this={fileInput} type="file" multiple class="hidden" aria-label="Attach photos or files" onchange={(e) => { void addAttachments(Array.from(e.currentTarget.files || [])); e.currentTarget.value = ''; }} />
+        {#if attachments.length || readingAttachments || attachmentError || draggingFiles}
+          <div class="order-first basis-full space-y-2">
+            {#if draggingFiles}<p role="status" class="text-sm text-gray-600 dark:text-dark-text-secondary">Drop files here to attach them.</p>{/if}
+            {#if attachments.length}
+              <ul class="flex flex-wrap gap-2" aria-label="Attachments ready to send">
+                {#each attachments as file, i}
+                  <li class="flex min-w-0 max-w-full items-center gap-2 rounded-md border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base py-2 pl-2 pr-1">
+                    {#if attachmentIsImage(file)}<img src={attachmentImageURL(file)} alt="" class="size-10 rounded object-cover" />{:else}<FileText size={20} class="mx-2 shrink-0 text-gray-500 dark:text-dark-text-secondary" />{/if}
+                    <div class="min-w-0"><p class="max-w-44 truncate text-sm text-gray-900 dark:text-dark-text" title={file.name}>{file.name}</p><p class="text-xs text-gray-500 dark:text-dark-text-secondary">{attachmentSize(attachmentBytes(file))}</p></div>
+                    <button class={`${composerControl} w-10 text-gray-500 hover:bg-gray-200 dark:hover:bg-dark-elevated`} disabled={sending || readingAttachments} aria-label={`Remove ${file.name}`} onclick={() => { attachments = attachments.filter((_, index) => index !== i); attachmentError = ''; }}><X size={16} /></button>
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+            {#if readingAttachments}<p role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" /> Reading files…</p>{/if}
+            {#if attachmentError}<p role="alert" class="text-sm text-red-700 dark:text-red-300">{attachmentError}</p>{/if}
+          </div>
+        {/if}
+        <div class="order-first basis-full">
+          <textarea
+            bind:this={inputEl}
+            bind:value={inputText}
+            oninput={handleInput}
+            onkeydown={handleKeydown}
+            onpaste={pasteAttachments}
+            aria-label="Message to agent"
+            aria-describedby="session-composer-help"
+            placeholder={attachments.length ? 'Add a message about these files…' : selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
+            rows={2}
+            disabled={sending || loadingMessages}
+            class="block w-full min-w-0 resize-y max-h-48 rounded-md border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-base leading-6 text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+          ></textarea>
+        </div>
         <!-- Agent pill -->
+        <div class="min-w-0 basis-full lg:basis-auto lg:max-w-44">
         {#if selectedSession}
           <button
             onclick={() => { showAgentPicker = !showAgentPicker; showSlashMenu = false; }}
-            disabled={sending}
-            class="flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors shrink-0"
+            disabled={sending || loadingMessages}
+            aria-expanded={showAgentPicker}
+            class={`${secondaryControl} max-w-full px-3`}
             title="Switch agent (/agents)"
           >
-            <Bot size={11} />
-            <span class="max-w-[80px] truncate">{currentAgent?.name || '?'}</span>
-            <ChevronDown size={10} />
+            <Bot size={16} class="shrink-0" />
+            <span class="min-w-0 truncate">{currentAgent?.name || 'Agent'}</span>
+            <ChevronDown size={14} class="shrink-0" />
           </button>
         {:else if pendingAgent}
-          <span class="flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-gray-900 dark:border-accent text-gray-700 dark:text-dark-text shrink-0">
-            <Bot size={11} />
-            <span class="max-w-[80px] truncate">{pendingAgent.name}</span>
+          <span class={`${secondaryControl} max-w-full px-3`}>
+            <Bot size={16} class="shrink-0" />
+            <span class="min-w-0 truncate">{pendingAgent.name}</span>
           </span>
         {/if}
-
-        <textarea
-          bind:this={inputEl}
-          bind:value={inputText}
-          oninput={handleInput}
-          onkeydown={handleKeydown}
-          aria-label="Message to agent"
-          placeholder={selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
-          rows={2}
-          disabled={sending || loadingMessages}
-          class="order-first basis-full min-w-0 resize-y max-h-48 rounded-md border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-base leading-6 text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
-        ></textarea>
-
-        <span class="hidden md:block flex-1 text-xs text-gray-500 dark:text-dark-text-secondary">Enter to send · Shift + Enter for a new line</span>
+        </div>
+        <button onclick={() => fileInput?.click()} disabled={sending || loadingMessages || readingAttachments || attachments.length >= CHAT_ATTACHMENT_COUNT} class={`${secondaryControl} w-10`} title="Attach files" aria-label="Attach photos or files"><Paperclip size={18} /></button>
         <!-- Mic button with settings -->
         <div class="relative shrink-0">
           {#if transcribing}
-            <div class="flex items-center gap-1 p-1 text-blue-500">
-              <Loader2 size={14} class="animate-spin" />
-              <span class="text-[10px]">...</span>
+            <div role="status" aria-label="Transcribing voice" class={`${composerControl} w-10 text-blue-600 dark:text-blue-400`}>
+              <Loader2 size={18} class="animate-spin motion-reduce:animate-none" />
             </div>
           {:else if recording}
             <button
               onclick={stopRecording}
-              class="flex items-center gap-1 p-1 text-red-500 hover:text-red-600 animate-pulse"
+              class={`${composerControl} px-3 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-950/50`}
               title="Stop recording"
+              aria-label="Stop voice recording"
             >
-              <MicOff size={14} />
-              <span class="text-[10px] font-mono">{formatRecordingTime(recordingDuration)}</span>
+              <MicOff size={18} />
+              <span class="text-xs tabular-nums">{formatRecordingTime(recordingDuration)}</span>
             </button>
           {:else}
-            <div class="flex items-center h-[22px]">
+            <div class="flex items-center gap-1">
               <button
                 onclick={startRecording}
-                disabled={sending}
-                class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-20"
+                disabled={sending || loadingMessages}
+                class={`${secondaryControl} w-10`}
                 title="Voice input (click to record)"
+                aria-label="Record voice message"
               >
-                <Mic size={14} />
+                <Mic size={18} />
               </button>
               <button
                 onclick={() => { showVoiceSettings = !showVoiceSettings; }}
-                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary px-0.5 rounded hover:bg-gray-100 dark:hover:bg-dark-elevated"
-                title="Voice settings"
+                class={`${composerControl} w-10 text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated`}
+                title={`Voice settings (${voiceLabel()})`}
+                aria-label="Voice settings"
+                aria-expanded={showVoiceSettings}
+                disabled={sending || loadingMessages}
               >
-                {voiceLabel()}
+                <Settings2 size={16} />
               </button>
             </div>
           {/if}
@@ -1439,8 +1580,8 @@
               class="fixed inset-0 z-40"
               onclick={() => { showVoiceSettings = false; }}
             ></div>
-            <div class="absolute bottom-full right-0 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded shadow-lg p-2 z-50 w-52">
-              <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mb-1">Method</div>
+            <div class="absolute bottom-full left-0 mb-2 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-md shadow-lg p-2 z-50 w-52">
+              <div class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary mb-1">Transcription method</div>
               {#each [
                 { value: 'openai', label: 'OpenAI API (cloud)' },
                 { value: 'local', label: 'Local Whisper' },
@@ -1454,7 +1595,7 @@
                 </button>
               {/each}
               {#if voiceMethod !== 'openai'}
-                <div class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider mt-2 mb-1">Model</div>
+                <div class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary mt-2 mb-1">Model</div>
                 {#each [
                   { value: 'tiny', label: 'tiny (39M, fastest)' },
                   { value: 'base', label: 'base (74M, fast)' },
@@ -1474,20 +1615,21 @@
         </div>
 
         {#if sending}
-          <button onclick={stopGeneration} class="ml-auto flex items-center gap-2 px-3 py-2 rounded-md bg-red-600 text-white text-sm shrink-0" title="Stop">
+          <button onclick={stopGeneration} class={`${composerControl} ml-auto min-w-20 px-3 bg-red-600 text-white hover:bg-red-700`} title="Stop generation">
             <Square size={16} /> Stop
           </button>
         {:else}
           <button
             onclick={handleSend}
-            disabled={!inputText.trim() || loadingMessages}
-            class="ml-auto flex items-center gap-2 px-3 py-2 rounded-md bg-gray-900 text-white dark:bg-accent dark:text-gray-950 disabled:opacity-40 text-sm font-medium shrink-0"
+            disabled={(!inputText.trim() && !attachments.length) || loadingMessages || readingAttachments || recording || transcribing || (!selectedSessionId && !agents.length)}
+            class={`${composerControl} ml-auto min-w-20 px-3 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover`}
             title="Send"
           >
             <Send size={16} /> Send
           </button>
         {/if}
+        <p id="session-composer-help" class="basis-full text-xs leading-5 text-gray-500 dark:text-dark-text-secondary"><span class="hidden sm:inline">Enter to send · Shift + Enter for a new line.</span>{' '}Up to 4 files · 5 MB each · 8 MB total. Supported file formats depend on the agent’s model.</p>
       </div>
-    </div>
+    </section>
   </div>
 </div>
