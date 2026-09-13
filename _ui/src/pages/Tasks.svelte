@@ -465,7 +465,7 @@
   <title>AT | Tasks</title>
 </svelte:head>
 
-<div class="p-6 max-w-6xl mx-auto flex flex-col" style="height: calc(100vh - 3rem);">
+<div class="p-6 flex flex-col" style="height: calc(100vh - 3rem);">
   <!-- Header -->
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div class="flex items-center gap-2">

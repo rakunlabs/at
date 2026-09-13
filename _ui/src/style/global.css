@@ -59,6 +59,16 @@ body {
   @apply h-full w-full bg-gray-50 dark:bg-dark-base text-gray-900 dark:text-dark-text;
 }
 
+/* Set by applyTheme() in lib/store/store.svelte.ts only while the light/dark
+   class is swapped, so the whole page repaints in one frame instead of
+   cross-fading every transition-colors element. */
+html.theme-switching,
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+  transition: none !important;
+}
+
 button,
 [role='button'],
 select {
