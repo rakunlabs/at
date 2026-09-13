@@ -91,6 +91,25 @@ type WorkspaceStorer interface {
 	DeletePermissionMapping(context.Context, string) error
 }
 
+type WorkspacePreferences struct {
+	Mode            string `json:"mode" db:"mode"`
+	WorkspaceID     string `json:"workspace_id" db:"workspace_id"`
+	LastWorkspaceID string `json:"last_workspace_id" db:"last_workspace_id"`
+}
+
+type WorkspaceDeletion struct {
+	WorkspaceID string   `json:"workspace_id"`
+	BotIDs      []string `json:"-"`
+	TaskIDs     []string `json:"-"`
+}
+
+type WorkspaceLifecycleStorer interface {
+	DeleteWorkspace(context.Context, string) (*WorkspaceDeletion, error)
+	GetWorkspacePreferences(context.Context) (*WorkspacePreferences, error)
+	SaveWorkspacePreferences(context.Context, WorkspacePreferences) (*WorkspacePreferences, error)
+	SelectWorkspace(context.Context, string) error
+}
+
 func (b PermissionBundle) Grants() ([]AccessGrant, error) {
 	grants := make([]AccessGrant, 0, len(b.Keys))
 	for _, key := range b.Keys {

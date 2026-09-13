@@ -139,8 +139,11 @@ func TestCodexTokenSourceRefreshesJSONAndCallsCallback(t *testing.T) {
 
 	source := NewCodexTokenSource("access-old", "refresh-old", "account-old", time.Now().Add(-time.Minute), server.Client(), codexTestEndpoints(server.URL))
 	var callbackCalled bool
-	source.SetRefreshCallback(func(_ context.Context, accessToken, refreshToken, accountID string, expiresAt time.Time) error {
+	source.SetRefreshCallback(func(_ context.Context, previous, accessToken, refreshToken, accountID string, expiresAt time.Time) error {
 		callbackCalled = true
+		if previous != "refresh-old" {
+			t.Errorf("wrong previous refresh credential")
+		}
 		if accessToken != newAccessToken || refreshToken != "refresh-new" || accountID != "account-old" || expiresAt.IsZero() {
 			t.Errorf("unexpected callback values: access=%q refresh=%q account=%q expires=%v", accessToken, refreshToken, accountID, expiresAt)
 		}
@@ -195,7 +198,7 @@ func TestCodexTokenSourceRetriesFailedPersistence(t *testing.T) {
 
 	source := NewCodexTokenSource("access-old", "refresh-old", "account-old", time.Now().Add(-time.Minute), server.Client(), codexTestEndpoints(server.URL))
 	var persistCalls atomic.Int32
-	source.SetRefreshCallback(func(context.Context, string, string, string, time.Time) error {
+	source.SetRefreshCallback(func(context.Context, string, string, string, string, time.Time) error {
 		if persistCalls.Add(1) == 1 {
 			return errors.New("database unavailable")
 		}
@@ -513,7 +516,7 @@ func TestNormalizeCodexClientVersion(t *testing.T) {
 	if got := NormalizeCodexClientVersion("v1.2.3-beta.1"); got != "1.2.3" {
 		t.Fatalf("NormalizeCodexClientVersion = %q", got)
 	}
-	if got := NormalizeCodexClientVersion("dev"); got != "0.0.0" {
+	if got := NormalizeCodexClientVersion("dev"); got != CodexClientVersion {
 		t.Fatalf("invalid version normalized to %q", got)
 	}
 }

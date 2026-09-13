@@ -161,6 +161,6 @@ func (a *nativeAuth) recoveryRedeem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	securityAudit("recovery.redeem", user, "success")
-	a.clearCredentialCookies(w)
+	a.clearCredentialCookies(w, r)
 	w.WriteHeader(204)
 }

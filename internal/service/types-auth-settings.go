@@ -10,15 +10,16 @@ import (
 
 // AuthSettings is a versioned installation policy, never a session record.
 type AuthSettings struct {
-	Version            int64  `json:"version"`
-	Origin             string `json:"origin"`
-	SessionTTLSeconds  int64  `json:"session_ttl_seconds"`
-	RememberTTLSeconds int64  `json:"remember_ttl_seconds"`
-	LocalLoginEnabled  bool   `json:"local_login_enabled"`
-	SignupAdmission    string `json:"signup_admission"`
-	DisplayTitle       string `json:"display_title"`
-	MFAPolicy          string `json:"mfa_policy"`
-	MaxSessions        int    `json:"max_sessions"`
+	Version            int64    `json:"version"`
+	Origin             string   `json:"origin"`
+	AllowedOrigins     []string `json:"allowed_origins,omitempty"`
+	SessionTTLSeconds  int64    `json:"session_ttl_seconds"`
+	RememberTTLSeconds int64    `json:"remember_ttl_seconds"`
+	LocalLoginEnabled  bool     `json:"local_login_enabled"`
+	SignupAdmission    string   `json:"signup_admission"`
+	DisplayTitle       string   `json:"display_title"`
+	MFAPolicy          string   `json:"mfa_policy"`
+	MaxSessions        int      `json:"max_sessions"`
 }
 
 func DefaultAuthSettings() AuthSettings {
@@ -27,8 +28,14 @@ func DefaultAuthSettings() AuthSettings {
 
 // Validate allows an empty origin only before the installation is claimed.
 func (s AuthSettings) Validate(unclaimed bool) error {
-	if s.Version < 1 || s.SessionTTLSeconds < 600 || s.SessionTTLSeconds > 86400 || s.RememberTTLSeconds < s.SessionTTLSeconds || s.RememberTTLSeconds > 2592000 {
-		return fmt.Errorf("invalid authentication version or session lifetime")
+	if s.Version < 1 {
+		return fmt.Errorf("invalid authentication version")
+	}
+	if s.SessionTTLSeconds < 600 || s.SessionTTLSeconds > 86400 {
+		return fmt.Errorf("session lifetime must be between 10m and 1d")
+	}
+	if s.RememberTTLSeconds < s.SessionTTLSeconds || s.RememberTTLSeconds > 2592000 {
+		return fmt.Errorf("remembered lifetime must be at least the session lifetime and at most 30d (4w2d)")
 	}
 	if s.SignupAdmission != "invite_only" && s.SignupAdmission != "approval_required" {
 		return fmt.Errorf("signup admission must require invitation or approval")
@@ -40,14 +47,33 @@ func (s AuthSettings) Validate(unclaimed bool) error {
 		return fmt.Errorf("display title must contain 1-128 bytes")
 	}
 	if unclaimed && s.Origin == "" {
+		if len(s.AllowedOrigins) > 0 {
+			return fmt.Errorf("configure a primary origin before additional sign-in origins")
+		}
 		return nil
 	}
-	return ValidateAuthOrigin(s.Origin)
+	if err := ValidateAuthOrigin(s.Origin); err != nil {
+		return err
+	}
+	if len(s.AllowedOrigins) > 16 {
+		return fmt.Errorf("at most 16 additional sign-in origins are allowed")
+	}
+	seen := map[string]bool{s.Origin: true}
+	for _, origin := range s.AllowedOrigins {
+		if err := ValidateAuthOrigin(origin); err != nil {
+			return fmt.Errorf("invalid additional sign-in origin %q: %w", origin, err)
+		}
+		if seen[origin] {
+			return fmt.Errorf("duplicate sign-in origin %q", origin)
+		}
+		seen[origin] = true
+	}
+	return nil
 }
 
 func ValidateAuthOrigin(origin string) error {
 	u, err := url.Parse(origin)
-	if err != nil || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery || u.Opaque != "" || origin != u.Scheme+"://"+u.Host || strings.ContainsAny(u.Host, "\\%") {
+	if err != nil || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery || u.Opaque != "" || origin != u.Scheme+"://"+u.Host || strings.ContainsAny(u.Host, "\\%*") {
 		return fmt.Errorf("authentication origin must be an exact HTTP(S) origin")
 	}
 	ip := net.ParseIP(u.Hostname())

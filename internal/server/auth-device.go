@@ -1166,83 +1166,57 @@ func (s *Server) wireClaudeOAuthCallback(providerKey string, p service.LLMProvid
 	ap.SetTokenRefreshCallback(s.claudeOAuthRefreshCallback(providerKey, workspace...))
 }
 
-func (s *Server) chatGPTOAuthRefreshCallback(providerKey string) openai.CodexTokenRefreshCallback {
-	return func(_ context.Context, accessToken, refreshToken, accountID string, expiresAt time.Time) error {
-		if s.store == nil {
-			return fmt.Errorf("store not configured")
+func (s *Server) chatGPTOAuthRefreshCallback(providerKey, workspace string) openai.CodexTokenRefreshCallback {
+	return func(parent context.Context, previous, access, refresh, account string, expiry time.Time) error {
+		store, ok := s.store.(service.CodexOAuthTokenStorer)
+		if !ok {
+			return fmt.Errorf("Codex credential rotation store unavailable")
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 10*time.Second)
 		defer cancel()
-
-		record, err := s.store.GetProvider(ctx, providerKey)
-		if err != nil {
-			return fmt.Errorf("read provider: %w", err)
-		}
-		if record == nil {
-			return fmt.Errorf("provider disappeared during refresh")
-		}
-		if record.Config.AuthType != "chatgpt" {
-			return fmt.Errorf("provider auth type changed during refresh")
-		}
-		storedAccountID := record.Config.ExtraHeaders["ChatGPT-Account-ID"]
-		if storedAccountID != "" && accountID != "" && storedAccountID != accountID {
-			return fmt.Errorf("provider ChatGPT account changed during refresh")
-		}
-
-		cfg := record.Config
-		cfg.APIKey = accessToken
-		cfg.RefreshToken = refreshToken
-		if !expiresAt.IsZero() {
-			cfg.TokenExpiresAt = expiresAt.UTC().Format(time.RFC3339)
-		}
-		if accountID != "" {
-			cfg.ExtraHeaders = maps.Clone(cfg.ExtraHeaders)
-			if cfg.ExtraHeaders == nil {
-				cfg.ExtraHeaders = make(map[string]string)
-			}
-			cfg.ExtraHeaders["ChatGPT-Account-ID"] = accountID
-		}
-
-		if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
-			Key:       providerKey,
-			Config:    cfg,
-			UpdatedBy: "system:oauth-refresh",
-		}); err != nil {
-			return fmt.Errorf("persist rotated tokens: %w", err)
-		}
-		return nil
+		return store.RotateCodexOAuthTokens(ctx, workspace, providerKey, previous, service.CodexOAuthTokens{AccessToken: access, RefreshToken: refresh, AccountID: account, ExpiresAt: expiry})
 	}
 }
 
-func (s *Server) chatGPTOAuthReloadCallback(providerKey string) openai.CodexTokenReloadCallback {
-	return func(ctx context.Context) (string, string, string, time.Time, error) {
-		if s.store == nil {
-			return "", "", "", time.Time{}, fmt.Errorf("store not configured")
-		}
-		record, err := s.store.GetProvider(ctx, providerKey)
-		if err != nil {
-			return "", "", "", time.Time{}, fmt.Errorf("read provider: %w", err)
-		}
-		if record == nil || record.Config.AuthType != "chatgpt" {
-			return "", "", "", time.Time{}, fmt.Errorf("ChatGPT provider no longer exists")
-		}
-		var expiresAt time.Time
-		if record.Config.TokenExpiresAt != "" {
-			expiresAt, err = time.Parse(time.RFC3339, record.Config.TokenExpiresAt)
-			if err != nil {
-				return "", "", "", time.Time{}, fmt.Errorf("parse token expiry: %w", err)
-			}
-		}
-		return record.Config.APIKey, record.Config.RefreshToken,
-			record.Config.ExtraHeaders["ChatGPT-Account-ID"], expiresAt, nil
-	}
-}
-
-func (s *Server) wireChatGPTOAuthCallback(providerKey string, p service.LLMProvider) {
+func (s *Server) wireChatGPTOAuthCallback(providerKey string, p service.LLMProvider, workspaces ...string) {
 	cp, ok := p.(*openai.CodexProvider)
 	if !ok {
 		return
 	}
-	cp.SetTokenRefreshCallback(s.chatGPTOAuthRefreshCallback(providerKey))
-	cp.SetTokenReloadCallback(s.chatGPTOAuthReloadCallback(providerKey))
+	workspace := "legacy-default"
+	if len(workspaces) > 0 {
+		workspace = workspaces[0]
+	}
+	cp.SetTokenRefreshCallback(s.chatGPTOAuthRefreshCallback(providerKey, workspace))
+	store, ok := s.store.(service.CodexOAuthTokenStorer)
+	if !ok {
+		return
+	}
+	cp.SetTokenCoordinator(func(parent context.Context, rejected string, exchange func(context.Context, openai.CodexTokens) (*openai.CodexTokens, error)) (*openai.CodexTokens, error) {
+		if err := parent.Err(); err != nil {
+			return nil, err
+		}
+		// Finish a started credential exchange even if its originating request
+		// disappears. Rotation and encrypted persistence share one provider lock.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 15*time.Second)
+		defer cancel()
+		current, err := store.WithCodexOAuthTokens(ctx, workspace, providerKey, func(tokens *service.CodexOAuthTokens) error {
+			if cp.AccountID != "" && tokens.AccountID != cp.AccountID {
+				return fmt.Errorf("ChatGPT account changed; reload the provider")
+			}
+			if tokens.AccessToken != rejected && openai.CodexTokenFresh(tokens.AccessToken, tokens.ExpiresAt) {
+				return nil
+			}
+			fresh, err := exchange(ctx, openai.CodexTokens{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, AccountID: tokens.AccountID, ExpiresAt: tokens.ExpiresAt})
+			if err != nil {
+				return err
+			}
+			tokens.AccessToken, tokens.RefreshToken, tokens.AccountID, tokens.ExpiresAt = fresh.AccessToken, fresh.RefreshToken, fresh.AccountID, fresh.ExpiresAt
+			return nil
+		})
+		if current == nil {
+			return nil, err
+		}
+		return &openai.CodexTokens{AccessToken: current.AccessToken, RefreshToken: current.RefreshToken, AccountID: current.AccountID, ExpiresAt: current.ExpiresAt, PreviousRefreshToken: current.PreviousRefreshToken}, err
+	})
 }

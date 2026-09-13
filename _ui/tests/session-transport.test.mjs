@@ -27,6 +27,49 @@ test('external popup completion adopts only matching live me and releases refres
   assert.equal(h.calls.some(c => c.path.endsWith('/refresh')),false);
 });
 
+test('signed-out startup coalesces probes without me 401 or refresh attempts', async () => {
+  const h = harness({ handle: async (_, { path, held }) => {
+    if (path.endsWith('/session')) { assert.equal(held, true); return json(200, { identity: null, refresh_available: false }); }
+  } });
+  const { transport } = h.tab();
+  assert.deepEqual(await Promise.all([transport.checkSession(), transport.checkSession()]), [null, null]);
+  assert.deepEqual(h.calls.map(c => c.path), ['/at/auth/session']);
+  assert.equal(h.values.size, 0);
+});
+
+test('optional probe verifies a password login and publishes the browser identity', async () => {
+  const h = harness({ handle: async (_, { path, live, setLive }) => {
+    if (path.endsWith('/login')) { setLive(true); return json(200, identity); }
+    if (path.endsWith('/session')) return json(200, { identity: live ? identity : null, refresh_available: live });
+  } });
+  const { transport, auth } = h.tab();
+  await auth.post('login', { username: 'operator', password: 'test only' });
+  const observed = []; transport.subscribe(value => observed.push(value));
+  assert.deepEqual(await transport.checkSession(), identity);
+  assert.deepEqual(observed, [identity]);
+  assert.deepEqual(h.calls.map(c => c.path), ['/at/auth/login', '/at/auth/session']);
+});
+
+test('expired access uses one locked probe and refresh, without a failing me request', async () => {
+  const h = harness({ handle: async (_, { path, live, held }) => {
+    if (path.endsWith('/session')) { assert.equal(held, true); return json(200, { identity: live ? identity : null, refresh_available: true }); }
+  } });
+  const { transport } = h.tab();
+  assert.deepEqual(await transport.checkSession(), identity);
+  assert.deepEqual(h.calls.map(c => c.path), ['/at/auth/session', '/at/auth/refresh']);
+});
+
+test('optional probe preserves renewal uncertainty and distinguishes server errors from signed out', async () => {
+  for (const status of [200, 503]) {
+    const h = harness({ handle: async (_, { path }) => path.endsWith('/session') ? json(status, { identity: null, refresh_available: true }) : undefined });
+    const { transport } = h.tab();
+    h.values.set('at-auth:/at/:blocked', '1');
+    await assert.rejects(transport.checkSession());
+    assert.equal(h.calls.length, 1);
+    assert.equal(h.values.get('at-auth:/at/:blocked'), '1');
+  }
+});
+
 function harness(options = {}) {
   let live = false;
   const calls = [];

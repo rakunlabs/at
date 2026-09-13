@@ -22,14 +22,16 @@ type fakeObsProvider struct {
 	responses []*service.LLMResponse
 	requests  [][]service.Message
 	options   []*service.ChatOptions
+	tools     [][]service.Tool
 	calls     int
 }
 
-func (f *fakeObsProvider) Chat(_ context.Context, _ string, messages []service.Message, _ []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
+func (f *fakeObsProvider) Chat(_ context.Context, _ string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) (*service.LLMResponse, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.requests = append(f.requests, append([]service.Message(nil), messages...))
 	f.options = append(f.options, opts)
+	f.tools = append(f.tools, append([]service.Tool(nil), tools...))
 	if f.calls >= len(f.responses) {
 		return &service.LLMResponse{Content: "out of script", Finished: true}, nil
 	}

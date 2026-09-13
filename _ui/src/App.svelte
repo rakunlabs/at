@@ -12,10 +12,10 @@
   import BackupCodes from './lib/components/BackupCodes.svelte';
   import MobileAuthorize from './pages/MobileAuthorize.svelte';
   import WorkspaceSettings from './pages/WorkspaceSettings.svelte';
-  import { getAuthIdentity, getAuthStatus, isAuthUnauthorized, isSetupRequired, logoutAuth } from './lib/api/auth';
+  import { getAuthStatus, isAuthUnauthorized, isSetupRequired, logoutAuth } from './lib/api/auth';
   import { authSession } from './lib/api/transport';
   import { ReauthenticationRequired } from './lib/api/session-transport';
-  import { storeAuth, isNativeAdmin, returnToLogin, securityCodes } from './lib/store/auth.svelte';
+  import { storeAuth, authOrigins, isNativeAdmin, returnToLogin, securityCodes } from './lib/store/auth.svelte';
   import { workspaceState, loadWorkspaceAccess } from './lib/store/workspace.svelte';
   import { routeAllowed, configurationLinks } from './lib/helper/navigation';
   import routes from './routes';
@@ -28,14 +28,14 @@
   let settingsLayout = $derived(settingsArea && routeAllowed($location) && (!!workspaceState.access || isNativeAdmin() || $location === '/settings/account'));
   async function checkSession() {
     if (checking || storeAuth.securityHold || ticket) return; checking = true; const start = revision;
-    try { const identity = await getAuthIdentity(); if (start !== revision || storeAuth.securityHold) return; storeAuth.identity = identity; if (!window.location.hash.startsWith('#/mobile-authorize?')) await loadWorkspaceAccess(); if (start !== revision || storeAuth.securityHold) return; authState = 'ready'; error = ''; }
+    try { const identity = await authSession.checkSession(); if (start !== revision || storeAuth.securityHold) return; storeAuth.identity = identity; if (!identity) { authState = 'login'; return; } if (!window.location.hash.startsWith('#/mobile-authorize?')) await loadWorkspaceAccess(); if (start !== revision || storeAuth.securityHold) return; authState = 'ready'; error = ''; notice = ''; }
     catch (e) { if (start !== revision || storeAuth.securityHold) return; if (isSetupRequired(e)) { storeAuth.identity = null; authState = 'setup'; error = ''; } else if (isAuthUnauthorized(e) || e instanceof ReauthenticationRequired) { storeAuth.identity = null; authState = 'login'; } else { authState = 'error'; error = 'Cannot load your session or workspace access. Retry when the server is available.'; } }
     finally { checking = false; }
   }
   async function initialize() {
     if (ticket) return;
     authState = 'loading';
-    try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.title = status.display_title || 'AT';
+    try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.title = status.display_title || 'AT'; authOrigins.primary = status.origin || ''; authOrigins.allowed = status.allowed_origins || [];
       if (status.setup_required === true) authState = 'setup'; else if (status.enabled) await checkSession(); else { authState = 'error'; error = 'Native authentication is unavailable. Ask the operator to enable runtime authentication.'; }
     }     catch (e) { if (isSetupRequired(e)) { authState = 'setup'; error = ''; return; } authState = 'error'; error = 'Cannot load authentication settings. Retry when the server is available.'; }
   }

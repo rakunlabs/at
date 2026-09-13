@@ -141,7 +141,7 @@ func (a *nativeAuth) changePassword(admin bool) http.HandlerFunc {
 				a.securityError(w, err)
 				return
 			}
-			a.clearCredentialCookies(w)
+			a.clearCredentialCookies(w, r)
 			w.WriteHeader(204)
 			return
 		}
@@ -160,7 +160,7 @@ func (a *nativeAuth) changePassword(admin bool) http.HandlerFunc {
 		}
 		mobile, _ := r.Context().Value(nativeMobileContextKey{}).(bool)
 		if id == self && !mobile {
-			a.clearCredentialCookies(w)
+			a.clearCredentialCookies(w, r)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

@@ -199,6 +199,32 @@ usage access has its own ownership guard, separate from gateway accounting.
 Workspace switching preserves the current hash route and reloads it to clear
 the previous workspace's cached data.
 
+Workspace startup selection is account-configurable under **Settings → Workspace
+→ Workspace on sign-in**: Default (the shipped default), last used, or a specific
+accessible workspace. Migration 49 stores `workspace_preferences`; GET/PUT
+`/auth/workspaces/preferences` and PUT `/auth/workspaces/selection` are self-scoped.
+Tab selection is keyed by user and nonsecret session-family ID so another login
+does not inherit it. Default is explicitly preferred over newly created ULIDs.
+Deleted/revoked selections fall back to Default or the oldest accessible workspace.
+
+POST `/api/v1/workspaces/{workspace}/delete` permanently deletes a non-default
+workspace after an exact-name confirmation. The store revalidates owner/admin
+authority and `workspace.archive`, locks the workspace, and deletes all owned
+records in one transaction (the inventory is schema-tested). The handler cancels
+local workflows/chat turns/delegations/bots and removes that workspace's execution
+directory. Cleanup failures are reported separately after record deletion.
+`legacy-default` is protected. The older DELETE endpoint remains archive-only.
+Owner-scoped Playground conversations/media and installation-wide assets are not
+workspace records and are not deleted by this operation.
+
+Sessions use the wide Playground-style message layout, a 256–288px desktop sidebar with compact search and session rows
+and a 40px header. Tool activity is expandable rather than replacing the transcript.
+The chat agent loop reserves its last available iteration (after a tool step) for
+a text-only final response, repairs one empty response within its existing budget,
+and persists final/interruption text before sending `done`. A persistence failure
+emits an error so the UI retains the received answer. Task-chat imports expose the
+task result as an assistant message, including task_complete-only delegation runs.
+
 Model discovery endpoints retain the selected workspace when resolving stored
 credentials. Anthropic discovery uses `/v1/models`, refreshes/persists Claude
 OAuth credentials when needed, normalizes `/v1` and `/v1/messages` base URLs,
@@ -260,6 +286,17 @@ the token source retries failed persistence before issuing another token without
 rotating again. Both gateway and scoped agent provider instances wire this callback.
 An already-invalid refresh token still requires reauthorization; a restart cannot
 recover a rotated token that an earlier version never persisted.
+
+ChatGPT/Codex refresh uses `CodexOAuthTokenStorer`: a workspace-owned provider row
+lock covers credential reload, the single-use OAuth exchange and encrypted save,
+so inference and model discovery across instances do not race the same refresh
+token. Failed saves retain the new credentials for an idempotent, previous-token
+checked retry. Both gateway and scoped runtime providers wire the coordinator;
+discovery uses the workspace+provider-ID cache, never a key-only global lookup.
+The Codex model catalog uses `openai.CodexClientVersion`, independent of AT's
+release version. Standard OpenAI preset URLs are normalized to the Codex Responses
+endpoint for ChatGPT auth; custom relay URLs remain explicit overrides. Empty
+Codex catalogs are reported as errors rather than silently returning no models.
 
 LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
 

@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +72,7 @@ type nativeAuth struct {
 	password           password.PBKDF2
 	loginLimit         *rate.Limiter
 	passwordSlots      chan struct{}
+	allowedOrigins     []string
 	oauthMu            sync.Mutex
 	oauthStates        map[string]nativeOAuthState
 	passkey            *passkey.WebAuthn
@@ -236,7 +238,8 @@ func (a *nativeAuth) sameOrigin(w http.ResponseWriter, r *http.Request) bool {
 	oauthPath := a.session.Cookie.Path + "api/v1/oauth/"
 	callbackNavigation := r.Method == http.MethodGet && r.Header.Get("Sec-Fetch-Mode") == "navigate" && r.Header.Get("Sec-Fetch-Dest") == "document" &&
 		(r.URL.Path == oauthPath+"callback" || r.URL.Path == oauthPath+"code-display")
-	if (unsafe && origin != a.cfg.Origin) || (origin != "" && origin != a.cfg.Origin) || (r.Header.Get("Sec-Fetch-Site") == "cross-site" && !callbackNavigation) {
+	allowed := origin == a.cfg.Origin || slices.Contains(a.allowedOrigins, origin)
+	if len(r.Header.Values("Origin")) > 1 || (unsafe && !allowed) || (origin != "" && !allowed) || (r.Header.Get("Sec-Fetch-Site") == "cross-site" && !callbackNavigation) {
 		nativeError(w, http.StatusForbidden, "same-origin request required")
 		return false
 	}
@@ -441,7 +444,7 @@ func (a *nativeAuth) finishCompletedLogin(w http.ResponseWriter, r *http.Request
 		nativeError(w, 503, "authentication unavailable")
 		return
 	}
-	a.setCredentialCookies(w, pair, remember)
+	a.setCredentialCookies(w, r, pair, remember)
 	securityAudit("login", u.ID, "success")
 	w.Header().Set("Cache-Control", "no-store")
 	httpResponseJSON(w, pair.Identity, 200)
@@ -508,7 +511,7 @@ func (a *nativeAuth) logout(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, 503, "authentication unavailable")
 		return
 	}
-	a.clearCredentialCookies(w)
+	a.clearCredentialCookies(w, r)
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -545,6 +548,7 @@ func (a *nativeAuth) register(mux *ada.Server, base string) {
 	public.POST("/login", a.login)
 	public.POST("/refresh", a.refresh)
 	public.POST("/logout", a.logout)
+	public.GET("/session", a.sessionStatus)
 	public.POST("/bootstrap", a.createUser(true))
 	self := mux.Group(base + "/auth")
 	self.Use(a.require(false))
@@ -560,4 +564,30 @@ func (a *nativeAuth) register(mux *ada.Server, base string) {
 	admin.POST("/{id}/password", a.changePassword(true))
 	admin.POST("/{id}/disable", a.invalidateUser(true))
 	admin.POST("/{id}/revoke-sessions", a.invalidateUser(false))
+}
+
+// sessionStatus treats an absent browser session as a normal probe result.
+// Protected /me and management routes retain their 401 authentication contract.
+func (a *nativeAuth) sessionStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	if !a.sameOrigin(w, r) {
+		return
+	}
+	pair, err := a.currentSession(r)
+	if err != nil && !errors.Is(err, issuer.ErrNotFound) {
+		nativeError(w, http.StatusServiceUnavailable, "authentication unavailable")
+		return
+	}
+	var id *identity.Identity
+	if err == nil && pair != nil {
+		id = pair.Identity
+	}
+	// This is a shape hint, not proof of validity; refresh still validates the
+	// credential transactionally and rotates only under the browser's lock.
+	refreshAvailable := false
+	if cookies := r.CookiesNamed(a.refreshCookieName(r)); len(cookies) == 1 && len(cookies[0].Value) == 43 {
+		decoded, decodeErr := base64.RawURLEncoding.DecodeString(cookies[0].Value)
+		refreshAvailable = decodeErr == nil && len(decoded) == 32
+	}
+	httpResponseJSON(w, map[string]any{"identity": id, "refresh_available": refreshAvailable}, http.StatusOK)
 }

@@ -275,24 +275,34 @@ type providerModelDiscoverer interface {
 }
 
 func (s *Server) discoverOpenAIProviderModels(ctx context.Context, key string, cfg config.LLMConfig) ([]string, error) {
-	if cfg.AuthType == "chatgpt" && key != "" && s.store != nil {
-		existing, err := s.store.GetProvider(ctx, key)
-		if err == nil && existing != nil && sameChatGPTDiscoveryConfig(cfg, existing.Config) {
-			s.providerMu.RLock()
-			info, ok := s.providers[key]
-			s.providerMu.RUnlock()
-			if ok {
-				if discoverer, ok := info.provider.(providerModelDiscoverer); ok {
-					return discoverer.Models(ctx)
-				}
-			}
+	if cfg.AuthType == "chatgpt" {
+		if key == "" || s.store == nil {
+			return nil, fmt.Errorf("save and authorize the ChatGPT provider before discovering models")
 		}
+		existing, err := s.store.GetProvider(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if existing == nil {
+			return nil, fmt.Errorf("ChatGPT provider not found in this workspace")
+		}
+		if !sameChatGPTDiscoveryConfig(cfg, existing.Config) {
+			return nil, fmt.Errorf("save the ChatGPT provider's connection settings before refreshing models")
+		}
+		provider, err := s.cachedWorkspaceProvider(existing)
+		if err != nil {
+			return nil, err
+		}
+		if discoverer, ok := provider.(providerModelDiscoverer); ok {
+			return discoverer.Models(ctx)
+		}
+		return nil, fmt.Errorf("ChatGPT provider does not support model discovery")
 	}
 	return discoverOpenAIModels(ctx, cfg, s.version)
 }
 
 func sameChatGPTDiscoveryConfig(a, b config.LLMConfig) bool {
-	return a.Type == b.Type && a.AuthType == b.AuthType && a.APIKey == b.APIKey &&
+	return a.Type == b.Type && a.AuthType == b.AuthType &&
 		a.BaseURL == b.BaseURL && a.Proxy == b.Proxy && a.InsecureSkipVerify == b.InsecureSkipVerify &&
 		maps.Equal(a.ExtraHeaders, b.ExtraHeaders)
 }
@@ -301,6 +311,9 @@ func sameChatGPTDiscoveryConfig(a, b config.LLMConfig) bool {
 // It derives the models URL from the configured base_url by stripping /chat/completions.
 func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersions ...string) ([]string, error) {
 	baseURL := cfg.BaseURL
+	if cfg.AuthType == "chatgpt" {
+		baseURL = openai.CodexResponsesURL(baseURL)
+	}
 	if baseURL == "" {
 		if cfg.AuthType == "chatgpt" {
 			baseURL = "https://chatgpt.com/backend-api/codex/responses"
@@ -315,11 +328,7 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersi
 		return nil, fmt.Errorf("invalid base_url: %w", err)
 	}
 	if cfg.AuthType == "chatgpt" {
-		clientVersion := ""
-		if len(clientVersions) > 0 {
-			clientVersion = clientVersions[0]
-		}
-		return discoverChatGPTModels(ctx, cfg, parsedURL, clientVersion)
+		return discoverChatGPTModels(ctx, cfg, parsedURL, openai.CodexClientVersion)
 	}
 
 	// Check if this is a GitHub Copilot endpoint which does not support model listing.
@@ -422,7 +431,7 @@ func discoverChatGPTModels(ctx context.Context, cfg config.LLMConfig, parsedURL 
 		return nil, fmt.Errorf("ChatGPT account ID is missing; authorize the provider again")
 	}
 
-	parsedURL.Path = strings.TrimSuffix(parsedURL.Path, "/responses") + "/models"
+	parsedURL.Path = strings.TrimSuffix(strings.TrimRight(parsedURL.Path, "/"), "/responses") + "/models"
 	query := parsedURL.Query()
 	query.Set("client_version", openai.NormalizeCodexClientVersion(clientVersion))
 	parsedURL.RawQuery = query.Encode()
@@ -468,6 +477,9 @@ func discoverChatGPTModels(ctx context.Context, cfg config.LLMConfig, parsedURL 
 		if model.Slug != "" {
 			models = append(models, model.Slug)
 		}
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("Codex returned no available models. Check this ChatGPT account's Codex access and reconnect the provider")
 	}
 	return models, nil
 }

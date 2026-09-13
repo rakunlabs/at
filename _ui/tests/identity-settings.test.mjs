@@ -9,12 +9,28 @@ async function moduleURL(path, replacements = []) {
   return `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
 }
 const identityURL = await moduleURL('../src/lib/api/identity.ts', [["from 'axios'", `from '${import.meta.resolve('axios')}'`]]);
-const {validateSettings} = await import(identityURL);
+const {validateSettings, parseAuthDuration, formatAuthDuration} = await import(identityURL);
 const {validAuthMessage,localContinuation} = await import(await moduleURL('../src/lib/helper/auth-popup.ts', [["from '../api/identity'", `from '${identityURL}'`]]));
 test('auth settings enforce version, integral bounded lifetimes and immutable security policy fields', () => {
   const base = {version:1,origin:'https://at.example',session_ttl_seconds:28800,remember_ttl_seconds:2592000,signup_admission:'invite_only',mfa_policy:'enrolled_required',max_sessions:20};
   assert.equal(validateSettings(base),'');
   for (const patch of [{version:0},{version:1.5},{session_ttl_seconds:599},{session_ttl_seconds:86401},{session_ttl_seconds:600.5},{remember_ttl_seconds:1000},{remember_ttl_seconds:2592001},{signup_admission:'open'},{mfa_policy:'optional'},{max_sessions:100}]) assert.ok(validateSettings({...base,...patch}),JSON.stringify(patch));
+});
+
+test('readable lifetimes round-trip weeks, days and compound values', () => {
+  for (const [value, seconds] of [['8h', 28800], ['30d', 2592000], ['4w1d2h', 2512800], ['1.5h', 5400], ['10m', 600], ['1w2d3h4m5s', 788645]]) {
+    assert.equal(parseAuthDuration(value), seconds);
+    assert.equal(parseAuthDuration(formatAuthDuration(seconds)), seconds);
+  }
+  assert.equal(formatAuthDuration(2592000), '4w2d');
+  for (const input of ['', '28800', '-1d', '1month', '8h1ms', '1h garbage', '0s', '1.1s', '999999999999999w']) assert.ok(Number.isNaN(parseAuthDuration(input)), input);
+});
+
+test('sign-in origins allow HTTP loopback alongside HTTPS and reject public HTTP', () => {
+  const base = {version:1,origin:'https://at.example',session_ttl_seconds:28800,remember_ttl_seconds:2592000,signup_admission:'invite_only',mfa_policy:'enrolled_required',max_sessions:20};
+  assert.equal(validateSettings({...base,allowed_origins:['https://alternate.example']}), '');
+  assert.equal(validateSettings({...base,allowed_origins:['http://localhost:8080','http://127.0.0.1:8080','http://[::1]:8080']}), '');
+  for (const allowed_origins of [['*'], ['https://at.example'], ['https://other.example/'], ['http://other.example'], ['https://other.example','https://other.example']]) assert.ok(validateSettings({...base,allowed_origins}));
 });
 test('external bridge requires both exact origin and opened popup identity', () => {
   const popup = {}; const data = {type:'at-auth-result',result:{mfa_required:true,challenge:'opaque'}};

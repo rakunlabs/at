@@ -21,6 +21,22 @@ import (
 
 const CodexDefaultResponsesURL = "https://chatgpt.com/backend-api/codex/responses"
 
+// The model catalog filters by Codex protocol client version, not AT's release
+// number. Keep this aligned with the supported upstream Codex contract.
+const CodexClientVersion = "0.154.0"
+
+// Selecting ChatGPT auth on the ordinary OpenAI preset must not send Codex
+// credentials to the API-key /v1/chat/completions endpoint. Custom relays remain
+// explicit overrides; only the standard OpenAI preset URLs are normalized.
+func CodexResponsesURL(raw string) string {
+	switch strings.TrimRight(raw, "/") {
+	case "", "https://api.openai.com", "https://api.openai.com/v1", "https://api.openai.com/v1/chat/completions", "https://api.openai.com/v1/responses":
+		return CodexDefaultResponsesURL
+	default:
+		return raw
+	}
+}
+
 type codexModelsResponse struct {
 	Models []struct {
 		Slug string `json:"slug"`
@@ -46,9 +62,7 @@ type CodexProviderOption func(*CodexProvider)
 // WithCodexBaseURL overrides the Responses endpoint, primarily for tests.
 func WithCodexBaseURL(baseURL string) CodexProviderOption {
 	return func(p *CodexProvider) {
-		if baseURL != "" {
-			p.BaseURL = baseURL
-		}
+		p.BaseURL = CodexResponsesURL(baseURL)
 	}
 }
 
@@ -75,7 +89,8 @@ func WithCodexClientVersion(version string) CodexProviderOption {
 	}
 }
 
-// NormalizeCodexClientVersion converts an AT release version to major.minor.patch.
+// NormalizeCodexClientVersion normalizes an explicit Codex protocol version.
+// Development/unknown values use the supported version, never 0.0.0.
 func NormalizeCodexClientVersion(version string) string {
 	version = strings.TrimPrefix(strings.TrimSpace(version), "v")
 	if index := strings.IndexByte(version, '-'); index >= 0 {
@@ -83,15 +98,15 @@ func NormalizeCodexClientVersion(version string) string {
 	}
 	parts := strings.Split(version, ".")
 	if len(parts) != 3 {
-		return "0.0.0"
+		return CodexClientVersion
 	}
 	for _, part := range parts {
 		if part == "" {
-			return "0.0.0"
+			return CodexClientVersion
 		}
 		for _, r := range part {
 			if r < '0' || r > '9' {
-				return "0.0.0"
+				return CodexClientVersion
 			}
 		}
 	}
@@ -104,7 +119,7 @@ func NewCodexProvider(model, accountID string, tokenSource TokenSource, opts ...
 		Model:         model,
 		BaseURL:       CodexDefaultResponsesURL,
 		AccountID:     accountID,
-		ClientVersion: "0.0.0",
+		ClientVersion: CodexClientVersion,
 		tokenSource:   tokenSource,
 		httpClient:    http.DefaultClient,
 	}
@@ -125,6 +140,12 @@ func (p *CodexProvider) SetTokenRefreshCallback(fn CodexTokenRefreshCallback) {
 func (p *CodexProvider) SetTokenReloadCallback(fn CodexTokenReloadCallback) {
 	if source, ok := p.tokenSource.(*CodexTokenSource); ok {
 		source.SetReloadCallback(fn)
+	}
+}
+
+func (p *CodexProvider) SetTokenCoordinator(fn CodexTokenCoordinator) {
+	if source, ok := p.tokenSource.(*CodexTokenSource); ok {
+		source.SetCoordinator(fn)
 	}
 }
 
@@ -250,10 +271,13 @@ func (p *CodexProvider) ChatStream(ctx context.Context, model string, messages [
 
 // Models returns the model slugs available to the connected ChatGPT account.
 func (p *CodexProvider) Models(ctx context.Context) ([]string, error) {
-	modelsURL, err := p.proxyURL("/models", "client_version="+url.QueryEscape(p.ClientVersion))
+	modelsURL, err := p.proxyURL("/models", "")
 	if err != nil {
 		return nil, err
 	}
+	query := modelsURL.Query()
+	query.Set("client_version", p.ClientVersion)
+	modelsURL.RawQuery = query.Encode()
 	send := func() (*http.Response, error) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL.String(), nil)
 		if err != nil {
@@ -292,6 +316,9 @@ func (p *CodexProvider) Models(ctx context.Context) ([]string, error) {
 			models = append(models, model.Slug)
 		}
 	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("Codex returned no available model slugs. Verify this ChatGPT account has Codex access and reconnect it in Providers; the existing model list was not changed")
+	}
 	return models, nil
 }
 
@@ -299,6 +326,10 @@ func (p *CodexProvider) recoverUnauthorized(ctx context.Context, resp *http.Resp
 	source, ok := p.tokenSource.(*CodexTokenSource)
 	if !ok {
 		return resp, nil
+	}
+	rejected := ""
+	if resp.Request != nil {
+		rejected = strings.TrimPrefix(resp.Request.Header.Get("Authorization"), "Bearer ")
 	}
 	resp.Body.Close()
 	reloaded, err := source.Reload(ctx)
@@ -313,9 +344,16 @@ func (p *CodexProvider) recoverUnauthorized(ctx context.Context, resp *http.Resp
 		if resp.StatusCode != http.StatusUnauthorized {
 			return resp, nil
 		}
+		if resp.Request != nil {
+			rejected = strings.TrimPrefix(resp.Request.Header.Get("Authorization"), "Bearer ")
+		}
 		resp.Body.Close()
 	}
-	source.Invalidate()
+	if rejected != "" {
+		source.InvalidateToken(rejected)
+	} else {
+		source.Invalidate()
+	}
 	return send()
 }
 
@@ -603,7 +641,7 @@ func (p *CodexProvider) proxyURL(path, rawQuery string) (*url.URL, error) {
 		return nil, fmt.Errorf("parse Codex base URL: %w", err)
 	}
 	if path != "" {
-		rootPath := strings.TrimSuffix(base.Path, "/responses")
+		rootPath := strings.TrimSuffix(strings.TrimRight(base.Path, "/"), "/responses")
 		base.Path = strings.TrimSuffix(rootPath, "/") + "/" + strings.TrimPrefix(path, "/")
 	}
 	if rawQuery != "" {

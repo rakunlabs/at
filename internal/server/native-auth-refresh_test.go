@@ -184,7 +184,7 @@ func TestNativeRefreshExpiredAccessLogout(t *testing.T) {
 		if err := p.CreateAuthSession(t.Context(), s); err != nil {
 			t.Fatal(err)
 		}
-		c := &http.Cookie{Name: a.refreshCookieName(), Value: refresh}
+		c := &http.Cookie{Name: a.refreshCookieName(nil), Value: refresh}
 		if logout {
 			if w := nativeRequest(mux, "POST", "/at/auth/logout", "", a.cfg.Origin, c); w.Code != 204 || len(w.Result().Cookies()) != 2 {
 				t.Fatal("expired-access logout", w.Code)
@@ -308,7 +308,7 @@ func TestNativeRefreshConnectorRoutes(t *testing.T) {
 
 func TestNativeRefreshFailureContract(t *testing.T) {
 	a, f, mux := nativeFixture(t)
-	c := &http.Cookie{Name: a.refreshCookieName(), Value: strings.Repeat("a", 43)}
+	c := &http.Cookie{Name: a.refreshCookieName(nil), Value: strings.Repeat("a", 43)}
 	for _, tt := range []struct {
 		body   string
 		cookie *http.Cookie

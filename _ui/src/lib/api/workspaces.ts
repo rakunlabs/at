@@ -11,6 +11,11 @@ export interface GrantSource { capability: string; resource_ids?: string[]; path
 export interface EffectiveAccess { workspace_id: string; user_id: string; role: string; membership_version: number; capabilities: string[]; patterns: Record<string, string[] | null>; sources: GrantSource[]; denied: string[]; execution_enabled: boolean }
 export interface Mapping { id: string; workspace_id: string; provider_id: string; claim_kind: string; claim_value: string; permission_id: string }
 export const listWorkspaces = async () => (await identityAPI.get<{ items: Workspace[] }>('workspaces')).data.items || [];
+export interface WorkspacePreferences { mode: 'default' | 'last_used' | 'workspace'; workspace_id: string; last_workspace_id: string }
+export const getWorkspacePreferences = async () => (await identityAPI.get<WorkspacePreferences>('workspaces/preferences')).data;
+export const saveWorkspacePreferences = async (mode: WorkspacePreferences['mode'], workspace_id: string) => (await identityAPI.put<WorkspacePreferences>('workspaces/preferences', { mode, workspace_id })).data;
+export const rememberWorkspaceSelection = async (workspace_id: string) => { await identityAPI.put('workspaces/selection', { workspace_id }); };
+export const deleteWorkspace = async (id: string, confirmation: string) => (await workspaceAPI.post<{ deleted: boolean; cleanup_warning?: string }>(`workspaces/${encodeURIComponent(id)}/delete`, { confirmation })).data;
 export const getCapabilities = async (id: string) => (await identityAPI.get<EffectiveAccess>(`workspaces/${encodeURIComponent(id)}/capabilities`)).data;
 export const acceptInvitation = async (token: string) => (await identityAPI.post<Member>('invitations/accept', { token })).data;
 export const createInvitation = async (workspace: string, body: CreateInvitation) => (await workspaceAPI.post<IssuedInvitation>(`workspaces/${encodeURIComponent(workspace)}/invitations`, body)).data;

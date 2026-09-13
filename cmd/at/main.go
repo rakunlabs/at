@@ -202,7 +202,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			codexOpts := []openai.CodexProviderOption{
 				openai.WithCodexBaseURL(cfg.BaseURL),
 				openai.WithCodexHTTPClient(httpClient),
-				openai.WithCodexClientVersion(version),
+				openai.WithCodexClientVersion(openai.CodexClientVersion),
 			}
 			if limiter != nil {
 				codexOpts = append(codexOpts, openai.WithCodexRateLimiter(limiter))

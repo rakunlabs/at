@@ -36,8 +36,11 @@ export function createSessionTransport(env: Environment) {
   let family = '';
   let localRevision = 0;
   let subject = '';
+  let currentIdentity: AuthIdentity | null = null;
+  let probeFlight: Promise<AuthIdentity | null> | undefined;
   const listeners = new Set<(identity: AuthIdentity | null, notice: string) => void>();
   const publish = (identity: AuthIdentity | null, notice = '') => {
+    currentIdentity = identity;
     const verifiedFamily = identity?.claims?.session_id;
     if (verifiedFamily) {
       if (localBlocked && blockedFamily && verifiedFamily !== blockedFamily) {
@@ -77,7 +80,7 @@ export function createSessionTransport(env: Environment) {
   };
 
   // Caller owns the credential lock. Do not join flight here: it may be waiting for this lock.
-  async function recoverLocked(start: string, expectedFamily?: string): Promise<boolean> {
+  async function recoverLocked(start: string, expectedFamily?: string, signedOutProbe = false): Promise<boolean> {
     const verify = (identity?: AuthIdentity) => {
       if (start !== revision() || (identity && expectedFamily !== undefined && identity.claims?.session_id !== expectedFamily)) {
         return failClosed('Your session changed in another tab. Sign in again.');
@@ -85,15 +88,15 @@ export function createSessionTransport(env: Environment) {
     };
     verify();
     // Always re-read under the shared lock: another tab may have rotated already.
-    const response = await rawMe();
+    const response = signedOutProbe ? null : await rawMe();
     verify();
-    if (response.ok) {
+    if (response?.ok) {
       const identity = await readIdentity(response);
       verify(identity);
       publish(identity);
       return true;
     }
-    if (response.status !== 401) throw setupRequiredError(response);
+    if (response && response.status !== 401) throw setupRequiredError(response);
     if (!env.locks) return failClosed('Your session expired. This browser cannot safely renew sessions across tabs. Sign in again, or use a browser with Web Locks support.');
     try {
       if (!env.storage || localBlocked || env.storage.getItem(blockedKey)) {
@@ -184,6 +187,32 @@ export function createSessionTransport(env: Environment) {
   }
 
   return {
+    // Optional authentication is normal at startup. Probe under the same lock
+    // used for credential writes, so no duplicate /me 401 or refresh without a
+    // refresh cookie is needed. Concurrent focus/startup checks share one flight.
+    async checkSession(): Promise<AuthIdentity | null> {
+      if (probeFlight) return probeFlight;
+      const start = revision();
+      const check = async () => {
+        if (start !== revision()) throw new ReauthenticationRequired('Your session changed. Try again.');
+        const response = await env.fetch(new URL('auth/session', base), { credentials: 'same-origin', cache: 'no-store', redirect: 'error' });
+        if (!response.ok) throw setupRequiredError(response);
+        const probe = await response.json();
+        if (start !== revision()) throw new ReauthenticationRequired('Your session changed. Try again.');
+        if (!probe || typeof probe.refresh_available !== 'boolean' || !('identity' in probe)) throw new Error('Invalid session status');
+        if (probe.identity !== null) {
+          if (typeof probe.identity?.subject !== 'string' || !probe.identity.subject) throw new Error('Invalid authentication identity');
+          publish(probe.identity);
+          return probe.identity as AuthIdentity;
+        }
+        if (!probe.refresh_available) return null;
+        await recoverLocked(start, undefined, true);
+        return currentIdentity;
+      };
+      probeFlight = (async () => env.locks ? await env.locks.request(lockName, check) : await check())();
+      try { return await probeFlight; }
+      finally { probeFlight = undefined; }
+    },
     async adoptExternalLogin(expectedSubject: string) {
       const adopt = async () => {
         const start = revision();

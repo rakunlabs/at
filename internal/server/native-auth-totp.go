@@ -126,7 +126,7 @@ func (a *nativeAuth) totpConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	securityAudit("totp.activate", u.ID, "success")
-	a.clearCredentialCookies(w)
+	a.clearCredentialCookies(w, r)
 	httpResponseJSON(w, map[string]any{"backup_codes": codes, "login_required": true}, 200)
 }
 
@@ -185,7 +185,7 @@ func (a *nativeAuth) totpMutate(regenerate bool) http.HandlerFunc {
 			return
 		}
 		securityAudit(purpose, u.ID, "success")
-		a.clearCredentialCookies(w)
+		a.clearCredentialCookies(w, r)
 		if regenerate {
 			httpResponseJSON(w, map[string]any{"backup_codes": codes, "login_required": true}, 200)
 		} else {

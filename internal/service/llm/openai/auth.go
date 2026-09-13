@@ -92,12 +92,13 @@ type codexDeviceCodeResponse struct {
 
 // CodexTokens contains the tokens produced by device login or a refresh.
 type CodexTokens struct {
-	IDToken      string    `json:"id_token"`
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token"`
-	ExpiresIn    int       `json:"expires_in,omitempty"`
-	AccountID    string    `json:"-"`
-	ExpiresAt    time.Time `json:"-"`
+	IDToken              string    `json:"id_token"`
+	AccessToken          string    `json:"access_token"`
+	RefreshToken         string    `json:"refresh_token"`
+	ExpiresIn            int       `json:"expires_in,omitempty"`
+	AccountID            string    `json:"-"`
+	ExpiresAt            time.Time `json:"-"`
+	PreviousRefreshToken string    `json:"-"`
 }
 
 // RequestCodexDeviceCode starts the official Codex device authorization flow.
@@ -356,7 +357,19 @@ func codexJWTExpiration(token string) (time.Time, error) {
 
 // CodexTokenRefreshCallback is invoked after a successful refresh so callers
 // can persist the rotated credentials and derived account identifier.
-type CodexTokenRefreshCallback func(ctx context.Context, accessToken, refreshToken, accountID string, expiresAt time.Time) error
+type CodexTokenRefreshCallback func(ctx context.Context, previousRefreshToken, accessToken, refreshToken, accountID string, expiresAt time.Time) error
+
+// CodexTokenCoordinator runs exchange while holding the durable provider lock.
+// It may return exchanged credentials alongside a persistence error; the source
+// retains them and retries its refresh callback before any subsequent exchange.
+type CodexTokenCoordinator func(context.Context, string, func(context.Context, CodexTokens) (*CodexTokens, error)) (*CodexTokens, error)
+
+func CodexTokenFresh(access string, expiry time.Time) bool {
+	if expiry.IsZero() {
+		expiry, _ = codexJWTExpiration(access)
+	}
+	return access != "" && (expiry.IsZero() || time.Now().Before(expiry.Add(-codexTokenExpiryBuffer)))
+}
 
 // CodexTokenReloadCallback reloads credentials persisted by another process.
 type CodexTokenReloadCallback func(ctx context.Context) (accessToken, refreshToken, accountID string, expiresAt time.Time, err error)
@@ -364,17 +377,20 @@ type CodexTokenReloadCallback func(ctx context.Context) (accessToken, refreshTok
 // CodexTokenSource provides an access token and refreshes it with the official
 // JSON refresh-token exchange when it approaches expiry.
 type CodexTokenSource struct {
-	mu             sync.Mutex
-	accessToken    string
-	refreshToken   string
-	idToken        string
-	accountID      string
-	expiresAt      time.Time
-	httpClient     *http.Client
-	endpoints      CodexAuthEndpoints
-	onRefresh      CodexTokenRefreshCallback
-	onReload       CodexTokenReloadCallback
-	persistPending bool
+	mu              sync.Mutex
+	accessToken     string
+	refreshToken    string
+	idToken         string
+	accountID       string
+	expiresAt       time.Time
+	httpClient      *http.Client
+	endpoints       CodexAuthEndpoints
+	onRefresh       CodexTokenRefreshCallback
+	onReload        CodexTokenReloadCallback
+	persistPending  bool
+	pendingPrevious string
+	rejectedAccess  string
+	coordinator     CodexTokenCoordinator
 }
 
 // NewCodexTokenSource creates a refreshable ChatGPT Codex token source.
@@ -412,6 +428,12 @@ func (ts *CodexTokenSource) SetReloadCallback(fn CodexTokenReloadCallback) {
 	ts.onReload = fn
 }
 
+func (ts *CodexTokenSource) SetCoordinator(fn CodexTokenCoordinator) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.coordinator = fn
+}
+
 // AccountID returns the account identifier associated with the current token.
 func (ts *CodexTokenSource) AccountID() string {
 	ts.mu.Lock()
@@ -431,6 +453,32 @@ func (ts *CodexTokenSource) Token(ctx context.Context) (string, error) {
 	if ts.accessToken != "" && (ts.expiresAt.IsZero() || time.Now().Before(ts.expiresAt.Add(-codexTokenExpiryBuffer))) {
 		token := ts.accessToken
 		ts.mu.Unlock()
+		return token, nil
+	}
+	if ts.coordinator != nil {
+		tokens, err := ts.coordinator(ctx, ts.rejectedAccess, func(exchangeCtx context.Context, current CodexTokens) (*CodexTokens, error) {
+			// A short-lived, uncoordinated source performs only the exchange; the
+			// coordinator owns durable reload and persistence under the same lock.
+			source := NewCodexTokenSource(current.AccessToken, current.RefreshToken, current.AccountID, current.ExpiresAt, ts.httpClient, ts.endpoints)
+			source.Invalidate()
+			if _, err := source.Token(exchangeCtx); err != nil {
+				return nil, err
+			}
+			return &CodexTokens{AccessToken: source.accessToken, RefreshToken: source.refreshToken, AccountID: source.accountID, ExpiresAt: source.expiresAt, PreviousRefreshToken: current.RefreshToken}, nil
+		})
+		if tokens != nil && tokens.AccessToken != "" {
+			ts.accessToken, ts.refreshToken, ts.accountID, ts.expiresAt = tokens.AccessToken, tokens.RefreshToken, tokens.AccountID, tokens.ExpiresAt
+			ts.pendingPrevious = tokens.PreviousRefreshToken
+			ts.persistPending = err != nil && ts.pendingPrevious != "" && ts.onRefresh != nil
+			if err == nil {
+				ts.rejectedAccess = ""
+			}
+		}
+		token := ts.accessToken
+		ts.mu.Unlock()
+		if err != nil {
+			return "", err
+		}
 		return token, nil
 	}
 	if ts.refreshToken == "" {
@@ -460,6 +508,20 @@ func (ts *CodexTokenSource) Token(ctx context.Context) (string, error) {
 	}
 	if status < 200 || status >= 300 {
 		ts.mu.Unlock()
+		if status == http.StatusUnauthorized || status == http.StatusBadRequest {
+			var failure struct {
+				Error json.RawMessage `json:"error"`
+			}
+			var detail struct {
+				Code string `json:"code"`
+			}
+			if json.Unmarshal(respBody, &failure) == nil {
+				_ = json.Unmarshal(failure.Error, &detail)
+			}
+			if status == http.StatusUnauthorized || detail.Code == "refresh_token_reused" {
+				return "", fmt.Errorf("ChatGPT authorization must be renewed: the refresh token is expired, revoked or already used. Sign in again with ChatGPT in Providers")
+			}
+		}
 		return "", fmt.Errorf("Codex token refresh returned %d: %s", status, truncate(string(respBody), 300))
 	}
 	tokens, err := parseCodexRefreshTokens(respBody)
@@ -484,6 +546,7 @@ func (ts *CodexTokenSource) Token(ctx context.Context) (string, error) {
 		expiresAt = tokens.ExpiresAt
 	}
 
+	ts.pendingPrevious = ts.refreshToken
 	ts.accessToken = accessToken
 	ts.refreshToken = refreshToken
 	ts.idToken = tokens.IDToken
@@ -502,18 +565,31 @@ func (ts *CodexTokenSource) persistLocked(ctx context.Context) error {
 	if !ts.persistPending || ts.onRefresh == nil {
 		return nil
 	}
-	if err := ts.onRefresh(ctx, ts.accessToken, ts.refreshToken, ts.accountID, ts.expiresAt); err != nil {
+	if err := ts.onRefresh(ctx, ts.pendingPrevious, ts.accessToken, ts.refreshToken, ts.accountID, ts.expiresAt); err != nil {
 		return fmt.Errorf("persist refreshed Codex tokens: %w", err)
 	}
 	ts.persistPending = false
+	ts.pendingPrevious = ""
 	return nil
 }
 
 // Invalidate forces the next Token call to refresh the access token.
 func (ts *CodexTokenSource) Invalidate() {
 	ts.mu.Lock()
+	ts.rejectedAccess = ts.accessToken
 	ts.expiresAt = time.Unix(1, 0)
 	ts.mu.Unlock()
+}
+
+// A delayed 401 for an old request must not invalidate a token that another
+// request has already refreshed successfully.
+func (ts *CodexTokenSource) InvalidateToken(rejected string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.accessToken == rejected {
+		ts.rejectedAccess = rejected
+		ts.expiresAt = time.Unix(1, 0)
+	}
 }
 
 // Reload replaces local credentials with the latest persisted values.

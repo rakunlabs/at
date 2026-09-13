@@ -705,6 +705,7 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Import conversation state from task if available.
 	var importedCount int
+	var importedResult bool
 	if s.issueCommentStore != nil {
 		comments, commentErr := s.issueCommentStore.ListCommentsByTask(ctx, taskID)
 		if commentErr == nil {
@@ -722,6 +723,9 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 				// Convert service.Message to ChatMessage and persist.
 				var chatMsgs []service.ChatMessage
 				for _, msg := range restored {
+					if text, ok := msg.Content.(string); ok && msg.Role == "assistant" && text == task.Result {
+						importedResult = true
+					}
 					var data service.ChatMessageData
 					switch v := msg.Content.(type) {
 					case string:
@@ -738,6 +742,7 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 
 				if len(chatMsgs) > 0 {
 					if err := s.chatSessionStore.CreateChatMessages(ctx, chatMsgs); err != nil {
+						importedResult = false
 						slog.Warn("task chat: failed to import conversation messages", "task_id", taskID, "error", err)
 					} else {
 						importedCount = len(chatMsgs)
@@ -763,10 +768,6 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 		if task.Description != "" {
 			fmt.Fprintf(&b, "\n**Request**:\n%s\n", task.Description)
 		}
-		if task.Result != "" {
-			fmt.Fprintf(&b, "\n**Previous Result**:\n%s\n", task.Result)
-			b.WriteString("\nPlease continue working on this task.")
-		}
 		contextMsg := service.ChatMessage{
 			SessionID: session.ID,
 			Role:      "user",
@@ -776,6 +777,14 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 		}
 		if _, err := s.chatSessionStore.CreateChatMessage(ctx, contextMsg); err != nil {
 			slog.Warn("task chat: failed to add context message", "task_id", taskID, "error", err)
+		}
+	}
+	// Delegation may finish via task_complete rather than a final generation.
+	// Its result belongs in an assistant message, not hidden inside tool history
+	// or attributed to the user when a task conversation is opened.
+	if task.Result != "" && !importedResult {
+		if err := s.persistAssistantMessage(ctx, session.ID, task.Result, nil); err != nil {
+			slog.Warn("task chat: failed to import final result", "task_id", taskID, "error", err)
 		}
 	}
 

@@ -1,15 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { beginPasskeyLogin, finishPasskeyLogin, loginWithPassword, type LoginResult, type MFAChallenge } from '../api/auth';
+  import { beginPasskeyLogin, finishPasskeyLogin, loginWithPassword, loginErrorMessage, type LoginResult, type MFAChallenge } from '../api/auth';
   import { identityAPI, verifyMFA } from '../api/identity';
   import { externalPopup } from '../helper/auth-popup';
   import { isWebAuthnSupported, startAuthentication } from '../helper/webauthn';
-  import { storeAuth } from '../store/auth.svelte';
+  import { storeAuth, authOrigins } from '../store/auth.svelte';
   import { authSession } from '../api/transport';
   let { onlogin, sessionNotice = '' }: { onlogin: () => Promise<void>; sessionNotice?: string } = $props();
   let username = $state(''); let password = $state(''); let code = $state(''); let remember = $state(false);
   let busy = $state(false); let error = $state(''); let providerError = $state('');
   let providers = $state<{id: string; label: string}[]>([]); let mfa = $state<MFAChallenge | null>(null);
+  let wrongOrigin = $derived(!!authOrigins.primary && location.origin !== authOrigins.primary && !authOrigins.allowed.includes(location.origin));
+  let secondaryOrigin = $derived(!!authOrigins.primary && location.origin !== authOrigins.primary);
   let continuation = ''; const controller = new AbortController();
   async function loadProviders() { try { providers = (await identityAPI.get('login-providers')).data || []; providerError = ''; } catch { providerError = 'Sign-in providers are unavailable. Retry loading them.'; } }
   onMount(() => { void loadProviders(); return () => { controller.abort(); password = code = ''; }; });
@@ -17,12 +19,12 @@
     if ('mfa_required' in result && result.mfa_required) { mfa = result; return; }
     if (!('subject' in result) || !result.subject) throw new Error('Invalid login result');
     if (continuation) window.location.assign(continuation);
-    else await onlogin();
+    else { await onlogin(); if (!storeAuth.identity) throw new Error('Sign-in was accepted, but the browser session could not be verified. Check that cookies are allowed for this site.'); }
   }
   async function run(action: () => Promise<LoginResult>, popupFlow = false) {
     if (busy) return; busy = true; error = '';
     try { await complete(await action()); }
-    catch (e) { if (!controller.signal.aborted) error = popupFlow && e instanceof Error ? e.message : mfa ? 'The code could not be verified. Try a fresh authenticator or unused backup code, or restart sign-in.' : 'Sign-in could not be completed. Check your credentials and try again.'; }
+    catch (e) { if (!controller.signal.aborted) error = popupFlow && e instanceof Error ? e.message : mfa ? 'The code could not be verified. Try a fresh authenticator or unused backup code, or restart sign-in.' : loginErrorMessage(e); }
     finally { busy = false; password = code = ''; }
   }
   function external(id: string) {
@@ -34,6 +36,13 @@
   <h1 class="text-2xl font-semibold">{mfa ? 'Verify your sign-in' : `Sign in to ${storeAuth.title}`}</h1>
   <p class="settings-note mt-2">{mfa ? 'Enter your authenticator code or an unused backup code.' : 'Use your account to access your workspaces.'}</p>
   {#if sessionNotice}<p role="status" class="settings-note mt-4">{sessionNotice}</p>{/if}
+  {#if wrongOrigin}
+    <div role="alert" class="mt-6 rounded-md border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm leading-6 text-amber-900 dark:text-amber-200">
+      <p class="font-semibold">This address is not configured for sign-in</p>
+      <p class="mt-1 break-words">You opened {location.origin}. The primary address is {authOrigins.primary}. Ask an administrator to update Authentication settings from an existing session.</p>
+    </div>
+  {/if}
+  {#if error}<p role="alert" class="settings-error mt-4">{error}</p>{/if}
   {#if mfa}
     <form class="mt-8 space-y-5" onsubmit={e => { e.preventDefault(); void run(() => verifyMFA(mfa!.challenge, code)); }}>
       <label>Authentication or backup code<input bind:value={code} autocomplete="one-time-code" required /></label>
@@ -47,15 +56,19 @@
         <label>Password<input type="password" bind:value={password} required autocomplete="current-password" /></label>
         <label><input type="checkbox" bind:checked={remember} disabled={busy} />Remember this sign-in</label>
         <button class="settings-primary w-full" disabled={busy}>{busy ? 'Signing in…' : 'Sign in with password'}</button>
-        {#if storeAuth.passkeys}<button type="button" class="settings-button w-full" disabled={busy || !isWebAuthnSupported()} onclick={() => {
+        {#if storeAuth.passkeys && !secondaryOrigin}<button type="button" class="settings-button w-full" disabled={busy || !isWebAuthnSupported()} onclick={() => {
           if (!username.trim()) { error = 'Enter your username before using a passkey.'; return; }
           void run(async () => { const options = await beginPasskeyLogin(username, remember, controller.signal); const credential = await startAuthentication(options.publicKey, controller.signal); if (!credential) throw new Error('Cancelled'); return finishPasskeyLogin(credential, controller.signal); });
         }}>Sign in with passkey</button>{/if}
       </form>
     {:else}<label class="mt-6"><input type="checkbox" bind:checked={remember} disabled={busy} />Remember this sign-in</label>{/if}
-    <div class="space-y-3 mt-6">{#each providers as provider}<button class="settings-button w-full" disabled={busy} onclick={() => external(provider.id)}>Continue with {provider.label}</button>{/each}</div>
+    {#if secondaryOrigin}
+      <p class="settings-note mt-6">Passkeys and external sign-in providers use the primary address.</p>
+      <a class="settings-button inline-block mt-2 break-all" href={`${authOrigins.primary}${new URL('.', document.baseURI).pathname}${location.hash}`}>Open primary sign-in</a>
+    {:else}
+      <div class="space-y-3 mt-6">{#each providers as provider}<button class="settings-button w-full" disabled={busy} onclick={() => external(provider.id)}>Continue with {provider.label}</button>{/each}</div>
+    {/if}
     {#if providerError}<p role="alert" class="settings-error mt-4">{providerError}</p><button class="settings-button mt-2" onclick={loadProviders}>Reload providers</button>{/if}
     <p class="settings-note mt-8">Need account recovery? Use a backup code after your normal sign-in. If you have lost every sign-in method, ask an installation administrator for a recovery link.</p>
   {/if}
-  {#if error}<p role="alert" class="settings-error mt-4">{error}</p>{/if}
 </div></main>

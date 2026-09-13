@@ -70,33 +70,41 @@ func (s *Server) getExecutionProviderInfo(ctx context.Context, key string) (Prov
 		if !ok {
 			return nil, service.ErrExecutionDenied
 		}
-		data, err := json.Marshal(record.Config)
-		if err != nil {
-			return nil, err
-		}
-		digest := sha256.Sum256(data)
-		// Authorization above is per calling workspace. The transport belongs to
-		// the provider's owner: shared providers must reuse one OAuth token source
-		// rather than racing the same rotating refresh token across workspaces.
-		cacheKey := executionProviderCacheKey{s: s, workspace: record.WorkspaceID, provider: record.ID}
-		executionProviders.Lock()
-		defer executionProviders.Unlock()
-		if entry, ok := executionProviders.entries[cacheKey]; ok && entry.digest == digest {
-			return entry.provider, nil
-		}
-		created, err := s.providerFactory(record.Config)
-		if err != nil {
-			return nil, err
-		}
-		s.wireClaudeOAuthCallback(record.Key, created, record.WorkspaceID)
-		if len(executionProviders.entries) >= 512 {
-			for old := range executionProviders.entries {
-				delete(executionProviders.entries, old)
-				break
-			}
-		}
-		executionProviders.entries[cacheKey] = executionProviderCacheEntry{digest: digest, provider: created}
-		return created, nil
+		return s.cachedWorkspaceProvider(record)
 	})
 	return ProviderInfo{provider: provider, defaultModel: model}, nil
+}
+
+// Callers must admit the record before using this cache. Discovery and model
+// execution share the owning workspace's transport, including pending OAuth
+// persistence retries; no key-only global provider lookup is permitted here.
+func (s *Server) cachedWorkspaceProvider(record *service.ProviderRecord) (service.LLMProvider, error) {
+	if s.providerFactory == nil {
+		return nil, fmt.Errorf("provider factory unavailable")
+	}
+	data, err := json.Marshal([]any{record.Key, record.Config})
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(data)
+	cacheKey := executionProviderCacheKey{s: s, workspace: record.WorkspaceID, provider: record.ID}
+	executionProviders.Lock()
+	defer executionProviders.Unlock()
+	if entry, ok := executionProviders.entries[cacheKey]; ok && entry.digest == digest {
+		return entry.provider, nil
+	}
+	created, err := s.providerFactory(record.Config)
+	if err != nil {
+		return nil, err
+	}
+	s.wireClaudeOAuthCallback(record.Key, created, record.WorkspaceID)
+	s.wireChatGPTOAuthCallback(record.Key, created, record.WorkspaceID)
+	if len(executionProviders.entries) >= 512 {
+		for old := range executionProviders.entries {
+			delete(executionProviders.entries, old)
+			break
+		}
+	}
+	executionProviders.entries[cacheKey] = executionProviderCacheEntry{digest: digest, provider: created}
+	return created, nil
 }

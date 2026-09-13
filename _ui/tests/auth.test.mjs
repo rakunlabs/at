@@ -27,6 +27,19 @@ delete globalThis.authAxiosMock;
 
 beforeEach(() => { calls = []; response = undefined; failure = undefined; });
 
+test('sign-in errors distinguish credentials, origin, rate limits, sessions and service failures', () => {
+  for (const [status, message, expected] of [
+    [401, 'invalid credentials', /username or password/],
+    [403, 'same-origin request required', /site address is not allowed/],
+    [403, 'local login is disabled', /Password sign-in is disabled/],
+    [429, 'login rate limit exceeded', /Too many sign-in attempts/],
+    [429, 'maximum 20 active sessions; sign out a device or revoke sessions', /20 active sessions/],
+    [503, 'authentication unavailable', /service is unavailable/],
+  ]) assert.match(api.loginErrorMessage({ isAxiosError: true, response: { status, data: { message } } }), expected);
+  assert.match(api.loginErrorMessage({ isAxiosError: true }), /Cannot reach/);
+  assert.match(api.loginErrorMessage(new Error('Browser session could not be verified')), /could not be verified/);
+});
+
 test('mobile request IDs require one canonical 32-byte identifier', () => {
   const id = 'A'.repeat(43);
   assert.equal(api.mobileRequestID(`request_id=${id}`), id);

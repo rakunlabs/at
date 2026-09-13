@@ -91,14 +91,14 @@ func (p *Postgres) SaveAuthSettings(ctx context.Context, settings service.AuthSe
 	if err := settings.Validate(false); err != nil {
 		return nil, err
 	}
-	// Origin and version are compared in the write itself, not count-then-write.
+	// Administrator updates use an optimistic version check in the write itself.
 	expected := settings.Version
 	settings.Version++
 	data, err := json.Marshal(settings)
 	if err != nil {
 		return nil, fmt.Errorf("encode auth settings: %w", err)
 	}
-	result, err := p.goqu.Update(p.externalTable("auth_settings")).Set(goqu.Record{"version": settings.Version, "config": string(data)}).Where(goqu.Ex{"singleton": true, "version": expected}, goqu.L("config->>'origin' = ?", settings.Origin), goqu.L("EXISTS (?)", p.goqu.From(p.tableAuthBootstrap).Select(goqu.L("1")).Where(goqu.Ex{"claimed": true}))).Executor().ExecContext(ctx)
+	result, err := p.goqu.Update(p.externalTable("auth_settings")).Set(goqu.Record{"version": settings.Version, "config": string(data)}).Where(goqu.Ex{"singleton": true, "version": expected}, goqu.L("EXISTS (?)", p.goqu.From(p.tableAuthBootstrap).Select(goqu.L("1")).Where(goqu.Ex{"claimed": true}))).Executor().ExecContext(ctx)
 	if err != nil {
 		return nil, authSettingsError(err)
 	}

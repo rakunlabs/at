@@ -95,7 +95,38 @@ their data. Plan the operator's first upgraded visit to claim the installation.
 Settings exposes session and remembered lifetimes, local primary login, invitation
 or approval admission, and display title. Identity providers use the existing
 `/auth/identity-providers` APIs. `PUT /auth/settings` requires the current `version`;
-stale edits return 409. The canonical origin is pinned and cannot be changed there.
+stale edits return 409. Installation administrators can edit the primary `origin`
+and up to 16 `allowed_origins` in Authentication settings. Each must be an exact
+origin without a path, trailing slash or wildcard. HTTPS origins can coexist
+with HTTP loopback origins such as `http://localhost:8080`, `http://127.0.0.1:8080`
+and `http://[::1]:8080`. Public origins still require HTTPS.
+Credential and MFA cookies are selected per request: HTTPS uses Secure-prefixed
+cookies; explicitly configured HTTP loopback hosts use separate non-Secure
+cookies. Reverse proxies must preserve Host; forwarded headers cannot downgrade
+cookies on a public host.
+These are addresses serving the same installation, not a cross-site CORS grant.
+Password sign-in works independently on each permitted host with host-only
+cookies. OAuth callbacks, mobile URLs and passkeys use the primary address.
+When changing it, update provider callback registrations and enroll passkeys
+again if the hostname changes. Sign in at the new primary address afterward.
+Existing installations accidentally initialized at `http://localhost:8080` must
+update the persisted primary through an administrator session at that address;
+changing `external_url` after setup does not override the saved policy.
+
+Lifetime fields accept readable durations: `8h`, `30d`, `4w1d2h` (29 days and
+2 hours). The settings API accepts `session_ttl` / `remember_ttl` strings, parsed
+by `github.com/xhit/go-str2duration/v2`, while preserving the existing
+`session_ttl_seconds` / `remember_ttl_seconds` integer API and database format.
+Supplying both representations requires equal values. Durations must resolve
+to positive whole seconds. Normal sessions allow 10m–1d; remembered sessions
+allow up to 30d and cannot be shorter than the normal lifetime.
+
+The browser uses `GET /auth/session` for optional authentication at startup and
+on focus. Signed out returns HTTP 200 with `identity:null` and a nonsecret
+`refresh_available` cookie-shape hint, rather than probing `/auth/me` twice and
+attempting refresh without a cookie. A hint never grants access: refresh still
+validates and rotates transactionally under the cross-tab credential lock.
+Protected `/auth/me` and management APIs retain their 401 contract.
 Enrolled MFA is always required and the 20-session ceiling cannot be bypassed.
 Disabling local login requires a linked, active installation administrator on an
 enabled external provider. The DB also prevents later provider/link/admin changes

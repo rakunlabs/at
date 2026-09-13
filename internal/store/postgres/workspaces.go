@@ -53,7 +53,7 @@ func (p *Postgres) ListWorkspaces(ctx context.Context) ([]service.Workspace, err
 	}
 	w := p.workspaceTable("workspaces").As("w")
 	m := p.workspaceTable("workspace_memberships").As("m")
-	q := p.goqu.From(w).Select(goqu.I("w.id"), goqu.I("w.name"), goqu.I("w.archived"), goqu.I("w.execution_enabled"), goqu.I("w.created_at"), goqu.COALESCE(goqu.I("m.role"), "").As("role")).LeftJoin(m, goqu.On(goqu.Ex{"m.workspace_id": goqu.I("w.id"), "m.user_id": u.ID, "m.status": "active"})).Where(goqu.Ex{"w.archived": false}).Order(goqu.I("w.id").Asc())
+	q := p.goqu.From(w).Select(goqu.I("w.id"), goqu.I("w.name"), goqu.I("w.archived"), goqu.I("w.execution_enabled"), goqu.I("w.created_at"), goqu.COALESCE(goqu.I("m.role"), "").As("role")).LeftJoin(m, goqu.On(goqu.Ex{"m.workspace_id": goqu.I("w.id"), "m.user_id": u.ID, "m.status": "active"})).Where(goqu.Ex{"w.archived": false}).Order(goqu.Case().When(goqu.I("w.id").Eq("legacy-default"), 0).Else(1).Asc(), goqu.I("w.created_at").Asc(), goqu.I("w.id").Asc())
 	if !u.Admin {
 		q = q.Where(goqu.I("m.user_id").IsNotNull())
 	}

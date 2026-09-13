@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listAgents, type Agent } from '@/lib/api/agents';
@@ -16,7 +16,7 @@
     type ChatSession,
     type ChatMessage,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, User, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, User, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy } from 'lucide-svelte';
   import axios from 'axios';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -30,11 +30,23 @@
   let bots = $state<BotConfig[]>([]);
   // Sidebar filter: 'all' | 'web' (no bot_config_id) | bot ID
   let botFilter = $state<string>('all');
+  let sessionSearch = $state('');
+  let showSessionList = $state(true);
+  let loadingMessages = $state(false);
+  let messageError = $state('');
+  let turnError = $state('');
+  let nearBottom = $state(true);
+  let messageRequest = 0;
+  let selectionVersion = 0;
+  let turnVersion = 0;
   let selectedSessionId = $state<string | null>(null);
   let messages = $state<ChatMessage[]>([]);
   let streamContent = $state('');
   let toolEvents = $state<any[]>([]);
   let expandedTools = $state<Record<string, boolean>>({});
+  let showToolActivity = $state(false);
+  let toolActivityCount = $derived(messages.filter(m => m.role === 'tool' || getToolCalls(m.data).length > 0).length + toolEvents.length);
+  let visibleMessages = $derived(messages.filter(m => showToolActivity || (m.role !== 'tool' && (m.role !== 'assistant' || !!getMessageText(m.data) || !!getMessageReasoning(m.data) || getToolCalls(m.data).length === 0))));
   let collapsedSessionThreads = $state<Record<string, boolean>>({});
   // Per-message toggle: when true, render the raw markdown source instead
   // of the rendered HTML so users can inspect / copy the original content.
@@ -132,6 +144,7 @@
   let inputText = $state('');
   let loading = $state(false);
   let sending = $state(false);
+  let missingFinalReply = $derived(!sending && !loadingMessages && !streamContent && messages.length > 0 && (messages[messages.length - 1].role === 'tool' || (messages[messages.length - 1].role === 'assistant' && !getMessageText(messages[messages.length - 1].data) && getToolCalls(messages[messages.length - 1].data).length > 0)));
   let showAgentPicker = $state(false);
   let showSlashMenu = $state(false);
   let slashFilter = $state('');
@@ -141,7 +154,6 @@
     arguments: string;
   } | null>(null);
   let abortController: AbortController | null = null;
-  let messagesEnd = $state<HTMLDivElement | undefined>(undefined);
   let messagesContainer = $state<HTMLDivElement | undefined>(undefined);
   let inputEl = $state<HTMLTextAreaElement | undefined>(undefined);
 
@@ -159,6 +171,7 @@
   // any other value = the specific BotConfig ID.
   let filteredSessions = $derived(
     sessions.filter(s => {
+      if (sessionSearch && !`${s.name} ${getAgentName(s.agent_id)} ${getBotName(s.config?.bot_config_id)}`.toLocaleLowerCase().includes(sessionSearch.toLocaleLowerCase())) return false;
       if (botFilter === 'all') return true;
       if (botFilter === 'web') return !s.config?.bot_config_id;
       return baseBotConfigId(s.config?.bot_config_id) === botFilter;
@@ -284,14 +297,34 @@
       && child.config?.platform_channel_id === parent.config?.platform_channel_id;
   }
 
-  async function loadMessages(sessionId: string, limit: number = MESSAGE_PAGE) {
+  async function loadMessages(sessionId: string, limit: number = MESSAGE_PAGE, preserveHistory = false) {
+    const request = ++messageRequest;
+    const selection = selectionVersion;
     try {
       const fetched = await listChatMessages(sessionId, { limit });
-      messages = fetched;
-      // A full page means there may be older history to lazy-load.
-      hasOlder = fetched.length >= limit;
+      if (selectedSessionId !== sessionId || selection !== selectionVersion || request !== messageRequest) return false;
+      if (preserveHistory && fetched.length >= limit) {
+        const incoming = new Set(fetched.map(m => m.id));
+        messages = [...messages.filter(m => !incoming.has(m.id) && m.id < fetched[0].id), ...fetched];
+      } else {
+        messages = fetched;
+        hasOlder = fetched.length >= limit;
+      }
+      messageError = '';
+      return true;
     } catch (e: any) {
-      addToast(e.message || 'Failed to load messages', 'alert');
+      if (selectedSessionId === sessionId && selection === selectionVersion && request === messageRequest) {
+        messageError = e?.response?.data?.message || e.message || 'Failed to load messages';
+      }
+      return false;
+    }
+  }
+
+  async function refreshMessages() {
+    if (!selectedSessionId || sending || loadingMessages || loadingOlder) return;
+    const follow = nearBottom;
+    if (await loadMessages(selectedSessionId, Math.max(MESSAGE_PAGE, messages.length), true)) {
+      if (follow && nearBottom) scrollToBottom();
     }
   }
 
@@ -300,6 +333,8 @@
   async function loadOlderMessages() {
     if (!selectedSessionId || loadingOlder || !hasOlder || messages.length === 0) return;
     const sessionId = selectedSessionId;
+    const selection = selectionVersion;
+    ++messageRequest; // A refresh must not replace history being prepended.
     loadingOlder = true;
     try {
       const older = await listChatMessages(sessionId, {
@@ -307,62 +342,78 @@
         beforeId: messages[0].id,
       });
       // Session switched while we were fetching — drop the result.
-      if (selectedSessionId !== sessionId) return;
+      if (selectedSessionId !== sessionId || selection !== selectionVersion) return;
       hasOlder = older.length >= MESSAGE_PAGE;
       if (older.length > 0) {
         const el = messagesContainer;
         const prevHeight = el?.scrollHeight ?? 0;
         const prevTop = el?.scrollTop ?? 0;
-        messages = [...older, ...messages];
+        const existing = new Set(messages.map(m => m.id));
+        messages = [...older.filter(m => !existing.has(m.id)), ...messages];
         await tick();
         if (el) el.scrollTop = el.scrollHeight - prevHeight + prevTop;
       }
     } catch (e: any) {
       addToast(e.message || 'Failed to load older messages', 'alert');
     } finally {
-      loadingOlder = false;
+      if (selection === selectionVersion) loadingOlder = false;
     }
   }
 
   function handleMessagesScroll() {
+    if (messagesContainer) nearBottom = messagesContainer.scrollHeight - messagesContainer.scrollTop - messagesContainer.clientHeight < 120;
     if (messagesContainer && messagesContainer.scrollTop < 100) {
       loadOlderMessages();
     }
   }
 
   async function selectSession(id: string) {
+    const selection = ++selectionVersion;
+    ++turnVersion;
     if (abortController) {
       abortController.abort();
       abortController = null;
     }
     selectedSessionId = id;
+    showSessionList = false;
+    messages = [];
+    hasOlder = false;
+    loadingOlder = false;
+    loadingMessages = true;
+    messageError = '';
+    turnError = '';
+    pendingConfirmation = null;
+    expandedTools = {};
+    rawSourceMode = {};
     streamContent = '';
     toolEvents = [];
     sending = false;
     showAgentPicker = false;
     showSlashMenu = false;
     await loadMessages(id);
+    if (selection !== selectionVersion) return;
+    loadingMessages = false;
+    nearBottom = true;
     await anchorToBottom();
     inputEl?.focus();
   }
 
-  /** Jump straight to the bottom (no animation). Re-anchors once more after
-   *  a short delay because Markdown rendering can grow the content height
-   *  after the first paint. */
+  /** Anchor after Svelte has rendered the selected conversation. */
   async function anchorToBottom() {
     await tick();
-    const anchor = () => {
-      if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
-    };
-    anchor();
-    requestAnimationFrame(anchor);
-    setTimeout(anchor, 150);
+    if (messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
   }
 
   function scrollToBottom() {
-    setTimeout(() => {
-      messagesEnd?.scrollIntoView({ behavior: 'smooth' });
-    }, 50);
+    if (!nearBottom) return;
+    void tick().then(() => {
+      if (nearBottom && messagesContainer) messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
+  }
+
+  async function copyMessage(text: string) {
+    try { await navigator.clipboard.writeText(text); addToast('Response copied'); }
+    catch { addToast('Could not copy. Use Source to select the text.', 'alert'); }
   }
 
   // ─── Actions ───
@@ -391,7 +442,16 @@
       await deleteChatSession(id);
       sessions = sessions.filter(s => s.id !== id);
       if (selectedSessionId === id) {
+        ++selectionVersion;
+        ++turnVersion;
+        abortController?.abort();
+        abortController = null;
+        sending = false;
+        streamContent = '';
+        toolEvents = [];
+        pendingConfirmation = null;
         selectedSessionId = null;
+        showSessionList = true;
         messages = [];
       }
     } catch (e: any) {
@@ -451,7 +511,7 @@
   }
 
   async function handleSend() {
-    if (!inputText.trim() || sending) return;
+    if (!inputText.trim() || sending || loadingMessages) return;
 
     // Handle slash commands.
     if (inputText.startsWith('/')) {
@@ -462,14 +522,15 @@
       }
     }
 
-    // Auto-create session if none selected — use the pre-selected agent if any.
+    const content = inputText.trim();
+    // Lock submission before awaiting session creation.
+    sending = true;
     if (!selectedSessionId) {
       await quickCreateSession(pendingAgentId || undefined);
       pendingAgentId = null;
-      if (!selectedSessionId) return;
+      if (!selectedSessionId) { sending = false; return; }
     }
 
-    const content = inputText.trim();
     inputText = '';
     showSlashMenu = false;
     sending = true;
@@ -492,20 +553,35 @@
     // of the sidebar immediately (the backend will persist the same bump
     // when the message is stored).
     bumpSessionToTop(selectedSessionId!, nowIso);
+    nearBottom = true;
     scrollToBottom();
 
+    startTurn(selectedSessionId!, content);
+  }
+
+  function startTurn(sessionId: string, content: string) {
+    const turn = ++turnVersion;
+    let lastResponse = '';
+    ++messageRequest; // Discard a background refresh started before this turn.
+    const active = () => turn === turnVersion && selectedSessionId === sessionId;
+    sending = true;
+    turnError = '';
+    streamContent = '';
+    toolEvents = [];
     abortController = sendMessage(
-      selectedSessionId!,
+      sessionId,
       content,
       (event) => {
+        if (!active()) return;
         if (event.type === 'content') {
-          streamContent += event.content;
+          lastResponse = event.content || '';
+          if (event.content) streamContent += (streamContent ? '\n\n' : '') + event.content;
           scrollToBottom();
         } else if (event.type === 'tool_call') {
           toolEvents = [...toolEvents, { type: 'call', name: event.tool_name, id: event.tool_id }];
           scrollToBottom();
         } else if (event.type === 'tool_result') {
-          toolEvents = [...toolEvents, { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
+          toolEvents = [...toolEvents.filter(e => e.id !== event.tool_id), { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
           scrollToBottom();
         } else if (event.type === 'tool_confirm') {
           pendingConfirmation = {
@@ -517,27 +593,31 @@
         }
       },
       (error) => {
-        addToast(error, 'alert');
+        if (!active()) return;
+        turnError = error;
         sending = false;
         abortController = null;
         pendingConfirmation = null;
       },
       async () => {
-        sending = false;
+        if (!active()) return;
         abortController = null;
         pendingConfirmation = null;
-        if (selectedSessionId) {
-          await loadMessages(selectedSessionId, Math.max(MESSAGE_PAGE, messages.length + 10));
+        const loaded = await loadMessages(sessionId, Math.max(MESSAGE_PAGE, messages.length + 10));
+        if (!active()) return;
+        sending = false;
+        // Keep the received answer visible if persistence/history cannot be read.
+        if (loaded && (!lastResponse || messages.some(m => m.role === 'assistant' && getMessageText(m.data) === lastResponse))) {
+          streamContent = '';
+          toolEvents = [];
         }
-        streamContent = '';
-        toolEvents = [];
         scrollToBottom();
       },
     );
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
       e.preventDefault();
       // If slash menu is open and there's an exact or single match, select it.
       if (showSlashMenu && filteredSlashCommands.length > 0) {
@@ -553,11 +633,13 @@
   }
 
   function stopGeneration() {
+    ++turnVersion;
     if (abortController) {
       abortController.abort();
       abortController = null;
       sending = false;
       pendingConfirmation = null;
+      turnError = 'Generation stopped. Any received response is kept below.';
     }
   }
 
@@ -571,51 +653,9 @@
     const content = getMessageText(lastUserMsg.data);
     if (!content) return;
 
-    sending = true;
-    streamContent = '';
-    toolEvents = [];
     bumpSessionToTop(selectedSessionId!);
-
-    abortController = sendMessage(
-      selectedSessionId!,
-      content,
-      (event) => {
-        if (event.type === 'content') {
-          streamContent += event.content;
-          scrollToBottom();
-        } else if (event.type === 'tool_call') {
-          toolEvents = [...toolEvents, { type: 'call', name: event.tool_name, id: event.tool_id }];
-          scrollToBottom();
-        } else if (event.type === 'tool_result') {
-          toolEvents = [...toolEvents, { type: 'result', name: event.tool_name, id: event.tool_id, result: event.result }];
-          scrollToBottom();
-        } else if (event.type === 'tool_confirm') {
-          pendingConfirmation = {
-            toolName: event.tool_name,
-            toolId: event.tool_id,
-            arguments: event.arguments || '{}',
-          };
-          scrollToBottom();
-        }
-      },
-      (error) => {
-        addToast(error, 'alert');
-        sending = false;
-        abortController = null;
-        pendingConfirmation = null;
-      },
-      async () => {
-        sending = false;
-        abortController = null;
-        pendingConfirmation = null;
-        if (selectedSessionId) {
-          await loadMessages(selectedSessionId, Math.max(MESSAGE_PAGE, messages.length + 10));
-        }
-        streamContent = '';
-        toolEvents = [];
-        scrollToBottom();
-      },
-    );
+    nearBottom = true;
+    startTurn(selectedSessionId, content);
   }
 
   async function handleConfirmation(approved: boolean) {
@@ -646,9 +686,9 @@
   }
 
   function getMessageText(data: any): string {
-    if (typeof data.content === 'string') return data.content;
-    if (Array.isArray(data.content)) {
-      return data.content.filter((b: any) => b.type === 'text').map((b: any) => b.text).join('');
+    if (typeof data?.content === 'string') return data.content;
+    if (Array.isArray(data?.content)) {
+      return data.content.filter((b: any) => b && (b.type === 'text' || b.type === 'output_text')).map((b: any) => b.text || '').join('\n');
     }
     return '';
   }
@@ -742,8 +782,10 @@
   }
 
   // Init
-  $effect(() => {
+  onMount(() => {
+    let disposed = false;
     loadSessions().then(() => {
+      if (disposed) return;
       // Auto-select session from URL query param (e.g., ?session=abc from task chat).
       const hash = window.location.hash;
       const qIdx = hash.indexOf('?');
@@ -759,21 +801,40 @@
     });
     loadAgents();
     loadBots();
+    let refreshing = false;
+    const timer = setInterval(async () => {
+      if (document.hidden || refreshing || sending || streamContent || toolEvents.length) return;
+      refreshing = true;
+      try { await refreshMessages(); } finally { refreshing = false; }
+    }, 3000);
+    return () => {
+      disposed = true;
+      ++selectionVersion;
+      ++turnVersion;
+      clearInterval(timer);
+      abortController?.abort();
+      if (recordingTimer) clearInterval(recordingTimer);
+      if (mediaRecorder) {
+        mediaRecorder.onstop = null;
+        if (mediaRecorder.state === 'recording') mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      }
+    };
   });
 </script>
 
 {#snippet sessionRow(session: ChatSession, nested = false, childCount = 0)}
   <div
     onclick={() => selectSession(session.id)}
-    onkeydown={(e) => { if (e.key === 'Enter') selectSession(session.id); }}
+    onkeydown={(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); selectSession(session.id); } }}
     role="button"
     tabindex="0"
     class={[
-      'w-full text-left py-1.5 text-[11px] border-b border-gray-100 dark:border-dark-border/50 group flex items-center gap-1 cursor-pointer transition-colors',
-      nested ? 'pl-5 pr-2 bg-gray-50/60 dark:bg-dark-base/40' : 'px-2',
+      'w-full text-left py-1.5 text-xs leading-4 border-b border-gray-100 dark:border-dark-border/50 group flex items-center gap-1.5 cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
+      nested ? 'pl-7 pr-3 bg-gray-50/60 dark:bg-dark-base/40' : 'pl-5 pr-3',
       selectedSessionId === session.id
-        ? 'bg-gray-100 dark:bg-dark-elevated border-l-2 border-l-gray-900 dark:border-l-accent'
-        : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/50 border-l-2 border-l-transparent',
+        ? 'bg-gray-100 dark:bg-dark-elevated'
+        : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/50',
     ]}
   >
     {#if nested}
@@ -782,11 +843,11 @@
     <div class="min-w-0 flex-1">
       <div class="flex items-baseline gap-1.5">
         <span class="truncate text-gray-700 dark:text-dark-text font-medium flex-1 min-w-0">{session.name || 'Untitled'}</span>
-        <span class="text-[9px] text-gray-400 dark:text-dark-text-muted shrink-0 tabular-nums" title={session.updated_at || session.created_at}>
+        <span class="text-xs text-gray-500 dark:text-dark-text-secondary shrink-0 tabular-nums" title={session.updated_at || session.created_at}>
           {formatRelative(session.updated_at || session.created_at)}
         </span>
       </div>
-      <div class="truncate text-[10px] text-gray-400 dark:text-dark-text-muted flex items-center gap-1">
+      <div class="truncate text-[11px] leading-4 text-gray-500 dark:text-dark-text-secondary flex items-center gap-1">
         {#if nested || isTaskThreadSession(session)}
           <span class="text-violet-500 dark:text-violet-400">Task thread</span>
           <span>·</span>
@@ -803,14 +864,15 @@
     </div>
     <button
       onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'alert')); }}
-      class="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-orange-400 transition-opacity"
+      disabled={sending && selectedSessionId === session.id}
+      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-orange-500 transition-opacity disabled:opacity-30"
       title="Clear messages"
     >
       <RotateCcw size={11} />
     </button>
     <button
       onclick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
-      class="opacity-0 group-hover:opacity-100 p-0.5 text-gray-300 hover:text-red-400 transition-opacity"
+      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-red-500 transition-opacity"
       title="Delete"
     >
       <Trash2 size={11} />
@@ -822,25 +884,31 @@
   <title>AT | Sessions</title>
 </svelte:head>
 
-<div class="flex h-full bg-gray-50 dark:bg-dark-base">
+<div class="flex h-full min-h-0 overflow-hidden bg-gray-50 dark:bg-dark-base">
   <!-- Left: Session list -->
-  <div class="w-56 flex-shrink-0 border-r border-gray-200 dark:border-dark-border flex flex-col bg-white dark:bg-dark-surface">
-    <div class="flex items-center justify-between px-2 h-8 border-b border-gray-200 dark:border-dark-border">
-      <span class="text-[11px] font-semibold text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Sessions</span>
+  <div class={[showSessionList ? 'flex' : 'hidden', 'sm:flex w-full sm:w-64 lg:w-72 flex-shrink-0 min-h-0 border-r border-gray-200 dark:border-dark-border flex-col bg-white dark:bg-dark-surface']}>
+    <div class="flex items-center justify-between px-3 h-10 shrink-0 border-b border-gray-200 dark:border-dark-border">
+      <h1 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Sessions</h1>
       <button
         onclick={() => quickCreateSession()}
-        class="p-0.5 text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary"
+        disabled={sending}
+        class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-900 text-white dark:bg-accent dark:text-gray-950 disabled:opacity-40"
         title="New session (or type /new)"
       >
-        <Plus size={13} />
+        <Plus size={16} /> New
       </button>
     </div>
+
+    <label class="flex items-center gap-2 m-2 px-2 h-8 shrink-0 rounded border border-gray-200 dark:border-dark-border focus-within:ring-1 focus-within:ring-accent text-gray-500 dark:text-dark-text-secondary">
+      <Search size={14} />
+      <input bind:value={sessionSearch} aria-label="Search sessions" placeholder="Search sessions…" class="w-full min-w-0 bg-transparent text-base sm:text-xs text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary outline-none" />
+    </label>
 
     {#if bots.length > 0}
       <div class="px-2 py-1.5 border-b border-gray-200 dark:border-dark-border">
         <select
           bind:value={botFilter}
-          class="w-full text-[11px] px-1.5 py-1 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-blue-500"
+          class="w-full text-xs px-2 py-1 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-accent"
           title="Filter sessions by bot"
         >
           <option value="all">All sessions</option>
@@ -888,31 +956,25 @@
   </div>
 
   <!-- Right: Chat area -->
-  <div class="flex-1 flex flex-col min-w-0">
+  <div class={[showSessionList ? 'hidden' : 'flex', 'sm:flex flex-1 flex-col min-w-0 min-h-0 relative']}>
+    <button onclick={() => { showSessionList = true; }} class="sm:hidden flex items-center gap-2 px-4 py-3 text-sm border-b border-gray-200 dark:border-dark-border">
+      <ArrowLeft size={16} /> All sessions
+    </button>
     <!-- Top bar: current agent indicator -->
     {#if selectedSession}
-      <div class="flex items-center h-8 px-3 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
-        <div class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
-          <Bot size={12} />
-          <span class="font-medium text-gray-700 dark:text-dark-text">{currentAgent?.name || 'Unknown agent'}</span>
-          {#if currentAgent?.config?.model}
-            <span class="text-gray-400 dark:text-dark-text-muted">· {currentAgent.config.model}</span>
-          {/if}
-          {#if currentAgent?.config?.provider}
-            <span class="text-gray-400 dark:text-dark-text-muted">· {currentAgent.config.provider}</span>
-          {/if}
-          {#if selectedSession.task_id}
-            <span class="text-gray-300 dark:text-dark-text-faint">·</span>
-            <a href={`#/tasks/${selectedSession.task_id}`} class="flex items-center gap-1 text-violet-600 dark:text-violet-400 hover:underline">
-              <GitBranch size={11} /> Task thread
-            </a>
-          {/if}
+      <div class="flex items-center gap-3 h-10 shrink-0 px-4 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+        <div class="min-w-0 flex-1 flex items-center gap-3">
+          <h2 class="truncate text-sm font-medium text-gray-900 dark:text-dark-text">{selectedSession.name || 'Untitled session'}</h2>
+          <span class="hidden md:block truncate text-xs text-gray-500 dark:text-dark-text-secondary" title={`${currentAgent?.name || 'Assistant'} · ${currentAgent?.config?.provider || ''}/${currentAgent?.config?.model || ''}`}>{currentAgent?.name || 'Assistant'}{currentAgent?.config?.model ? ` · ${currentAgent.config.model}` : ''}</span>
         </div>
+        {#if toolActivityCount > 0}<button onclick={() => { showToolActivity = !showToolActivity; }} aria-pressed={showToolActivity} class="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text" title={showToolActivity ? 'Hide tool activity' : 'Show tool activity'}><Wrench size={13} /><span class="hidden sm:inline">Activity</span> {toolActivityCount}</button>{/if}
+        {#if selectedSession.task_id}<a href={`#/tasks/${selectedSession.task_id}`} class="flex shrink-0 items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"><GitBranch size={12} /> Task</a>{/if}
+        <button onclick={refreshMessages} disabled={sending || loadingMessages} title="Refresh messages" class="p-1.5 rounded text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-40"><RotateCcw size={14} /></button>
       </div>
     {/if}
 
     <!-- Messages area -->
-    <div bind:this={messagesContainer} onscroll={handleMessagesScroll} class="flex-1 overflow-y-auto text-[13px] leading-relaxed">
+    <div bind:this={messagesContainer} onscroll={handleMessagesScroll} class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-base leading-7">
       {#if !selectedSessionId}
         <div class="flex items-center justify-center h-full text-gray-400 dark:text-dark-text-muted">
           <div class="text-center text-sm max-w-md">
@@ -941,7 +1003,21 @@
           </div>
         </div>
       {:else}
-        <div class="max-w-3xl mx-auto px-4 py-4 space-y-4">
+        <div class="w-full px-4 py-4 space-y-4">
+          {#if messageError}
+            <div role="alert" class="flex flex-wrap items-center gap-2 rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">
+              <span class="flex-1">Messages could not be refreshed. {messageError}</span>
+              <button onclick={refreshMessages} class="font-semibold underline underline-offset-4">Try again</button>
+            </div>
+          {/if}
+          {#if loadingMessages}
+            <div role="status" class="flex items-center justify-center gap-2 py-12 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={18} class="animate-spin motion-reduce:animate-none" /> Loading conversation…</div>
+          {:else if messages.length === 0 && !messageError && !sending}
+            <div class="py-12 text-center">
+              <h3 class="font-semibold text-gray-900 dark:text-dark-text">Start the conversation</h3>
+              <p class="mt-2 text-sm text-gray-500 dark:text-dark-text-secondary">Send a message to {currentAgent?.name || 'your agent'}. Responses and tool activity will appear here.</p>
+            </div>
+          {/if}
           {#if loadingOlder}
             <div class="flex items-center justify-center gap-1.5 py-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
               <Loader2 size={12} class="animate-spin" /> Loading older messages…
@@ -954,19 +1030,16 @@
               >Load older messages</button>
             </div>
           {/if}
-          {#each messages as msg (msg.id)}
+          {#each visibleMessages as msg (msg.id)}
             {#if msg.role === 'user'}
               <!-- User bubble -->
               <div class="flex gap-3 justify-end group">
-                <div class="max-w-[80%] flex flex-col items-end">
+                <div class="min-w-0 max-w-[85%] flex flex-col items-end">
                   <div class="flex items-center gap-2 mb-1">
-                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted tabular-nums">{formatTime(msg.created_at)}</span>
-                    <span class="text-[11px] font-semibold text-blue-600 dark:text-blue-400">You</span>
+                    <span class="text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums whitespace-nowrap">{formatTime(msg.created_at)}</span>
+                    <span class="text-xs font-semibold text-blue-600 dark:text-blue-400">You</span>
                   </div>
-                  <div class="px-3 py-2 rounded-2xl rounded-tr-sm bg-blue-600 text-white shadow-sm whitespace-pre-wrap break-words">{getMessageText(msg.data)}</div>
-                </div>
-                <div class="shrink-0 w-7 h-7 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-sm">
-                  <User size={14} />
+                  <div class="px-4 py-2.5 bg-gray-900 dark:bg-accent text-white dark:text-gray-950 whitespace-pre-wrap break-words text-base sm:text-sm leading-relaxed">{getMessageText(msg.data)}</div>
                 </div>
               </div>
 
@@ -978,18 +1051,16 @@
               {@const showSource = rawSourceMode[msg.id]}
               <!-- Assistant bubble -->
               <div class="flex gap-3 group">
-                <div class="shrink-0 w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-sm">
-                  <Bot size={14} />
-                </div>
                 <div class="flex-1 min-w-0">
-                  <div class="flex items-center gap-2 mb-1">
-                    <span class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{currentAgent?.name || 'Assistant'}</span>
-                    <span class="text-[10px] text-gray-400 dark:text-dark-text-muted tabular-nums">{formatTime(msg.created_at)}</span>
+                  <div class="flex flex-wrap items-center gap-x-2 gap-y-1 mb-1">
+                    <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-400 break-words">{currentAgent?.name || 'Assistant'}</span>
+                    <span class="text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums whitespace-nowrap">{formatTime(msg.created_at)}</span>
                     {#if text}
+                      <button onclick={() => copyMessage(text)} class="ml-auto flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text" title="Copy response"><Copy size={13} /> Copy</button>
                       <button
                         type="button"
                         onclick={() => { rawSourceMode[msg.id] = !rawSourceMode[msg.id]; }}
-                        class="ml-auto flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
                         title={showSource ? 'Show rendered markdown' : 'Show raw source'}
                       >
                         {#if showSource}
@@ -1007,12 +1078,12 @@
                   {#if reasoning}
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div class="mb-1.5 border-l-2 border-purple-300 dark:border-purple-700/60 pl-2 py-1 bg-purple-50/50 dark:bg-purple-950/20 rounded-r">
-                      <div class="flex items-center gap-1 text-[11px] text-purple-700 dark:text-purple-300 cursor-pointer select-none" onclick={() => { expandedTools[reasoningId] = !expandedTools[reasoningId]; }}>
+                    <div class="mb-2 border border-gray-200 dark:border-dark-border px-3 py-2 rounded-md">
+                      <button aria-expanded={!!expandedTools[reasoningId]} class="w-full flex items-center gap-2 text-sm text-gray-600 dark:text-dark-text-secondary text-left" onclick={() => { expandedTools[reasoningId] = !expandedTools[reasoningId]; }}>
                         <Brain size={12} />
                         <span class="font-medium">Reasoning</span>
-                        <span class="ml-auto text-[10px] opacity-60">{expandedTools[reasoningId] ? '▼' : '▶'}</span>
-                      </div>
+                        <ChevronDown size={14} class={`ml-auto ${expandedTools[reasoningId] ? '' : '-rotate-90'}`} />
+                      </button>
                       {#if expandedTools[reasoningId]}
                         <div class="mt-1 text-[12px] text-purple-900 dark:text-purple-200 whitespace-pre-wrap italic opacity-90">{reasoning}</div>
                       {/if}
@@ -1026,25 +1097,28 @@
                     {:else}
                       <Markdown
                         source={text}
-                        class="px-3 py-2 rounded-2xl rounded-tl-sm bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-[13px]"
+                        enhance
+                        class="px-4 py-2.5 text-base sm:text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-900 dark:text-dark-text [overflow-wrap:anywhere]"
                       />
                     {/if}
+                  {:else if !reasoning && toolCalls.length === 0}
+                    <p class="text-sm text-gray-500 dark:text-dark-text-secondary italic">The model returned no text content.</p>
                   {/if}
 
                   <!-- Tool call summary -->
-                  {#if toolCalls.length > 0}
+                  {#if showToolActivity && toolCalls.length > 0}
                     <div class="mt-1.5 space-y-1">
                       {#each toolCalls as tc (tc.id || tc.name)}
                         {@const tcId = `tc-${msg.id}-${tc.id || tc.name}`}
                         <!-- svelte-ignore a11y_click_events_have_key_events -->
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
                         <div class="rounded-md border border-yellow-300 dark:border-yellow-700/60 bg-yellow-50/60 dark:bg-yellow-950/20">
-                          <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] text-yellow-800 dark:text-yellow-300 cursor-pointer" onclick={() => { expandedTools[tcId] = !expandedTools[tcId]; }}>
+                          <button aria-expanded={!!expandedTools[tcId]} class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-left text-yellow-800 dark:text-yellow-300" onclick={() => { expandedTools[tcId] = !expandedTools[tcId]; }}>
                             <Wrench size={11} />
-                            <span class="font-mono font-semibold">{tc.name || '(tool)'}</span>
+                            <span class="font-mono font-semibold break-all">{tc.name || '(tool)'}</span>
                             {#if tc.id}<span class="text-[10px] opacity-60 font-mono">{tc.id.slice(0, 10)}</span>{/if}
-                            <span class="ml-auto text-[10px] opacity-60">{expandedTools[tcId] ? '▼' : '▶'}</span>
-                          </div>
+                            <ChevronDown size={14} class={`ml-auto shrink-0 ${expandedTools[tcId] ? '' : '-rotate-90'}`} />
+                          </button>
                           {#if expandedTools[tcId] && tc.args}
                             <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-white dark:bg-dark-base rounded border border-yellow-200 dark:border-yellow-800/40 max-h-64 overflow-y-auto">{tc.args}</pre>
                           {/if}
@@ -1067,14 +1141,14 @@
                 <div class="flex-1 min-w-0">
                   <!-- svelte-ignore a11y_click_events_have_key_events -->
                   <!-- svelte-ignore a11y_no_static_element_interactions -->
-                  <div class="flex items-center gap-2 mb-1 cursor-pointer select-none" onclick={() => { expandedTools[toolId] = !expandedTools[toolId]; }}>
+                  <button aria-expanded={!!expandedTools[toolId]} class="w-full flex flex-wrap items-center gap-2 mb-1 py-1 text-left" onclick={() => { expandedTools[toolId] = !expandedTools[toolId]; }}>
                     <span class="text-[11px] font-semibold text-gray-600 dark:text-dark-text-secondary">Tool result</span>
                     {#if msg.data.tool_call_id}
                       <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{msg.data.tool_call_id.slice(0, 12)}</span>
                     {/if}
                     <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">· {toolText.length} chars{pretty.isJSON ? ' · json' : ''}</span>
-                    <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted">{expandedTools[toolId] ? '▼ collapse' : '▶ expand'}</span>
-                  </div>
+                    <ChevronDown size={14} class={`ml-auto text-gray-500 dark:text-dark-text-secondary ${expandedTools[toolId] ? '' : '-rotate-90'}`} />
+                  </button>
                   {#if expandedTools[toolId]}
                     <pre class="text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base p-2.5 rounded-md border border-gray-200 dark:border-dark-border max-h-96 overflow-y-auto">{pretty.pretty}</pre>
                   {:else}
@@ -1092,12 +1166,25 @@
             {/if}
           {/each}
 
+          {#if turnError}
+            <div role="alert" class="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">{turnError}</div>
+          {/if}
+          {#if missingFinalReply}
+            <div class="flex flex-wrap items-center gap-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 text-sm text-gray-600 dark:text-dark-text-secondary">
+              <span>This saved turn has tool activity but no final reply.</span>
+              <button disabled={!!inputText.trim()} class="font-medium underline underline-offset-4 disabled:opacity-40" onclick={() => { inputText = 'Please summarize the results of the work above in the language of my previous messages. Reply directly to me without running any additional tools.'; void handleSend(); }}>Ask for a summary</button>
+            </div>
+          {/if}
+          {#if sending && !streamContent && toolEvents.length === 0 && !pendingConfirmation}
+            <div role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary"><Loader2 size={16} class="animate-spin motion-reduce:animate-none" /> Waiting for {currentAgent?.name || 'the agent'}…</div>
+          {/if}
+
           <!-- Retry button (shown after last message when not streaming) -->
-          {#if messages.length > 0 && !sending && !streamContent}
+          {#if messages.some(m => m.role === 'user') && !sending && !loadingMessages}
             <div class="flex justify-start py-1">
               <button
                 onclick={retryLastMessage}
-                class="flex items-center gap-1 px-2 py-0.5 text-[11px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+                class="flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
                 title="Retry last message"
               >
                 <RotateCcw size={11} />
@@ -1107,7 +1194,14 @@
           {/if}
 
           <!-- Live tool events (while streaming) -->
-          {#if toolEvents.length > 0}
+          {#if toolEvents.length > 0 && !showToolActivity}
+            <div role="status" class="flex items-center gap-2 text-sm text-gray-500 dark:text-dark-text-secondary">
+              {#if sending}<Loader2 size={14} class="animate-spin motion-reduce:animate-none" />{:else}<Wrench size={14} />{/if}
+              <span>{sending ? 'Working with tools…' : 'Tool activity saved.'}</span>
+              <button class="underline underline-offset-4" onclick={() => { showToolActivity = true; }}>Show activity</button>
+            </div>
+          {/if}
+          {#if toolEvents.length > 0 && showToolActivity}
             <div class="flex gap-3">
               <div class="shrink-0 w-7 h-7 rounded-full bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 flex items-center justify-center">
                 <Wrench size={13} />
@@ -1127,12 +1221,12 @@
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
                     <div class="rounded-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated">
-                      <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] cursor-pointer select-none" onclick={() => { expandedTools[evtId] = !expandedTools[evtId]; }}>
+                      <button aria-expanded={!!expandedTools[evtId]} class="w-full flex flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-left" onclick={() => { expandedTools[evtId] = !expandedTools[evtId]; }}>
                         <Check size={11} class="text-green-600 dark:text-green-400" />
                         <span class="font-mono font-semibold text-gray-700 dark:text-dark-text">{evt.name}</span>
                         <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">· {evtResult.length} chars{evtPretty.isJSON ? ' · json' : ''}</span>
-                        <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted">{expandedTools[evtId] ? '▼' : '▶'}</span>
-                      </div>
+                        <ChevronDown size={14} class={`ml-auto text-gray-500 dark:text-dark-text-secondary ${expandedTools[evtId] ? '' : '-rotate-90'}`} />
+                      </button>
                       {#if expandedTools[evtId]}
                         <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base rounded border border-gray-200 dark:border-dark-border max-h-80 overflow-y-auto">{evtPretty.pretty}</pre>
                       {:else if evtResult}
@@ -1147,7 +1241,7 @@
 
           <!-- Tool confirmation prompt -->
           {#if pendingConfirmation}
-            <div class="py-2 px-3 my-1 border-l-2 border-orange-400 dark:border-orange-500 bg-orange-50 dark:bg-orange-950/30 rounded-r">
+            <div class="py-3 px-4 my-1 border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 rounded-md">
               <div class="flex items-center gap-1.5 text-[12px] font-semibold text-orange-700 dark:text-orange-400 mb-1.5">
                 <ShieldCheck size={14} />
                 <span>Tool confirmation required</span>
@@ -1182,19 +1276,16 @@
           {#if streamContent}
             {@const streamShowSource = rawSourceMode['__streaming']}
             <div class="flex gap-3 group">
-              <div class="shrink-0 w-7 h-7 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 flex items-center justify-center shadow-sm">
-                <Bot size={14} />
-              </div>
               <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">{currentAgent?.name || 'Assistant'}</span>
+                <div class="flex flex-wrap items-center gap-2 mb-1">
+                  <span class="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{currentAgent?.name || 'Assistant'}</span>
                   {#if sending}
                     <Loader2 size={11} class="animate-spin text-gray-400" />
                   {/if}
                   <button
                     type="button"
                     onclick={() => { rawSourceMode['__streaming'] = !rawSourceMode['__streaming']; }}
-                    class="ml-auto flex items-center gap-1 px-1.5 py-0.5 text-[10px] rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    class="ml-auto flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
                     title={streamShowSource ? 'Show rendered markdown' : 'Show raw source'}
                   >
                     {#if streamShowSource}
@@ -1211,18 +1302,20 @@
                 {:else}
                   <Markdown
                     source={streamContent}
-                    class="px-3 py-2 rounded-2xl rounded-tl-sm bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-[13px]"
+                    class="px-4 py-2.5 text-base sm:text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-900 dark:text-dark-text [overflow-wrap:anywhere]"
                   />
                 {/if}
               </div>
             </div>
           {/if}
 
-          <div bind:this={messagesEnd}></div>
         </div>
       {/if}
     </div>
 
+    {#if !nearBottom && selectedSessionId}
+      <div class="flex justify-center py-2"><button onclick={() => { nearBottom = true; scrollToBottom(); }} class="flex items-center gap-2 rounded-full border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-2 text-sm shadow-sm"><ArrowDown size={16} /> Latest messages</button></div>
+    {/if}
     <!-- Input bar -->
     <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated relative">
       <!-- Slash command menu -->
@@ -1270,11 +1363,12 @@
         </div>
       {/if}
 
-      <div class="flex items-center gap-2 px-3 py-2">
+      <div class="flex flex-wrap items-end gap-2 w-full px-4 py-3">
         <!-- Agent pill -->
         {#if selectedSession}
           <button
             onclick={() => { showAgentPicker = !showAgentPicker; showSlashMenu = false; }}
+            disabled={sending}
             class="flex items-center gap-1 px-2 py-1 text-[11px] rounded-md border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors shrink-0"
             title="Switch agent (/agents)"
           >
@@ -1294,12 +1388,14 @@
           bind:value={inputText}
           oninput={handleInput}
           onkeydown={handleKeydown}
+          aria-label="Message to agent"
           placeholder={selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
-          rows={1}
-          disabled={sending}
-          class="flex-1 resize-none bg-transparent px-2 py-1 text-[13px] font-mono text-gray-800 dark:text-dark-text placeholder-gray-400 dark:placeholder-dark-text-muted focus:outline-none disabled:opacity-50"
+          rows={2}
+          disabled={sending || loadingMessages}
+          class="order-first basis-full min-w-0 resize-y max-h-48 rounded-md border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-base leading-6 text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
         ></textarea>
 
+        <span class="hidden md:block flex-1 text-xs text-gray-500 dark:text-dark-text-secondary">Enter to send · Shift + Enter for a new line</span>
         <!-- Mic button with settings -->
         <div class="relative shrink-0">
           {#if transcribing}
@@ -1378,17 +1474,17 @@
         </div>
 
         {#if sending}
-          <button onclick={stopGeneration} class="p-1 text-red-400 hover:text-red-500 shrink-0" title="Stop">
-            <Square size={14} />
+          <button onclick={stopGeneration} class="ml-auto flex items-center gap-2 px-3 py-2 rounded-md bg-red-600 text-white text-sm shrink-0" title="Stop">
+            <Square size={16} /> Stop
           </button>
         {:else}
           <button
             onclick={handleSend}
-            disabled={!inputText.trim()}
-            class="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-20 shrink-0"
+            disabled={!inputText.trim() || loadingMessages}
+            class="ml-auto flex items-center gap-2 px-3 py-2 rounded-md bg-gray-900 text-white dark:bg-accent dark:text-gray-950 disabled:opacity-40 text-sm font-medium shrink-0"
             title="Send"
           >
-            <Send size={14} />
+            <Send size={16} /> Send
           </button>
         {/if}
       </div>

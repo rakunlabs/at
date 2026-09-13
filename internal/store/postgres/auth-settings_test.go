@@ -116,12 +116,14 @@ func TestAuthSettingsVersionImportAndSessionExpiry(t *testing.T) {
 		t.Fatalf("stale write: %v", err)
 	}
 	v = *saved
-	v.Origin = "https://evil.example"
-	if _, err := p.SaveAuthSettings(t.Context(), v); !errors.Is(err, service.ErrAuthConflict) {
-		t.Fatalf("origin edit: %v", err)
+	v.Origin = "https://new.at.example"
+	v.AllowedOrigins = []string{"https://at.example"}
+	updated, err := p.SaveAuthSettings(t.Context(), v)
+	if err != nil || updated.Origin != v.Origin || updated.Version != v.Version+1 {
+		t.Fatalf("administrator origin edit: %+v %v", updated, err)
 	}
 	imported, err := p.InitializeAuthSettings(t.Context(), service.AuthSettings{})
-	if err != nil || imported.Settings.SessionTTLSeconds != 600 {
+	if err != nil || imported.Settings.SessionTTLSeconds != 600 || imported.Settings.Origin != v.Origin || len(imported.Settings.AllowedOrigins) != 1 {
 		t.Fatalf("restart overwrote DB: %+v %v", imported, err)
 	}
 	_, got, err := p.ResolveAuthSession(t.Context(), "family")

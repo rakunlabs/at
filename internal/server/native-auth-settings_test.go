@@ -201,3 +201,61 @@ func TestAuthSettingsRuntimePostgres(t *testing.T) {
 		t.Fatalf("public settings: %d", w.Code)
 	}
 }
+
+func TestAuthSettingsOriginsAndDurationsRuntimePostgres(t *testing.T) {
+	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
+	m, err := newNativeAuthSettings(t.Context(), config.Server{BasePath: "/at"}, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.limit = rate.NewLimiter(rate.Inf, 100)
+	w := settingsHTTPRequest(m, "POST", "/auth/setup", map[string]string{"username": "admin", "password": "a strong initial password", "origin": "https://at.example"}, nil)
+	if w.Code != 201 {
+		t.Fatalf("setup: %d %s", w.Code, w.Body)
+	}
+	w = settingsHTTPRequest(m, "POST", "/auth/login", map[string]string{"username": "admin", "password": "a strong initial password"}, nil)
+	if w.Code != 200 {
+		t.Fatalf("login: %d %s", w.Code, w.Body)
+	}
+	cookies := w.Result().Cookies()
+	state, err := p.GetAuthSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := state.Settings
+	v.Origin = "https://new.example"
+	v.AllowedOrigins = []string{"https://at.example", "https://alternate.example", "http://localhost:8080"}
+	v.SessionTTLSeconds, v.RememberTTLSeconds = 0, 0
+	normal, remembered := "8h", "4w1d2h"
+	request := authSettingsRequest{AuthSettings: v, SessionTTL: &normal, RememberTTL: &remembered}
+	w = settingsHTTPRequest(m, "PUT", "/auth/settings", request, cookies)
+	if w.Code != 200 {
+		t.Fatalf("settings: %d %s", w.Code, w.Body)
+	}
+	state, err = p.GetAuthSettings(t.Context())
+	if err != nil || state.Settings.SessionTTLSeconds != 28800 || state.Settings.RememberTTLSeconds != 2512800 || state.Settings.Origin != "https://new.example" {
+		t.Fatalf("persisted: %+v %v", state, err)
+	}
+	w = nativeRequest(m, "POST", "/at/auth/login", `{"username":"admin","password":"a strong initial password"}`, "https://alternate.example", nil)
+	if w.Code != 200 {
+		t.Fatalf("alias login: %d %s", w.Code, w.Body)
+	}
+	aliasCookie := w.Result().Cookies()[0]
+	w = nativeRequest(m, "POST", "/at/auth/login", `{"username":"admin","password":"a strong initial password"}`, "http://localhost:8080", nil, func(r *http.Request) { r.Host = "localhost:8080" })
+	if w.Code != 200 || w.Result().Cookies()[0].Name != "at_session" || w.Result().Cookies()[0].Secure {
+		t.Fatalf("persisted localhost login: %d %s", w.Code, w.Body)
+	}
+	state.Settings.AllowedOrigins = []string{"https://at.example"}
+	w = settingsHTTPRequest(m, "PUT", "/auth/settings", state.Settings, cookies)
+	if w.Code != 200 {
+		t.Fatalf("remove alias: %d %s", w.Code, w.Body)
+	}
+	w = nativeRequest(m, "GET", "/at/auth/me", "", "https://alternate.example", aliasCookie)
+	if w.Code != 403 {
+		t.Fatalf("removed alias: %d %s", w.Code, w.Body)
+	}
+	w = settingsHTTPRequest(m, "GET", "/auth/status", nil, nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"issuer":"https://new.example/at"`) {
+		t.Fatalf("primary metadata: %d %s", w.Code, w.Body)
+	}
+}

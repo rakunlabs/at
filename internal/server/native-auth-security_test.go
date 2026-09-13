@@ -88,7 +88,7 @@ func TestSecurityPasskeyRecentAuthPostgres(t *testing.T) {
 		if c.Name == a.session.CookieName {
 			session = c
 		}
-		if c.Name == a.securityCookie("", 0).Name {
+		if c.Name == a.securityCookie(nil, "", 0).Name {
 			binding = c
 		}
 	}
@@ -97,7 +97,7 @@ func TestSecurityPasskeyRecentAuthPostgres(t *testing.T) {
 		t.Fatalf("reauth begin: %d %s", w.Code, w.Body)
 	}
 	for _, c := range w.Result().Cookies() {
-		if c.Name == a.securityCookie("", 0).Name {
+		if c.Name == a.securityCookie(nil, "", 0).Name {
 			binding = c
 		}
 	}
@@ -283,8 +283,8 @@ func TestSecurityHTTPPostgres(t *testing.T) {
 	// A pending challenge cannot be completed from a different browser.
 	pending = login()
 	challenge = text(pending, "challenge")
-	binding := cookies[a.securityCookie("", 0).Name]
-	delete(cookies, a.securityCookie("", 0).Name)
+	binding := cookies[a.securityCookie(nil, "", 0).Name]
+	delete(cookies, a.securityCookie(nil, "", 0).Name)
 	call("mfa/verify", map[string]string{"challenge": challenge, "code": fresh[1]}, 401)
 	cookies[binding.Name] = binding
 	// Two server replicas race one challenge and backup: exactly one family.
@@ -414,7 +414,7 @@ func TestSecurityMFATimestepAndAttemptsPostgres(t *testing.T) {
 		}
 		var c *http.Cookie
 		for _, v := range w.Result().Cookies() {
-			if v.Name == a.securityCookie("", 0).Name && v.MaxAge > 0 {
+			if v.Name == a.securityCookie(nil, "", 0).Name && v.MaxAge > 0 {
 				c = v
 			}
 		}
@@ -509,7 +509,7 @@ func TestSecurityFactorRemovalPostgres(t *testing.T) {
 		_ = json.Unmarshal(w.Body.Bytes(), &result)
 		var binding *http.Cookie
 		for _, c := range w.Result().Cookies() {
-			if c.Name == a.securityCookie("", 0).Name {
+			if c.Name == a.securityCookie(nil, "", 0).Name {
 				binding = c
 			}
 		}

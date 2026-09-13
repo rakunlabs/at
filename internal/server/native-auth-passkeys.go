@@ -17,7 +17,6 @@ import (
 	"unicode"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/cookie"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
 	"github.com/rakunlabs/ada/middleware/auth/strategy/passkey"
 	"golang.org/x/net/publicsuffix"
@@ -76,8 +75,8 @@ func (a *nativeAuth) registerPasskeys(mux *ada.Server, base string) {
 	self.POST("/{id}/delete", a.passkeyDelete)
 }
 
-func (a *nativeAuth) passkeyCookie(value string, maxAge int) *http.Cookie {
-	return &http.Cookie{Name: a.session.CookieName + "_ceremony", Value: value, Path: a.session.Cookie.Path + "auth/passkeys/", HttpOnly: true, Secure: a.session.Cookie.Secure == cookie.SecureAlways, SameSite: http.SameSiteStrictMode, MaxAge: maxAge}
+func (a *nativeAuth) passkeyCookie(r *http.Request, value string, maxAge int) *http.Cookie {
+	return &http.Cookie{Name: a.sessionCookieName(r) + "_ceremony", Value: value, Path: a.session.Cookie.Path + "auth/passkeys/", HttpOnly: true, Secure: a.cookieSecure(r), SameSite: http.SameSiteStrictMode, MaxAge: maxAge}
 }
 
 func (a *nativeAuth) savePasskeyBegin(w http.ResponseWriter, r *http.Request, c service.AuthChallenge, options any) {
@@ -96,7 +95,7 @@ func (a *nativeAuth) savePasskeyBegin(w http.ResponseWriter, r *http.Request, c 
 		}
 		return
 	}
-	http.SetCookie(w, a.passkeyCookie(token, 300))
+	http.SetCookie(w, a.passkeyCookie(r, token, 300))
 	w.Header().Set("Cache-Control", "no-store")
 	httpResponseJSON(w, map[string]any{"publicKey": options}, 200)
 }
@@ -115,7 +114,7 @@ func (a *nativeAuth) passkeyReauth(w http.ResponseWriter, r *http.Request, curre
 		return nil, ""
 	}
 	defer func() { <-a.passwordSlots }()
-	cookies := r.CookiesNamed(a.session.CookieName)
+	cookies := r.CookiesNamed(a.sessionCookieName(r))
 	if len(cookies) != 1 {
 		nativeError(w, 401, "reauthentication required")
 		return nil, ""
@@ -235,13 +234,13 @@ func (a *nativeAuth) passkeyLoginBegin(w http.ResponseWriter, r *http.Request) {
 
 func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		cookies := r.CookiesNamed(a.passkeyCookie("", 0).Name)
+		cookies := r.CookiesNamed(a.passkeyCookie(r, "", 0).Name)
 		if len(cookies) != 1 || len(cookies[0].Value) != 43 {
 			nativeError(w, 401, "invalid ceremony")
 			return
 		}
 		c, err := a.keyStore.ConsumeAuthChallenge(r.Context(), nativeSessionHash(cookies[0].Value))
-		http.SetCookie(w, a.passkeyCookie("", -1))
+		http.SetCookie(w, a.passkeyCookie(r, "", -1))
 		if err != nil {
 			nativeError(w, 503, "passkeys unavailable")
 			return
@@ -273,7 +272,7 @@ func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
 			return
 		}
 		if purpose == "enroll" {
-			sessions := r.CookiesNamed(a.session.CookieName)
+			sessions := r.CookiesNamed(a.sessionCookieName(r))
 			pair, resolveErr := a.currentSession(r)
 			if len(sessions) != 1 || resolveErr != nil || pair.SessionID != c.SessionHash {
 				nativeError(w, 401, "invalid ceremony session")
@@ -373,7 +372,7 @@ func (a *nativeAuth) passkeyDelete(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	a.clearCredentialCookies(w)
+	a.clearCredentialCookies(w, r)
 	w.WriteHeader(204)
 }
 

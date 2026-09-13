@@ -1458,7 +1458,7 @@
 
     discoveringModels = true;
     try {
-      const cfg: Record<string, any> = { type: formType };
+      const cfg: Record<string, any> = { type: formType, auth_type: formAuthType };
       if (formApiKey) cfg.api_key = formApiKey;
       if (formBaseUrl) cfg.base_url = formBaseUrl;
     if (formProxy) cfg.proxy = formProxy;
@@ -1721,6 +1721,11 @@
               <select
                 id="form-authtype"
                 bind:value={formAuthType}
+                onchange={(event) => {
+                  if (event.currentTarget.value === 'chatgpt' && (!formBaseUrl || /^https:\/\/api\.openai\.com(?:\/v1(?:\/chat\/completions|\/responses)?)?\/?$/.test(formBaseUrl))) {
+                    formBaseUrl = 'https://chatgpt.com/backend-api/codex/responses';
+                  }
+                }}
                 class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
               >
                 <option value="">(none)</option>

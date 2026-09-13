@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/ada/middleware/auth/cookie"
@@ -46,26 +48,60 @@ func (a *nativeAuth) currentSession(r *http.Request) (*issuer.Pair, error) {
 		}
 		return pair, nil
 	}
-	cookies := r.CookiesNamed(a.session.CookieName)
+	cookies := r.CookiesNamed(a.sessionCookieName(r))
 	if len(cookies) != 1 {
 		return nil, issuer.ErrNotFound
 	}
 	return a.Resolve(r.Context(), cookies[0].Value)
 }
 
-func (a *nativeAuth) refreshCookieName() string {
-	if a.session.Cookie.Secure == cookie.SecureAlways {
+// Select cookie transport from an explicitly configured request address, never
+// X-Forwarded-* or the primary origin alone. Only an admitted HTTP loopback host
+// can use non-Secure cookies; unknown hosts and TLS requests always stay Secure.
+func (a *nativeAuth) cookieSecure(r *http.Request) bool {
+	if r == nil {
+		return a.session.Cookie.Secure == cookie.SecureAlways
+	}
+	if r.TLS != nil {
+		return true
+	}
+	origin := r.Header.Get("Origin")
+	loopbackHTTP := false
+	for _, candidate := range append([]string{a.cfg.Origin}, a.allowedOrigins...) {
+		u, err := url.Parse(candidate)
+		if err != nil || u.Host != r.Host || (origin != "" && origin != candidate) {
+			continue
+		}
+		if u.Scheme == "https" {
+			return true
+		}
+		if strings.HasPrefix(candidate, "http://") && service.ValidateAuthOrigin(candidate) == nil {
+			loopbackHTTP = true
+		}
+	}
+	return !loopbackHTTP
+}
+
+func (a *nativeAuth) sessionCookieName(r *http.Request) string {
+	if a.cookieSecure(r) {
+		return "__Secure-at_session"
+	}
+	return "at_session"
+}
+
+func (a *nativeAuth) refreshCookieName(r *http.Request) string {
+	if a.cookieSecure(r) {
 		return "__Secure-at_refresh"
 	}
 	return "at_refresh"
 }
 
-func (a *nativeAuth) setCredentialCookies(w http.ResponseWriter, p *issuer.Pair, remember bool) {
+func (a *nativeAuth) setCredentialCookies(w http.ResponseWriter, r *http.Request, p *issuer.Pair, remember bool) {
 	for _, v := range []struct {
 		name, value string
 		expires     time.Time
-	}{{a.session.CookieName, p.Access.Value, p.Access.ExpiresAt}, {a.refreshCookieName(), p.Refresh.Value, p.Refresh.ExpiresAt}} {
-		c := &http.Cookie{Name: v.name, Value: v.value, Path: a.session.Cookie.Path, Secure: a.session.Cookie.Secure == cookie.SecureAlways, HttpOnly: true, SameSite: http.SameSiteLaxMode}
+	}{{a.sessionCookieName(r), p.Access.Value, p.Access.ExpiresAt}, {a.refreshCookieName(r), p.Refresh.Value, p.Refresh.ExpiresAt}} {
+		c := &http.Cookie{Name: v.name, Value: v.value, Path: a.session.Cookie.Path, Secure: a.cookieSecure(r), HttpOnly: true, SameSite: http.SameSiteLaxMode}
 		if remember {
 			c.Expires = v.expires
 			c.MaxAge = int(time.Until(v.expires) / time.Second)
@@ -77,14 +113,14 @@ func (a *nativeAuth) setCredentialCookies(w http.ResponseWriter, p *issuer.Pair,
 	}
 }
 
-func (a *nativeAuth) clearCredentialCookies(w http.ResponseWriter) {
-	for _, name := range []string{a.session.CookieName, a.refreshCookieName()} {
-		http.SetCookie(w, &http.Cookie{Name: name, Path: a.session.Cookie.Path, Secure: a.session.Cookie.Secure == cookie.SecureAlways, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
+func (a *nativeAuth) clearCredentialCookies(w http.ResponseWriter, r *http.Request) {
+	for _, name := range []string{a.sessionCookieName(r), a.refreshCookieName(r)} {
+		http.SetCookie(w, &http.Cookie{Name: name, Path: a.session.Cookie.Path, Secure: a.cookieSecure(r), HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
 	}
 }
 
 func (a *nativeAuth) revokeCookies(r *http.Request) error {
-	for _, name := range []string{a.session.CookieName, a.refreshCookieName()} {
+	for _, name := range []string{a.sessionCookieName(r), a.refreshCookieName(r)} {
 		for _, c := range r.CookiesNamed(name) {
 			if err := a.Revoke(r.Context(), c.Value); err != nil {
 				return err
@@ -109,7 +145,7 @@ func (a *nativeAuth) refresh(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, 400, "invalid authentication request")
 		return
 	}
-	cookies := r.CookiesNamed(a.refreshCookieName())
+	cookies := r.CookiesNamed(a.refreshCookieName(r))
 	if len(cookies) != 1 || len(cookies[0].Value) != 43 {
 		nativeError(w, 401, "refresh rejected; sign in again")
 		return
@@ -144,7 +180,7 @@ func (a *nativeAuth) refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pair := nativeAuthPair(u, s, access, refresh)
-	a.setCredentialCookies(w, pair, s.Remember)
+	a.setCredentialCookies(w, r, pair, s.Remember)
 	httpResponseJSON(w, pair.Identity, 200)
 }
 

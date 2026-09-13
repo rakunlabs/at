@@ -23,6 +23,8 @@ export interface AuthStatus {
   setup_required: boolean;
   local_login: boolean;
   display_title: string;
+  origin?: string;
+  allowed_origins?: string[];
 }
 
 export interface AuthPasskey {
@@ -162,6 +164,21 @@ export async function changeAuthPassword(current_password: string, new_password:
 
 export function authErrorMessage(error: unknown, fallback: string): string {
   return axios.isAxiosError<{ message?: string }>(error) ? error.response?.data?.message || fallback : fallback;
+}
+
+export function loginErrorMessage(error: unknown): string {
+  if (!axios.isAxiosError<{ message?: string }>(error)) {
+    return error instanceof Error ? error.message : 'Sign-in could not be completed. Please try again.';
+  }
+  const status = error.response?.status;
+  const message = error.response?.data?.message;
+  if (status === 401) return 'The username or password is incorrect.';
+  if (status === 403 && message === 'same-origin request required') return 'This site address is not allowed for sign-in. An administrator must update the primary or additional sign-in addresses in Authentication settings.';
+  if (status === 403 && message === 'local login is disabled') return 'Password sign-in is disabled. Use a configured sign-in provider.';
+  if (status === 429) return message?.includes('maximum 20') ? 'Your account has 20 active sessions. Sign out on another device or ask an administrator to revoke old sessions.' : 'Too many sign-in attempts. Wait a moment before trying again.';
+  if (status && status >= 500) return 'The authentication service is unavailable. Your password could not be checked; please try again shortly.';
+  if (!error.response) return 'Cannot reach the authentication service. Check your connection and try again.';
+  return message || 'Sign-in could not be completed. Please try again.';
 }
 
 export function isAuthUnauthorized(error: unknown): boolean {

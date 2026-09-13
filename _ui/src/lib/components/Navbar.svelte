@@ -41,7 +41,7 @@
   </span>
 
   <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-4">
-    {#if workspaceState.items.length}<label class="text-xs"><span class="sr-only">Workspace</span><select aria-label="Workspace" value={workspaceTransport.selected} class="max-w-32 sm:max-w-56 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 py-1" onchange={e => { try { switchWorkspace(e.currentTarget.value); } catch { workspaceError = 'Allow session storage to switch workspaces.'; } }}>
+    {#if workspaceState.items.length}<label class="text-xs"><span class="sr-only">Workspace</span><select aria-label="Workspace" value={workspaceTransport.selected} class="max-w-32 sm:max-w-56 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 py-1" onchange={async e => { try { await switchWorkspace(e.currentTarget.value); } catch { workspaceError = 'Could not switch workspaces. Check your access and browser storage.'; } }}>
       {#each workspaceState.items.filter(w => !w.archived) as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}
     </select></label>{/if}
     {#if workspaceError}<span role="alert" class="settings-error">{workspaceError}</span>{/if}

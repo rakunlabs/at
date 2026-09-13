@@ -228,6 +228,9 @@ type Server struct {
 	// map key: task ID (string), value: *activeDelegation
 	activeDelegations sync.Map
 
+	// Active chat turns can be cancelled when their workspace is deleted.
+	activeChatTurns sync.Map
+
 	version   string
 	commit    string
 	buildDate string

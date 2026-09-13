@@ -321,6 +321,8 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	if bindErr != nil {
 		return bindErr
 	}
+	ctx, cleanupTurn := s.registerChatTurn(ctx)
+	defer cleanupTurn()
 	var resultGovernor workflow.LoopGovernor
 	if s.loopGov != nil {
 		resultGovernor = workflow.ScopeToolResults(ctx, s.loopGov)
@@ -662,7 +664,7 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	}
 
 	// 7. Build system prompt.
-	systemPrompt := agent.Config.SystemPrompt
+	systemPrompt := agent.Config.SystemPrompt + "\n\n## Chat response\nYou are replying to a person in a chat session. After using tools, always provide a clear final text response to the user in their language. Explain the result, relevant output or artifact paths, and any remaining limitations. Tool calls and tool results are activity details, not a substitute for your final reply."
 	if catalog := skillRuntime.CatalogSystemPrompt(); catalog != "" {
 		if systemPrompt != "" {
 			systemPrompt += "\n\n"
@@ -910,11 +912,22 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 	// the terminal status+result, so the natural-finish auto-sync must not
 	// overwrite it (e.g. blocked → completed) with the closing chat text.
 	terminalToolCalled := false
+	answerOnly := false
+	emptyReplyRetried := false
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Rebuild LLM tool list each iteration: base tools + tools from
 		// any skills the LLM has activated so far.
 		llmTools := append([]service.Tool{}, baseLLMTools...)
 		llmTools = append(llmTools, skillRuntime.ActiveSkillTools()...)
+		// Reserve the final available iteration for a user-facing answer instead
+		// of spending the entire budget on tools and ending with no reply.
+		if iteration > 0 && iteration == maxIterations-1 && !answerOnly {
+			answerOnly = true
+			llmMessages = append(llmMessages, service.Message{Role: "user", Content: "The available action steps are finished. Now reply directly to me using the results already available. Summarize what was done and any unfinished work honestly. Do not call more tools."})
+		}
+		if answerOnly {
+			llmTools = nil
+		}
 
 		if err := ctx.Err(); err != nil {
 			onEvent(AgenticEvent{Type: "error", Error: "request cancelled"})
@@ -1028,7 +1041,20 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		// Emit text content. Bot adapters use Final to avoid concatenating
 		// pre-tool narration with the actual answer, while SSE clients can
 		// continue displaying every iteration live.
-		finalResponse := resp.Finished || len(resp.ToolCalls) == 0
+		finalResponse := len(resp.ToolCalls) == 0
+		usableFinalReply := finalResponse && strings.TrimSpace(resp.Content) != ""
+		if finalResponse && strings.TrimSpace(resp.Content) == "" {
+			if !emptyReplyRetried && iteration+1 < maxIterations {
+				emptyReplyRetried, answerOnly = true, true
+				llmMessages = append(llmMessages, service.Message{Role: "user", Content: "Your last response contained no text. Please answer me now in plain text using the tool results and conversation above. Do not call tools. If you could not finish, explain what is missing."})
+				continue
+			}
+			resp.Content = "[No final reply] The model finished without returning a text answer. Tool activity is available for inspection; retry the message to request a summary."
+		}
+		if answerOnly && len(resp.ToolCalls) > 0 {
+			resp.Content = "[Run stopped] The model requested more tools instead of a final answer after the available steps ended. Review the tool activity or continue the conversation."
+			finalResponse = true
+		}
 		if resp.Content != "" || finalResponse {
 			onEvent(AgenticEvent{Type: "content", Content: resp.Content, Final: finalResponse})
 		}
@@ -1037,12 +1063,15 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 
 		// If done (no tool calls), persist and finish.
 		if finalResponse {
-			s.persistAssistantMessage(ctx, sessionID, resp.Content, nil)
+			if err := s.persistAssistantMessage(ctx, sessionID, resp.Content, nil); err != nil {
+				onEvent(AgenticEvent{Type: "error", Error: "The answer was received but could not be saved to the session. Keep a copy before leaving this page."})
+				return err
+			}
 
 			// Auto-sync: if this session is linked to a task, update the task result.
 			// Skipped when task_complete / task_block already finalized the
 			// task this turn — the tool-provided status+result wins.
-			if taskLinked != nil && resp.Content != "" && s.taskStore != nil && !session.Config.DisableTaskResultSync && !terminalToolCalled {
+			if taskLinked != nil && usableFinalReply && s.taskStore != nil && !session.Config.DisableTaskResultSync && !terminalToolCalled {
 				newStatus := service.TaskStatusDone
 				if taskLinked.ParentID != "" {
 					// Sub-tasks complete as "done" to let the parent know.
@@ -1268,8 +1297,13 @@ func (s *Server) RunAgenticLoop(ctx context.Context, sessionID, content string, 
 		})
 	}
 
-	// Max iterations reached.
-	onEvent(AgenticEvent{Type: "content", Content: "[Max iterations reached]", Final: true})
+	// Persist interruption notices too, so the post-stream history reload cannot
+	// replace the visible response with a transcript containing only tool calls.
+	stoppedContent := "[Run stopped] The agent reached its step limit before producing a final reply. The completed tool activity is saved; continue the conversation to request a summary."
+	onEvent(AgenticEvent{Type: "content", Content: stoppedContent, Final: true})
+	if err := s.persistAssistantMessage(ctx, sessionID, stoppedContent, nil); err != nil {
+		return err
+	}
 	onEvent(AgenticEvent{Type: "done"})
 	return nil
 }
@@ -1396,9 +1430,9 @@ func (s *Server) ConfirmToolCallAPI(w http.ResponseWriter, r *http.Request) {
 
 // ─── Helpers ───
 
-func (s *Server) persistAssistantMessage(ctx context.Context, sessionID, content string, toolCalls []service.ToolCall) {
+func (s *Server) persistAssistantMessage(ctx context.Context, sessionID, content string, toolCalls []service.ToolCall) error {
 	if s.chatSessionStore == nil {
-		return
+		return fmt.Errorf("chat session store unavailable")
 	}
 
 	msg := service.ChatMessage{
@@ -1414,7 +1448,9 @@ func (s *Server) persistAssistantMessage(ctx context.Context, sessionID, content
 
 	if _, err := s.chatSessionStore.CreateChatMessage(ctx, msg); err != nil {
 		slog.Error("persist assistant message failed", "error", err)
+		return fmt.Errorf("persist assistant message: %w", err)
 	}
+	return nil
 }
 
 // getToolCallIDs extracts tool call IDs from an assistant message's ToolCalls field.

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { workspaceAPI, acceptInvitation, createInvitation, type Member, type Invitation } from '../lib/api/workspaces';
+  import { workspaceAPI, acceptInvitation, createInvitation, deleteWorkspace, saveWorkspacePreferences, type Member, type Invitation, type WorkspacePreferences } from '../lib/api/workspaces';
   import { identityAPI } from '../lib/api/identity';
   import { authErrorMessage } from '../lib/api/auth';
   import { workspaceState, can } from '../lib/store/workspace.svelte';
@@ -16,6 +16,10 @@
   let target = $state(''); let targetKind = $state('user_id'); let inviteRole = $state('member'); let days = $state(7); let invitationToken = $state(''); let acceptToken = $state('');
   let mayManage = $derived(isNativeAdmin() || can('members.manage'));
   let mayEdit = $derived(isNativeAdmin() || can('workspace.write'));
+  let mayDelete = $derived(id !== 'legacy-default' && (isNativeAdmin() || (workspaceState.access?.role === 'owner' && can('workspace.archive'))));
+  let showDelete = $state(false); let deleteConfirmation = $state(''); let deletionComplete = $state(false);
+  let startupMode = $state<WorkspacePreferences['mode']>(workspaceState.preferences.mode);
+  let startupWorkspace = $state(workspaceState.preferences.workspace_id);
   let roleOptions = $derived(['viewer','member','admin','owner'].slice(0, isNativeAdmin() ? 4 : ['viewer','member','admin','owner'].indexOf(workspaceState.access?.role || '') + 1));
   async function load() { if (!id || !mayManage) return; busy = true; error = ''; try { const [m, i] = await Promise.all([workspaceAPI.get(`${path}/members`), workspaceAPI.get(`${path}/invitations`)]); members = m.data.items || []; invitations = i.data.items || []; } catch (e) { error = authErrorMessage(e, 'Could not load workspace members.'); } finally { busy = false; } }
   onMount(() => { void load(); return () => { invitationToken = acceptToken = ''; }; });
@@ -24,7 +28,16 @@
 </script>
 <div class="settings-page settings-form"><header><h1 class="text-2xl font-semibold">{workspace?.name || 'Workspace access'}</h1><p class="settings-note mt-2">{workspace ? 'Manage membership and invitations for the selected workspace.' : 'Your account is ready. Join a workspace to start working.'}</p></header>
   {#if error}<p role="alert" class="settings-error">{error}</p>{/if}{#if notice}<p role="status" class="settings-note">{notice}</p>{/if}
-  <section class="settings-section"><h2 class="text-lg font-semibold">Join a workspace</h2><p class="settings-note">Paste an invitation token from a workspace owner. Invitations are bound to your account or a verified linked email address.</p><form class="space-y-4 max-w-lg" onsubmit={e => { e.preventDefault(); void run(async () => { const membership = await acceptInvitation(acceptToken); acceptToken = ''; switchWorkspace(membership.workspace_id); }); }}><label>Invitation token<input type="password" bind:value={acceptToken} required autocomplete="off" /></label><button class="settings-button" disabled={busy}>Accept invitation</button></form></section>
+  <section class="settings-section"><h2 class="text-lg font-semibold">Workspace on sign-in</h2>
+    <p class="settings-note mt-2">Choose where your account starts after signing in. This preference follows your account across devices; open tabs keep their own selection.</p>
+    <form class="space-y-4 mt-4 max-w-lg" onsubmit={e => { e.preventDefault(); void run(async () => { workspaceState.preferences = await saveWorkspacePreferences(startupMode, startupWorkspace); }); }}>
+      <label>Start in<select bind:value={startupMode}><option value="default">Default workspace</option><option value="last_used">Last used workspace</option><option value="workspace">A specific workspace</option></select></label>
+      {#if startupMode === 'workspace'}<label>Workspace<select bind:value={startupWorkspace} required><option value="">Choose a workspace</option>{#each workspaceState.items.filter(w => !w.archived) as w}<option value={w.id}>{w.name}</option>{/each}</select></label>{/if}
+      <p class="settings-note">If the chosen workspace is deleted or no longer accessible, your account opens Default, or your earliest accessible workspace.</p>
+      <button class="settings-primary" disabled={busy}>Save sign-in preference</button>
+    </form>
+  </section>
+  <section class="settings-section"><h2 class="text-lg font-semibold">Join a workspace</h2><p class="settings-note">Paste an invitation token from a workspace owner. Invitations are bound to your account or a verified linked email address.</p><form class="space-y-4 max-w-lg" onsubmit={e => { e.preventDefault(); void run(async () => { const membership = await acceptInvitation(acceptToken); acceptToken = ''; await switchWorkspace(membership.workspace_id); }); }}><label>Invitation token<input type="password" bind:value={acceptToken} required autocomplete="off" /></label><button class="settings-button" disabled={busy}>Accept invitation</button></form></section>
   {#if workspace}
     <section class="settings-section"><h2 class="text-lg font-semibold">Workspace details</h2>
       <form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { workspace = (await workspaceAPI.put(path, { name: workspace!.name, archived: workspace!.archived, execution_enabled: workspace!.execution_enabled })).data; }); }}>
@@ -44,5 +57,18 @@
       <ul class="divide-y divide-gray-200 dark:divide-dark-border">{#each invitations as i}<li class="py-3"><strong>{i.email || i.user_id}</strong><p class="settings-note">{i.role} · {i.consumed ? 'Accepted' : Date.parse(i.expires_at) < Date.now() ? 'Expired' : 'Pending'} · expires {new Date(i.expires_at).toLocaleString()}</p></li>{/each}</ul>
     </section>{/if}
   {/if}
-  {#if isNativeAdmin()}<section class="settings-section"><h2 class="text-lg font-semibold">Create a workspace</h2><form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { const { data } = await workspaceAPI.post('workspaces', { name, owner_id: owner }); switchWorkspace(data.id); }); }}><label>Workspace name<input bind:value={name} required /></label><label>Initial owner user ID<input bind:value={owner} required /></label><button class="settings-primary" disabled={busy}>Create workspace</button></form></section>{/if}
+  {#if isNativeAdmin()}<section class="settings-section"><h2 class="text-lg font-semibold">Create a workspace</h2><form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { const { data } = await workspaceAPI.post('workspaces', { name, owner_id: owner }); await switchWorkspace(data.id); }); }}><label>Workspace name<input bind:value={name} required /></label><label>Initial owner user ID<input bind:value={owner} required /></label><button class="settings-primary" disabled={busy}>Create workspace</button></form></section>{/if}
+  {#if workspace && mayDelete}<section class="settings-section space-y-4">
+    <h2 class="text-lg font-semibold">Delete workspace</h2>
+    <p class="settings-note">Permanently delete this workspace and its agents, workflows, bots, credentials, conversations, usage records and execution files. Active work on this server will be stopped.</p>
+    {#if deletionComplete}<p role="status" class="settings-note">The workspace records have been deleted.</p><button class="settings-button" onclick={() => switchWorkspace('')}>Continue to another workspace</button>
+    {:else if showDelete}<form class="space-y-4 max-w-lg" onsubmit={e => { e.preventDefault(); void run(async () => {
+      const result = await deleteWorkspace(id, deleteConfirmation);
+      if (result.cleanup_warning) { deletionComplete = true; error = result.cleanup_warning; return; }
+      await switchWorkspace('');
+    }); }}>
+      <label>Type “{workspace.name}” to confirm<input bind:value={deleteConfirmation} autocomplete="off" required /></label>
+      <div class="flex gap-3"><button class="rounded-md bg-red-600 hover:bg-red-700 px-4 py-2.5 text-white font-medium disabled:opacity-50" disabled={busy || deleteConfirmation !== workspace.name}>Delete permanently</button><button type="button" class="settings-button" disabled={busy} onclick={() => { showDelete = false; deleteConfirmation = ''; }}>Cancel</button></div>
+    </form>{:else}<button class="settings-button text-red-700 dark:text-red-300" disabled={busy} onclick={() => { showDelete = true; }}>Delete workspace…</button>{/if}
+  </section>{:else if id === 'legacy-default'}<p class="settings-note settings-section">The default workspace is required by the installation and cannot be deleted.</p>{/if}
 </div>

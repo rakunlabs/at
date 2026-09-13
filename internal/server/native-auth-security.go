@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/cookie"
 	"github.com/rakunlabs/ada/middleware/auth/strategy/totp"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -43,12 +42,12 @@ func securityTokenUser(raw string) string {
 	return user
 }
 
-func (a *nativeAuth) securityCookie(raw string, age int) *http.Cookie {
-	return &http.Cookie{Name: a.session.CookieName + "_security", Value: raw, Path: a.session.Cookie.Path + "auth/", HttpOnly: true, Secure: a.session.Cookie.Secure == cookie.SecureAlways, SameSite: http.SameSiteStrictMode, MaxAge: age}
+func (a *nativeAuth) securityCookie(r *http.Request, raw string, age int) *http.Cookie {
+	return &http.Cookie{Name: a.sessionCookieName(r) + "_security", Value: raw, Path: a.session.Cookie.Path + "auth/", HttpOnly: true, Secure: a.cookieSecure(r), SameSite: http.SameSiteStrictMode, MaxAge: age}
 }
 
 func (a *nativeAuth) securityBinding(r *http.Request) string {
-	cs := r.CookiesNamed(a.securityCookie("", 0).Name)
+	cs := r.CookiesNamed(a.securityCookie(r, "", 0).Name)
 	if len(cs) != 1 || len(cs[0].Value) != 43 {
 		return ""
 	}
@@ -57,7 +56,7 @@ func (a *nativeAuth) securityBinding(r *http.Request) string {
 
 func (a *nativeAuth) ensureSecurityBinding(w http.ResponseWriter, r *http.Request) (string, error) {
 	if binding := a.securityBinding(r); binding != "" {
-		http.SetCookie(w, a.securityCookie(r.CookiesNamed(a.securityCookie("", 0).Name)[0].Value, 900))
+		http.SetCookie(w, a.securityCookie(r, r.CookiesNamed(a.securityCookie(r, "", 0).Name)[0].Value, 900))
 		return binding, nil
 	}
 	var b [32]byte
@@ -65,7 +64,7 @@ func (a *nativeAuth) ensureSecurityBinding(w http.ResponseWriter, r *http.Reques
 		return "", err
 	}
 	raw := base64.RawURLEncoding.EncodeToString(b[:])
-	http.SetCookie(w, a.securityCookie(raw, 900))
+	http.SetCookie(w, a.securityCookie(r, raw, 900))
 	return nativeSessionHash(raw), nil
 }
 
@@ -257,7 +256,7 @@ func (a *nativeAuth) finishPrimaryLogin(w http.ResponseWriter, r *http.Request, 
 			a.securityError(w, err)
 			return
 		}
-		a.clearCredentialCookies(w)
+		a.clearCredentialCookies(w, r)
 		httpResponseJSON(w, map[string]any{"mfa_required": true, "challenge": raw, "expires_in": 300, "methods": []string{"totp", "backup_code"}}, 200)
 		return
 	}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/password"
+	str2duration "github.com/xhit/go-str2duration/v2"
 	"golang.org/x/time/rate"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -89,6 +90,7 @@ func (m *nativeAuthSettings) snapshot(v service.AuthSettings) (*nativeAuth, http
 	}
 	// Changing policy must not reset password admission or concurrency limits.
 	a.loginLimit, a.passwordSlots = m.limit, m.slots
+	a.allowedOrigins = append([]string(nil), v.AllowedOrigins...)
 	mux := ada.New()
 	a.register(mux, m.cfg.BasePath)
 	external, err := newNativeExternalAuth(a, m.backend, nativeExternalCoordinatorHooks(a))
@@ -123,6 +125,8 @@ func (m *nativeAuthSettings) status(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		status["passkeys"] = a.passkey != nil && v.Settings.LocalLoginEnabled
+		status["origin"] = v.Settings.Origin
+		status["allowed_origins"] = v.Settings.AllowedOrigins
 		if a.mobileStore != nil {
 			status["mobile_auth"] = a.mobileDescriptor()
 		}
@@ -263,6 +267,35 @@ func (m *nativeAuthSettings) withRuntime(next http.Handler) http.Handler {
 	})
 }
 
+type authSettingsRequest struct {
+	service.AuthSettings
+	SessionTTL  *string `json:"session_ttl,omitempty"`
+	RememberTTL *string `json:"remember_ttl,omitempty"`
+}
+
+func (v authSettingsRequest) settings() (service.AuthSettings, error) {
+	settings := v.AuthSettings
+	for _, field := range []struct {
+		name    string
+		text    *string
+		seconds *int64
+	}{{"session lifetime", v.SessionTTL, &settings.SessionTTLSeconds}, {"remembered lifetime", v.RememberTTL, &settings.RememberTTLSeconds}} {
+		if field.text == nil {
+			continue
+		}
+		duration, err := str2duration.ParseDuration(strings.TrimSpace(*field.text))
+		if err != nil || duration <= 0 || duration%time.Second != 0 {
+			return settings, fmt.Errorf("%s must be a positive whole-second duration, for example 8h or 4w1d2h", field.name)
+		}
+		seconds := int64(duration / time.Second)
+		if *field.seconds != 0 && *field.seconds != seconds {
+			return settings, fmt.Errorf("%s conflicts with its seconds value", field.name)
+		}
+		*field.seconds = seconds
+	}
+	return settings, settings.Validate(false)
+}
+
 func (m *nativeAuthSettings) settings(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		v := m.load(w, r)
@@ -271,17 +304,18 @@ func (m *nativeAuthSettings) settings(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	var v service.AuthSettings
-	if !decodeNativeBody(w, r, &v) {
+	var req authSettingsRequest
+	if !decodeNativeBody(w, r, &req) {
 		return
 	}
-	if err := v.Validate(false); err != nil {
+	v, err := req.settings()
+	if err != nil {
 		nativeError(w, 400, err.Error())
 		return
 	}
 	saved, err := m.store.SaveAuthSettings(r.Context(), v)
 	if errors.Is(err, service.ErrAuthConflict) {
-		nativeError(w, 409, "settings changed, origin is pinned, or no usable external administrator")
+		nativeError(w, 409, "settings changed or no usable external administrator; reload settings and retry")
 		return
 	}
 	if err != nil {

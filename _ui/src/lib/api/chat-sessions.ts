@@ -101,7 +101,7 @@ export function sendMessage(
   content: string,
   onEvent: (event: any) => void,
   onError: (error: string) => void,
-  onDone: () => void,
+  onDone: () => void | Promise<void>,
 ): AbortController {
   const controller = new AbortController();
 
@@ -120,46 +120,7 @@ export function sendMessage(
         return;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) {
-        onError('No response body');
-        return;
-      }
-
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const data = JSON.parse(line.slice(6));
-              if (data.type === 'done') {
-                onDone();
-                return;
-              }
-              if (data.error) {
-                onError(data.error);
-                return;
-              }
-              onEvent(data);
-            } catch {
-              // Skip malformed JSON
-            }
-          } else if (line.startsWith('event: error')) {
-            // Next data line will have the error
-          }
-        }
-      }
-
-      onDone();
+      await consumeChatEvents(response, onEvent, onDone);
     })
     .catch((err) => {
       if (err.name !== 'AbortError') {
@@ -168,6 +129,64 @@ export function sendMessage(
     });
 
   return controller;
+}
+
+/** Decode complete SSE frames, including split UTF-8 and a final unterminated frame.
+ * A disconnected stream must never look like a completed (persisted) answer. */
+export async function consumeChatEvents(
+  response: Response,
+  onEvent: (event: any) => void,
+  onDone: () => void | Promise<void>,
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let data: string[] = [];
+  let eventName = '';
+  const dispatch = async () => {
+    if (!data.length) return false;
+    const payload = data.join('\n');
+    data = [];
+    const event = JSON.parse(payload);
+    if (event.error || event.type === 'error' || eventName === 'error') {
+      throw new Error(typeof event.error === 'string' ? event.error : event.error?.message || event.message || 'The agent could not complete this response');
+    }
+    eventName = '';
+    if (event.type === 'done') { await onDone(); return true; }
+    onEvent(event);
+    return false;
+  };
+  const line = async (value: string) => {
+    if (!value) {
+      const complete = await dispatch();
+      eventName = '';
+      return complete;
+    }
+    if (value.startsWith('data:')) data.push(value.slice(5).replace(/^ /, ''));
+    if (value.startsWith('event:')) eventName = value.slice(6).trim();
+    return false;
+  };
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      let end: number;
+      while ((end = buffer.indexOf('\n')) !== -1) {
+        const current = buffer.slice(0, end).replace(/\r$/, '');
+        buffer = buffer.slice(end + 1);
+        if (await line(current)) return;
+      }
+      if (done) {
+        if (buffer && await line(buffer.replace(/\r$/, ''))) return;
+        if (await dispatch()) return;
+        throw new Error('Connection ended before the response completed. Received text is preserved; retry when ready.');
+      }
+    }
+  } finally {
+    await reader.cancel().catch(() => {});
+    reader.releaseLock();
+  }
 }
 
 /** Send a tool confirmation (approve or reject) for a pending tool call. */
