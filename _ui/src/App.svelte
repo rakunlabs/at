@@ -25,6 +25,7 @@
   let error = $state(''); let notice = $state(''); let loggingOut = $state(false); let checking = false;
   let revision = 0;
   let settingsArea = $derived($location.startsWith('/settings') || configurationLinks.some(l => l.path === $location));
+  let settingsLayout = $derived(settingsArea && routeAllowed($location) && (!!workspaceState.access || isNativeAdmin() || $location === '/settings/account'));
   async function checkSession() {
     if (checking || storeAuth.securityHold || ticket) return; checking = true; const start = revision;
     try { const identity = await getAuthIdentity(); if (start !== revision || storeAuth.securityHold) return; storeAuth.identity = identity; if (!window.location.hash.startsWith('#/mobile-authorize?')) await loadWorkspaceAccess(); if (start !== revision || storeAuth.securityHold) return; authState = 'ready'; error = ''; }
@@ -57,12 +58,12 @@
 {:else}
 <div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[9rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
   {#if storeNavbar.sideBarOpen}<Sidebar />{/if}
-  <div class="grid grid-rows-[3rem_minmax(0,1fr)] min-h-0 min-w-0"><Navbar onlogout={logout} {loggingOut} /><div class="overflow-y-auto min-h-0 min-w-0">
+  <div class="grid grid-rows-[3rem_minmax(0,1fr)] min-h-0 min-w-0"><Navbar onlogout={logout} {loggingOut} /><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto']}>
     {#if error}<p role="alert" class="settings-error px-5 py-2">{error}</p>{/if}
     {#if !workspaceState.access && !isNativeAdmin() && $location !== '/settings/account'}
       <div class="settings-page"><h1 class="text-2xl font-semibold">Waiting for workspace access</h1><p class="settings-note">You’re signed in. Ask a workspace owner to admit your user ID <code class="break-all">{storeAuth.identity?.subject}</code>, or accept an invitation below.</p><div class="flex flex-wrap gap-3"><button class="settings-button" onclick={checkSession}>Check access again</button><a class="settings-button" href="#/settings/account">Account security</a></div></div><WorkspaceSettings />
     {:else if !routeAllowed($location)}<div class="settings-page"><h1 class="text-2xl font-semibold">Access unavailable</h1><p class="settings-note">Your selected workspace does not grant access to this section. A workspace owner can review your effective permissions.</p><a class="settings-button inline-block" href="#/settings">Open Settings</a></div>
-    {:else if settingsArea}<div class="grid sm:grid-cols-[11rem_minmax(0,1fr)] min-h-full"><SettingsSidebar /><div class="min-w-0"><Router {routes} /></div></div>
+    {:else if settingsArea}<div class="grid flex-1 min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)]"><SettingsSidebar /><div class="min-h-0 min-w-0 overflow-y-auto overscroll-contain"><Router {routes} /></div></div>
     {:else if $location === '/' && !isNativeAdmin()}<WorkspaceSettings />
     {:else}<Router {routes} />{/if}
   </div></div>

@@ -22,12 +22,14 @@ const (
 // ExecutionPolicy is persisted independently from agent/model configuration.
 // TrustedHost grants daemon-UID authority. It is NOT a tenant sandbox.
 type ExecutionPolicy struct {
-	WorkspaceID  string   `json:"workspace_id"`
-	Mode         string   `json:"mode"`
-	AllowedTools []string `json:"allowed_tools"`
-	AllowedNodes []string `json:"allowed_nodes"`
-	Version      int64    `json:"version"`
-	GrantedBy    string   `json:"granted_by"`
+	WorkspaceID   string   `json:"workspace_id"`
+	Mode          string   `json:"mode"`
+	AllowedTools  []string `json:"allowed_tools"`
+	AllowedNodes  []string `json:"allowed_nodes"`
+	AllowAllTools bool     `json:"allow_all_tools"`
+	AllowAllNodes bool     `json:"allow_all_nodes"`
+	Version       int64    `json:"version"`
+	GrantedBy     string   `json:"granted_by"`
 }
 
 // ExecutionProvenance records the initiator, never the agent's claimed identity.
@@ -169,22 +171,22 @@ func CheckExecution(ctx context.Context, action ExecutionAction) error {
 	case "tool":
 		var known bool
 		host, known = ExecutionToolClass(action.Name)
-		if !known || (!a.platformCompatibility && !slices.Contains(v.Policy.AllowedTools, action.Name)) {
+		if !known || (!a.platformCompatibility && !v.Policy.AllowAllTools && !slices.Contains(v.Policy.AllowedTools, action.Name)) {
 			return ErrExecutionDenied
 		}
 	case "node":
 		var known bool
 		host, known = ExecutionNodeClass(action.Name)
-		if !known || (!a.platformCompatibility && !slices.Contains(v.Policy.AllowedNodes, action.Name)) {
+		if !known || (!a.platformCompatibility && !v.Policy.AllowAllNodes && !slices.Contains(v.Policy.AllowedNodes, action.Name)) {
 			return ErrExecutionDenied
 		}
 	case "skill_tool", "mcp_tool", "delegate":
-		if action.ResourceID == "" || action.Name == "" || (!a.platformCompatibility && !slices.Contains(v.Policy.AllowedTools, action.Kind+":"+action.ResourceID+":"+action.Name)) {
+		if action.ResourceID == "" || action.Name == "" || (!a.platformCompatibility && !v.Policy.AllowAllTools && !slices.Contains(v.Policy.AllowedTools, action.Kind+":"+action.ResourceID+":"+action.Name)) {
 			return ErrExecutionDenied
 		}
 		host = action.Kind != "delegate"
 	case "inline_tool":
-		if action.Name == "" || (!a.platformCompatibility && !slices.Contains(v.Policy.AllowedTools, "inline_tool:"+action.Name)) {
+		if action.Name == "" || (!a.platformCompatibility && !v.Policy.AllowAllTools && !slices.Contains(v.Policy.AllowedTools, "inline_tool:"+action.Name)) {
 			return ErrExecutionDenied
 		}
 		host = true
@@ -287,6 +289,29 @@ func registeredExecutionClass(kind, name string) (bool, bool) {
 	defer executionClasses.RUnlock()
 	host, known := executionClasses.values[kind+":"+name]
 	return host, known
+}
+
+// ExecutionCapabilityNames supplies the settings picker from compiled runtime
+// registrations, plus the core implementations classified directly above.
+func ExecutionCapabilityNames(kind string) []string {
+	var names []string
+	switch kind {
+	case "tool":
+		names = strings.Fields("file_read file_write file_list batch_execute bash_execute js_execute http_request url_fetch file_edit file_multiedit file_patch file_glob file_grep lsp_query transcribe_local")
+	case "node":
+		names = strings.Fields("input output template log http_trigger cron_trigger agent_config skill_config mcp_config llm_call agent_call workflow_call exec script conditional loop http_request email chat_reply embedding audio_transcribe audio_generate vision_analyze image_generate")
+	default:
+		return nil
+	}
+	executionClasses.RLock()
+	for key := range executionClasses.values {
+		if name, ok := strings.CutPrefix(key, kind+":"); ok {
+			names = append(names, name)
+		}
+	}
+	executionClasses.RUnlock()
+	slices.Sort(names)
+	return slices.Compact(names)
 }
 
 type ExecutionStorer interface {

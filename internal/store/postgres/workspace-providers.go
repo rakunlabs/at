@@ -125,7 +125,7 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 		return nil, fmt.Errorf("resolve workspace provider: %w", err)
 	}
 	if !found {
-		found, err = tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": "legacy-default", "key": key}, goqu.C("id").In(tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": a.WorkspaceID}))).ScanStructContext(ctx, &row)
+		found, err = tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": "legacy-default", "key": key}, goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": a.WorkspaceID})))).ScanStructContext(ctx, &row)
 		if err != nil {
 			return nil, fmt.Errorf("resolve platform provider grant: %w", err)
 		}
@@ -133,22 +133,25 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 			return nil, service.ErrAccessResourceNotFound
 		}
 		var raw string
-		if _, err = tx.From(p.workspaceTable("workspace_provider_grants")).Select("model_patterns").Where(goqu.Ex{"workspace_id": a.WorkspaceID, "provider_id": row.ID}).ScanValContext(ctx, &raw); err != nil {
+		granted, err := tx.From(p.workspaceTable("workspace_provider_grants")).Select("model_patterns").Where(goqu.Ex{"workspace_id": a.WorkspaceID, "provider_id": row.ID}).ScanValContext(ctx, &raw)
+		if err != nil {
 			return nil, fmt.Errorf("read model grant: %w", err)
 		}
-		var patterns []string
-		if json.Unmarshal([]byte(raw), &patterns) != nil || len(patterns) == 0 || service.ValidateAccessGrant(service.AccessGrant{Capability: "models.use", PathPatterns: patterns}) != nil {
-			return nil, service.ErrAccessDenied
-		}
-		matched := false
-		for _, pattern := range patterns {
-			if yes, _ := path.Match(pattern, model); yes {
-				matched = true
-				break
+		if granted {
+			var patterns []string
+			if json.Unmarshal([]byte(raw), &patterns) != nil || len(patterns) == 0 || service.ValidateAccessGrant(service.AccessGrant{Capability: "models.use", PathPatterns: patterns}) != nil {
+				return nil, service.ErrAccessDenied
 			}
-		}
-		if !matched {
-			return nil, service.ErrAccessDenied
+			matched := false
+			for _, pattern := range patterns {
+				if yes, _ := path.Match(pattern, model); yes {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return nil, service.ErrAccessDenied
+			}
 		}
 	}
 	if !a.Allows("models.use", service.AccessResource{Kind: "models", WorkspaceID: a.WorkspaceID, ID: row.ID, Path: key + "/" + model}) {
@@ -162,6 +165,6 @@ func (p *Postgres) ResolveWorkspaceProviderForUse(ctx context.Context, key, mode
 func providerReadDTO(a service.AccessPrincipal, record *service.ProviderRecord) {
 	if !a.Allows("credentials.manage", service.AccessResource{WorkspaceID: record.WorkspaceID, ID: record.ID}) {
 		c := record.Config
-		record.Config = config.LLMConfig{Type: c.Type, AuthType: c.AuthType, Model: c.Model, Models: c.Models, EmbeddingModels: c.EmbeddingModels}
+		record.Config = config.LLMConfig{Type: c.Type, AuthType: c.AuthType, Model: c.Model, Models: c.Models, EmbeddingModels: c.EmbeddingModels, SharedWithAllWorkspaces: c.SharedWithAllWorkspaces}
 	}
 }

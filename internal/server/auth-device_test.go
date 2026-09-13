@@ -36,7 +36,7 @@ func TestSaveCodexAuthTokensPersistsCredentialsAndAccount(t *testing.T) {
 		},
 	}
 	expiresAt := time.Date(2026, time.July, 18, 12, 0, 0, 0, time.UTC)
-	if err := s.saveCodexAuthTokens("chatgpt", codexDeviceProviderSnapshot{ID: "provider-id", Type: "openai"}, &openai.CodexTokens{
+	if err := s.saveCodexAuthTokens(service.WithLegacyWorkspaceAccess(t.Context()), "chatgpt", codexDeviceProviderSnapshot{ID: "provider-id", Type: "openai"}, &openai.CodexTokens{
 		AccessToken:  "access-token",
 		RefreshToken: "refresh-token",
 		AccountID:    "account-id",
@@ -71,7 +71,7 @@ func TestSaveCodexAuthTokensRejectsChangedProvider(t *testing.T) {
 		},
 	}
 	s := &Server{store: store}
-	err := s.saveCodexAuthTokens("chatgpt", codexDeviceProviderSnapshot{ID: "original-id", Type: "openai"}, &openai.CodexTokens{
+	err := s.saveCodexAuthTokens(service.WithLegacyWorkspaceAccess(t.Context()), "chatgpt", codexDeviceProviderSnapshot{ID: "original-id", Type: "openai"}, &openai.CodexTokens{
 		AccessToken:  "access-token",
 		RefreshToken: "refresh-token",
 		AccountID:    "account-id",
@@ -96,7 +96,7 @@ func TestSaveCodexAuthTokensRejectsChangedNetworkConfig(t *testing.T) {
 		},
 	}
 	s := &Server{store: store}
-	err := s.saveCodexAuthTokens("chatgpt", codexDeviceProviderSnapshot{ID: "provider-id", Type: "openai"}, &openai.CodexTokens{
+	err := s.saveCodexAuthTokens(service.WithLegacyWorkspaceAccess(t.Context()), "chatgpt", codexDeviceProviderSnapshot{ID: "provider-id", Type: "openai"}, &openai.CodexTokens{
 		AccessToken:  "access-token",
 		RefreshToken: "refresh-token",
 		AccountID:    "account-id",

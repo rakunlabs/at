@@ -1,6 +1,8 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
+  import { isNativeAdmin } from '@/lib/store/auth.svelte';
+  import { workspaceTransport } from '@/lib/api/transport';
   import {
     listProviders,
     createProvider,
@@ -976,6 +978,7 @@
   // Form fields
   let formKey = $state('');
   let formType = $state<string>('openai');
+  let formShared = $state(false);
   let formApiKey = $state('');
   let formBaseUrl = $state('');
   let formModel = $state('');
@@ -1062,6 +1065,7 @@
     resetClaudeAuth();
     formKey = '';
     formType = 'openai';
+    formShared = false;
     formApiKey = '';
     formBaseUrl = '';
     formModel = '';
@@ -1119,6 +1123,7 @@
     editingKey = rec.key;
     formKey = rec.key;
     formType = rec.config.type;
+    formShared = !!rec.config.shared_with_all_workspaces;
     // The API redacts secrets as "***". Don't load the sentinel into the form —
     // leave it empty so buildConfig() omits it and the backend preserves the real value.
     formApiKey = rec.config.api_key === '***' ? '' : (rec.config.api_key || '');
@@ -1153,6 +1158,7 @@
     const cfg: LLMConfig = {
       type: formType,
       model: formModel,
+      shared_with_all_workspaces: formShared,
     };
     if (formApiKey) cfg.api_key = formApiKey;
     if (formBaseUrl) cfg.base_url = formBaseUrl;
@@ -1663,6 +1669,19 @@
       {/if}
 
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+        {#if isNativeAdmin()}
+          <div class="space-y-2 border-b border-gray-200 dark:border-dark-border pb-4">
+            {#if workspaceTransport.selected === 'legacy-default'}
+              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-text-secondary">
+                <input type="checkbox" bind:checked={formShared} class="accent-accent" />
+                <span>Make available to all workspaces</span>
+              </label>
+              <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Manage this provider here; every current and future workspace can use it. Credentials stay in this workspace. A local provider with the same key takes precedence.</p>
+            {:else}
+              <p class="text-xs text-gray-600 dark:text-dark-text-secondary">This provider belongs to the selected workspace. To share a provider with every workspace, add it in the Default workspace and enable “Make available to all workspaces”.</p>
+            {/if}
+          </div>
+        {/if}
         <!-- Key -->
         <div class="grid grid-cols-4 gap-3 items-center">
           <label for="form-key" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Key</label>
@@ -2295,7 +2314,7 @@
 
       {#snippet row(rec)}
         <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
-          <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{rec.key}</td>
+          <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{rec.key}{#if rec.config.shared_with_all_workspaces}<span class="block font-sans text-xs font-normal text-gray-500 dark:text-dark-text-muted">Shared with all workspaces</span>{/if}</td>
           <td class="px-4 py-2.5">
             <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{rec.config.type}</span>
           </td>

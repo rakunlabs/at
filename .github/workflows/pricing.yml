@@ -1,0 +1,24 @@
+name: Pricing catalog
+on:
+  pull_request:
+    paths: ['pricing/**', '.github/workflows/pricing.yml']
+  push:
+    paths: ['pricing/**', '.github/workflows/pricing.yml']
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install jsonschema==4.26.0
+      - name: Validate provider JSON schema
+        run: python pricing/validate.py
+      - name: Validate catalog and generated index
+        run: go test ./pricing/...

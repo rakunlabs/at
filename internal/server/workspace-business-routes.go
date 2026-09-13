@@ -22,8 +22,40 @@ type BusinessRoutePolicy struct{ Method, Pattern, Capability, Kind, IDParam stri
 
 func workspaceBusinessPolicies() []BusinessRoutePolicy {
 	routes := []BusinessRoutePolicy{
+		{"GET", "/info", "workspace.read", "", ""},
+		{"GET", "/bots/video-templates", "platform.manage", "", ""},
+		{"POST", "/bots/{id}/start", "bots.write", "bots", "id"},
+		{"POST", "/bots/{id}/stop", "bots.write", "bots", "id"},
+		{"GET", "/bots/{id}/status", "bots.read", "bots", "id"},
+		{"GET", "/api-tokens", "tokens.read", "", ""},
+		{"POST", "/api-tokens", "tokens.write", "", ""},
+		{"PUT", "/api-tokens/{id}", "tokens.write", "tokens", "id"},
+		{"DELETE", "/api-tokens/{id}", "tokens.write", "tokens", "id"},
+		{"GET", "/api-tokens/{id}/usage", "tokens.read", "tokens", "id"},
+		{"POST", "/api-tokens/{id}/usage/reset", "tokens.write", "tokens", "id"},
+		{"GET", "/workflow-node-types", "workflows.read", "", ""},
+		{"POST", "/workflows/run/{id}", "workflows.execute", "workflows", "id"},
+		{"POST", "/workflows/run-stream/{id}", "workflows.execute", "workflows", "id"},
+		{"GET", "/workflows/{id}/versions", "workflows.read", "workflows", "id"},
+		{"GET", "/workflows/{id}/versions/{version}", "workflows.read", "workflows", "id"},
+		{"PUT", "/workflows/{id}/active-version", "workflows.write", "workflows", "id"},
+		{"GET", "/workflows/{id}/triggers", "workflows.read", "workflows", "id"},
+		{"POST", "/workflows/{id}/triggers", "workflows.write", "workflows", "id"},
+		{"GET", "/runs", "workflows.read", "", ""},
+		{"POST", "/runs/{id}/cancel", "workflows.execute", "", ""},
 		{"GET", "/providers", "providers.read", "", ""},
 		{"POST", "/providers", "providers.write", "", ""},
+		{"POST", "/providers/claude-auth", "credentials.manage", "", ""},
+		{"POST", "/providers/claude-auth/callback", "credentials.manage", "", ""},
+		{"POST", "/providers/claude-auth/token", "credentials.manage", "", ""},
+		{"POST", "/providers/claude-auth/sync", "platform.manage", "", ""},
+		{"POST", "/providers/device-auth", "credentials.manage", "", ""},
+		{"GET", "/providers/device-auth-status", "credentials.manage", "", ""},
+		{"POST", "/providers/discover-models", "credentials.manage", "", ""},
+		{"POST", "/providers/discover-embedding-models", "credentials.manage", "", ""},
+		{"POST", "/model-pricing/sync/preview", "platform.manage", "", ""},
+		{"POST", "/model-pricing/sync/apply", "platform.manage", "", ""},
+		{"POST", "/model-pricing/agent/preview", "platform.manage", "", ""},
 		{"GET", "/providers/{key}", "providers.read", "providers", "key"},
 		{"PUT", "/providers/{key}", "providers.write", "providers", "key"},
 		{"DELETE", "/providers/{key}", "providers.write", "providers", "key"},
@@ -49,7 +81,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"PUT", "/task-board", "tasks.write", "", ""},
 		{"DELETE", "/task-board", "tasks.write", "", ""},
 	}
-	for _, kind := range []string{"organizations", "agents", "goals", "projects", "tasks", "labels", "approvals"} {
+	for _, kind := range []string{"organizations", "agents", "goals", "projects", "tasks", "labels", "approvals", "workflows", "bots"} {
 		routes = append(routes, BusinessRoutePolicy{"GET", "/" + kind, kind + ".read", "", ""}, BusinessRoutePolicy{"POST", "/" + kind, kind + ".write", "", ""}, BusinessRoutePolicy{"GET", "/" + kind + "/{id}", kind + ".read", kind, "id"}, BusinessRoutePolicy{"PUT", "/" + kind + "/{id}", kind + ".write", kind, "id"})
 		if kind != "approvals" {
 			routes = append(routes, BusinessRoutePolicy{"DELETE", "/" + kind + "/{id}", kind + ".write", kind, "id"})

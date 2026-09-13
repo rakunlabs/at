@@ -66,7 +66,7 @@ func (s *Server) getExecutionProviderInfo(ctx context.Context, key string) (Prov
 		if record == nil || s.providerFactory == nil {
 			return nil, service.ErrExecutionDenied
 		}
-		principal, _, ok := service.ExecutionFromContext(ctx)
+		_, _, ok := service.ExecutionFromContext(ctx)
 		if !ok {
 			return nil, service.ErrExecutionDenied
 		}
@@ -75,7 +75,10 @@ func (s *Server) getExecutionProviderInfo(ctx context.Context, key string) (Prov
 			return nil, err
 		}
 		digest := sha256.Sum256(data)
-		cacheKey := executionProviderCacheKey{s: s, workspace: principal.WorkspaceID, provider: record.ID}
+		// Authorization above is per calling workspace. The transport belongs to
+		// the provider's owner: shared providers must reuse one OAuth token source
+		// rather than racing the same rotating refresh token across workspaces.
+		cacheKey := executionProviderCacheKey{s: s, workspace: record.WorkspaceID, provider: record.ID}
 		executionProviders.Lock()
 		defer executionProviders.Unlock()
 		if entry, ok := executionProviders.entries[cacheKey]; ok && entry.digest == digest {
@@ -85,6 +88,7 @@ func (s *Server) getExecutionProviderInfo(ctx context.Context, key string) (Prov
 		if err != nil {
 			return nil, err
 		}
+		s.wireClaudeOAuthCallback(record.Key, created, record.WorkspaceID)
 		if len(executionProviders.entries) >= 512 {
 			for old := range executionProviders.entries {
 				delete(executionProviders.entries, old)

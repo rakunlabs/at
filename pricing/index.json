@@ -1,0 +1,658 @@
+{
+  "version": 1,
+  "currency": "USD",
+  "unit": "per_1m_tokens",
+  "providers": [
+    {
+      "provider": "anthropic",
+      "models": [
+        {
+          "model": "claude-fable-5-1",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API; 5-minute cache writes. Cache hits are 0.025x input for this model.",
+          "input": 10,
+          "output": 50,
+          "cache_read": 0.25,
+          "cache_write": 12.5
+        },
+        {
+          "model": "claude-mythos-5-1",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Limited availability; standard global API; 5-minute cache writes; 0.025x cache hits.",
+          "input": 10,
+          "output": 50,
+          "cache_read": 0.25,
+          "cache_write": 12.5
+        },
+        {
+          "model": "claude-fable-5",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API; 5-minute cache writes.",
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 12.5
+        },
+        {
+          "model": "claude-mythos-5",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Limited availability; standard global API; 5-minute cache writes.",
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 12.5
+        },
+        {
+          "model": "claude-opus-5",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API, full context; 5-minute cache writes. Excludes fast mode and US residency uplift.",
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        },
+        {
+          "model": "claude-opus-4-8",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API, full context; 5-minute cache writes. Excludes fast mode and US residency uplift.",
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        },
+        {
+          "model": "claude-opus-4-7",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API, full context; 5-minute cache writes.",
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        },
+        {
+          "model": "claude-opus-4-6",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API, full context; 5-minute cache writes.",
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        },
+        {
+          "model": "claude-opus-4-5",
+          "aliases": [
+            "claude-opus-4-5-20251101"
+          ],
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API; 5-minute cache writes.",
+          "input": 5,
+          "output": 25,
+          "cache_read": 0.5,
+          "cache_write": 6.25
+        },
+        {
+          "model": "claude-sonnet-5",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API; 5-minute cache writes. The announced September price increase was cancelled.",
+          "input": 2,
+          "output": 10,
+          "cache_read": 0.2,
+          "cache_write": 2.5
+        },
+        {
+          "model": "claude-sonnet-4-6",
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API, full context; 5-minute cache writes.",
+          "input": 3,
+          "output": 15,
+          "cache_read": 0.3,
+          "cache_write": 3.75
+        },
+        {
+          "model": "claude-sonnet-4-5",
+          "aliases": [
+            "claude-sonnet-4-5-20250929"
+          ],
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API; 5-minute cache writes. Does not represent legacy long-context beta pricing.",
+          "input": 3,
+          "output": 15,
+          "cache_read": 0.3,
+          "cache_write": 3.75
+        },
+        {
+          "model": "claude-haiku-4-5",
+          "aliases": [
+            "claude-haiku-4-5-20251001"
+          ],
+          "source_url": "https://platform.claude.com/docs/en/about-claude/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard global API; 5-minute cache writes.",
+          "input": 1,
+          "output": 5,
+          "cache_read": 0.1,
+          "cache_write": 1.25
+        }
+      ]
+    },
+    {
+      "provider": "cohere",
+      "models": [
+        {
+          "model": "command-r-plus-08-2024",
+          "source_url": "https://cohere.com/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Legacy-model production API rate for existing customers; no separately billed prompt cache in this API.",
+          "input": 2.5,
+          "output": 10,
+          "cache_read": 0,
+          "cache_write": 0
+        },
+        {
+          "model": "c4ai-aya-expanse-32b",
+          "source_url": "https://cohere.com/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Aya Expanse production API rate; no separately billed prompt cache in this API.",
+          "input": 0.5,
+          "output": 1.5,
+          "cache_read": 0,
+          "cache_write": 0
+        }
+      ]
+    },
+    {
+      "provider": "deepseek",
+      "models": [
+        {
+          "model": "deepseek-flash@peak",
+          "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Peak: Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. Cache misses billed as input, no separate write fee. Also serves legacy deepseek-v4-flash names.",
+          "manual_only": true,
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.006,
+          "cache_write": 0
+        },
+        {
+          "model": "deepseek-flash@off-peak",
+          "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Off-peak: outside Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. No separate cache-write fee. Mapping does not switch rates by time.",
+          "manual_only": true,
+          "input": 0.15,
+          "output": 0.6,
+          "cache_read": 0.003,
+          "cache_write": 0
+        },
+        {
+          "model": "deepseek-v4-pro@peak",
+          "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Peak: Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. Cache misses billed as input, no separate write fee.",
+          "manual_only": true,
+          "input": 1.32,
+          "output": 3.96,
+          "cache_read": 0.044,
+          "cache_write": 0
+        },
+        {
+          "model": "deepseek-v4-pro@off-peak",
+          "source_url": "https://api-docs.deepseek.com/quick_start/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Off-peak: outside Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. No separate cache-write fee. Mapping does not switch rates by time.",
+          "manual_only": true,
+          "input": 0.66,
+          "output": 1.98,
+          "cache_read": 0.022,
+          "cache_write": 0
+        }
+      ]
+    },
+    {
+      "provider": "minimax",
+      "models": [
+        {
+          "model": "MiniMax-M2.7",
+          "source_url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+          "verified_at": "2026-09-13",
+          "notes": "Standard pay-as-you-go API, not Token Plan subscription pricing.",
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.06,
+          "cache_write": 0.375
+        },
+        {
+          "model": "MiniMax-M2.7-highspeed",
+          "source_url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+          "verified_at": "2026-09-13",
+          "notes": "Highspeed pay-as-you-go API; cache prices are not multiplied with input/output.",
+          "input": 0.6,
+          "output": 2.4,
+          "cache_read": 0.06,
+          "cache_write": 0.375
+        },
+        {
+          "model": "MiniMax-M2.5",
+          "source_url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+          "verified_at": "2026-09-13",
+          "notes": "Legacy model, pay-as-you-go API.",
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.03,
+          "cache_write": 0.375
+        },
+        {
+          "model": "MiniMax-M2.5-highspeed",
+          "source_url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+          "verified_at": "2026-09-13",
+          "notes": "Legacy highspeed model, pay-as-you-go API.",
+          "input": 0.6,
+          "output": 2.4,
+          "cache_read": 0.03,
+          "cache_write": 0.375
+        },
+        {
+          "model": "MiniMax-M2.1",
+          "source_url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+          "verified_at": "2026-09-13",
+          "notes": "Legacy model, pay-as-you-go API.",
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.03,
+          "cache_write": 0.375
+        },
+        {
+          "model": "MiniMax-M2.1-highspeed",
+          "source_url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+          "verified_at": "2026-09-13",
+          "notes": "Legacy highspeed model, pay-as-you-go API.",
+          "input": 0.6,
+          "output": 2.4,
+          "cache_read": 0.03,
+          "cache_write": 0.375
+        },
+        {
+          "model": "MiniMax-M2",
+          "source_url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+          "verified_at": "2026-09-13",
+          "notes": "Legacy model, pay-as-you-go API.",
+          "input": 0.3,
+          "output": 1.2,
+          "cache_read": 0.03,
+          "cache_write": 0.375
+        }
+      ]
+    },
+    {
+      "provider": "openai",
+      "models": [
+        {
+          "model": "gpt-6-astra@short",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "GPT-6 Astra standard, short context. Select only for workloads within the provider's short-context band.",
+          "manual_only": true,
+          "input": 10,
+          "output": 50,
+          "cache_read": 1,
+          "cache_write": 12.5
+        },
+        {
+          "model": "gpt-6-astra@long",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "GPT-6 Astra standard, long context; all tokens at this rate. This mapping does not switch rates per request.",
+          "manual_only": true,
+          "input": 20,
+          "output": 75,
+          "cache_read": 2,
+          "cache_write": 25
+        },
+        {
+          "model": "gpt-5.6-sol@short",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard short context; promotional price available at least through 2026-11-21.",
+          "manual_only": true,
+          "input": 4,
+          "output": 20,
+          "cache_read": 0.4,
+          "cache_write": 5
+        },
+        {
+          "model": "gpt-5.6-sol@long",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard long context; promotional price available at least through 2026-11-21.",
+          "manual_only": true,
+          "input": 8,
+          "output": 30,
+          "cache_read": 0.8,
+          "cache_write": 10
+        },
+        {
+          "model": "gpt-5.6-terra@short",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard short-context profile; excludes fast mode and residency uplift.",
+          "manual_only": true,
+          "input": 2,
+          "output": 12,
+          "cache_read": 0.2,
+          "cache_write": 2.5
+        },
+        {
+          "model": "gpt-5.6-terra@long",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard long-context profile; excludes fast mode and residency uplift.",
+          "manual_only": true,
+          "input": 4,
+          "output": 18,
+          "cache_read": 0.4,
+          "cache_write": 5
+        },
+        {
+          "model": "gpt-5.6-luna@short",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard short-context profile; excludes fast mode and residency uplift.",
+          "manual_only": true,
+          "input": 0.2,
+          "output": 1.2,
+          "cache_read": 0.02,
+          "cache_write": 0.25
+        },
+        {
+          "model": "gpt-5.6-luna@long",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard long-context profile; excludes fast mode and residency uplift.",
+          "manual_only": true,
+          "input": 0.4,
+          "output": 1.8,
+          "cache_read": 0.04,
+          "cache_write": 0.5
+        },
+        {
+          "model": "gpt-5.5@short",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard context below 272K. Cache writes have no separate charge.",
+          "manual_only": true,
+          "input": 5,
+          "output": 30,
+          "cache_read": 0.5,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.5@long",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard long-context band at 272K and above. Cache writes have no separate charge.",
+          "manual_only": true,
+          "input": 10,
+          "output": 45,
+          "cache_read": 1,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.4@short",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard context below 272K. Cache writes have no separate charge.",
+          "manual_only": true,
+          "input": 2.5,
+          "output": 15,
+          "cache_read": 0.25,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.4@long",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard long-context band at 272K and above. Cache writes have no separate charge.",
+          "manual_only": true,
+          "input": 5,
+          "output": 22.5,
+          "cache_read": 0.5,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.4-mini",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge. Excludes fast mode and residency uplift.",
+          "input": 0.75,
+          "output": 4.5,
+          "cache_read": 0.075,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.4-nano",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 0.2,
+          "output": 1.25,
+          "cache_read": 0.02,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.3-codex",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard API token rates, not ChatGPT/Codex subscription cost; no separate cache-write charge.",
+          "input": 1.75,
+          "output": 14,
+          "cache_read": 0.175,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.2",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 1.75,
+          "output": 14,
+          "cache_read": 0.175,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5.1",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 1.25,
+          "output": 10,
+          "cache_read": 0.125,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 1.25,
+          "output": 10,
+          "cache_read": 0.125,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5-mini",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 0.25,
+          "output": 2,
+          "cache_read": 0.025,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-5-nano",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 0.05,
+          "output": 0.4,
+          "cache_read": 0.005,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-4.1",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 2,
+          "output": 8,
+          "cache_read": 0.5,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-4.1-mini",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 0.4,
+          "output": 1.6,
+          "cache_read": 0.1,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-4.1-nano",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 0.1,
+          "output": 0.4,
+          "cache_read": 0.025,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-4o",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge. The 2024-05-13 snapshot has different prices.",
+          "input": 2.5,
+          "output": 10,
+          "cache_read": 1.25,
+          "cache_write": 0
+        },
+        {
+          "model": "gpt-4o-mini",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 0.15,
+          "output": 0.6,
+          "cache_read": 0.075,
+          "cache_write": 0
+        },
+        {
+          "model": "o3",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 2,
+          "output": 8,
+          "cache_read": 0.5,
+          "cache_write": 0
+        },
+        {
+          "model": "o4-mini",
+          "source_url": "https://developers.openai.com/api/docs/pricing",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text tokens; no separate cache-write charge.",
+          "input": 1.1,
+          "output": 4.4,
+          "cache_read": 0.275,
+          "cache_write": 0
+        }
+      ]
+    },
+    {
+      "provider": "xai",
+      "models": [
+        {
+          "model": "grok-4.6@short",
+          "source_url": "https://docs.x.ai/developers/models",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text API, prompt below 200k tokens; no separate cache-write charge.",
+          "manual_only": true,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.5,
+          "cache_write": 0
+        },
+        {
+          "model": "grok-4.6@long",
+          "source_url": "https://docs.x.ai/developers/models",
+          "verified_at": "2026-09-13",
+          "notes": "Prompt at least 200k tokens; higher rate applies to all tokens. No separate cache-write charge.",
+          "manual_only": true,
+          "input": 4,
+          "output": 12,
+          "cache_read": 1,
+          "cache_write": 0
+        },
+        {
+          "model": "grok-4.5@short",
+          "source_url": "https://docs.x.ai/developers/models",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text API, prompt below 200k tokens; no separate cache-write charge.",
+          "manual_only": true,
+          "input": 2,
+          "output": 6,
+          "cache_read": 0.3,
+          "cache_write": 0
+        },
+        {
+          "model": "grok-4.5@long",
+          "source_url": "https://docs.x.ai/developers/models",
+          "verified_at": "2026-09-13",
+          "notes": "Prompt at least 200k tokens; higher rate applies to all tokens. No separate cache-write charge.",
+          "manual_only": true,
+          "input": 4,
+          "output": 12,
+          "cache_read": 0.6,
+          "cache_write": 0
+        },
+        {
+          "model": "grok-4.3@short",
+          "source_url": "https://docs.x.ai/developers/models",
+          "verified_at": "2026-09-13",
+          "notes": "Standard text API, prompt below 200k tokens; no separate cache-write charge.",
+          "manual_only": true,
+          "input": 1.25,
+          "output": 2.5,
+          "cache_read": 0.2,
+          "cache_write": 0
+        },
+        {
+          "model": "grok-4.3@long",
+          "source_url": "https://docs.x.ai/developers/models",
+          "verified_at": "2026-09-13",
+          "notes": "Prompt at least 200k tokens; higher rate applies to all tokens. No separate cache-write charge.",
+          "manual_only": true,
+          "input": 2.5,
+          "output": 5,
+          "cache_read": 0.4,
+          "cache_write": 0
+        }
+      ]
+    }
+  ]
+}

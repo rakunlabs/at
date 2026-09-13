@@ -3,6 +3,11 @@ import type { ListResult, ListParams } from './types';
 
 const api = axios.create({ baseURL: 'api/v1' });
 
+export interface BotVideoTemplate { id: string; name: string }
+export async function listBotVideoTemplates(): Promise<BotVideoTemplate[]> {
+  return (await api.get<{ items: BotVideoTemplate[] }>('/bots/video-templates')).data.items || [];
+}
+
 export interface BotCustomCommand {
   command: string;          // without leading slash
   description?: string;     // shown in /help

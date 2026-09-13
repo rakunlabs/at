@@ -56,20 +56,20 @@ type deviceFlowState struct {
 // deviceFlowManager tracks active device flow sessions per provider key.
 type deviceFlowManager struct {
 	mu    sync.Mutex
-	flows map[string]*deviceFlowState
+	flows map[providerAuthFlowKey]*deviceFlowState
 }
 
 var deviceFlows = &deviceFlowManager{
-	flows: make(map[string]*deviceFlowState),
+	flows: make(map[providerAuthFlowKey]*deviceFlowState),
 }
 
-func (m *deviceFlowManager) set(key string, state *deviceFlowState) {
+func (m *deviceFlowManager) set(key providerAuthFlowKey, state *deviceFlowState) {
 	m.mu.Lock()
 	m.flows[key] = state
 	m.mu.Unlock()
 }
 
-func (m *deviceFlowManager) get(key string) *deviceFlowState {
+func (m *deviceFlowManager) get(key providerAuthFlowKey) *deviceFlowState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -80,7 +80,7 @@ func (m *deviceFlowManager) get(key string) *deviceFlowState {
 	return s
 }
 
-func (m *deviceFlowManager) remove(key string) {
+func (m *deviceFlowManager) remove(key providerAuthFlowKey) {
 	m.mu.Lock()
 	delete(m.flows, key)
 	m.mu.Unlock()
@@ -151,23 +151,14 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load the provider to verify it exists and supports device authorization.
-	record, err := s.store.GetProvider(r.Context(), req.Key)
-	if err != nil {
-		slog.Error("device auth: get provider failed", "key", req.Key, "error", err)
-		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
+	record, ok := s.providerAuthRecord(w, r, req.Key, "copilot", "chatgpt")
+	if !ok {
 		return
 	}
-	if record == nil {
-		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
-		return
-	}
-	if record.Config.AuthType != "copilot" && record.Config.AuthType != "chatgpt" {
-		httpResponse(w, fmt.Sprintf("provider auth_type is %q; save it as \"copilot\" or \"chatgpt\" before starting device auth", record.Config.AuthType), http.StatusBadRequest)
-		return
-	}
+	flowKey := providerFlowKey(r.Context(), record)
 
 	// Check if there's already a pending flow for this key.
-	if existing := deviceFlows.get(req.Key); existing != nil && existing.Status == "pending" {
+	if existing := deviceFlows.get(flowKey); existing != nil && existing.Status == "pending" {
 		httpResponse(w, "a device authorization flow is already in progress for this provider", http.StatusConflict)
 		return
 	}
@@ -175,7 +166,7 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 	// Request device code from GitHub.
 	// Build a proxy-aware HTTP client from the provider config so the device
 	// flow can reach github.com through the configured proxy.
-	httpClient, err := openai.ProxyHTTPClient(record.Config.Proxy, record.Config.InsecureSkipVerify)
+	httpClient, err := s.providerAuthHTTPClient(record.Config.Proxy, record.Config.InsecureSkipVerify)
 	if err != nil {
 		slog.Error("device auth: failed to create proxy client", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create proxy client: %v", err), http.StatusInternalServerError)
@@ -193,7 +184,7 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		deviceFlows.set(req.Key, &deviceFlowState{
+		deviceFlows.set(flowKey, &deviceFlowState{
 			Status:   "pending",
 			UserCode: deviceResp.UserCode,
 		})
@@ -204,7 +195,7 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 			Proxy:              record.Config.Proxy,
 			InsecureSkipVerify: record.Config.InsecureSkipVerify,
 		}
-		go s.pollCodexDeviceAuth(req.Key, snapshot, deviceResp, httpClient)
+		go s.pollCodexDeviceAuth(context.WithoutCancel(r.Context()), flowKey, req.Key, snapshot, deviceResp, httpClient)
 
 		httpResponseJSON(w, deviceAuthResponse{
 			UserCode:        deviceResp.UserCode,
@@ -227,10 +218,10 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 		Status:   "pending",
 		UserCode: deviceResp.UserCode,
 	}
-	deviceFlows.set(req.Key, state)
+	deviceFlows.set(flowKey, state)
 
 	// Start background polling.
-	go s.pollDeviceAuth(req.Key, deviceResp, httpClient)
+	go s.pollDeviceAuth(context.WithoutCancel(r.Context()), flowKey, req.Key, deviceResp, httpClient)
 
 	httpResponseJSON(w, deviceAuthResponse{
 		UserCode:        deviceResp.UserCode,
@@ -240,8 +231,10 @@ func (s *Server) DeviceAuthAPI(w http.ResponseWriter, r *http.Request) {
 	}, http.StatusOK)
 }
 
-func (s *Server) pollCodexDeviceAuth(providerKey string, snapshot codexDeviceProviderSnapshot, deviceResp *openai.CodexDeviceCode, httpClient *http.Client) {
-	tokens, err := openai.CompleteCodexDeviceAuth(context.Background(), deviceResp, httpClient)
+func (s *Server) pollCodexDeviceAuth(ctx context.Context, flowKey providerAuthFlowKey, providerKey string, snapshot codexDeviceProviderSnapshot, deviceResp *openai.CodexDeviceCode, httpClient *http.Client) {
+	ctx, cancel := context.WithTimeout(ctx, openai.CodexDeviceAuthTimeout)
+	defer cancel()
+	tokens, err := openai.CompleteCodexDeviceAuth(ctx, deviceResp, httpClient)
 	if err != nil {
 		status := "error"
 		message := err.Error()
@@ -250,24 +243,24 @@ func (s *Server) pollCodexDeviceAuth(providerKey string, snapshot codexDevicePro
 			message = "device code expired; please try again"
 		}
 		slog.Error("ChatGPT device auth failed", "key", providerKey, "error", err)
-		deviceFlows.set(providerKey, &deviceFlowState{Status: status, Error: message})
+		deviceFlows.set(flowKey, &deviceFlowState{Status: status, Error: message})
 		return
 	}
 
-	if err := s.saveCodexAuthTokens(providerKey, snapshot, tokens); err != nil {
+	if err := s.saveCodexAuthTokens(ctx, providerKey, snapshot, tokens); err != nil {
 		slog.Error("ChatGPT device auth: failed to save tokens", "key", providerKey, "error", err)
-		deviceFlows.set(providerKey, &deviceFlowState{Status: "error", Error: "authorized but failed to save tokens: " + err.Error()})
+		deviceFlows.set(flowKey, &deviceFlowState{Status: "error", Error: "authorized but failed to save tokens: " + err.Error()})
 		return
 	}
 
-	deviceFlows.set(providerKey, &deviceFlowState{Status: "authorized"})
+	deviceFlows.set(flowKey, &deviceFlowState{Status: "authorized"})
 	go func() {
 		time.Sleep(30 * time.Second)
-		deviceFlows.remove(providerKey)
+		deviceFlows.remove(flowKey)
 	}()
 }
 
-func (s *Server) saveCodexAuthTokens(providerKey string, snapshot codexDeviceProviderSnapshot, tokens *openai.CodexTokens) error {
+func (s *Server) saveCodexAuthTokens(ctx context.Context, providerKey string, snapshot codexDeviceProviderSnapshot, tokens *openai.CodexTokens) error {
 	if s.store == nil {
 		return fmt.Errorf("store not configured")
 	}
@@ -275,7 +268,7 @@ func (s *Server) saveCodexAuthTokens(providerKey string, snapshot codexDevicePro
 		return fmt.Errorf("ChatGPT OAuth response is missing access, refresh, or account credentials")
 	}
 
-	record, err := s.store.GetProvider(context.Background(), providerKey)
+	record, err := s.store.GetProvider(ctx, providerKey)
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
 	}
@@ -300,14 +293,14 @@ func (s *Server) saveCodexAuthTokens(providerKey string, snapshot codexDevicePro
 	}
 	cfg.ExtraHeaders["ChatGPT-Account-ID"] = tokens.AccountID
 
-	if _, err := s.store.UpdateProvider(context.Background(), providerKey, service.ProviderRecord{
+	if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
 		Key:       providerKey,
 		Config:    cfg,
 		UpdatedBy: "system:oauth",
 	}); err != nil {
 		return fmt.Errorf("update provider: %w", err)
 	}
-	if err := s.reloadProvider(providerKey, cfg); err != nil {
+	if err := s.reloadWorkspaceProvider(ctx, providerKey, cfg); err != nil {
 		return fmt.Errorf("reload provider: %w", err)
 	}
 	return nil
@@ -322,7 +315,11 @@ func (s *Server) DeviceAuthStatusAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	state := deviceFlows.get(key)
+	record, ok := s.providerAuthRecord(w, r, key, "copilot", "chatgpt")
+	if !ok {
+		return
+	}
+	state := deviceFlows.get(providerFlowKey(r.Context(), record))
 	if state == nil {
 		httpResponseJSON(w, deviceAuthStatusResponse{Status: "none"}, http.StatusOK)
 		return
@@ -338,7 +335,9 @@ func (s *Server) DeviceAuthStatusAPI(w http.ResponseWriter, r *http.Request) {
 
 // pollDeviceAuth polls GitHub for the access token in the background.
 // On success, it saves the token to the provider config and hot-reloads.
-func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCodeResponse, httpClient *http.Client) {
+func (s *Server) pollDeviceAuth(ctx context.Context, flowKey providerAuthFlowKey, providerKey string, deviceResp *githubDeviceCodeResponse, httpClient *http.Client) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(deviceResp.ExpiresIn)*time.Second)
+	defer cancel()
 	interval := time.Duration(deviceResp.Interval) * time.Second
 	if interval < 5*time.Second {
 		interval = 5 * time.Second
@@ -347,18 +346,23 @@ func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCode
 	deadline := time.Now().Add(time.Duration(deviceResp.ExpiresIn) * time.Second)
 
 	for {
-		time.Sleep(interval)
+		select {
+		case <-ctx.Done():
+			deviceFlows.set(flowKey, &deviceFlowState{Status: "expired", Error: "device code expired — please try again"})
+			return
+		case <-time.After(interval):
+		}
 
 		if time.Now().After(deadline) {
 			slog.Warn("device auth: flow expired", "key", providerKey)
-			deviceFlows.set(providerKey, &deviceFlowState{Status: "expired", Error: "device code expired — please try again"})
+			deviceFlows.set(flowKey, &deviceFlowState{Status: "expired", Error: "device code expired — please try again"})
 			return
 		}
 
-		token, err := pollAccessToken(context.Background(), deviceResp.DeviceCode, httpClient)
+		token, err := pollAccessToken(ctx, deviceResp.DeviceCode, httpClient)
 		if err != nil {
 			slog.Error("device auth: poll failed", "key", providerKey, "error", err)
-			deviceFlows.set(providerKey, &deviceFlowState{Status: "error", Error: err.Error()})
+			deviceFlows.set(flowKey, &deviceFlowState{Status: "error", Error: err.Error()})
 			return
 		}
 
@@ -370,18 +374,18 @@ func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCode
 		// Got the token. Save it to the provider config.
 		slog.Debug("device auth: authorized", "key", providerKey)
 
-		if err := s.saveDeviceAuthToken(providerKey, token); err != nil {
+		if err := s.saveDeviceAuthToken(ctx, providerKey, flowKey.ProviderID, token); err != nil {
 			slog.Error("device auth: failed to save token", "key", providerKey, "error", err)
-			deviceFlows.set(providerKey, &deviceFlowState{Status: "error", Error: "authorized but failed to save token: " + err.Error()})
+			deviceFlows.set(flowKey, &deviceFlowState{Status: "error", Error: "authorized but failed to save token: " + err.Error()})
 			return
 		}
 
-		deviceFlows.set(providerKey, &deviceFlowState{Status: "authorized"})
+		deviceFlows.set(flowKey, &deviceFlowState{Status: "authorized"})
 
 		// Clean up after a short delay so the UI can read the final status.
 		go func() {
 			time.Sleep(30 * time.Second)
-			deviceFlows.remove(providerKey)
+			deviceFlows.remove(flowKey)
 		}()
 
 		return
@@ -389,13 +393,13 @@ func (s *Server) pollDeviceAuth(providerKey string, deviceResp *githubDeviceCode
 }
 
 // saveDeviceAuthToken updates the provider's api_key with the OAuth token and hot-reloads.
-func (s *Server) saveDeviceAuthToken(providerKey, oauthToken string) error {
+func (s *Server) saveDeviceAuthToken(ctx context.Context, providerKey, providerID, oauthToken string) error {
 	if s.store == nil {
 		return fmt.Errorf("store not configured")
 	}
 
 	// Read current config.
-	record, err := s.store.GetProvider(context.Background(), providerKey)
+	record, err := s.store.GetProvider(ctx, providerKey)
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
 	}
@@ -403,12 +407,15 @@ func (s *Server) saveDeviceAuthToken(providerKey, oauthToken string) error {
 		return fmt.Errorf("provider %q not found", providerKey)
 	}
 
+	if record.ID != providerID || record.Config.AuthType != "copilot" {
+		return fmt.Errorf("provider changed while authorization was pending; start authorization again")
+	}
 	// Update api_key with the OAuth token.
 	cfg := record.Config
 	cfg.APIKey = oauthToken
 
 	// Persist.
-	if _, err := s.store.UpdateProvider(context.Background(), providerKey, service.ProviderRecord{
+	if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
 		Key:       providerKey,
 		Config:    cfg,
 		UpdatedBy: "",
@@ -417,7 +424,7 @@ func (s *Server) saveDeviceAuthToken(providerKey, oauthToken string) error {
 	}
 
 	// Hot-reload the provider so it uses the new token.
-	if err := s.reloadProvider(providerKey, cfg); err != nil {
+	if err := s.reloadWorkspaceProvider(ctx, providerKey, cfg); err != nil {
 		return fmt.Errorf("reload provider: %w", err)
 	}
 
@@ -552,23 +559,35 @@ type claudeAuthState struct {
 	ExpiresAt time.Time
 }
 
+type providerAuthFlowKey struct {
+	WorkspaceID string
+	ProviderID  string
+	UserID      string
+	SessionID   string
+}
+
+func providerFlowKey(ctx context.Context, record *service.ProviderRecord) providerAuthFlowKey {
+	p, _ := service.AccessPrincipalFromContext(ctx)
+	return providerAuthFlowKey{WorkspaceID: record.WorkspaceID, ProviderID: record.ID, UserID: p.UserID, SessionID: p.SessionID}
+}
+
 // claudeAuthManager tracks active Claude auth flows per provider key.
 type claudeAuthManager struct {
 	mu    sync.Mutex
-	flows map[string]*claudeAuthState
+	flows map[providerAuthFlowKey]*claudeAuthState
 }
 
 var claudeAuthFlows = &claudeAuthManager{
-	flows: make(map[string]*claudeAuthState),
+	flows: make(map[providerAuthFlowKey]*claudeAuthState),
 }
 
-func (m *claudeAuthManager) set(key string, state *claudeAuthState) {
+func (m *claudeAuthManager) set(key providerAuthFlowKey, state *claudeAuthState) {
 	m.mu.Lock()
 	m.flows[key] = state
 	m.mu.Unlock()
 }
 
-func (m *claudeAuthManager) get(key string) *claudeAuthState {
+func (m *claudeAuthManager) get(key providerAuthFlowKey) *claudeAuthState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -579,7 +598,7 @@ func (m *claudeAuthManager) get(key string) *claudeAuthState {
 	return s
 }
 
-func (m *claudeAuthManager) remove(key string) {
+func (m *claudeAuthManager) remove(key providerAuthFlowKey) {
 	m.mu.Lock()
 	delete(m.flows, key)
 	m.mu.Unlock()
@@ -627,18 +646,8 @@ func (s *Server) ClaudeAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load the provider to verify it exists and has auth_type=claude-code.
-	record, err := s.store.GetProvider(r.Context(), req.Key)
-	if err != nil {
-		slog.Error("claude auth: get provider failed", "key", req.Key, "error", err)
-		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
-		return
-	}
-	if record == nil {
-		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
-		return
-	}
-	if record.Config.AuthType != "claude-code" {
-		httpResponse(w, "provider auth_type is not \"claude-code\" — save the provider with auth_type set to \"claude-code\" first", http.StatusBadRequest)
+	record, ok := s.providerAuthRecord(w, r, req.Key, "claude-code")
+	if !ok {
 		return
 	}
 
@@ -661,7 +670,8 @@ func (s *Server) ClaudeAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Store the PKCE verifier for the callback.
 	expiresIn := 600 // 10 minutes
-	claudeAuthFlows.set(req.Key, &claudeAuthState{
+	flowKey := providerFlowKey(r.Context(), record)
+	claudeAuthFlows.set(flowKey, &claudeAuthState{
 		Verifier:  pkce.Verifier,
 		State:     state,
 		ExpiresAt: time.Now().Add(time.Duration(expiresIn) * time.Second),
@@ -670,8 +680,8 @@ func (s *Server) ClaudeAuthStartAPI(w http.ResponseWriter, r *http.Request) {
 	// Clean up expired flows after timeout.
 	go func() {
 		time.Sleep(time.Duration(expiresIn+30) * time.Second)
-		if flow := claudeAuthFlows.get(req.Key); flow != nil && time.Now().After(flow.ExpiresAt) {
-			claudeAuthFlows.remove(req.Key)
+		if flow := claudeAuthFlows.get(flowKey); flow != nil && time.Now().After(flow.ExpiresAt) {
+			claudeAuthFlows.remove(flowKey)
 		}
 	}()
 
@@ -704,32 +714,26 @@ func (s *Server) ClaudeAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve the stored PKCE verifier.
-	flow := claudeAuthFlows.get(req.Key)
+	// Resolve the same workspace/provider and account before looking up PKCE.
+	record, ok := s.providerAuthRecord(w, r, req.Key, "claude-code")
+	if !ok {
+		return
+	}
+	flowKey := providerFlowKey(r.Context(), record)
+	flow := claudeAuthFlows.get(flowKey)
 	if flow == nil {
 		httpResponse(w, "no pending auth flow for this provider (start a new one)", http.StatusBadRequest)
 		return
 	}
 
 	if time.Now().After(flow.ExpiresAt) {
-		claudeAuthFlows.remove(req.Key)
+		claudeAuthFlows.remove(flowKey)
 		httpResponse(w, "auth flow expired — please start a new one", http.StatusBadRequest)
 		return
 	}
 
 	// Build a proxy-aware HTTP client from the provider config.
-	record, err := s.store.GetProvider(r.Context(), req.Key)
-	if err != nil {
-		slog.Error("claude auth callback: get provider failed", "key", req.Key, "error", err)
-		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
-		return
-	}
-	if record == nil {
-		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
-		return
-	}
-
-	httpClient, err := openai.ProxyHTTPClient(record.Config.Proxy, record.Config.InsecureSkipVerify)
+	httpClient, err := s.providerAuthHTTPClient(record.Config.Proxy, record.Config.InsecureSkipVerify)
 	if err != nil {
 		slog.Error("claude auth callback: failed to create proxy client", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create proxy client: %v", err), http.StatusInternalServerError)
@@ -755,7 +759,7 @@ func (s *Server) ClaudeAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clean up the flow state.
-	claudeAuthFlows.remove(req.Key)
+	claudeAuthFlows.remove(flowKey)
 
 	// Compute the absolute expiry from the OAuth response so the gateway
 	// can refresh proactively. ExpiresIn is in seconds; an empty / zero
@@ -767,7 +771,7 @@ func (s *Server) ClaudeAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the tokens to the provider config.
-	if err := s.saveClaudeAuthTokens(req.Key, tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt); err != nil {
+	if err := s.saveClaudeAuthTokens(r.Context(), req.Key, tokenResp.AccessToken, tokenResp.RefreshToken, expiresAt); err != nil {
 		slog.Error("claude auth callback: failed to save tokens", "key", req.Key, "error", err)
 		httpResponse(w, fmt.Sprintf("authorized but failed to save tokens: %v", err), http.StatusInternalServerError)
 		return
@@ -809,18 +813,7 @@ func (s *Server) ClaudeAuthTokenAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load the provider to verify it exists and has auth_type=claude-code.
-	record, err := s.store.GetProvider(r.Context(), req.Key)
-	if err != nil {
-		slog.Error("claude auth token: get provider failed", "key", req.Key, "error", err)
-		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
-		return
-	}
-	if record == nil {
-		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
-		return
-	}
-	if record.Config.AuthType != "claude-code" {
-		httpResponse(w, "provider auth_type is not \"claude-code\"", http.StatusBadRequest)
+	if _, ok := s.providerAuthRecord(w, r, req.Key, "claude-code"); !ok {
 		return
 	}
 
@@ -828,7 +821,7 @@ func (s *Server) ClaudeAuthTokenAPI(w http.ResponseWriter, r *http.Request) {
 	// know the expiry, so pass an empty string — the OAuth token source
 	// will treat the token as expired and refresh on first use, learning
 	// the real expiry from the refresh response.
-	if err := s.saveClaudeAuthTokens(req.Key, req.AccessToken, req.RefreshToken, ""); err != nil {
+	if err := s.saveClaudeAuthTokens(r.Context(), req.Key, req.AccessToken, req.RefreshToken, ""); err != nil {
 		slog.Error("claude auth token: failed to save tokens", "key", req.Key, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to save tokens: %v", err), http.StatusInternalServerError)
 		return
@@ -874,18 +867,7 @@ func (s *Server) ClaudeAuthSyncAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load the provider to verify it exists and has auth_type=claude-code.
-	record, err := s.store.GetProvider(r.Context(), req.Key)
-	if err != nil {
-		slog.Error("claude auth sync: get provider failed", "key", req.Key, "error", err)
-		httpResponse(w, "failed to get provider", http.StatusInternalServerError)
-		return
-	}
-	if record == nil {
-		httpResponse(w, fmt.Sprintf("provider %q not found", req.Key), http.StatusNotFound)
-		return
-	}
-	if record.Config.AuthType != "claude-code" {
-		httpResponse(w, "provider auth_type is not \"claude-code\"", http.StatusBadRequest)
+	if _, ok := s.providerAuthRecord(w, r, req.Key, "claude-code"); !ok {
 		return
 	}
 
@@ -899,7 +881,7 @@ func (s *Server) ClaudeAuthSyncAPI(w http.ResponseWriter, r *http.Request) {
 
 	// Save the tokens and hot-reload the provider. expiresAt is RFC3339
 	// (or empty if the CLI credentials didn't carry an expiry).
-	if err := s.saveClaudeAuthTokens(req.Key, accessToken, refreshToken, expiresAt); err != nil {
+	if err := s.saveClaudeAuthTokens(r.Context(), req.Key, accessToken, refreshToken, expiresAt); err != nil {
 		slog.Error("claude auth sync: failed to save tokens", "key", req.Key, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to save tokens: %v", err), http.StatusInternalServerError)
 		return
@@ -1062,17 +1044,24 @@ func execCommand(name string, args ...string) (string, error) {
 
 // saveClaudeAuthTokens updates the provider's tokens and hot-reloads.
 // expiresAt is the access-token expiry as RFC3339 (empty = unknown).
-func (s *Server) saveClaudeAuthTokens(providerKey, accessToken, refreshToken, expiresAt string) error {
+func (s *Server) saveClaudeAuthTokens(ctx context.Context, providerKey, accessToken, refreshToken, expiresAt string) error {
 	if s.store == nil {
 		return fmt.Errorf("store not configured")
 	}
 
-	record, err := s.store.GetProvider(context.Background(), providerKey)
+	// Preserve the authenticated workspace/session through the write, even if
+	// the HTTP client disconnects after its one-use authorization code is consumed.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	record, err := s.store.GetProvider(ctx, providerKey)
 	if err != nil {
 		return fmt.Errorf("get provider: %w", err)
 	}
 	if record == nil {
 		return fmt.Errorf("provider %q not found", providerKey)
+	}
+	if record.Config.AuthType != "claude-code" {
+		return fmt.Errorf("provider authentication type changed; start a new authorization")
 	}
 
 	cfg := record.Config
@@ -1080,80 +1069,101 @@ func (s *Server) saveClaudeAuthTokens(providerKey, accessToken, refreshToken, ex
 	cfg.RefreshToken = refreshToken
 	cfg.TokenExpiresAt = expiresAt
 
-	if _, err := s.store.UpdateProvider(context.Background(), providerKey, service.ProviderRecord{
+	updated, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
 		Key:       providerKey,
 		Config:    cfg,
 		UpdatedBy: "",
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("update provider: %w", err)
 	}
+	if updated == nil {
+		return fmt.Errorf("provider disappeared during authorization")
+	}
 
-	if err := s.reloadProvider(providerKey, cfg); err != nil {
+	if err := s.reloadWorkspaceProvider(ctx, providerKey, cfg); err != nil {
 		return fmt.Errorf("reload provider: %w", err)
 	}
 
 	return nil
 }
 
+// providerAuthRecord applies the same selected-workspace admission as provider
+// CRUD before exchanging a one-use code or reading credentials from the host.
+func (s *Server) providerAuthRecord(w http.ResponseWriter, r *http.Request, key string, authTypes ...string) (*service.ProviderRecord, bool) {
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	record, err := s.store.GetProvider(r.Context(), key)
+	if err != nil {
+		if !workspaceBusinessError(w, err) {
+			slog.Error("claude auth: get provider failed", "key", key, "error", err)
+			httpResponse(w, "failed to get provider", http.StatusInternalServerError)
+		}
+		return nil, false
+	}
+	if record == nil {
+		httpResponse(w, fmt.Sprintf("provider %q not found", key), http.StatusNotFound)
+		return nil, false
+	}
+	if actor, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		resource := service.AccessResource{WorkspaceID: record.WorkspaceID, ID: record.ID}
+		if !actor.Allows("providers.write", resource) || !actor.Allows("credentials.manage", resource) {
+			httpResponse(w, "provider credential management access required", http.StatusForbidden)
+			return nil, false
+		}
+	}
+	for _, authType := range authTypes {
+		if record.Config.AuthType == authType {
+			return record, true
+		}
+	}
+	httpResponse(w, "Save this provider with the selected authentication type before authorizing it.", http.StatusBadRequest)
+	return nil, false
+}
+
+func (s *Server) providerAuthHTTPClient(proxy string, insecure bool) (*http.Client, error) {
+	if s.providerAuthClientFactory != nil {
+		return s.providerAuthClientFactory(proxy, insecure)
+	}
+	return openai.ProxyHTTPClient(proxy, insecure)
+}
+
 // claudeOAuthRefreshCallback returns a TokenRefreshCallback that persists
 // rotated access/refresh tokens (and the new expiry) for the given provider
-// key. The callback runs in the background — if persistence fails, the
-// in-memory token source still has the rotated values and inference will
-// keep working until the next process restart, so we log the error but do
-// not propagate it.
-func (s *Server) claudeOAuthRefreshCallback(providerKey string) antropic.TokenRefreshCallback {
-	return func(_ context.Context, accessToken, refreshToken string, expiresAt time.Time) {
-		if s.store == nil {
-			return
+// key. Rotation uses the previously loaded refresh credential and the provider's
+// authoritative workspace, independent of browser/request lifetimes.
+func (s *Server) claudeOAuthRefreshCallback(providerKey string, workspaces ...string) antropic.TokenRefreshCallback {
+	workspace := "legacy-default"
+	if len(workspaces) > 0 {
+		workspace = workspaces[0]
+	}
+	return func(parent context.Context, previousRefresh, accessToken, refreshToken string, expiresAt time.Time) error {
+		store, ok := s.store.(service.ClaudeOAuthTokenStorer)
+		if !ok {
+			return fmt.Errorf("OAuth token rotation store unavailable")
 		}
-
-		// Use a background context with a bounded timeout — the calling
-		// context may be a per-request one that's about to be cancelled.
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 10*time.Second)
 		defer cancel()
-
-		record, err := s.store.GetProvider(ctx, providerKey)
-		if err != nil {
-			slog.Error("claude oauth refresh: failed to read provider for persistence",
-				"key", providerKey, "error", err)
-			return
+		if err := store.RotateClaudeOAuthTokens(ctx, workspace, providerKey, previousRefresh, accessToken, refreshToken, expiresAt); err != nil {
+			slog.Error("claude oauth refresh: failed to persist rotated tokens", "key", providerKey, "workspace_id", workspace, "error", err)
+			return err
 		}
-		if record == nil {
-			slog.Warn("claude oauth refresh: provider disappeared during refresh", "key", providerKey)
-			return
-		}
-
-		cfg := record.Config
-		cfg.APIKey = accessToken
-		cfg.RefreshToken = refreshToken
-		if !expiresAt.IsZero() {
-			cfg.TokenExpiresAt = expiresAt.UTC().Format(time.RFC3339)
-		}
-
-		if _, err := s.store.UpdateProvider(ctx, providerKey, service.ProviderRecord{
-			Key:       providerKey,
-			Config:    cfg,
-			UpdatedBy: "system:oauth-refresh",
-		}); err != nil {
-			slog.Error("claude oauth refresh: failed to persist rotated tokens",
-				"key", providerKey, "error", err)
-			return
-		}
-
-		slog.Info("claude oauth: tokens rotated and persisted",
-			"key", providerKey, "expires_at", cfg.TokenExpiresAt)
+		slog.Info("claude oauth: tokens rotated and persisted", "key", providerKey, "workspace_id", workspace, "expires_at", expiresAt)
+		return nil
 	}
 }
 
 // wireClaudeOAuthCallback installs the persistence callback on the provider's
 // OAuth token source if it is using one. Safe to call on any provider type;
 // it is a no-op for non-OAuth providers.
-func (s *Server) wireClaudeOAuthCallback(providerKey string, p service.LLMProvider) {
+func (s *Server) wireClaudeOAuthCallback(providerKey string, p service.LLMProvider, workspace ...string) {
 	ap, ok := p.(*antropic.Provider)
 	if !ok {
 		return
 	}
-	ap.SetTokenRefreshCallback(s.claudeOAuthRefreshCallback(providerKey))
+	ap.SetTokenRefreshCallback(s.claudeOAuthRefreshCallback(providerKey, workspace...))
 }
 
 func (s *Server) chatGPTOAuthRefreshCallback(providerKey string) openai.CodexTokenRefreshCallback {

@@ -47,9 +47,6 @@ func TestRuntimeServiceBindingRenewalAcrossReplicas(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.saveRuntimeBinding(native, "bot", bot.ID, false); !errors.Is(err, service.ErrExecutionDenied) {
-		t.Fatal("service inherited installation-admin identity")
-	}
 	binding, err := s.saveRuntimeBinding(native, "bot", bot.ID, false, runAs.ID)
 	if err != nil {
 		t.Fatal(err)

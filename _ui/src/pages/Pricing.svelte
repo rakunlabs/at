@@ -18,20 +18,20 @@
     type ModelPricingSyncSource,
     type ModelPricingSourceItem,
   } from '@/lib/api/agent-budgets';
-  import { listProviders, type ProviderRecord } from '@/lib/api/providers';
+  import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { Bot, Check, CircleDollarSign, Download, RefreshCw, RotateCcw, Trash2, Upload, X } from 'lucide-svelte';
 
   storeNavbar.title = 'Model Pricing';
 
   let pricing = $state<ModelPricing[]>([]);
-  let providers = $state<ProviderRecord[]>([]);
+  let providers = $state<InfoProvider[]>([]);
   let pricingSources = $state<ModelPricingSyncSource[]>([
-    { source: 'llm-prices', label: 'llm-prices' },
+    { source: 'at-pricing', label: 'AT Pricing' },
   ]);
   let preview = $state<ModelPricingSyncPreviewItem[]>([]);
   let selectedPreview = $state<string[]>([]);
-  let previewSource = $state('llm-prices');
-  let selectedSyncSource = $state('llm-prices');
+  let previewSource = $state('at-pricing');
+  let selectedSyncSource = $state('at-pricing');
   let sourceCatalog = $state<ModelPricingSourceItem[]>([]);
   let manualMatches = $state<Record<string, string>>({});
   let matchSearch = $state<Record<string, string>>({});
@@ -99,8 +99,8 @@
       source_url: match.url,
       source_prompt_price_per_1m: match.prompt_price_per_1m,
       source_completion_price_per_1m: match.completion_price_per_1m,
-      source_cache_read_price_per_1m: match.cache_read_price_per_1m || (item.provider_type === 'anthropic' ? match.prompt_price_per_1m * 0.1 : 0),
-      source_cache_write_price_per_1m: match.cache_write_price_per_1m || (item.provider_type === 'anthropic' ? match.prompt_price_per_1m * 1.25 : 0),
+      source_cache_read_price_per_1m: match.exact_pricing ? match.cache_read_price_per_1m : match.cache_read_price_per_1m || (item.provider_type === 'anthropic' ? match.prompt_price_per_1m * 0.1 : 0),
+      source_cache_write_price_per_1m: match.exact_pricing ? match.cache_write_price_per_1m : match.cache_write_price_per_1m || (item.provider_type === 'anthropic' ? match.prompt_price_per_1m * 1.25 : 0),
     };
     const changed = Math.abs(mapped.current_prompt_price_per_1m - mapped.source_prompt_price_per_1m) >= 0.0000001 ||
       Math.abs(mapped.current_completion_price_per_1m - mapped.source_completion_price_per_1m) >= 0.0000001 ||
@@ -120,16 +120,17 @@
   function matchingCatalog(key: string): ModelPricingSourceItem[] {
     const query = (matchSearch[key] || '').trim().toLowerCase();
     return sourceCatalog.filter((entry) => catalogKey(entry) === manualMatches[key] ||
-      `${entry.provider}/${entry.model} ${entry.name || ''}`.toLowerCase().includes(query));
+      `${entry.provider}/${entry.model} ${entry.name || ''} ${(entry.aliases || []).join(' ')}`.toLowerCase().includes(query));
   }
 
   let selectedAgentProvider = $derived(providers.find((provider) => provider.key === agent.provider_key));
   let agentModels = $derived(
-    [...new Set((selectedAgentProvider?.config.models || []).filter(Boolean))]
+    [...new Set((selectedAgentProvider?.models || []).filter(Boolean))]
   );
   let agentCanRun = $derived(
-    Boolean(agent.provider_key && (agent.model.trim() || selectedAgentProvider?.config.model))
+    Boolean(agent.provider_key && (agent.model.trim() || selectedAgentProvider?.default_model))
   );
+  let pricingModels = $derived(providers.find(provider => provider.key === form.provider_key)?.models || []);
 
   async function loadPricing() {
     loading = true;
@@ -145,8 +146,8 @@
   async function loadProviders() {
     providersLoading = true;
     try {
-      const res = await listProviders({ _offset: 0, _limit: 1000 });
-      providers = res.data || [];
+      const res = await getInfo();
+      providers = res.providers || [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load providers', 'alert');
     } finally {
@@ -282,7 +283,7 @@
       addToast('Select a provider for the pricing agent', 'alert');
       return;
     }
-    if (!agent.model.trim() && !selectedAgentProvider?.config.model) {
+    if (!agent.model.trim() && !selectedAgentProvider?.default_model) {
       addToast('Select or enter a model for the pricing agent', 'alert');
       return;
     }
@@ -437,6 +438,7 @@
       <div>
         <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Model Pricing</h2>
         <p class="text-xs text-gray-400 dark:text-dark-text-muted">Effective prices used by gateway cost tracking and token spend budgets.</p>
+        <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Prices are managed installation-wide; model suggestions and sync previews use your selected workspace.</p>
       </div>
     </div>
     <div class="flex flex-wrap items-center justify-end gap-2">
@@ -498,7 +500,7 @@
         <select id="pricing-agent-provider" value={agent.provider_key} onchange={updateAgentProvider} disabled={providersLoading} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400 disabled:opacity-50">
           <option value="">{providersLoading ? 'Loading providers...' : 'Select provider'}</option>
           {#each providers as provider}
-            <option value={provider.key}>{provider.key} ({provider.config.type})</option>
+            <option value={provider.key}>{provider.key} ({provider.type}){provider.shared ? ' · shared' : ''}</option>
           {/each}
         </select>
         {#if !providersLoading && providers.length === 0}
@@ -507,10 +509,10 @@
       </div>
       <div>
         <label for="pricing-agent-model" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Agent Model</label>
-        {#if selectedAgentProvider && (selectedAgentProvider.config.model || agentModels.length > 0)}
+        {#if selectedAgentProvider && (selectedAgentProvider.default_model || agentModels.length > 0)}
           <select id="pricing-agent-model" bind:value={agent.model} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400">
             <option value="">
-              {selectedAgentProvider.config.model ? `Default (${selectedAgentProvider.config.model})` : 'Select model'}
+              {selectedAgentProvider.default_model ? `Default (${selectedAgentProvider.default_model})` : 'Select model'}
             </option>
             {#each agentModels as model}
               <option value={model}>{model}</option>
@@ -556,11 +558,13 @@
       <div class="space-y-3">
         <div>
           <label for="pricing-provider" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Provider Key</label>
-          <input id="pricing-provider" bind:value={form.provider_key} placeholder="anthropic-prod" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+          <input id="pricing-provider" list="pricing-provider-options" bind:value={form.provider_key} placeholder="Select or enter your provider" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+          <datalist id="pricing-provider-options">{#each providers as provider}<option value={provider.key}></option>{/each}</datalist>
         </div>
         <div>
           <label for="pricing-model" class="block text-xs text-gray-500 dark:text-dark-text-muted mb-1">Model</label>
-          <input id="pricing-model" bind:value={form.model} placeholder="claude-sonnet-4-5" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+          <input id="pricing-model" list="pricing-model-options" bind:value={form.model} placeholder="Select or enter your model" class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
+          <datalist id="pricing-model-options">{#each pricingModels as model}<option value={model}></option>{/each}</datalist>
         </div>
         <div class="grid grid-cols-2 gap-2">
           <div>
@@ -659,9 +663,9 @@
     <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base flex flex-wrap items-center justify-between gap-3">
       <div>
         <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">{previewSource === 'agent' ? 'AI Pricing Preview' : `${sourceLabel(previewSource)} Sync Preview`}</h3>
-        <p class="text-xs text-gray-400 dark:text-dark-text-muted">Preview compares configured AT provider models with source prices. Override rows are skipped unless explicitly overwritten.</p>
+        <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Your models come from the selected workspace, including shared providers. Price references come from the selected external catalog.</p>
         {#if sourceCatalog.length > 0}
-          <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">For unmatched models, search the catalog and choose a source model. Apply Selected saves the price and remembers the match for future fetches.</p>
+          <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">For custom names or aliases, choose the catalog model whose price applies to your model. Apply Selected saves the price and remembers this match. A missing catalog entry does not mean your model is unavailable.</p>
         {/if}
       </div>
       <div class="flex flex-wrap items-center gap-2">
@@ -691,8 +695,8 @@
           <thead>
             <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
               <th class="w-10 px-3 py-2"></th>
-              <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">AT Model</th>
-              <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Source Match</th>
+              <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Your Workspace Model</th>
+              <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Price Reference</th>
               <th class="text-right px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Current</th>
               <th class="text-right px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Source</th>
               <th class="text-left px-3 py-2 text-xs font-medium text-gray-500 dark:text-dark-text-muted">Status</th>
@@ -701,6 +705,7 @@
           <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
             {#each filteredPreview as item (previewKey(item))}
               {@const key = previewKey(item)}
+              {@const reference = sourceCatalog.find(entry => item.matched && entry.provider === item.source_provider && entry.model === item.source_model)}
               <tr class="hover:bg-gray-50/60 dark:hover:bg-dark-elevated/50">
                 <td class="px-3 py-2 text-center">
                   <input type="checkbox" aria-label={`Apply pricing for ${item.provider_key}/${item.model}`} checked={selectedPreview.includes(key)} disabled={!item.matched || applying || previewLoading} onchange={() => togglePreview(item)} class="h-3 w-3" />
@@ -712,15 +717,22 @@
                 <td class="px-3 py-2 text-xs text-gray-500 dark:text-dark-text-muted">
                   {#if item.matched}
                     <div class="font-mono">{item.source_provider}/{item.source_model}</div>
+                    {#if reference?.notes}
+                      <p class="mt-1 max-w-sm text-gray-600 dark:text-dark-text-secondary">{reference.notes}</p>
+                      {#if reference.manual_only}
+                        <p class="mt-1 max-w-sm">Fixed pricing profile; rates do not switch automatically per request.</p>
+                      {/if}
+                      <a href={reference.url} target="_blank" rel="noopener noreferrer" class="underline underline-offset-2">Official pricing · verified {reference.verified_at}</a>
+                    {/if}
                     <div class="text-gray-500 dark:text-dark-text-muted">{item.match_type === 'manual_mapping' ? 'Manual match · pending apply' : item.match_type === 'saved_mapping' ? 'Saved match' : `${item.match_type} · ${Math.round((item.confidence || 0) * 100)}%`}</div>
                   {:else}
                     <span class="text-gray-400 dark:text-dark-text-muted">No source match</span>
                   {/if}
-                  {#if sourceCatalog.length > 0 && (!item.matched || item.match_type === 'manual_mapping' || item.match_type === 'saved_mapping')}
+                  {#if sourceCatalog.length > 0}
                     <div class="mt-2 w-64 space-y-1.5">
-                      <input type="search" aria-label={`Search source models for ${item.provider_key}/${item.model}`} bind:value={matchSearch[key]} placeholder="Search catalog models" disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50" />
-                      <select aria-label={`Source model for ${item.provider_key}/${item.model}`} value={manualMatches[key] || ''} onchange={(event) => selectManualMatch(item, event.currentTarget.value)} disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50">
-                        <option value="">{item.match_type === 'saved_mapping' ? 'Keep saved match' : 'Select source model'}</option>
+                      <input type="search" aria-label={`Search price references for ${item.provider_key}/${item.model}`} bind:value={matchSearch[key]} placeholder="Search pricing catalog" disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50" />
+                      <select aria-label={`Price reference for ${item.provider_key}/${item.model}`} value={manualMatches[key] || ''} onchange={(event) => selectManualMatch(item, event.currentTarget.value)} disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50">
+                        <option value="">{item.matched ? 'Keep current price reference' : 'Select price reference from catalog'}</option>
                         {#each matchingCatalog(key) as entry}
                           <option value={catalogKey(entry)}>{entry.provider}/{entry.model} · {price(entry.prompt_price_per_1m)} / {price(entry.completion_price_per_1m)}</option>
                         {/each}

@@ -146,9 +146,6 @@ func (s *Server) revalidateRuntimeExecution(ctx context.Context, provenance serv
 			return service.ExecutionValidation{}, service.ErrExecutionDenied
 		}
 		live, _, resolveErr := workspaces.ResolveWorkspaceAccess(ctx, binding.WorkspaceID, binding.UserID, "")
-		if live.PlatformAdmin {
-			return service.ExecutionValidation{}, service.ErrExecutionDenied
-		}
 		err = resolveErr
 		ctx = service.WithAccessPrincipal(ctx, live)
 	} else {

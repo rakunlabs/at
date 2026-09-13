@@ -78,7 +78,7 @@
 <section class="space-y-3 border-b border-gray-200 dark:border-dark-border pb-4" aria-label="Execution identity" aria-busy={loading || busy}>
   <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Execution identity</h3>
   <p class="text-xs text-gray-600 dark:text-dark-text-secondary max-w-prose">
-    {kind === 'bot' ? 'Bot messages' : 'MCP tool calls'} run with this workspace member's permissions, independently of your login session.
+    {kind === 'bot' ? 'Bot messages' : 'MCP tool calls'} run with the selected account's permissions, independently of your login session.
     After changing permissions or execution policy, renew this binding.
   </p>
   <p class="text-xs text-gray-600 dark:text-dark-text-secondary max-w-prose">
@@ -95,7 +95,7 @@
         <div class="flex-1 min-w-0 space-y-1">
           <label for={inputId} class="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Run as</label>
           <select id={inputId} bind:value={user} disabled={busy} class="w-full min-w-0 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text px-3 py-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50">
-            <option value="">Select a workspace member</option>
+            <option value="">Select an account</option>
             {#each candidates as candidate (candidate.user_id)}
               <option value={candidate.user_id}>{candidate.name} ({candidate.role})</option>
             {/each}
@@ -106,7 +106,7 @@
         </button>
       </div>
     {:else if !error}
-      <p class="text-sm text-gray-600 dark:text-dark-text-secondary">No eligible member is available. Add an active, non-platform user to this workspace in Workspace Members, then reload.</p>
+      <p class="text-sm text-gray-600 dark:text-dark-text-secondary">No eligible account is available. Enable execution for this workspace and add an active member, then reload.</p>
     {/if}
     <div class="flex flex-wrap gap-4 text-xs">
       <button type="button" onclick={() => load(kind, subjectId)} disabled={busy} class="underline underline-offset-2 text-gray-700 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50">Reload identity</button>

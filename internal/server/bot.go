@@ -74,6 +74,34 @@ func (s *Server) findOrCreateBotSession(ctx context.Context, platform, botConfig
 	return newSession.ID, defaultAgentID, nil
 }
 
+// botForAction admits the persisted workspace resource before consulting the
+// process-wide adapter map. Shared HTTP/MCP lifecycle operations must never use
+// an arbitrary bot ID as authority to stop or inspect an adapter.
+func (s *Server) botForAction(ctx context.Context, id, capability string) (*service.BotConfig, error) {
+	if s.botConfigStore == nil {
+		return nil, fmt.Errorf("bot config store unavailable")
+	}
+	bot, err := s.botConfigStore.GetBotConfig(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if bot == nil {
+		return nil, service.ErrAccessResourceNotFound
+	}
+	if actor, ok := service.AccessPrincipalFromContext(ctx); ok {
+		if store, ok := s.store.(service.WorkspaceStorer); ok {
+			actor, _, err = store.ResolveWorkspaceAccess(ctx, actor.WorkspaceID, actor.UserID, actor.SessionID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if !actor.Allows(capability, service.AccessResource{WorkspaceID: bot.WorkspaceID, ID: bot.ID}) {
+			return nil, service.ErrAccessDenied
+		}
+	}
+	return bot, nil
+}
+
 // collectAgenticResponse runs the agentic loop and returns its terminal text.
 // Intermediate content often narrates an upcoming tool call and should not be
 // prefixed to the final message sent by bot adapters.

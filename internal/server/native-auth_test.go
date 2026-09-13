@@ -388,7 +388,12 @@ func TestNativeAuthProductionRoutesPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	admin := nativeLoginCookie(t, s.server, "admin")
-	if w := nativeRequest(s.server, "GET", "/at/api/v1/info", "", "", admin); w.Code != 200 {
+	if w := nativeRequest(s.server, "GET", "/at/api/v1/info", "", "", admin); w.Code != http.StatusBadRequest {
+		t.Fatalf("info without selected workspace: %d %s", w.Code, w.Body)
+	}
+	if w := nativeRequest(s.server, "GET", "/at/api/v1/info", "", "", admin, func(r *http.Request) {
+		r.Header.Set("X-AT-Workspace-ID", "legacy-default")
+	}); w.Code != 200 {
 		t.Fatalf("admin info: %d %s", w.Code, w.Body)
 	}
 	if w := nativeRequest(s.server, "GET", "/at/gateway/v1/models", "", "", admin); w.Code != 401 {

@@ -19,6 +19,7 @@ import (
 )
 
 const (
+	atPricingSource            = "at-pricing"
 	llmPricesPricingSource     = "llm-prices"
 	llmPricesCurrentURL        = "https://www.llm-prices.com/current-v1.json"
 	pricingAgentSourceMaxBytes = 512 << 10
@@ -38,6 +39,15 @@ type modelPricingSyncSource struct {
 }
 
 var modelPricingSyncSources = []modelPricingSyncSource{
+	{
+		modelPricingSyncSourceInfo: modelPricingSyncSourceInfo{
+			Source:      atPricingSource,
+			Label:       "AT Pricing",
+			URL:         atPricingURL,
+			Description: "Reviewed provider pricing maintained in rakunlabs/at on GitHub.",
+		},
+		fetchCatalog: fetchATModelPricing,
+	},
 	{
 		modelPricingSyncSourceInfo: modelPricingSyncSourceInfo{
 			Source:      llmPricesPricingSource,
@@ -128,6 +138,7 @@ type modelPricingAgentPreviewRequest struct {
 }
 
 type modelPricingSourceMatch struct {
+	ExactPricing         bool
 	Provider             string
 	Model                string
 	URL                  string
@@ -138,10 +149,15 @@ type modelPricingSourceMatch struct {
 }
 
 type modelPricingSourceItem struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-	Name     string `json:"name,omitempty"`
-	URL      string `json:"url,omitempty"`
+	ExactPricing bool     `json:"exact_pricing,omitempty"`
+	ManualOnly   bool     `json:"manual_only,omitempty"`
+	Aliases      []string `json:"aliases,omitempty"`
+	Notes        string   `json:"notes,omitempty"`
+	VerifiedAt   string   `json:"verified_at,omitempty"`
+	Provider     string   `json:"provider"`
+	Model        string   `json:"model"`
+	Name         string   `json:"name,omitempty"`
+	URL          string   `json:"url,omitempty"`
 
 	SourceProvider string `json:"source_provider,omitempty"`
 	SourceModel    string `json:"source_model,omitempty"`
@@ -174,13 +190,13 @@ func (s *Server) PreviewModelPricingSyncAPI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	req := modelPricingSyncPreviewRequest{Source: llmPricesPricingSource}
+	req := modelPricingSyncPreviewRequest{Source: atPricingSource}
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
 	req.Source = strings.TrimSpace(req.Source)
 	if req.Source == "" {
-		req.Source = llmPricesPricingSource
+		req.Source = atPricingSource
 	}
 	source, ok := modelPricingSyncSourceByName(req.Source)
 	if !ok {
@@ -217,7 +233,7 @@ func (s *Server) ApplyModelPricingSyncAPI(w http.ResponseWriter, r *http.Request
 	}
 	req.Source = strings.TrimSpace(req.Source)
 	if req.Source == "" {
-		req.Source = llmPricesPricingSource
+		req.Source = atPricingSource
 	}
 	if _, ok := modelPricingSyncSourceByName(req.Source); !ok && len(req.PreviewItems) == 0 {
 		httpResponse(w, "preview_items are required for unregistered pricing sync sources", http.StatusBadRequest)
@@ -501,7 +517,10 @@ func (s *Server) buildPricingPreview(ctx context.Context, source string, match f
 		current[item.ProviderKey+"\x00"+item.Model] = item
 	}
 
-	models := s.configuredPricingModels()
+	models, err := s.configuredPricingModels(ctx)
+	if err != nil {
+		return nil, err
+	}
 	items := make([]modelPricingSyncPreviewItem, 0, len(models))
 	for _, model := range models {
 		item := modelPricingSyncPreviewItem{
@@ -543,7 +562,7 @@ func (s *Server) buildPricingPreview(ctx context.Context, source string, match f
 // catalog only publishes base input/output prices. Anthropic's five-minute
 // prompt cache charges 1.25x input for writes and 0.1x input for reads.
 func applyCachePricingDefaults(providerType string, src modelPricingSourceMatch) modelPricingSourceMatch {
-	if providerType != "anthropic" || src.PromptPricePer1M <= 0 {
+	if src.ExactPricing || providerType != "anthropic" || src.PromptPricePer1M <= 0 {
 		return src
 	}
 	if src.CacheReadPricePer1M == 0 {
@@ -564,6 +583,18 @@ func (s *Server) buildAgentPricingPreview(ctx context.Context, req modelPricingA
 	s.providerMu.RLock()
 	info, ok := s.providers[providerKey]
 	s.providerMu.RUnlock()
+	if _, scoped := s.store.(service.WorkspaceProviderStorer); scoped {
+		var err error
+		ctx, err = s.bindRuntimePrincipal(ctx, "pricing-agent")
+		if err != nil {
+			return nil, err
+		}
+		info, err = s.getExecutionProviderInfo(ctx, providerKey)
+		if err != nil {
+			return nil, err
+		}
+		ok = true
+	}
 	if !ok || info.provider == nil {
 		return nil, fmt.Errorf("provider %q not found", providerKey)
 	}
@@ -595,7 +626,10 @@ func (s *Server) buildAgentPricingPreview(ctx context.Context, req modelPricingA
 		instruction = "Find current model pricing for the configured AT provider models. Return input, output, cache read, and cache write prices in USD per 1M tokens."
 	}
 
-	targets := s.configuredPricingModels()
+	targets, err := s.configuredPricingModels(ctx)
+	if err != nil {
+		return nil, err
+	}
 	prompt := buildPricingAgentPrompt(instruction, fallbackURL, sourceText, targets, req.WebSearch)
 	temperature := 0.1
 	opts := &service.ChatOptions{
@@ -850,6 +884,23 @@ func nonNegativePrice(value float64) float64 {
 }
 
 func matchModelPricingSource(catalog []modelPricingSourceItem, providerType, model string) (modelPricingSourceMatch, string, float64, bool) {
+	// AT entries use verified exact IDs/aliases and vendor-aware matching. Keep
+	// the older source's normalization behavior for existing llm-prices mappings.
+	var legacy []modelPricingSourceItem
+	var own []modelPricingSourceItem
+	for _, item := range catalog {
+		if item.ExactPricing {
+			own = append(own, item)
+		} else {
+			legacy = append(legacy, item)
+		}
+	}
+	if len(own) > 0 {
+		if src, kind, confidence, ok := matchATModelPricing(own, providerType, model); ok {
+			return src, kind, confidence, true
+		}
+	}
+	catalog = legacy
 	providers := pricingProviderAliases(providerType)
 	for _, provider := range providers {
 		for _, item := range catalog {
@@ -893,6 +944,7 @@ func matchModelPricingSource(catalog []modelPricingSourceItem, providerType, mod
 
 func sourceItemMatch(item modelPricingSourceItem) modelPricingSourceMatch {
 	return modelPricingSourceMatch{
+		ExactPricing:         item.ExactPricing,
 		Provider:             item.Provider,
 		Model:                item.Model,
 		URL:                  item.URL,
@@ -903,7 +955,20 @@ func sourceItemMatch(item modelPricingSourceItem) modelPricingSourceMatch {
 	}
 }
 
-func (s *Server) configuredPricingModels() []configuredPricingModel {
+func (s *Server) configuredPricingModels(ctx context.Context) ([]configuredPricingModel, error) {
+	if store, ok := s.store.(service.WorkspaceProviderCatalogStorer); ok {
+		catalog, err := store.ListWorkspaceProviderCatalog(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("load workspace pricing models: %w", err)
+		}
+		models := []configuredPricingModel{}
+		for _, provider := range catalog {
+			for _, model := range provider.Models {
+				models = append(models, configuredPricingModel{ProviderKey: provider.Key, ProviderType: provider.Type, Model: model})
+			}
+		}
+		return models, nil
+	}
 	s.providerMu.RLock()
 	defer s.providerMu.RUnlock()
 	models := make([]configuredPricingModel, 0, len(s.providers))
@@ -918,7 +983,7 @@ func (s *Server) configuredPricingModels() []configuredPricingModel {
 			models = append(models, configuredPricingModel{ProviderKey: key, ProviderType: info.providerType, Model: model})
 		}
 	}
-	return models
+	return models, nil
 }
 
 func pricingPreviewStatus(item modelPricingSyncPreviewItem) string {

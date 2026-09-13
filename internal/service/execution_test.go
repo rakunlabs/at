@@ -158,6 +158,58 @@ func TestExecutionVersionFence(t *testing.T) {
 	}
 }
 
+func TestExecutionAllowAll(t *testing.T) {
+	for _, kind := range []string{"tool", "node"} {
+		for _, name := range ExecutionCapabilityNames(kind) {
+			var known bool
+			if kind == "tool" {
+				_, known = ExecutionToolClass(name)
+			} else {
+				_, known = ExecutionNodeClass(name)
+			}
+			if !known {
+				t.Fatalf("picker advertised unknown %s %q", kind, name)
+			}
+		}
+	}
+	var revoked atomic.Bool
+	p := ExecutionPolicy{WorkspaceID: "w", Mode: ExecutionTrustedHost, GrantedBy: "admin", AllowAllTools: true, AllowAllNodes: true}
+	ctx := executionTestContext(t, t.TempDir(), p, false, &revoked)
+	for _, action := range []ExecutionAction{
+		{Kind: "tool", Name: "bash_execute"}, {Kind: "node", Name: "exec"},
+		{Kind: "skill_tool", Name: "render", ResourceID: "skill"},
+		{Kind: "mcp_tool", Name: "search", ResourceID: "set"},
+		{Kind: "delegate", Name: "delegate_to_writer", ResourceID: "agent"},
+		{Kind: "inline_tool", Name: "inline"},
+	} {
+		if err := CheckExecution(ctx, action); err != nil {
+			t.Fatalf("allow all %+v: %v", action, err)
+		}
+	}
+	for _, action := range []ExecutionAction{
+		{Kind: "tool", Name: "unknown_tool"}, {Kind: "node", Name: "unknown_node"},
+		{Kind: "skill_tool", Name: "render"},
+		{Kind: "tool", Name: "file_read", WorkspaceID: "other"},
+		{Kind: "skill_tool", Name: "render", ResourceID: "other-workspace-resource"},
+	} {
+		if CheckExecution(ctx, action) == nil {
+			t.Fatalf("allow all bypassed admission: %+v", action)
+		}
+	}
+	p.Mode = ExecutionRestricted
+	restricted := executionTestContext(t, t.TempDir(), p, false, &revoked)
+	if CheckExecution(restricted, ExecutionAction{Kind: "tool", Name: "bash_execute"}) == nil {
+		t.Fatal("allow all bypassed host mode")
+	}
+	if err := CheckExecution(restricted, ExecutionAction{Kind: "tool", Name: "file_read"}); err != nil {
+		t.Fatal(err)
+	}
+	revoked.Store(true)
+	if CheckExecution(ctx, ExecutionAction{Kind: "tool", Name: "file_read"}) == nil {
+		t.Fatal("allow all bypassed revocation")
+	}
+}
+
 func TestPlatformExecutionRequiresExplicitLiveAdmin(t *testing.T) {
 	var admin atomic.Bool
 	validate := func(context.Context, ExecutionProvenance, ExecutionAction) (ExecutionValidation, error) {

@@ -1,0 +1,9 @@
+{
+  "provider":"deepseek",
+  "models":[
+    {"model":"deepseek-flash@peak","manual_only":true,"source_url":"https://api-docs.deepseek.com/quick_start/pricing","verified_at":"2026-09-13","notes":"Peak: Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. Cache misses billed as input, no separate write fee. Also serves legacy deepseek-v4-flash names.","input":0.3,"output":1.2,"cache_read":0.006,"cache_write":0},
+    {"model":"deepseek-flash@off-peak","manual_only":true,"source_url":"https://api-docs.deepseek.com/quick_start/pricing","verified_at":"2026-09-13","notes":"Off-peak: outside Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. No separate cache-write fee. Mapping does not switch rates by time.","input":0.15,"output":0.6,"cache_read":0.003,"cache_write":0},
+    {"model":"deepseek-v4-pro@peak","manual_only":true,"source_url":"https://api-docs.deepseek.com/quick_start/pricing","verified_at":"2026-09-13","notes":"Peak: Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. Cache misses billed as input, no separate write fee.","input":1.32,"output":3.96,"cache_read":0.044,"cache_write":0},
+    {"model":"deepseek-v4-pro@off-peak","manual_only":true,"source_url":"https://api-docs.deepseek.com/quick_start/pricing","verified_at":"2026-09-13","notes":"Off-peak: outside Mon-Fri 01:00-04:00 and 06:00-10:00 UTC. No separate cache-write fee. Mapping does not switch rates by time.","input":0.66,"output":1.98,"cache_read":0.022,"cache_write":0}
+  ]
+}

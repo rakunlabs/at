@@ -86,7 +86,7 @@ func (s *Server) RuntimeExecutionPolicyAPI(w http.ResponseWriter, r *http.Reques
 			httpResponse(w, "cannot load execution policy", http.StatusInternalServerError)
 			return
 		}
-		httpResponseJSON(w, map[string]any{"policy": policy, "isolated_worker_supported": false, "trusted_host_is_tenant_isolation": false}, http.StatusOK)
+		httpResponseJSON(w, map[string]any{"policy": policy, "available_tools": service.ExecutionCapabilityNames("tool"), "available_nodes": service.ExecutionCapabilityNames("node"), "isolated_worker_supported": false, "trusted_host_is_tenant_isolation": false}, http.StatusOK)
 		return
 	}
 	if r.Method != http.MethodPut {
@@ -336,7 +336,7 @@ func (s *Server) runtimeServiceBindingAPI(w http.ResponseWriter, r *http.Request
 	}
 	binding, err := s.saveRuntimeBinding(r.Context(), kind, r.PathValue("id"), false, runAs)
 	if err != nil {
-		httpResponse(w, "execution binding denied: select an active non-platform workspace member whose permissions you can delegate", http.StatusForbidden)
+		httpResponse(w, "execution binding denied: select an active account whose permissions you can delegate", http.StatusForbidden)
 		return
 	}
 	if kind == "bot" {
@@ -369,11 +369,20 @@ func (s *Server) runtimeBindingCandidates(ctx context.Context) ([]runtimeBinding
 		if err != nil {
 			return nil, err
 		}
+		// Platform administrators can access a workspace without an explicit
+		// membership row. Include the current administrator in that case.
+		found := false
+		for _, member := range members {
+			found = found || member.UserID == actor.UserID
+		}
+		if !found {
+			members = append(members, service.WorkspaceMembership{UserID: actor.UserID})
+		}
 	}
 	out := make([]runtimeBindingCandidate, 0, len(members))
 	for _, member := range members {
 		live, _, err := store.ResolveWorkspaceAccess(ctx, actor.WorkspaceID, member.UserID, "")
-		if err != nil || live.PlatformAdmin || live.ExecutionDisabled {
+		if err != nil || live.ExecutionDisabled {
 			continue
 		}
 		name := member.UserID
@@ -382,7 +391,11 @@ func (s *Server) runtimeBindingCandidates(ctx context.Context) ([]runtimeBinding
 				name = user.Username
 			}
 		}
-		out = append(out, runtimeBindingCandidate{UserID: member.UserID, Name: name, Role: live.Role})
+		role := live.Role
+		if live.PlatformAdmin {
+			role = "platform administrator"
+		}
+		out = append(out, runtimeBindingCandidate{UserID: member.UserID, Name: name, Role: role})
 	}
 	return out, nil
 }

@@ -17,7 +17,7 @@ import (
 // ─── API Token CRUD ───
 
 func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.ListResult[service.APIToken], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableAPITokens, q, "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by")
+	sql, total, err := p.buildListQuery(ctx, p.tableAPITokens, q, "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by", "workspace_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list tokens query: %w", err)
 	}
@@ -39,6 +39,7 @@ func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.
 			&t.AllowedMCPsMode, &t.AllowedMCPs,
 			&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 			&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
+			&t.WorkspaceID,
 		); err != nil {
 			return nil, fmt.Errorf("scan api_token row: %w", err)
 		}
@@ -55,6 +56,28 @@ func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.
 			Limit:  limit,
 		},
 	}, rows.Err()
+}
+
+func (p *Postgres) AuthorizeAPITokenManagement(ctx context.Context, id, capability string) error {
+	if capability != "tokens.read" && capability != "tokens.write" {
+		return service.ErrAccessDenied
+	}
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return err
+	}
+	if !a.Allows(capability, service.AccessResource{WorkspaceID: a.WorkspaceID, ID: id}) {
+		return service.ErrAccessDenied
+	}
+	var owned string
+	found, err := p.goqu.From(p.tableAPITokens).Select("id").Where(goqu.Ex{"id": id, "workspace_id": a.WorkspaceID}).ScanValContext(ctx, &owned)
+	if err != nil {
+		return fmt.Errorf("authorize token management: %w", err)
+	}
+	if !found {
+		return service.ErrAccessResourceNotFound
+	}
+	return nil
 }
 
 func (p *Postgres) GetAPITokenByHash(ctx context.Context, hash string) (*service.APIToken, error) {

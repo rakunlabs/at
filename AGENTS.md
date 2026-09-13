@@ -174,14 +174,64 @@ upstream OpenAI when none of them are present.
 
 ## Runtime configuration
 
+### Selected-workspace provider catalog and workflows
+
+`GET /api/v1/info` is workspace-admitted. Its provider/model list comes from
+`ListWorkspaceProviderCatalog`, not the process-wide gateway registry; it includes
+local providers and explicitly shared providers, without decrypting credentials.
+Default-workspace providers may set `config.shared_with_all_workspaces` through
+the Providers editor's **Make available to all workspaces** checkbox. Only a
+platform administrator may create or modify globally shared providers. Sharing
+applies to existing and future workspaces; local keys take precedence, explicit
+per-workspace model grants remain restrictive, and runtime model-use checks still
+apply. The management CRUD list remains the selected workspace's owned providers.
+
+Workflow CRUD, versions, activation, nested triggers, run/run-stream, and active
+run listing/cancellation use selected-workspace admission. Active runs capture
+their workspace at registration; one workspace cannot list or cancel another's
+run. Existing workflows remain in their persisted workspace (legacy data in
+Default); switching workspace changes visibility rather than moving records.
+
+Bots CRUD/start/stop/status and API token CRUD/usage/reset also use selected-
+workspace admission. Bot lifecycle helpers check the persisted workspace before
+touching the global adapter map, including MCP builtin calls. Token management
+usage access has its own ownership guard, separate from gateway accounting.
+Workspace switching preserves the current hash route and reloads it to clear
+the previous workspace's cached data.
+
+Model discovery endpoints retain the selected workspace when resolving stored
+credentials. Anthropic discovery uses `/v1/models`, refreshes/persists Claude
+OAuth credentials when needed, normalizes `/v1` and `/v1/messages` base URLs,
+and reports upstream failures instead of returning `models: null`.
+Pricing previews and AI pricing targets use the workspace provider catalog;
+the price-reference dropdown is the external pricing catalog, not the user's
+provider-model list. Price records themselves remain installation-wide.
+
+Claude, Copilot and ChatGPT first-authorization routes use the same workspace
+admission as provider CRUD. PKCE/device-flow state is keyed by workspace, provider
+ID and initiating user/session. Token-save helpers retain the initiating context;
+workspace-local authorizations never overwrite the global gateway registry.
+`provider-auth-workspace_test.go` exercises the Providers page's create → OAuth
+start → callback/token-paste flow through real native HTTP auth and PostgreSQL.
+
+Bots' optional Long Video picker calls the installation-admin-only
+`GET /api/v1/bots/video-templates` catalog. It returns validated template IDs/names
+from the fixed Studio library used by Telegram dispatch, rather than requiring
+arbitrary host-file browse permission to configure ordinary custom commands.
+
 ### Bot and gateway MCP execution identities
 
 Bot dispatch and gateway MCP execution use revocable `execution_service_bindings`
 (`bot` / `mcp` / `trigger`), independent of browser sessions. Bots and MCP Servers
-editors expose **Execution identity → Run as**: select an active non-platform
-workspace member. For existing records, configure this once; there is no inferred
-administrator identity. Configure the workspace's execution policy first (the
-current builtin registry requires trusted-host plus explicit `allowed_tools`),
+editors expose **Execution identity → Run as**: select an active workspace member
+or a platform administrator (administrator identities may only be bound by a
+platform administrator). The current administrator is listed even without an
+explicit workspace membership row. Configure the workspace's execution policy
+first: **Allow all tools and node types** selects trusted-host mode and persists
+`allow_all_tools` / `allow_all_nodes`, including future registered implementations
+and dynamic skill/MCP/delegation tools. Individual permissions use registry-backed
+checkbox lists. These options retain live resource, membership and policy checks.
+For existing records, configure the identity once;
 then bind/renew. A policy or membership version change requires renewal. Bot
 binding renewal stops the old adapter; **Bind & start bot** starts the new one.
 
@@ -202,6 +252,14 @@ PostgreSQL for gateway initialize/list/tool-call, token workspace scoping,
 browser logout, identity revocation, bot message persistence/reply, binding UI
 APIs and credential redaction. Set `AT_TEST_POSTGRES_DSN` or run `make env` so
 these tests execute rather than skip. Migration 48 adds the `mcp` binding kind.
+
+Claude Code OAuth refreshes persist through `ClaudeOAuthTokenStorer` using the
+provider's workspace and the previous refresh credential, rather than unscoped
+human CRUD. Rotation is encrypted, transactional and rejects stale credentials;
+the token source retries failed persistence before issuing another token without
+rotating again. Both gateway and scoped agent provider instances wire this callback.
+An already-invalid refresh token still requires reauthorization; a restart cannot
+recover a rotated token that an earlier version never persisted.
 
 LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
 

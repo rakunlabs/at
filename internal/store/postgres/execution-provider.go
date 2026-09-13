@@ -23,7 +23,7 @@ func (p *Postgres) ExecutionProviderDefaultModel(ctx context.Context, key string
 		return "", fmt.Errorf("resolve model metadata: %w", err)
 	}
 	if !found {
-		found, err = p.goqu.From(p.tableProviders).Select(goqu.L("COALESCE(config->>'model','')")).Where(goqu.Ex{"key": key, "workspace_id": "legacy-default"}, goqu.C("id").In(p.goqu.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": actor.WorkspaceID}))).ScanValContext(ctx, &model)
+		found, err = p.goqu.From(p.tableProviders).Select(goqu.L("COALESCE(config->>'model','')")).Where(goqu.Ex{"key": key, "workspace_id": "legacy-default"}, goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(p.goqu.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": actor.WorkspaceID})))).ScanValContext(ctx, &model)
 	}
 	if err != nil {
 		return "", fmt.Errorf("resolve granted model metadata: %w", err)

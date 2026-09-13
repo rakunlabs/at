@@ -1,0 +1,7 @@
+{
+  "provider":"cohere",
+  "models":[
+    {"model":"command-r-plus-08-2024","source_url":"https://cohere.com/pricing","verified_at":"2026-09-13","notes":"Legacy-model production API rate for existing customers; no separately billed prompt cache in this API.","input":2.5,"output":10,"cache_read":0,"cache_write":0},
+    {"model":"c4ai-aya-expanse-32b","source_url":"https://cohere.com/pricing","verified_at":"2026-09-13","notes":"Aya Expanse production API rate; no separately billed prompt cache in this API.","input":0.5,"output":1.5,"cache_read":0,"cache_write":0}
+  ]
+}

@@ -1,11 +1,9 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, startBot, stopBot, getBotStatus, type BotConfig, type BotCustomCommand, type BotStatus } from '@/lib/api/bots';
+  import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, startBot, stopBot, getBotStatus, listBotVideoTemplates, type BotConfig, type BotCustomCommand, type BotStatus, type BotVideoTemplate } from '@/lib/api/bots';
   import { listAgents, type Agent } from '@/lib/api/agents';
   import { listOrganizations, type Organization } from '@/lib/api/organizations';
-  import { getInfo } from '@/lib/api/gateway';
-  import { loadVideoTemplates, type VideoTemplate } from '@/lib/api/studio-video-templates';
   import { Trash2, Plus, X, Pencil, Radio, RefreshCw, Save, Play, Square } from 'lucide-svelte';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -52,7 +50,7 @@
   let formSpeechToText = $state('openai');
   let formWhisperModel = $state('base');
   let formCustomCommands = $state<BotCustomCommand[]>([]);
-  let videoTemplates = $state<VideoTemplate[]>([]);
+  let videoTemplates = $state<BotVideoTemplate[]>([]);
   let templatesLoading = $state(false);
   let templatesError = $state('');
   let templatesRequest = 0;
@@ -66,16 +64,13 @@
     templatesLoading = true;
     templatesError = '';
     try {
-      const info = await getInfo();
-      if (request !== templatesRequest) return;
-      if (!info.assets_root) throw new Error('The server did not report its assets root.');
-      const templates = await loadVideoTemplates(info.assets_root, (message) => {
-        if (request === templatesRequest) templatesError = `${message} Retry before saving a bound command.`;
-      });
+      const templates = await listBotVideoTemplates();
       if (request === templatesRequest) videoTemplates = templates;
     } catch (e: any) {
       if (request !== templatesRequest) return;
-      templatesError = e?.response?.data?.message || e?.message || 'Could not load Long Video templates.';
+      templatesError = e?.response?.status === 403
+        ? 'Long Video templates require administrator access. Regular custom commands can still be saved.'
+        : e?.response?.data?.message || 'Could not load Long Video templates. Retry loading templates; regular custom commands can still be saved.';
       videoTemplates = [];
     } finally {
       if (request === templatesRequest) templatesLoading = false;

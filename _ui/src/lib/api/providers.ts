@@ -21,6 +21,7 @@ export interface RateLimitConfig {
 
 export interface LLMConfig {
   type: string;
+  shared_with_all_workspaces?: boolean;
   api_key?: string;
   base_url?: string;
   model: string;

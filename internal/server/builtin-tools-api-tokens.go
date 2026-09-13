@@ -275,6 +275,9 @@ func (s *Server) execAPITokenGetUsage(ctx context.Context, args map[string]any) 
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
+	if err := s.authorizeTokenManagement(ctx, id, "tokens.read"); err != nil {
+		return "", err
+	}
 	usage, err := s.tokenUsageStore.GetTokenUsage(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("get token usage: %w", err)
@@ -297,8 +300,18 @@ func (s *Server) execAPITokenResetUsage(ctx context.Context, args map[string]any
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
+	if err := s.authorizeTokenManagement(ctx, id, "tokens.write"); err != nil {
+		return "", err
+	}
 	if err := s.tokenUsageStore.ResetTokenUsage(ctx, id); err != nil {
 		return "", fmt.Errorf("reset token usage %q: %w", id, err)
 	}
 	return fmt.Sprintf(`{"status":"reset","id":%q}`, id), nil
+}
+
+func (s *Server) authorizeTokenManagement(ctx context.Context, id, capability string) error {
+	if store, ok := s.tokenStore.(service.APITokenManagementStorer); ok {
+		return store.AuthorizeAPITokenManagement(ctx, id, capability)
+	}
+	return nil
 }

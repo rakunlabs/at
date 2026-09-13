@@ -57,6 +57,9 @@ func (s *Server) ListBotConfigsAPI(w http.ResponseWriter, r *http.Request) {
 	records, err := s.botConfigStore.ListBotConfigs(r.Context(), q)
 	if err != nil {
 		slog.Error("list bot configs failed", "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to list bot configs: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -84,6 +87,9 @@ func (s *Server) GetBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 	record, err := s.botConfigStore.GetBotConfig(r.Context(), id)
 	if err != nil {
 		slog.Error("get bot config failed", "id", id, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to get bot config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -131,6 +137,9 @@ func (s *Server) CreateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 	record, err := s.botConfigStore.CreateBotConfig(r.Context(), req)
 	if err != nil {
 		slog.Error("create bot config failed", "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to create bot config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -176,6 +185,9 @@ func (s *Server) UpdateBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 	record, err := s.botConfigStore.UpdateBotConfig(r.Context(), id, req)
 	if err != nil {
 		slog.Error("update bot config failed", "id", id, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to update bot config: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -217,6 +229,10 @@ func (s *Server) DeleteBotConfigAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if _, err := s.botForAction(r.Context(), id, "bots.write"); err != nil {
+		workspaceError(w, err)
+		return
+	}
 	if err := s.botConfigStore.DeleteBotConfig(r.Context(), id); err != nil {
 		slog.Error("delete bot config failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to delete bot config: %v", err), http.StatusInternalServerError)
@@ -239,10 +255,10 @@ func (s *Server) StartBotAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id := r.PathValue("id")
-	record, err := s.botConfigStore.GetBotConfig(r.Context(), id)
+	record, err := s.botForAction(r.Context(), id, "bots.write")
 	if err != nil {
 		slog.Error("start bot: get config failed", "id", id, "error", err)
-		httpResponse(w, fmt.Sprintf("failed to get bot config: %v", err), http.StatusInternalServerError)
+		workspaceError(w, err)
 		return
 	}
 	if record == nil {
@@ -290,21 +306,27 @@ func (s *Server) StartBotAPI(w http.ResponseWriter, r *http.Request) {
 // StopBotAPI handles POST /api/v1/bots/{id}/stop.
 func (s *Server) StopBotAPI(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	record, err := s.botForAction(r.Context(), id, "bots.write")
+	if err != nil {
+		workspaceError(w, err)
+		return
+	}
 
-	if !s.stopBot(id) {
+	if !s.isBotRunning(id) {
 		httpResponse(w, "bot is not running", http.StatusConflict)
 		return
 	}
 
 	// Update enabled flag in DB.
-	if s.botConfigStore != nil {
-		record, _ := s.botConfigStore.GetBotConfig(r.Context(), id)
-		if record != nil && record.Enabled {
-			record.Enabled = false
-			record.UpdatedBy = s.getUserEmail(r)
-			s.botConfigStore.UpdateBotConfig(r.Context(), id, *record)
+	if record.Enabled {
+		record.Enabled = false
+		record.UpdatedBy = s.getUserEmail(r)
+		if _, err := s.botConfigStore.UpdateBotConfig(r.Context(), id, *record); err != nil {
+			workspaceError(w, err)
+			return
 		}
 	}
+	s.stopBot(id)
 
 	httpResponseJSON(w, map[string]any{
 		"status":  "stopped",
@@ -315,6 +337,10 @@ func (s *Server) StopBotAPI(w http.ResponseWriter, r *http.Request) {
 // GetBotStatusAPI handles GET /api/v1/bots/{id}/status.
 func (s *Server) GetBotStatusAPI(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	if _, err := s.botForAction(r.Context(), id, "bots.read"); err != nil {
+		workspaceError(w, err)
+		return
+	}
 
 	rb := s.getBotRunningInfo(id)
 	if rb != nil {

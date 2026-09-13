@@ -31,7 +31,7 @@
   load();
 
   let totalModels = $derived(
-    providers.reduce((sum, p) => sum + (p.models && p.models.length > 0 ? p.models.length : 1), 0)
+    providers.reduce((sum, p) => sum + (p.models && p.models.length > 0 ? p.models.length : p.default_model ? 1 : 0), 0)
   );
 
   let providerTypes = $derived(
@@ -171,7 +171,7 @@
 
     {#snippet row(p)}
       <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
-        <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{p.key}</td>
+        <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{p.key}{#if p.shared}<span class="ml-2 font-sans text-xs font-normal text-gray-500 dark:text-dark-text-muted">Shared</span>{/if}</td>
         <td class="px-4 py-2.5">
           <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{p.type}</span>
         </td>
@@ -181,7 +181,7 @@
             {p.models.length} model{p.models.length !== 1 ? 's' : ''}
             <span class="text-gray-400 dark:text-dark-text-muted ml-1" title={p.models.join(', ')}>{p.models.slice(0, 3).join(', ')}{p.models.length > 3 ? '...' : ''}</span>
           {:else}
-            1 model
+            {p.default_model ? '1 model' : 'No models configured'}
           {/if}
         </td>
       </tr>

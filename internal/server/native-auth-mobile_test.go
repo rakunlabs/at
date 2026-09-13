@@ -88,6 +88,9 @@ func TestMobileProductionRoutes(t *testing.T) {
 		r := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.body))
 		r.Header.Set("Authorization", "Bearer "+access)
 		r.Header.Set("Content-Type", "application/json")
+		if tt.path == "/at/api/v1/info" {
+			r.Header.Set("X-AT-Workspace-ID", "legacy-default")
+		}
 		w := httptest.NewRecorder()
 		s.server.ServeHTTP(w, r)
 		if w.Code != tt.status {

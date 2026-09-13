@@ -371,6 +371,9 @@ func (s *Server) execBotDelete(ctx context.Context, args map[string]any) (string
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
+	if _, err := s.botForAction(ctx, id, "bots.write"); err != nil {
+		return "", err
+	}
 	if err := s.botConfigStore.DeleteBotConfig(ctx, id); err != nil {
 		return "", fmt.Errorf("delete bot config %q: %w", id, err)
 	}
@@ -388,7 +391,7 @@ func (s *Server) execBotStart(ctx context.Context, args map[string]any) (string,
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
-	record, err := s.botConfigStore.GetBotConfig(ctx, id)
+	record, err := s.botForAction(ctx, id, "bots.write")
 	if err != nil {
 		return "", fmt.Errorf("get bot config %q: %w", id, err)
 	}
@@ -427,25 +430,31 @@ func (s *Server) execBotStop(ctx context.Context, args map[string]any) (string, 
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
-	if !s.stopBot(id) {
+	record, err := s.botForAction(ctx, id, "bots.write")
+	if err != nil {
+		return "", err
+	}
+	if !s.isBotRunning(id) {
 		return "", fmt.Errorf("bot %q is not running", id)
 	}
-	if s.botConfigStore != nil {
-		if record, _ := s.botConfigStore.GetBotConfig(ctx, id); record != nil && record.Enabled {
-			record.Enabled = false
-			record.UpdatedBy = "mcp"
-			if _, err := s.botConfigStore.UpdateBotConfig(ctx, id, *record); err != nil {
-				return "", fmt.Errorf("bot stopped but failed to persist enabled=false: %w", err)
-			}
+	if record.Enabled {
+		record.Enabled = false
+		record.UpdatedBy = "mcp"
+		if _, err := s.botConfigStore.UpdateBotConfig(ctx, id, *record); err != nil {
+			return "", fmt.Errorf("failed to disable bot before stopping: %w", err)
 		}
 	}
+	s.stopBot(id)
 	return fmt.Sprintf(`{"status":"stopped","id":%q}`, id), nil
 }
 
-func (s *Server) execBotStatus(_ context.Context, args map[string]any) (string, error) {
+func (s *Server) execBotStatus(ctx context.Context, args map[string]any) (string, error) {
 	id, _ := args["id"].(string)
 	if id == "" {
 		return "", fmt.Errorf("id is required")
+	}
+	if _, err := s.botForAction(ctx, id, "bots.read"); err != nil {
+		return "", err
 	}
 	rb := s.getBotRunningInfo(id)
 	resp := map[string]any{"id": id, "running": rb != nil}

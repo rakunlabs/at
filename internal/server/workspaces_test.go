@@ -368,6 +368,9 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 	call := func(method, path, user string) int {
 		r := httptest.NewRequest(method, path, strings.NewReader("{}"))
 		r.Header.Set("Content-Type", "application/json")
+		if path == "/at/api/v1/bots" {
+			r.Header.Set("X-AT-Workspace-ID", "legacy-default")
+		}
 		r.Header.Set("Origin", a.cfg.Origin)
 		r.AddCookie(cookies[user])
 		rec := httptest.NewRecorder()
@@ -384,7 +387,7 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 		{"PUT", "/at/api/v1/guides/abc", "reader", 200},
 		{"DELETE", "/at/api/v1/guides/abc", "reader", 200},
 		{"GET", "/at/api/v1/guides", "admin", 200},
-		// Administration is untouched by the shared-route allowance.
+		// Bots require workspace admission; this reader has no membership.
 		{"GET", "/at/api/v1/bots", "reader", 403},
 		{"GET", "/at/api/v1/bots", "admin", 200},
 	} {

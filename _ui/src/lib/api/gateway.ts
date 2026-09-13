@@ -7,6 +7,7 @@ const api = axios.create({
 // ─── Info API ───
 
 export interface InfoProvider {
+  shared?: boolean;
   key: string;
   type: string;
   default_model: string;

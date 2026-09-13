@@ -48,8 +48,8 @@ func TestModelPricingSyncSourceRegistry(t *testing.T) {
 	}
 
 	infos := listModelPricingSyncSourceInfos()
-	if len(infos) != 1 {
-		t.Fatalf("len(infos) = %d, want 1", len(infos))
+	if len(infos) != 2 || infos[0].Source != atPricingSource {
+		t.Fatalf("expected AT Pricing first and legacy source retained: %+v", infos)
 	}
 	if _, ok := modelPricingSyncSourceByName("pi.dev"); ok {
 		t.Fatal("removed pricing source is still registered")
@@ -231,7 +231,7 @@ func TestModelPricingManualMappingFlow(t *testing.T) {
 				"prod": {providerType: "anthropic", defaultModel: "my-deployment"},
 			}}
 			w := httptest.NewRecorder()
-			s.PreviewModelPricingSyncAPI(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`)))
+			s.PreviewModelPricingSyncAPI(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{"source":"llm-prices"}`)))
 			var preview modelPricingSyncPreviewResponse
 			if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil || w.Code != http.StatusOK {
 				t.Fatalf("preview: %d %s, %v", w.Code, w.Body.String(), err)
@@ -240,6 +240,7 @@ func TestModelPricingManualMappingFlow(t *testing.T) {
 				t.Fatalf("unexpected initial preview: %+v", preview)
 			}
 			req := modelPricingSyncApplyRequest{
+				Source:             llmPricesPricingSource,
 				OverwriteOverrides: tt.overwrite,
 				Items:              []modelPricingSyncKeyItem{{ProviderKey: "prod", Model: "my-deployment", SourceProvider: "anthropic", SourceModel: "claude-sonnet-4.5"}},
 				// A registered source must ignore browser-supplied prices.

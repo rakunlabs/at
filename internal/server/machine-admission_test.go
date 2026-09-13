@@ -248,6 +248,69 @@ func TestRuntimeBindingManagementAPI(t *testing.T) {
 	}
 }
 
+func TestMachineAdministratorRunAs(t *testing.T) {
+	f := newMachineFixture(t)
+	actor, _ := service.AccessPrincipalFromContext(f.ctx)
+	candidates, err := f.s.runtimeBindingCandidates(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed := false
+	for _, candidate := range candidates {
+		listed = listed || candidate.UserID == actor.UserID && candidate.Role == "platform administrator"
+	}
+	if !listed {
+		t.Fatal("current platform admin missing without membership row")
+	}
+	bot, err := f.store.CreateBotConfig(f.ctx, service.BotConfig{Name: "admin-bot", Platform: "telegram", Token: "admin-bot-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.s.saveRuntimeBinding(f.ctx, "bot", bot.ID, false, actor.UserID); err != nil {
+		t.Fatal(err)
+	}
+	bound, err := f.s.ResumeRuntimeSubject(t.Context(), "bot", bot.ID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.GetExecutionBotConfig(bound, bot.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.CheckExecution(bound, service.ExecutionAction{Kind: "tool", Name: "bash_execute"}); !errors.Is(err, service.ErrExecutionDenied) {
+		t.Fatalf("admin binding bypassed policy: %v", err)
+	}
+	if err := f.store.DeleteAuthSession(t.Context(), actor.SessionID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.CheckExecution(bound, service.ExecutionAction{Kind: "resource", Name: "bots.use", ResourceID: bot.ID}); err != nil {
+		t.Fatalf("admin service depended on browser login: %v", err)
+	}
+}
+
+func TestExecutionPolicyAllowAllPersists(t *testing.T) {
+	f := newMachineFixture(t)
+	actor, _ := service.AccessPrincipalFromContext(f.ctx)
+	ctx := service.WithAccessPrincipal(t.Context(), actor)
+	r := httptest.NewRequest(http.MethodPut, "/execution-policy", strings.NewReader(`{"mode":"trusted_host","version":1,"allow_all_tools":true,"allow_all_nodes":true}`)).WithContext(ctx)
+	r.SetPathValue("workspace", f.workspace)
+	w := httptest.NewRecorder()
+	f.s.RuntimeExecutionPolicyAPI(w, r)
+	if w.Code != 200 {
+		t.Fatalf("allow all policy: %d %s", w.Code, w.Body.String())
+	}
+	p, err := f.store.GetExecutionPolicy(ctx, f.workspace)
+	if err != nil || !p.AllowAllTools || !p.AllowAllNodes {
+		t.Fatalf("flags not persisted: %+v %v", p, err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "/execution-policy", nil).WithContext(ctx)
+	request.SetPathValue("workspace", f.workspace)
+	w = httptest.NewRecorder()
+	f.s.RuntimeExecutionPolicyAPI(w, request)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"available_tools"`) || !strings.Contains(w.Body.String(), `"available_nodes"`) {
+		t.Fatalf("permission picker: %d %s", w.Code, w.Body.String())
+	}
+}
+
 func TestBotMachineCredentialsDoNotDependOnSecretDTOGrants(t *testing.T) {
 	f := newMachineFixture(t)
 	member, err := f.store.CreateAuthUser(t.Context(), service.AuthUser{Username: "bot-runner"}, false)

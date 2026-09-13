@@ -58,6 +58,9 @@ func (s *Server) ListWorkflowsAPI(w http.ResponseWriter, r *http.Request) {
 	records, err := s.workflowStore.ListWorkflows(r.Context(), q)
 	if err != nil {
 		slog.Error("list workflows failed", "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to list workflows: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -85,6 +88,9 @@ func (s *Server) GetWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	record, err := s.workflowStore.GetWorkflow(r.Context(), id)
 	if err != nil {
 		slog.Error("get workflow failed", "id", id, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to get workflow: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -121,6 +127,9 @@ func (s *Server) CreateWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	record, err := s.workflowStore.CreateWorkflow(r.Context(), req)
 	if err != nil {
 		slog.Error("create workflow failed", "name", req.Name, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to create workflow: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -194,6 +203,9 @@ func (s *Server) UpdateWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 	record, err := s.workflowStore.UpdateWorkflow(r.Context(), id, req)
 	if err != nil {
 		slog.Error("update workflow failed", "id", id, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to update workflow: %v", err), http.StatusInternalServerError)
 		return
 	}

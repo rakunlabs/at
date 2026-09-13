@@ -307,6 +307,10 @@ func (s *Server) GetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.authorizeTokenManagement(r.Context(), id, "tokens.read"); err != nil {
+		workspaceError(w, err)
+		return
+	}
 	usage, err := s.tokenUsageStore.GetTokenUsage(r.Context(), id)
 	if err != nil {
 		slog.Error("get token usage failed", "id", id, "error", err)
@@ -334,6 +338,10 @@ func (s *Server) ResetTokenUsageAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := s.authorizeTokenManagement(r.Context(), id, "tokens.write"); err != nil {
+		workspaceError(w, err)
+		return
+	}
 	if err := s.tokenUsageStore.ResetTokenUsage(r.Context(), id); err != nil {
 		slog.Error("reset token usage failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to reset token usage: %v", err), http.StatusInternalServerError)

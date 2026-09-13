@@ -100,6 +100,13 @@ func (p *Postgres) validatePermissionResources(ctx context.Context, tx *goqu.TxD
 					return fmt.Errorf("validate model binding selector: %w", err)
 				}
 				found = n == 1
+				if !found {
+					n, err := tx.From(p.tableProviders).Where(goqu.Ex{"workspace_id": "legacy-default", "id": id}, goqu.L("config->>'shared_with_all_workspaces' = 'true'")).CountContext(ctx)
+					if err != nil {
+						return fmt.Errorf("validate shared model selector: %w", err)
+					}
+					found = n == 1
+				}
 			}
 			if !found {
 				return service.ErrAccessResourceNotFound

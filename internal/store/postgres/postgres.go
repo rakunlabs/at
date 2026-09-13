@@ -362,6 +362,9 @@ func (p *Postgres) CreateProvider(ctx context.Context, record service.ProviderRe
 	if record.WorkspaceID != "" && record.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
+	if record.Config.SharedWithAllWorkspaces && (!w.actor.PlatformAdmin || w.actor.WorkspaceID != "legacy-default") {
+		return nil, fmt.Errorf("only a platform administrator can share providers from the Default workspace: %w", service.ErrAccessDenied)
+	}
 	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID}) {
 		return nil, service.ErrAccessDenied
 	}
@@ -424,6 +427,9 @@ func (p *Postgres) UpdateProvider(ctx context.Context, key string, record servic
 		return nil, err
 	}
 	defer w.tx.Rollback()
+	if err := p.checkProviderSharingWrite(ctx, w, key, record.Config.SharedWithAllWorkspaces); err != nil {
+		return nil, err
+	}
 	if record.WorkspaceID != "" && record.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -482,6 +488,9 @@ func (p *Postgres) DeleteProvider(ctx context.Context, key string) error {
 		return err
 	}
 	defer w.tx.Rollback()
+	if err := p.checkProviderSharingWrite(ctx, w, key, false); err != nil {
+		return err
+	}
 	query, _, err := p.goqu.Delete(p.tableProviders).
 		Where(w.predicate, goqu.I("key").Eq(key)).
 		ToSQL()

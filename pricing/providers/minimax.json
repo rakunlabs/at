@@ -1,0 +1,12 @@
+{
+  "provider":"minimax",
+  "models":[
+    {"model":"MiniMax-M2.7","source_url":"https://platform.minimax.io/docs/guides/pricing-paygo","verified_at":"2026-09-13","notes":"Standard pay-as-you-go API, not Token Plan subscription pricing.","input":0.3,"output":1.2,"cache_read":0.06,"cache_write":0.375},
+    {"model":"MiniMax-M2.7-highspeed","source_url":"https://platform.minimax.io/docs/guides/pricing-paygo","verified_at":"2026-09-13","notes":"Highspeed pay-as-you-go API; cache prices are not multiplied with input/output.","input":0.6,"output":2.4,"cache_read":0.06,"cache_write":0.375},
+    {"model":"MiniMax-M2.5","source_url":"https://platform.minimax.io/docs/guides/pricing-paygo","verified_at":"2026-09-13","notes":"Legacy model, pay-as-you-go API.","input":0.3,"output":1.2,"cache_read":0.03,"cache_write":0.375},
+    {"model":"MiniMax-M2.5-highspeed","source_url":"https://platform.minimax.io/docs/guides/pricing-paygo","verified_at":"2026-09-13","notes":"Legacy highspeed model, pay-as-you-go API.","input":0.6,"output":2.4,"cache_read":0.03,"cache_write":0.375},
+    {"model":"MiniMax-M2.1","source_url":"https://platform.minimax.io/docs/guides/pricing-paygo","verified_at":"2026-09-13","notes":"Legacy model, pay-as-you-go API.","input":0.3,"output":1.2,"cache_read":0.03,"cache_write":0.375},
+    {"model":"MiniMax-M2.1-highspeed","source_url":"https://platform.minimax.io/docs/guides/pricing-paygo","verified_at":"2026-09-13","notes":"Legacy highspeed model, pay-as-you-go API.","input":0.6,"output":2.4,"cache_read":0.03,"cache_write":0.375},
+    {"model":"MiniMax-M2","source_url":"https://platform.minimax.io/docs/guides/pricing-paygo","verified_at":"2026-09-13","notes":"Legacy model, pay-as-you-go API.","input":0.3,"output":1.2,"cache_read":0.03,"cache_write":0.375}
+  ]
+}

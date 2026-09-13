@@ -24,6 +24,7 @@ func (s *Server) workspaceProviderInfo(ctx context.Context, key, model string) (
 	if err != nil {
 		return ProviderInfo{}, fmt.Errorf("create scoped provider: %w", err)
 	}
+	s.wireClaudeOAuthCallback(record.Key, provider, record.WorkspaceID)
 	return NewProviderInfo(provider, record.Config), nil
 }
 

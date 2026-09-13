@@ -189,6 +189,10 @@ type LLMConfig struct {
 	// The "gemini" type uses API key authentication with generativelanguage.googleapis.com.
 	Type string `cfg:"type" json:"type"`
 
+	// SharedWithAllWorkspaces publishes a Default-workspace provider for use in
+	// every workspace. Only platform administrators may manage shared providers.
+	SharedWithAllWorkspaces bool `json:"shared_with_all_workspaces,omitempty"`
+
 	// APIKey is the authentication key for the provider.
 	// Optional for local providers like Ollama and for "vertex" type (uses ADC).
 	// Required for "gemini" type (get one from https://aistudio.google.com/apikey).

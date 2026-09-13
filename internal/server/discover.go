@@ -15,6 +15,8 @@ import (
 	"github.com/rakunlabs/ok"
 
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
 )
 
@@ -47,14 +49,9 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	// When editing an existing provider the UI redacts the API key. If the
 	// request omits the key but includes a provider key, look up the stored
 	// config and use its API key so discovery still works.
-	if req.Key != "" {
-		existing, err := s.store.GetProvider(r.Context(), req.Key)
-		if err == nil && existing != nil {
-			if req.Config.AuthType == "" {
-				req.Config.AuthType = existing.Config.AuthType
-			}
-			preserveProviderManagedAuth(&req.Config, existing.Config)
-		}
+	existing, admitted := s.discoveryConfig(w, r, &req)
+	if !admitted {
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -67,14 +64,25 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 	case "openai":
 		models, err = s.discoverOpenAIProviderModels(ctx, req.Key, req.Config)
 	case "anthropic":
-		models, err = discoverAnthropicModels(ctx, req.Config)
-		if err != nil {
-			// Some Anthropic-compatible providers (e.g. MiniMax) don't support
-			// the /v1/models endpoint. Return empty list instead of failing.
-			slog.Warn("anthropic model discovery failed, returning empty list", "error", err)
-			models = nil
-			err = nil
+		if req.Config.AuthType == "claude-code" && req.Config.RefreshToken != "" {
+			if existing == nil {
+				httpResponse(w, "Save and authorize the Claude provider before discovering models.", http.StatusBadRequest)
+				return
+			}
+			client, clientErr := s.providerAuthHTTPClient(req.Config.Proxy, req.Config.InsecureSkipVerify)
+			if clientErr != nil {
+				httpResponse(w, "failed to create OAuth client", http.StatusBadRequest)
+				return
+			}
+			expiry, _ := time.Parse(time.RFC3339, req.Config.TokenExpiresAt)
+			source := antropic.NewOAuthTokenSource(req.Config.APIKey, req.Config.RefreshToken, expiry, client, s.claudeOAuthRefreshCallback(existing.Key, existing.WorkspaceID))
+			req.Config.APIKey, err = source.Token(ctx)
+			if err != nil {
+				httpResponse(w, fmt.Sprintf("Claude authorization could not be refreshed: %v. Reauthorize the provider if its refresh token is invalid.", err), http.StatusBadGateway)
+				return
+			}
 		}
+		models, err = discoverAnthropicModels(ctx, req.Config)
 	case "gemini":
 		models, err = discoverGeminiModels(ctx, req.Config)
 	case "minimax":
@@ -99,6 +107,9 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if models == nil {
+		models = []string{}
+	}
 	httpResponseJSON(w, discoverResponse{Models: models}, http.StatusOK)
 }
 
@@ -119,14 +130,8 @@ func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 
 	// When editing an existing provider the UI redacts the API key. Fall back
 	// to the stored config's key so discovery still works.
-	if req.Key != "" && s.store != nil {
-		existing, err := s.store.GetProvider(r.Context(), req.Key)
-		if err == nil && existing != nil {
-			if req.Config.AuthType == "" {
-				req.Config.AuthType = existing.Config.AuthType
-			}
-			preserveProviderManagedAuth(&req.Config, existing.Config)
-		}
+	if _, admitted := s.discoveryConfig(w, r, &req); !admitted {
+		return
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -156,7 +161,46 @@ func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	if models == nil {
+		models = []string{}
+	}
 	httpResponseJSON(w, discoverResponse{Models: models}, http.StatusOK)
+}
+
+func (s *Server) discoveryConfig(w http.ResponseWriter, r *http.Request, req *discoverRequest) (*service.ProviderRecord, bool) {
+	if req.Key == "" {
+		return nil, true
+	}
+	if s.store == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return nil, false
+	}
+	existing, err := s.store.GetProvider(r.Context(), req.Key)
+	if err != nil {
+		if !workspaceBusinessError(w, err) {
+			httpResponse(w, "failed to load provider credentials", http.StatusInternalServerError)
+		}
+		return nil, false
+	}
+	if existing == nil {
+		httpResponse(w, "provider not found in this workspace", http.StatusNotFound)
+		return nil, false
+	}
+	if actor, ok := service.AccessPrincipalFromContext(r.Context()); ok && !actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: existing.WorkspaceID, ID: existing.ID}) {
+		httpResponse(w, "provider credential access required", http.StatusForbidden)
+		return nil, false
+	}
+	if req.Config.AuthType == "" {
+		req.Config.AuthType = existing.Config.AuthType
+	}
+	if req.Config.APIKey == "***" {
+		req.Config.APIKey = ""
+	}
+	if req.Config.RefreshToken == "***" {
+		req.Config.RefreshToken = ""
+	}
+	preserveProviderManagedAuth(&req.Config, existing.Config)
+	return existing, true
 }
 
 // filterEmbeddingModelIDs keeps model IDs that look like embedding models
@@ -435,29 +479,42 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 		baseURL = "https://api.anthropic.com"
 	}
 
-	modelsURL := strings.TrimSuffix(baseURL, "/") + "/v1/models"
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Anthropic base URL: %w", err)
+	}
+	basePath := strings.TrimRight(parsedURL.Path, "/")
+	basePath = strings.TrimSuffix(strings.TrimSuffix(basePath, "/messages"), "/v1")
+	parsedURL.Path = basePath + "/v1/models"
 
 	client, err := clientForConfig(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	var allModels []string
+	allModels := []string{}
 	afterID := ""
+	seenPages := map[string]bool{}
 
 	for {
-		url := modelsURL
+		query := parsedURL.Query()
+		query.Set("limit", "1000")
 		if afterID != "" {
-			url += "?after_id=" + afterID
+			query.Set("after_id", afterID)
 		}
+		parsedURL.RawQuery = query.Encode()
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsedURL.String(), nil)
 		if err != nil {
 			return nil, fmt.Errorf("build request: %w", err)
 		}
 
+		for key, value := range cfg.ExtraHeaders {
+			req.Header.Set(key, value)
+		}
 		if cfg.AuthType == "claude-code" && cfg.APIKey != "" {
 			req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+			req.Header.Del("x-api-key")
 			req.Header.Set("anthropic-beta", "oauth-2025-04-20")
 		} else if cfg.APIKey != "" {
 			req.Header.Set("x-api-key", cfg.APIKey)
@@ -468,9 +525,8 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 		if err != nil {
 			return nil, fmt.Errorf("request failed: %w", err)
 		}
-		defer resp.Body.Close()
-
 		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("read response: %w", err)
 		}
@@ -499,6 +555,10 @@ func discoverAnthropicModels(ctx context.Context, cfg config.LLMConfig) ([]strin
 		if !page.HasMore || page.LastID == "" {
 			break
 		}
+		if seenPages[page.LastID] {
+			return nil, fmt.Errorf("Anthropic model pagination repeated cursor %q", page.LastID)
+		}
+		seenPages[page.LastID] = true
 		afterID = page.LastID
 	}
 

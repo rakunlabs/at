@@ -69,6 +69,12 @@ type APITokenStorer interface {
 
 // ─── Token Usage Tracking ───
 
+// APITokenManagementStorer guards human/tool management operations. Gateway
+// authentication and budget accounting use their separate credential boundary.
+type APITokenManagementStorer interface {
+	AuthorizeAPITokenManagement(context.Context, string, string) error
+}
+
 // TokenUsage represents cumulative usage statistics for a single API token + model combination.
 type TokenUsage struct {
 	TokenID          string     `json:"token_id"`

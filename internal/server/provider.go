@@ -33,6 +33,7 @@ type infoProvider struct {
 	Type         string   `json:"type"`
 	DefaultModel string   `json:"default_model"`
 	Models       []string `json:"models"`
+	Shared       bool     `json:"shared,omitempty"`
 }
 
 // InfoAPI handles GET /api/v1/info.
@@ -53,6 +54,20 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s.providerMu.RUnlock()
+	if store, ok := s.store.(service.WorkspaceProviderCatalogStorer); ok {
+		catalog, err := store.ListWorkspaceProviderCatalog(r.Context())
+		if err != nil {
+			slog.Error("load workspace provider catalog failed", "error", err)
+			if !workspaceBusinessError(w, err) {
+				httpResponse(w, "failed to load workspace providers", http.StatusInternalServerError)
+			}
+			return
+		}
+		providerList = make([]infoProvider, 0, len(catalog))
+		for _, entry := range catalog {
+			providerList = append(providerList, infoProvider{Key: entry.Key, Type: entry.Type, DefaultModel: entry.DefaultModel, Models: entry.Models, Shared: entry.Shared})
+		}
+	}
 
 	storeType := s.storeType
 
@@ -231,6 +246,9 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Error("create provider failed", "key", req.Key, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to create provider: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -295,6 +313,9 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		slog.Error("update provider failed", "key", key, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to update provider: %v", err), http.StatusInternalServerError)
 		return
 	}

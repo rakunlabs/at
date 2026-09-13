@@ -104,10 +104,9 @@ func (p *Postgres) SaveExecutionServiceBinding(ctx context.Context, b service.Ex
 		if err != nil {
 			return nil, err
 		}
-		// A machine identity must never inherit installation-admin status from its
-		// backing account. Platform operators explicitly select a non-platform
-		// workspace member; membership/version remains the renewable ceiling.
-		if delegate.PlatformAdmin {
+		// Only a platform administrator may bind an administrator account.
+		// Execution still uses the workspace's versioned tool/node policy.
+		if delegate.PlatformAdmin && !actor.PlatformAdmin {
 			return nil, service.ErrExecutionDenied
 		}
 		for _, grant := range delegate.Grants {

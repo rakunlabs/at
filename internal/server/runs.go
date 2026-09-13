@@ -7,15 +7,17 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // activeRun tracks a single in-flight workflow execution.
 type activeRun struct {
-	ID         string             `json:"id"`
-	WorkflowID string             `json:"workflow_id"`
-	Source     string             `json:"source"` // "api", "webhook", "cron"
-	StartedAt  time.Time          `json:"started_at"`
-	Cancel     context.CancelFunc `json:"-"`
+	WorkspaceID string             `json:"workspace_id"`
+	ID          string             `json:"id"`
+	WorkflowID  string             `json:"workflow_id"`
+	Source      string             `json:"source"` // "api", "webhook", "cron"
+	StartedAt   time.Time          `json:"started_at"`
+	Cancel      context.CancelFunc `json:"-"`
 }
 
 // activeRunResponse is the JSON-safe representation of an active run.
@@ -45,6 +47,13 @@ func (s *Server) registerRun(parent context.Context, workflowID, source string) 
 		StartedAt:  time.Now(),
 		Cancel:     cancel,
 	}
+	if p, _, ok := service.ExecutionFromContext(ctx); ok {
+		run.WorkspaceID = p.WorkspaceID
+	} else if p, ok := service.AccessPrincipalFromContext(ctx); ok {
+		run.WorkspaceID = p.WorkspaceID
+	} else if service.LegacyWorkspaceAccessFromContext(ctx) {
+		run.WorkspaceID = "legacy-default"
+	}
 	s.activeRuns.Store(runID, run)
 
 	cleanup := func() {
@@ -57,11 +66,19 @@ func (s *Server) registerRun(parent context.Context, workflowID, source string) 
 
 // ListActiveRunsAPI handles GET /api/v1/runs.
 func (s *Server) ListActiveRunsAPI(w http.ResponseWriter, r *http.Request) {
+	actor, ok := service.AccessPrincipalFromContext(r.Context())
+	if !ok {
+		httpResponse(w, "workspace identity required", http.StatusForbidden)
+		return
+	}
 	now := time.Now()
 	var runs []activeRunResponse
 
 	s.activeRuns.Range(func(key, value any) bool {
 		run := value.(*activeRun)
+		if run.WorkspaceID != actor.WorkspaceID || !actor.Allows("workflows.read", service.AccessResource{WorkspaceID: run.WorkspaceID, ID: run.WorkflowID}) {
+			return true
+		}
 		runs = append(runs, activeRunResponse{
 			ID:         run.ID,
 			WorkflowID: run.WorkflowID,
@@ -94,6 +111,11 @@ func (s *Server) CancelRunAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	run := val.(*activeRun)
+	actor, admitted := service.AccessPrincipalFromContext(r.Context())
+	if !admitted || run.WorkspaceID != actor.WorkspaceID || !actor.Allows("workflows.execute", service.AccessResource{WorkspaceID: run.WorkspaceID, ID: run.WorkflowID}) {
+		httpResponse(w, "run not found in this workspace", http.StatusNotFound)
+		return
+	}
 	run.Cancel()
 
 	httpResponseJSON(w, map[string]any{

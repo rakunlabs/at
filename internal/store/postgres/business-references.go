@@ -183,7 +183,7 @@ func (p *Postgres) businessProviderReference(ctx context.Context, w *businessWri
 		return nil
 	}
 	var id string
-	found, err := w.tx.From(p.tableProviders).Select("id").Where(goqu.C("key").Eq(key), goqu.Or(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.And(goqu.C("workspace_id").Eq("legacy-default"), goqu.C("id").In(w.tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID}))))).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
+	found, err := w.tx.From(p.tableProviders).Select("id").Where(goqu.C("key").Eq(key), goqu.Or(goqu.C("workspace_id").Eq(w.actor.WorkspaceID), goqu.And(goqu.C("workspace_id").Eq("legacy-default"), goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(w.tx.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": w.actor.WorkspaceID})))))).Limit(1).ForKeyShare(goqu.Wait).ScanValContext(ctx, &id)
 	if err != nil {
 		return fmt.Errorf("validate provider binding: %w", err)
 	}

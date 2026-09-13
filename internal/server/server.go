@@ -193,6 +193,9 @@ type Server struct {
 
 	// providerFactory creates an LLMProvider from config (for hot reload).
 	providerFactory ProviderFactory
+	// providerAuthClientFactory optionally supplies the outbound OAuth client.
+	// Nil uses the provider's proxy and TLS configuration.
+	providerAuthClientFactory func(string, bool) (*http.Client, error)
 
 	storeType string // "postgres" or "none"
 
@@ -1015,6 +1018,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	// Bot config management
 	apiGroup.GET("/v1/bots", s.ListBotConfigsAPI)
+	apiGroup.GET("/v1/bots/video-templates", s.ListBotVideoTemplatesAPI)
 	apiGroup.POST("/v1/bots", s.CreateBotConfigAPI)
 	apiGroup.GET("/v1/bots/{id}", s.GetBotConfigAPI)
 	apiGroup.PUT("/v1/bots/{id}", s.UpdateBotConfigAPI)

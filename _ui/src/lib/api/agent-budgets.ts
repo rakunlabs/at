@@ -82,6 +82,11 @@ export interface ModelPricingSyncPreviewResponse {
 }
 
 export interface ModelPricingSourceItem {
+  exact_pricing?: boolean;
+  manual_only?: boolean;
+  aliases?: string[];
+  notes?: string;
+  verified_at?: string;
   provider: string;
   model: string;
   name?: string;
@@ -182,7 +187,7 @@ export async function resetModelPricing(id: string): Promise<void> {
   await api.post(`/model-pricing/${id}/reset`);
 }
 
-export async function previewModelPricingSync(source = 'llm-prices'): Promise<ModelPricingSyncPreviewResponse> {
+export async function previewModelPricingSync(source = 'at-pricing'): Promise<ModelPricingSyncPreviewResponse> {
   const res = await api.post<ModelPricingSyncPreviewResponse>('/model-pricing/sync/preview', { source });
   return res.data;
 }
@@ -200,7 +205,7 @@ export async function previewModelPricingAgent(data: ModelPricingAgentPreviewReq
 export async function applyModelPricingSync(
   items: { provider_key: string; model: string; source_provider?: string; source_model?: string }[],
   overwrite_overrides = false,
-  source = 'llm-prices',
+  source = 'at-pricing',
   preview_items?: ModelPricingSyncPreviewItem[]
 ): Promise<ModelPricingSyncApplyResponse> {
   const res = await api.post<ModelPricingSyncApplyResponse>('/model-pricing/sync/apply', {

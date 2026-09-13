@@ -11,7 +11,6 @@ export function switchWorkspace(id: string) {
   workspaceTransport.select(id);
   navigator.serviceWorker?.controller?.postMessage({ type: 'at-cancel-workspace-media' });
   // A full remount clears every legacy domain cache and draft, including module stores.
-  window.location.hash = '#/settings/workspace';
   window.location.reload();
 }
 
