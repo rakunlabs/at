@@ -13,29 +13,6 @@ import (
 	"github.com/rakunlabs/query"
 )
 
-func TestParsePiDevModelPricing(t *testing.T) {
-	html := `<table><tbody>
-<tr data-model-row="true" data-model-provider="anthropic" data-model-id="claude-sonnet-4-5" data-model-name="claude sonnet" data-model-path="/models/anthropic/claude-sonnet-4-5">
-<td><a>Claude Sonnet</a><code>claude-sonnet-4-5</code></td><td>200,000</td><td>$3</td><td>$15</td><td>$0.3</td><td>$3.75</td>
-</tr>
-</tbody></table>`
-
-	items, err := parsePiDevModelPricing(strings.NewReader(html))
-	if err != nil {
-		t.Fatalf("parsePiDevModelPricing: %v", err)
-	}
-	if len(items) != 1 {
-		t.Fatalf("len(items) = %d, want 1", len(items))
-	}
-	got := items[0]
-	if got.Provider != "anthropic" || got.Model != "claude-sonnet-4-5" {
-		t.Fatalf("model = %s/%s", got.Provider, got.Model)
-	}
-	if got.PromptPricePer1M != 3 || got.CompletionPricePer1M != 15 || got.CacheReadPricePer1M != 0.3 || got.CacheWritePricePer1M != 3.75 {
-		t.Fatalf("prices = %+v", got)
-	}
-}
-
 func TestParseLLMPricesModelPricing(t *testing.T) {
 	json := `{"updated_at":"2026-05-19","prices":[
 {"id":"gpt-4o","vendor":"openai","name":"GPT-4o","input":2.5,"output":10,"input_cached":1.25},
@@ -66,13 +43,16 @@ func TestModelPricingSyncSourceRegistry(t *testing.T) {
 	if !ok {
 		t.Fatal("expected llm-prices source")
 	}
-	if source.Source != llmPricesPricingSource || source.URL != llmPricesCurrentURL || source.buildPreview == nil {
+	if source.Source != llmPricesPricingSource || source.URL != llmPricesCurrentURL || source.fetchCatalog == nil {
 		t.Fatalf("source = %+v", source)
 	}
 
 	infos := listModelPricingSyncSourceInfos()
-	if len(infos) < 2 {
-		t.Fatalf("len(infos) = %d, want at least 2", len(infos))
+	if len(infos) != 1 {
+		t.Fatalf("len(infos) = %d, want 1", len(infos))
+	}
+	if _, ok := modelPricingSyncSourceByName("pi.dev"); ok {
+		t.Fatal("removed pricing source is still registered")
 	}
 }
 
@@ -86,13 +66,13 @@ func TestApplyCachePricingDefaultsAnthropic(t *testing.T) {
 	}
 }
 
-func TestMatchPiDevPricingProviderAlias(t *testing.T) {
-	catalog := []piDevModelPricing{
+func TestMatchModelPricingSourceProviderAlias(t *testing.T) {
+	catalog := []modelPricingSourceItem{
 		{Provider: "google", Model: "gemini-2.5-pro"},
 		{Provider: "anthropic", Model: "claude-sonnet-4-5"},
 	}
 
-	got, matchType, confidence, ok := matchPiDevPricing(catalog, "gemini", "gemini-2.5-pro")
+	got, matchType, confidence, ok := matchModelPricingSource(catalog, "gemini", "gemini-2.5-pro")
 	if !ok {
 		t.Fatal("expected match")
 	}
@@ -220,6 +200,89 @@ func TestApplyModelPricingSyncUsesPreviewSource(t *testing.T) {
 	got := store.set[0]
 	if got.Source != "agent" || got.SourceURL != "https://example.com/pricing" || got.PromptPricePer1M != 2.5 {
 		t.Fatalf("set pricing = %+v", got)
+	}
+}
+
+func TestModelPricingManualMappingFlow(t *testing.T) {
+	catalog := []modelPricingSourceItem{{Provider: "anthropic", Model: "claude-sonnet-4.5", PromptPricePer1M: 3, CompletionPricePer1M: 15}}
+	original := modelPricingSyncSources
+	modelPricingSyncSources = []modelPricingSyncSource{{
+		modelPricingSyncSourceInfo: modelPricingSyncSourceInfo{Source: llmPricesPricingSource},
+		fetchCatalog:               func(context.Context) ([]modelPricingSourceItem, error) { return catalog, nil },
+	}}
+	t.Cleanup(func() { modelPricingSyncSources = original })
+
+	for _, tt := range []struct {
+		name        string
+		override    bool
+		overwrite   bool
+		wantApplied int
+	}{
+		{name: "deployment alias", wantApplied: 1},
+		{name: "protected override", override: true},
+		{name: "overwrite enabled", override: true, overwrite: true, wantApplied: 1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &pricingTestBudgetStore{}
+			if tt.override {
+				store.pricing = []service.ModelPricing{{ProviderKey: "prod", Model: "my-deployment", ManualOverride: true, PromptPricePer1M: 99}}
+			}
+			s := &Server{agentBudgetStore: store, providers: map[string]ProviderInfo{
+				"prod": {providerType: "anthropic", defaultModel: "my-deployment"},
+			}}
+			w := httptest.NewRecorder()
+			s.PreviewModelPricingSyncAPI(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(`{}`)))
+			var preview modelPricingSyncPreviewResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &preview); err != nil || w.Code != http.StatusOK {
+				t.Fatalf("preview: %d %s, %v", w.Code, w.Body.String(), err)
+			}
+			if preview.Source != llmPricesPricingSource || len(preview.Catalog) != 1 || len(preview.Items) != 1 || preview.Items[0].Matched {
+				t.Fatalf("unexpected initial preview: %+v", preview)
+			}
+			req := modelPricingSyncApplyRequest{
+				OverwriteOverrides: tt.overwrite,
+				Items:              []modelPricingSyncKeyItem{{ProviderKey: "prod", Model: "my-deployment", SourceProvider: "anthropic", SourceModel: "claude-sonnet-4.5"}},
+				// A registered source must ignore browser-supplied prices.
+				PreviewItems: []modelPricingSyncPreviewItem{{ProviderKey: "prod", Model: "my-deployment", Matched: true, SourcePromptPricePer1M: 999}},
+			}
+			body, _ := json.Marshal(req)
+			w = httptest.NewRecorder()
+			s.ApplyModelPricingSyncAPI(w, httptest.NewRequest(http.MethodPost, "/", strings.NewReader(string(body))))
+			if w.Code != http.StatusOK || len(store.set) != tt.wantApplied {
+				t.Fatalf("apply: %d %s, writes=%d", w.Code, w.Body.String(), len(store.set))
+			}
+			if tt.wantApplied == 0 {
+				return
+			}
+			got := store.set[0]
+			if got.Source != llmPricesPricingSource || got.SourceModel != "claude-sonnet-4.5" || got.PromptPricePer1M != 3 || !samePrice(got.CacheReadPricePer1M, 0.3) || got.CacheWritePricePer1M != 3.75 || got.ManualOverride {
+				t.Fatalf("saved pricing: %+v", got)
+			}
+			store.pricing = store.set
+			refreshed := append([]modelPricingSourceItem(nil), catalog...)
+			refreshed[0].PromptPricePer1M = 4
+			items, err := s.buildCatalogPricingPreview(context.Background(), llmPricesPricingSource, refreshed, nil)
+			if err != nil || len(items) != 1 || items[0].MatchType != "saved_mapping" || items[0].SourcePromptPricePer1M != 4 || items[0].Status != "update" {
+				t.Fatalf("saved match refresh: %+v, %v", items, err)
+			}
+		})
+	}
+}
+
+func TestModelPricingMappingMissingCatalogEntry(t *testing.T) {
+	s := &Server{agentBudgetStore: &pricingTestBudgetStore{pricing: []service.ModelPricing{{
+		ProviderKey: "prod", Model: "gpt-4o", Source: llmPricesPricingSource, SourceProvider: "openai", SourceModel: "removed-model",
+	}}}, providers: map[string]ProviderInfo{"prod": {providerType: "openai", defaultModel: "gpt-4o"}}}
+	catalog := []modelPricingSourceItem{{Provider: "openai", Model: "gpt-4o", PromptPricePer1M: 2.5}}
+	items, err := s.buildCatalogPricingPreview(context.Background(), llmPricesPricingSource, catalog, nil)
+	if err != nil || len(items) != 1 || items[0].Matched || items[0].Status != "no_match" {
+		t.Fatalf("missing saved mapping must not silently auto-match: %+v, %v", items, err)
+	}
+	_, err = s.buildCatalogPricingPreview(context.Background(), llmPricesPricingSource, catalog, []modelPricingSyncKeyItem{{
+		ProviderKey: "prod", Model: "gpt-4o", SourceProvider: "openai", SourceModel: "invalid",
+	}})
+	if err == nil {
+		t.Fatal("expected invalid explicit catalog selection to fail")
 	}
 }
 

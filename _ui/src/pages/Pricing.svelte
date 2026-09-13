@@ -16,6 +16,7 @@
     type ModelPricingCatalog,
     type ModelPricingSyncPreviewItem,
     type ModelPricingSyncSource,
+    type ModelPricingSourceItem,
   } from '@/lib/api/agent-budgets';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { Bot, Check, CircleDollarSign, Download, RefreshCw, RotateCcw, Trash2, Upload, X } from 'lucide-svelte';
@@ -25,13 +26,15 @@
   let pricing = $state<ModelPricing[]>([]);
   let providers = $state<ProviderRecord[]>([]);
   let pricingSources = $state<ModelPricingSyncSource[]>([
-    { source: 'pi.dev', label: 'pi.dev' },
     { source: 'llm-prices', label: 'llm-prices' },
   ]);
   let preview = $state<ModelPricingSyncPreviewItem[]>([]);
   let selectedPreview = $state<string[]>([]);
-  let previewSource = $state('pi.dev');
-  let selectedSyncSource = $state('pi.dev');
+  let previewSource = $state('llm-prices');
+  let selectedSyncSource = $state('llm-prices');
+  let sourceCatalog = $state<ModelPricingSourceItem[]>([]);
+  let manualMatches = $state<Record<string, string>>({});
+  let matchSearch = $state<Record<string, string>>({});
   let loading = $state(true);
   let previewLoading = $state(false);
   let providersLoading = $state(true);
@@ -72,9 +75,53 @@
     })
   );
 
+  let mappedPreview = $derived(preview.map(withManualMatch));
   let filteredPreview = $derived(
-    preview.filter((p) => statusFilter === 'all' || p.status === statusFilter)
+    mappedPreview.filter((p) => statusFilter === 'all' || p.status === statusFilter ||
+      (statusFilter === 'no_match' && p.match_type === 'manual_mapping'))
   );
+
+  function catalogKey(item: ModelPricingSourceItem): string {
+    return JSON.stringify([item.provider, item.model]);
+  }
+
+  function withManualMatch(item: ModelPricingSyncPreviewItem): ModelPricingSyncPreviewItem {
+    const match = sourceCatalog.find((entry) => catalogKey(entry) === manualMatches[previewKey(item)]);
+    if (!match) return item;
+    const mapped: ModelPricingSyncPreviewItem = {
+      ...item,
+      matched: true,
+      match_type: 'manual_mapping',
+      confidence: 1,
+      source: previewSource,
+      source_provider: match.provider,
+      source_model: match.model,
+      source_url: match.url,
+      source_prompt_price_per_1m: match.prompt_price_per_1m,
+      source_completion_price_per_1m: match.completion_price_per_1m,
+      source_cache_read_price_per_1m: match.cache_read_price_per_1m || (item.provider_type === 'anthropic' ? match.prompt_price_per_1m * 0.1 : 0),
+      source_cache_write_price_per_1m: match.cache_write_price_per_1m || (item.provider_type === 'anthropic' ? match.prompt_price_per_1m * 1.25 : 0),
+    };
+    const changed = Math.abs(mapped.current_prompt_price_per_1m - mapped.source_prompt_price_per_1m) >= 0.0000001 ||
+      Math.abs(mapped.current_completion_price_per_1m - mapped.source_completion_price_per_1m) >= 0.0000001 ||
+      Math.abs(mapped.current_cache_read_price_per_1m - mapped.source_cache_read_price_per_1m) >= 0.0000001 ||
+      Math.abs(mapped.current_cache_write_price_per_1m - mapped.source_cache_write_price_per_1m) >= 0.0000001;
+    mapped.status = !item.has_current ? 'missing' : changed ? (item.manual_override ? 'override' : 'update') : 'current';
+    return mapped;
+  }
+
+  function selectManualMatch(item: ModelPricingSyncPreviewItem, value: string) {
+    const key = previewKey(item);
+    manualMatches[key] = value;
+    selectedPreview = selectedPreview.filter((selected) => selected !== key);
+    if (value) selectedPreview = [...selectedPreview, key];
+  }
+
+  function matchingCatalog(key: string): ModelPricingSourceItem[] {
+    const query = (matchSearch[key] || '').trim().toLowerCase();
+    return sourceCatalog.filter((entry) => catalogKey(entry) === manualMatches[key] ||
+      `${entry.provider}/${entry.model} ${entry.name || ''}`.toLowerCase().includes(query));
+  }
 
   let selectedAgentProvider = $derived(providers.find((provider) => provider.key === agent.provider_key));
   let agentModels = $derived(
@@ -216,6 +263,9 @@
       previewSource = res.source || source;
       selectedSyncSource = previewSource;
       preview = res.items || [];
+      sourceCatalog = (res.catalog || []).sort((a, b) => `${a.provider}/${a.model}`.localeCompare(`${b.provider}/${b.model}`));
+      manualMatches = {};
+      matchSearch = {};
       selectedPreview = preview
         .filter((item) => item.matched && ['missing', 'update'].includes(item.status))
         .map(previewKey);
@@ -248,6 +298,9 @@
       });
       previewSource = res.source || 'agent';
       preview = res.items || [];
+      sourceCatalog = [];
+      manualMatches = {};
+      matchSearch = {};
       selectedPreview = preview
         .filter((item) => item.matched && ['missing', 'update'].includes(item.status))
         .map(previewKey);
@@ -260,9 +313,13 @@
   }
 
   async function applySelected() {
-    const items = preview
+    const items = mappedPreview
       .filter((item) => selectedPreview.includes(previewKey(item)))
-      .map((item) => ({ provider_key: item.provider_key, model: item.model }));
+      .map((item) => ({
+        provider_key: item.provider_key,
+        model: item.model,
+        ...(item.match_type === 'manual_mapping' ? { source_provider: item.source_provider, source_model: item.source_model } : {}),
+      }));
     if (items.length === 0) {
       addToast('Select at least one matched row', 'alert');
       return;
@@ -402,7 +459,8 @@
       <input bind:this={catalogImportFileInput} type="file" accept=".json,application/json" onchange={handleImportCatalogFile} class="hidden" />
       <select
         bind:value={selectedSyncSource}
-        disabled={previewLoading}
+        disabled={previewLoading || applying}
+        aria-label="Pricing source"
         class="border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-xs focus:outline-none disabled:opacity-50"
       >
         {#each pricingSources as source}
@@ -411,7 +469,7 @@
       </select>
       <button
         onclick={() => runPreview()}
-        disabled={previewLoading}
+        disabled={previewLoading || applying}
         class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
       >
         <RefreshCw size={12} class={previewLoading ? 'animate-spin' : ''} />
@@ -429,7 +487,7 @@
           <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Tell a configured provider where to look, paste source text, or allow web search if that model supports it. The result is a preview before anything is applied.</p>
         </div>
       </div>
-      <button onclick={runAgentPreview} disabled={previewLoading || !agentCanRun} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+      <button onclick={runAgentPreview} disabled={previewLoading || applying || !agentCanRun} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
         <Bot size={12} />
         {previewLoading ? 'Previewing...' : 'Run Agent Preview'}
       </button>
@@ -602,8 +660,11 @@
       <div>
         <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary uppercase tracking-wider">{previewSource === 'agent' ? 'AI Pricing Preview' : `${sourceLabel(previewSource)} Sync Preview`}</h3>
         <p class="text-xs text-gray-400 dark:text-dark-text-muted">Preview compares configured AT provider models with source prices. Override rows are skipped unless explicitly overwritten.</p>
+        {#if sourceCatalog.length > 0}
+          <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">For unmatched models, search the catalog and choose a source model. Apply Selected saves the price and remembers the match for future fetches.</p>
+        {/if}
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
         <select bind:value={statusFilter} class="border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus:outline-none">
           <option value="all">All</option>
           <option value="missing">Missing</option>
@@ -614,7 +675,7 @@
         <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
           <input type="checkbox" bind:checked={overwriteOverrides} class="h-3 w-3" /> overwrite overrides
         </label>
-        <button onclick={applySelected} disabled={applying || selectedPreview.length === 0} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+        <button onclick={applySelected} disabled={applying || previewLoading || selectedPreview.length === 0} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
           <Check size={12} /> {applying ? 'Applying...' : `Apply Selected (${selectedPreview.length})`}
         </button>
       </div>
@@ -622,6 +683,8 @@
 
     {#if preview.length === 0}
       <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Fetch from a pricing source or run the AI pricing agent to preview model prices.</div>
+    {:else if filteredPreview.length === 0}
+      <div class="px-4 py-10 text-center text-gray-500 dark:text-dark-text-muted text-sm">No models in this filter. Choose All to see the full preview.</div>
     {:else}
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
@@ -636,11 +699,11 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
-            {#each filteredPreview as item}
+            {#each filteredPreview as item (previewKey(item))}
               {@const key = previewKey(item)}
               <tr class="hover:bg-gray-50/60 dark:hover:bg-dark-elevated/50">
                 <td class="px-3 py-2 text-center">
-                  <input type="checkbox" checked={selectedPreview.includes(key)} disabled={!item.matched} onchange={() => togglePreview(item)} class="h-3 w-3" />
+                  <input type="checkbox" aria-label={`Apply pricing for ${item.provider_key}/${item.model}`} checked={selectedPreview.includes(key)} disabled={!item.matched || applying || previewLoading} onchange={() => togglePreview(item)} class="h-3 w-3" />
                 </td>
                 <td class="px-3 py-2">
                   <div class="font-mono text-xs text-gray-800 dark:text-dark-text">{item.provider_key}/{item.model}</div>
@@ -649,9 +712,23 @@
                 <td class="px-3 py-2 text-xs text-gray-500 dark:text-dark-text-muted">
                   {#if item.matched}
                     <div class="font-mono">{item.source_provider}/{item.source_model}</div>
-                    <div class="text-gray-400 dark:text-dark-text-muted">{item.match_type} · {Math.round((item.confidence || 0) * 100)}%</div>
+                    <div class="text-gray-500 dark:text-dark-text-muted">{item.match_type === 'manual_mapping' ? 'Manual match · pending apply' : item.match_type === 'saved_mapping' ? 'Saved match' : `${item.match_type} · ${Math.round((item.confidence || 0) * 100)}%`}</div>
                   {:else}
                     <span class="text-gray-400 dark:text-dark-text-muted">No source match</span>
+                  {/if}
+                  {#if sourceCatalog.length > 0 && (!item.matched || item.match_type === 'manual_mapping' || item.match_type === 'saved_mapping')}
+                    <div class="mt-2 w-64 space-y-1.5">
+                      <input type="search" aria-label={`Search source models for ${item.provider_key}/${item.model}`} bind:value={matchSearch[key]} placeholder="Search catalog models" disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50" />
+                      <select aria-label={`Source model for ${item.provider_key}/${item.model}`} value={manualMatches[key] || ''} onchange={(event) => selectManualMatch(item, event.currentTarget.value)} disabled={applying || previewLoading} class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2 py-1.5 text-xs focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-50">
+                        <option value="">{item.match_type === 'saved_mapping' ? 'Keep saved match' : 'Select source model'}</option>
+                        {#each matchingCatalog(key) as entry}
+                          <option value={catalogKey(entry)}>{entry.provider}/{entry.model} · {price(entry.prompt_price_per_1m)} / {price(entry.completion_price_per_1m)}</option>
+                        {/each}
+                      </select>
+                      {#if matchingCatalog(key).length === 0}
+                        <p>No catalog models found. Try another search.</p>
+                      {/if}
+                    </div>
                   {/if}
                 </td>
                 <td class="px-3 py-2 text-right text-xs tabular-nums text-gray-500 dark:text-dark-text-muted">

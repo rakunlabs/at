@@ -78,6 +78,18 @@ export interface ModelPricingSyncPreviewItem {
 export interface ModelPricingSyncPreviewResponse {
   source: string;
   items: ModelPricingSyncPreviewItem[];
+  catalog?: ModelPricingSourceItem[];
+}
+
+export interface ModelPricingSourceItem {
+  provider: string;
+  model: string;
+  name?: string;
+  url?: string;
+  prompt_price_per_1m: number;
+  completion_price_per_1m: number;
+  cache_read_price_per_1m: number;
+  cache_write_price_per_1m: number;
 }
 
 export interface ModelPricingSyncSource {
@@ -170,7 +182,7 @@ export async function resetModelPricing(id: string): Promise<void> {
   await api.post(`/model-pricing/${id}/reset`);
 }
 
-export async function previewModelPricingSync(source = 'pi.dev'): Promise<ModelPricingSyncPreviewResponse> {
+export async function previewModelPricingSync(source = 'llm-prices'): Promise<ModelPricingSyncPreviewResponse> {
   const res = await api.post<ModelPricingSyncPreviewResponse>('/model-pricing/sync/preview', { source });
   return res.data;
 }
@@ -186,9 +198,9 @@ export async function previewModelPricingAgent(data: ModelPricingAgentPreviewReq
 }
 
 export async function applyModelPricingSync(
-  items: { provider_key: string; model: string }[],
+  items: { provider_key: string; model: string; source_provider?: string; source_model?: string }[],
   overwrite_overrides = false,
-  source = 'pi.dev',
+  source = 'llm-prices',
   preview_items?: ModelPricingSyncPreviewItem[]
 ): Promise<ModelPricingSyncApplyResponse> {
   const res = await api.post<ModelPricingSyncApplyResponse>('/model-pricing/sync/apply', {

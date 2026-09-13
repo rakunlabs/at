@@ -10,7 +10,6 @@ import (
 	"math"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -20,8 +19,6 @@ import (
 )
 
 const (
-	piDevPricingSource         = "pi.dev"
-	piDevModelsURL             = "https://pi.dev/models"
 	llmPricesPricingSource     = "llm-prices"
 	llmPricesCurrentURL        = "https://www.llm-prices.com/current-v1.json"
 	pricingAgentSourceMaxBytes = 512 << 10
@@ -37,21 +34,10 @@ type modelPricingSyncSourceInfo struct {
 
 type modelPricingSyncSource struct {
 	modelPricingSyncSourceInfo
-	buildPreview func(*Server, context.Context) ([]modelPricingSyncPreviewItem, error)
+	fetchCatalog func(context.Context) ([]modelPricingSourceItem, error)
 }
 
 var modelPricingSyncSources = []modelPricingSyncSource{
-	{
-		modelPricingSyncSourceInfo: modelPricingSyncSourceInfo{
-			Source:      piDevPricingSource,
-			Label:       "pi.dev",
-			URL:         piDevModelsURL,
-			Description: "pi.dev model catalog scraped from the public models page.",
-		},
-		buildPreview: func(s *Server, ctx context.Context) ([]modelPricingSyncPreviewItem, error) {
-			return s.buildPiDevPricingPreview(ctx)
-		},
-	},
 	{
 		modelPricingSyncSourceInfo: modelPricingSyncSourceInfo{
 			Source:      llmPricesPricingSource,
@@ -59,9 +45,7 @@ var modelPricingSyncSources = []modelPricingSyncSource{
 			URL:         llmPricesCurrentURL,
 			Description: "Simon Willison's llm-prices current JSON catalog.",
 		},
-		buildPreview: func(s *Server, ctx context.Context) ([]modelPricingSyncPreviewItem, error) {
-			return s.buildLLMPricesPricingPreview(ctx)
-		},
+		fetchCatalog: fetchLLMPricesModelPricing,
 	},
 }
 
@@ -77,13 +61,16 @@ type modelPricingSyncApplyRequest struct {
 }
 
 type modelPricingSyncKeyItem struct {
-	ProviderKey string `json:"provider_key"`
-	Model       string `json:"model"`
+	ProviderKey    string `json:"provider_key"`
+	Model          string `json:"model"`
+	SourceProvider string `json:"source_provider,omitempty"`
+	SourceModel    string `json:"source_model,omitempty"`
 }
 
 type modelPricingSyncPreviewResponse struct {
-	Source string                        `json:"source"`
-	Items  []modelPricingSyncPreviewItem `json:"items"`
+	Source  string                        `json:"source"`
+	Items   []modelPricingSyncPreviewItem `json:"items"`
+	Catalog []modelPricingSourceItem      `json:"catalog,omitempty"`
 }
 
 type modelPricingSyncPreviewItem struct {
@@ -175,17 +162,6 @@ type configuredPricingModel struct {
 	Model        string
 }
 
-type piDevModelPricing struct {
-	Provider             string
-	Model                string
-	Name                 string
-	Path                 string
-	PromptPricePer1M     float64
-	CompletionPricePer1M float64
-	CacheReadPricePer1M  float64
-	CacheWritePricePer1M float64
-}
-
 // ListModelPricingSyncSourcesAPI handles GET /api/v1/model-pricing/sync/sources.
 func (s *Server) ListModelPricingSyncSourcesAPI(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, listModelPricingSyncSourceInfos(), http.StatusOK)
@@ -198,13 +174,13 @@ func (s *Server) PreviewModelPricingSyncAPI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	req := modelPricingSyncPreviewRequest{Source: piDevPricingSource}
+	req := modelPricingSyncPreviewRequest{Source: llmPricesPricingSource}
 	if r.Body != nil {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 	}
 	req.Source = strings.TrimSpace(req.Source)
 	if req.Source == "" {
-		req.Source = piDevPricingSource
+		req.Source = llmPricesPricingSource
 	}
 	source, ok := modelPricingSyncSourceByName(req.Source)
 	if !ok {
@@ -212,14 +188,19 @@ func (s *Server) PreviewModelPricingSyncAPI(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	items, err := source.buildPreview(s, r.Context())
+	catalog, err := source.fetchCatalog(r.Context())
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("failed to fetch pricing catalog: %v", err), http.StatusInternalServerError)
+		return
+	}
+	items, err := s.buildCatalogPricingPreview(r.Context(), source.Source, catalog, nil)
 	if err != nil {
 		slog.Error("build model pricing preview failed", "error", err)
 		httpResponse(w, fmt.Sprintf("failed to build pricing preview: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	httpResponseJSON(w, modelPricingSyncPreviewResponse{Source: source.Source, Items: items}, http.StatusOK)
+	httpResponseJSON(w, modelPricingSyncPreviewResponse{Source: source.Source, Items: items, Catalog: catalog}, http.StatusOK)
 }
 
 // ApplyModelPricingSyncAPI handles POST /api/v1/model-pricing/sync/apply.
@@ -236,7 +217,7 @@ func (s *Server) ApplyModelPricingSyncAPI(w http.ResponseWriter, r *http.Request
 	}
 	req.Source = strings.TrimSpace(req.Source)
 	if req.Source == "" {
-		req.Source = piDevPricingSource
+		req.Source = llmPricesPricingSource
 	}
 	if _, ok := modelPricingSyncSourceByName(req.Source); !ok && len(req.PreviewItems) == 0 {
 		httpResponse(w, "preview_items are required for unregistered pricing sync sources", http.StatusBadRequest)
@@ -431,7 +412,11 @@ func (s *Server) PreviewModelPricingAgentAPI(w http.ResponseWriter, r *http.Requ
 
 func (s *Server) buildPricingSyncApplyPreview(ctx context.Context, req modelPricingSyncApplyRequest) ([]modelPricingSyncPreviewItem, error) {
 	if source, ok := modelPricingSyncSourceByName(req.Source); ok {
-		return source.buildPreview(s, ctx)
+		catalog, err := source.fetchCatalog(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return s.buildCatalogPricingPreview(ctx, source.Source, catalog, req.Items)
 	}
 	if len(req.PreviewItems) == 0 {
 		return nil, fmt.Errorf("preview_items are required for source %q", req.Source)
@@ -439,36 +424,71 @@ func (s *Server) buildPricingSyncApplyPreview(ctx context.Context, req modelPric
 	return req.PreviewItems, nil
 }
 
-func (s *Server) buildLLMPricesPricingPreview(ctx context.Context) ([]modelPricingSyncPreviewItem, error) {
-	catalog, err := fetchLLMPricesModelPricing(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return s.buildPricingPreview(ctx, llmPricesPricingSource, func(providerType, model string) (modelPricingSourceMatch, string, float64, bool) {
+// Source identities are persisted with pricing, so deployment aliases retain
+// their selected catalog entry on future refreshes. Prices always come from the catalog.
+func (s *Server) buildCatalogPricingPreview(ctx context.Context, source string, catalog []modelPricingSourceItem, selections []modelPricingSyncKeyItem) ([]modelPricingSyncPreviewItem, error) {
+	items, err := s.buildPricingPreview(ctx, source, func(providerType, model string) (modelPricingSourceMatch, string, float64, bool) {
 		return matchModelPricingSource(catalog, providerType, model)
 	})
-}
-
-func (s *Server) buildPiDevPricingPreview(ctx context.Context) ([]modelPricingSyncPreviewItem, error) {
-	catalog, err := fetchPiDevModelPricing(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return s.buildPricingPreview(ctx, piDevPricingSource, func(providerType, model string) (modelPricingSourceMatch, string, float64, bool) {
-		src, matchType, confidence, ok := matchPiDevPricing(catalog, providerType, model)
-		if !ok {
-			return modelPricingSourceMatch{}, "", 0, false
+	current, err := s.agentBudgetStore.ListModelPricing(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list saved pricing matches: %w", err)
+	}
+	mappings := make(map[string]modelPricingSyncKeyItem)
+	for _, cur := range current {
+		if cur.Source == source && cur.SourceProvider != "" && cur.SourceModel != "" {
+			mappings[cur.ProviderKey+"\x00"+cur.Model] = modelPricingSyncKeyItem{SourceProvider: cur.SourceProvider, SourceModel: cur.SourceModel}
 		}
-		return modelPricingSourceMatch{
-			Provider:             src.Provider,
-			Model:                src.Model,
-			URL:                  "https://pi.dev" + src.Path,
-			PromptPricePer1M:     src.PromptPricePer1M,
-			CompletionPricePer1M: src.CompletionPricePer1M,
-			CacheReadPricePer1M:  src.CacheReadPricePer1M,
-			CacheWritePricePer1M: src.CacheWritePricePer1M,
-		}, matchType, confidence, true
-	})
+	}
+	explicit := make(map[string]bool)
+	for _, selection := range selections {
+		if selection.SourceProvider == "" && selection.SourceModel == "" {
+			continue
+		}
+		key := selection.ProviderKey + "\x00" + selection.Model
+		mappings[key] = selection
+		explicit[key] = true
+	}
+	for i := range items {
+		item := &items[i]
+		key := item.ProviderKey + "\x00" + item.Model
+		mapping, ok := mappings[key]
+		if !ok {
+			continue
+		}
+		found := false
+		for _, candidate := range catalog {
+			if candidate.Provider != mapping.SourceProvider || candidate.Model != mapping.SourceModel {
+				continue
+			}
+			src := applyCachePricingDefaults(item.ProviderType, sourceItemMatch(candidate))
+			item.Matched = true
+			item.MatchType = "saved_mapping"
+			if explicit[key] {
+				item.MatchType = "manual_mapping"
+			}
+			item.Confidence = 1
+			item.Source = source
+			item.SourceProvider, item.SourceModel, item.SourceURL = src.Provider, src.Model, src.URL
+			item.SourcePromptPricePer1M, item.SourceCompletionPricePer1M = src.PromptPricePer1M, src.CompletionPricePer1M
+			item.SourceCacheReadPricePer1M, item.SourceCacheWritePricePer1M = src.CacheReadPricePer1M, src.CacheWritePricePer1M
+			item.Status = pricingPreviewStatus(*item)
+			found = true
+			break
+		}
+		if !found {
+			if explicit[key] {
+				return nil, fmt.Errorf("catalog model %s/%s no longer available for %s/%s; fetch pricing again", mapping.SourceProvider, mapping.SourceModel, item.ProviderKey, item.Model)
+			}
+			// Never silently replace a saved mapping with a different automatic match.
+			item.Matched = false
+			item.Status = "no_match"
+		}
+	}
+	return items, nil
 }
 
 func (s *Server) buildPricingPreview(ctx context.Context, source string, match func(providerType, model string) (modelPricingSourceMatch, string, float64, bool)) ([]modelPricingSyncPreviewItem, error) {
@@ -922,58 +942,6 @@ func samePrice(a, b float64) bool {
 	return math.Abs(a-b) < 0.0000001
 }
 
-func matchPiDevPricing(catalog []piDevModelPricing, providerType, model string) (piDevModelPricing, string, float64, bool) {
-	providers := piDevProviderAliases(providerType)
-	for _, provider := range providers {
-		for _, item := range catalog {
-			if item.Provider == provider && item.Model == model {
-				return item, "provider_model", 1, true
-			}
-		}
-	}
-
-	var matches []piDevModelPricing
-	for _, item := range catalog {
-		if item.Model == model {
-			matches = append(matches, item)
-		}
-	}
-	if len(matches) == 1 {
-		return matches[0], "model", 0.8, true
-	}
-
-	normModel := normalizePricingModelName(model)
-	for _, provider := range providers {
-		for _, item := range catalog {
-			if item.Provider == provider && normalizePricingModelName(item.Model) == normModel {
-				return item, "normalized_provider_model", 0.9, true
-			}
-		}
-	}
-
-	return piDevModelPricing{}, "", 0, false
-}
-
-func piDevProviderAliases(providerType string) []string {
-	switch strings.ToLower(providerType) {
-	case "anthropic", "antropic":
-		return []string{"anthropic"}
-	case "gemini", "google":
-		return []string{"google"}
-	case "vertex", "google-vertex":
-		return []string{"google-vertex"}
-	case "minimax":
-		return []string{"minimax", "minimax-cn"}
-	case "openai":
-		return []string{"openai"}
-	default:
-		if providerType == "" {
-			return nil
-		}
-		return []string{providerType}
-	}
-}
-
 func pricingProviderAliases(providerType string) []string {
 	switch strings.ToLower(providerType) {
 	case "anthropic", "antropic":
@@ -1003,31 +971,6 @@ func normalizePricingModelName(s string) string {
 		s = strings.ReplaceAll(s, "--", "-")
 	}
 	return strings.Trim(s, "-")
-}
-
-func fetchPiDevModelPricing(ctx context.Context) ([]piDevModelPricing, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, piDevModelsURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	client := http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("fetch pi.dev models: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("fetch pi.dev models: status %d", resp.StatusCode)
-	}
-	body := io.LimitReader(resp.Body, 8<<20)
-	items, err := parsePiDevModelPricing(body)
-	if err != nil {
-		return nil, err
-	}
-	if len(items) == 0 {
-		return nil, fmt.Errorf("pi.dev models page contained no pricing rows")
-	}
-	return items, nil
 }
 
 func fetchLLMPricesModelPricing(ctx context.Context) ([]modelPricingSourceItem, error) {
@@ -1090,104 +1033,4 @@ func parseLLMPricesModelPricing(r io.Reader) ([]modelPricingSourceItem, error) {
 		})
 	}
 	return normalizePricingSourceItems(items, llmPricesCurrentURL), nil
-}
-
-func parsePiDevModelPricing(r io.Reader) ([]piDevModelPricing, error) {
-	z := html.NewTokenizer(r)
-	var items []piDevModelPricing
-	var row piDevModelPricing
-	var cells []string
-	var text strings.Builder
-	inRow := false
-	inCell := false
-	cellDepth := 0
-
-	for {
-		tt := z.Next()
-		switch tt {
-		case html.ErrorToken:
-			if err := z.Err(); err != nil && err != io.EOF {
-				return nil, fmt.Errorf("parse pi.dev html: %w", err)
-			}
-			return items, nil
-
-		case html.StartTagToken:
-			t := z.Token()
-			if t.Data == "tr" && attr(t, "data-model-row") == "true" {
-				inRow = true
-				row = piDevModelPricing{
-					Provider: attr(t, "data-model-provider"),
-					Model:    attr(t, "data-model-id"),
-					Name:     attr(t, "data-model-name"),
-					Path:     attr(t, "data-model-path"),
-				}
-				cells = nil
-				continue
-			}
-			if inRow && t.Data == "td" && !inCell {
-				inCell = true
-				cellDepth = 1
-				text.Reset()
-				continue
-			}
-			if inCell {
-				cellDepth++
-			}
-
-		case html.TextToken:
-			if inCell {
-				part := strings.TrimSpace(string(z.Text()))
-				if part != "" {
-					if text.Len() > 0 {
-						text.WriteByte(' ')
-					}
-					text.WriteString(part)
-				}
-			}
-
-		case html.EndTagToken:
-			t := z.Token()
-			if inCell {
-				cellDepth--
-				if cellDepth == 0 {
-					inCell = false
-					cells = append(cells, strings.Join(strings.Fields(text.String()), " "))
-				}
-				continue
-			}
-			if inRow && t.Data == "tr" {
-				inRow = false
-				if row.Provider != "" && row.Model != "" && len(cells) >= 6 {
-					row.PromptPricePer1M = parsePiDevPrice(cells[2])
-					row.CompletionPricePer1M = parsePiDevPrice(cells[3])
-					row.CacheReadPricePer1M = parsePiDevPrice(cells[4])
-					row.CacheWritePricePer1M = parsePiDevPrice(cells[5])
-					items = append(items, row)
-				}
-			}
-		}
-	}
-}
-
-func attr(t html.Token, key string) string {
-	for _, a := range t.Attr {
-		if a.Key == key {
-			return a.Val
-		}
-	}
-	return ""
-}
-
-func parsePiDevPrice(s string) float64 {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "$")
-	s = strings.ReplaceAll(s, ",", "")
-	if s == "" || s == "-" {
-		return 0
-	}
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return 0
-	}
-	return v
 }
