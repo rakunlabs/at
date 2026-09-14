@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { tick } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -128,7 +129,8 @@
   });
 
   // Active tab
-  let activeTab = $state<'comments' | 'subtasks' | 'labels' | 'activity' | 'events'>('activity');
+  const tabRoute = routeChoice('tab', ['comments', 'subtasks', 'labels', 'activity', 'events'] as const, 'activity');
+  let activeTab = $derived(tabRoute.value);
 
   // ─── Events feed (observation-driven live timeline) ───
   // Pulls trace observations (generations, tool calls, lifecycle events)
@@ -732,7 +734,7 @@
     try {
       const session = await createTaskChat(task.id);
       chatSessionId = session.id;
-      activeTab = 'activity';
+      tabRoute.value = 'activity';
       await loadChatMessages();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to open chat', 'alert');
@@ -1125,7 +1127,7 @@
           <div class="border-b border-gray-200 dark:border-dark-border">
             <div class="flex gap-0">
               <button
-                onclick={() => (activeTab = 'activity')}
+                onclick={() => (tabRoute.value = 'activity')}
                 class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'activity' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <Activity size={13} />
@@ -1135,14 +1137,14 @@
                 {/if}
               </button>
               <button
-                onclick={() => (activeTab = 'comments')}
+                onclick={() => (tabRoute.value = 'comments')}
                 class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'comments' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <MessageSquare size={13} />
                 Comments
               </button>
               <button
-                onclick={() => (activeTab = 'subtasks')}
+                onclick={() => (tabRoute.value = 'subtasks')}
                 class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'subtasks' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <ListTree size={13} />
@@ -1158,7 +1160,7 @@
                 {/if}
               </button>
               <button
-                onclick={() => (activeTab = 'events')}
+                onclick={() => (tabRoute.value = 'events')}
                 class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'events' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
                 title="Live audit timeline for this task and its delegation tree"
               >
@@ -1172,7 +1174,7 @@
                 {/if}
               </button>
               <button
-                onclick={() => (activeTab = 'labels')}
+                onclick={() => (tabRoute.value = 'labels')}
                 class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'labels' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <Tag size={13} />

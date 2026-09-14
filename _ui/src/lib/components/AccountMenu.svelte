@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLogo from './BrandLogo.svelte';
   import { storeInfo } from '@/lib/store/store.svelte';
   import { ChevronDown, LogOut, Settings, ShieldCheck, User } from 'lucide-svelte';
   import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
@@ -138,7 +139,8 @@
         {#if storeInfo.name || storeAuth.identity}
           <div class="border-b border-gray-200 dark:border-dark-border px-3 py-2.5">
             {#if storeInfo.name}
-              <p class="flex items-baseline gap-1.5 text-sm font-semibold text-gray-900 dark:text-dark-text">
+              <p class="flex items-center gap-1.5 text-sm font-semibold text-gray-900 dark:text-dark-text">
+                <BrandLogo size={20} decorative />
                 <span class="truncate">{storeInfo.name}</span>
                 {#if storeInfo.version}
                   <span class="shrink-0 text-xs font-normal tabular-nums text-gray-600 dark:text-dark-text-secondary">

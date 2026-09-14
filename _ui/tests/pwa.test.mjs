@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import vm from 'node:vm';
+import { brandAssets, loadBrandAssets } from '../brand-assets.js';
+import { createServer } from 'vite';
 
 const source = await readFile(new URL('../public/workspace-media.js', import.meta.url), 'utf8');
 function worker(scope = 'https://at.example/at/') {
@@ -61,9 +63,53 @@ test('manifest stays in the deployment scope and ships correctly sized PNG icons
   for (const path of [manifest.id, manifest.scope, manifest.start_url, ...manifest.shortcuts.map(s => s.url)]) {
     assert.ok(new URL(path, 'https://at.example/at/').href.startsWith('https://at.example/at/'));
   }
-  for (const icon of [...manifest.icons, { src: 'icons/apple-touch-icon.png', sizes: '180x180' }]) {
-    const png = await readFile(new URL(`../public/${icon.src}`, import.meta.url));
+  const assets = await loadBrandAssets();
+  for (const icon of [...manifest.icons, { src: 'brand/favicon-192x192.png', sizes: '192x192' }]) {
+    const png = assets.get(icon.src);
+    assert.ok(png, `missing brand asset: ${icon.src}`);
     assert.equal(png.subarray(1, 4).toString(), 'PNG');
     assert.equal(`${png.readUInt32BE(16)}x${png.readUInt32BE(20)}`, icon.sizes);
   }
+});
+
+test('brand assets come from the shared source and offline branding needs no network', async () => {
+  const assets = await loadBrandAssets();
+  for (const [path, bytes] of assets) {
+    if (path.startsWith('brand/')) {
+      assert.deepEqual(bytes, await readFile(new URL(`../../assets/${path.slice(6)}`, import.meta.url)));
+    }
+  }
+  assert.deepEqual(assets.get('favicon.ico'), assets.get('brand/favicon.ico'));
+  const offline = assets.get('offline.html').toString();
+  assert.ok(!offline.includes('__AT_BRAND_LOGO__'));
+  const embedded = offline.match(/src="data:image\/svg\+xml;base64,([^"]+)"/);
+  assert.ok(embedded, 'offline logo must be self-contained');
+  assert.deepEqual(Buffer.from(embedded[1], 'base64'), assets.get('brand/favicon.svg'));
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  for (const [, path] of html.matchAll(/href="\.\/(brand\/[^"]+)"/g)) {
+    assert.ok(assets.has(path), `missing linked icon: ${path}`);
+  }
+});
+
+test('development server serves the shared branding with correct MIME types and HEAD support', async () => {
+  const server = await createServer({
+    configFile: false,
+    plugins: [brandAssets()],
+    server: { host: '127.0.0.1', port: 0 },
+    optimizeDeps: { noDiscovery: true, include: [] },
+  });
+  try {
+    await server.listen();
+    const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
+    for (const [path, data] of await loadBrandAssets()) {
+      const response = await fetch(`${origin}/${path}`);
+      assert.equal(response.status, 200, path);
+      assert.match(response.headers.get('content-type'), path.endsWith('.html') ? /text\/html/ : /image\//);
+      assert.deepEqual(Buffer.from(await response.arrayBuffer()), data, path);
+    }
+    const head = await fetch(`${origin}/brand/favicon.svg`, { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '');
+    assert.equal((await fetch(`${origin}/brand/missing.svg`)).status, 404);
+  } finally { await server.close(); }
 });

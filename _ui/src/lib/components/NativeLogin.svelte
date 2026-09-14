@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLogo from './BrandLogo.svelte';
   import { onMount } from 'svelte';
   import { beginPasskeyLogin, finishPasskeyLogin, loginWithPassword, loginErrorMessage, type LoginResult, type MFAChallenge } from '../api/auth';
   import { identityAPI, verifyMFA } from '../api/identity';
@@ -33,6 +34,7 @@
   }
 </script>
 <main class="min-h-full flex items-center justify-center px-6 py-12"><div class="w-full max-w-sm settings-form">
+  <div class="mb-6"><BrandLogo size={48} /></div>
   <h1 class="text-2xl font-semibold">{mfa ? 'Verify your sign-in' : `Sign in to ${storeAuth.title}`}</h1>
   <p class="settings-note mt-2">{mfa ? 'Enter your authenticator code or an unused backup code.' : 'Use your account to access your workspaces.'}</p>
   {#if sessionNotice}<p role="status" class="settings-note mt-4">{sessionNotice}</p>{/if}

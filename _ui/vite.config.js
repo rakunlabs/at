@@ -1,10 +1,12 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vite';
+import { brandAssets } from './brand-assets.js';
 
 export default defineConfig({
   base: './',
   plugins: [
+    brandAssets(),
     tailwindcss(),
     svelte()
   ],

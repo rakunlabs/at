@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLogo from './BrandLogo.svelte';
   import { identityAPI } from '../api/identity';
   import { passwordPolicyError, authErrorMessage } from '../api/auth';
   let { oncomplete }: { oncomplete: () => Promise<void> } = $props();
@@ -12,6 +13,7 @@
   }
 </script>
 <main class="min-h-full flex items-center justify-center px-6 py-12"><div class="w-full max-w-md settings-form">
+  <div class="mb-6"><BrandLogo size={48} /></div>
   <h1 class="text-2xl font-semibold">Set up AT</h1><p class="settings-note mt-2">Create the first local administrator for this installation. After setup, sign in to configure your workspace.</p>
   <form onsubmit={submit} class="space-y-5 mt-8">
     <label>Administrator username<input bind:value={username} required minlength="3" maxlength="128" pattern={'[a-zA-Z0-9._@+\\-]{3,128}'} autocomplete="username" autocapitalize="none" /></label>

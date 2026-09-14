@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, type MCPSet } from '@/lib/api/mcp-sets';
@@ -17,7 +18,8 @@
 
   // ─── Tab State ───
 
-  let activeTab = $state<'my-mcps' | 'store'>('my-mcps');
+  const tabRoute = routeChoice('tab', ['my-mcps', 'store'] as const, 'my-mcps');
+  let activeTab = $derived(tabRoute.value);
 
   // ─── Store State ───
 
@@ -433,7 +435,7 @@
       <!-- Tab Bar -->
       <div class="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border">
         <button
-          onclick={() => (activeTab = 'my-mcps')}
+          onclick={() => (tabRoute.value = 'my-mcps')}
           class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'my-mcps' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Layers size={14} />
@@ -441,7 +443,7 @@
           <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
         </button>
         <button
-          onclick={() => (activeTab = 'store')}
+          onclick={() => (tabRoute.value = 'store')}
           class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Store size={14} />

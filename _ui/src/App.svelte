@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLogo from './lib/components/BrandLogo.svelte';
   import Router, { location, querystring } from 'svelte-spa-router';
   import { onMount, untrack } from 'svelte';
   import { storeNavbar } from './lib/store/store.svelte';
@@ -66,7 +67,7 @@
 {:else if ticket}<AccountRecovery {ticket} oncomplete={() => { ticket = ''; notice = 'Sign in with your current credentials to continue.'; void initialize(); }} />
 {:else if authState === 'setup'}<FirstSetup oncomplete={async () => { notice = 'Administrator created. Sign in to continue.'; await initialize(); }} />
 {:else if authState === 'login'}<NativeLogin onlogin={checkSession} sessionNotice={notice} />
-{:else if authState === 'loading' || authState === 'error'}<main class="min-h-full flex items-center justify-center p-6"><div class="max-w-md space-y-4"><h1 class="text-xl font-semibold">{authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'}</h1>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button" onclick={initialize}>Retry connection</button>{/if}</div></main>
+{:else if authState === 'loading' || authState === 'error'}<main class="min-h-full flex items-center justify-center p-6"><div class="max-w-md space-y-4"><BrandLogo size={48} /><h1 class="text-xl font-semibold">{authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'}</h1>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button" onclick={initialize}>Retry connection</button>{/if}</div></main>
 {:else if $location === '/mobile-authorize'}<MobileAuthorize query={$querystring || ''} enabled={true} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else}
 <div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[9rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>

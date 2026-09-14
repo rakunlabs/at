@@ -2,7 +2,7 @@
  * Only the public offline page is cached; API/auth/media responses never are. */
 const offlineURL = new URL('offline.html', self.registration.scope).href;
 const offlineCachePrefix = `at-offline:${self.registration.scope}:`;
-const offlineCache = `${offlineCachePrefix}v1`;
+const offlineCache = `${offlineCachePrefix}v2`;
 const pending = new Map();
 self.addEventListener('install', event => event.waitUntil((async () => {
   const response = await fetch(new Request(offlineURL, { cache: 'reload', credentials: 'omit' }));

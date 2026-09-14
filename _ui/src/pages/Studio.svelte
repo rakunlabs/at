@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { getInfo } from '@/lib/api/gateway';
@@ -40,7 +41,8 @@
 
   let loading = $state(true);
   let installing = $state(false);
-  let tab = $state<StudioTab>('characters');
+  const tabRoute = routeChoice<StudioTab>('tab', ['characters', 'series', 'long-videos', 'productions'], 'characters');
+  let tab = $derived(tabRoute.value);
   let avatarOrg = $state<Organization | null>(null);
   let seriesOrg = $state<Organization | null>(null);
   let longVideoOrg = $state<Organization | null>(null);
@@ -188,10 +190,10 @@
       {/if}
 
       <nav class="mt-5 flex flex-wrap gap-x-5 gap-y-3 border-b border-gray-200 dark:border-dark-border" aria-label="Studio sections">
-        <button onclick={() => (tab = 'characters')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'characters' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><User size={12} /> Characters</button>
-        <button onclick={() => (tab = 'series')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'series' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Film size={12} /> Series</button>
-        <button onclick={() => (tab = 'long-videos')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'long-videos' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Clapperboard size={12} /> Long Videos</button>
-        <button onclick={() => (tab = 'productions')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'productions' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Video size={12} /> Productions</button>
+        <button onclick={() => (tabRoute.value = 'characters')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'characters' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><User size={12} /> Characters</button>
+        <button onclick={() => (tabRoute.value = 'series')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'series' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Film size={12} /> Series</button>
+        <button onclick={() => (tabRoute.value = 'long-videos')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'long-videos' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Clapperboard size={12} /> Long Videos</button>
+        <button onclick={() => (tabRoute.value = 'productions')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'productions' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Video size={12} /> Productions</button>
       </nav>
 
       <main class="mt-5">

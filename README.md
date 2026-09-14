@@ -1,4 +1,4 @@
-<img align="right" height="94" src="assets/at.png">
+<img align="right" height="94" src="assets/favicon-128x128.png">
 
 # AT
 

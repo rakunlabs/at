@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLogo from './BrandLogo.svelte';
   import { storeNavbar, storeTheme, storeInfo } from '@/lib/store/store.svelte';
   import { getInfo } from '@/lib/api/gateway';
   import { ChevronLeft, Menu, Moon, Sun } from 'lucide-svelte';
@@ -37,6 +38,7 @@
       <Menu size={16} />
     {/if}
   </button>
+  <a href="#/" aria-label="AT home" class="ml-2 shrink-0 rounded focus-visible:outline-2 focus-visible:outline-accent sm:hidden"><BrandLogo size={20} decorative /></a>
   <span class="ml-2 min-w-0 truncate text-sm font-medium text-gray-800 dark:text-dark-text">
     {storeNavbar.title}
   </span>

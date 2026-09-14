@@ -1,6 +1,8 @@
 <script lang="ts">
   import { authFetch as fetch } from '@/lib/api/transport';
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
+  import { querystring } from 'svelte-spa-router';
+  import { updateRouteQuery } from '@/lib/helper/route-query';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
@@ -89,10 +91,26 @@
   let previewError = $state('');
   let previewTruncated = $state(false);
 
-  async function browse(path: string) {
+  const routePath = $derived(new URLSearchParams($querystring).get('path') || '.');
+
+  $effect(() => {
+    const path = routePath;
+    untrack(() => { void browse(path, true); });
+  });
+
+  async function browse(path: string, fromURL = false) {
+    path = path || '.';
+    if (!fromURL && path !== routePath) {
+      updateRouteQuery({ path: path === '.' ? null : path });
+      return;
+    }
     const request = ++browseVersion;
     loading = true;
     browseError = '';
+    currentPath = path;
+    pathInput = path;
+    parentPath = path.split('/').slice(0, -1).join('/') || '.';
+    entries = [];
     deleteConfirm = null;
     closePreview();
     try {
@@ -205,9 +223,8 @@
     return crumbs;
   });
 
-  // Run once; workspace switches remount and discard the previous directory.
+  // URL changes drive loading; invalidate pending work when leaving the page.
   onMount(() => {
-    void browse(currentPath);
     return () => { ++browseVersion; previewController?.abort(); };
   });
 </script>

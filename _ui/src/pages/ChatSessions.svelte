@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
+  import { querystring } from 'svelte-spa-router';
+  import { updateRouteQuery } from '@/lib/helper/route-query';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listAgents, type Agent } from '@/lib/api/agents';
@@ -436,7 +438,12 @@
     }
   }
 
-  async function selectSession(id: string) {
+  async function selectSession(id: string, fromURL = false) {
+    if (!fromURL) updateRouteQuery({ session: id });
+    if (selectedSessionId === id) {
+      if (!fromURL) showSessionList = false;
+      return;
+    }
     const selection = ++selectionVersion;
     resetComposer();
     ++turnVersion;
@@ -516,18 +523,8 @@
       await deleteChatSession(id);
       sessions = sessions.filter(s => s.id !== id);
       if (selectedSessionId === id) {
-        ++selectionVersion;
-        resetComposer();
-        ++turnVersion;
-        abortController?.abort();
-        abortController = null;
-        sending = false;
-        streamContent = '';
-        toolEvents = [];
-        pendingConfirmation = null;
-        selectedSessionId = null;
-        showSessionList = true;
-        messages = [];
+        clearSessionSelection();
+        updateRouteQuery({ session: null }, true);
       }
     } catch (e: any) {
       addToast(e.message || 'Failed to delete session', 'alert');
@@ -869,24 +866,38 @@
     }
   }
 
+  function clearSessionSelection() {
+    ++selectionVersion;
+    resetComposer();
+    ++turnVersion;
+    abortController?.abort();
+    abortController = null;
+    sending = false;
+    streamContent = '';
+    toolEvents = [];
+    pendingConfirmation = null;
+    selectedSessionId = null;
+    showSessionList = true;
+    messages = [];
+    loadingMessages = false;
+    loadingOlder = false;
+    hasOlder = false;
+    messageError = '';
+    turnError = '';
+  }
+
+  const routeSession = $derived(new URLSearchParams($querystring).get('session'));
+  $effect(() => {
+    const id = routeSession;
+    untrack(() => {
+      if (id) void selectSession(id, true);
+      else if (selectedSessionId) clearSessionSelection();
+    });
+  });
+
   // Init
   onMount(() => {
-    let disposed = false;
-    loadSessions().then(() => {
-      if (disposed) return;
-      // Auto-select session from URL query param (e.g., ?session=abc from task chat).
-      const hash = window.location.hash;
-      const qIdx = hash.indexOf('?');
-      if (qIdx !== -1) {
-        const params = new URLSearchParams(hash.slice(qIdx + 1));
-        const sessionParam = params.get('session');
-        if (sessionParam) {
-          selectSession(sessionParam);
-          // Clean up the URL.
-          window.location.hash = hash.slice(0, qIdx);
-        }
-      }
-    });
+    loadSessions();
     loadAgents();
     loadBots();
     let refreshing = false;
@@ -896,7 +907,6 @@
       try { await refreshMessages(); } finally { refreshing = false; }
     }, 3000);
     return () => {
-      disposed = true;
       ++selectionVersion;
       ++turnVersion;
       resetComposer();

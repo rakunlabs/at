@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLogo from './BrandLogo.svelte';
   import { location } from 'svelte-spa-router';
   import { routeAllowed, configurationLinks } from '../helper/navigation';
   import { onMount } from 'svelte';
@@ -18,7 +19,7 @@
   ];
 </script>
 <aside class="app-sidebar border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col h-full overflow-y-auto">
-  <a href="#/" class="px-3 py-2 text-base font-semibold">AT</a>
+  <a href="#/" class="flex items-center gap-2 px-3 py-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-accent"><BrandLogo decorative />AT</a>
   <nav aria-label="Main navigation" class="flex-1 px-2 space-y-1 pb-4">
     {#each items.filter(item => routeAllowed(item.path) && (!features[item.path] || isFeatureEnabled(features[item.path]))) as item}<a href={`#${item.path}`} aria-current={$location === item.path ? 'page' : undefined} class={['flex items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent', $location === item.path || (item.path !== '/' && $location.startsWith(item.path + '/')) ? 'bg-gray-100 dark:bg-dark-elevated font-semibold' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}><item.icon size={15} /><span>{item.label}</span></a>{/each}
   </nav>

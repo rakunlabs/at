@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLogo from '@/lib/components/BrandLogo.svelte';
   import { onMount } from 'svelte';
   import axios from 'axios';
   import { decideMobileAuthRequest, getMobileAuthRequest, isAuthUnauthorized, mobileRequestID, type MobileAuthRequest } from '@/lib/api/auth';
@@ -69,6 +70,7 @@
 
 <main class="min-h-full overflow-y-auto bg-gray-50 dark:bg-dark-base px-6 py-12 text-gray-900 dark:text-dark-text">
   <div class="mx-auto w-full max-w-lg">
+    <div class="mb-6"><BrandLogo size={48} /></div>
     <h1 class="text-2xl font-semibold">{phase === 'finished' ? 'Return to your mobile app' : 'Allow mobile sign-in?'}</h1>
     {#if phase === 'loading'}
       <p role="status" class="mt-4 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Loading the sign-in request...</p>

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
@@ -45,7 +46,8 @@
 
   // ─── Tab State ───
 
-  let activeTab = $state<'my-skills' | 'store' | 'community'>('my-skills');
+  const tabRoute = routeChoice('tab', ['my-skills', 'store', 'community'] as const, 'my-skills');
+  let activeTab = $derived(tabRoute.value);
 
   // ─── State ───
 
@@ -597,7 +599,7 @@
       <!-- Tab Bar -->
       <div class="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border">
         <button
-          onclick={() => (activeTab = 'my-skills')}
+          onclick={() => (tabRoute.value = 'my-skills')}
           class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'my-skills' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Wand2 size={14} />
@@ -605,14 +607,14 @@
           <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
         </button>
         <button
-          onclick={() => (activeTab = 'store')}
+          onclick={() => (tabRoute.value = 'store')}
           class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Store size={14} />
           Skill Store
         </button>
         <button
-          onclick={() => (activeTab = 'community')}
+          onclick={() => (tabRoute.value = 'community')}
           class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'community' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Globe size={14} />
