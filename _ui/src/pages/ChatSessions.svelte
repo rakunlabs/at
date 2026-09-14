@@ -19,8 +19,8 @@
     type ChatMessage,
     type ChatAttachment,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Mic, MicOff, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download, Settings2 } from 'lucide-svelte';
-  import axios from 'axios';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download } from 'lucide-svelte';
+  import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
   import { CHAT_ATTACHMENT_COUNT, CHAT_ATTACHMENT_TOTAL, attachmentBytes, attachmentSize, attachmentIsImage, attachmentImageURL, readChatAttachment, downloadChatAttachment } from '@/lib/helper/chat-attachments';
@@ -60,7 +60,7 @@
   let attachmentError = $state('');
   let draggingFiles = $state(false);
   let fileInput = $state<HTMLInputElement>();
-  const composerControl = 'inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
+  const composerControl = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-0 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
   const secondaryControl = `${composerControl} border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated`;
 
   async function addAttachments(files: File[]) {
@@ -90,117 +90,20 @@
   }
 
   function resetComposer() {
+    voiceContext++;
     attachments = [];
     readingAttachments = false;
     attachmentError = '';
     draggingFiles = false;
     inputText = '';
-    showVoiceSettings = false;
-    if (mediaRecorder) {
-      mediaRecorder.onstop = null;
-      if (mediaRecorder.state === 'recording') mediaRecorder.stop();
-      mediaRecorder.stream.getTracks().forEach(track => track.stop());
-      mediaRecorder = null;
-    }
     recording = false;
     transcribing = false;
-    if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; }
   }
 
-  // Voice recording
-  let voiceMethod = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-method') || 'openai') : 'openai');
-  let voiceModel = $state(typeof localStorage !== 'undefined' ? (localStorage.getItem('at-voice-model') || 'tiny') : 'tiny');
-  let showVoiceSettings = $state(false);
-
-  function voiceLabel(): string {
-    if (voiceMethod === 'openai') return 'API';
-    if (voiceMethod === 'faster-whisper') return `fw:${voiceModel}`;
-    return voiceModel;
-  }
+  // Voice lifecycle is shared with Playground and reset on session changes.
+  let voiceContext = $state(0);
   let recording = $state(false);
   let transcribing = $state(false);
-  let mediaRecorder = $state<MediaRecorder | null>(null);
-  let recordingTimer = $state<ReturnType<typeof setInterval> | null>(null);
-  let recordingDuration = $state(0);
-
-  async function startRecording() {
-    if (sending || loadingMessages || recording || transcribing) return;
-    const selection = selectionVersion;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (selection !== selectionVersion) { stream.getTracks().forEach(track => track.stop()); return; }
-
-      // Pick a supported mime type
-      let mimeType = 'audio/webm';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'audio/mp4';
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-          mimeType = ''; // let browser pick default
-        }
-      }
-
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      const chunks: BlobPart[] = [];
-
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) chunks.push(e.data);
-      };
-
-      recorder.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
-        const type = recorder.mimeType || 'audio/webm';
-        const ext = type.includes('mp4') ? '.m4a' : '.webm';
-        const blob = new Blob(chunks, { type });
-        transcribeBlob(blob, ext);
-      };
-
-      recorder.start(1000); // request data every second for reliability
-      mediaRecorder = recorder;
-      recording = true;
-      recordingDuration = 0;
-      recordingTimer = setInterval(() => { recordingDuration++; }, 1000);
-    } catch (e) {
-      addToast('Microphone access denied', 'alert');
-    }
-  }
-
-  function stopRecording() {
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      mediaRecorder.stop();
-    }
-    recording = false;
-    if (recordingTimer) { clearInterval(recordingTimer); recordingTimer = null; }
-    recordingDuration = 0;
-  }
-
-  async function transcribeBlob(blob: Blob, ext: string) {
-    const selection = selectionVersion;
-    transcribing = true;
-    try {
-      const form = new FormData();
-      form.append('file', blob, `voice${ext}`);
-      const params = voiceMethod !== 'openai' ? `?method=${voiceMethod}&model=${voiceModel}` : '';
-      const res = await axios.post(`api/v1/audio/transcribe${params}`, form);
-      if (selection !== selectionVersion) return;
-      const text = res.data?.text;
-      if (text) {
-        inputText = (inputText ? inputText + ' ' : '') + text;
-        inputEl?.focus();
-      } else {
-        addToast('Transcription returned empty', 'warn');
-      }
-    } catch (e: any) {
-      if (selection === selectionVersion) addToast('Transcription failed: ' + (e?.response?.data?.message || e.message), 'alert');
-    } finally {
-      if (selection === selectionVersion) transcribing = false;
-    }
-  }
-
-  function formatRecordingTime(seconds: number): string {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
-    return `${m}:${s.toString().padStart(2, '0')}`;
-  }
   let inputText = $state('');
   let loading = $state(false);
   let sending = $state(false);
@@ -912,12 +815,6 @@
       resetComposer();
       clearInterval(timer);
       abortController?.abort();
-      if (recordingTimer) clearInterval(recordingTimer);
-      if (mediaRecorder) {
-        mediaRecorder.onstop = null;
-        if (mediaRecorder.state === 'recording') mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(track => track.stop());
-      }
     };
   });
 </script>
@@ -1543,86 +1440,7 @@
         {/if}
         </div>
         <button onclick={() => fileInput?.click()} disabled={sending || loadingMessages || readingAttachments || attachments.length >= CHAT_ATTACHMENT_COUNT} class={`${secondaryControl} w-10`} title="Attach files" aria-label="Attach photos or files"><Paperclip size={18} /></button>
-        <!-- Mic button with settings -->
-        <div class="relative shrink-0">
-          {#if transcribing}
-            <div role="status" aria-label="Transcribing voice" class={`${composerControl} w-10 text-blue-600 dark:text-blue-400`}>
-              <Loader2 size={18} class="animate-spin motion-reduce:animate-none" />
-            </div>
-          {:else if recording}
-            <button
-              onclick={stopRecording}
-              class={`${composerControl} px-3 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-950/50`}
-              title="Stop recording"
-              aria-label="Stop voice recording"
-            >
-              <MicOff size={18} />
-              <span class="text-xs tabular-nums">{formatRecordingTime(recordingDuration)}</span>
-            </button>
-          {:else}
-            <div class="flex items-center gap-1">
-              <button
-                onclick={startRecording}
-                disabled={sending || loadingMessages}
-                class={`${secondaryControl} w-10`}
-                title="Voice input (click to record)"
-                aria-label="Record voice message"
-              >
-                <Mic size={18} />
-              </button>
-              <button
-                onclick={() => { showVoiceSettings = !showVoiceSettings; }}
-                class={`${composerControl} w-10 text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated`}
-                title={`Voice settings (${voiceLabel()})`}
-                aria-label="Voice settings"
-                aria-expanded={showVoiceSettings}
-                disabled={sending || loadingMessages}
-              >
-                <Settings2 size={16} />
-              </button>
-            </div>
-          {/if}
-
-          {#if showVoiceSettings}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <div
-              class="fixed inset-0 z-40"
-              onclick={() => { showVoiceSettings = false; }}
-            ></div>
-            <div class="absolute bottom-full left-0 mb-2 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-md shadow-lg p-2 z-50 w-52">
-              <div class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary mb-1">Transcription method</div>
-              {#each [
-                { value: 'openai', label: 'OpenAI API (cloud)' },
-                { value: 'local', label: 'Local Whisper' },
-                { value: 'faster-whisper', label: 'Faster-Whisper' },
-              ] as opt}
-                <button
-                  onclick={() => { voiceMethod = opt.value; localStorage.setItem('at-voice-method', opt.value); }}
-                  class="w-full text-left px-2 py-1 text-[11px] rounded transition-colors {voiceMethod === opt.value ? 'bg-gray-900 dark:bg-accent text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
-                >
-                  {opt.label}
-                </button>
-              {/each}
-              {#if voiceMethod !== 'openai'}
-                <div class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary mt-2 mb-1">Model</div>
-                {#each [
-                  { value: 'tiny', label: 'tiny (39M, fastest)' },
-                  { value: 'base', label: 'base (74M, fast)' },
-                  { value: 'small', label: 'small (244M, good)' },
-                  { value: 'medium', label: 'medium (769M, better)' },
-                ] as opt}
-                  <button
-                    onclick={() => { voiceModel = opt.value; localStorage.setItem('at-voice-model', opt.value); showVoiceSettings = false; }}
-                    class="w-full text-left px-2 py-1 text-[11px] rounded transition-colors {voiceModel === opt.value ? 'bg-gray-700 dark:bg-dark-highest text-white' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
-                  >
-                    {opt.label}
-                  </button>
-                {/each}
-              {/if}
-            </div>
-          {/if}
-        </div>
+        <VoiceInput contextKey={voiceContext} disabled={sending || loadingMessages} bind:recording bind:transcribing ontext={text => { inputText = (inputText ? inputText + ' ' : '') + text; inputEl?.focus(); }} />
 
         {#if sending}
           <button onclick={stopGeneration} class={`${composerControl} ml-auto min-w-20 px-3 bg-red-600 text-white hover:bg-red-700`} title="Stop generation">

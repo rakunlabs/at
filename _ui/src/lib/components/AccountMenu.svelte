@@ -126,8 +126,8 @@
         : ''}"
     >
       {#if isNativeAdmin()}<ShieldCheck size={16} class="shrink-0" />{:else}<User size={16} class="shrink-0" />{/if}
-      <span class="max-w-20 truncate text-xs font-medium">{accountLabel}</span>
-      <ChevronDown size={12} class="shrink-0" />
+      <span class="hidden sm:inline max-w-20 truncate text-xs font-medium">{accountLabel}</span>
+      <ChevronDown size={12} class="hidden sm:block shrink-0" />
     </button>
 
     {#if open}

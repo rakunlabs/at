@@ -29,7 +29,27 @@ const DefaultBaseURL = "https://api.anthropic.com"
 
 // DefaultMaxTokens is the default max_tokens value sent to the Anthropic API.
 // Anthropic requires max_tokens on every request, unlike other providers.
-const DefaultMaxTokens = 4096
+// Leave room for structured artifacts and tool arguments; the historical 4096
+// default truncated agent writes. Older models use their smaller output limits.
+// Matches OpenCode's default output budget and Claude Code's unknown-model
+// fallback: https://code.claude.com/docs/en/env-vars#variables
+const DefaultMaxTokens = 32000
+
+func defaultMaxTokensForModel(model string) int {
+	model = strings.ToLower(model)
+	switch {
+	case strings.HasPrefix(model, "claude-3-5-"), strings.HasPrefix(model, "claude-3.5-"):
+		return 8192
+	case strings.HasPrefix(model, "claude-3-opus"),
+		strings.HasPrefix(model, "claude-3-sonnet"),
+		strings.HasPrefix(model, "claude-3-haiku"),
+		strings.HasPrefix(model, "claude-2"),
+		strings.HasPrefix(model, "claude-instant"):
+		return 4096
+	default:
+		return DefaultMaxTokens
+	}
+}
 
 type Provider struct {
 	APIKey    string
@@ -98,7 +118,7 @@ func WithTokenSource(ts TokenSource) Option {
 }
 
 // WithMaxTokens sets the default max_tokens value for requests.
-// If not set, DefaultMaxTokens (4096) is used.
+// If not positive, a model-aware default is selected for each request.
 func WithMaxTokens(n int) Option {
 	return func(p *Provider) {
 		p.MaxTokens = n
@@ -190,19 +210,13 @@ func New(apiKey, model, baseURL, proxy string, insecureSkipVerify bool, opts ...
 	// Apply options early so we know whether a tokenSource is configured
 	// before building the client default headers.
 	p := &Provider{
-		APIKey:    apiKey,
-		Model:     model,
-		BaseURL:   baseURL,
-		MaxTokens: DefaultMaxTokens,
+		APIKey:  apiKey,
+		Model:   model,
+		BaseURL: baseURL,
 	}
 
 	for _, o := range opts {
 		o(p)
-	}
-
-	// Ensure max_tokens has a sane minimum.
-	if p.MaxTokens <= 0 {
-		p.MaxTokens = DefaultMaxTokens
 	}
 
 	headers := http.Header{
@@ -1014,8 +1028,13 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		})
 	}
 
-	// Determine max_tokens: client override > provider default.
+	// Determine max_tokens: client override > explicit provider default > model
+	// default. Resolve against the requested model, not just the provider's model,
+	// since gateway callers can switch models on the same provider instance.
 	maxTokens := p.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxTokensForModel(model)
+	}
 	if opts != nil {
 		if opts.MaxCompletionTokens != nil {
 			maxTokens = *opts.MaxCompletionTokens

@@ -1,11 +1,13 @@
 <script lang="ts" generics="T">
   import { type Snippet, type Component } from 'svelte';
-  import { Search, X } from 'lucide-svelte';
+  import { ArrowLeftRight, Search, X } from 'lucide-svelte';
   import Pagination from './Pagination.svelte';
 
   interface Props {
     items: T[];
     loading?: boolean;
+    tableLabel?: string;
+    tableClass?: string;
     
     // Pagination props
     total?: number;
@@ -33,6 +35,8 @@
   let { 
     items = [], 
     loading = false,
+    tableLabel = 'Data table',
+    tableClass = '',
     total = 0,
     limit = $bindable(25),
     offset = $bindable(0),
@@ -50,6 +54,21 @@
   }: Props = $props();
 
   let searchInput = $state(searchValue);
+  let scrollContainer = $state<HTMLDivElement>();
+  let hasHorizontalOverflow = $state(false);
+  const componentId = $props.id();
+  const scrollHintId = `${componentId}-scroll-hint`;
+
+  $effect(() => {
+    const container = scrollContainer;
+    if (!container) return;
+    const measure = () => { hasHorizontalOverflow = container.scrollWidth > container.clientWidth + 1; };
+    const observer = new ResizeObserver(measure);
+    observer.observe(container);
+    if (container.firstElementChild) observer.observe(container.firstElementChild);
+    measure();
+    return () => observer.disconnect();
+  });
 
   function handleSearchKeydown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
@@ -73,10 +92,10 @@
   }
 </script>
 
-<div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
+<div class="w-full min-w-0 max-w-full border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-hidden">
   {#if onsearch}
     <div class="px-4 py-2 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-      <div class="relative w-64">
+      <div class="relative w-full sm:w-64 sm:max-w-full">
         <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-text-muted" size={13} />
         <input
           type="text"
@@ -84,12 +103,14 @@
           onkeydown={handleSearchKeydown}
           onblur={commitSearch}
           placeholder={searchPlaceholder}
-          class="w-full pl-8 pr-7 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:border-gray-500 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+          aria-label={searchPlaceholder}
+          class="w-full min-h-11 sm:min-h-0 pl-8 pr-12 sm:pr-7 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:border-gray-500 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
         />
         {#if searchInput}
           <button
             onclick={clearSearch}
-            class="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            aria-label="Clear search"
+            class="absolute right-0 sm:right-1.5 top-1/2 -translate-y-1/2 size-11 sm:size-auto flex items-center justify-center p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-accent"
           >
             <X size={12} />
           </button>
@@ -118,7 +139,22 @@
       </div>
     {/if}
   {:else}
-    <table class="w-full text-sm">
+    {#if hasHorizontalOverflow}
+      <p id={scrollHintId} class="flex items-center gap-2 border-b border-gray-200 dark:border-dark-border px-4 py-2 text-xs text-gray-600 dark:text-dark-text-secondary">
+        <ArrowLeftRight size={14} class="shrink-0" /> Swipe or scroll horizontally to see all columns
+      </p>
+    {/if}
+    <!-- A native overflow region needs focus so keyboard users can scroll its columns. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div
+      bind:this={scrollContainer}
+      class="w-full min-w-0 max-w-full overflow-x-auto overscroll-x-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+      role="region"
+      aria-label={tableLabel}
+      aria-describedby={hasHorizontalOverflow ? scrollHintId : undefined}
+      tabindex={hasHorizontalOverflow ? 0 : undefined}
+    >
+    <table class={`w-full text-sm ${tableClass}`}>
       <thead>
         <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
           {@render header()}
@@ -130,6 +166,7 @@
         {/each}
       </tbody>
     </table>
+    </div>
     
     {#if total > 0}
       <Pagination {total} bind:limit bind:offset {onchange} />

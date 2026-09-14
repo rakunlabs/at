@@ -71,6 +71,13 @@ Defaults are baked into `loopgov.fillDefaults` (no YAML / env knobs):
 
 **No output-token cap.** Providers and agent configs already define per-model `max_tokens`. An earlier revision shipped a 4096-token platform cap; it broke structured outputs (e.g. multi-scene Script Writer JSON for video shorts) and was removed. `Governor.ChatOptions()` now always returns `nil`, the documented "no cap" sentinel for every provider adapter.
 
+Anthropic requires a `max_tokens` field even when the governor supplies no cap.
+Its adapter defaults to 32000 per request (matching OpenCode's default output
+budget and Claude Code's unknown-model fallback; formerly 4096, which truncated
+Shorts script tool calls). Recognized legacy Claude 3.5 models use 8192; Claude 3/2/Instant
+use 4096. Explicit provider/request limits still override these defaults. This is
+an output allowance per response, separate from gateway API-token usage quotas.
+
 Long-form agents may opt into budgets up to 240; existing smaller agent defaults remain unchanged. Positive task/Telegram-command `max_iterations` overrides the agent, so use `0` there to inherit a revised agent budget. Workflow nodes using the legacy zero/unlimited migration adopt the current ceiling. Org delegation stops after three consecutive output-limit responses rather than burning the entire budget on incomplete tool arguments; no partial tool call is executed, and recovery guidance asks for small chapter/section artifact writes.
 
 Built-in tool calls in all three agent loops inherit the configured per-tool deadline. `bash_execute` uses that remaining deadline when `timeout` is omitted (otherwise 60 seconds outside a bounded context); explicit `timeout` is in seconds, capped at 3600, and never extends an outer deadline. `timeout_seconds` is not a bash argument. Cancellation still kills the process group. Use bounded foreground chapter renders and validated artifacts rather than detached jobs with repeated sleep/poll calls.

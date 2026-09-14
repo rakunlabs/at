@@ -1165,19 +1165,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		return nil, err
 	}
 
-	folderM, err := mfolder.New(&mfolder.Config{
-		BasePath:       cfg.BasePath,
-		Index:          true,
-		StripIndexName: true,
-		SPA:            true,
-		PrefixPath:     cfg.BasePath,
-		CacheRegex: []*mfolder.RegexCacheStore{
-			{
-				Regex:        `index\.html$`,
-				CacheControl: "no-store",
-			},
-		},
-	})
+	folderM, err := mfolder.New(uiFolderConfig(cfg.BasePath))
 	if err != nil {
 		return nil, err
 	}

@@ -56,6 +56,37 @@ browser integration check, enter nested folders and different sessions/tabs,
 copy each URL into a fresh tab, refresh, and use Back/Forward. Also check missing
 paths, workspace switching, and switching sessions during a streamed reply.
 
+## Voice input
+
+Playground and Sessions share the microphone's **Voice settings** control. Choose
+OpenAI API, Browser dictation, Local Whisper (on the AT server), or Faster-Whisper
+(on the AT server). The method/model preference is retained in this browser using
+the existing `at-voice-method` / `at-voice-model` keys; browser dictation also
+remembers `at-voice-language`, including Turkish (`tr-TR`).
+
+Browser dictation uses `SpeechRecognition` / `webkitSpeechRecognition` where
+available. It does not upload audio to AT's transcription API, but the browser
+may use its own online speech service: local/offline operation is not guaranteed.
+Unsupported browsers display the unavailable option without silently choosing
+another method. OS keyboard dictation remains usable in the focused message field;
+web apps cannot directly launch it as another microphone backend.
+
+Final speech segments append to the editable draft, never send automatically.
+Stop lets browser recognition finish its last result. Changing conversations,
+leaving the page, or cancelling discards pending results and stops microphone
+tracks/requests. `tests/browser-speech.test.mjs` covers final-result deduplication,
+stop/cancel, unsupported browsers and speech-service errors.
+
+## Mobile tables
+
+`DataTable.svelte` keeps wide tables in a native horizontal scroll region while
+search and pagination stay within the page. A hint appears only when columns
+overflow, and the region is keyboard-focusable for arrow-key scrolling. Dashboard
+model lists expand on tap rather than relying on hover text. The shell constrains
+its grid column so the top bar cannot enlarge a phone's layout viewport. Verify
+at 320/390px with long provider/model names, horizontal table scrolling, vertical
+page scrolling, and wrapped pagination controls.
+
 ## Install on a phone or desktop
 
 Serve AT over **HTTPS** (localhost is allowed for development). Open the normal
@@ -90,6 +121,15 @@ activate without reloading an active chat or form; reload the app to load a new 
 release. Bump the worker’s offline cache version when changing `offline.html` so
 the public fallback updates with the release. Cache cleanup is scoped to this
 installation’s offline caches.
+
+Installed app icons follow the browser/OS manifest update schedule. Android/Chrome
+can refresh the icon after rechecking the manifest; this is not immediate and the
+app cannot force it. Existing iOS home-screen icons may require removing and
+re-adding the shortcut. Reloading the app updates its in-app logo separately.
+The Go static handler sends `no-cache` for the manifest, worker, offline page and
+favicon files so their stable URLs revalidate; HTML uses `no-store`. Keep those
+headers intact through reverse proxies/CDNs. Changing `id` or `start_url` to force
+an icon refresh would create a different app and should be avoided.
 
 ## Verification before release
 

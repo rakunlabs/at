@@ -25,7 +25,7 @@
   });
 </script>
 
-<div class="app-navbar bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border flex items-center px-2 py-1 transition-colors">
+<div class="app-navbar min-w-0 max-w-full bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border flex items-center px-2 py-1 transition-colors">
   <button
     aria-label="Toggle navigation"
     aria-expanded={storeNavbar.sideBarOpen}
@@ -39,7 +39,7 @@
     {/if}
   </button>
   <a href="#/" aria-label="AT home" class="ml-2 shrink-0 rounded focus-visible:outline-2 focus-visible:outline-accent sm:hidden"><BrandLogo size={20} decorative /></a>
-  <span class="ml-2 min-w-0 truncate text-sm font-medium text-gray-800 dark:text-dark-text">
+  <span class="ml-2 min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-dark-text">
     {storeNavbar.title}
   </span>
 
