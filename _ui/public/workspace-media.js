@@ -1,8 +1,22 @@
-/* Only bridges native media requests to the header-based workspace file API.
- * No credential, workspace, or response is persisted or cached by this worker. */
+/* One worker owns PWA navigation and the workspace media bridge.
+ * Only the public offline page is cached; API/auth/media responses never are. */
+const offlineURL = new URL('offline.html', self.registration.scope).href;
+const offlineCachePrefix = `at-offline:${self.registration.scope}:`;
+const offlineCache = `${offlineCachePrefix}v1`;
 const pending = new Map();
-self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
-self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
+self.addEventListener('install', event => event.waitUntil((async () => {
+  const response = await fetch(new Request(offlineURL, { cache: 'reload', credentials: 'omit' }));
+  if (!response.ok || response.redirected || !response.headers.get('Content-Type')?.includes('text/html')) throw new Error('Offline page unavailable');
+  await (await caches.open(offlineCache)).put(offlineURL, response);
+  // No application bundle is cached and no page is reloaded on activation.
+  await self.skipWaiting();
+})()));
+self.addEventListener('activate', event => event.waitUntil((async () => {
+  for (const key of await caches.keys()) {
+    if (key.startsWith(offlineCachePrefix) && key !== offlineCache) await caches.delete(key);
+  }
+  await self.clients.claim();
+})()));
 self.addEventListener('message', event => {
   if (event.data?.type !== 'at-cancel-workspace-media' || !event.source?.id) return;
   for (const controller of pending.get(event.source.id) || []) controller.abort();
@@ -68,6 +82,13 @@ async function serve(event) {
 
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
+  const root = new URL(self.registration.scope);
+  if (event.request.method === 'GET' && event.request.mode === 'navigate' && url.origin === root.origin && (url.pathname === root.pathname || url.pathname === `${root.pathname}index.html`)) {
+    event.respondWith(fetch(event.request).catch(async () =>
+      (await (await caches.open(offlineCache)).match(offlineURL)) || new Response('AT is offline. Reconnect and reload.', { status: 503, headers: { 'Content-Type': 'text/plain' } })
+    ));
+    return;
+  }
   const target = new URL('api/v1/files/serve', self.registration.scope);
   if (url.origin !== target.origin || url.pathname !== target.pathname || !['GET', 'HEAD'].includes(event.request.method) || event.request.headers.has('X-AT-Workspace-ID') || url.searchParams.has('workspace_id')) return;
   event.respondWith(serve(event));

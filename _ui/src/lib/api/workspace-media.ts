@@ -9,7 +9,12 @@ export async function initializeWorkspaceMedia(): Promise<void> {
     event.ports[0].close();
   });
   try {
-    await navigator.serviceWorker.register(workerURL.href, { scope: new URL('.', document.baseURI).pathname });
+    const registration = await navigator.serviceWorker.register(workerURL.href, { scope: new URL('.', document.baseURI).pathname, updateViaCache: 'none' });
+    // Installed apps can remain open for days; check when returning to them.
+    window.addEventListener('online', () => { void registration.update().catch(() => {}); });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void registration.update().catch(() => {});
+    });
     await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller) await new Promise<void>(resolve => {
       const changed = () => { clearTimeout(timer); navigator.serviceWorker.removeEventListener('controllerchange', changed); resolve(); };

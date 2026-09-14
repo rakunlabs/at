@@ -24,9 +24,10 @@
   });
 </script>
 
-<div class="bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border flex items-center px-2 py-1 h-full transition-colors">
+<div class="app-navbar bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border flex items-center px-2 py-1 transition-colors">
   <button
     aria-label="Toggle navigation"
+    aria-expanded={storeNavbar.sideBarOpen}
     class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-900 dark:hover:text-dark-text transition-colors"
     onclick={() => (storeNavbar.sideBarOpen = !storeNavbar.sideBarOpen)}
   >

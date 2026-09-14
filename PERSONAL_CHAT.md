@@ -10,7 +10,7 @@ clients. Both clients use the same authoritative PostgreSQL transcript.
   safe Markdown, cancellation and durable-status recovery.
 - The tool/image playground remains at `#/playground`. Legacy-mode `#/chat`
   retains that playground; private persistent conversations require native auth.
-- Flutter in `_mobile/` uses the same conversation/message IDs after PKCE login.
+- Mobile access uses the installable `_ui/` PWA and the same browser session and conversation/message IDs as desktop.
   It supports text chat, model selection, history, streaming and cancellation.
   Mobile Markdown, attachments/tools and editing existing model/system settings
   remain deferred.

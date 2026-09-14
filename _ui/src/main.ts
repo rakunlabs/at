@@ -4,7 +4,9 @@ import App from "@/App.svelte";
 import { mount } from "svelte";
 import { initializeWorkspaceMedia } from '@/lib/api/workspace-media';
 import { takeRecoveryTicket } from '@/lib/helper/recovery';
+import { initializePWA } from '@/lib/store/pwa.svelte';
 
+initializePWA();
 const initialRecoveryTicket = takeRecoveryTicket(window.location, window.history);
 if (initialRecoveryTicket) window.dispatchEvent(new HashChangeEvent('hashchange'));
 const app = Promise.race([

@@ -496,6 +496,18 @@ AT does not ship a native long-term agent memory store. Agents that need memory 
 
 ## UI Code Style (_ui/)
 
+### PWA
+
+The mobile client is the `_ui/` PWA; the separate Flutter project has been removed.
+`public/manifest.webmanifest` uses relative URLs for prefix deployments. The existing
+`public/workspace-media.js` owns both workspace media and network-first app navigation
+with a public offline fallback. Only `offline.html` is cached; never cache API/auth,
+chat or media responses. Bump its offline cache version when updating that page.
+Worker activation does not reload pages. `pwa.svelte.ts` captures installation and
+online events; Sidebar exposes installation guidance. The phone navigation uses a
+modal dialog; the shell uses dynamic viewport height and safe-area padding.
+See `_ui/README.md` for install, deployment and device verification instructions.
+
 ### Stack
 - **Svelte 5** (runes mode), **Vite 6**, **TailwindCSS 4** (CSS-based config), **TypeScript**
 - **Router**: `svelte-spa-router` (hash-based, `#/path`), eager imports

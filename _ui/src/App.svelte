@@ -19,6 +19,14 @@
   import { workspaceState, loadWorkspaceAccess } from './lib/store/workspace.svelte';
   import { routeAllowed, configurationLinks } from './lib/helper/navigation';
   import routes from './routes';
+  import { pwa } from './lib/store/pwa.svelte';
+  let mobileNavigation = $state<HTMLDialogElement>();
+  function closeNavigation() { storeNavbar.sideBarOpen = false; }
+  $effect(() => {
+    if (storeNavbar.sideBarOpen && window.matchMedia('(max-width: 639px)').matches) mobileNavigation?.showModal();
+    else mobileNavigation?.close();
+  });
+  $effect(() => { void $location; if (window.matchMedia('(max-width: 639px)').matches) closeNavigation(); });
   let { initialRecoveryTicket = '' }: { initialRecoveryTicket?: string } = $props();
   let ticket = $state(untrack(() => initialRecoveryTicket));
   let authState = $state<'loading'|'setup'|'login'|'ready'|'error'>('loading');
@@ -45,7 +53,12 @@
     const unsubscribe = authSession.subscribe((identity, message) => { if (storeAuth.securityHold || ticket) return; if (identity) storeAuth.identity = identity; else { revision++; storeAuth.identity = null; notice = message; authState = 'login'; } });
     void initialize(); const recheck = () => { if (authState === 'ready' && !storeAuth.securityHold) void checkSession(); };
     const timer = window.setInterval(recheck, 60000); window.addEventListener('focus', recheck);
-    return () => { unsubscribe(); clearInterval(timer); window.removeEventListener('focus', recheck); };
+    const online = () => { if (authState === 'error') void initialize(); else recheck(); };
+    const breakpoint = window.matchMedia('(max-width: 639px)');
+    const resize = () => { closeNavigation(); mobileNavigation?.close(); };
+    breakpoint.addEventListener('change', resize);
+    window.addEventListener('online', online);
+    return () => { unsubscribe(); clearInterval(timer); window.removeEventListener('focus', recheck); window.removeEventListener('online', online); breakpoint.removeEventListener('change', resize); };
   });
 </script>
 <Toast />
@@ -56,9 +69,15 @@
 {:else if authState === 'loading' || authState === 'error'}<main class="min-h-full flex items-center justify-center p-6"><div class="max-w-md space-y-4"><h1 class="text-xl font-semibold">{authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'}</h1>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button" onclick={initialize}>Retry connection</button>{/if}</div></main>
 {:else if $location === '/mobile-authorize'}<MobileAuthorize query={$querystring || ''} enabled={true} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else}
-<div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[9rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
-  {#if storeNavbar.sideBarOpen}<Sidebar />{/if}
-  <div class="grid grid-rows-[auto_minmax(0,1fr)] min-h-0 min-w-0"><Navbar onlogout={logout} {loggingOut} /><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto']}>
+<div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[9rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
+  {#if storeNavbar.sideBarOpen}<div class="hidden sm:block min-h-0"><Sidebar /></div>{/if}
+  <dialog bind:this={mobileNavigation} class="mobile-navigation" aria-label="Navigation" onclose={closeNavigation} onclick={event => { if (event.target === mobileNavigation || (event.target instanceof Element && event.target.closest('a'))) closeNavigation(); }}>
+    <div class="flex h-full flex-col bg-white dark:bg-dark-surface">
+      <button class="settings-button m-2 min-h-11 self-end" onclick={closeNavigation}>Close navigation</button>
+      <div class="min-h-0 flex-1"><Sidebar /></div>
+    </div>
+  </dialog>
+  <div class="grid grid-rows-[auto_minmax(0,1fr)] min-h-0 min-w-0"><div><Navbar onlogout={logout} {loggingOut} />{#if pwa.offline}<p role="status" class="border-b border-gray-200 dark:border-dark-border px-3 py-2 text-sm">You’re offline. Reconnect to send messages and save changes.</p>{/if}</div><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto']}>
     {#if error}<p role="alert" class="settings-error px-5 py-2">{error}</p>{/if}
     {#if !workspaceState.access && !isNativeAdmin() && $location !== '/settings/account'}
       <div class="settings-page"><h1 class="text-2xl font-semibold">Waiting for workspace access</h1><p class="settings-note">You’re signed in. Ask a workspace owner to admit your user ID <code class="break-all">{storeAuth.identity?.subject}</code>, or accept an invitation below.</p><div class="flex flex-wrap gap-3"><button class="settings-button" onclick={checkSession}>Check access again</button><a class="settings-button" href="#/settings/account">Account security</a></div></div><WorkspaceSettings />

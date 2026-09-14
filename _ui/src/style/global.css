@@ -59,6 +59,35 @@ body {
   @apply h-full w-full bg-gray-50 dark:bg-dark-base text-gray-900 dark:text-dark-text;
 }
 
+body {
+  height: 100dvh;
+  overflow: auto;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+}
+
+.mobile-navigation {
+  position: fixed;
+  inset: 0 auto 0 0;
+  margin: 0;
+  width: min(20rem, 88vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  max-width: none;
+  border: 0;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left);
+  @apply bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text;
+}
+.mobile-navigation::backdrop { background: rgb(0 0 0 / 45%); }
+
+@media (max-width: 639px) {
+  .app-navbar button, .app-navbar select { min-height: 44px; }
+  .app-navbar button { min-width: 44px; }
+  .app-navbar select { max-width: 7rem; }
+  .app-sidebar a { min-height: 44px; display: flex; align-items: center; font-size: 14px; }
+  /* Avoid iOS focus zoom while retaining pinch zoom for the whole interface. */
+  input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px !important; }
+}
+
 /* Set by applyTheme() in lib/store/store.svelte.ts only while the light/dark
    class is swapped, so the whole page repaints in one frame instead of
    cross-fading every transition-colors element. */
