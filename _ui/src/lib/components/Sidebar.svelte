@@ -1,5 +1,4 @@
 <script lang="ts">
-  import InstallApp from './InstallApp.svelte';
   import { location } from 'svelte-spa-router';
   import { routeAllowed, configurationLinks } from '../helper/navigation';
   import { onMount } from 'svelte';
@@ -24,5 +23,4 @@
     {#each items.filter(item => routeAllowed(item.path) && (!features[item.path] || isFeatureEnabled(features[item.path]))) as item}<a href={`#${item.path}`} aria-current={$location === item.path ? 'page' : undefined} class={['flex items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent', $location === item.path || (item.path !== '/' && $location.startsWith(item.path + '/')) ? 'bg-gray-100 dark:bg-dark-elevated font-semibold' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}><item.icon size={15} /><span>{item.label}</span></a>{/each}
   </nav>
   <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1"><a href="#/docs" class="flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-gray-100 dark:hover:bg-dark-elevated"><BookOpen size={15} />Documentation</a><a href="#/settings" aria-current={$location.startsWith('/settings') || configurationLinks.some(l => l.path === $location) ? 'page' : undefined} class="flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-gray-100 dark:hover:bg-dark-elevated"><Settings size={15} />Settings</a></nav>
-  <InstallApp />
 </aside>

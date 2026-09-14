@@ -13,7 +13,7 @@ docker run -d --name at -p 8080:8080 ghcr.io/rakunlabs/at:latest
 ## Mobile app (PWA)
 
 The `_ui/` web interface is also AT’s mobile app. Open AT over HTTPS and choose
-**Install AT** in the navigation menu, or Safari → Share → **Add to Home Screen**
+**Settings → Install AT**, or Safari → Share → **Add to Home Screen**
 on iPhone/iPad. It uses the same conversations and workspaces as desktop.
 Server operations require a connection; an offline screen helps you reconnect.
 See [_ui/README.md](_ui/README.md) for deployment and installation details.

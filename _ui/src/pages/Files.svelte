@@ -24,9 +24,9 @@
   let browseError = $state('');
   let browseVersion = 0;
   let previewController: AbortController | null = null;
-  const controlClass = 'inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-md border border-gray-200 dark:border-dark-border px-3 text-sm text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
-  const iconClass = 'inline-flex size-10 shrink-0 items-center justify-center rounded-md text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
-  const inputClass = 'h-10 w-full min-w-0 rounded-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 text-base sm:text-sm text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent';
+  const controlClass = 'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded border border-gray-200 dark:border-dark-border px-2 text-xs text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
+  const iconClass = 'inline-flex size-7 shrink-0 items-center justify-center rounded text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
+  const inputClass = 'h-7 w-full min-w-0 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 text-base sm:text-xs text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent';
 
   // Search & Sort & Hidden
   let searchQuery = $state('');
@@ -217,7 +217,7 @@
   <!-- Main content -->
   <div class={[previewFile ? 'hidden xl:flex' : 'flex', 'flex-1 flex-col min-h-0 min-w-0']}>
     <!-- Header -->
-    <header class="flex flex-col gap-3 px-3 sm:px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shrink-0">
+    <header class="flex flex-col gap-1.5 px-3 py-2 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shrink-0">
       <div class="flex items-center gap-2 min-w-0">
         <button
           onclick={() => browse(parentPath)}
@@ -226,11 +226,11 @@
           title="Go up"
           aria-label="Go to parent directory"
         >
-          <ArrowLeft size={18} />
+          <ArrowLeft size={14} />
         </button>
 
         <!-- Breadcrumbs -->
-        <nav aria-label="File path" class="flex items-center gap-1 text-sm min-w-0 overflow-x-auto">
+        <nav aria-label="File path" class="flex items-center gap-1 text-xs min-w-0 overflow-x-auto">
           {#each breadcrumbs as crumb, i}
             {#if i > 0}
               <ChevronRight size={10} class="text-gray-300 dark:text-dark-text-faint shrink-0" />
@@ -238,7 +238,7 @@
             <button
               onclick={() => browse(crumb.path)}
               class={[
-                'shrink-0 min-h-10 truncate max-w-40 px-1 rounded focus-visible:outline-2 focus-visible:outline-accent transition-colors',
+                'shrink-0 min-h-7 truncate max-w-40 px-1 rounded focus-visible:outline-2 focus-visible:outline-accent transition-colors',
                 i === breadcrumbs.length - 1
                   ? 'text-gray-900 dark:text-dark-text font-medium'
                   : 'text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text'
@@ -248,7 +248,7 @@
               title={crumb.path}
             >
               {#if i === 0}
-                  <Home size={16} />
+                  <Home size={14} />
               {:else}
                 {crumb.name}
               {/if}
@@ -258,7 +258,7 @@
         <button onclick={() => browse(currentPath)} disabled={loading} class={`${iconClass} ml-auto`} title="Refresh" aria-label="Refresh directory"><RefreshCw size={16} /></button>
       </div>
 
-      <div class="flex flex-wrap items-center gap-2 min-w-0">
+      <div class="flex flex-wrap items-center gap-1.5 min-w-0">
         <!-- Paths are rooted in the selected workspace and checked by the server. -->
         <input
           type="text"
@@ -270,13 +270,13 @@
         />
         <!-- Search -->
         <div class="relative min-w-0 flex-1 basis-40">
-          <Search size={16} class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-dark-text-secondary" />
+          <Search size={13} class="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 dark:text-dark-text-secondary" />
           <input
             type="text"
             bind:value={searchQuery}
             placeholder="Filter files…"
             aria-label="Filter files"
-            class={`${inputClass} pl-9`}
+            class={`${inputClass} pl-7`}
           />
         </div>
         <!-- Workspace-relative conventional roots. -->
@@ -321,19 +321,19 @@
           {entries.length > 0 ? 'No matches' : 'Empty directory'}
         </div>
       {:else}
-        <table class="w-full table-fixed text-sm">
+        <table class="w-full table-fixed text-xs">
           <thead>
             <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base text-xs text-gray-600 dark:text-dark-text-secondary">
-              <th class="text-left px-4 py-2 font-medium">
+              <th class="text-left px-3 py-1.5 font-medium">
                 <button onclick={() => toggleSort('name')} class="hover:text-gray-700 dark:hover:text-dark-text-secondary">Name{sortIndicator('name')}</button>
               </th>
-              <th class="hidden md:table-cell text-right px-4 py-2 font-medium w-24">
+              <th class="hidden md:table-cell text-right px-3 py-1.5 font-medium w-24">
                 <button onclick={() => toggleSort('size')} class="hover:text-gray-700 dark:hover:text-dark-text-secondary">Size{sortIndicator('size')}</button>
               </th>
-              <th class="hidden 2xl:table-cell text-right px-4 py-2 font-medium w-40">
+              <th class="hidden 2xl:table-cell text-right px-3 py-1.5 font-medium w-40">
                 <button onclick={() => toggleSort('mod_time')} class="hover:text-gray-700 dark:hover:text-dark-text-secondary">Modified{sortIndicator('mod_time')}</button>
               </th>
-              <th class="text-right px-2 py-2 font-medium w-24"><span class="sr-only">Actions</span></th>
+              <th class="text-right px-2 py-1.5 font-medium w-20"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
@@ -345,25 +345,25 @@
                   ? 'bg-gray-100 dark:bg-dark-elevated'
                   : 'hover:bg-gray-50 dark:hover:bg-dark-elevated'
               ]}>
-                <td class="px-3 sm:px-4 py-2">
+                <td class="px-3 py-0.5">
                   <button
                     onclick={() => openPreview(entry)}
-                    class="flex min-h-10 min-w-0 items-center gap-2 text-left transition-colors w-full rounded focus-visible:outline-2 focus-visible:outline-accent"
+                    class="flex min-h-7 min-w-0 items-center gap-2 text-left transition-colors w-full rounded focus-visible:outline-2 focus-visible:outline-accent"
                     title={entry.name}
                   >
-                    <span class="inline-flex size-8 shrink-0 items-center justify-center rounded-md bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary">
-                      <FileIcon size={18} />
+                    <span class="inline-flex size-4 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary">
+                      <FileIcon size={14} />
                     </span>
                     <span class="min-w-0"><span class="block truncate text-gray-800 dark:text-dark-text">{entry.name}</span><span class="block text-xs text-gray-500 dark:text-dark-text-secondary md:hidden">{entry.is_dir ? 'Folder' : formatSize(entry.size)}</span></span>
                   </button>
                 </td>
-                <td class="hidden md:table-cell px-4 py-2 text-right text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums">
+                <td class="hidden md:table-cell px-3 py-0.5 text-right text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums">
                   {entry.is_dir ? '-' : formatSize(entry.size)}
                 </td>
-                <td class="hidden 2xl:table-cell px-4 py-2 text-right text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums">
+                <td class="hidden 2xl:table-cell px-3 py-0.5 text-right text-xs text-gray-500 dark:text-dark-text-secondary tabular-nums">
                   {entry.mod_time}
                 </td>
-                <td class="px-2 py-2 text-right">
+                <td class="px-2 py-0.5 text-right">
                   <div class="flex items-center justify-end">
                     {#if !entry.is_dir}
                       <a
@@ -373,7 +373,7 @@
                         title={`Download ${entry.name}`}
                         aria-label={`Download ${entry.name}`}
                       >
-                        <Download size={16} />
+                        <Download size={14} />
                       </a>
                     {/if}
                       <button
@@ -382,7 +382,7 @@
                         title={`Delete ${entry.name}`}
                         aria-label={`Delete ${entry.name}`}
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={14} />
                       </button>
                   </div>
                 </td>
@@ -398,7 +398,7 @@
   {#if previewFile}
     <section aria-label="File preview" class="w-full xl:w-[28rem] min-w-0 min-h-0 xl:border-l border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col shrink-0">
       <!-- Preview header -->
-      <div class="flex flex-wrap items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-gray-200 dark:border-dark-border shrink-0">
+      <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
         <div class="min-w-0">
           <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text break-all">{previewFile.name}</h2>
           <div class="text-xs text-gray-500 dark:text-dark-text-secondary">{formatSize(previewFile.size)} · {previewFile.mod_time}</div>

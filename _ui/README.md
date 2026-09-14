@@ -22,7 +22,7 @@ From the repository root, `make build-ui` builds and moves all public assets int
 ## Install on a phone or desktop
 
 Serve AT over **HTTPS** (localhost is allowed for development). Open the normal
-AT URL, sign in, then open the navigation menu → **Install AT**.
+AT URL, sign in, then open **Settings → Install AT**.
 
 - Chrome/Edge/Android: use Install AT when offered, or the browser’s Install app menu.
 - iPhone/iPad: open in Safari → Share → Add to Home Screen → Open as Web App if offered.

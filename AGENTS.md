@@ -504,7 +504,7 @@ The mobile client is the `_ui/` PWA; the separate Flutter project has been remov
 with a public offline fallback. Only `offline.html` is cached; never cache API/auth,
 chat or media responses. Bump its offline cache version when updating that page.
 Worker activation does not reload pages. `pwa.svelte.ts` captures installation and
-online events; Sidebar exposes installation guidance. The phone navigation uses a
+online events; Settings exposes installation guidance. The phone navigation uses a
 modal dialog; the shell uses dynamic viewport height and safe-area padding.
 See `_ui/README.md` for install, deployment and device verification instructions.
 
