@@ -124,6 +124,8 @@ func (g *Governor) ClampIterations(agentMax, taskMax int) int {
 //   - Disabled mode: returns messages unchanged.
 //   - When the estimated input-token budget is satisfied: returns
 //     messages unchanged.
+//   - On overflow, evicts oldest tool exchanges with an explicit omission
+//     notice before considering removal of conversational text.
 //   - Otherwise: reserves the system prompt at index 0, finds the
 //     largest suffix of trailing messages that fits in the remaining
 //     budget, and replaces the dropped middle with one rolling-summary
@@ -148,6 +150,13 @@ func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages [
 	}
 
 	totalEst := estimateMessages(messages)
+	if totalEst+toolEst > g.cfg.WindowTokens {
+		// Large tool exchanges must not evict the user's request. Cutting a
+		// suffix inside an exchange leaves only orphan results, which repair
+		// then removes (potentially leaving just the system prompt).
+		messages = omitToolExchanges(messages, g.cfg.WindowTokens-toolEst)
+		totalEst = estimateMessages(messages)
+	}
 	if totalEst+toolEst <= g.cfg.WindowTokens {
 		// Even when no windowing is needed, the caller's slice may
 		// already contain orphan tool_use / tool_result blocks (e.g.
@@ -169,7 +178,10 @@ func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages [
 	// Reserve room for the eventual rolling-summary user message. We
 	// don't know the exact size until summarisation runs; budget the
 	// upper bound (SummaryTokens worth of chars).
-	reserved := systemEst + g.cfg.SummaryTokens + toolEst
+	reserved := systemEst + toolEst
+	if g.summarizer != nil {
+		reserved += g.cfg.SummaryTokens
+	}
 
 	// Walk from the tail forward, accumulating the suffix that fits in
 	// the remaining budget. We always keep at least the most recent
@@ -261,6 +273,41 @@ func (g *Governor) limit(ctx context.Context, agentID, taskID string, messages [
 	// tool_use" on Anthropic). Repair the kept slice here so the
 	// invariant holds regardless of which provider receives it.
 	return RepairToolPairs(out), nil
+}
+
+// omitToolExchanges evicts tool activity before conversational text when the
+// shared input window overflows. Results remain in persisted history/tool dumps;
+// an explicit notice tells the model to retrieve smaller, targeted results.
+// No per-tool byte limits are imposed, and caller-owned history is untouched.
+func omitToolExchanges(messages []service.Message, budget int) []service.Message {
+	out := messages
+	for i := 0; i < len(out) && estimateMessages(out) > budget; i++ {
+		blocks, ok := out[i].Content.([]service.ContentBlock)
+		if !ok || out[i].Role != "user" {
+			continue
+		}
+		var kept []service.ContentBlock
+		resultCount := 0
+		for _, b := range blocks {
+			if b.Type == "tool_result" {
+				resultCount++
+			} else {
+				kept = append(kept, b)
+			}
+		}
+		if resultCount == 0 {
+			continue
+		}
+		copyMessages := append([]service.Message(nil), out...)
+		kept = append(kept, service.ContentBlock{Type: "text", Text: "[Tool activity omitted from the model context because the input window was exceeded. The conversation and user request still apply. Do not assume the omitted results are known or the task is complete. Retrieve smaller, targeted results or read saved tool-output files if needed.]"})
+		copyMessages[i].Content = kept
+		// Repair drops the matching calls while preserving assistant text.
+		out = RepairToolPairs(copyMessages)
+		slog.Info("loopgov.tool_exchange_omitted", "results", resultCount)
+		// Repair may remove the preceding assistant message.
+		i = -1
+	}
+	return out
 }
 
 // stringContent returns the textual content of a message for

@@ -98,9 +98,10 @@ type Server struct {
 	// Defaults to ~/.config/at/packs/ if not set.
 	PacksDir string `cfg:"packs_dir"`
 
-	// Alan, if set, enables distributed clustering via UDP peer discovery.
+	// Alan, if set, enables distributed clustering via QUIC peer discovery.
 	// This allows multiple AT instances to coordinate encryption key rotation
-	// and other admin operations across the cluster.
+	// and other admin operations across the cluster. Host terminal routing also
+	// requires Alan security.enabled with a shared admission key.
 	Alan *alan.Config `cfg:"alan"`
 
 	// Workspace controls where per-task working directories and

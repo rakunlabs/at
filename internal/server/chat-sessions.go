@@ -385,8 +385,8 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	// 4. Load message history.
 	// The chat-session loop applies a recency window so long-running
 	// sessions don't replay an unbounded history on every user turn.
-	// Older context, when needed, is reconstructed by the loop
-	// governor's rolling-summary mechanism.
+	// Rows outside this limit are not loaded; the default governor has no
+	// summarizer and cannot reconstruct history that was not supplied.
 	historyLimit := 0
 	if s.loopGov != nil {
 		historyLimit = s.loopGov.ChatHistoryLimit()
@@ -666,7 +666,7 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}
 
 	// 7. Build system prompt.
-	systemPrompt := agent.Config.SystemPrompt + "\n\n## Chat response\nYou are replying to a person in a chat session. After using tools, always provide a clear final text response to the user in their language. Explain the result, relevant output or artifact paths, and any remaining limitations. Tool calls and tool results are activity details, not a substitute for your final reply."
+	systemPrompt := agent.Config.SystemPrompt
 	if catalog := skillRuntime.CatalogSystemPrompt(); catalog != "" {
 		if systemPrompt != "" {
 			systemPrompt += "\n\n"

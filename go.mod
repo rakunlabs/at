@@ -4,9 +4,11 @@ go 1.27
 
 require (
 	github.com/bwmarrin/discordgo v0.29.0
+	github.com/creack/pty v1.1.24
 	github.com/dop251/goja v0.0.0-20260219130522-0ba9a5494a59
 	github.com/doug-martin/goqu/v9 v9.19.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/gorilla/websocket v1.5.0
 	github.com/hashicorp/go-retryablehttp v0.7.8
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/oklog/ulid/v2 v2.1.1
@@ -74,7 +76,6 @@ require (
 	github.com/google/btree v1.1.3 // indirect
 	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/greatcloak/decimal v1.5.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/hashicorp/consul/api v1.33.0 // indirect

@@ -13,7 +13,7 @@ const capabilityRoutes: Record<string, string> = {
   '/llm-calls': 'traces.read', '/usage': 'usage.read', '/files': 'files.read',
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
 };
-const platformRoutes = ['/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system'];
+const platformRoutes = ['/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system'];
 export function routeAllowed(route: string) {
   if (platformRoutes.some(p => route === p || route.startsWith(p + '/'))) return isNativeAdmin();
   if (['/', '/docs', '/settings', '/settings/account', '/settings/workspace', '/settings/permissions'].includes(route)) return true;

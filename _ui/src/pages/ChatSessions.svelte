@@ -19,7 +19,7 @@
     type ChatMessage,
     type ChatAttachment,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download, Pencil } from 'lucide-svelte';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -44,6 +44,11 @@
   let selectionVersion = 0;
   let turnVersion = 0;
   let selectedSessionId = $state<string | null>(null);
+  let editingTitle = $state(false);
+  let titleDraft = $state('');
+  let savingTitle = $state(false);
+  let titleInput = $state<HTMLInputElement>();
+  let titleButton = $state<HTMLButtonElement>();
   let messages = $state<ChatMessage[]>([]);
   let streamContent = $state('');
   let toolEvents = $state<any[]>([]);
@@ -90,6 +95,8 @@
   }
 
   function resetComposer() {
+    editingTitle = false;
+    savingTitle = false;
     voiceContext++;
     attachments = [];
     readingAttachments = false;
@@ -397,6 +404,43 @@
   }
 
   // ─── Actions ───
+
+  async function editTitle() {
+    if (!selectedSession) return;
+    titleDraft = selectedSession.name || '';
+    editingTitle = true;
+    await tick();
+    titleInput?.focus();
+    titleInput?.select();
+  }
+
+  async function cancelTitleEdit() {
+    editingTitle = false;
+    await tick();
+    titleButton?.focus();
+  }
+
+  async function saveTitle() {
+    const name = titleDraft.trim();
+    if (!selectedSession || !name || savingTitle) return;
+    if (name === selectedSession.name) {
+      await cancelTitleEdit();
+      return;
+    }
+    const sessionId = selectedSession.id;
+    const selection = selectionVersion;
+    savingTitle = true;
+    try {
+      const updated = await updateChatSession(sessionId, { name });
+      // Merge only the title so a concurrent agent switch stays intact.
+      sessions = sessions.map(s => s.id === sessionId ? { ...s, name: updated.name } : s);
+      if (selection === selectionVersion) await cancelTitleEdit();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Could not rename the session. Try again.', 'alert');
+    } finally {
+      if (selection === selectionVersion) savingTitle = false;
+    }
+  }
 
   /** Create a new session with the first available agent (or specified). */
   async function quickCreateSession(agentId?: string) {
@@ -960,8 +1004,37 @@
     {#if selectedSession}
       <div class="flex items-center gap-3 h-10 shrink-0 px-4 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
         <div class="min-w-0 flex-1 flex items-center gap-3">
-          <h2 class="truncate text-sm font-medium text-gray-900 dark:text-dark-text">{selectedSession.name || 'Untitled session'}</h2>
-          <span class="hidden md:block truncate text-xs text-gray-500 dark:text-dark-text-secondary" title={`${currentAgent?.name || 'Assistant'} · ${currentAgent?.config?.provider || ''}/${currentAgent?.config?.model || ''}`}>{currentAgent?.name || 'Assistant'}{currentAgent?.config?.model ? ` · ${currentAgent.config.model}` : ''}</span>
+          {#if editingTitle}
+            <form class="flex min-w-0 flex-1 items-center gap-1" onsubmit={(event) => { event.preventDefault(); void saveTitle(); }}>
+              <input
+                bind:this={titleInput}
+                bind:value={titleDraft}
+                aria-label="Session name"
+                placeholder="Session name"
+                required
+                disabled={savingTitle}
+                onkeydown={(event) => {
+                  if (event.key === 'Escape' && !event.isComposing && !savingTitle) {
+                    event.preventDefault();
+                    void cancelTitleEdit();
+                  }
+                  if (event.key === 'Enter' && event.isComposing) event.preventDefault();
+                }}
+                class="h-8 min-w-0 flex-1 rounded border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-2 text-sm text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+              />
+              <button type="submit" disabled={savingTitle || !titleDraft.trim()} aria-label={savingTitle ? 'Saving session name' : 'Save session name'} title="Save (Enter)" class="flex h-9 w-9 shrink-0 items-center justify-center rounded text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">
+                {#if savingTitle}<Loader2 size={15} class="animate-spin" />{:else}<Check size={15} />{/if}
+              </button>
+              <button type="button" onclick={cancelTitleEdit} disabled={savingTitle} aria-label="Cancel rename" title="Cancel (Escape)" class="flex h-9 w-9 shrink-0 items-center justify-center rounded text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><X size={15} /></button>
+            </form>
+          {:else}
+            <h2 class="min-w-0 text-sm font-medium text-gray-900 dark:text-dark-text">
+              <button bind:this={titleButton} onclick={editTitle} title="Rename session" aria-label={`Rename session: ${selectedSession.name || 'Untitled session'}`} class="flex h-9 max-w-full items-center gap-2 rounded px-1 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">
+                <span class="truncate">{selectedSession.name || 'Untitled session'}</span><Pencil size={12} class="shrink-0 text-gray-500 dark:text-dark-text-secondary" />
+              </button>
+            </h2>
+            <span class="hidden md:block truncate text-xs text-gray-500 dark:text-dark-text-secondary" title={`${currentAgent?.name || 'Assistant'} · ${currentAgent?.config?.provider || ''}/${currentAgent?.config?.model || ''}`}>{currentAgent?.name || 'Assistant'}{currentAgent?.config?.model ? ` · ${currentAgent.config.model}` : ''}</span>
+          {/if}
         </div>
         {#if toolActivityCount > 0}<button onclick={() => { showToolActivity = !showToolActivity; }} aria-pressed={showToolActivity} class="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text" title={showToolActivity ? 'Hide tool activity' : 'Show tool activity'}><Wrench size={13} /><span class="hidden sm:inline">Activity</span> {toolActivityCount}</button>{/if}
         {#if selectedSession.task_id}<a href={`#/tasks/${selectedSession.task_id}`} class="flex shrink-0 items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"><GitBranch size={12} /> Task</a>{/if}

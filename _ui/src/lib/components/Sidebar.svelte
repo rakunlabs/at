@@ -6,7 +6,7 @@
   import { isFeatureEnabled, loadFeatures } from '../store/features.svelte';
   const features: Record<string, string> = { '/playground':'chat_workbench', '/sessions':'chat_workbench', '/agents':'agents', '/tasks':'organization_workflows', '/organizations':'organization_workflows', '/workflows':'automation', '/runs':'automation', '/bots':'chat_workbench', '/studio':'organization_workflows', '/files':'files', '/integrations':'connections_integrations', '/usage':'provider_setup' };
   onMount(() => { void loadFeatures().catch(() => {}); });
-  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, BarChart3 } from 'lucide-svelte';
+  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, BarChart3, TerminalSquare } from 'lucide-svelte';
   const items = [
     {path:'/',label:'Home',icon:House},
     {path:'/playground',label:'Playground',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
@@ -16,6 +16,7 @@
     {path:'/bots',label:'Bots',icon:Radio}, {path:'/studio',label:'Studio',icon:Clapperboard},
     {path:'/files',label:'Files',icon:FolderOpen}, {path:'/integrations',label:'Integrations',icon:Package},
     {path:'/usage',label:'Usage',icon:BarChart3}, {path:'/llm-calls',label:'Traces',icon:Activity},
+    {path:'/terminal',label:'Terminal',icon:TerminalSquare},
   ];
 </script>
 <aside class="app-sidebar border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col h-full overflow-y-auto">

@@ -1,7 +1,8 @@
 // Package cluster provides distributed coordination for multiple AT instances
-// using the alan UDP peer discovery library. It wraps alan to provide:
+// using alan's QUIC peer discovery and communication. It wraps alan to provide:
 //   - Distributed locking for admin operations (e.g., key rotation)
 //   - Broadcasting encryption key updates to all peers
+//   - A shared, admission-protected transport for host terminal attachments
 package cluster
 
 import (
@@ -39,7 +40,8 @@ type clusterMessage struct {
 
 // Cluster wraps an alan instance with AT-specific distributed coordination.
 type Cluster struct {
-	alan *alan.Alan
+	alan                     *alan.Alan
+	terminalTransportEnabled bool
 }
 
 // New creates a Cluster from the server's alan configuration.
@@ -54,7 +56,16 @@ func New(cfg *alan.Config) (*Cluster, error) {
 		return nil, fmt.Errorf("create alan instance: %w", err)
 	}
 
-	return &Cluster{alan: a}, nil
+	return &Cluster{alan: a, terminalTransportEnabled: cfg.Security.Enabled && len(cfg.Security.Key) > 0}, nil
+}
+
+// TerminalTransport shares the existing QUIC transport only when cluster
+// admission is configured. Terminal handlers additionally validate live sessions.
+func (c *Cluster) TerminalTransport() *alan.Alan {
+	if c == nil || !c.terminalTransportEnabled {
+		return nil
+	}
+	return c.alan
 }
 
 // Start begins the alan peer discovery system in the background.

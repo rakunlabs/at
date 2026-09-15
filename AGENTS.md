@@ -84,6 +84,15 @@ Built-in tool calls in all three agent loops inherit the configured per-tool dea
 
 **No per-tool / per-class byte caps.** Earlier revisions classified tools (`executable`, `structured`, `freeform`) and applied per-class caps with overrides for `task_get` / `task_list`. Those over-truncated structured tool outputs (notably the video-generation suite — FAL Veo, Sora, Runway — and the `delegate_to_*` channel that carries full script JSON between agents). We now use a single generous global cap and rely on the workspace dump file to preserve the original payload, which the agent can read via `file_read` or `bash_execute cat`.
 
+When the shared input window overflows, the governor evicts oldest tool exchanges
+before conversational text, replacing results with an explicit omission notice
+and removing their paired calls while retaining assistant text. This prevents a
+large result batch from displacing the user's request and then disappearing as
+orphan results, leaving a system-only request. Full stored history is unchanged;
+the model is told to retrieve smaller targeted results when necessary. Summary
+space is reserved only when a summarizer is actually configured. Regression:
+`internal/service/loopgov/conversation_test.go`.
+
 To override, edit the constants in `internal/service/loopgov/config.go` or add UI-driven configuration in a follow-up change. The `Disabled` field exists in `loopgov.Config` as an in-code rollback switch but is not exposed via YAML.
 
 **Breaking change**: workflow `agent_call` nodes no longer accept `max_iterations: 0` (legacy "unlimited" mode). Existing graphs are migrated to the platform ceiling on server startup.

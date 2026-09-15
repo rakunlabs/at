@@ -38,6 +38,7 @@ import Pricing from '@/pages/Pricing.svelte';
 import Connections from '@/pages/Connections.svelte';
 import IntegrationPacks from '@/pages/IntegrationPacks.svelte';
 import Files from '@/pages/Files.svelte';
+import Terminal from '@/pages/Terminal.svelte';
 import Features from '@/pages/Features.svelte';
 import NotFound from '@/pages/NotFound.svelte';
 import Users from '@/pages/Users.svelte';
@@ -81,6 +82,11 @@ function redirect(to: string) {
 
 export default {
   '/': Home,
+  '/terminal': wrap({ component: Terminal as any, conditions: [() => {
+    if (isNativeAdmin()) return true;
+    push('/');
+    return false;
+  }] }),
   '/users': wrap({ component: Users as any, conditions: [() => {
     if (isNativeAdmin()) return true;
     push('/');

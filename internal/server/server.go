@@ -201,7 +201,8 @@ type Server struct {
 
 	// cluster is the optional distributed coordination layer (alan).
 	// nil when clustering is not configured (single-instance mode).
-	cluster *cluster.Cluster
+	cluster   *cluster.Cluster
+	terminals *terminalManager
 
 	// tokenLastUsed tracks when each token's last_used_at was last written to
 	// the DB, so we can throttle updates to at most once per 5 minutes.
@@ -742,6 +743,15 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Gateway info API
 	apiGroup.GET("/v1/info", s.InfoAPI)
 	apiGroup.GET("/v1/features", s.ListFeaturesAPI)
+	s.initTerminals()
+	apiGroup.GET("/v1/terminals", s.ListTerminalsAPI)
+	apiGroup.POST("/v1/terminals", s.CreateTerminalAPI)
+	apiGroup.PUT("/v1/terminals/preferences", s.TerminalPreferencesAPI)
+	apiGroup.GET("/v1/terminals/targets/{target}/users", s.TerminalUsersAPI)
+	apiGroup.PUT("/v1/terminals/{id}", s.UpdateTerminalAPI)
+	apiGroup.DELETE("/v1/terminals/{id}", s.TerminalActionAPI)
+	apiGroup.POST("/v1/terminals/{id}/start", s.TerminalActionAPI)
+	apiGroup.GET("/v1/terminals/{id}/ws", s.TerminalWebSocketAPI)
 	apiGroup.PUT("/v1/features/{key}", s.UpdateFeatureAPI)
 
 	// Provider management API
