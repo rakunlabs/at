@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strconv"
+
 	"sync"
 	"syscall"
 
@@ -61,8 +62,20 @@ func attachSocket(ctx context.Context, socket, username string, cols, rows uint1
 		}
 		credential.Groups = append(credential.Groups, uint32(g))
 	}
-	// -d makes control transfer explicit: one attached writer per terminal.
-	cmd := exec.Command("tmux", "-S", socket, "attach-session", "-d", "-t", "shell")
+	// Several clients may attach at once so a terminal can be watched from a
+	// second device. Control is not enforced here: tmux cannot toggle a live
+	// client between read-only and read-write, so -r would make every handover a
+	// kill-and-reattach. The PTY master below is private to this process, and the
+	// caller writes only the holder's bytes into it, so a viewer's input has no
+	// path to the shell. The session also has no key bindings and no prefix
+	// (see tmuxStartArgs), leaving an attached client nothing else to drive.
+	//
+	// window-size manual keeps the window at the size the caller sets instead of
+	// letting whichever client attached last shrink it; a phone watching a
+	// desktop shell would otherwise reflow the writer's screen. Best effort: tmux
+	// before 3.1 has no such option and keeps its own sizing.
+	_ = exec.CommandContext(ctx, "tmux", "-S", socket, "set-option", "-g", "window-size", "manual").Run()
+	cmd := exec.Command("tmux", "-S", socket, "attach-session", "-t", "shell")
 	cmd.Dir = u.Home
 	// Never inherit AT's database credentials, provider keys, or bootstrap env.
 	cmd.Env = []string{"HOME=" + u.Home, "USER=" + u.Name, "LOGNAME=" + u.Name, "SHELL=" + u.Shell,
@@ -79,6 +92,18 @@ func (a *Attachment) Resize(cols, rows uint16) error {
 		return fmt.Errorf("terminal size out of range")
 	}
 	return pty.Setsize(a.File, &pty.Winsize{Cols: cols, Rows: rows})
+}
+
+// ResizeWindow sets the shared window, which is what the programs in the shell
+// see. Only the client holding control should call it; a viewer resizes just its
+// own viewport through Resize and is letterboxed when it is smaller. Best effort
+// for the same reason as the window-size option above.
+func ResizeWindow(ctx context.Context, id string, cols, rows uint16) {
+	if validID(id) != nil || cols < 2 || cols > 500 || rows < 2 || rows > 300 {
+		return
+	}
+	_ = exec.CommandContext(ctx, "tmux", "-S", socketPath(id), "resize-window", "-t", "shell",
+		"-x", strconv.FormatUint(uint64(cols), 10), "-y", strconv.FormatUint(uint64(rows), 10)).Run()
 }
 
 func (a *Attachment) Close() {

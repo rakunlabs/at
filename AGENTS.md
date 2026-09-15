@@ -109,6 +109,45 @@ Skill bash handlers (`internal/service/workflow/handler.go`) run under three res
 
 The built-in video skill templates (`internal/server/skill_templates/{fal-video,video-composer,ffmpeg-guide}.json`) standardize on `-c:v libx264 -preset veryfast -crf 23 -threads 2` and cap `compose_short_v2`'s Phase 1 worker pool to `max(1, min(3, NumCPU/2))` so per-encode CPU stays bounded too.
 
+## Host terminals: watching and control
+
+A host terminal is a tmux session in its own transient systemd unit
+(`internal/service/terminal/host.go`); the browser WebSocket is only an
+attachment, never the shell's owner. Each connection spawns its own `tmux
+attach` client, so tmux already fans output out to every attached screen — AT
+does not buffer or broadcast anything itself.
+
+Several connections may attach at once. Exactly one holds **control** and is the
+only one whose bytes are written into the PTY; the rest watch. The registry
+(`terminalSeat` in `internal/server/terminals.go`) lives on the host that owns
+the tmux socket, never on the node a browser happened to reach: two browsers can
+arrive through two replicas, and a per-replica flag would hand out two writers.
+Attaching never takes control from whoever is typing; `control` is an explicit
+request. When the holder disconnects, the longest-waiting watcher is promoted, so
+a shell is never left attached but unusable.
+
+`attach-session` deliberately does **not** pass `-d` (which used to disconnect
+everyone else) and does **not** pass `-r` for watchers. tmux cannot toggle a live
+client between read-only and read-write, so `-r` would make every handover a
+kill-and-reattach under a running output pump. It is unnecessary: the PTY master
+fd is private to the AT process, the session has no prefix and no key bindings
+(`tmuxStartArgs`), and input is gated at the single point where AT writes to the
+PTY. Regression: `TestTerminalSeatControl`.
+
+Sizing uses `window-size manual` plus `resize-window` from the holder only, so a
+phone watching a desktop shell cannot reflow it; watchers resize only their own
+viewport and are letterboxed. Both are best effort — tmux before 3.1 lacks them
+and keeps its own sizing. The browser is told its role on attach, on handover and
+on its next call after losing control (`{"type":"role"}`), because a screen that
+silently discards keystrokes is indistinguishable from a frozen shell. Local
+connections are woken immediately; remote ones learn within one 10s heartbeat,
+while enforcement is immediate either way.
+
+Terminals are per administrator account: records are owner-scoped, so one admin
+cannot see or attach to another's terminal. Cross-account sharing would need an
+explicit, revocable, audited permission model — these are usually root shells and
+a watcher sees every keystroke, including secrets.
+
 ## Gateway OpenAI compatibility
 
 The `/gateway/v1/...` endpoints aim to be a drop-in replacement for the

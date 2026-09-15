@@ -42,6 +42,11 @@ type terminalReply struct {
 	Host  *hostterminal.Host  `json:"host,omitempty"`
 	Users []hostterminal.User `json:"users,omitempty"`
 	Alive bool                `json:"alive"`
+	// Control and Watchers travel back on every attached operation so a
+	// connection that lost control finds out from its next call rather than
+	// silently typing into nothing.
+	Control  bool `json:"control,omitempty"`
+	Watchers int  `json:"watchers,omitempty"`
 }
 
 type terminalLink struct {
@@ -59,6 +64,114 @@ type terminalOutput struct {
 	writer *io.PipeWriter
 }
 
+// A seat is one attached connection to one terminal. Exactly one seat per
+// terminal holds control and is the only one whose bytes reach the shell; the
+// rest watch. The registry lives on the host that owns the tmux socket, never on
+// the node a browser happens to reach, because two browsers can arrive through
+// two different replicas and a per-replica flag would hand out two writers.
+type terminalSeat struct {
+	id       string
+	owner    string
+	control  bool
+	joined   time.Time
+	notified chan struct{}
+}
+
+// notify wakes a local connection that has just gained or lost control, so it
+// does not have to wait for its next heartbeat to find out. Remote connections
+// learn from the reply to their next call instead.
+func (s *terminalSeat) notify() {
+	select {
+	case s.notified <- struct{}{}:
+	default:
+	}
+}
+
+// joinSeat registers a connection and grants control only when the terminal has
+// nobody in control, so arriving never takes a running shell away from whoever
+// is typing in it. Owner is carried for the assertion in takeSeat: seats are
+// per-user today, and control must not cross accounts if sharing is added.
+func (m *terminalManager) joinSeat(link, id, owner string) *terminalSeat {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seat := &terminalSeat{id: id, owner: owner, joined: time.Now(), notified: make(chan struct{}, 1)}
+	seat.control = true
+	for _, other := range m.seats {
+		if other.id == id && other.control {
+			seat.control = false
+			break
+		}
+	}
+	m.seats[link] = seat
+	return seat
+}
+
+// leaveSeat hands control to the connection that has been waiting longest, so a
+// terminal is never left watchable but unusable after the holder closes a tab.
+func (m *terminalManager) leaveSeat(link string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seat, ok := m.seats[link]
+	delete(m.seats, link)
+	if !ok || !seat.control {
+		return
+	}
+	var next *terminalSeat
+	for _, other := range m.seats {
+		if other.id == seat.id && (next == nil || other.joined.Before(next.joined)) {
+			next = other
+		}
+	}
+	if next != nil {
+		next.control = true
+		next.notify()
+	}
+}
+
+// takeSeat is the explicit handover. It is the only way control moves while the
+// holder is still connected.
+func (m *terminalManager) takeSeat(link string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seat, ok := m.seats[link]
+	if !ok {
+		return fmt.Errorf("terminal connection ended")
+	}
+	if seat.control {
+		return nil
+	}
+	for other, candidate := range m.seats {
+		if other == link || candidate.id != seat.id || !candidate.control {
+			continue
+		}
+		if candidate.owner != seat.owner {
+			return fmt.Errorf("this terminal is controlled by another account")
+		}
+		candidate.control = false
+		candidate.notify()
+	}
+	seat.control = true
+	return nil
+}
+
+// seatState reports what the browser shows: whether this connection may type and
+// how many others are watching the same terminal.
+func (m *terminalManager) seatState(link string) (bool, int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seat, ok := m.seats[link]
+	if !ok {
+		return false, 0
+	}
+	others := 0
+	for other, candidate := range m.seats {
+		if other != link && candidate.id == seat.id {
+			others++
+		}
+	}
+	return seat.control, others
+}
+
 type terminalManager struct {
 	ctx       context.Context
 	store     service.TerminalStorer
@@ -68,6 +181,7 @@ type terminalManager struct {
 	mu        sync.Mutex
 	links     map[string]*terminalLink
 	outputs   map[string]terminalOutput
+	seats     map[string]*terminalSeat
 }
 
 func (s *Server) initTerminals() {
@@ -79,7 +193,7 @@ func (s *Server) initTerminals() {
 	if !ok {
 		return
 	}
-	m := &terminalManager{ctx: s.ctx, store: store, auth: auth, host: hostterminal.LocalHost(), transport: s.cluster.TerminalTransport(), links: map[string]*terminalLink{}, outputs: map[string]terminalOutput{}}
+	m := &terminalManager{ctx: s.ctx, store: store, auth: auth, host: hostterminal.LocalHost(), transport: s.cluster.TerminalTransport(), links: map[string]*terminalLink{}, outputs: map[string]terminalOutput{}, seats: map[string]*terminalSeat{}}
 	s.terminals = m
 	m.registerTransport()
 }
@@ -214,9 +328,12 @@ func (m *terminalManager) execute(ctx context.Context, req terminalRPC, peer *ne
 		m.mu.Lock()
 		m.links[req.Link] = link
 		m.mu.Unlock()
+		m.joinSeat(req.Link, item.ID, req.Owner)
+		result.Control, result.Watchers = m.seatState(req.Link)
 		go func() {
 			defer cancel()
 			defer a.Close()
+			defer m.leaveSeat(req.Link)
 			defer func() { m.mu.Lock(); delete(m.links, req.Link); m.mu.Unlock() }()
 			_, _ = m.transport.SendToStream(linkCtx, peer, terminalOutputType, io.MultiReader(strings.NewReader(req.Link+"\n"), a.File))
 		}()
@@ -242,7 +359,7 @@ func (m *terminalManager) execute(ctx context.Context, req terminalRPC, peer *ne
 				}
 			}
 		}()
-	case "input", "resize", "detach", "heartbeat":
+	case "input", "resize", "detach", "heartbeat", "control":
 		m.mu.Lock()
 		link, ok := m.links[req.Link]
 		if !ok || peer == nil || link.peer != peer.String() || link.owner != req.Owner || link.session != req.Session || link.id != req.ID {
@@ -251,15 +368,34 @@ func (m *terminalManager) execute(ctx context.Context, req terminalRPC, peer *ne
 		}
 		link.lastSeen = time.Now()
 		m.mu.Unlock()
+		if req.Op == "control" {
+			if err := m.takeSeat(req.Link); err != nil {
+				return result, err
+			}
+		}
+		control, watchers := m.seatState(req.Link)
+		result.Control, result.Watchers = control, watchers
 		switch req.Op {
 		case "input":
 			if len(req.Data) > 16384 {
 				return result, fmt.Errorf("terminal input too large")
 			}
+			// Dropped, not refused: the caller is told it is watching and keeps
+			// its connection instead of being disconnected for a stray keystroke.
+			if !control {
+				return result, nil
+			}
 			_ = link.attachment.File.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			_, err = link.attachment.File.Write(req.Data)
-		case "resize":
-			err = link.attachment.Resize(req.Cols, req.Rows)
+		case "resize", "control":
+			// Only the holder sets the shared window; a watcher resizes its own
+			// viewport so its screen stays readable without reflowing the shell.
+			if req.Op == "resize" {
+				err = link.attachment.Resize(req.Cols, req.Rows)
+			}
+			if control && terminalSizeValid(req.Cols, req.Rows) {
+				hostterminal.ResizeWindow(ctx, item.ID, req.Cols, req.Rows)
+			}
 		case "detach":
 			link.cancel()
 			link.attachment.Close()

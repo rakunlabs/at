@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, RefreshCw, TerminalSquare, X, Pencil, ArrowLeft, ArrowRight, Power, Moon, Sun, Monitor, Type, Keyboard, Maximize2, Minimize2 } from 'lucide-svelte';
+  import { Plus, RefreshCw, TerminalSquare, X, Pencil, ArrowLeft, ArrowRight, Power, Moon, Sun, Monitor, Type, Keyboard, Maximize2, Minimize2, Eye } from 'lucide-svelte';
   import HostTerminal from '@/lib/components/HostTerminal.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -28,6 +28,12 @@
   let rememberUser = $state(true);
   let status = $state('connecting');
   let statusMessage = $state('');
+  // Several connections can attach to one shell; exactly one of them may type.
+  // Optimistic until the host says otherwise, so a single connection never
+  // flashes a "watching" badge on the way in.
+  let control = $state(true);
+  let watchers = $state(0);
+  let terminal = $state<{ takeControl: () => void } | null>(null);
   let generation = $state(0);
   let editTitle = $state(false);
   let renamed = $state('');
@@ -194,7 +200,7 @@
   function select(id: string) {
     if (activeID === id) return;
     activeID = id; editTitle = false;
-    status = 'connecting'; statusMessage = '';
+    status = 'connecting'; statusMessage = ''; control = true; watchers = 0;
     persistPreferences();
   }
 
@@ -206,7 +212,7 @@
       sessions = [...sessions, item]; activeID = item.id;
       if (rememberUser) preferences.default_users[selectedTarget] = selectedUser;
       persistPreferences();
-      showNew = false; title = ''; status = 'connecting'; statusMessage = '';
+      showNew = false; title = ''; status = 'connecting'; statusMessage = ''; control = true; watchers = 0;
     } catch (e) { addToast(message(e), 'alert'); await load(); }
     finally { busy = false; }
   }
@@ -254,7 +260,7 @@
         if (!sessions.length) { showNew = true; maximized = false; await loadUsers(); }
       } else {
         await startTerminal(active.id);
-        generation++; status = 'connecting'; statusMessage = '';
+        generation++; status = 'connecting'; statusMessage = ''; control = true; watchers = 0;
       }
       actionDialog.close();
     } catch (e) { addToast(message(e), 'alert'); }
@@ -339,7 +345,13 @@
   {#if active}
     {#if !maximized}
     <div class="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 px-3 py-2 dark:border-dark-border">
-      <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs"><span class="font-mono">{active.username}@{active.target_name}</span><span role="status" class="text-gray-600 dark:text-dark-text-secondary">{!target ? 'Host offline' : status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Disconnected'}</span></div>
+      <div class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+        <span class="font-mono">{active.username}@{active.target_name}</span>
+        <span role="status" class="text-gray-600 dark:text-dark-text-secondary">{!target ? 'Host offline' : status === 'connected' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Disconnected'}</span>
+        {#if target && status === 'connected' && watchers > 0}
+          <span class="flex items-center gap-1 text-gray-600 dark:text-dark-text-secondary" title="Other connections attached to this same shell"><Eye size={13} />{watchers} watching</span>
+        {/if}
+      </div>
       <div class="flex flex-wrap items-center gap-1">
         <button class="terminal-button" title="Rename terminal" aria-label="Rename terminal" disabled={busy} onclick={() => { renamed = active!.title; editTitle = !editTitle; }}><Pencil size={14} /></button>
         <button class="terminal-button" title="Move tab left" aria-label="Move tab left" disabled={busy || sessions[0]?.id === activeID} onclick={() => void move(-1)}><ArrowLeft size={14} /></button>
@@ -350,7 +362,7 @@
         <button class="terminal-button" title={keyBar ? 'Hide the touch key row' : 'Show a key row for Ctrl, Esc, Tab and arrows'} aria-label={keyBar ? 'Hide the touch key row' : 'Show the touch key row'} aria-pressed={keyBar} onclick={toggleKeyBar}><Keyboard size={14} /></button>
         <button class="terminal-button" title="Font and size" aria-label="Font and size" aria-expanded={showDisplay} onclick={() => showDisplay = !showDisplay}><Type size={14} /></button>
         <button class="terminal-button" title={touchOnly ? 'Full screen — terminal only' : 'Full screen — terminal only (Ctrl/Cmd + Shift + F)'} aria-label="Full screen, terminal only" onclick={() => setMaximized(true)}><Maximize2 size={14} /></button>
-        <button class="terminal-button" disabled={!target || busy} onclick={() => { generation++; status = 'connecting'; statusMessage = ''; }}><RefreshCw size={14} />Reconnect</button>
+        <button class="terminal-button" disabled={!target || busy} onclick={() => { generation++; status = 'connecting'; statusMessage = ''; control = true; watchers = 0; }}><RefreshCw size={14} />Reconnect</button>
         <button class="terminal-button" disabled={!target || busy} onclick={() => askAction('terminate')}><Power size={14} />End terminal</button>
       </div>
     </div>
@@ -393,20 +405,28 @@
       </div>
     {/if}
     {/if}
+    <!-- Shown in full screen too: a screen that silently ignores typing is the
+    worst possible way to learn that another connection holds the shell. -->
+    {#if target && !control}
+      <div role="status" class="flex flex-wrap items-center justify-between gap-2 border-b border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+        <p class="flex items-center gap-1.5"><Eye size={14} />Watching. Another connection to this terminal is typing.</p>
+        <button class="terminal-button" onclick={() => terminal?.takeControl()}>Take control</button>
+      </div>
+    {/if}
     <!-- A dead terminal explains itself even in full screen; hiding this would
     leave a frozen screen with no reason and no way back. -->
     {#if !target || status === 'error' || status === 'disconnected'}
       <div role="status" class="flex flex-wrap items-center justify-between gap-2 bg-gray-50 px-3 py-2 text-xs dark:bg-dark-elevated">
         <p>{!target ? 'This host is offline. Refresh hosts when it is available again.' : statusMessage}</p>
         <div class="flex items-center gap-1">
-          {#if maximized && target}<button class="terminal-button" disabled={busy} onclick={() => { generation++; status = 'connecting'; statusMessage = ''; }}><RefreshCw size={14} />Reconnect</button>{/if}
+          {#if maximized && target}<button class="terminal-button" disabled={busy} onclick={() => { generation++; status = 'connecting'; statusMessage = ''; control = true; watchers = 0; }}><RefreshCw size={14} />Reconnect</button>{/if}
           {#if target}<button class="terminal-button" disabled={busy} onclick={() => askAction('restart')}>Start shell if ended</button>{/if}
         </div>
       </div>
     {/if}
     <div id="terminal-panel" role="tabpanel" tabindex="0" aria-labelledby={`terminal-tab-${active.id}`} class="relative min-h-40 flex-1 overflow-hidden">
       {#if target}
-        {#key `${active.id}:${generation}`}<HostTerminal id={active.id} {appearance} {fontFamily} {fontSize} {keyBar} onstatus={(value, text) => { status = value; statusMessage = text; }} />{/key}
+        {#key `${active.id}:${generation}`}<HostTerminal bind:this={terminal} id={active.id} {appearance} {fontFamily} {fontSize} {keyBar} onstatus={(value, text) => { status = value; statusMessage = text; }} onrole={(held, others) => { control = held; watchers = others; }} />{/key}
       {:else}<div class="p-6 text-sm text-gray-500 dark:text-dark-text-secondary">Saved terminal: {active.title}. It will reconnect to {active.target_name}, not another host.</div>{/if}
       {#if maximized}
         <button
@@ -421,7 +441,7 @@
     <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"><TerminalSquare size={30} class="text-gray-400" /><h2 class="text-base font-medium">Your host terminals, saved here</h2><p class="max-w-md text-sm text-gray-600 dark:text-dark-text-secondary">Choose a host and Linux user to open your first terminal. You can leave this page and return to the same running shell.</p></div>
   {/if}
   </div>
-  <footer class="shrink-0 border-t border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-dark-border dark:text-dark-text-muted">Closing this page keeps shells running. Connecting takes control from another browser. Host restarts end running processes.</footer>
+  <footer class="shrink-0 border-t border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-dark-border dark:text-dark-text-muted">Closing this page keeps shells running. A second connection watches the same shell until it takes control. Host restarts end running processes.</footer>
 </div>
 
 <dialog bind:this={actionDialog} class="m-auto w-[min(28rem,calc(100%-2rem))] rounded-lg border border-gray-200 bg-white p-5 text-gray-900 backdrop:bg-black/40 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text" oncancel={() => {}}>

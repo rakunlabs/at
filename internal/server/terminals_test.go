@@ -110,6 +110,83 @@ func TestTerminalLiveAuthorization(t *testing.T) {
 	}
 }
 
+func TestTerminalSeatControl(t *testing.T) {
+	m := &terminalManager{seats: map[string]*terminalSeat{}}
+	first, second, other := ulid.Make().String(), ulid.Make().String(), ulid.Make().String()
+
+	// Arriving never takes a shell away from whoever is already typing in it.
+	if seat := m.joinSeat(first, "terminal-a", "admin"); !seat.control {
+		t.Fatal("first connection did not receive control")
+	}
+	if seat := m.joinSeat(second, "terminal-a", "admin"); seat.control {
+		t.Fatal("second connection stole control on attach")
+	}
+	// A different terminal is unaffected by the first one's holder.
+	if seat := m.joinSeat(other, "terminal-b", "admin"); !seat.control {
+		t.Fatal("unrelated terminal denied control")
+	}
+	if control, watchers := m.seatState(first); !control || watchers != 1 {
+		t.Fatalf("holder state control=%v watchers=%d", control, watchers)
+	}
+	if control, watchers := m.seatState(second); control || watchers != 1 {
+		t.Fatalf("watcher state control=%v watchers=%d", control, watchers)
+	}
+
+	// Handover is explicit and leaves exactly one holder.
+	if err := m.takeSeat(second); err != nil {
+		t.Fatal(err)
+	}
+	assertSingleHolder(t, m, "terminal-a", second)
+	if control, _ := m.seatState(first); control {
+		t.Fatal("previous holder kept control after handover")
+	}
+	select {
+	case <-m.seats[first].notified:
+	default:
+		t.Fatal("demoted connection was not woken")
+	}
+	if err := m.takeSeat(second); err != nil {
+		t.Fatal("re-taking held control failed:", err)
+	}
+	assertSingleHolder(t, m, "terminal-a", second)
+
+	// Control never crosses accounts even if a link ID is known.
+	m.seats[first].owner = "someone-else"
+	if err := m.takeSeat(first); err == nil {
+		t.Fatal("control crossed accounts")
+	}
+	assertSingleHolder(t, m, "terminal-a", second)
+
+	// Losing the holder promotes a watcher, so the shell cannot end up attached
+	// but unusable after a tab is closed.
+	m.seats[first].owner = "admin"
+	m.leaveSeat(second)
+	assertSingleHolder(t, m, "terminal-a", first)
+	m.leaveSeat(first)
+	if control, watchers := m.seatState(first); control || watchers != 0 {
+		t.Fatalf("removed seat still reported control=%v watchers=%d", control, watchers)
+	}
+	if err := m.takeSeat(ulid.Make().String()); err == nil {
+		t.Fatal("unknown connection took control")
+	}
+	if control, _ := m.seatState(other); !control {
+		t.Fatal("unrelated terminal lost control")
+	}
+}
+
+func assertSingleHolder(t *testing.T, m *terminalManager, id, link string) {
+	t.Helper()
+	holders := []string{}
+	for key, seat := range m.seats {
+		if seat.id == id && seat.control {
+			holders = append(holders, key)
+		}
+	}
+	if len(holders) != 1 || holders[0] != link {
+		t.Fatalf("holders %v, want exactly %s", holders, link)
+	}
+}
+
 func TestTerminalAlanRoutingAndStreaming(t *testing.T) {
 	// Two real QUIC backends on distinct loopback addresses, using Alan's public
 	// DNS discovery API. This exercises the actual wire protocol, not a fake RPC.

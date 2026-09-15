@@ -16,12 +16,18 @@
     // Touch key row for keys a soft keyboard does not have.
     keyBar?: boolean;
     onstatus: (status: string, message: string) => void;
+    // Reports whether this connection may type and how many others are attached.
+    onrole?: (control: boolean, watchers: number) => void;
   }
-  let { id, appearance = 'dark', fontFamily = '', fontSize = 14, keyBar = false, onstatus }: Props = $props();
+  let { id, appearance = 'dark', fontFamily = '', fontSize = 14, keyBar = false, onstatus, onrole }: Props = $props();
+  // The host is the authority on who may type; this only avoids sending
+  // keystrokes that would be discarded, and greys out the key row.
+  let control = $state(true);
   let container: HTMLDivElement;
   let term = $state.raw<Terminal | null>(null);
   let refit: () => void = () => {};
   let send: (data: string) => void = () => {};
+  let resend: (frame: string) => void = () => {};
   let ctrlArmed = $state(false);
 
   // Soft keyboards have no Ctrl, Esc, Tab or arrows, so a phone cannot send an
@@ -61,7 +67,16 @@
     { label: '-', title: 'Hyphen', data: '-' },
   ];
 
+  // Asking for control also carries this screen's size, so the shell reflows to
+  // the device that is taking over instead of staying at the old one's shape.
+  export function takeControl() {
+    const active = term;
+    if (!active) return;
+    resend(JSON.stringify({ type: 'control', cols: Math.max(2, active.cols), rows: Math.max(2, active.rows) }));
+  }
+
   function press(key: TerminalKey) {
+    if (!control) return;
     if (key.ctrl) {
       ctrlArmed = !ctrlArmed;
       term?.focus();
@@ -140,8 +155,12 @@
     observer.observe(container);
     const themeObserver = new MutationObserver(() => { pageDark = document.documentElement.classList.contains('dark'); });
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    function frame(value: string) {
+      if (ready && ws.readyState === WebSocket.OPEN) ws.send(value);
+    }
+    resend = frame;
     function write(value: string) {
-      if (!ready || ws.readyState !== WebSocket.OPEN) return;
+      if (!ready || !control || ws.readyState !== WebSocket.OPEN) return;
       const data = new TextEncoder().encode(value);
       if (ws.bufferedAmount + data.length > 1024 * 1024) {
         failed = true;
@@ -174,6 +193,12 @@
           resize();
           instance.focus();
           onstatus('connected', 'Connected');
+        } else if (message.type === 'role') {
+          // Not a connection state: the shell is fine, this screen is simply
+          // watching, so the status line must not be turned into an error.
+          control = !!message.control;
+          ctrlArmed = false;
+          onrole?.(control, Number(message.watchers) || 0);
         } else {
           failed = true;
           ready = false;
@@ -190,6 +215,7 @@
       term = null;
       refit = () => {};
       send = () => {};
+      resend = () => {};
       ws.close();
       observer.disconnect();
       themeObserver.disconnect();
@@ -208,10 +234,11 @@
       {#each keys as key (key.label)}
         <button
           type="button"
-          class="min-h-9 shrink-0 rounded-md border px-2.5 font-mono text-xs leading-none touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2"
+          class="min-h-9 shrink-0 rounded-md border px-2.5 font-mono text-xs leading-none touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-40"
           style:border-color={theme.selectionBackground}
           style:color={theme.foreground}
           style:background={key.ctrl && ctrlArmed ? theme.selectionBackground : 'transparent'}
+          disabled={!control}
           title={key.title}
           aria-label={key.title}
           aria-pressed={key.ctrl ? ctrlArmed : undefined}
