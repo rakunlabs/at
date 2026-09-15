@@ -76,6 +76,11 @@ func (s *Server) DiscoverModelsAPI(w http.ResponseWriter, r *http.Request) {
 			}
 			expiry, _ := time.Parse(time.RFC3339, req.Config.TokenExpiresAt)
 			source := antropic.NewOAuthTokenSource(req.Config.APIKey, req.Config.RefreshToken, expiry, client, s.claudeOAuthRefreshCallback(existing.Key, existing.WorkspaceID))
+			// Discovery must not rotate the shared single-use refresh token
+			// out from under the gateway and execution sources.
+			if fn := s.claudeOAuthCoordinator(existing.Key, existing.WorkspaceID); fn != nil {
+				source.SetCoordinator(fn)
+			}
 			req.Config.APIKey, err = source.Token(ctx)
 			if err != nil {
 				httpResponse(w, fmt.Sprintf("Claude authorization could not be refreshed: %v. Reauthorize the provider if its refresh token is invalid.", err), http.StatusBadGateway)

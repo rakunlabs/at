@@ -152,6 +152,16 @@ func (p *Provider) SetTokenRefreshCallback(fn TokenRefreshCallback) {
 	}
 }
 
+// SetTokenCoordinator wires the durable refresh coordinator on the provider's
+// OAuthTokenSource (if present) so concurrent sources for the same provider
+// cannot spend the same single-use refresh credential twice.
+// This is a no-op if the provider does not use an OAuthTokenSource.
+func (p *Provider) SetTokenCoordinator(fn TokenCoordinator) {
+	if ts, ok := p.tokenSource.(*OAuthTokenSource); ok {
+		ts.SetCoordinator(fn)
+	}
+}
+
 type AnthropicResponse struct {
 	ID         string         `json:"id"`
 	Type       string         `json:"type"`

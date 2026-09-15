@@ -519,8 +519,10 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// provider. This is a no-op for providers that don't use an OAuth
 	// token source. Done here (rather than in cmd/at/main.go) so the
 	// callback can close over *Server and write back to the store.
+	// The boot registry only holds installation-owned providers, which are
+	// loaded under legacy workspace access in cmd/at/main.go.
 	for key, info := range s.providers {
-		s.wireClaudeOAuthCallback(key, info.provider)
+		s.wireClaudeOAuthCallback(key, info.provider, "legacy-default")
 		s.wireChatGPTOAuthCallback(key, info.provider)
 	}
 
@@ -1270,7 +1272,8 @@ func (s *Server) reloadProvider(key string, cfg config.LLMConfig) error {
 
 	// Wire the OAuth refresh persistence callback so rotated tokens are
 	// saved back to the store. No-op for non-OAuth providers.
-	s.wireClaudeOAuthCallback(key, provider)
+	// reloadWorkspaceProvider admits only legacy-default into this registry.
+	s.wireClaudeOAuthCallback(key, provider, "legacy-default")
 	s.wireChatGPTOAuthCallback(key, provider)
 
 	info := NewProviderInfo(provider, cfg)

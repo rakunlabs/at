@@ -73,6 +73,30 @@ func (s *StaticTokenSource) Token(_ context.Context) (string, error) {
 // value means "unknown" (e.g. the upstream did not return expires_in).
 type TokenRefreshCallback func(ctx context.Context, previousRefreshToken, accessToken, refreshToken string, expiresAt time.Time) error
 
+// OAuthTokens carries a durable Claude credential set between a token source
+// and the coordinator that owns the provider row lock.
+type OAuthTokens struct {
+	AccessToken, RefreshToken string
+	ExpiresAt                 time.Time
+	PreviousRefreshToken      string
+}
+
+// TokenCoordinator runs the refresh exchange while holding the durable provider
+// lock, so it always observes the currently stored credential. Anthropic
+// invalidates the previous refresh token on every exchange; without this,
+// independent sources for the same provider (gateway registry, execution cache,
+// model discovery, other replicas) each rotate from their own in-memory copy and
+// the loser gets `400 invalid_grant`. It may return exchanged credentials
+// alongside a persistence error; the source retains them and retries its refresh
+// callback before any subsequent exchange.
+type TokenCoordinator func(context.Context, func(context.Context, OAuthTokens) (*OAuthTokens, error)) (*OAuthTokens, error)
+
+// TokenFresh reports whether an access token can still be used as-is. An
+// unknown expiry is treated as expired so the credential is revalidated.
+func TokenFresh(access string, expiry time.Time) bool {
+	return access != "" && !expiry.IsZero() && time.Now().Before(expiry.Add(-oauthTokenExpiryBuffer))
+}
+
 // OAuthTokenSource manages Claude OAuth tokens with automatic refresh.
 // It caches the access token and refreshes it using the refresh token
 // when it approaches expiry.
@@ -83,6 +107,7 @@ type OAuthTokenSource struct {
 	expiresAt      time.Time
 	httpClient     *http.Client
 	onRefresh      TokenRefreshCallback // optional, called after successful refresh
+	coordinator    TokenCoordinator     // optional, owns durable reload + persistence
 	pendingRefresh string               // previous token whose rotation still needs persistence
 }
 
@@ -111,6 +136,13 @@ func (ts *OAuthTokenSource) SetRefreshCallback(fn TokenRefreshCallback) {
 	ts.onRefresh = fn
 }
 
+// SetCoordinator sets (or replaces) the durable refresh coordinator.
+func (ts *OAuthTokenSource) SetCoordinator(fn TokenCoordinator) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.coordinator = fn
+}
+
 // Token returns a valid access token, refreshing if necessary.
 func (ts *OAuthTokenSource) Token(ctx context.Context) (string, error) {
 	ts.mu.Lock()
@@ -119,9 +151,16 @@ func (ts *OAuthTokenSource) Token(ctx context.Context) (string, error) {
 		return "", err
 	}
 
-	if ts.accessToken != "" && !ts.expiresAt.IsZero() && time.Now().Before(ts.expiresAt.Add(-oauthTokenExpiryBuffer)) {
+	if TokenFresh(ts.accessToken, ts.expiresAt) {
 		token := ts.accessToken
 		return token, nil
+	}
+
+	// The coordinator reloads under the provider row lock, so it can adopt a
+	// credential another source already refreshed instead of spending this
+	// source's (possibly consumed) refresh token.
+	if ts.coordinator != nil {
+		return ts.coordinatedRefreshLocked(ctx)
 	}
 
 	if ts.refreshToken == "" {
@@ -139,6 +178,40 @@ func (ts *OAuthTokenSource) Token(ctx context.Context) (string, error) {
 	}
 
 	return ts.refreshLocked(ctx)
+}
+
+// coordinatedRefreshLocked delegates reload, exchange and persistence to the
+// coordinator. The inner source performs only the exchange; it carries no
+// callback of its own so the single-use credential is rotated exactly once.
+func (ts *OAuthTokenSource) coordinatedRefreshLocked(ctx context.Context) (string, error) {
+	tokens, err := ts.coordinator(ctx, func(exchangeCtx context.Context, current OAuthTokens) (*OAuthTokens, error) {
+		if current.RefreshToken == "" {
+			return nil, fmt.Errorf("no refresh token available (authorize via Claude OAuth)")
+		}
+		inner := NewOAuthTokenSource("", current.RefreshToken, time.Time{}, ts.httpClient, nil)
+		if _, err := inner.Token(exchangeCtx); err != nil {
+			return nil, err
+		}
+		return &OAuthTokens{
+			AccessToken:          inner.accessToken,
+			RefreshToken:         inner.refreshToken,
+			ExpiresAt:            inner.expiresAt,
+			PreviousRefreshToken: current.RefreshToken,
+		}, nil
+	})
+	if tokens != nil && tokens.AccessToken != "" {
+		ts.accessToken, ts.refreshToken, ts.expiresAt = tokens.AccessToken, tokens.RefreshToken, tokens.ExpiresAt
+		// Persistence is the coordinator's job. Only fall back to the legacy
+		// callback when the coordinator exchanged but failed to save, so the
+		// rotated credential is not lost.
+		if err != nil && tokens.PreviousRefreshToken != "" && ts.onRefresh != nil {
+			ts.pendingRefresh = tokens.PreviousRefreshToken
+		}
+	}
+	if err != nil {
+		return "", err
+	}
+	return ts.accessToken, nil
 }
 
 // refreshLocked exchanges the refresh token for new tokens.

@@ -1134,11 +1134,7 @@ func (s *Server) providerAuthHTTPClient(proxy string, insecure bool) (*http.Clie
 // rotated access/refresh tokens (and the new expiry) for the given provider
 // key. Rotation uses the previously loaded refresh credential and the provider's
 // authoritative workspace, independent of browser/request lifetimes.
-func (s *Server) claudeOAuthRefreshCallback(providerKey string, workspaces ...string) antropic.TokenRefreshCallback {
-	workspace := "legacy-default"
-	if len(workspaces) > 0 {
-		workspace = workspaces[0]
-	}
+func (s *Server) claudeOAuthRefreshCallback(providerKey, workspace string) antropic.TokenRefreshCallback {
 	return func(parent context.Context, previousRefresh, accessToken, refreshToken string, expiresAt time.Time) error {
 		store, ok := s.store.(service.ClaudeOAuthTokenStorer)
 		if !ok {
@@ -1155,15 +1151,66 @@ func (s *Server) claudeOAuthRefreshCallback(providerKey string, workspaces ...st
 	}
 }
 
-// wireClaudeOAuthCallback installs the persistence callback on the provider's
-// OAuth token source if it is using one. Safe to call on any provider type;
-// it is a no-op for non-OAuth providers.
-func (s *Server) wireClaudeOAuthCallback(providerKey string, p service.LLMProvider, workspace ...string) {
+// wireClaudeOAuthCallback installs the persistence callback and the durable
+// refresh coordinator on the provider's OAuth token source if it is using one.
+// Safe to call on any provider type; it is a no-op for non-OAuth providers.
+// The workspace is explicit: a silent default would persist rotations against
+// the wrong provider row, which leaves the stored refresh credential consumed.
+func (s *Server) wireClaudeOAuthCallback(providerKey string, p service.LLMProvider, workspace string) {
 	ap, ok := p.(*antropic.Provider)
 	if !ok {
 		return
 	}
-	ap.SetTokenRefreshCallback(s.claudeOAuthRefreshCallback(providerKey, workspace...))
+	ap.SetTokenRefreshCallback(s.claudeOAuthRefreshCallback(providerKey, workspace))
+	if fn := s.claudeOAuthCoordinator(providerKey, workspace); fn != nil {
+		ap.SetTokenCoordinator(fn)
+	}
+}
+
+// claudeOAuthCoordinator serializes reload, exchange and persistence of a
+// claude-code credential on the owning provider row. Anthropic invalidates the
+// previous refresh token on every exchange, so every token source for this
+// provider — gateway registry, execution cache, model discovery, other
+// replicas — must exchange from the currently stored credential.
+func (s *Server) claudeOAuthCoordinator(providerKey, workspace string) antropic.TokenCoordinator {
+	store, ok := s.store.(service.ClaudeOAuthTokenStorer)
+	if !ok {
+		return nil
+	}
+	return func(parent context.Context, exchange func(context.Context, antropic.OAuthTokens) (*antropic.OAuthTokens, error)) (*antropic.OAuthTokens, error) {
+		if err := parent.Err(); err != nil {
+			return nil, err
+		}
+		// Finish a started credential exchange even if its originating request
+		// disappears. Rotation and encrypted persistence share one provider lock.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), 15*time.Second)
+		defer cancel()
+		current, err := store.WithClaudeOAuthTokens(ctx, workspace, providerKey, func(tokens *service.ClaudeOAuthTokens) error {
+			// Another source already refreshed; adopt the stored credential
+			// instead of replaying a refresh token it has consumed.
+			if antropic.TokenFresh(tokens.AccessToken, tokens.ExpiresAt) {
+				return nil
+			}
+			fresh, err := exchange(ctx, antropic.OAuthTokens{AccessToken: tokens.AccessToken, RefreshToken: tokens.RefreshToken, ExpiresAt: tokens.ExpiresAt})
+			if err != nil {
+				return err
+			}
+			tokens.AccessToken, tokens.RefreshToken, tokens.ExpiresAt = fresh.AccessToken, fresh.RefreshToken, fresh.ExpiresAt
+			return nil
+		})
+		if err != nil {
+			slog.Error("claude oauth refresh: coordinated refresh failed", "key", providerKey, "workspace_id", workspace, "error", err.Error())
+		}
+		if current == nil {
+			return nil, err
+		}
+		return &antropic.OAuthTokens{
+			AccessToken:          current.AccessToken,
+			RefreshToken:         current.RefreshToken,
+			ExpiresAt:            current.ExpiresAt,
+			PreviousRefreshToken: current.PreviousRefreshToken,
+		}, err
+	}
 }
 
 func (s *Server) chatGPTOAuthRefreshCallback(providerKey, workspace string) openai.CodexTokenRefreshCallback {

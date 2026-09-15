@@ -352,13 +352,22 @@ browser logout, identity revocation, bot message persistence/reply, binding UI
 APIs and credential redaction. Set `AT_TEST_POSTGRES_DSN` or run `make env` so
 these tests execute rather than skip. Migration 48 adds the `mcp` binding kind.
 
-Claude Code OAuth refreshes persist through `ClaudeOAuthTokenStorer` using the
-provider's workspace and the previous refresh credential, rather than unscoped
-human CRUD. Rotation is encrypted, transactional and rejects stale credentials;
-the token source retries failed persistence before issuing another token without
-rotating again. Both gateway and scoped agent provider instances wire this callback.
-An already-invalid refresh token still requires reauthorization; a restart cannot
-recover a rotated token that an earlier version never persisted.
+Claude Code OAuth refreshes use `ClaudeOAuthTokenStorer.WithClaudeOAuthTokens`: a
+workspace-owned provider row lock covers credential reload, the single-use OAuth
+exchange and encrypted save. Anthropic invalidates the previous refresh token on
+every exchange, so a source refreshing from a purely in-memory copy can replay a
+credential another source already consumed and get `400 invalid_grant`. Every
+token source for a provider — boot/gateway registry, the workspace execution
+cache, model discovery and other replicas — goes through the same coordinator and
+adopts a stored credential that is still fresh instead of exchanging again.
+Rotation is encrypted, transactional and rejects stale credentials; failed saves
+retain the exchanged credentials for an idempotent, previous-token checked retry
+rather than rotating again. `wireClaudeOAuthCallback` takes an explicit workspace:
+a silent default persisted rotations against the wrong row, which consumed the
+stored credential without saving the replacement. An already-invalid refresh token
+still requires reauthorization; a restart cannot recover a rotated token that an
+earlier version never persisted. Regression coverage:
+`internal/service/llm/antropic/auth-refresh_test.go`.
 
 ChatGPT/Codex refresh uses `CodexOAuthTokenStorer`: a workspace-owned provider row
 lock covers credential reload, the single-use OAuth exchange and encrypted save,

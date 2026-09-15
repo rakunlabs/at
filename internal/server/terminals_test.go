@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -112,12 +113,19 @@ func TestTerminalLiveAuthorization(t *testing.T) {
 func TestTerminalAlanRoutingAndStreaming(t *testing.T) {
 	// Two real QUIC backends on distinct loopback addresses, using Alan's public
 	// DNS discovery API. This exercises the actual wire protocol, not a fake RPC.
+	// Linux binds all of 127.0.0.0/8 to lo; macOS binds only 127.0.0.1, so the
+	// extra aliases must be added explicitly before this can run there.
 	listener, err := net.ListenPacket("udp4", "127.0.0.2:0")
 	if err != nil {
-		t.Fatal(err)
+		t.Skipf("needs loopback aliases 127.0.0.2/127.0.0.3 (macOS: sudo ifconfig lo0 alias 127.0.0.2; sudo ifconfig lo0 alias 127.0.0.3): %v", err)
 	}
 	port := listener.LocalAddr().(*net.UDPAddr).Port
 	listener.Close()
+	if second, err := net.ListenPacket("udp4", fmt.Sprintf("127.0.0.3:%d", port)); err != nil {
+		t.Skipf("needs loopback alias 127.0.0.3 (macOS: sudo ifconfig lo0 alias 127.0.0.3): %v", err)
+	} else {
+		second.Close()
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	f := &fakeAuthStore{users: map[string]service.AuthUser{"admin": {ID: "admin", Admin: true}}, sessions: map[string]service.AuthSession{"login": {UserID: "admin", ExpiresAt: time.Now().Add(time.Hour)}}}
