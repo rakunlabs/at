@@ -23,3 +23,14 @@ func WithRoot(t testing.TB, root string) context.Context {
 	}
 	return ctx
 }
+
+// RequireExecutionFileAccess skips when the platform cannot perform
+// symlink-free workspace file access. OpenExecutionFile and friends are
+// implemented with Linux openat2 and deliberately fail closed elsewhere, so
+// these runtime tests can only assert real behaviour on Linux.
+func RequireExecutionFileAccess(t testing.TB) {
+	t.Helper()
+	if !service.ExecutionFileAccessSupported() {
+		t.Skip("symlink-free workspace file access requires Linux openat2")
+	}
+}

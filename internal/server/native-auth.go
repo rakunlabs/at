@@ -47,6 +47,19 @@ const nativePasswordMinLength = 8
 // nativePasswordMaxBytes bounds the hashing work a single request can request.
 const nativePasswordMaxBytes = 1024
 
+// nativePasswordHasher is the single construction point for the password
+// hasher, so every entry point shares one work factor.
+func nativePasswordHasher() password.PBKDF2 {
+	return password.PBKDF2{MinLength: nativePasswordMinLength, Iterations: nativePasswordIterations}
+}
+
+// nativePasswordIterations is the PBKDF2 work factor. Zero keeps the library
+// default (600k, the OWASP figure for PBKDF2-SHA256), which is what production
+// uses. Tests lower it: an encoded hash carries its own iteration count, so
+// verification stays self-consistent, and 600k rounds under the race detector
+// cost minutes per hash — enough to hang `make test` outright.
+var nativePasswordIterations = 0
+
 // nativePasswordMessage reports why a password was refused. The byte ceiling is
 // an implementation bound almost nobody reaches, so it is mentioned only when
 // it is the actual reason rather than advertised in every prompt.
@@ -121,7 +134,7 @@ func newNativeAuth(cfg config.Server, store any) (*nativeAuth, error) {
 	if !ok || authStore == nil {
 		return nil, fmt.Errorf("native_auth requires a persistent AuthStorer")
 	}
-	a := &nativeAuth{store: authStore, cfg: c, password: password.PBKDF2{MinLength: nativePasswordMinLength}, loginLimit: rate.NewLimiter(rate.Every(6*time.Second), 5), passwordSlots: make(chan struct{}, 2)}
+	a := &nativeAuth{store: authStore, cfg: c, password: nativePasswordHasher(), loginLimit: rate.NewLimiter(rate.Every(6*time.Second), 5), passwordSlots: make(chan struct{}, 2)}
 	a.credentials, ok = store.(service.AuthCredentialStorer)
 	if !ok {
 		return nil, fmt.Errorf("native_auth requires a persistent AuthCredentialStorer")

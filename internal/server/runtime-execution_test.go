@@ -17,6 +17,8 @@ import (
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/service/loopgov"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
+
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 func runtimeTestContext(t *testing.T, root string, revoked *atomic.Bool) context.Context {
@@ -111,6 +113,7 @@ func TestRuntimeLiveWorkspacePolicyGrantAndMembershipRevocation(t *testing.T) {
 }
 
 func TestRuntimeMediaRangeRevocationAndScope(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	root, other := t.TempDir(), t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "clip.mp4"), []byte("0123456789"), 0600); err != nil {
 		t.Fatal(err)
@@ -150,6 +153,7 @@ func TestRuntimeMediaRangeRevocationAndScope(t *testing.T) {
 }
 
 func TestRuntimeUploadAndSymlinkWrite(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	root, other := t.TempDir(), t.TempDir()
 	var revoked atomic.Bool
 	ctx := runtimeTestContext(t, root, &revoked)

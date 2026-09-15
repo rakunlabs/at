@@ -10,6 +10,7 @@ import (
 )
 
 func TestScopedToolResultsKeepWorkspaceRoots(t *testing.T) {
+	requireExecutionFileAccess(t)
 	global := t.TempDir()
 	g := New(Config{WorkspaceRoot: global, ToolResultMaxBytes: 16}, nil)
 	for _, text := range []string{"workspace-one", "workspace-two"} {

@@ -12,6 +12,7 @@ import (
 )
 
 func TestRuntimeAuditSpillsPreserveConcurrentRoots(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	s := &Server{}
 	var wg sync.WaitGroup
 	for _, label := range []string{"one", "two"} {

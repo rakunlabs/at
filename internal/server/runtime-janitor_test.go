@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/rakunlabs/at/internal/service"
+
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 type runtimeCleanupFixture struct {
@@ -25,6 +27,7 @@ func (f *runtimeCleanupFixture) GetExecutionCleanupTask(ctx context.Context, wor
 }
 
 func TestRuntimeJanitorOwnershipAndSymlinkContainment(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	base := t.TempDir()
 	now := time.Now().UTC()
 	for _, dir := range []string{"a/tasks/shared/nested", "a/tasks/unknown", "a/assets", "b/tasks/shared", "b/assets"} {

@@ -28,6 +28,7 @@ func browseRequest(t *testing.T, s *Server, path string) *httptest.ResponseRecor
 // regardless of the previous allow-list. We no longer block reads outside
 // /tmp/at-*; the only failure mode is "doesn't exist" or "not a directory".
 func TestFileBrowseAPIRejectsMissing(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	s := &Server{}
 	rec := browseRequest(t, s, "/this/does/not/exist/hopefully")
 	if rec.Code != http.StatusNotFound {
@@ -38,6 +39,7 @@ func TestFileBrowseAPIRejectsMissing(t *testing.T) {
 // TestFileBrowseAPIServesArbitraryDir confirms the browser will list any
 // directory the daemon UID can read — no allow-list anymore.
 func TestFileBrowseAPIServesArbitraryDir(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	tmp := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(tmp, "hello.txt"), []byte("hi"), 0o644); err != nil {
@@ -66,6 +68,7 @@ func TestFileBrowseAPIServesArbitraryDir(t *testing.T) {
 // bytes, and a no-Range request must return the full file with
 // Accept-Ranges: bytes set.
 func TestFileServeAPIRangeSupport(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	tmp := t.TempDir()
 
 	body := []byte("hello world, this is a test video stream payload")
@@ -133,6 +136,7 @@ func TestFileServeAPIRangeSupport(t *testing.T) {
 // still happen (so the browser knows it's video/mp4 and uses the native
 // player rather than offering a download).
 func TestFileServeAPISetsContentType(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	tmp := t.TempDir()
 
 	target := filepath.Join(tmp, "clip.mp4")
@@ -168,6 +172,7 @@ func TestFileDeleteAPIRejectsRoot(t *testing.T) {
 // TestFileDeleteAPIDeletesArbitraryFile — happy path, any file the daemon
 // can write to is now deletable.
 func TestFileDeleteAPIDeletesArbitraryFile(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	tmp := t.TempDir()
 
 	target := filepath.Join(tmp, "scratch.png")
@@ -190,6 +195,7 @@ func TestFileDeleteAPIDeletesArbitraryFile(t *testing.T) {
 // TestFileUploadAPI — multipart upload writes the file to the target
 // directory (creating it when missing) and returns its absolute path.
 func TestFileUploadAPI(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	s := &Server{}
 	dir := filepath.Join(t.TempDir(), "avatars", "sub")
 
@@ -225,6 +231,7 @@ func TestFileUploadAPI(t *testing.T) {
 }
 
 func TestFileUploadAPIReplacesExistingFile(t *testing.T) {
+	executiontest.RequireExecutionFileAccess(t)
 	s := &Server{}
 	dir := t.TempDir()
 	target := filepath.Join(dir, "episode.json")

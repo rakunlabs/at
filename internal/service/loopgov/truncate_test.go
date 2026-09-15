@@ -20,6 +20,7 @@ func TestTruncateUnderCap(t *testing.T) {
 }
 
 func TestTruncateOverCapEmitsMarker(t *testing.T) {
+	requireExecutionFileAccess(t)
 	tmp := t.TempDir()
 	g := New(Config{
 		ToolResultMaxBytes: 100,
@@ -126,6 +127,7 @@ func TestTruncateWorkspaceUnavailable(t *testing.T) {
 }
 
 func TestTruncateMonotonicSeq(t *testing.T) {
+	requireExecutionFileAccess(t)
 	tmp := t.TempDir()
 	g := New(Config{
 		ToolResultMaxBytes: 50,

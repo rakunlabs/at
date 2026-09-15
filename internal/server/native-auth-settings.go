@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 	str2duration "github.com/xhit/go-str2duration/v2"
 	"golang.org/x/time/rate"
 
@@ -210,7 +209,7 @@ func (m *nativeAuthSettings) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer func() { <-m.slots }()
-	hasher := password.PBKDF2{MinLength: nativePasswordMinLength}
+	hasher := nativePasswordHasher()
 	hash, err := hasher.Hash(body.Password)
 	if err != nil {
 		nativeError(w, 400, nativePasswordMessage(body.Password))

@@ -9,6 +9,11 @@ import (
 	"os"
 )
 
+// ExecutionFileAccessSupported reports whether this platform can perform
+// symlink-free workspace file access. Everything below is deliberately
+// fail-closed off Linux; callers must not degrade to unchecked os calls.
+func ExecutionFileAccessSupported() bool { return false }
+
 func OpenExecutionFile(root *os.Root, name string, flags int, mode os.FileMode) (*os.File, error) {
 	return nil, fmt.Errorf("symlink-free workspace file access requires Linux openat2: %w", ErrExecutionDenied)
 }

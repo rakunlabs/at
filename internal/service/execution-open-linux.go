@@ -14,6 +14,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// ExecutionFileAccessSupported reports whether this platform can perform
+// symlink-free workspace file access.
+func ExecutionFileAccessSupported() bool { return true }
+
 // OpenExecutionFile additionally forbids symlinks INSIDE the workspace, since
 // an alias could otherwise bypass a path-pattern grant even with os.Root's
 // escape protection. openat2 resolves every component atomically beneath the

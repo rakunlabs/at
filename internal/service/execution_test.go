@@ -68,6 +68,7 @@ func TestExecutionPolicyAuthorityAndRevocation(t *testing.T) {
 }
 
 func TestExecutionConcurrentRootContainment(t *testing.T) {
+	requireExecutionFileAccess(t)
 	parent := t.TempDir()
 	roots := []string{filepath.Join(parent, "a"), filepath.Join(parent, "b")}
 	for i, root := range roots {
