@@ -13,12 +13,66 @@
     // Font family resolved on this device. Missing fonts fall back silently.
     fontFamily?: string;
     fontSize?: number;
+    // Touch key row for keys a soft keyboard does not have.
+    keyBar?: boolean;
     onstatus: (status: string, message: string) => void;
   }
-  let { id, appearance = 'dark', fontFamily = '', fontSize = 14, onstatus }: Props = $props();
+  let { id, appearance = 'dark', fontFamily = '', fontSize = 14, keyBar = false, onstatus }: Props = $props();
   let container: HTMLDivElement;
   let term = $state.raw<Terminal | null>(null);
   let refit: () => void = () => {};
+  let send: (data: string) => void = () => {};
+  let ctrlArmed = $state(false);
+
+  // Soft keyboards have no Ctrl, Esc, Tab or arrows, so a phone cannot send an
+  // interrupt, complete a path or drive a full-screen editor. These keys work on
+  // the decoded input rather than keydown events, which mobile keyboards report
+  // inconsistently: Ctrl is armed by tapping it, then folded into the next
+  // character the keyboard produces.
+  function applyCtrl(value: string): string {
+    if (!ctrlArmed) return value;
+    ctrlArmed = false;
+    if (value.length !== 1) return value;
+    const code = value.toUpperCase().charCodeAt(0);
+    if (code === 32) return '\x00';
+    if (code >= 64 && code <= 95) return String.fromCharCode(code - 64);
+    return value;
+  }
+
+  interface TerminalKey { label: string; title: string; data?: string; cursor?: string; ctrl?: boolean }
+  const keys: TerminalKey[] = [
+    { label: 'Esc', title: 'Escape', data: '\x1b' },
+    { label: 'Tab', title: 'Tab', data: '\t' },
+    { label: 'Ctrl', title: 'Ctrl — hold for the next key', ctrl: true },
+    { label: '↑', title: 'Up', cursor: 'A' },
+    { label: '↓', title: 'Down', cursor: 'B' },
+    { label: '←', title: 'Left', cursor: 'D' },
+    { label: '→', title: 'Right', cursor: 'C' },
+    { label: '^C', title: 'Ctrl+C — interrupt', data: '\x03' },
+    { label: '^D', title: 'Ctrl+D — end of input', data: '\x04' },
+    { label: '^Z', title: 'Ctrl+Z — suspend', data: '\x1a' },
+    { label: 'Home', title: 'Home', cursor: 'H' },
+    { label: 'End', title: 'End', cursor: 'F' },
+    { label: 'PgUp', title: 'Page up', data: '\x1b[5~' },
+    { label: 'PgDn', title: 'Page down', data: '\x1b[6~' },
+    { label: '|', title: 'Pipe', data: '|' },
+    { label: '~', title: 'Tilde', data: '~' },
+    { label: '/', title: 'Slash', data: '/' },
+    { label: '-', title: 'Hyphen', data: '-' },
+  ];
+
+  function press(key: TerminalKey) {
+    if (key.ctrl) {
+      ctrlArmed = !ctrlArmed;
+      term?.focus();
+      return;
+    }
+    // Editors and pagers switch the cursor keys to application mode, where the
+    // same arrow is SS3 rather than CSI; sending the wrong one prints letters.
+    const data = key.cursor ? `\x1b${term?.modes.applicationCursorKeysMode ? 'O' : '['}${key.cursor}` : key.data ?? '';
+    send(applyCtrl(data));
+    term?.focus();
+  }
 
   const DARK = { background: '#17191c', foreground: '#e5e7eb', cursor: '#e5e7eb', selectionBackground: '#4b5563' };
   const LIGHT = { background: '#ffffff', foreground: '#1f2937', cursor: '#1f2937', selectionBackground: '#cbd5e1' };
@@ -46,7 +100,19 @@
     active.options.fontFamily = options.fontFamily;
     active.options.fontSize = options.fontSize;
     refit();
+    void loadFonts(options.fontFamily, options.fontSize);
   });
+
+  // A bundled web font arrives after xterm has already measured the cell, so
+  // the grid would stay sized for the fallback until something else resized the
+  // panel. Wait for the faces, then fit again with the real metrics.
+  async function loadFonts(list: string, px: number) {
+    if (!document.fonts?.load) return;
+    try {
+      await Promise.all([document.fonts.load(`${px}px ${list}`), document.fonts.load(`bold ${px}px ${list}`)]);
+    } catch { /* an unavailable face still renders through the fallback */ }
+    refit();
+  }
 
   onMount(() => {
     let disposed = false;
@@ -74,7 +140,7 @@
     observer.observe(container);
     const themeObserver = new MutationObserver(() => { pageDark = document.documentElement.classList.contains('dark'); });
     themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
-    const input = instance.onData((value) => {
+    function write(value: string) {
       if (!ready || ws.readyState !== WebSocket.OPEN) return;
       const data = new TextEncoder().encode(value);
       if (ws.bufferedAmount + data.length > 1024 * 1024) {
@@ -84,7 +150,9 @@
         return;
       }
       for (let offset = 0; offset < data.length; offset += 8192) ws.send(data.slice(offset, offset + 8192));
-    });
+    }
+    send = write;
+    const input = instance.onData((value) => write(applyCtrl(value)));
     ws.onmessage = (event) => {
       if (disposed) return;
       if (event.data instanceof ArrayBuffer) {
@@ -121,6 +189,7 @@
       disposed = true;
       term = null;
       refit = () => {};
+      send = () => {};
       ws.close();
       observer.disconnect();
       themeObserver.disconnect();
@@ -130,4 +199,26 @@
   });
 </script>
 
-<div bind:this={container} class="h-full min-h-0 w-full overflow-hidden p-2" style:background={theme.background} aria-label="Interactive Linux terminal"></div>
+<div class="flex h-full min-h-0 w-full flex-col" style:background={theme.background}>
+  <div bind:this={container} class="min-h-0 w-full flex-1 overflow-hidden p-2" aria-label="Interactive Linux terminal"></div>
+  {#if keyBar}
+    <!-- Sits inside the terminal frame so the fit addon reserves room for it and
+    the host is told the smaller row count. -->
+    <div class="flex shrink-0 gap-1 overflow-x-auto border-t px-2 py-1.5" style:border-color={theme.selectionBackground} role="group" aria-label="Terminal keys">
+      {#each keys as key (key.label)}
+        <button
+          type="button"
+          class="min-h-9 shrink-0 rounded-md border px-2.5 font-mono text-xs leading-none touch-manipulation focus-visible:outline-2 focus-visible:outline-offset-2"
+          style:border-color={theme.selectionBackground}
+          style:color={theme.foreground}
+          style:background={key.ctrl && ctrlArmed ? theme.selectionBackground : 'transparent'}
+          title={key.title}
+          aria-label={key.title}
+          aria-pressed={key.ctrl ? ctrlArmed : undefined}
+          onpointerdown={(e) => { e.preventDefault(); press(key); }}
+          onclick={(e) => { if (e.detail === 0) press(key); }}
+        >{key.label}</button>
+      {/each}
+    </div>
+  {/if}
+</div>

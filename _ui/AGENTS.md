@@ -48,6 +48,44 @@ in-flight turn, so they must stay merged.
 - **Workflow editor**: components in `lib/components/workflow/` — one Svelte component per node type, matching backend node registry
 - **Build output**: `make build-ui` → moves `_ui/dist/` to `internal/server/dist/` for Go embedding
 
+## Terminal display settings
+
+`pages/Terminal.svelte` + `lib/components/HostTerminal.svelte` keep the terminal
+palette independent of the page theme (default dark, `system` opts back into
+following it) and let the owner choose a font family and size. All three are
+stored in the existing `terminal_preferences` JSON blob, so there is no
+migration; the backend validates them in `TerminalPreferencesAPI`.
+
+`style/fonts/JetBrainsMonoNerdFontMono-{Regular,Bold}.woff2` (~1 MB each,
+SIL OFL 1.1, licence served at `fonts/OFL.txt`) are bundled because a font must
+be installed on the *device running the browser* — a phone cannot install one at
+all, and neither can a locked-down desktop. The `@font-face` declarations in
+`style/global.css` cost nothing until something renders with the family, so only
+the users who select it pay the download. It is deliberately not the default.
+The *Mono* variant is required: its icons are single-cell, so terminal columns
+stay aligned. `HostTerminal` awaits `document.fonts.load()` and refits, because
+xterm measures the cell before a web font arrives and would otherwise keep a
+grid sized for the fallback.
+
+The touch key row (`HostTerminal`) sends Esc, Tab, arrows, Home/End/PgUp/PgDn and
+a sticky Ctrl, because a soft keyboard has none of them — without it a phone
+cannot interrupt a process, complete a path or leave an editor. Ctrl folds into
+the next character in `onData` rather than reading keydown, which mobile
+keyboards report inconsistently, and arrows respect
+`modes.applicationCursorKeysMode` (SS3 in editors, CSI otherwise). Buttons act on
+`pointerdown` with `preventDefault` so the terminal keeps focus and the soft
+keyboard stays open; the `click` handler only runs for keyboard activation
+(`detail === 0`). The row lives inside the terminal frame so the fit addon
+reserves its height and the host gets the smaller row count. The `key_bar`
+preference is `auto` (touch devices only), `on` or `off`, since one account can
+be used from both a phone and a desktop.
+
+Full screen renders the terminal alone in a fixed overlay. Escape belongs to the
+shell (editors and pagers need it), so exit is a floating button plus
+Ctrl/Cmd+Shift+F, captured on `window` before xterm sees it. On `pointer: coarse`
+devices the button never fades — there is no hover to bring it back and no
+modifier keys on a phone keyboard, so fading it would trap the reader.
+
 ## Dev Workflow
 
 ```sh

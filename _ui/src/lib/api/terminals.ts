@@ -22,7 +22,10 @@ export interface TerminalPreferences {
   font_family?: string;
   // Font size in pixels, 10–28. Empty means 14.
   font_size?: number;
+  // Touch key row. Empty or 'auto' shows it only on touch devices.
+  key_bar?: TerminalKeyBar;
 }
+export type TerminalKeyBar = 'auto' | 'on' | 'off';
 export interface TerminalList {
   sessions: TerminalSession[];
   targets: TerminalTarget[];

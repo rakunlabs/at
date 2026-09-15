@@ -26,6 +26,10 @@ type TerminalPreferences struct {
 	FontFamily string `json:"font_family,omitempty"`
 	// FontSize is in CSS pixels; empty means the 14px default.
 	FontSize int `json:"font_size,omitempty"`
+	// KeyBar controls the touch key row: "on", "off", or "auto"/empty, which
+	// shows it only on touch devices. One account can use both a phone and a
+	// desktop, so the stored value stays device-independent.
+	KeyBar string `json:"key_bar,omitempty"`
 }
 
 type TerminalStorer interface {

@@ -562,6 +562,12 @@ func (s *Server) TerminalPreferencesAPI(w http.ResponseWriter, r *http.Request) 
 		nativeError(w, 400, "terminal font size must be between 10 and 28")
 		return
 	}
+	switch body.KeyBar {
+	case "", "auto", "on", "off":
+	default:
+		nativeError(w, 400, "terminal key bar must be auto, on or off")
+		return
+	}
 	if err := m.store.SetTerminalPreferences(r.Context(), req.Owner, body); err != nil {
 		nativeError(w, 503, err.Error())
 		return

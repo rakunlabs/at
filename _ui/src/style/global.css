@@ -7,6 +7,32 @@
 /* KaTeX math rendering */
 @import 'katex/dist/katex.css';
 
+/*
+ * JetBrainsMono Nerd Font Mono, bundled so prompt glyphs work on devices where
+ * fonts cannot be installed — phones above all. SIL Open Font License 1.1; the
+ * licence is served next to the app at fonts/OFL.txt.
+ *
+ * Each face is about 1 MB and a declaration alone downloads nothing: the
+ * browser fetches a face only when something actually renders with it, which is
+ * only the terminal, and only when this font is the chosen one. The Mono
+ * variant keeps every icon a single cell wide, so terminal columns stay aligned.
+ */
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/JetBrainsMonoNerdFontMono-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font Mono';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/JetBrainsMonoNerdFontMono-Bold.woff2') format('woff2');
+}
+
 @theme {
   /* Dark mode palette — warm earthy tones */
   --color-dark-base: #161618;
