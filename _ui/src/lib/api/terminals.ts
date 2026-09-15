@@ -12,7 +12,17 @@ export interface TerminalSession {
 }
 export interface TerminalTarget { id: string; name: string; available: boolean; reason?: string }
 export interface LinuxUser { name: string; uid: string; home: string; shell: string }
-export interface TerminalPreferences { active_id: string; default_users: Record<string, string> }
+export type TerminalAppearance = 'dark' | 'light' | 'system';
+export interface TerminalPreferences {
+  active_id: string;
+  default_users: Record<string, string>;
+  // Terminal palette, independent of the page theme. Empty means dark.
+  appearance?: TerminalAppearance;
+  // Font family name, resolved on this device. Empty uses the monospace stack.
+  font_family?: string;
+  // Font size in pixels, 10–28. Empty means 14.
+  font_size?: number;
+}
 export interface TerminalList {
   sessions: TerminalSession[];
   targets: TerminalTarget[];

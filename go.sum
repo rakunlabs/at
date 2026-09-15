@@ -357,6 +357,8 @@ github.com/rakunlabs/gofret v0.2.1 h1:fuwBOMKKAvDtynb44P6NWXNShFLanF0g0RxdJRYYME
 github.com/rakunlabs/gofret v0.2.1/go.mod h1:HCXaheJp8j+a3siZZtJNupkAOs8HaeZDfkxT5g7Mlks=
 github.com/rakunlabs/into v0.5.3 h1:IkKDfkrolGVZ75rRG+xVLJuTTswUqN/tXB6GoCMF3xk=
 github.com/rakunlabs/into v0.5.3/go.mod h1:1fWgREm1FXNLCnfFPTPf6mCzgmi9jlqevYQbWLMnXeo=
+github.com/rakunlabs/into v0.6.0 h1:iqMKgOL/NPCpxZrYzkKcP+ttYJG1+2+WDgJtvZ8NpqU=
+github.com/rakunlabs/into v0.6.0/go.mod h1:Ybj+/1fXYcRsS1As5KNpGeeI5fwip0WZ7r04RD0gKtw=
 github.com/rakunlabs/logi v0.4.6 h1:kLEt3d48BSz6cW6iH0R6SxSw2TPX465t73Io4EPa/5o=
 github.com/rakunlabs/logi v0.4.6/go.mod h1:h7mqo7Yj+IJt2o5Li4uO0Bn5hLZuoKUKMS4RkkVS2/M=
 github.com/rakunlabs/muz v0.2.5 h1:XY6Esi40+G9fMv1fEIm1L4uvJkaJV3KxVBi8j5cV4d4=

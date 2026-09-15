@@ -1,17 +1,17 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, RefreshCw, TerminalSquare, X, Pencil, ArrowLeft, ArrowRight, Power } from 'lucide-svelte';
+  import { Plus, RefreshCw, TerminalSquare, X, Pencil, ArrowLeft, ArrowRight, Power, Moon, Sun, Monitor, Type, Maximize2, Minimize2 } from 'lucide-svelte';
   import HostTerminal from '@/lib/components/HostTerminal.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listTerminals, terminalUsers, createTerminal, updateTerminal, deleteTerminal, startTerminal, saveTerminalPreferences, type TerminalSession, type TerminalTarget, type LinuxUser, type TerminalPreferences } from '@/lib/api/terminals';
+  import { listTerminals, terminalUsers, createTerminal, updateTerminal, deleteTerminal, startTerminal, saveTerminalPreferences, type TerminalSession, type TerminalTarget, type LinuxUser, type TerminalPreferences, type TerminalAppearance } from '@/lib/api/terminals';
 
   // Operate surface: inherit AT's neutral theme, compact controls and full-height
   // work area. Saved tabs lead directly to a host shell; tmux is not exposed.
   storeNavbar.title = 'Terminal';
   let sessions = $state<TerminalSession[]>([]);
   let targets = $state<TerminalTarget[]>([]);
-  let preferences = $state<TerminalPreferences>({ active_id: '', default_users: {} });
+  let preferences = $state<TerminalPreferences>({ active_id: '', default_users: {}, appearance: 'dark', font_family: '', font_size: 14 });
   let activeID = $state('');
   let active = $derived(sessions.find(s => s.id === activeID));
   let target = $derived(targets.find(t => t.id === active?.target_id));
@@ -31,6 +31,9 @@
   let generation = $state(0);
   let editTitle = $state(false);
   let renamed = $state('');
+  let showDisplay = $state(false);
+  let customFont = $state(false);
+  let maximized = $state(false);
   let actionDialog: HTMLDialogElement;
   let action = $state<'terminate' | 'restart'>('terminate');
   let mounted = true;
@@ -44,6 +47,53 @@
     preferenceQueue = preferenceQueue.catch(() => {}).then(() => saveTerminalPreferences(snapshot)).catch(e => addToast(message(e), 'alert'));
   }
 
+  // Display settings are stored per owner and apply to every saved terminal.
+  // The terminal keeps its own palette, so a light page theme does not force a
+  // light shell; "system" opts back into following the page.
+  const appearances: TerminalAppearance[] = ['dark', 'light', 'system'];
+  let appearance = $derived<TerminalAppearance>(preferences.appearance || 'dark');
+  let fontFamily = $derived(preferences.font_family || '');
+  let fontSize = $derived(preferences.font_size || 14);
+  // Nerd Font builds are installed on the device running this browser, not on
+  // the host, so an absent family silently falls back to the monospace stack.
+  const fontChoices = ['JetBrainsMono Nerd Font', 'FiraCode Nerd Font', 'Hack Nerd Font', 'MesloLGS NF', 'CaskaydiaCove Nerd Font', 'SauceCodePro Nerd Font', 'UbuntuMono Nerd Font', 'JetBrains Mono', 'Fira Code', 'Cascadia Mono', 'Menlo', 'Consolas'];
+  let fontReady = $derived(fontInstalled(fontFamily));
+
+  function fontInstalled(name: string): boolean {
+    const wanted = name.trim().replace(/["']/g, '');
+    if (!wanted) return true;
+    try {
+      const context = document.createElement('canvas').getContext('2d');
+      if (!context) return true;
+      const sample = 'MWmwi1lO0@#';
+      // A missing family renders through the fallback, so a width that differs
+      // from at least one fallback baseline proves the font resolved here.
+      return ['monospace', 'serif'].some(fallback => {
+        context.font = `48px "at-missing-font", ${fallback}`;
+        const baseline = context.measureText(sample).width;
+        context.font = `48px "${wanted}", ${fallback}`;
+        return Math.abs(context.measureText(sample).width - baseline) > 0.5;
+      });
+    } catch { return true; }
+  }
+
+  function cycleAppearance() {
+    preferences.appearance = appearances[(appearances.indexOf(appearance) + 1) % appearances.length];
+    persistPreferences();
+  }
+
+  function pickFont(value: string) {
+    if (value === 'custom') { customFont = true; return; }
+    customFont = false;
+    preferences.font_family = value;
+    persistPreferences();
+  }
+
+  function setFontSize(value: number) {
+    preferences.font_size = Math.min(28, Math.max(10, Math.round(value) || 14));
+    persistPreferences();
+  }
+
   async function load() {
     loading = true; error = '';
     try {
@@ -51,7 +101,14 @@
       if (!mounted) return;
       sessions = data.sessions;
       targets = data.targets;
-      preferences = { active_id: data.preferences.active_id || '', default_users: data.preferences.default_users || {} };
+      preferences = {
+        active_id: data.preferences.active_id || '',
+        default_users: data.preferences.default_users || {},
+        appearance: data.preferences.appearance || 'dark',
+        font_family: data.preferences.font_family || '',
+        font_size: data.preferences.font_size || 14,
+      };
+      customFont = !!preferences.font_family && !fontChoices.includes(preferences.font_family);
       activeID = sessions.some(s => s.id === activeID) ? activeID : sessions.some(s => s.id === preferences.active_id) ? preferences.active_id : sessions[0]?.id || '';
       showNew = !sessions.length;
       selectedTarget = targets.find(t => t.available)?.id || targets[0]?.id || '';
@@ -135,7 +192,7 @@
         sessions = sessions.filter(s => s.id !== activeID);
         activeID = sessions[0]?.id || '';
         persistPreferences();
-        if (!sessions.length) { showNew = true; await loadUsers(); }
+        if (!sessions.length) { showNew = true; maximized = false; await loadUsers(); }
       } else {
         await startTerminal(active.id);
         generation++; status = 'connecting'; statusMessage = '';
@@ -198,6 +255,11 @@
     </form>
   {/if}
 
+  <!-- Full screen lifts the tabs, toolbar and terminal over the app shell. The
+  wrapper is display:contents otherwise, so the normal page layout is unchanged.
+  Escape is left to the shell, where editors depend on it; use the toolbar
+  button to leave. -->
+  <div class={maximized ? 'fixed inset-0 z-50 flex flex-col bg-white dark:bg-dark-surface' : 'contents'}>
   {#if sessions.length}
     <div role="tablist" aria-label="Saved terminals" class="flex shrink-0 overflow-x-auto border-b border-gray-200 dark:border-dark-border">
       {#each sessions as session, index (session.id)}
@@ -213,11 +275,48 @@
         <button class="terminal-button" title="Rename terminal" aria-label="Rename terminal" disabled={busy} onclick={() => { renamed = active!.title; editTitle = !editTitle; }}><Pencil size={14} /></button>
         <button class="terminal-button" title="Move tab left" aria-label="Move tab left" disabled={busy || sessions[0]?.id === activeID} onclick={() => void move(-1)}><ArrowLeft size={14} /></button>
         <button class="terminal-button" title="Move tab right" aria-label="Move tab right" disabled={busy || sessions[sessions.length - 1]?.id === activeID} onclick={() => void move(1)}><ArrowRight size={14} /></button>
+        <button class="terminal-button" title={`Terminal colours: ${appearance === 'system' ? 'match the page theme' : appearance}. Click to change.`} aria-label={`Terminal colours: ${appearance === 'system' ? 'match the page theme' : appearance}. Change`} onclick={cycleAppearance}>
+          {#if appearance === 'dark'}<Moon size={14} />{:else if appearance === 'light'}<Sun size={14} />{:else}<Monitor size={14} />{/if}
+        </button>
+        <button class="terminal-button" title="Font and size" aria-label="Font and size" aria-expanded={showDisplay} onclick={() => showDisplay = !showDisplay}><Type size={14} /></button>
+        <button class="terminal-button" title={maximized ? 'Exit full screen' : 'Full screen'} aria-label={maximized ? 'Exit full screen' : 'Full screen'} aria-pressed={maximized} onclick={() => maximized = !maximized}>
+          {#if maximized}<Minimize2 size={14} />{:else}<Maximize2 size={14} />{/if}
+        </button>
         <button class="terminal-button" disabled={!target || busy} onclick={() => { generation++; status = 'connecting'; statusMessage = ''; }}><RefreshCw size={14} />Reconnect</button>
         <button class="terminal-button" disabled={!target || busy} onclick={() => askAction('terminate')}><Power size={14} />End terminal</button>
       </div>
     </div>
     {#if editTitle}<form class="flex gap-2 border-b border-gray-200 p-3 dark:border-dark-border" onsubmit={e => { e.preventDefault(); void rename(); }}><label class="sr-only" for="terminal-name">Terminal name</label><input id="terminal-name" class="terminal-input min-w-0 flex-1" bind:value={renamed} maxlength="80" /><button class="terminal-button" disabled={busy || !renamed.trim()}>Save name</button><button class="terminal-button" type="button" onclick={() => editTitle = false}>Cancel</button></form>{/if}
+    {#if showDisplay}
+      <div class="flex flex-wrap items-end gap-3 border-b border-gray-200 p-3 text-xs dark:border-dark-border">
+        <label class="flex flex-col gap-1">Colours
+          <select class="terminal-input" bind:value={preferences.appearance} onchange={persistPreferences}>
+            <option value="dark">Dark</option>
+            <option value="light">Light</option>
+            <option value="system">Match page theme</option>
+          </select>
+        </label>
+        <label class="flex min-w-52 flex-col gap-1">Font
+          <select class="terminal-input" value={customFont ? 'custom' : fontFamily} onchange={(e) => pickFont(e.currentTarget.value)}>
+            <option value="">System monospace</option>
+            {#each fontChoices as choice}<option value={choice}>{choice}</option>{/each}
+            <option value="custom">Other font…</option>
+          </select>
+        </label>
+        {#if customFont}
+          <label class="flex min-w-52 flex-col gap-1">Font name
+            <input class="terminal-input" bind:value={preferences.font_family} maxlength="120" placeholder="e.g. Iosevka Nerd Font" onchange={persistPreferences} />
+          </label>
+        {/if}
+        <label class="flex flex-col gap-1">Size
+          <input class="terminal-input w-20" type="number" min="10" max="28" value={fontSize} onchange={(e) => setFontSize(e.currentTarget.valueAsNumber)} />
+        </label>
+        <button class="terminal-button" onclick={() => showDisplay = false}>Done</button>
+        <p class="basis-full text-gray-600 dark:text-dark-text-secondary">
+          {#if !fontReady}Not installed on this device, so the system monospace font is used. Install the font here, not on the host.{:else}Fonts, including Nerd Font builds, must be installed on this device. Glyphs still depend on the program output.{/if}
+        </p>
+      </div>
+    {/if}
     {#if !target || status === 'error' || status === 'disconnected'}
       <div role="status" class="flex flex-wrap items-center justify-between gap-2 bg-gray-50 px-3 py-2 text-xs dark:bg-dark-elevated">
         <p>{!target ? 'This host is offline. Refresh hosts when it is available again.' : statusMessage}</p>
@@ -226,12 +325,13 @@
     {/if}
     <div id="terminal-panel" role="tabpanel" tabindex="0" aria-labelledby={`terminal-tab-${active.id}`} class="relative min-h-40 flex-1 overflow-hidden">
       {#if target}
-        {#key `${active.id}:${generation}`}<HostTerminal id={active.id} onstatus={(value, text) => { status = value; statusMessage = text; }} />{/key}
+        {#key `${active.id}:${generation}`}<HostTerminal id={active.id} {appearance} {fontFamily} {fontSize} onstatus={(value, text) => { status = value; statusMessage = text; }} />{/key}
       {:else}<div class="p-6 text-sm text-gray-500 dark:text-dark-text-secondary">Saved terminal: {active.title}. It will reconnect to {active.target_name}, not another host.</div>{/if}
     </div>
   {:else if !loading && !error}
     <div class="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center"><TerminalSquare size={30} class="text-gray-400" /><h2 class="text-base font-medium">Your host terminals, saved here</h2><p class="max-w-md text-sm text-gray-600 dark:text-dark-text-secondary">Choose a host and Linux user to open your first terminal. You can leave this page and return to the same running shell.</p></div>
   {/if}
+  </div>
   <footer class="shrink-0 border-t border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-dark-border dark:text-dark-text-muted">Closing this page keeps shells running. Connecting takes control from another browser. Host restarts end running processes.</footer>
 </div>
 

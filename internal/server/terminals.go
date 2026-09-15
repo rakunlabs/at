@@ -511,6 +511,24 @@ func (s *Server) TerminalActionAPI(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(204)
 }
 
+// validTerminalFont keeps the stored font list to plain CSS family names. The
+// value is only ever rendered for its own owner, but restricting it here keeps
+// arbitrary text out of a style value.
+func validTerminalFont(name string) bool {
+	if len(name) > 120 {
+		return false
+	}
+	for _, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case c == ' ', c == '-', c == '_', c == '.', c == ',', c == '\'', c == '"':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) TerminalPreferencesAPI(w http.ResponseWriter, r *http.Request) {
 	m, req := s.terminalAccess(w, r)
 	if m == nil {
@@ -529,6 +547,20 @@ func (s *Server) TerminalPreferencesAPI(w http.ResponseWriter, r *http.Request) 
 			nativeError(w, 400, "invalid terminal preference")
 			return
 		}
+	}
+	switch body.Appearance {
+	case "", "dark", "light", "system":
+	default:
+		nativeError(w, 400, "terminal appearance must be dark, light or system")
+		return
+	}
+	if !validTerminalFont(body.FontFamily) {
+		nativeError(w, 400, "invalid terminal font name")
+		return
+	}
+	if body.FontSize != 0 && (body.FontSize < 10 || body.FontSize > 28) {
+		nativeError(w, 400, "terminal font size must be between 10 and 28")
+		return
 	}
 	if err := m.store.SetTerminalPreferences(r.Context(), req.Owner, body); err != nil {
 		nativeError(w, 503, err.Error())

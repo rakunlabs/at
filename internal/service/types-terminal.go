@@ -16,6 +16,16 @@ type TerminalSession struct {
 type TerminalPreferences struct {
 	ActiveID     string            `json:"active_id"`
 	DefaultUsers map[string]string `json:"default_users"`
+	// Appearance selects the terminal palette independently of the page theme:
+	// "dark", "light" or "system". Empty means dark, so existing owners keep a
+	// dark terminal without a migration.
+	Appearance string `json:"appearance,omitempty"`
+	// FontFamily is a client-side font name. The glyphs must be installed on the
+	// device running the browser; the host font set is irrelevant. Empty uses the
+	// built-in monospace stack, which also backs any missing font.
+	FontFamily string `json:"font_family,omitempty"`
+	// FontSize is in CSS pixels; empty means the 14px default.
+	FontSize int `json:"font_size,omitempty"`
 }
 
 type TerminalStorer interface {
