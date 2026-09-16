@@ -2,9 +2,6 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -18,19 +15,13 @@ import (
 
 // ─── API Token Tool Executors (Phase 2) ───
 //
-// Gateway API tokens authenticate inbound /gateway/v1 calls. The
-// security-critical invariants from CreateAPITokenAPI are preserved
-// verbatim:
-//
-//   1. Token format: "at_" + hex(32 random bytes) = 67 chars total.
-//   2. The plaintext token is returned EXACTLY ONCE in the create
-//      response. After that only token_prefix (first 8 chars) is ever
-//      exposed.
-//   3. Storage uses sha256(plaintext) hex-encoded — the DB never sees
-//      the raw token, so a DB compromise can't replay calls.
-//
-// We deliberately use crypto/rand (not math/rand) for the same reason
-// the HTTP handler does: anything else is a security regression.
+// Gateway API tokens authenticate inbound /gateway/v1 calls. Secret
+// generation is shared with the HTTP handlers through
+// generateAPITokenSecret (api-tokens.go), which owns the format,
+// crypto/rand sourcing and sha256 storage invariants. Duplicating it
+// here once let the two surfaces drift; the remaining rule that is
+// local to this file is that the plaintext is returned EXACTLY ONCE in
+// the create response — after that only token_prefix is ever exposed.
 
 // optionalString extracts a *string from args[k]. Returns nil when
 // the key is absent or maps to nil. This matches the pointer-string
@@ -94,15 +85,12 @@ func (s *Server) execAPITokenCreate(ctx context.Context, args map[string]any) (s
 		return "", fmt.Errorf("name is required")
 	}
 
-	// Generate plaintext token + storage hash.
-	rawBytes := make([]byte, 32)
-	if _, err := rand.Read(rawBytes); err != nil {
-		return "", fmt.Errorf("generate token: %w", err)
+	// Generate plaintext token + storage hash. Shared with the HTTP handler so
+	// the format/hashing invariants cannot drift between the two surfaces.
+	fullToken, tokenHash, tokenPrefix, err := generateAPITokenSecret()
+	if err != nil {
+		return "", err
 	}
-	fullToken := "at_" + hex.EncodeToString(rawBytes)
-	hash := sha256.Sum256([]byte(fullToken))
-	tokenHash := hex.EncodeToString(hash[:])
-	tokenPrefix := fullToken[:8]
 
 	expiresPtr := optionalString(args, "expires_at")
 	var expiresAt types.Null[types.Time]

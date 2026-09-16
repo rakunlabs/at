@@ -77,6 +77,9 @@ export interface CreateTokenResponse {
   info: APIToken;
 }
 
+/** Rotation returns the same shape as creation: a new secret, shown only once. */
+export type RotateTokenResponse = CreateTokenResponse;
+
 export async function listTokens(params?: ListParams): Promise<ListResult<APIToken>> {
   const res = await api.get<ListResult<APIToken>>('/api-tokens', { params });
   return res.data;
@@ -103,6 +106,16 @@ export async function getTokenUsage(id: string): Promise<TokenUsage[]> {
 
 export async function resetTokenUsage(id: string): Promise<void> {
   await api.post(`/api-tokens/${id}/usage/reset`);
+}
+
+/**
+ * Replace the token's secret while keeping its id, settings and usage history.
+ * The previous secret stops working immediately, so every client using it must
+ * be updated. The new plaintext is in the response and cannot be fetched again.
+ */
+export async function rotateToken(id: string): Promise<RotateTokenResponse> {
+  const res = await api.post<RotateTokenResponse>(`/api-tokens/${id}/rotate`);
+  return res.data;
 }
 
 export async function setTokenPaused(id: string, paused: boolean): Promise<{ paused: boolean }> {

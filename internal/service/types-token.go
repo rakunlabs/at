@@ -75,6 +75,16 @@ type APITokenPauseStorer interface {
 	SetAPITokenPaused(ctx context.Context, id string, paused bool, updatedBy string) error
 }
 
+// APITokenRotateStorer replaces the stored secret of an existing token without
+// touching its settings, usage counters or identity. The previous secret stops
+// authenticating as soon as the new hash is committed: gateway authentication
+// looks the bearer up by hash on every request and keeps no hash cache, so a
+// rotation is effective immediately and across replicas. Callers must supply a
+// secret generated the same way CreateAPIToken's is.
+type APITokenRotateStorer interface {
+	RotateAPIToken(ctx context.Context, id, tokenHash, tokenPrefix, updatedBy string) (*APIToken, error)
+}
+
 // APITokenManagementStorer guards human/tool management operations. Gateway
 // authentication and budget accounting use their separate credential boundary.
 type APITokenManagementStorer interface {

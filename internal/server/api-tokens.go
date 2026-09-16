@@ -58,10 +58,31 @@ type updateTokenRequest struct {
 	LimitResetInterval   *string  `json:"limit_reset_interval,omitempty"`   // duration string (e.g. "24h", "7d", "30d"), or nil = manual
 }
 
-// createTokenResponse is returned once on creation (the only time the full token is shown).
+// createTokenResponse is returned once on creation or rotation (the only times
+// the full token is shown).
 type createTokenResponse struct {
 	Token string           `json:"token"` // full token — shown only once
 	Info  service.APIToken `json:"info"`
+}
+
+// generateAPITokenSecret mints a gateway bearer token and the values stored for
+// it. Three invariants are security-critical and must hold for every caller:
+//
+//  1. Format is "at_" + hex(32 crypto/rand bytes) = 67 chars.
+//  2. Only sha256(plaintext) hex-encoded reaches the database, so a database
+//     compromise cannot replay gateway calls.
+//  3. The returned plaintext is the only copy; it can never be recovered.
+//
+// It returns (plaintext, hash, prefix). The prefix is the display-safe first 8
+// chars ("at_" + 5 hex), which is not enough to guess the remaining 59.
+func generateAPITokenSecret() (string, string, string, error) {
+	rawBytes := make([]byte, 32)
+	if _, err := rand.Read(rawBytes); err != nil {
+		return "", "", "", fmt.Errorf("generate token: %w", err)
+	}
+	fullToken := "at_" + hex.EncodeToString(rawBytes)
+	hash := sha256.Sum256([]byte(fullToken))
+	return fullToken, hex.EncodeToString(hash[:]), fullToken[:8], nil
 }
 
 // apiTokensResponse wraps a list of tokens for JSON output.
@@ -123,20 +144,12 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Generate token: at_ + 32 random bytes hex-encoded = at_ + 64 hex chars.
-	rawBytes := make([]byte, 32)
-	if _, err := rand.Read(rawBytes); err != nil {
+	fullToken, tokenHash, tokenPrefix, err := generateAPITokenSecret()
+	if err != nil {
+		slog.Error("generate api token failed", "error", err)
 		httpResponse(w, "failed to generate token", http.StatusInternalServerError)
 		return
 	}
-	fullToken := "at_" + hex.EncodeToString(rawBytes)
-
-	// Hash for storage.
-	hash := sha256.Sum256([]byte(fullToken))
-	tokenHash := hex.EncodeToString(hash[:])
-
-	// Prefix for display (first 8 chars of full token = "at_xxxxx").
-	tokenPrefix := fullToken[:8]
 
 	// Compute expiry.
 	var expiresAt types.Null[types.Time]
@@ -318,6 +331,57 @@ func (s *Server) SetAPITokenPausedAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpResponseJSON(w, map[string]bool{"paused": *req.Paused}, http.StatusOK)
+}
+
+// RotateAPITokenAPI handles POST /api/v1/api-tokens/:id/rotate.
+//
+// Rotation replaces the secret of an existing token instead of forcing the
+// delete-and-recreate dance, which loses the token's id, its restrictions and
+// its accumulated usage, and breaks every reference to it. The id, settings,
+// limits and usage counters survive; only the credential changes.
+//
+// The previous secret is invalidated the instant this commits — gateway
+// authentication resolves the bearer by hash on every request and caches
+// nothing — so callers must be updated before or immediately after rotating.
+// Requests already admitted keep running; new ones with the old secret get 401.
+// Like creation, the plaintext is returned exactly once and cannot be recovered.
+func (s *Server) RotateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.tokenStore.(service.APITokenRotateStorer)
+	if !ok {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "token id is required", http.StatusBadRequest)
+		return
+	}
+
+	fullToken, tokenHash, tokenPrefix, err := generateAPITokenSecret()
+	if err != nil {
+		slog.Error("generate api token failed", "id", id, "error", err)
+		httpResponse(w, "failed to generate token", http.StatusInternalServerError)
+		return
+	}
+
+	rotated, err := store.RotateAPIToken(r.Context(), id, tokenHash, tokenPrefix, s.getUserEmail(r))
+	if err != nil {
+		slog.Error("rotate api token failed", "id", id, "error", err)
+		workspaceError(w, err)
+		return
+	}
+
+	// The store cleared last_used_at for the new secret. Drop the in-memory
+	// write throttle too, otherwise the first use of the rotated token would be
+	// suppressed for up to tokenLastUsedThreshold and the UI would keep showing
+	// "never used" while the credential is demonstrably working.
+	s.tokenLastUsed.Delete(id)
+
+	httpResponseJSON(w, createTokenResponse{
+		Token: fullToken,
+		Info:  *rotated,
+	}, http.StatusOK)
 }
 
 // GetTokenUsageAPI handles GET /api/v1/api-tokens/:id/usage.

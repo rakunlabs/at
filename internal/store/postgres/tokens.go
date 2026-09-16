@@ -265,6 +265,73 @@ func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.
 	return &t, nil
 }
 
+// RotateAPIToken swaps the stored secret of an existing token. Identity,
+// workspace, restrictions, limits and accumulated usage are deliberately left
+// alone — the usage rows key off the unchanged token id — so a rotation is a
+// credential replacement, not a re-creation. last_used_at is cleared because it
+// described the superseded secret; leaving it would report the new credential
+// as already in use. A paused token stays paused: pausing is a separate,
+// explicit availability decision and rotating must not silently re-open a
+// closed token.
+func (p *Postgres) RotateAPIToken(ctx context.Context, id, tokenHash, tokenPrefix, updatedBy string) (*service.APIToken, error) {
+	w, err := p.beginBusinessWrite(ctx, p.tableAPITokens, "tokens.write", id)
+	if err != nil {
+		return nil, err
+	}
+	defer w.tx.Rollback()
+
+	stmt, _, err := p.goqu.Update(p.tableAPITokens).Set(goqu.Record{
+		"token_hash":   tokenHash,
+		"token_prefix": tokenPrefix,
+		"last_used_at": nil,
+		"updated_by":   updatedBy,
+	}).Where(w.predicate, goqu.I("id").Eq(id)).ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build rotate api_token query: %w", err)
+	}
+
+	res, err := w.tx.ExecContext(ctx, stmt)
+	if err != nil {
+		return nil, fmt.Errorf("rotate api_token %q: %w", id, err)
+	}
+	rows, err := res.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("check rotate api_token %q: %w", id, err)
+	}
+	if rows == 0 {
+		return nil, service.ErrAccessResourceNotFound
+	}
+
+	fetchQuery, _, err := p.goqu.From(p.tableAPITokens).
+		Select("paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by").
+		Where(w.predicate, goqu.I("id").Eq(id)).
+		ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build fetch rotated api_token query: %w", err)
+	}
+
+	var t service.APIToken
+	if err := w.tx.QueryRowContext(ctx, fetchQuery).Scan(
+		&t.Paused,
+		&t.ID, &t.Name, &t.TokenPrefix,
+		&t.AllowedProvidersMode, &t.AllowedProviders,
+		&t.AllowedModelsMode, &t.AllowedModels,
+		&t.AllowedWebhooksMode, &t.AllowedWebhooks,
+		&t.AllowedMCPsMode, &t.AllowedMCPs,
+		&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
+		&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
+	); err != nil {
+		return nil, fmt.Errorf("fetch rotated api_token %q: %w", id, err)
+	}
+
+	if err := w.tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit rotate api_token: %w", err)
+	}
+
+	t.WorkspaceID = w.actor.WorkspaceID
+	return &t, nil
+}
+
 func (p *Postgres) UpdateLastUsed(ctx context.Context, id string) error {
 	now := time.Now().UTC()
 

@@ -1,12 +1,12 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listTokens, createToken, deleteToken, updateToken, setTokenPaused, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
+  import { listTokens, createToken, deleteToken, updateToken, setTokenPaused, rotateToken, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
   import { listAllTriggers, type Trigger } from '@/lib/api/triggers';
   import { listMCPServers, type MCPServer } from '@/lib/api/mcp-servers';
-  import { Key, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw, Pause, Play } from 'lucide-svelte';
+  import { Key, KeyRound, Plus, Trash2, RefreshCw, Copy, X, ChevronDown, Pencil, FileCode, Check, BarChart3, RotateCcw, Pause, Play, AlertTriangle } from 'lucide-svelte';
   import { generateAuthTokenYamlSnippet, generateAuthTokenJsonSnippet } from '@/lib/helper/config-snippet';
   import { formatDateTime } from '@/lib/helper/format';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
@@ -56,12 +56,20 @@
   let formResetPreset = $state('');
   let creating = $state(false);
 
-  // Created token modal
-  let createdToken = $state<string | null>(null);
+  // One-time secret reveal — shown after creation and after rotation, since a
+  // rotated secret is just as unrecoverable as a freshly created one.
+  let revealedToken = $state<string | null>(null);
+  let revealedTokenKind = $state<'created' | 'rotated'>('created');
+  let revealedTokenName = $state('');
   let copied = $state(false);
 
   // Delete confirmation
   let deleteConfirmId = $state<string | null>(null);
+
+  // Rotate confirmation — rotation invalidates the live secret, so it is never
+  // a single click.
+  let rotateConfirmId = $state<string | null>(null);
+  let rotating = $state<Record<string, boolean>>({});
 
   // Edit state
   let editingTokenId = $state<string | null>(null);
@@ -246,7 +254,9 @@
       }
 
       const resp: CreateTokenResponse = await createToken(req);
-      createdToken = resp.token;
+      revealedToken = resp.token;
+      revealedTokenKind = 'created';
+      revealedTokenName = resp.info?.name || req.name;
       copied = false;
       showCreate = false;
       resetForm();
@@ -266,6 +276,33 @@
       await loadTokens();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete token', 'alert');
+    }
+  }
+
+  /**
+   * Replace the secret behind an existing token. The id, restrictions, limits
+   * and usage history survive — only the credential changes — which is why this
+   * exists instead of telling people to delete and recreate.
+   */
+  async function handleRotate(token: APIToken) {
+    if (rotating[token.id]) return;
+    rotating[token.id] = true;
+    try {
+      const resp = await rotateToken(token.id);
+      revealedToken = resp.token;
+      revealedTokenKind = 'rotated';
+      revealedTokenName = resp.info?.name || token.name;
+      copied = false;
+      rotateConfirmId = null;
+      addToast('Token rotated. The previous secret no longer works.', 'info');
+      await loadTokens();
+      // The secret is unrecoverable, so make sure the panel holding it is what
+      // the user is looking at after the list reloads.
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to rotate token. The current token still works.', 'alert');
+    } finally {
+      rotating[token.id] = false;
     }
   }
 
@@ -586,20 +623,28 @@
     </div>
   </div>
 
-  <!-- Created token modal -->
-  {#if createdToken}
+  <!-- One-time secret reveal (creation and rotation) -->
+  {#if revealedToken}
     <div class="mb-4 border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20 p-4">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-sm font-medium text-green-800 dark:text-green-300">Token Created</span>
-        <button onclick={() => (createdToken = null)} class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300">
+        <span class="text-sm font-medium text-green-800 dark:text-green-300">
+          {revealedTokenKind === 'rotated' ? 'Token Rotated' : 'Token Created'}{revealedTokenName ? ` — ${revealedTokenName}` : ''}
+        </span>
+        <button onclick={() => (revealedToken = null)} class="text-green-600 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300" aria-label="Dismiss token">
           <X size={14} />
         </button>
       </div>
-      <p class="text-xs text-green-700 dark:text-green-400 mb-2">Copy this token now. It won't be shown again.</p>
+      <p class="text-xs text-green-700 dark:text-green-400 mb-2">
+        {#if revealedTokenKind === 'rotated'}
+          The previous secret has stopped working. Update every client that used it with the token below, then copy it now — it won't be shown again.
+        {:else}
+          Copy this token now. It won't be shown again.
+        {/if}
+      </p>
       <div class="flex items-center gap-2">
-        <code class="flex-1 bg-white dark:bg-dark-elevated border border-green-200 dark:border-green-800 px-3 py-2 text-xs font-mono text-green-900 dark:text-green-200 break-all select-all">{createdToken}</code>
+        <code class="flex-1 bg-white dark:bg-dark-elevated border border-green-200 dark:border-green-800 px-3 py-2 text-xs font-mono text-green-900 dark:text-green-200 break-all select-all">{revealedToken}</code>
         <button
-          onclick={() => copyToClipboard(createdToken!)}
+          onclick={() => copyToClipboard(revealedToken!)}
           class="shrink-0 p-2 bg-white dark:bg-dark-elevated border border-green-200 dark:border-green-800 hover:bg-green-100 transition-colors"
           title="Copy"
         >
@@ -1401,6 +1446,17 @@
                   {changingPause[token.id] ? 'Saving…' : token.paused ? 'Resume' : 'Pause'}
                 </button>
                 <button
+                  onclick={() => { deleteConfirmId = null; rotateConfirmId = rotateConfirmId === token.id ? null : token.id; }}
+                  disabled={rotating[token.id]}
+                  aria-expanded={rotateConfirmId === token.id}
+                  aria-label={`Rotate secret for token ${token.name}`}
+                  title="Generate a new secret for this token (the current one stops working)"
+                  class="inline-flex min-h-8 items-center gap-1 px-2 text-xs text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-wait"
+                >
+                  <KeyRound size={14} aria-hidden="true" />
+                  {rotating[token.id] ? 'Rotating…' : 'Rotate'}
+                </button>
+                <button
                   onclick={() => startEditing(token)}
                   class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
                   title="Edit"
@@ -1408,7 +1464,7 @@
                   <Pencil size={14} />
                 </button>
                 <button
-                  onclick={() => (deleteConfirmId = token.id)}
+                  onclick={() => { rotateConfirmId = null; deleteConfirmId = token.id; }}
                   class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-red-500 dark:hover:text-red-400 transition-colors"
                   title="Delete"
                 >
@@ -1418,6 +1474,49 @@
             {/if}
           </td>
         </tr>
+        <!-- Rotate confirmation. Deliberately an expanded row rather than the
+             two-button swap used for delete: rotation silently breaks live
+             callers, so the consequences need room to be stated. -->
+        {#if rotateConfirmId === token.id}
+          <tr class="bg-amber-50 dark:bg-amber-900/10">
+            <td colspan="8" class="px-4 py-3">
+              <div class="flex flex-wrap items-start gap-3">
+                <AlertTriangle size={16} class="mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden="true" />
+                <div class="min-w-0 flex-1">
+                  <p class="text-sm font-medium text-amber-900 dark:text-amber-200">
+                    Generate a new secret for "{token.name}"?
+                  </p>
+                  <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                    The current secret (<code class="font-mono">{token.token_prefix}…</code>) stops authenticating immediately.
+                    Anything still sending it — scripts, agents, IDE clients — gets 401 until you paste in the new one.
+                    Requests already in flight finish normally.
+                  </p>
+                  <p class="mt-1 text-xs text-amber-800 dark:text-amber-300">
+                    The token keeps its name, permissions, limits and usage history{token.paused ? ', and stays paused' : ''}.
+                    The new secret is shown once and cannot be recovered afterwards.
+                  </p>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    onclick={() => handleRotate(token)}
+                    disabled={rotating[token.id]}
+                    class="inline-flex min-h-8 items-center gap-1 px-2.5 text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-wait transition-colors"
+                  >
+                    <KeyRound size={14} aria-hidden="true" />
+                    {rotating[token.id] ? 'Rotating…' : 'Rotate token'}
+                  </button>
+                  <button
+                    onclick={() => (rotateConfirmId = null)}
+                    disabled={rotating[token.id]}
+                    class="min-h-8 px-2.5 text-xs text-gray-600 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text-secondary disabled:opacity-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </td>
+          </tr>
+        {/if}
         <!-- Expanded usage row -->
         {#if expandedUsageTokenId === token.id}
           <tr class="bg-gray-50/50 dark:bg-dark-elevated/30">

@@ -302,6 +302,25 @@ paused tokens before usage tracking with HTTP 401 and an actionable message;
 MCP requests presenting a paused token cannot fall back to public admission.
 Pause blocks new authenticated requests; already admitted requests/streams continue.
 
+API Tokens also exposes **Rotate**, a confirmed row action behind POST
+`/api/v1/api-tokens/{id}/rotate` (selected-workspace `tokens.write`). It replaces
+the secret in place: the row id, name, restrictions, limits, pause state and
+accumulated usage rows survive, and only `token_hash` / `token_prefix` change, so
+references to the token and its budget accounting stay intact — the alternative
+was delete-and-recreate, which discards all of it. No migration is needed.
+Generation is shared with creation through `generateAPITokenSecret`
+(`internal/server/api-tokens.go`), which owns the `at_` + hex(32 crypto/rand
+bytes) format and sha256-only storage for both the HTTP handlers and the
+`apitoken_create` MCP tool. The plaintext is returned exactly once, as on create.
+The superseded secret dies on commit — gateway auth resolves the bearer by hash
+per request and keeps no hash cache, so rotation is immediate and cluster-wide —
+while already admitted requests finish. `last_used_at` is cleared and the
+in-memory `tokenLastUsed` throttle entry dropped, because both described the old
+secret and a stale throttle would hide the new secret's first use for up to five
+minutes. A paused token stays paused: pause is a separate availability decision
+and rotating must not silently reopen a closed token. Regression:
+`internal/server/token-rotate_test.go`.
+
 Workspace startup selection is account-configurable under **Settings → Workspace
 → Workspace on sign-in**: Default (the shipped default), last used, or a specific
 accessible workspace. Migration 49 stores `workspace_preferences`; GET/PUT
