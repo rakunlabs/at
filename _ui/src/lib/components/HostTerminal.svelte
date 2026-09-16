@@ -226,7 +226,7 @@
 </script>
 
 <div class="flex h-full min-h-0 w-full flex-col" style:background={theme.background}>
-  <div bind:this={container} class="min-h-0 w-full flex-1 overflow-hidden p-2" aria-label="Interactive Linux terminal"></div>
+  <div bind:this={container} class="min-h-0 w-full flex-1 overflow-hidden" aria-label="Interactive Linux terminal"></div>
   {#if keyBar}
     <!-- Sits inside the terminal frame so the fit addon reserves room for it and
     the host is told the smaller row count. -->
