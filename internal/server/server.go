@@ -721,6 +721,19 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	gatewayGroup.GET("/v1/claude-code/marketplaces/{name}/plugin.zip", s.ClaudeCodeMarketplacePluginZipAPI)
 	gatewayGroup.GET("/v1/claude-code/plugins/{name}/plugin.zip", s.ClaudeCodePluginZipAPI)
 
+	// Anything else under /gateway is a client error, not a page. Without this
+	// the SPA catch-all further down answers a mistyped base URL with HTTP 200
+	// and index.html, which an OpenAI client reads as an empty gateway.
+	gatewayGroup.Handle("/*", http.HandlerFunc(s.GatewayNotFound))
+	// A trailing wildcard does not match its own slashless base, and the prefix
+	// alone is a plausible copy/paste of the base URL, so register it too.
+	gatewayGroup.Handle("", http.HandlerFunc(s.GatewayNotFound))
+
+	// Dropping the /gateway prefix is the most common base URL mistake, and it
+	// lands outside the group above. The SPA owns no /v1 path, so answer there
+	// with the same explanation instead of a page.
+	baseGroup.Handle("/v1/*", http.HandlerFunc(s.GatewayNotFound))
+
 	// Internal MCP endpoint: installation administrators only. Serves tools
 	// from MCP Sets (skills/HTTP/builtins). Not under /gateway/ so it's not
 	// exposed through any external reverse proxy.

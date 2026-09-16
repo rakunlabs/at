@@ -213,6 +213,18 @@ Error envelope conforms to OpenAI's shape including `param` where applicable:
 {"error":{"message":"...","type":"invalid_request_error","param":"model","code":"model_not_found"}}
 ```
 
+A wrong base URL must not look like an empty gateway. Every unmatched path under
+`/gateway`, the prefix itself, and `<base>/v1/*` (the `/gateway` segment dropped)
+answer `404` with `code: unknown_endpoint` naming the correct base URL. Without
+those routes the SPA catch-all (`baseGroup.Handle("/*", …)`) served `index.html`
+with HTTP 200 and `text/html` for a trailing slash, a typo, a wrong method or a
+truncated base URL, and an OpenAI client reported "no models" rather than a
+configuration error. A trailing wildcard does not match its own slashless base in
+ada, so `/gateway` is registered separately. `/gateway/v1/models` returns `data`
+as `[]`, never `null` — clients iterate it without a nil check — sorted by model
+ID, since Go map iteration order previously reshuffled pickers between restarts.
+Regression: `internal/server/gateway-routing_test.go`.
+
 ### AT extensions to `/chat/completions` and `/responses`
 
 These are non-standard fields the gateway accepts in addition to the

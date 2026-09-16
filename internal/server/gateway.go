@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -499,7 +500,10 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var models []ModelData
+	// Never nil: a nil slice marshals to `null`, and OpenAI clients iterate
+	// `data` without a nil check, so an empty registry or a fully restrictive
+	// token allowlist crashed them instead of listing nothing.
+	models := []ModelData{}
 	s.providerMu.RLock()
 	for key, info := range s.providers {
 		seen := make(map[string]bool)
@@ -533,10 +537,33 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	}
 	s.providerMu.RUnlock()
 
+	// Map iteration order is random, so the same registry produced a different
+	// order on every call and model pickers reshuffled between restarts.
+	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
+
 	httpResponseJSON(w, ModelsResponse{
 		Object: "list",
 		Data:   models,
 	}, http.StatusOK)
+}
+
+// GatewayNotFound answers any path under /gateway that no route matched.
+//
+// Without it the SPA catch-all (`baseGroup.Handle("/*", …)`) serves index.html
+// with HTTP 200 and `Content-Type: text/html`. A client pointed at the wrong
+// base URL — the host root instead of `/gateway/v1`, a trailing slash, or the
+// wrong method — then reads a successful HTML response as "this gateway has no
+// models" and reports nothing at all, which is indistinguishable from an empty
+// registry. Answering in the OpenAI error envelope makes the mistake legible.
+func (s *Server) GatewayNotFound(w http.ResponseWriter, r *http.Request) {
+	base := strings.TrimSuffix(s.config.BasePath, "/") + "/gateway/v1"
+	httpResponseJSON(w, map[string]any{
+		"error": map[string]any{
+			"message": fmt.Sprintf("no gateway endpoint for %s %s; the OpenAI-compatible base URL is %s (for example %s/models)", r.Method, r.URL.Path, base, base),
+			"type":    "invalid_request_error",
+			"code":    "unknown_endpoint",
+		},
+	}, http.StatusNotFound)
 }
 
 // ─── Helpers ───

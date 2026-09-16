@@ -67,6 +67,40 @@
     { label: '-', title: 'Hyphen', data: '-' },
   ];
 
+  // Ctrl+C belongs to the shell, so the usual copy shortcut interrupts the
+  // running command instead of copying, and Ctrl+Shift+C is not a browser
+  // binding. Selecting with the mouse and pressing this is the explicit way out.
+  export async function copySelection(): Promise<'copied' | 'empty' | 'failed'> {
+    const active = term;
+    const text = active?.getSelection() || '';
+    if (!text) return 'empty';
+    let copied = false;
+    try {
+      // A terminal is often reached over plain HTTP on a LAN, where the async
+      // clipboard API is absent because the page is not a secure context.
+      if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); copied = true; }
+    } catch { /* blocked by permission or focus; the legacy path may still work */ }
+    if (!copied) copied = legacyCopy(text);
+    // Typing should continue where it left off, and xterm keeps the selection
+    // visible so it is obvious what was taken.
+    active?.focus();
+    return copied ? 'copied' : 'failed';
+  }
+
+  function legacyCopy(text: string): boolean {
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '0';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    try { return document.execCommand('copy'); }
+    catch { return false; }
+    finally { area.remove(); }
+  }
+
   // Asking for control also carries this screen's size, so the shell reflows to
   // the device that is taking over instead of staying at the old one's shape.
   export function takeControl() {

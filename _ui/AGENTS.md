@@ -84,7 +84,20 @@ Full screen renders the terminal alone in a fixed overlay. Escape belongs to the
 shell (editors and pagers need it), so exit is a floating button plus
 Ctrl/Cmd+Shift+F, captured on `window` before xterm sees it. On `pointer: coarse`
 devices the button never fades — there is no hover to bring it back and no
-modifier keys on a phone keyboard, so fading it would trap the reader.
+modifier keys on a phone keyboard, so fading it would trap the reader. The
+floating group carries the copy control too, since full screen drops the toolbar.
+
+**Copy selection** (`HostTerminal.copySelection`) exists because Ctrl+C is the
+shell's interrupt: xterm cancels that keydown, so the browser never raises a
+`copy` event and the selection is lost. Dragging selects as usual; this button
+reads `Terminal.getSelection()` and writes it to the clipboard, then refocuses
+the terminal. `navigator.clipboard` is absent when the terminal is reached over
+plain HTTP on a LAN (not a secure context), so it falls back to a detached
+textarea plus `document.execCommand('copy')` before reporting failure; the
+failure toast points at right-click → Copy, which works through xterm's own
+`contextmenu` handler. The button is never disabled — an empty selection answers
+with a toast rather than a greyed-out control with no visible reason. Nothing is
+added for Ctrl+Shift+C: it would have to be stolen from the pty for every user.
 
 ## Dev Workflow
 

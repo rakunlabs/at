@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { Plus, RefreshCw, TerminalSquare, X, Pencil, ArrowLeft, ArrowRight, Power, Moon, Sun, Monitor, Type, Keyboard, Maximize2, Minimize2, Eye } from 'lucide-svelte';
+  import { Plus, RefreshCw, TerminalSquare, X, Pencil, ArrowLeft, ArrowRight, Power, Moon, Sun, Monitor, Type, Keyboard, Maximize2, Minimize2, Eye, Copy } from 'lucide-svelte';
   import HostTerminal from '@/lib/components/HostTerminal.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -33,7 +33,7 @@
   // flashes a "watching" badge on the way in.
   let control = $state(true);
   let watchers = $state(0);
-  let terminal = $state<{ takeControl: () => void } | null>(null);
+  let terminal = $state<{ takeControl: () => void; copySelection: () => Promise<'copied' | 'empty' | 'failed'> } | null>(null);
   let generation = $state(0);
   let editTitle = $state(false);
   let renamed = $state('');
@@ -132,6 +132,18 @@
     event.preventDefault();
     event.stopPropagation();
     setMaximized(!maximized);
+  }
+
+  // The button stays enabled with nothing selected: a control that is greyed out
+  // for a reason you cannot see is harder to understand than a short answer.
+  const floatingControl = 'inline-flex min-h-9 items-center gap-1.5 rounded-md border border-gray-400/60 bg-white/90 px-2.5 py-1.5 text-xs text-gray-900 shadow-sm backdrop-blur focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-dark-border dark:bg-dark-elevated/90 dark:text-dark-text';
+  const copyHint = 'Copy the selected text. Select it with the mouse first — Ctrl+C is sent to the shell as an interrupt.';
+
+  async function copySelection() {
+    const result = await terminal?.copySelection();
+    if (result === 'copied') addToast('Selection copied');
+    else if (result === 'empty') addToast('Nothing is selected. Drag over the output to select it, then copy.');
+    else if (result === 'failed') addToast('The browser would not give this page the clipboard. Right-click the selection and choose Copy.', 'alert');
   }
 
   function cycleAppearance() {
@@ -353,6 +365,7 @@
         {/if}
       </div>
       <div class="flex flex-wrap items-center gap-1">
+        <button class="terminal-button" title={copyHint} aria-label="Copy the selected terminal text" onclick={() => void copySelection()}><Copy size={14} />Copy selection</button>
         <button class="terminal-button" title="Rename terminal" aria-label="Rename terminal" disabled={busy} onclick={() => { renamed = active!.title; editTitle = !editTitle; }}><Pencil size={14} /></button>
         <button class="terminal-button" title="Move tab left" aria-label="Move tab left" disabled={busy || sessions[0]?.id === activeID} onclick={() => void move(-1)}><ArrowLeft size={14} /></button>
         <button class="terminal-button" title="Move tab right" aria-label="Move tab right" disabled={busy || sessions[sessions.length - 1]?.id === activeID} onclick={() => void move(1)}><ArrowRight size={14} /></button>
@@ -429,12 +442,24 @@
         {#key `${active.id}:${generation}`}<HostTerminal bind:this={terminal} id={active.id} {appearance} {fontFamily} {fontSize} {keyBar} onstatus={(value, text) => { status = value; statusMessage = text; }} onrole={(held, others) => { control = held; watchers = others; }} />{/key}
       {:else}<div class="p-6 text-sm text-gray-500 dark:text-dark-text-secondary">Saved terminal: {active.title}. It will reconnect to {active.target_name}, not another host.</div>{/if}
       {#if maximized}
-        <button
-          class={['absolute top-3 right-4 z-10 inline-flex items-center gap-1.5 rounded-md border border-gray-400/60 bg-white/90 px-2.5 py-1.5 text-xs text-gray-900 shadow-sm backdrop-blur transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-2 dark:border-dark-border dark:bg-dark-elevated/90 dark:text-dark-text', controls ? 'opacity-100' : 'pointer-events-none opacity-0']}
-          onfocus={() => { clearTimeout(controlsTimer); controls = true; }}
-          onblur={revealControls}
-          onclick={() => setMaximized(false)}
-        ><Minimize2 size={14} />Exit full screen {#if !touchOnly}<span class="text-gray-500 dark:text-dark-text-muted">Ctrl/Cmd + Shift + F</span>{/if}</button>
+        <!-- Full screen drops the toolbar, so copying needs its own control here;
+        both share the fade so neither covers shell output while you work. -->
+        <div class={['absolute top-3 right-4 z-10 flex items-center gap-1.5 transition-opacity', controls ? 'opacity-100' : 'pointer-events-none opacity-0']}>
+          <button
+            class={floatingControl}
+            title={copyHint}
+            aria-label="Copy the selected terminal text"
+            onfocus={() => { clearTimeout(controlsTimer); controls = true; }}
+            onblur={revealControls}
+            onclick={() => void copySelection()}
+          ><Copy size={14} />Copy</button>
+          <button
+            class={floatingControl}
+            onfocus={() => { clearTimeout(controlsTimer); controls = true; }}
+            onblur={revealControls}
+            onclick={() => setMaximized(false)}
+          ><Minimize2 size={14} />Exit full screen {#if !touchOnly}<span class="text-gray-500 dark:text-dark-text-muted">Ctrl/Cmd + Shift + F</span>{/if}</button>
+        </div>
       {/if}
     </div>
   {:else if !loading && !error}
