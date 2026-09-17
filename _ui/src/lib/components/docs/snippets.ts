@@ -115,6 +115,60 @@ export function codeExampleFor(tab: string, model: string, url: string): string 
   }
 }
 
+/** Provider id used as the key of the opencode `provider` block. */
+function opencodeProviderId(instanceName: string): string {
+  return (instanceName || 'at').toLowerCase().replace(/\s+/g, '-');
+}
+
+/**
+ * Origin-absolute path of `/gateway/v1/models` for this deployment. The
+ * discovery plugin resolves `endpoint` against the origin, not against
+ * `baseURL`, so a prefix deployment (`https://host/at`) must keep its prefix.
+ */
+function gatewayModelsPath(baseUrl: string): string {
+  let path = '';
+  try {
+    path = new URL(baseUrl).pathname;
+  } catch {
+    const m = baseUrl.match(/^[a-z][a-z0-9+.-]*:\/\/[^/]+(\/.*)$/i);
+    path = m ? m[1] : '';
+  }
+  return `${path.replace(/\/+$/, '')}/gateway/v1/models`;
+}
+
+/**
+ * `~/.config/opencode/opencode.json` provider block that lets the
+ * `opencode-models-discovery` plugin read the model list from
+ * `/gateway/v1/models` instead of pinning it in the file.
+ */
+export function opencodeDiscoveryConfig(opts: {
+  baseUrl: string;
+  instanceName: string;
+}): string {
+  return JSON.stringify(
+    {
+      $schema: 'https://opencode.ai/config.json',
+      plugin: ['opencode-models-discovery@latest'],
+      provider: {
+        [opencodeProviderId(opts.instanceName)]: {
+          npm: '@ai-sdk/openai-compatible',
+          name: opts.instanceName || 'AT',
+          options: {
+            baseURL: `${opts.baseUrl}/gateway/v1`,
+            modelsDiscovery: {
+              enabled: true,
+              endpoint: gatewayModelsPath(opts.baseUrl),
+            },
+          },
+          models: {},
+        },
+      },
+    },
+    null,
+    2,
+  );
+}
+
 /**
  * `~/.config/opencode/opencode.json` provider block pointing at this gateway.
  * `models` are full ids in `provider/model` form.
@@ -129,12 +183,11 @@ export function opencodeProviderConfig(opts: {
     modelsObj[m] = { name: m };
   }
 
-  const providerId = (opts.instanceName || 'at').toLowerCase().replace(/\s+/g, '-');
   return JSON.stringify(
     {
       $schema: 'https://opencode.ai/config.json',
       provider: {
-        [providerId]: {
+        [opencodeProviderId(opts.instanceName)]: {
           npm: '@ai-sdk/openai-compatible',
           name: opts.instanceName || 'AT',
           options: { baseURL: `${opts.baseUrl}/gateway/v1` },

@@ -169,6 +169,28 @@ test('opencodeProviderConfig sorts models and slugs the instance name', () => {
   assert.equal(cfg.provider['my-gateway'].options.baseURL, 'https://at/gateway/v1');
 });
 
+test('opencodeDiscoveryConfig leaves models empty and wires the discovery plugin', () => {
+  const cfg = JSON.parse(
+    snippets.opencodeDiscoveryConfig({ baseUrl: 'https://at', instanceName: 'My Gateway' }),
+  );
+  assert.deepEqual(cfg.plugin, ['opencode-models-discovery@latest']);
+  const p = cfg.provider['my-gateway'];
+  assert.deepEqual(p.models, {});
+  assert.equal(p.options.baseURL, 'https://at/gateway/v1');
+  assert.deepEqual(p.options.modelsDiscovery, {
+    enabled: true,
+    endpoint: '/gateway/v1/models',
+  });
+});
+
+test('opencodeDiscoveryConfig keeps the deployment path prefix in the endpoint', () => {
+  const cfg = JSON.parse(
+    snippets.opencodeDiscoveryConfig({ baseUrl: 'https://host/at', instanceName: 'AT' }),
+  );
+  assert.equal(cfg.provider.at.options.modelsDiscovery.endpoint, '/at/gateway/v1/models');
+  assert.equal(cfg.provider.at.options.baseURL, 'https://host/at/gateway/v1');
+});
+
 test('codeExampleFor covers every advertised tab', () => {
   for (const tab of snippets.codeExampleTabs) {
     const code = snippets.codeExampleFor(tab.id, 'openai/gpt-4o', 'https://at');
