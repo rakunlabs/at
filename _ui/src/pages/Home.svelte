@@ -43,7 +43,7 @@
   <title>AT | Dashboard</title>
 </svelte:head>
 
-<div class="w-full min-w-0 p-3 sm:p-6 max-w-5xl mx-auto">
+<div class="w-full min-w-0 p-3 sm:p-6 max-w-6xl mx-auto">
   <!-- Stats -->
   <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
     <!-- Providers count -->

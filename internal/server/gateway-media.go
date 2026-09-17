@@ -260,7 +260,7 @@ func (s *Server) AudioTranscriptions(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("provider %q not found", providerKey),
+				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found", providerKey)),
 				"type":    "invalid_request_error",
 				"param":   "model",
 				"code":    "model_not_found",
@@ -509,7 +509,13 @@ func (s *Server) Rerank(w http.ResponseWriter, r *http.Request) {
 func (s *Server) HealthOverall(w http.ResponseWriter, r *http.Request) {
 	s.providerMu.RLock()
 	providers := make(map[string]string, len(s.providers))
-	for k := range s.providers {
+	for k, info := range s.providers {
+		// Disabled providers are reported, not hidden: a health probe should
+		// show why a configured provider is refusing traffic.
+		if info.disabled {
+			providers[k] = "disabled"
+			continue
+		}
 		providers[k] = "ok"
 	}
 	s.providerMu.RUnlock()
@@ -529,6 +535,14 @@ func (s *Server) HealthProvider(w http.ResponseWriter, r *http.Request) {
 	providerKey := r.PathValue("provider")
 	info, ok := s.getProviderInfo(providerKey)
 	if !ok {
+		if s.providerDisabled(providerKey) {
+			// Configured but parked: readiness is "disabled", not "missing".
+			httpResponseJSON(w, map[string]any{
+				"status":   "disabled",
+				"provider": providerKey,
+			}, http.StatusServiceUnavailable)
+			return
+		}
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("provider %q not found", providerKey),
@@ -621,7 +635,7 @@ func (s *Server) resolveMediaProvider(w http.ResponseWriter, r *http.Request) (
 	if !found {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("provider %q not found", pKey),
+				"message": s.providerUnavailableMessage(pKey, fmt.Sprintf("provider %q not found", pKey)),
 				"type":    "invalid_request_error",
 				"param":   "model",
 				"code":    "model_not_found",

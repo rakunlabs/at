@@ -639,6 +639,31 @@ type copilotTokenResponse struct {
 	ExpiresAt int64  `json:"expires_at"`
 }
 
+// CopilotDefaultHeaders are the editor identification headers the Copilot API
+// requires on every request, including the model catalog. GitHub rejects calls
+// without them, so both the provider factory and model discovery apply them.
+var CopilotDefaultHeaders = map[string]string{
+	"Editor-Version":         "vscode/1.95.0",
+	"Editor-Plugin-Version":  "copilot/1.0.0",
+	"User-Agent":             "GithubCopilot/1.0",
+	"Copilot-Integration-Id": "vscode-chat",
+}
+
+// ApplyCopilotHeaders fills the Copilot editor headers that are missing from
+// headers, leaving user-configured extra_headers values untouched. A nil map is
+// allocated and returned.
+func ApplyCopilotHeaders(headers map[string]string) map[string]string {
+	if headers == nil {
+		headers = make(map[string]string, len(CopilotDefaultHeaders))
+	}
+	for key, value := range CopilotDefaultHeaders {
+		if _, ok := headers[key]; !ok {
+			headers[key] = value
+		}
+	}
+	return headers
+}
+
 // CopilotTokenSource exchanges a GitHub OAuth token (from the device flow) or
 // a GitHub PAT for a short-lived JWT that the Copilot API accepts. Tokens are
 // cached and automatically refreshed before they expire.

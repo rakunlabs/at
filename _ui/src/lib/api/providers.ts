@@ -22,6 +22,10 @@ export interface RateLimitConfig {
 export interface LLMConfig {
   type: string;
   shared_with_all_workspaces?: boolean;
+  // Availability, managed only through setProviderDisabled: a disabled provider
+  // keeps its credentials but is hidden from model lists and refuses requests.
+  // Deliberately not sent by the editor, so a config save cannot resume it.
+  disabled?: boolean;
   api_key?: string;
   base_url?: string;
   model: string;
@@ -69,6 +73,11 @@ export async function updateProvider(key: string, config: LLMConfig): Promise<Pr
 
 export async function deleteProvider(key: string): Promise<void> {
   await api.delete(`/providers/${key}`);
+}
+
+export async function setProviderDisabled(key: string, disabled: boolean): Promise<{ disabled: boolean }> {
+  const res = await api.put<{ disabled: boolean }>(`/providers/${key}/disable`, { disabled });
+  return res.data;
 }
 
 interface DiscoverModelsResponse {

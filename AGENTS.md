@@ -281,6 +281,28 @@ applies to existing and future workspaces; local keys take precedence, explicit
 per-workspace model grants remain restrictive, and runtime model-use checks still
 apply. The management CRUD list remains the selected workspace's owned providers.
 
+Providers can be parked instead of deleted. The Providers list exposes a power
+toggle behind PUT `/api/v1/providers/{key}/disable` (`{disabled: bool}`,
+selected-workspace `providers.write`, plus the shared-provider platform-admin
+guard). `config.disabled` lives in the existing config JSONB, so no migration is
+needed and absent keys read as enabled; `SetProviderDisabled` patches it with
+`jsonb_set` without decrypting or rewriting credentials, and ordinary config
+saves preserve it (`preserveProviderAvailability`) so an edit cannot silently
+resume a provider somebody stopped. A disabled provider disappears from
+`ListWorkspaceProviderCatalog` (so `/api/v1/info` model pickers do not offer it)
+and from `/gateway/v1/models`, and is refused by `ResolveWorkspaceProviderForUse`
+/ `ExecutionProviderDefaultModel` with `service.ErrProviderDisabled` (which wraps
+`ErrAccessDenied`), covering agents, chat sessions and workflow nodes in one
+place. On the gateway, `getProviderInfo` reports it as absent so chat,
+responses, embeddings, media, passthrough and admin chat fail closed by default
+rather than through per-call-site checks; the error message still names the real
+reason and chat answers 404 (administratively unavailable is deterministic, not a
+retryable outage) via the typed `providerDisabledError`. Health reports
+`disabled` rather than hiding the provider, and model discovery returns 409
+because it spends the same credentials a request would. Credentials, model lists
+and OAuth state survive disabling. Regression:
+`internal/server/provider-disable_test.go`.
+
 Workflow CRUD, versions, activation, nested triggers, run/run-stream, and active
 run listing/cancellation use selected-workspace admission. Active runs capture
 their workspace at registration; one workspace cannot list or cancel another's
@@ -372,6 +394,18 @@ Model discovery endpoints retain the selected workspace when resolving stored
 credentials. Anthropic discovery uses `/v1/models`, refreshes/persists Claude
 OAuth credentials when needed, normalizes `/v1` and `/v1/messages` base URLs,
 and reports upstream failures instead of returning `models: null`.
+GitHub Copilot discovery is supported: `GET <base>/models` is a real endpoint,
+so the earlier "Copilot does not support model discovery" refusal was removed.
+It authenticates with the short-lived Copilot JWT (the same exchange the provider
+uses — the stored GitHub OAuth token is rejected there) and sends the editor
+headers from `openai.CopilotDefaultHeaders`; `extra_headers` still override them.
+The catalog labels each entry's capability, so chat and embedding discovery filter
+on `capabilities.type` instead of a name heuristic, duplicate IDs (multi-version
+models) collapse, and the chat endpoint's `api-version` query is dropped because
+the catalog is unversioned. Models whose org policy is unaccepted are listed
+rather than hidden — they fail at request time until enabled in GitHub's settings,
+and hiding them would make an enableable model look unavailable. Discovery is
+routed by `auth_type: copilot` or a `githubcopilot.com` base URL.
 Pricing previews and AI pricing targets use the workspace provider catalog;
 the price-reference dropdown is the external pricing catalog, not the user's
 provider-model list. Price records themselves remain installation-wide.

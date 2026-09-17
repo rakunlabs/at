@@ -35,7 +35,7 @@
   <title>AT | Features</title>
 </svelte:head>
 
-<div class="p-6 max-w-5xl mx-auto space-y-4">
+<div class="p-6 max-w-6xl mx-auto space-y-4">
   <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
     <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border flex items-center gap-2">
       <Power size={14} class="text-gray-500 dark:text-dark-text-muted" />

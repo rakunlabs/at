@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/query"
@@ -29,6 +30,19 @@ type ProviderStorer interface {
 	CreateProvider(ctx context.Context, record ProviderRecord) (*ProviderRecord, error)
 	UpdateProvider(ctx context.Context, key string, record ProviderRecord) (*ProviderRecord, error)
 	DeleteProvider(ctx context.Context, key string) error
+}
+
+// ErrProviderDisabled is returned when a provider would otherwise be admitted
+// but is disabled. It wraps ErrAccessDenied so callers that only distinguish
+// denial keep working, while error text can name the real reason.
+var ErrProviderDisabled = fmt.Errorf("provider is disabled: %w", ErrAccessDenied)
+
+// ProviderDisableStorer is implemented by stores that can park a provider
+// without touching its credentials. It is deliberately a separate interface
+// from ProviderStorer: the flag is an availability decision, so ordinary
+// config updates must not carry it.
+type ProviderDisableStorer interface {
+	SetProviderDisabled(ctx context.Context, key string, disabled bool, updatedBy string) error
 }
 
 type WorkspaceProviderGrant struct {

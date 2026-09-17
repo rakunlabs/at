@@ -16,14 +16,23 @@ func (p *Postgres) ExecutionProviderDefaultModel(ctx context.Context, key string
 	if err != nil {
 		return "", err
 	}
-	var model string
-	query := p.goqu.From(p.tableProviders).Select(goqu.L("COALESCE(config->>'model','')")).Where(goqu.Ex{"key": key, "workspace_id": actor.WorkspaceID})
-	found, err := query.ScanValContext(ctx, &model)
+	// The disabled flag is read alongside the model so a parked provider fails
+	// when an agent starts, with its real reason, instead of looking absent.
+	metadataSelect := []any{
+		goqu.L("COALESCE(config->>'model','')").As("model"),
+		goqu.L("COALESCE(config->>'disabled','') = 'true'").As("disabled"),
+	}
+	var meta struct {
+		Model    string `db:"model"`
+		Disabled bool   `db:"disabled"`
+	}
+	query := p.goqu.From(p.tableProviders).Select(metadataSelect...).Where(goqu.Ex{"key": key, "workspace_id": actor.WorkspaceID})
+	found, err := query.ScanStructContext(ctx, &meta)
 	if err != nil {
 		return "", fmt.Errorf("resolve model metadata: %w", err)
 	}
 	if !found {
-		found, err = p.goqu.From(p.tableProviders).Select(goqu.L("COALESCE(config->>'model','')")).Where(goqu.Ex{"key": key, "workspace_id": "legacy-default"}, goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(p.goqu.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": actor.WorkspaceID})))).ScanValContext(ctx, &model)
+		found, err = p.goqu.From(p.tableProviders).Select(metadataSelect...).Where(goqu.Ex{"key": key, "workspace_id": "legacy-default"}, goqu.Or(goqu.L("config->>'shared_with_all_workspaces' = 'true'"), goqu.C("id").In(p.goqu.From(p.workspaceTable("workspace_provider_grants")).Select("provider_id").Where(goqu.Ex{"workspace_id": actor.WorkspaceID})))).ScanStructContext(ctx, &meta)
 	}
 	if err != nil {
 		return "", fmt.Errorf("resolve granted model metadata: %w", err)
@@ -31,5 +40,8 @@ func (p *Postgres) ExecutionProviderDefaultModel(ctx context.Context, key string
 	if !found {
 		return "", service.ErrAccessDenied
 	}
-	return model, nil
+	if meta.Disabled {
+		return "", service.ErrProviderDisabled
+	}
+	return meta.Model, nil
 }

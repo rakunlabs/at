@@ -501,7 +501,7 @@
 
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
-    <div class="p-6 max-w-5xl mx-auto">
+    <div class="p-6 max-w-6xl mx-auto">
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">

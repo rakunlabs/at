@@ -223,18 +223,7 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 			opts = append(opts, openai.WithTokenSource(openai.NewCopilotTokenSource(cfg.APIKey, httpClient)))
 
 			// Copilot API requires editor identification headers on every request.
-			if _, ok := headers["Editor-Version"]; !ok {
-				headers["Editor-Version"] = "vscode/1.95.0"
-			}
-			if _, ok := headers["Editor-Plugin-Version"]; !ok {
-				headers["Editor-Plugin-Version"] = "copilot/1.0.0"
-			}
-			if _, ok := headers["User-Agent"]; !ok {
-				headers["User-Agent"] = "GithubCopilot/1.0"
-			}
-			if _, ok := headers["Copilot-Integration-Id"]; !ok {
-				headers["Copilot-Integration-Id"] = "vscode-chat"
-			}
+			headers = openai.ApplyCopilotHeaders(headers)
 		case "":
 			// Default: use static APIKey as Bearer token (handled by the HTTP client).
 		default:

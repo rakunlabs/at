@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -178,7 +179,13 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	if first := chain[0]; first.err != nil {
 		status := http.StatusBadRequest
 		code := "model_not_found"
-		if strings.Contains(first.err.Error(), "not have access") {
+		var disabled providerDisabledError
+		if errors.As(first.err, &disabled) {
+			// Administratively unavailable, not a transient outage: answer the
+			// deterministic 404 clients already handle rather than inviting
+			// retries with a 5xx.
+			status = http.StatusNotFound
+		} else if strings.Contains(first.err.Error(), "not have access") {
 			status = http.StatusForbidden
 		} else if strings.Contains(first.err.Error(), "not found") || strings.Contains(first.err.Error(), "not available") {
 			status = http.StatusNotFound
@@ -410,7 +417,7 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("provider %q not found", providerKey),
+				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found", providerKey)),
 				"type":    "invalid_request_error",
 			},
 		}, http.StatusNotFound)
@@ -506,6 +513,11 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	models := []ModelData{}
 	s.providerMu.RLock()
 	for key, info := range s.providers {
+		// A disabled provider advertises nothing: listing models that are
+		// rejected on use is worse than not listing them.
+		if info.disabled {
+			continue
+		}
 		seen := make(map[string]bool)
 		add := func(m string) {
 			if m == "" || seen[m] {
@@ -707,11 +719,50 @@ func firstNonEmptyHeader(h http.Header, keys ...string) string {
 }
 
 // getProviderInfo looks up a provider by key, returning the full ProviderInfo.
+// A disabled provider is reported as absent: denying at the single lookup makes
+// every gateway surface (chat, responses, embeddings, media, passthrough, model
+// listing) fail closed, instead of relying on a check at each call site.
 func (s *Server) getProviderInfo(key string) (ProviderInfo, bool) {
 	s.providerMu.RLock()
 	defer s.providerMu.RUnlock()
 	info, ok := s.providers[key]
+	if !ok || info.disabled {
+		return ProviderInfo{}, false
+	}
 	return info, ok
+}
+
+// providerDisabled reports whether a key exists but is parked. It exists only
+// so error messages can name the real reason; admission never consults it.
+func (s *Server) providerDisabled(key string) bool {
+	s.providerMu.RLock()
+	defer s.providerMu.RUnlock()
+	info, ok := s.providers[key]
+	return ok && info.disabled
+}
+
+// providerUnavailableMessage explains a failed provider lookup.
+func (s *Server) providerUnavailableMessage(key, fallback string) string {
+	if s.providerDisabled(key) {
+		return providerDisabledError{key: key}.Error()
+	}
+	return fallback
+}
+
+// providerDisabledError is returned instead of a plain "not found" so callers
+// can map the case to a status without matching on message text.
+type providerDisabledError struct{ key string }
+
+func (e providerDisabledError) Error() string {
+	return fmt.Sprintf("provider %q is disabled; enable it in Providers to send requests", e.key)
+}
+
+// providerUnavailableError is the error form of providerUnavailableMessage.
+func (s *Server) providerUnavailableError(key string) error {
+	if s.providerDisabled(key) {
+		return providerDisabledError{key: key}
+	}
+	return fmt.Errorf("provider %q not found", key)
 }
 
 // hasModel checks if a model is in the provider's models list.
@@ -729,7 +780,10 @@ func (s *Server) availableProviderKeys() []string {
 	s.providerMu.RLock()
 	defer s.providerMu.RUnlock()
 	keys := make([]string, 0, len(s.providers))
-	for k := range s.providers {
+	for k, info := range s.providers {
+		if info.disabled {
+			continue // never suggest a provider that would be refused
+		}
 		keys = append(keys, k)
 	}
 	return keys

@@ -170,7 +170,7 @@
   <title>AT | Organizations</title>
 </svelte:head>
 
-<div class="p-6 max-w-5xl mx-auto">
+<div class="p-6 max-w-6xl mx-auto">
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">

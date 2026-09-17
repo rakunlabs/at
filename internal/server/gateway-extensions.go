@@ -311,7 +311,7 @@ func (s *Server) resolveModel(auth *authResult, fullModel string) (providerKey, 
 	}
 	pInfo, ok := s.getProviderInfo(providerKey)
 	if !ok {
-		return "", "", ProviderInfo{}, fmt.Errorf("provider %q not found", providerKey)
+		return "", "", ProviderInfo{}, s.providerUnavailableError(providerKey)
 	}
 	if len(pInfo.models) > 0 && !pInfo.hasModel(actualModel) {
 		return "", "", ProviderInfo{}, fmt.Errorf("model %q is not available for provider %q", actualModel, providerKey)

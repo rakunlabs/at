@@ -57,6 +57,12 @@ func (p *Postgres) ListWorkspaceProviderCatalog(ctx context.Context) ([]service.
 		if err := json.Unmarshal(row.Config, &cfg); err != nil {
 			return nil, fmt.Errorf("decode provider metadata: %w", err)
 		}
+		// A disabled provider is hidden from model pickers rather than listed
+		// as a choice that fails on use. It still shadows a same-named shared
+		// provider above: the local row is the workspace's decision.
+		if cfg.Disabled {
+			continue
+		}
 		models := slices.Clone(cfg.Models)
 		if cfg.Model != "" && !slices.Contains(models, cfg.Model) {
 			models = append(models, cfg.Model)

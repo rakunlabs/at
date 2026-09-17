@@ -47,7 +47,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 		available := s.availableProviderKeys()
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("provider %q not found; available: %v", providerKey, available),
+				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found; available: %v", providerKey, available)),
 				"type":    "invalid_request_error",
 				"code":    "model_not_found",
 			},

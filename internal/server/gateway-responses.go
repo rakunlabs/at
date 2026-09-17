@@ -260,7 +260,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": fmt.Sprintf("provider %q not found", providerKey),
+				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found", providerKey)),
 				"type":    "invalid_request_error",
 				"param":   "model",
 				"code":    "model_not_found",

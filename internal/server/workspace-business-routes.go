@@ -60,6 +60,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"POST", "/model-pricing/agent/preview", "platform.manage", "", ""},
 		{"GET", "/providers/{key}", "providers.read", "providers", "key"},
 		{"PUT", "/providers/{key}", "providers.write", "providers", "key"},
+		{"PUT", "/providers/{key}/disable", "providers.write", "providers", "key"},
 		{"DELETE", "/providers/{key}", "providers.write", "providers", "key"},
 		{"GET", "/approvals/pending", "approvals.read", "", ""},
 		{"GET", "/goals/{id}/children", "goals.read", "goals", "id"},

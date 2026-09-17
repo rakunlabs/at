@@ -595,7 +595,7 @@
 <div class="flex h-full">
   <!-- Main content -->
   <div class="flex-1 overflow-y-auto">
-    <div class="p-6 max-w-5xl mx-auto">
+    <div class="p-6 max-w-6xl mx-auto">
       <!-- Tab Bar -->
       <div class="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border">
         <button

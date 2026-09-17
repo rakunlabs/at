@@ -220,6 +220,7 @@ func (s *Server) execProviderUpdate(ctx context.Context, args map[string]any) (s
 	}
 	if existing != nil {
 		preserveProviderManagedAuth(&cfg, existing.Config)
+		preserveProviderAvailability(&cfg, existing.Config)
 	}
 
 	record, err := s.store.UpdateProvider(ctx, key, service.ProviderRecord{

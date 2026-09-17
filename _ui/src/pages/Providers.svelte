@@ -8,6 +8,7 @@
     createProvider,
     updateProvider,
     deleteProvider,
+    setProviderDisabled,
     discoverModels,
     discoverEmbeddingModels,
     startDeviceAuth,
@@ -19,7 +20,7 @@
     type ProviderRecord,
     type LLMConfig,
   } from '@/lib/api/providers';
-  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud } from 'lucide-svelte';
+  import { Plus, Pencil, Trash2, X, Save, ChevronDown, BookOpen, Layers, ExternalLink, RefreshCw, LogIn, FileCode, Copy, Check, KeyRound, DownloadCloud, Power, PowerOff } from 'lucide-svelte';
   import { generateYamlSnippet, generateJsonSnippet } from '@/lib/helper/config-snippet';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -139,7 +140,9 @@
         'Requires an active GitHub Copilot subscription',
         'Authorization is done via your browser - no tokens to copy/paste',
         'The OAuth token is stored securely and refreshed automatically',
+        'After authorizing, use "Fetch" to load the exact model list for your subscription (the list below is only a starting point)',
         'Some premium models require a Copilot Pro subscription',
+        'Models your organization has not approved are listed but fail at request time until enabled in GitHub Copilot settings',
         'Model names do NOT include the vendor prefix (e.g., gpt-4.1, not openai/gpt-4.1)',
       ],
     },
@@ -969,6 +972,8 @@
   let editingKey = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
   let activePreset = $state<Preset | null>(null);
+  // Per-row in-flight guard for the availability toggle.
+  let changingDisabled = $state<Record<string, boolean>>({});
 
   // Config viewer state
   let configViewProvider = $state<ProviderRecord | null>(null);
@@ -979,6 +984,7 @@
   let formKey = $state('');
   let formType = $state<string>('openai');
   let formShared = $state(false);
+  let formDisabled = $state(false);
   let formApiKey = $state('');
   let formBaseUrl = $state('');
   let formModel = $state('');
@@ -1066,6 +1072,7 @@
     formKey = '';
     formType = 'openai';
     formShared = false;
+    formDisabled = false;
     formApiKey = '';
     formBaseUrl = '';
     formModel = '';
@@ -1124,6 +1131,9 @@
     formKey = rec.key;
     formType = rec.config.type;
     formShared = !!rec.config.shared_with_all_workspaces;
+    // Display only: availability is changed through the list's power button, so
+    // buildConfig() never sends it and the backend preserves the stored value.
+    formDisabled = !!rec.config.disabled;
     // The API redacts secrets as "***". Don't load the sentinel into the form —
     // leave it empty so buildConfig() omits it and the backend preserves the real value.
     formApiKey = rec.config.api_key === '***' ? '' : (rec.config.api_key || '');
@@ -1234,6 +1244,30 @@
       await load();
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to delete provider', 'alert');
+    }
+  }
+
+  async function toggleDisabled(rec: ProviderRecord) {
+    if (changingDisabled[rec.key]) return;
+    const next = !rec.config.disabled;
+    changingDisabled = { ...changingDisabled, [rec.key]: true };
+    try {
+      await setProviderDisabled(rec.key, next);
+      // Patch the row in place: a full reload would drop the current page,
+      // search and sort for what is a single-field change.
+      providers = providers.map((p) =>
+        p.key === rec.key ? { ...p, config: { ...p.config, disabled: next } } : p,
+      );
+      addToast(
+        next
+          ? `Provider "${rec.key}" disabled - its models are hidden and requests are rejected`
+          : `Provider "${rec.key}" enabled`,
+      );
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to change provider availability', 'alert');
+    } finally {
+      const { [rec.key]: _, ...rest } = changingDisabled;
+      changingDisabled = rest;
     }
   }
 
@@ -1561,7 +1595,7 @@
   <title>AT | Providers</title>
 </svelte:head>
 
-<div class="p-6 max-w-5xl mx-auto">
+<div class="p-6 max-w-6xl mx-auto">
   <!-- Header -->
   <div class="flex items-start justify-between mb-6">
     <div>
@@ -1630,6 +1664,17 @@
           <X size={14} />
         </button>
       </div>
+
+      {#if formDisabled}
+        <div class="flex items-start gap-2.5 border-b border-amber-200 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-900/20 px-4 py-3 text-xs text-amber-800 dark:text-amber-300">
+          <PowerOff size={14} class="mt-0.5 shrink-0" />
+          <span>
+            This provider is disabled: its models are hidden from pickers and the gateway, requests naming it are
+            rejected, and model discovery is unavailable. Saving keeps it disabled - use the power button in the list
+            to enable it.
+          </span>
+        </div>
+      {/if}
 
       <!-- Setup Guide (shown when using a preset) -->
       {#if activePreset}
@@ -2328,8 +2373,26 @@
       {/snippet}
 
       {#snippet row(rec)}
-        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
-          <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{rec.key}{#if rec.config.shared_with_all_workspaces}<span class="block font-sans text-xs font-normal text-gray-500 dark:text-dark-text-muted">Shared with all workspaces</span>{/if}</td>
+        <tr
+          class={[
+            'transition-colors',
+            rec.config.disabled
+              ? 'bg-gray-100/70 dark:bg-dark-base text-gray-400 dark:text-dark-text-faint hover:bg-gray-100 dark:hover:bg-dark-elevated/60'
+              : 'hover:bg-gray-50/50 dark:hover:bg-dark-highest/50',
+          ]}
+        >
+          <td class={['px-4 py-2.5 font-mono font-medium', rec.config.disabled ? 'text-gray-500 dark:text-dark-text-muted' : 'text-gray-900 dark:text-dark-text']}>
+            <span class={rec.config.disabled ? 'line-through decoration-gray-400' : ''}>{rec.key}</span>
+            {#if rec.config.disabled}
+              <span
+                class="mt-0.5 inline-flex items-center gap-1 px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
+                title="Hidden from model lists and discovery; every request naming it is rejected"
+              >
+                <PowerOff size={10} /> Disabled
+              </span>
+            {/if}
+            {#if rec.config.shared_with_all_workspaces}<span class="block font-sans text-xs font-normal text-gray-500 dark:text-dark-text-muted">Shared with all workspaces</span>{/if}
+          </td>
           <td class="px-4 py-2.5">
             <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{rec.config.type}</span>
           </td>
@@ -2354,6 +2417,26 @@
                 title="View Config"
               >
                 <FileCode size={14} />
+              </button>
+              <button
+                onclick={() => toggleDisabled(rec)}
+                disabled={changingDisabled[rec.key]}
+                class={[
+                  'p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50',
+                  rec.config.disabled
+                    ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30'
+                    : 'text-gray-400 dark:text-dark-text-faint hover:bg-gray-100 dark:hover:bg-dark-highest hover:text-gray-700 dark:hover:text-dark-text-secondary',
+                ]}
+                aria-label={rec.config.disabled ? `Enable provider ${rec.key}` : `Disable provider ${rec.key}`}
+                title={rec.config.disabled
+                  ? 'Enable: the provider serves requests and its models are listed again'
+                  : 'Disable: keep the configuration but hide its models and reject requests'}
+              >
+                {#if rec.config.disabled}
+                  <Power size={14} />
+                {:else}
+                  <PowerOff size={14} />
+                {/if}
               </button>
               <button
                 onclick={() => openEdit(rec)}

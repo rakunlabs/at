@@ -303,6 +303,7 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		preserveProviderManagedAuth(&req.Config, existing.Config)
+		preserveProviderAvailability(&req.Config, existing.Config)
 	}
 
 	userEmail := s.getUserEmail(r)
@@ -331,6 +332,54 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	httpResponseJSON(w, providerResponse{ProviderRecord: *record}, http.StatusOK)
+}
+
+// SetProviderDisabledAPI handles PUT /api/v1/providers/:key/disable.
+// Availability is its own endpoint so parking a provider never rewrites its
+// credentials, model list or OAuth state, and so an ordinary config save
+// cannot resume a provider somebody deliberately stopped.
+func (s *Server) SetProviderDisabledAPI(w http.ResponseWriter, r *http.Request) {
+	store, ok := s.store.(service.ProviderDisableStorer)
+	if !ok || s.store == nil {
+		httpResponse(w, "store does not support disabling providers", http.StatusServiceUnavailable)
+		return
+	}
+
+	key := r.PathValue("key")
+	if key == "" {
+		httpResponse(w, "provider key is required", http.StatusBadRequest)
+		return
+	}
+
+	// A pointer distinguishes an absent field from an explicit false.
+	var req struct {
+		Disabled *bool `json:"disabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Disabled == nil {
+		httpResponse(w, "disabled must be a boolean", http.StatusBadRequest)
+		return
+	}
+
+	if err := store.SetProviderDisabled(r.Context(), key, *req.Disabled, s.getUserEmail(r)); err != nil {
+		slog.Error("set provider availability failed", "key", key, "disabled", *req.Disabled, "error", err)
+		if workspaceBusinessError(w, err) {
+			return
+		}
+		httpResponse(w, fmt.Sprintf("failed to update provider availability: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// The live registry carries the flag, so it must learn about the change;
+	// a stale entry would keep serving a provider the operator just stopped.
+	if record, err := s.store.GetProvider(r.Context(), key); err != nil {
+		slog.Warn("provider availability changed but reload state could not be read", "key", key, "error", err)
+	} else if record != nil {
+		if err := s.reloadWorkspaceProvider(r.Context(), key, record.Config); err != nil {
+			slog.Warn("provider availability changed but failed to hot-reload", "key", key, "error", err)
+		}
+	}
+
+	httpResponseJSON(w, map[string]bool{"disabled": *req.Disabled}, http.StatusOK)
 }
 
 // DeleteProviderAPI handles DELETE /api/v1/providers/:key.
@@ -370,6 +419,13 @@ func redactProviderRecord(rec *service.ProviderRecord) {
 	if rec.Config.RefreshToken != "" {
 		rec.Config.RefreshToken = "***"
 	}
+}
+
+// preserveProviderAvailability keeps the disabled flag out of ordinary config
+// saves. The UI and the MCP tools submit the full config, so without this an
+// edit made while a provider is parked would silently resume it.
+func preserveProviderAvailability(next *config.LLMConfig, existing config.LLMConfig) {
+	next.Disabled = existing.Disabled
 }
 
 func preserveProviderManagedAuth(next *config.LLMConfig, existing config.LLMConfig) {

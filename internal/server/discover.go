@@ -151,9 +151,15 @@ func (s *Server) DiscoverEmbeddingModelsAPI(w http.ResponseWriter, r *http.Reque
 
 	switch req.Config.Type {
 	case "openai", "azure":
-		models, err = discoverOpenAIModels(ctx, req.Config, s.version)
-		if err == nil {
-			models = filterEmbeddingModelIDs(models)
+		if isCopilotConfig(req.Config) {
+			// The Copilot catalog labels embedding models, so it is asked
+			// directly instead of name-filtering a /v1/models listing.
+			models, err = discoverCopilotModels(ctx, req.Config, copilotEmbeddingCapability)
+		} else {
+			models, err = discoverOpenAIModels(ctx, req.Config, s.version)
+			if err == nil {
+				models = filterEmbeddingModelIDs(models)
+			}
 		}
 	case "gemini":
 		models, err = discoverGeminiEmbeddingModels(ctx, req.Config, false)
@@ -197,6 +203,12 @@ func (s *Server) discoveryConfig(w http.ResponseWriter, r *http.Request, req *di
 	}
 	if actor, ok := service.AccessPrincipalFromContext(r.Context()); ok && !actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: existing.WorkspaceID, ID: existing.ID}) {
 		httpResponse(w, "provider credential access required", http.StatusForbidden)
+		return nil, false
+	}
+	// A disabled provider must not reach upstream at all, not even to list
+	// models: discovery spends the same credentials as a request would.
+	if existing.Config.Disabled {
+		httpResponse(w, "provider is disabled; enable it to discover models", http.StatusConflict)
 		return nil, false
 	}
 	if req.Config.AuthType == "" {
@@ -284,6 +296,9 @@ type providerModelDiscoverer interface {
 }
 
 func (s *Server) discoverOpenAIProviderModels(ctx context.Context, key string, cfg config.LLMConfig) ([]string, error) {
+	if isCopilotConfig(cfg) {
+		return discoverCopilotModels(ctx, cfg, copilotChatCapability)
+	}
 	if cfg.AuthType == "chatgpt" {
 		if key == "" || s.store == nil {
 			return nil, fmt.Errorf("save and authorize the ChatGPT provider before discovering models")
@@ -338,11 +353,6 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersi
 	}
 	if cfg.AuthType == "chatgpt" {
 		return discoverChatGPTModels(ctx, cfg, parsedURL, openai.CodexClientVersion)
-	}
-
-	// Check if this is a GitHub Copilot endpoint which does not support model listing.
-	if strings.Contains(parsedURL.Host, "githubcopilot.com") {
-		return nil, fmt.Errorf("GitHub Copilot API does not support model discovery; please enter models manually or use the preset list")
 	}
 
 	// Derive the models endpoint from the chat completions URL path.
@@ -429,6 +439,158 @@ func discoverOpenAIModels(ctx context.Context, cfg config.LLMConfig, clientVersi
 	}
 
 	return models, nil
+}
+
+const (
+	copilotChatCapability      = "chat"
+	copilotEmbeddingCapability = "embeddings"
+	copilotDefaultBaseURL      = "https://api.githubcopilot.com/chat/completions"
+)
+
+// isCopilotConfig reports whether a config targets the GitHub Copilot API,
+// either through its auth type or through an explicitly configured Copilot
+// base URL (a relay or a row saved before auth_type was selected).
+func isCopilotConfig(cfg config.LLMConfig) bool {
+	if cfg.AuthType == "copilot" {
+		return true
+	}
+	if cfg.BaseURL == "" {
+		return false
+	}
+	parsed, err := url.Parse(cfg.BaseURL)
+	return err == nil && strings.Contains(parsed.Host, "githubcopilot.com")
+}
+
+// discoverCopilotModels lists the models a GitHub Copilot subscription exposes.
+// The catalog is authenticated with the short-lived Copilot JWT rather than the
+// stored GitHub OAuth token, so the same token exchange the provider uses runs
+// first. capability selects the entries to return ("chat" or "embeddings"): the
+// catalog labels every model, so unlike plain OpenAI-compatible endpoints no
+// name heuristic is needed.
+func discoverCopilotModels(ctx context.Context, cfg config.LLMConfig, capability string) ([]string, error) {
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("GitHub Copilot provider is not authorized; save the provider and run \"Authorize with GitHub\" first")
+	}
+	exchangeClient, err := openai.ProxyHTTPClient(cfg.Proxy, cfg.InsecureSkipVerify)
+	if err != nil {
+		return nil, fmt.Errorf("create Copilot token client: %w", err)
+	}
+	token, err := openai.NewCopilotTokenSource(cfg.APIKey, exchangeClient).Token(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("GitHub Copilot token exchange failed: %w (reauthorize the provider if its GitHub authorization was revoked)", err)
+	}
+	return fetchCopilotModels(ctx, cfg, token, capability)
+}
+
+// fetchCopilotModels calls GET <base>/models with an already exchanged Copilot
+// token.
+func fetchCopilotModels(ctx context.Context, cfg config.LLMConfig, token, capability string) ([]string, error) {
+	modelsURL, err := copilotModelsURL(cfg.BaseURL)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	for key, value := range cfg.ExtraHeaders {
+		req.Header.Set(key, value)
+	}
+	for key, value := range openai.CopilotDefaultHeaders {
+		if req.Header.Get(key) == "" {
+			req.Header.Set(key, value)
+		}
+	}
+	// The catalog rejects the stored GitHub OAuth token, so our exchanged
+	// credential always wins over an extra_headers Authorization value.
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	client, err := clientForConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.HTTP.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub Copilot models endpoint returned %d: %s", resp.StatusCode, truncate(string(body), 200))
+	}
+
+	var catalog struct {
+		Data []struct {
+			ID           string `json:"id"`
+			Capabilities struct {
+				Type string `json:"type"`
+			} `json:"capabilities"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &catalog); err != nil {
+		return nil, fmt.Errorf("parse response: %w", err)
+	}
+
+	// Copilot repeats an ID when it publishes several versions of a model, and
+	// lists models whose org policy is still unaccepted. The duplicates are
+	// collapsed; unaccepted models are kept, because hiding them would make a
+	// model the account can enable look unavailable.
+	models := make([]string, 0, len(catalog.Data))
+	seen := make(map[string]bool, len(catalog.Data))
+	for _, model := range catalog.Data {
+		if model.ID == "" || seen[model.ID] {
+			continue
+		}
+		if !copilotCapabilityMatches(model.Capabilities.Type, capability) {
+			continue
+		}
+		seen[model.ID] = true
+		models = append(models, model.ID)
+	}
+
+	if len(models) == 0 {
+		if capability == copilotEmbeddingCapability {
+			return nil, fmt.Errorf("GitHub Copilot returned no embedding models for this account")
+		}
+		return nil, fmt.Errorf("GitHub Copilot returned no chat models for this account. Check the Copilot subscription and reauthorize the provider")
+	}
+	return models, nil
+}
+
+// copilotCapabilityMatches reports whether a catalog entry belongs to the
+// requested capability. An entry without a declared type counts as a chat
+// model, so a catalog change cannot silently empty the list.
+func copilotCapabilityMatches(modelType, capability string) bool {
+	if modelType == "" {
+		return capability == copilotChatCapability
+	}
+	return modelType == capability
+}
+
+// copilotModelsURL derives the catalog endpoint from the configured chat
+// completions URL.
+func copilotModelsURL(baseURL string) (string, error) {
+	if baseURL == "" {
+		baseURL = copilotDefaultBaseURL
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("invalid base_url: %w", err)
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	if idx := strings.Index(path, "/chat/completions"); idx != -1 {
+		path = path[:idx]
+	}
+	parsed.Path = path + "/models"
+	// The catalog is unversioned; the chat endpoint's api-version query
+	// parameter is not valid here.
+	parsed.RawQuery = ""
+	return parsed.String(), nil
 }
 
 func discoverChatGPTModels(ctx context.Context, cfg config.LLMConfig, parsedURL *url.URL, clientVersion string) ([]string, error) {

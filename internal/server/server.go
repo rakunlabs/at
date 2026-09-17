@@ -47,6 +47,11 @@ type ProviderInfo struct {
 	// /gateway/v1/embeddings. Advertised by /gateway/v1/models; advisory.
 	embeddingModels []string
 
+	// disabled parks the provider: it stays in the registry (so availability
+	// can be toggled without rebuilding it) but getProviderInfo refuses it, so
+	// every gateway surface denies by default instead of per-call-site checks.
+	disabled bool
+
 	// retryAfterCap is the maximum time the agent retry loop will sleep
 	// when the upstream API returns Retry-After. Resolved from
 	// LLMConfig.RateLimit.RetryAfterCap() at provider build time:
@@ -580,11 +585,11 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Initialize cron trigger scheduler if trigger store is available.
 	{
 		providerLookup := func(key string) (service.LLMProvider, string, error) {
-			s.providerMu.RLock()
-			info, ok := s.providers[key]
-			s.providerMu.RUnlock()
+			// getProviderInfo, not a raw map read: it also refuses disabled
+			// providers, so a scheduled run cannot use a parked provider.
+			info, ok := s.getProviderInfo(key)
 			if !ok {
-				return nil, "", fmt.Errorf("provider %q not found", key)
+				return nil, "", s.providerUnavailableError(key)
 			}
 			return info.provider, info.defaultModel, nil
 		}
@@ -782,6 +787,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/providers/claude-auth/sync", s.ClaudeAuthSyncAPI)
 	apiGroup.GET("/v1/providers/{key}", s.GetProviderAPI)
 	apiGroup.PUT("/v1/providers/{key}", s.UpdateProviderAPI)
+	apiGroup.PUT("/v1/providers/{key}/disable", s.SetProviderDisabledAPI)
 	apiGroup.DELETE("/v1/providers/{key}", s.DeleteProviderAPI)
 
 	// API Token management
@@ -1227,6 +1233,7 @@ func NewProviderInfo(provider service.LLMProvider, cfg config.LLMConfig) Provide
 		defaultModel:    cfg.Model,
 		models:          cfg.Models,
 		embeddingModels: cfg.EmbeddingModels,
+		disabled:        cfg.Disabled,
 		retryAfterCap:   cap,
 	}
 }

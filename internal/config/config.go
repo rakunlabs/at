@@ -194,6 +194,14 @@ type LLMConfig struct {
 	// every workspace. Only platform administrators may manage shared providers.
 	SharedWithAllWorkspaces bool `json:"shared_with_all_workspaces,omitempty"`
 
+	// Disabled keeps the provider configured but unavailable: it is hidden from
+	// the workspace model catalog, from /gateway/v1/models and from model
+	// discovery, and every request naming it is rejected. It is an availability
+	// decision, deliberately separate from the credentials, so a provider can be
+	// parked without deleting its keys and model list. Toggled through
+	// PUT /api/v1/providers/{key}/disable; ordinary config updates preserve it.
+	Disabled bool `json:"disabled,omitempty"`
+
 	// APIKey is the authentication key for the provider.
 	// Optional for local providers like Ollama and for "vertex" type (uses ADC).
 	// Required for "gemini" type (get one from https://aistudio.google.com/apikey).
