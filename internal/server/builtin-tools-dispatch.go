@@ -25,7 +25,13 @@ func (s *Server) dispatchBuiltinTool(ctx context.Context, name string, args map[
 			return "", err
 		}
 	}
-	if featureKey := builtinToolFeatureKey(name); featureKey != "" {
+	// The master switch is checked for every tool, including the ones no
+	// specific feature owns (todo bookkeeping, batching, user preferences) —
+	// otherwise turning built-in tools off would leave a usable subset.
+	for _, featureKey := range []string{service.FeatureBuiltinTools, builtinToolFeatureKey(name)} {
+		if featureKey == "" {
+			continue
+		}
 		enabled, err := s.isFeatureEnabled(ctx, featureKey)
 		if err != nil {
 			return "", fmt.Errorf("check feature %q: %w", featureKey, err)

@@ -834,7 +834,7 @@
         {#if obsType(selected) === 'generation'}
           {#if bodiesMissing}
             <div class="text-xs text-amber-600 dark:text-amber-400 p-3 rounded bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-900/30">
-              Request/response bodies are not available — either body capture (the <code>llm_audit</code> feature) was off when this call ran, or the bodies passed the retention window and were expired.
+              Request/response bodies are not available — either body capture (Settings → Features → Trace Body Capture, <code>llm_audit</code>) was off when this call ran, or the bodies passed the retention window and were expired.
             </div>
           {:else}
             <!-- Request body -->

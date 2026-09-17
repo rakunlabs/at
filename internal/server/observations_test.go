@@ -180,7 +180,9 @@ type fakeFeatureStore struct {
 }
 
 func (f *fakeFeatureStore) ListFeatureSettings(_ context.Context) ([]service.FeatureSetting, error) {
-	return nil, nil
+	// The gate resolves through the whole-catalog snapshot, not a per-key read,
+	// so the pinned state has to be visible here too.
+	return []service.FeatureSetting{{Key: f.key, Enabled: f.enabled}}, nil
 }
 
 func (f *fakeFeatureStore) GetFeatureSetting(_ context.Context, key string) (*service.FeatureSetting, error) {

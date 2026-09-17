@@ -6,23 +6,9 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
 )
-
-type featureGroupDefinition struct {
-	Key         string `json:"key"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-}
-
-type featureDefinition struct {
-	Key         string
-	Name        string
-	Description string
-	Group       string
-}
 
 type featureResponse struct {
 	Key              string `json:"key"`
@@ -31,11 +17,17 @@ type featureResponse struct {
 	Group            string `json:"group"`
 	GroupName        string `json:"group_name"`
 	GroupDescription string `json:"group_description"`
-	Enabled          bool   `json:"enabled"`
-	CreatedAt        string `json:"created_at,omitempty"`
-	UpdatedAt        string `json:"updated_at,omitempty"`
-	CreatedBy        string `json:"created_by,omitempty"`
-	UpdatedBy        string `json:"updated_by,omitempty"`
+	Parent           string `json:"parent,omitempty"`
+	// Enabled is this feature's own override. Effective additionally accounts
+	// for the ancestor chain, so the UI can show a child as unavailable while
+	// still remembering the switch position it will return to.
+	Enabled   bool   `json:"enabled"`
+	Effective bool   `json:"effective"`
+	BlockedBy string `json:"blocked_by,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	CreatedBy string `json:"created_by,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
 }
 
 type featureGroupResponse struct {
@@ -48,108 +40,10 @@ type featureGroupResponse struct {
 type featuresResponse struct {
 	Groups   []featureGroupResponse `json:"groups"`
 	Features []featureResponse      `json:"features"`
+	Presets  []featurePreset        `json:"presets"`
 }
 
-var featureGroupDefinitions = []featureGroupDefinition{
-	{
-		Key:         "llm_gateway",
-		Name:        "LLM Gateway",
-		Description: "Provider setup and model access controls.",
-	},
-	{
-		Key:         "workspace",
-		Name:        "Workspace",
-		Description: "Interactive chat and reusable agent workspace features.",
-	},
-	{
-		Key:         "automation",
-		Name:        "Automation",
-		Description: "Workflow builder, runs, node configs, webhooks, and cron triggers.",
-	},
-	{
-		Key:         "data_integrations",
-		Name:        "Data & Integrations",
-		Description: "File browser, external connections, and integration packs.",
-	},
-	{
-		Key:         "operations",
-		Name:        "Operations",
-		Description: "Organization, task, delegation, and governance features.",
-	},
-}
-
-var featureDefinitions = []featureDefinition{
-	{
-		Key:         service.FeatureProviderSetup,
-		Name:        "Provider Setup",
-		Description: "Allow creating, editing, deleting, authorizing, and discovering models for providers. Existing providers remain usable by the gateway and dependent UI screens.",
-		Group:       "llm_gateway",
-	},
-	{
-		Key:         service.FeatureChatWorkbench,
-		Name:        "Chat Workbench",
-		Description: "Show and enable the Chat and Sessions UI, admin chat completions, chat-session storage, and chat tool endpoints.",
-		Group:       "workspace",
-	},
-	{
-		Key:         service.FeatureAgents,
-		Name:        "Agents",
-		Description: "Show and enable agent definitions, import/export, runtime state, wakeups, heartbeat runs, and agent-related API endpoints.",
-		Group:       "workspace",
-	},
-	{
-		Key:         service.FeatureAutomation,
-		Name:        "Automation",
-		Description: "Show and enable workflows, workflow runs, node configs, webhooks, cron triggers, and workflow/trigger built-in tools.",
-		Group:       "automation",
-	},
-	{
-		Key:         service.FeatureFiles,
-		Name:        "Files",
-		Description: "Show and enable the workspace file browser and file_* built-in tools.",
-		Group:       "data_integrations",
-	},
-	{
-		Key:         service.FeatureConnections,
-		Name:        "Connections & Integrations",
-		Description: "Show and enable external-service connections, connector management, OAuth flows, integration packs, and pack sources.",
-		Group:       "data_integrations",
-	},
-	{
-		Key:         service.FeatureOrganizationWorkflows,
-		Name:        "Organization Workflows",
-		Description: "Show and enable organizations, org-agent membership, task delegation, goals, projects, approvals, labels, comments, and cost event screens.",
-		Group:       "operations",
-	},
-	{
-		Key:         service.FeatureLLMAudit,
-		Name:        "LLM Call Audit",
-		Description: "Record full request/response bodies of every gateway LLM call for tracing and debugging (Langfuse-style). Emits OTEL gen-ai spans when telemetry is configured. Bodies are retained for 7 days. Disable to stop capturing request/response content.",
-		Group:       "operations",
-	},
-}
-
-func featureDefinitionForKey(key string) (featureDefinition, bool) {
-	for _, def := range featureDefinitions {
-		if def.Key == key {
-			return def, true
-		}
-	}
-
-	return featureDefinition{}, false
-}
-
-func featureGroupDefinitionForKey(key string) featureGroupDefinition {
-	for _, group := range featureGroupDefinitions {
-		if group.Key == key {
-			return group
-		}
-	}
-
-	return featureGroupDefinition{Key: key, Name: key}
-}
-
-func featureResponseFromSetting(def featureDefinition, setting *service.FeatureSetting) featureResponse {
+func featureResponseFromSetting(def featureDefinition, setting *service.FeatureSetting, flags map[string]bool) featureResponse {
 	group := featureGroupDefinitionForKey(def.Group)
 	res := featureResponse{
 		Key:              def.Key,
@@ -158,6 +52,7 @@ func featureResponseFromSetting(def featureDefinition, setting *service.FeatureS
 		Group:            group.Key,
 		GroupName:        group.Name,
 		GroupDescription: group.Description,
+		Parent:           def.Parent,
 		Enabled:          true,
 	}
 	if setting != nil {
@@ -167,6 +62,8 @@ func featureResponseFromSetting(def featureDefinition, setting *service.FeatureS
 		res.CreatedBy = setting.CreatedBy
 		res.UpdatedBy = setting.UpdatedBy
 	}
+	res.BlockedBy = featureBlockedBy(def.Key, flags)
+	res.Effective = res.Enabled && res.BlockedBy == ""
 
 	return res
 }
@@ -188,13 +85,15 @@ func (s *Server) featureSettingsByKey(ctx context.Context) (map[string]service.F
 	return settings, nil
 }
 
-// ListFeaturesAPI handles GET /api/v1/features.
-func (s *Server) ListFeaturesAPI(w http.ResponseWriter, r *http.Request) {
-	settings, err := s.featureSettingsByKey(r.Context())
+func (s *Server) featuresPayload(ctx context.Context) (featuresResponse, error) {
+	settings, err := s.featureSettingsByKey(ctx)
 	if err != nil {
-		slog.Error("list feature settings failed", "error", err)
-		httpResponse(w, fmt.Sprintf("failed to list features: %v", err), http.StatusInternalServerError)
-		return
+		return featuresResponse{}, err
+	}
+
+	flags := make(map[string]bool, len(settings))
+	for key, item := range settings {
+		flags[key] = item.Enabled
 	}
 
 	groups := make([]featureGroupResponse, 0, len(featureGroupDefinitions))
@@ -215,7 +114,7 @@ func (s *Server) ListFeaturesAPI(w http.ResponseWriter, r *http.Request) {
 		if item, ok := settings[def.Key]; ok {
 			setting = &item
 		}
-		feature := featureResponseFromSetting(def, setting)
+		feature := featureResponseFromSetting(def, setting, flags)
 		features = append(features, feature)
 		idx, ok := groupIndex[def.Group]
 		if !ok {
@@ -224,7 +123,22 @@ func (s *Server) ListFeaturesAPI(w http.ResponseWriter, r *http.Request) {
 		groups[idx].Features = append(groups[idx].Features, feature)
 	}
 
-	httpResponseJSON(w, featuresResponse{Groups: groups, Features: features}, http.StatusOK)
+	presets := make([]featurePreset, 0, len(featurePresets))
+	presets = append(presets, featurePresets...)
+
+	return featuresResponse{Groups: groups, Features: features, Presets: presets}, nil
+}
+
+// ListFeaturesAPI handles GET /api/v1/features.
+func (s *Server) ListFeaturesAPI(w http.ResponseWriter, r *http.Request) {
+	payload, err := s.featuresPayload(r.Context())
+	if err != nil {
+		slog.Error("list feature settings failed", "error", err)
+		httpResponse(w, fmt.Sprintf("failed to list features: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	httpResponseJSON(w, payload, http.StatusOK)
 }
 
 // UpdateFeatureAPI handles PUT /api/v1/features/{key}.
@@ -259,156 +173,123 @@ func (s *Server) UpdateFeatureAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("failed to update feature: %v", err), http.StatusInternalServerError)
 		return
 	}
-	if key == service.FeatureAutomation && s.scheduler != nil {
-		if *req.Enabled {
+	s.afterFeatureChange(r.Context())
+
+	flags, err := s.featureFlags(r.Context())
+	if err != nil {
+		slog.Error("reload feature settings failed", "error", err)
+		flags = map[string]bool{}
+	}
+
+	httpResponseJSON(w, featureResponseFromSetting(def, setting, flags), http.StatusOK)
+}
+
+// UpdateFeaturesAPI handles PUT /api/v1/features — a bulk write of
+// {"features": {"<key>": bool, ...}}. Toggling a preset-sized change one
+// request at a time makes the intermediate states observable to other replicas
+// (a half-applied "gateway only" briefly has bots running); this applies the
+// whole set before the runtime is resynchronised once.
+func (s *Server) UpdateFeaturesAPI(w http.ResponseWriter, r *http.Request) {
+	if s.featureStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	var req struct {
+		Features map[string]bool `json:"features"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+	if len(req.Features) == 0 {
+		httpResponse(w, "features is required", http.StatusBadRequest)
+		return
+	}
+	for key := range req.Features {
+		if _, ok := featureDefinitionForKey(key); !ok {
+			httpResponse(w, fmt.Sprintf("feature %q not found", key), http.StatusBadRequest)
+			return
+		}
+	}
+
+	s.applyFeatureTargets(w, r, req.Features)
+}
+
+// ApplyFeaturePresetAPI handles POST /api/v1/features/presets/{preset}.
+func (s *Server) ApplyFeaturePresetAPI(w http.ResponseWriter, r *http.Request) {
+	if s.featureStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	key := r.PathValue("preset")
+	preset, ok := featurePresetForKey(key)
+	if !ok {
+		httpResponse(w, fmt.Sprintf("preset %q not found", key), http.StatusNotFound)
+		return
+	}
+
+	s.applyFeatureTargets(w, r, featurePresetTargets(preset))
+}
+
+// applyFeatureTargets writes every requested key, then answers with the full
+// catalog so the caller does not have to reason about which descendants a
+// parent change made unreachable.
+func (s *Server) applyFeatureTargets(w http.ResponseWriter, r *http.Request, targets map[string]bool) {
+	actor := s.getUserEmail(r)
+	// Deterministic order: catalog order, parents before children.
+	for _, def := range featureDefinitions {
+		enabled, ok := targets[def.Key]
+		if !ok {
+			continue
+		}
+		if _, err := s.featureStore.UpsertFeatureSetting(r.Context(), def.Key, enabled, actor); err != nil {
+			slog.Error("update feature setting failed", "key", def.Key, "error", err)
+			httpResponse(w, fmt.Sprintf("failed to update feature %q: %v", def.Key, err), http.StatusInternalServerError)
+			return
+		}
+	}
+	s.afterFeatureChange(r.Context())
+
+	payload, err := s.featuresPayload(r.Context())
+	if err != nil {
+		slog.Error("list feature settings failed", "error", err)
+		httpResponse(w, fmt.Sprintf("failed to list features: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	httpResponseJSON(w, payload, http.StatusOK)
+}
+
+// afterFeatureChange drops the cached snapshot and brings the long-running
+// subsystems back in line with the new state. It is driven off the effective
+// state rather than off "which key was written", so a parent toggle and a child
+// toggle converge on the same result.
+func (s *Server) afterFeatureChange(ctx context.Context) {
+	s.invalidateFeatureCache()
+
+	if s.scheduler != nil {
+		enabled, err := s.isFeatureEnabled(ctx, service.FeatureCronTriggers)
+		switch {
+		case err != nil:
+			slog.Error("scheduler feature check failed after feature change", "error", err)
+		case enabled:
 			if err := s.scheduler.Reload(); err != nil {
-				slog.Error("scheduler reload failed after automation feature enable", "error", err)
+				slog.Error("scheduler reload failed after feature change", "error", err)
 			}
-		} else {
+		default:
 			s.scheduler.Stop()
 		}
 	}
-	if key == service.FeatureChatWorkbench {
-		if *req.Enabled {
-			s.startBotsFromDB(s.ctx)
-		} else {
-			s.stopAllBots()
-		}
-	}
 
-	httpResponseJSON(w, featureResponseFromSetting(def, setting), http.StatusOK)
-}
-
-func (s *Server) isFeatureEnabled(ctx context.Context, key string) (bool, error) {
-	if key == "" {
-		return true, nil
-	}
-	if _, ok := featureDefinitionForKey(key); !ok {
-		return true, nil
-	}
-	if s.featureStore == nil {
-		return true, nil
-	}
-
-	setting, err := s.featureStore.GetFeatureSetting(ctx, key)
-	if err != nil {
-		return false, err
-	}
-	if setting == nil {
-		return true, nil
-	}
-
-	return setting.Enabled, nil
-}
-
-func (s *Server) featureGateMiddleware() func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			featureKeys := featureKeysForAPIRequest(r.URL.Path, r.Method, s.config.BasePath)
-			if len(featureKeys) == 0 {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			for _, featureKey := range featureKeys {
-				enabled, err := s.isFeatureEnabled(r.Context(), featureKey)
-				if err != nil {
-					slog.Error("check feature setting failed", "feature", featureKey, "error", err)
-					httpResponse(w, fmt.Sprintf("failed to check feature %q: %v", featureKey, err), http.StatusInternalServerError)
-					return
-				}
-				if !enabled {
-					httpResponse(w, fmt.Sprintf("feature %q is disabled", featureKey), http.StatusNotFound)
-					return
-				}
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func featureKeyForAPIRequest(path, method, basePath string) string {
-	keys := featureKeysForAPIRequest(path, method, basePath)
-	if len(keys) == 0 {
-		return ""
-	}
-
-	return keys[0]
-}
-
-func featureKeysForAPIRequest(path, method, basePath string) []string {
-	if method == http.MethodOptions {
-		return nil
-	}
-
-	if basePath != "" {
-		path = strings.TrimPrefix(path, strings.TrimRight(basePath, "/"))
-	}
-	if strings.HasPrefix(path, "/webhooks/") {
-		return []string{service.FeatureAutomation}
-	}
-	if !strings.HasPrefix(path, "/api/v1") {
-		return nil
-	}
-
-	apiPath := strings.TrimPrefix(path, "/api/v1")
-	if apiPath == "" {
-		apiPath = "/"
-	}
-
+	enabled, err := s.isFeatureEnabled(ctx, service.FeatureBots)
 	switch {
-	case apiPath == "/providers":
-		if method == http.MethodGet {
-			return nil
-		}
-		return []string{service.FeatureProviderSetup}
-	case strings.HasPrefix(apiPath, "/providers/"):
-		return []string{service.FeatureProviderSetup}
-	case strings.HasPrefix(apiPath, "/model-pricing"):
-		return []string{service.FeatureProviderSetup}
-	case apiPath == "/workflow-node-types" || strings.HasPrefix(apiPath, "/workflows") ||
-		strings.HasPrefix(apiPath, "/triggers") || strings.HasPrefix(apiPath, "/runs") ||
-		strings.HasPrefix(apiPath, "/node-configs"):
-		return []string{service.FeatureAutomation}
-	case apiPath == "/chat/completions" || strings.HasPrefix(apiPath, "/chat/sessions"):
-		return []string{service.FeatureChatWorkbench}
-	case apiPath == "/mcp/list-tools" || apiPath == "/mcp/call-tool" ||
-		apiPath == "/mcp/call-skill-tool" || apiPath == "/mcp/builtin-tools" ||
-		apiPath == "/mcp/call-builtin-tool" || strings.HasPrefix(apiPath, "/mcp/set-tools/"):
-		return []string{service.FeatureChatWorkbench}
-	case apiPath == "/audio/transcribe":
-		return []string{service.FeatureChatWorkbench}
-	case strings.HasPrefix(apiPath, "/bots"):
-		return []string{service.FeatureChatWorkbench}
-	case strings.HasPrefix(apiPath, "/files"):
-		return []string{service.FeatureFiles}
-	case strings.HasPrefix(apiPath, "/connections") || strings.HasPrefix(apiPath, "/connectors") ||
-		strings.HasPrefix(apiPath, "/oauth") || strings.HasPrefix(apiPath, "/integration-packs") ||
-		strings.HasPrefix(apiPath, "/pack-sources"):
-		return []string{service.FeatureConnections}
-	case strings.HasPrefix(apiPath, "/agents") || apiPath == "/heartbeats" || strings.HasPrefix(apiPath, "/heartbeat-runs") || strings.HasPrefix(apiPath, "/wakeup-requests") || strings.HasPrefix(apiPath, "/agent-config-revisions"):
-		return []string{service.FeatureAgents}
-	case strings.HasPrefix(apiPath, "/organizations") || strings.HasPrefix(apiPath, "/tasks") ||
-		apiPath == "/active-delegations" || strings.HasPrefix(apiPath, "/goals") ||
-		strings.HasPrefix(apiPath, "/projects") || strings.HasPrefix(apiPath, "/comments") ||
-		strings.HasPrefix(apiPath, "/labels") || strings.HasPrefix(apiPath, "/approvals") ||
-		strings.HasPrefix(apiPath, "/cost-events"):
-		return []string{service.FeatureOrganizationWorkflows}
-	case strings.HasPrefix(apiPath, "/llm-calls"):
-		return []string{service.FeatureLLMAudit}
+	case err != nil:
+		slog.Error("bot feature check failed after feature change", "error", err)
+	case enabled:
+		s.startBotsFromDB(s.ctx)
 	default:
-		return nil
+		s.stopAllBots()
 	}
-}
-
-func builtinToolFeatureKey(name string) string {
-	if strings.HasPrefix(name, "workflow_") || strings.HasPrefix(name, "trigger_") {
-		return service.FeatureAutomation
-	}
-	if strings.HasPrefix(name, "file_") {
-		return service.FeatureFiles
-	}
-
-	return ""
 }

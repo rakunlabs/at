@@ -1,5 +1,6 @@
 import { can } from '../store/workspace.svelte';
 import { isNativeAdmin } from '../store/auth.svelte';
+import { routeFeatureEnabled } from './feature-routes';
 // Finite presentation registry. Backend remains authoritative for resource selectors.
 const capabilityRoutes: Record<string, string> = {
   '/providers': 'providers.read', '/skills': 'skills.read', '/marketplaces': 'packs.read',
@@ -19,6 +20,11 @@ export function routeAllowed(route: string) {
   if (['/', '/docs', '/settings', '/settings/account', '/settings/workspace', '/settings/permissions'].includes(route)) return true;
   const key = Object.keys(capabilityRoutes).sort((a,b) => b.length-a.length).find(p => route === p || route.startsWith(p + '/'));
   return key ? can(capabilityRoutes[key]) : isNativeAdmin();
+}
+// Settings indexes listed pages whose router guard bounces straight back to
+// Home when their feature is off, so they filter on both.
+export function settingsLinkVisible(route: string) {
+  return routeAllowed(route) && routeFeatureEnabled(route);
 }
 export const configurationLinks = [
   { path: '/settings/account', label: 'Account security', description: 'Password, passkeys, linked accounts and authenticator' },

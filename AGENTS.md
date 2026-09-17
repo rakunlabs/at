@@ -273,6 +273,83 @@ upstream OpenAI when none of them are present.
 
 ## Runtime configuration
 
+### Feature catalog
+
+Settings → Features is a two-level tree of ~38 keys. The catalog
+(`internal/server/features-catalog.go`) is hardcoded; `feature_settings` stores
+only overrides, so a missing row means *enabled* and a fresh installation has no
+rows.
+
+The seven original coarse keys (`provider_setup`, `chat_workbench`, `agents`,
+`automation`, `files`, `connections_integrations`, `organization_workflows`) were
+kept as **parents** rather than renamed when the catalog was split. A child is
+only reachable when its whole ancestor chain is enabled
+(`featureEnabledIn`), so an installation that had disabled `chat_workbench` keeps
+Playground, Sessions, Bots and transcription off without a data migration, and
+turning the parent back on restores each child to its own stored switch. The
+converse does not hold: disabling every child leaves the parent enabled, because
+a parent also owns surfaces its children do not. The API reports both `enabled`
+(own switch) and `effective` (after the chain), plus `blocked_by`.
+
+Resolution goes through a whole-catalog snapshot cached for 10s
+(`internal/server/features-gate.go`), not a per-key `SELECT`: a child walks its
+ancestors, so the previous per-key read turned one admission decision into
+several round-trips. Writes on the replica invalidate immediately and also reset
+the longer-lived `llmAudit` cache, which a toggle previously left stale for up to
+30s. A refresh that fails serves the last snapshot rather than failing every
+gated request.
+
+Route → feature matching is on **path segments**, not prefixes
+(`featureKeyForRoute`): `/agents/{id}/runs` belongs to `agent_heartbeats` while
+`/agents` belongs to `agents`, and a prefix rule for `/runs` would also claim a
+future `/runs-export`. Each route names the most specific owner; the ancestor
+walk supplies the rest. Runtime routes (`registerRuntimeRoutes`) are wrapped
+individually because they sit outside `apiGroup` — the `files` routing entry
+existed but nothing enforced it. `/gateway/v1/*` is never feature-gated.
+
+Behaviour worth knowing:
+
+- `webhook_triggers` / `cron_triggers` gate **execution**, not management. The
+  Webhooks and Schedules pages stay editable (they map to `workflow_builder`)
+  while their triggers do not fire; disabling `cron_triggers` stops the scheduler
+  immediately and schedules resume on re-enable.
+- `llm_audit` is now a child of `llm_traces` and controls **body capture only**;
+  `/api/v1/llm-calls` is gated by `llm_traces`. Previously `llm_audit` gated both,
+  so turning off body capture also 404'd the Traces API while the UI kept showing
+  the page.
+- `builtin_tools` is a real master switch: `dispatchBuiltinTool` checks it for
+  every tool, including the ones no specific feature owns (`todo_*`,
+  `batch_execute`, user preferences), which would otherwise stay usable.
+- `provider_setup` deliberately leaves `GET /api/v1/providers` open; model
+  pickers across the UI need the list when management is closed.
+- Nothing gates `/api/v1/features`, `/api/v1/info`, `/auth/*` or the Settings
+  shell, so any combination is reversible from the Features page.
+
+Bulk writes exist because the catalog is fine-grained: `PUT /api/v1/features`
+takes `{"features": {"<key>": bool}}` and `POST /api/v1/features/presets/{preset}`
+applies a named target state (`minimal`, `gateway_traced`, `gateway_chat`,
+`agent_platform`, `full`). A preset writes an explicit row for **every** key —
+enabled for the listed ones plus their ancestors, disabled for the rest — so
+applying one is deterministic rather than a diff against whatever was there.
+Both answer with the whole refreshed catalog, because a parent toggle changes
+what every descendant resolves to. Long-running subsystems (cron scheduler, bot
+adapters) are resynchronised once per write from the *effective* state, not from
+"which key was written", so a parent toggle and a child toggle converge.
+
+Adding a feature: a constant in `internal/service/types-feature.go`, an entry in
+`featureDefinitions` (parents before children, same group as the parent — asserted
+by `TestFeatureCatalogIntegrity`), a segment arm in `featureKeyForRoute`, the TS
+constant in `_ui/src/lib/api/features.ts`, and a route entry in
+`_ui/src/lib/helper/feature-routes.ts`. No migration: the table is key-agnostic.
+
+The UI keeps **one** route → feature map (`feature-routes.ts`), read by the
+sidebar, the router guards and both settings indexes. They previously held
+separate copies that drifted — the Traces link stayed visible while its API
+answered 404, and Settings offered pages whose guard bounced straight back to
+Home. `isFeatureEnabled` reads the *effective* flag and returns `true` until the
+catalog loads, so a slow or failed request never hides the application.
+Regression: `internal/server/features_test.go`.
+
 ### Password login lockout
 
 Native password login locks an account after five consecutive incorrect passwords

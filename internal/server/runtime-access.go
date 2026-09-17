@@ -79,7 +79,13 @@ func (s *Server) registerRuntimeRoutes(mux *ada.Server, base string) {
 		{"POST", "/api/v1/mcp/servers/{id}/execution-binding", s.RuntimeMCPBindingAPI},
 		{"DELETE", "/api/v1/mcp/servers/{id}/execution-binding", s.RuntimeMCPBindingAPI},
 	} {
-		handler := s.runtimeRouteHandler(route.handler)
+		// These paths sit outside apiGroup, so the group's feature gate never
+		// ran for them: the Files feature named /api/v1/files in the routing
+		// table but nothing enforced it. Wrap each one explicitly rather than
+		// moving them into the group, which would change their admission. The
+		// gate goes inside the auth handler, matching apiGroup's order, so an
+		// unauthenticated caller cannot read the feature state off the status.
+		handler := s.runtimeRouteHandler(s.featureGateMiddleware()(route.handler))
 		mux.HandleWithMethod(route.method, base+route.path, handler.ServeHTTP)
 	}
 }

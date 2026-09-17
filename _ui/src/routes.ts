@@ -44,30 +44,33 @@ import NotFound from '@/pages/NotFound.svelte';
 import Users from '@/pages/Users.svelte';
 import { isNativeAdmin } from '@/lib/store/auth.svelte';
 import { isFeatureEnabled, loadFeatures } from '@/lib/store/features.svelte';
-import {
-  FEATURE_AGENTS,
-  FEATURE_AUTOMATION,
-  FEATURE_CHAT_WORKBENCH,
-  FEATURE_CONNECTIONS,
-  FEATURE_FILES,
-  FEATURE_ORGANIZATION_WORKFLOWS,
-  FEATURE_PROVIDER_SETUP,
-} from '@/lib/api/features';
+import { routeFeature } from '@/lib/helper/feature-routes';
 
-function guarded(component: any, feature: string) {
+/**
+ * Guards a route on whatever feature owns it in the shared route map, so a
+ * catalog change never has to be mirrored here and in the sidebar separately.
+ */
+function guarded(component: any, route: string, ...extra: Array<() => boolean>) {
+  const feature = routeFeature(route);
   return wrap({
     component,
-    conditions: [async () => {
+    conditions: [...extra, async () => {
       try {
         await loadFeatures();
       } catch {
         return true;
       }
-      if (isFeatureEnabled(feature)) return true;
+      if (!feature || isFeatureEnabled(feature)) return true;
       push('/');
       return false;
     }],
   });
+}
+
+function adminOnly() {
+  if (isNativeAdmin()) return true;
+  push('/');
+  return false;
 }
 
 function redirect(to: string) {
@@ -82,39 +85,31 @@ function redirect(to: string) {
 
 export default {
   '/': Home,
-  '/terminal': wrap({ component: Terminal as any, conditions: [() => {
-    if (isNativeAdmin()) return true;
-    push('/');
-    return false;
-  }] }),
-  '/users': wrap({ component: Users as any, conditions: [() => {
-    if (isNativeAdmin()) return true;
-    push('/');
-    return false;
-  }] }),
-  '/providers': guarded(Providers, FEATURE_PROVIDER_SETUP),
-  '/skills': Skills,
-  '/marketplaces': Marketplaces,
-  '/agents': guarded(Agents, FEATURE_AGENTS),
-  '/variables': Secrets,
+  '/terminal': guarded(Terminal as any, '/terminal', adminOnly),
+  '/users': wrap({ component: Users as any, conditions: [adminOnly] }),
+  '/providers': guarded(Providers, '/providers'),
+  '/skills': guarded(Skills, '/skills'),
+  '/marketplaces': guarded(Marketplaces, '/marketplaces'),
+  '/agents': guarded(Agents, '/agents'),
+  '/variables': guarded(Secrets, '/variables'),
   // One entry, optional param. Two separate entries would be two distinct
   // wrapped objects and would straddle the router's `{#if componentParams}`
   // boundary, so navigating `/playground` → `/playground/:id` would unmount and
   // remount the page — killing the in-flight turn the lazy save depends on.
-  '/playground/:id?': guarded(Chat, FEATURE_CHAT_WORKBENCH),
-  '/sessions': guarded(ChatSessions, FEATURE_CHAT_WORKBENCH),
+  '/playground/:id?': guarded(Chat, '/playground'),
+  '/sessions': guarded(ChatSessions, '/sessions'),
   '/tokens': redirect('/settings/tokens'),
-  '/node-configs': guarded(NodeConfigs, FEATURE_AUTOMATION),
-  '/workflows': guarded(Workflows, FEATURE_AUTOMATION),
-  '/workflows/:id': guarded(WorkflowEditor, FEATURE_AUTOMATION),
-  '/runs': guarded(Runs, FEATURE_AUTOMATION),
-  '/webhooks': guarded(Webhooks, FEATURE_AUTOMATION),
-  '/crons': guarded(Crons, FEATURE_AUTOMATION),
-  '/connections': guarded(Connections, FEATURE_CONNECTIONS),
-  '/integrations': guarded(IntegrationPacks, FEATURE_CONNECTIONS),
-  '/mcp-servers': McpServers,
-  '/mcps': Mcps,
-  '/bots': guarded(Bots, FEATURE_CHAT_WORKBENCH),
+  '/node-configs': guarded(NodeConfigs, '/node-configs'),
+  '/workflows': guarded(Workflows, '/workflows'),
+  '/workflows/:id': guarded(WorkflowEditor, '/workflows'),
+  '/runs': guarded(Runs, '/runs'),
+  '/webhooks': guarded(Webhooks, '/webhooks'),
+  '/crons': guarded(Crons, '/crons'),
+  '/connections': guarded(Connections, '/connections'),
+  '/integrations': guarded(IntegrationPacks, '/integrations'),
+  '/mcp-servers': guarded(McpServers, '/mcp-servers'),
+  '/mcps': guarded(Mcps, '/mcps'),
+  '/bots': guarded(Bots, '/bots'),
   '/docs': Docs,
   '/settings': Settings,
   '/settings/system': SystemSettings,
@@ -126,16 +121,16 @@ export default {
   '/settings/media': MediaSettings,
   '/settings/users': Users,
   '/settings/features': Features,
-  '/settings/tokens': Tokens,
+  '/settings/tokens': guarded(Tokens, '/settings/tokens'),
   '/features': redirect('/settings/features'),
-  '/organizations': guarded(Organizations, FEATURE_ORGANIZATION_WORKFLOWS),
-  '/organizations/:id': guarded(OrganizationDetail, FEATURE_ORGANIZATION_WORKFLOWS),
-  '/tasks': guarded(Tasks, FEATURE_ORGANIZATION_WORKFLOWS),
-  '/tasks/:id': guarded(TaskDetail, FEATURE_ORGANIZATION_WORKFLOWS),
-  '/studio': guarded(Studio, FEATURE_ORGANIZATION_WORKFLOWS),
-  '/llm-calls': LLMCalls,
-  '/usage': guarded(Usage, FEATURE_PROVIDER_SETUP),
-  '/pricing': guarded(Pricing, FEATURE_PROVIDER_SETUP),
-  '/files': guarded(Files, FEATURE_FILES),
+  '/organizations': guarded(Organizations, '/organizations'),
+  '/organizations/:id': guarded(OrganizationDetail, '/organizations'),
+  '/tasks': guarded(Tasks, '/tasks'),
+  '/tasks/:id': guarded(TaskDetail, '/tasks'),
+  '/studio': guarded(Studio, '/studio'),
+  '/llm-calls': guarded(LLMCalls, '/llm-calls'),
+  '/usage': guarded(Usage, '/usage'),
+  '/pricing': guarded(Pricing, '/pricing'),
+  '/files': guarded(Files, '/files'),
   '*': NotFound
 };

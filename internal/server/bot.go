@@ -136,11 +136,11 @@ func (s *Server) startBotsFromDB(ctx context.Context) {
 	if s.botConfigStore == nil {
 		return
 	}
-	enabled, err := s.isFeatureEnabled(ctx, service.FeatureChatWorkbench)
+	enabled, err := s.isFeatureEnabled(ctx, service.FeatureBots)
 	if err != nil {
-		slog.Error("failed to check chat feature before starting bots", "error", err)
+		slog.Error("failed to check bots feature before starting bots", "error", err)
 	} else if !enabled {
-		slog.Info("bots not started because chat workbench feature is disabled")
+		slog.Info("bots not started because the bots feature is disabled")
 		return
 	}
 

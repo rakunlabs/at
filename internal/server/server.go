@@ -272,6 +272,12 @@ type Server struct {
 	// featureStore is the persistent store for runtime feature toggles.
 	featureStore service.FeatureSettingStorer
 
+	// features caches the whole feature catalog's persisted state. Every gated
+	// request and every built-in tool dispatch resolves through it, and a child
+	// key additionally walks its ancestors, so a per-key SELECT would turn one
+	// admission decision into several round-trips.
+	features featureCache
+
 	// llmCallStore is the persistent store for the LLM call audit log
 	// (full request/response bodies, Langfuse-style tracing). Gated by
 	// the llm_audit feature flag.
@@ -656,9 +662,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
 		s.scheduler.SetLoopGov(s.loopGov)
 		s.scheduler.SetEnabledCheck(func(ctx context.Context) bool {
-			enabled, err := s.isFeatureEnabled(ctx, service.FeatureAutomation)
+			enabled, err := s.isFeatureEnabled(ctx, service.FeatureCronTriggers)
 			if err != nil {
-				slog.Error("scheduler automation feature check failed", "error", err)
+				slog.Error("scheduler cron trigger feature check failed", "error", err)
 				return true
 			}
 			return enabled
@@ -772,6 +778,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.DELETE("/v1/terminals/{id}", s.TerminalActionAPI)
 	apiGroup.POST("/v1/terminals/{id}/start", s.TerminalActionAPI)
 	apiGroup.GET("/v1/terminals/{id}/ws", s.TerminalWebSocketAPI)
+	apiGroup.PUT("/v1/features", s.UpdateFeaturesAPI)
+	apiGroup.POST("/v1/features/presets/{preset}", s.ApplyFeaturePresetAPI)
 	apiGroup.PUT("/v1/features/{key}", s.UpdateFeatureAPI)
 
 	// Provider management API

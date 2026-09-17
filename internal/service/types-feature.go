@@ -2,6 +2,14 @@ package service
 
 import "context"
 
+// Feature keys. The catalog (names, descriptions, groups and parent/child
+// relations) lives in the server package; these constants exist so check sites
+// elsewhere do not spell the key as a literal.
+//
+// The seven keys in the first block predate the granular catalog. They are kept
+// as *parents* rather than renamed: a row disabling one of them keeps every
+// child off, so an existing installation's overrides survive without a data
+// migration.
 const (
 	FeatureProviderSetup         = "provider_setup"
 	FeatureChatWorkbench         = "chat_workbench"
@@ -10,6 +18,52 @@ const (
 	FeatureFiles                 = "files"
 	FeatureConnections           = "connections_integrations"
 	FeatureOrganizationWorkflows = "organization_workflows"
+)
+
+// Granular children and standalone features.
+const (
+	// LLM gateway.
+	FeatureModelPricing   = "model_pricing"
+	FeatureUsageAnalytics = "usage_analytics"
+	FeatureAPITokens      = "api_tokens"
+
+	// Workspace.
+	FeaturePlayground         = "playground"
+	FeatureChatSessions       = "chat_sessions"
+	FeatureBots               = "bots"
+	FeatureAudioTranscription = "audio_transcription"
+	FeatureAgentHeartbeats    = "agent_heartbeats"
+	FeatureSkills             = "skills"
+	FeatureMarketplaces       = "marketplaces"
+	FeatureGuides             = "guides"
+	FeatureVariables          = "variables"
+
+	// Automation.
+	FeatureWorkflowBuilder = "workflow_builder"
+	FeatureWorkflowRuns    = "workflow_runs"
+	FeatureWebhookTriggers = "webhook_triggers"
+	FeatureCronTriggers    = "cron_triggers"
+
+	// Tools & execution.
+	FeatureMCPServers    = "mcp_servers"
+	FeatureMCPTools      = "mcp_tools"
+	FeatureBuiltinTools  = "builtin_tools"
+	FeatureBuiltinShell  = "builtin_shell"
+	FeatureBuiltinScript = "builtin_script"
+	FeatureBuiltinHTTP   = "builtin_http"
+	FeatureTerminal      = "terminal"
+
+	// Data & integrations.
+	FeatureExternalConnections = "external_connections"
+	FeatureIntegrationPacks    = "integration_packs"
+
+	// Operations.
+	FeatureOrganizations = "organizations"
+	FeatureTasks         = "tasks"
+	FeatureGoalsProjects = "goals_projects"
+	FeatureApprovals     = "approvals"
+	FeatureStudio        = "studio"
+	FeatureLLMTraces     = "llm_traces"
 )
 
 // FeatureSetting stores the persisted enabled/disabled state for a built-in
