@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
@@ -14,11 +13,11 @@ import (
 
 func TestFileWorkspaceURLAdmissionPostgres(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

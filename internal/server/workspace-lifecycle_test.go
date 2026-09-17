@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -19,7 +18,7 @@ import (
 
 func TestWorkspacePermanentDeletionHTTP(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -708,7 +708,7 @@ AT does not ship a native long-term agent memory store. Agents that need memory 
 - Private `fooRow` struct with `db:"..."` tags, converted via `fooRowToRecord(row)`
 - SQL built with `goqu` query builder
 - Updates re-fetch after write; `RowsAffected() == 0` → return `nil, nil`
-- Factory: `store.New(ctx, cfg)` requires `store.postgres.datasource`; startup fails with a descriptive error when unset. Store tests run against a real postgres (`make env`) via `internal/store/postgres/postgrestest` and skip when unreachable; per-test isolation uses a unique table prefix
+- Factory: `store.New(ctx, cfg)` requires `store.postgres.datasource`; startup fails with a descriptive error when unset. Store tests run against a real postgres (`make env`) via `internal/store/postgres/postgrestest` and skip when unreachable; each test gets a private database copied from a per-process template (see *Test suite cost* below)
 
 ### Tests
 - Standard `testing` package, table-driven with `t.Run`
@@ -717,6 +717,37 @@ AT does not ship a native long-term agent memory store. Agents that need memory 
 - HTTP tests: `httptest.NewRequest` + `httptest.NewRecorder`, call handler directly
 - `t.Helper()` in test helpers
 - No `go:generate` directives
+
+#### Test suite cost
+
+`make test` is `go test -v -race ./...`. Two structural costs used to dominate it
+(212s → 33s once both were removed); keep them in mind before adding fixtures.
+
+**Password hashing.** `internal/server`'s `TestMain` lowers
+`nativePasswordIterations` to 1000, but an encoded PBKDF2 hash is verified with
+*its own* iteration count, so a fixture storing `password.Dummy` — built by the
+library at the 600k default — paid full production cost on every sign-in (~1.5s
+under `-race`). Fixture accounts therefore store `testPasswordHash` and sign in
+with `testPassword` (`native-auth-cost_test.go`), and the unknown-user
+comparison target is the package variable `nativePasswordDummy`, lowered
+alongside it. Production keeps the library default for both, because the dummy
+must cost what a real hash costs or the unknown-user path is timeable.
+
+**Database fixtures.** `internal/store/postgres/pgtemplate` migrates one
+template database per process and hands each test a copy
+(`CREATE DATABASE ... TEMPLATE`, ~40ms) instead of running the migration set
+(~360ms) and dropping ~80 tables (~165ms). `postgrestest.New` and the store
+package's `newTestStore` both use it; `TestMain` calls `Release()` to drop the
+template, and a crashed run's leftovers are swept by ULID age on the next run.
+Isolation is stronger than the previous per-test table prefix, which remains as
+the fallback when the DSN is not URL-shaped or the role lacks `CREATEDB`.
+`TestWorkspacePostgresLegacyOwnershipMigration` and `TestAuthRefreshMigrationFrom26`
+deliberately keep their own prefixes: they replay historical migration sets.
+
+Deadlines derived from `clock_timestamp()` must be asserted against that clock,
+not `time.Now()` — a few milliseconds of skew between the test process and
+postgres is normal and says nothing about the behaviour under test
+(`TestAuthRefreshCleanupAndDeviceRevocation`).
 
 ### Middleware
 - Chain: recover → server → CORS → requestid → log → telemetry → [forward-auth] → [admin-token]

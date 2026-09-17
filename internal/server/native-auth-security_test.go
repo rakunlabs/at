@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 	"github.com/rakunlabs/ada/middleware/auth/strategy/totp"
 	"golang.org/x/time/rate"
 
@@ -57,7 +56,7 @@ func TestSecurityTOTPInteroperabilityAndFence(t *testing.T) {
 
 func TestSecurityPasskeyRecentAuthPostgres(t *testing.T) {
 	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -472,7 +471,7 @@ func TestSecurityMFATimestepAndAttemptsPostgres(t *testing.T) {
 
 func TestSecurityFactorRemovalPostgres(t *testing.T) {
 	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

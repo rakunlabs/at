@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rakunlabs/ada/middleware/auth/password"
-
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
@@ -32,7 +30,7 @@ func playgroundFixture(t *testing.T) (*Server, []string, []string) {
 	owners, tokens := []string{}, []string{}
 	for i, name := range []string{"admin-a", "admin-b", "reader"} {
 		// The first administrator claims the installation.
-		u, err := p.CreateAuthUser(ctx, service.AuthUser{Username: name, Admin: name != "reader", PasswordHash: password.Dummy}, i == 0)
+		u, err := p.CreateAuthUser(ctx, service.AuthUser{Username: name, Admin: name != "reader", PasswordHash: testPasswordHash}, i == 0)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -13,7 +13,6 @@ import (
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/identity"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 	mforwardauth "github.com/rakunlabs/ada/middleware/forwardauth"
 	"golang.org/x/time/rate"
 
@@ -111,8 +110,8 @@ func nativeTestConfig() config.Server {
 func nativeFixture(t *testing.T) (*nativeAuth, *fakeAuthStore, *ada.Server) {
 	t.Helper()
 	f := &fakeAuthStore{users: map[string]service.AuthUser{
-		"admin":  {ID: "admin", Username: "admin", PasswordHash: password.Dummy, Admin: true},
-		"reader": {ID: "reader", Username: "reader", PasswordHash: password.Dummy},
+		"admin":  {ID: "admin", Username: "admin", PasswordHash: testPasswordHash, Admin: true},
+		"reader": {ID: "reader", Username: "reader", PasswordHash: testPasswordHash},
 	}, sessions: make(map[string]service.AuthSession)}
 	a, err := newNativeAuth(nativeTestConfig(), f)
 	if err != nil {
@@ -384,7 +383,7 @@ func TestNativeAuthProductionRoutesPostgres(t *testing.T) {
 			t.Errorf("%s: %d want %d %s", tt.path, w.Code, tt.code, w.Body)
 		}
 	}
-	if _, err := store.CreateAuthUser(ctx, service.AuthUser{Username: "admin", PasswordHash: password.Dummy}, true); err != nil {
+	if _, err := store.CreateAuthUser(ctx, service.AuthUser{Username: "admin", PasswordHash: testPasswordHash}, true); err != nil {
 		t.Fatal(err)
 	}
 	admin := nativeLoginCookie(t, s.server, "admin")

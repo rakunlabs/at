@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -24,11 +23,11 @@ import (
 
 func TestWorkspaceHTTPAdmissionAndRestrictedRollout(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	user, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,7 +244,7 @@ func TestWorkspaceRoutePolicyCoverage(t *testing.T) {
 
 func TestWorkspaceHTTPRoleManagement(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	platform, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "platform", PasswordHash: password.Dummy, Admin: true}, false)
+	platform, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "platform", PasswordHash: testPasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,13 +265,13 @@ func TestWorkspaceHTTPRoleManagement(t *testing.T) {
 	s := &Server{store: p, nativeAuth: a}
 	mux := ada.New()
 	s.registerWorkspaceRoutes(mux, "/at")
-	target, err := p.CreateAuthUser(root, service.AuthUser{Username: "target", PasswordHash: password.Dummy}, false)
+	target, err := p.CreateAuthUser(root, service.AuthUser{Username: "target", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, role := range []string{"viewer", "member", "admin", "owner"} {
 		t.Run(role, func(t *testing.T) {
-			u, err := p.CreateAuthUser(root, service.AuthUser{Username: role, PasswordHash: password.Dummy}, false)
+			u, err := p.CreateAuthUser(root, service.AuthUser{Username: role, PasswordHash: testPasswordHash}, false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -339,10 +338,10 @@ func TestWorkspaceHTTPRoleManagement(t *testing.T) {
 // administration stays admin-only.
 func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false); err != nil {
+	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false); err != nil {
+	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false); err != nil {
 		t.Fatal(err)
 	}
 	a, err := newNativeAuth(nativeTestConfig(), p)

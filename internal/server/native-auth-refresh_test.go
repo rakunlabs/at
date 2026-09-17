@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
 	"golang.org/x/time/rate"
@@ -39,7 +38,7 @@ func (f *fakeAuthStore) ResolveAuthAccess(ctx context.Context, hash string) (*se
 
 func TestNativeRefreshHTTPAndStableCeremonies(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +164,7 @@ func TestNativeRefreshHTTPAndStableCeremonies(t *testing.T) {
 
 func TestNativeRefreshExpiredAccessLogout(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -243,7 +242,7 @@ func TestNativeRefreshJanitorStops(t *testing.T) {
 
 func TestNativeRefreshConnectorRoutes(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false); err != nil {
+	if _, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false); err != nil {
 		t.Fatal(err)
 	}
 	a, err := newNativeAuth(nativeTestConfig(), p)

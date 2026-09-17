@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -27,7 +26,7 @@ func (f providerAuthTestTransport) RoundTrip(r *http.Request) (*http.Response, e
 
 func TestProviderPageClaudeAuthorizationKeepsSelectedWorkspace(t *testing.T) {
 	store := postgrestest.New(t, bytes.Repeat([]byte{1}, 32))
-	admin, err := store.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false)
+	admin, err := store.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

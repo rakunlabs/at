@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 	"golang.org/x/time/rate"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -57,7 +56,7 @@ func TestMobileProductionRoutes(t *testing.T) {
 	if !status.SetupRequired || status.Mobile != nil {
 		t.Fatal("unclaimed installation exposed mobile auth", status)
 	}
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy}, true)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +103,7 @@ func TestMobileProductionRoutes(t *testing.T) {
 
 func TestMobileHTTPContract(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

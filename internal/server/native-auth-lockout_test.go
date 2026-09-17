@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 	"golang.org/x/time/rate"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -22,7 +21,7 @@ func TestPasswordLoginLockoutPostgres(t *testing.T) {
 	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
 	users := make(map[string]*service.AuthUser)
 	for _, name := range []string{"admin", "reader", "other"} {
-		u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: name, PasswordHash: password.Dummy, Admin: name == "admin"}, false)
+		u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: name, PasswordHash: testPasswordHash, Admin: name == "admin"}, false)
 		if err != nil {
 			t.Fatal(err)
 		}

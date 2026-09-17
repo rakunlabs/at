@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -17,7 +16,7 @@ import (
 func TestWorkflowHTTPWorkspaceIsolation(t *testing.T) {
 	f := newMachineFixture(t)
 	actor, _ := service.AccessPrincipalFromContext(f.ctx)
-	if _, err := f.store.SetAuthUserPassword(t.Context(), actor.UserID, password.Dummy, nil); err != nil {
+	if _, err := f.store.SetAuthUserPassword(t.Context(), actor.UserID, testPasswordHash, nil); err != nil {
 		t.Fatal(err)
 	}
 	a, err := newNativeAuth(nativeTestConfig(), f.store)

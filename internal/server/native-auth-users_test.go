@@ -11,7 +11,6 @@ import (
 
 	"github.com/rakunlabs/ada"
 	"github.com/rakunlabs/ada/middleware/auth/issuer"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/at/internal/store/postgres/postgrestest"
@@ -273,11 +272,11 @@ func TestNativeAuthSelfPasswordChangeConflict(t *testing.T) {
 
 func TestNativeAuthUserLifecyclePostgres(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	adminUser, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy}, true)
+	adminUser, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	readerUser, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	readerUser, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

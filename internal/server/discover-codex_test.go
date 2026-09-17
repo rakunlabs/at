@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
@@ -30,7 +29,7 @@ func (wrongGlobalCodex) Models(context.Context) ([]string, error) {
 
 func TestCodexDiscoveryRotatesOnceAcrossInstancesAndWorkspaces(t *testing.T) {
 	p := postgrestest.New(t, bytes.Repeat([]byte{9}, 32))
-	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}

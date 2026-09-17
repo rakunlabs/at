@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/rakunlabs/ada"
-	"github.com/rakunlabs/ada/middleware/auth/password"
 	"golang.org/x/time/rate"
 
 	"github.com/rakunlabs/at/internal/config"
@@ -181,7 +180,7 @@ func passkeyBegin(t *testing.T, h http.Handler, enroll bool, session *http.Cooki
 
 func TestNativePasskeySignedPostgres(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -437,7 +436,7 @@ func (s *deadlineAuthStore) CreateAuthSession(ctx context.Context, session servi
 
 func TestNativePasskeyLoginAdmissionDeadlinePostgres(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -551,11 +550,11 @@ func TestNativeRememberConcurrentIssuance(t *testing.T) {
 
 func TestNativePasskeyGuardsPostgres(t *testing.T) {
 	p := postgrestest.New(t, nil)
-	_, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, false)
+	_, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: password.Dummy, Admin: true}, false)
+	_, err = p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -647,7 +646,7 @@ func TestNativePasskeyProductionBasePath(t *testing.T) {
 	p := postgrestest.New(t, nil)
 	// Claim the installation: passkey capability is only advertised once the
 	// deployment has a first administrator and a live policy version.
-	_, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: password.Dummy}, true)
+	_, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, true)
 	if err != nil {
 		t.Fatal(err)
 	}

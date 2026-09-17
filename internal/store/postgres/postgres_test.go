@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/oklog/ulid/v2"
+
 	"github.com/rakunlabs/at/internal/config"
+	"github.com/rakunlabs/at/internal/store/postgres/pgtemplate"
 )
 
 // testDSN returns the postgres DSN used by store tests. Override with
@@ -39,14 +41,48 @@ func pingTestPostgres(t *testing.T, dsn string) {
 	}
 }
 
-// newTestStore connects to the test postgres with a unique table prefix so
-// tests are isolated from each other and from any dev data. Tables created
-// for the test are dropped on cleanup.
+// templatePrefix is the table prefix inside a template-copied database. The
+// database is private to one test, so the prefix only has to be stable.
+const templatePrefix = "t_"
+
+// TestMain releases the process template database after the suite.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	pgtemplate.Release()
+	os.Exit(code)
+}
+
+func migrateTemplate(ctx context.Context, dsn string) error {
+	prefix := templatePrefix
+	store, err := New(ctx, &config.StorePostgres{TablePrefix: &prefix, Datasource: dsn}, nil)
+	if err != nil {
+		return err
+	}
+	// The template cannot be copied while a session is connected to it.
+	store.Close()
+	return nil
+}
+
+// newTestStore gives the test its own already-migrated database, copied from a
+// per-process template. Without templates (no CREATEDB, unsupported DSN) it
+// falls back to a unique table prefix in the shared database, which costs the
+// full migration set per test.
 func newTestStore(t *testing.T, encKey []byte) *Postgres {
 	t.Helper()
 
 	dsn := testDSN()
 	pingTestPostgres(t, dsn)
+
+	if copyDSN, release, ok := pgtemplate.Acquire(context.Background(), dsn, migrateTemplate); ok {
+		prefix := templatePrefix
+		store, err := New(context.Background(), &config.StorePostgres{TablePrefix: &prefix, Datasource: copyDSN}, encKey)
+		if err != nil {
+			release()
+			t.Fatalf("postgres.New: %v", err)
+		}
+		t.Cleanup(func() { store.Close(); release() })
+		return store
+	}
 
 	prefix := strings.ToLower("t" + ulid.Make().String() + "_")
 	cfg := &config.StorePostgres{

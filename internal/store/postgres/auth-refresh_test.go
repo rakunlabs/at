@@ -136,8 +136,16 @@ func TestAuthRefreshCleanupAndDeviceRevocation(t *testing.T) {
 	if err != nil || live == nil {
 		t.Fatalf("rotate expired access: %v", err)
 	}
-	if !next.ExpiresAt.Equal(s.ExpiresAt) || time.Until(next.AccessExpiresAt) > 10*time.Minute {
-		t.Fatal("sliding deadline")
+	// Rotation derives deadlines from the database clock, so the budget is
+	// asserted against that same clock. Comparing with the host clock made this
+	// fail on a few milliseconds of skew between the test process and postgres,
+	// which says nothing about whether the deadline slid.
+	var afterRotation time.Time
+	if _, err := p.goqu.Select(goqu.L("clock_timestamp()")).ScanValContext(t.Context(), &afterRotation); err != nil {
+		t.Fatal(err)
+	}
+	if !next.ExpiresAt.Equal(s.ExpiresAt) || !next.AccessExpiresAt.After(afterRotation) || next.AccessExpiresAt.Sub(afterRotation) > 10*time.Minute {
+		t.Fatalf("sliding deadline: family %s want %s, access %s at %s", next.ExpiresAt, s.ExpiresAt, next.AccessExpiresAt, afterRotation)
 	}
 	if n, err := p.CleanupAuthCredentials(t.Context(), 100); err != nil || n != 0 {
 		t.Fatalf("deleted live tombstone %d %v", n, err)

@@ -60,6 +60,14 @@ func nativePasswordHasher() password.PBKDF2 {
 // cost minutes per hash — enough to hang `make test` outright.
 var nativePasswordIterations = 0
 
+// nativePasswordDummy is the comparison target for a username that does not
+// exist, so "no such user" costs the same derivation as a wrong password and
+// cannot be timed apart. It must carry the same work factor as real hashes;
+// tests replace it alongside nativePasswordIterations, because the library's
+// value is built at the 600k default and an encoded hash is verified with its
+// own iteration count — a lowered factor for new hashes would not touch it.
+var nativePasswordDummy = password.Dummy
+
 // nativePasswordMessage reports why a password was refused. The byte ceiling is
 // an implementation bound almost nobody reaches, so it is mentioned only when
 // it is the actual reason rather than advertised in every prompt.
@@ -417,7 +425,7 @@ func (a *nativeAuth) login(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else {
-		_ = a.password.Verify(password.Dummy, req.Password)
+		_ = a.password.Verify(nativePasswordDummy, req.Password)
 		securityAudit("login", "", "rejected")
 		nativeError(w, 401, "invalid credentials")
 		return
