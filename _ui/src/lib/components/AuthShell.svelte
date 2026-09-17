@@ -32,21 +32,21 @@
 
 <main class="min-h-full overflow-y-auto bg-gray-50 dark:bg-dark-base flex items-start sm:items-center justify-center p-4 sm:p-6">
   <div class={['w-full', widths[width]]}>
-    <!-- Same brand mark and wordmark as the sidebar, so the gate reads as this
-         installation rather than an anonymous form. -->
-    <div class="mb-3 flex items-center gap-2 text-base font-semibold text-gray-900 dark:text-dark-text">
-      <BrandLogo size={24} decorative />AT
-    </div>
     <section
       aria-label={label || title}
       class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface"
     >
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base flex items-start gap-2">
+      <!-- The brand mark sits in the header strip, sized to the two title lines,
+           instead of a separate wordmark block above the card: the title already
+           names the installation, so the block only repeated it. A gate without
+           a subtitle has a one-line strip, so the mark shrinks with it. -->
+      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base flex items-center gap-3">
         <div class="min-w-0 flex-1">
           <h1 class="text-sm font-medium text-gray-900 dark:text-dark-text break-words">{title}</h1>
           {#if subtitle}<p class="settings-note mt-0.5">{subtitle}</p>{/if}
         </div>
         {#if action}<div class="shrink-0">{@render action()}</div>{/if}
+        <BrandLogo size={subtitle ? 36 : 24} decorative />
       </div>
       <div class="p-4 space-y-4 settings-form">{@render children()}</div>
     </section>

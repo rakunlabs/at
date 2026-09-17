@@ -165,6 +165,9 @@ func (s *Server) execProviderCreate(ctx context.Context, args map[string]any) (s
 	if msg := validateRateLimitConfig(cfg.RateLimit); msg != "" {
 		return "", fmt.Errorf("%s", msg)
 	}
+	if msg := validateProviderCredentialsJSON(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
+	}
 
 	if existing, _ := s.store.GetProvider(ctx, key); existing != nil {
 		return "", fmt.Errorf("provider %q already exists", key)
@@ -220,7 +223,16 @@ func (s *Server) execProviderUpdate(ctx context.Context, args map[string]any) (s
 	}
 	if existing != nil {
 		preserveProviderManagedAuth(&cfg, existing.Config)
+		// An agent reads the redacted record and writes it back; without this a
+		// model-list edit would silently drop the stored service-account key.
+		// The tool has no clear flag on purpose — removing a credential is not
+		// something an agent should be able to do as a side effect of an edit.
+		preserveProviderCredentialsJSON(&cfg, existing.Config, false)
 		preserveProviderAvailability(&cfg, existing.Config)
+	}
+
+	if msg := validateProviderCredentialsJSON(cfg); msg != "" {
+		return "", fmt.Errorf("%s", msg)
 	}
 
 	record, err := s.store.UpdateProvider(ctx, key, service.ProviderRecord{

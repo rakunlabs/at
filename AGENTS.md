@@ -177,8 +177,8 @@ OpenAI HTTP API. Endpoints exposed today:
 | `azure` | Azure OpenAI. `api_key` becomes `api-key` header; `base_url` must include the full deployment + `api-version`. |
 | `anthropic` | Anthropic Claude with prompt caching ON by default (markers on system block + last tool + last message). Disable via `extra_headers: {at-prompt-caching: off}`. `auth_type: claude-code` for OAuth. |
 | `bedrock` | AWS Bedrock Converse API. Credentials from `api_key` (`ACCESS:SECRET[:SESSION]`) or env (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`). Region from `base_url` host or `AWS_REGION`. |
-| `vertex` | OpenAI-compatible Vertex AI endpoint with Google ADC. |
-| `vertex-gemini` | Native Gemini API on Vertex (keeps `thinkingConfig`, `safetySettings`, grounding). Requires `extra_headers.vertex_project` + `extra_headers.vertex_region`. |
+| `vertex` | OpenAI-compatible Vertex AI endpoint. `credentials_json` (service-account key) or host ADC — see *Google Cloud credentials* below. |
+| `vertex-gemini` | Native Gemini API on Vertex (keeps `thinkingConfig`, `safetySettings`, grounding). Needs `extra_headers.vertex_project` (or a `credentials_json` carrying its `project_id`); `extra_headers.vertex_region` defaults to `us-central1`. |
 | `gemini` | Native Google Generative Language API (aistudio key). Default `safetySettings: BLOCK_NONE` on every category. Synthetic tool name `__google_search` / `web_search` activates Gemini grounding. |
 | `cohere` | Native Cohere chat (v2/chat) + rerank (v2/rerank) + embeddings (v2/embed). |
 | `minimax` | MiniMax via the Anthropic-compatible chat API + native MiniMax image/TTS endpoints. |
@@ -322,6 +322,17 @@ Behaviour worth knowing:
   `batch_execute`, user preferences), which would otherwise stay usable.
 - `provider_setup` deliberately leaves `GET /api/v1/providers` open; model
   pickers across the UI need the list when management is closed.
+- `guides` is presented as **Documentation** and owns the whole `/docs` surface —
+  the API reference, the built-in guides, the user-authored guide library and the
+  `guide_*` tools. It used to gate only `/api/v1/guides`, while the page and its
+  sidebar link were exempt, so disabling it left a reachable page whose guide
+  list answered 404 and raised a load-error toast. The route now sits in
+  `routeFeatures`, `routes.ts` wraps it in `guarded()` and the sidebar's bottom
+  nav filters the link, the same as any other page. Its key stays `guides`:
+  `feature_settings` is keyed by name and a missing row means *enabled*, so
+  renaming would have silently re-enabled the surface wherever it was off. Every
+  preset enables it — a gateway-only installation is the one that most needs the
+  API reference to configure a client.
 - Nothing gates `/api/v1/features`, `/api/v1/info`, `/auth/*` or the Settings
   shell, so any combination is reversible from the Features page.
 
@@ -394,6 +405,89 @@ administrator. `GET /auth/status` therefore reports the collapse flag only while
 local sign-in is actually enabled, so a stale value cannot describe a form the
 browser is not allowed to show. Regression:
 `TestAuthSettingsLocalLoginCollapsedPostgres`.
+
+### Passkey sign-in is usernameless
+
+`POST /auth/passkeys/login/begin` accepts an empty username and then issues a
+discoverable ceremony: empty `allowCredentials`, so the authenticator offers the
+accounts it holds for this RP and the asserted credential ID — `UNIQUE` in
+`auth_passkeys` — identifies the account at `login/finish`
+(`GetAuthPasskeyByCredential`). Typing a name the browser already knows was
+pointless ceremony, and it made the button useless while the local form was
+collapsed. The sign-in button therefore lives outside the password form and
+forwards a username only when one happens to have been typed, which preserves
+the username-first path for non-resident security keys whose credentials can
+only be asserted from an explicit allow list.
+
+Such a ceremony has no account to record, so migration 54 makes
+`auth_challenges.user_id` nullable (NULL, not `''`: the column references
+`auth_users`). The session version is read at finish rather than at begin, where
+it was not knowable; the sign-counter CAS still refuses to commit if it changed
+underneath. Per-account admission (`admitSecurityAccount`) also moves to finish —
+until the credential arrives there is no account to rate-limit, so an anonymous
+begin is bounded only by the global login limiter and the existing challenge
+pool caps. Unlike the username-first path, it reads no account state and so
+reveals nothing about which usernames exist. Regression:
+`TestNativePasskeyDiscoverableLoginPostgres`.
+
+### Google Cloud credentials (`vertex`, `vertex-gemini`)
+
+Both Vertex types resolve credentials through `internal/service/llm/gcp`, in one
+of two ways:
+
+1. **`config.credentials_json`** — a service-account key file pasted or uploaded
+   in the Providers editor ("Service account"). It is encrypted at rest with the
+   rest of the provider config, so it belongs to one provider row and one
+   workspace, and it can be rotated from the UI without touching the host.
+2. **Application Default Credentials** when that field is empty — the previous
+   and still supported behaviour. ADC is resolved from the *server process*
+   (`GOOGLE_APPLICATION_CREDENTIALS`, the gcloud well-known file, or the
+   GCE/Cloud Run/GKE metadata server) and is therefore installation-wide: every
+   workspace authenticates as the same host identity.
+
+The token exchange honours the provider's `proxy` and `insecure_skip_verify`.
+This is not cosmetic: a network that can only reach Google through a proxy
+cannot reach `oauth2.googleapis.com` either, and without it such a deployment
+fails while *fetching the token* rather than while calling the model — an error
+that does not mention the proxy. ADC discovery deliberately runs unproxied,
+because on GCE it probes the link-local metadata server; only the file-based ADC
+case (`FindDefaultCredentials` returns the key material, the metadata case
+returns none) is rebuilt on the proxied context.
+
+`ParseCredentials` accepts only `service_account` and `authorized_user`, and
+this is a security boundary rather than a compatibility gap. `external_account`,
+`external_account_authorized_user` and `impersonated_service_account` describe
+*where to go and get* a credential — a URL the server fetches, or a command it
+runs — and the file is submitted by a workspace administrator, who in AT's model
+is not necessarily the platform operator. Accepting one would turn provider
+configuration into server-side request forgery against the host's own metadata
+server. Workload identity federation is still supported where it belongs: as the
+host's ADC, which this package does not type-restrict because it came from the
+host's own configuration. Construction uses
+`google.CredentialsFromJSONWithType`, not the deprecated `CredentialsFromJSON`,
+so the kind AT vetted is the kind oauth2 builds. The parser is also stricter
+than oauth2 diagnostically — an OAuth *client secret* file (`installed`/`web`)
+is the usual wrong download and is named as such.
+
+`base_url` is optional for both types now. Left empty it is derived from the
+project and region (`gcp.ChatCompletionsEndpoint` / `gcp.RegionalHost`), with the
+project falling back to the `project_id` inside the stored key. The
+`vertex-gemini` preset had always told operators to leave Base URL empty while
+the factory rejected exactly that; an explicit `base_url` still wins.
+
+`vertex.New` resolves ADC only when no `WithTokenSource` was supplied —
+resolving it unconditionally failed provider construction on a host that has no
+ADC, even for a provider carrying its own key.
+
+Writes: the field is redacted to `***` on read like `api_key`, and an omitted or
+sentinel value preserves the stored key, because every writer (UI, the
+`provider_update` MCP tool, scripts) submits the whole config and would
+otherwise wipe a secret it never saw. Removal is an explicit
+`clear_credentials_json: true` on the PUT body, and is deliberately not exposed
+to the MCP tool. Regressions: `internal/service/llm/gcp/credentials_test.go`
+(including a stub forward proxy that must see the token exchange),
+`internal/service/llm/vertex/credentials_test.go`,
+`internal/server/provider-credentials_test.go`.
 
 ### Provider claims, permission bundles and claim-driven admission
 
@@ -894,9 +988,11 @@ The full-screen auth gates render outside the app shell (sign-in, first setup,
 account recovery, backup codes, mobile approval, the connection splash), so they
 carried their own layout — a bare centred column, `text-2xl` heading, rounded
 panels — and were the first screen a user saw. They now share
-`lib/components/AuthShell.svelte`: the sidebar brand mark + `AT` wordmark above a
-single reference card (header strip with title/subtitle, `p-4` `settings-form`
-body). Add a new gate by rendering `AuthShell` with `title` / `subtitle` /
+`lib/components/AuthShell.svelte`: a single reference card (header strip with
+title/subtitle plus the brand mark on its right, sized to the two title lines,
+then a `p-4` `settings-form` body). The mark used to sit in a separate wordmark
+block above the card, which only repeated what the title already says. Add a new
+gate by rendering `AuthShell` with `title` / `subtitle` /
 `width` (`sm` forms, `md` setup, `lg` review screens) rather than a new layout.
 Primary/secondary actions in these gates are full-width with
 `min-h-11 sm:min-h-0`, the established touch-target pattern, because sign-in is

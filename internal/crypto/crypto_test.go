@@ -210,6 +210,34 @@ func TestEncryptDecryptLLMConfig(t *testing.T) {
 	}
 }
 
+// TestEncryptDecryptLLMConfigCredentialsJSON guards the field's membership in
+// the encrypted set: a Google service-account key is a private key in plain
+// text, and a config field that nobody adds here is stored verbatim.
+func TestEncryptDecryptLLMConfigCredentialsJSON(t *testing.T) {
+	key := testKey()
+
+	const serviceAccount = `{"type":"service_account","project_id":"p","private_key":"-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----\n"}`
+
+	encrypted, err := EncryptLLMConfig(config.LLMConfig{Type: "vertex", CredentialsJSON: serviceAccount}, key)
+	if err != nil {
+		t.Fatalf("EncryptLLMConfig: %v", err)
+	}
+	if !IsEncrypted(encrypted.CredentialsJSON) {
+		t.Fatalf("credentials_json should be encrypted, got %q", encrypted.CredentialsJSON)
+	}
+	if strings.Contains(encrypted.CredentialsJSON, "PRIVATE KEY") {
+		t.Fatal("ciphertext still carries the plaintext key material")
+	}
+
+	decrypted, err := DecryptLLMConfig(encrypted, key)
+	if err != nil {
+		t.Fatalf("DecryptLLMConfig: %v", err)
+	}
+	if decrypted.CredentialsJSON != serviceAccount {
+		t.Fatalf("credentials_json round-trip: got %q, want %q", decrypted.CredentialsJSON, serviceAccount)
+	}
+}
+
 func TestEncryptDecryptLLMConfigNilKey(t *testing.T) {
 	original := config.LLMConfig{
 		Type:   "openai",

@@ -110,7 +110,7 @@ export default {
   '/mcp-servers': guarded(McpServers, '/mcp-servers'),
   '/mcps': guarded(Mcps, '/mcps'),
   '/bots': guarded(Bots, '/bots'),
-  '/docs': Docs,
+  '/docs': guarded(Docs, '/docs'),
   '/settings': Settings,
   '/settings/system': SystemSettings,
   '/settings/account': AccountSecurity,

@@ -221,6 +221,10 @@ func (s *Server) discoveryConfig(w http.ResponseWriter, r *http.Request, req *di
 		req.Config.RefreshToken = ""
 	}
 	preserveProviderManagedAuth(&req.Config, existing.Config)
+	// Discovery spends the same credentials a request would, so it resolves the
+	// stored service-account key the same way — the caller only ever held the
+	// redaction sentinel.
+	preserveProviderCredentialsJSON(&req.Config, existing.Config, false)
 	return existing, true
 }
 

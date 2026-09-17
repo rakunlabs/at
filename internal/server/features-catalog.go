@@ -164,9 +164,13 @@ var featureDefinitions = []featureDefinition{
 		Group:       "workspace",
 	},
 	{
+		// The key stays `guides` on purpose: `feature_settings` stores overrides
+		// by key, so renaming it would make every existing "disabled" row
+		// unknown — and a missing row means *enabled*, silently switching the
+		// surface back on for installations that had turned it off.
 		Key:         service.FeatureGuides,
-		Name:        "Guides",
-		Description: "Reusable prompt/guide documents attached to agents.",
+		Name:        "Documentation",
+		Description: "The in-product Documentation surface: the API reference, the built-in guides and the user-authored guide library with its guide_* built-in tools. Disabling it hides the whole page and its sidebar link.",
 		Group:       "workspace",
 	},
 	{
@@ -349,12 +353,16 @@ var featurePresets = []featurePreset{
 	{
 		Key:         "minimal",
 		Name:        "Gateway only",
-		Description: "Providers and API tokens. Every admin surface beyond configuring the gateway is hidden.",
+		Description: "Providers, API tokens and the API reference. Every admin surface beyond configuring the gateway is hidden.",
 		Enabled: []string{
 			service.FeatureProviderSetup,
 			service.FeatureModelPricing,
 			service.FeatureUsageAnalytics,
 			service.FeatureAPITokens,
+			// The Documentation page carries the gateway API reference, which is
+			// how a client gets configured against this installation — a
+			// gateway-only preset is the last one that should hide it.
+			service.FeatureGuides,
 		},
 	},
 	{
@@ -366,6 +374,7 @@ var featurePresets = []featurePreset{
 			service.FeatureModelPricing,
 			service.FeatureUsageAnalytics,
 			service.FeatureAPITokens,
+			service.FeatureGuides,
 			service.FeatureLLMTraces,
 			service.FeatureLLMAudit,
 		},
@@ -379,6 +388,7 @@ var featurePresets = []featurePreset{
 			service.FeatureModelPricing,
 			service.FeatureUsageAnalytics,
 			service.FeatureAPITokens,
+			service.FeatureGuides,
 			service.FeatureChatWorkbench,
 			service.FeaturePlayground,
 			service.FeatureChatSessions,

@@ -12,7 +12,6 @@ import (
 	"github.com/rakunlabs/into"
 	"github.com/rakunlabs/logi"
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
 
 	"github.com/rakunlabs/at/internal/cluster"
 	"github.com/rakunlabs/at/internal/config"
@@ -21,6 +20,7 @@ import (
 	"github.com/rakunlabs/at/internal/service/llm/antropic"
 	"github.com/rakunlabs/at/internal/service/llm/bedrock"
 	"github.com/rakunlabs/at/internal/service/llm/cohere"
+	"github.com/rakunlabs/at/internal/service/llm/gcp"
 	"github.com/rakunlabs/at/internal/service/llm/gemini"
 	"github.com/rakunlabs/at/internal/service/llm/minimax"
 	"github.com/rakunlabs/at/internal/service/llm/openai"
@@ -29,22 +29,49 @@ import (
 	"github.com/rakunlabs/at/internal/store"
 )
 
-// googleADCTokenSource resolves Google Application Default Credentials
-// for the cloud-platform scope and adapts the resulting oauth2.TokenSource
-// to the gemini package's GoogleTokenSource interface.
+// vertexTokenSource resolves the credentials for a Vertex provider: the
+// service-account key stored on the provider row when it carries one, and
+// Application Default Credentials from this process otherwise.
 //
-// The underlying oauth2.TokenSource caches and auto-refreshes tokens
-// internally, so calling Token() on every request is cheap.
-func googleADCTokenSource(ctx context.Context) (gemini.GoogleTokenSource, error) {
-	ts, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+// The provider's proxy and TLS settings are applied to the token exchange as
+// well as to inference. A network that can only reach Google through a proxy
+// cannot reach oauth2.googleapis.com directly either, and without this the
+// provider fails while fetching the token rather than while calling the model.
+//
+// The returned source caches and auto-refreshes internally, so calling Token()
+// on every request is cheap. context.Background() is deliberate: oauth2 keeps
+// the context for the lifetime of the provider, so a request context would
+// cancel every later refresh.
+func vertexTokenSource(cfg config.LLMConfig) (oauth2.TokenSource, error) {
+	httpClient, err := openai.ProxyHTTPClient(cfg.Proxy, cfg.InsecureSkipVerify)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("proxy client for the Google token exchange: %w", err)
 	}
-	return &googleADCSource{inner: ts}, nil
+
+	return gcp.TokenSource(context.Background(), cfg.CredentialsJSON, httpClient)
 }
 
-// googleADCSource adapts oauth2.TokenSource → gemini.GoogleTokenSource.
-type googleADCSource struct {
+// vertexProjectRegion resolves the GCP project and region for a Vertex
+// provider. The project falls back to the one named by the stored
+// service-account key, which is the project the key can actually reach — so a
+// pasted key is a complete configuration on its own.
+func vertexProjectRegion(cfg config.LLMConfig) (project, region string) {
+	project = strings.TrimSpace(cfg.ExtraHeaders["vertex_project"])
+	region = gcp.Region(cfg.ExtraHeaders["vertex_region"])
+
+	if project == "" && cfg.CredentialsJSON != "" {
+		if creds, err := gcp.ParseCredentials(cfg.CredentialsJSON); err == nil {
+			project = creds.ProjectID
+		}
+	}
+
+	return project, region
+}
+
+// googleAccessTokenSource adapts oauth2.TokenSource → gemini.GoogleTokenSource,
+// which carries the bare access token because that is all the Gemini adapter
+// puts on the wire.
+type googleAccessTokenSource struct {
 	inner oauth2TokenSource
 }
 
@@ -56,7 +83,7 @@ type oauth2TokenSource interface {
 }
 
 // Token implements gemini.GoogleTokenSource.
-func (g *googleADCSource) Token() (string, error) {
+func (g *googleAccessTokenSource) Token() (string, error) {
 	tok, err := g.inner.Token()
 	if err != nil {
 		return "", err
@@ -236,11 +263,29 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 
 		return openai.New(cfg.APIKey, cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, headers, opts...)
 	case "vertex":
-		var opts []vertex.Option
+		ts, err := vertexTokenSource(cfg)
+		if err != nil {
+			return nil, fmt.Errorf("vertex credentials: %w", err)
+		}
+
+		// The endpoint shape is fixed by Google, so a provider that names its
+		// project and region does not also have to paste a 130-character URL
+		// and get every segment right. An explicit base_url still wins.
+		endpoint := cfg.BaseURL
+		if endpoint == "" {
+			project, region := vertexProjectRegion(cfg)
+			if project == "" {
+				return nil, fmt.Errorf("vertex provider requires a base_url, or a project to derive one from " +
+					"(extra_headers.vertex_project, or a credentials_json carrying its project_id)")
+			}
+			endpoint = gcp.ChatCompletionsEndpoint(project, region)
+		}
+
+		opts := []vertex.Option{vertex.WithTokenSource(ts)}
 		if limiter != nil {
 			opts = append(opts, vertex.WithRateLimiter(limiter))
 		}
-		return vertex.New(cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
+		return vertex.New(cfg.Model, endpoint, cfg.Proxy, cfg.InsecureSkipVerify, opts...)
 	case "gemini":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("gemini provider requires an api_key (get one from https://aistudio.google.com/apikey)")
@@ -295,35 +340,36 @@ func newProvider(cfg config.LLMConfig) (service.LLMProvider, error) {
 		// the gemini provider so we keep features like thinkingConfig,
 		// safetySettings, grounding, and cachedContent.
 		//
-		// Required cfg.BaseURL format:
+		// cfg.BaseURL format:
 		//   https://{REGION}-aiplatform.googleapis.com
 		// We auto-append /v1/projects/{PROJECT}/locations/{REGION}/publishers/google
-		// when the URL stops at the regional host.
-		if cfg.BaseURL == "" {
-			return nil, fmt.Errorf("vertex-gemini provider requires base_url (e.g. https://us-central1-aiplatform.googleapis.com) and AT_VERTEX_PROJECT env")
-		}
-		project := cfg.ExtraHeaders["vertex_project"]
-		region := cfg.ExtraHeaders["vertex_region"]
+		// when the URL stops at the regional host, and derive the host itself
+		// from the region when no base_url is given — the preset has always
+		// told operators to leave it empty, and rejecting that was a bug.
+		project, region := vertexProjectRegion(cfg)
 		if project == "" {
-			return nil, fmt.Errorf("vertex-gemini provider requires extra_headers.vertex_project")
+			return nil, fmt.Errorf("vertex-gemini provider requires extra_headers.vertex_project, " +
+				"or a credentials_json carrying its project_id")
 		}
-		if region == "" {
-			region = "us-central1"
+
+		baseURL := cfg.BaseURL
+		if baseURL == "" {
+			baseURL = gcp.RegionalHost(region)
 		}
 		pathPrefix := fmt.Sprintf("/v1/projects/%s/locations/%s/publishers/google", project, region)
 
-		ts, err := googleADCTokenSource(context.Background())
+		ts, err := vertexTokenSource(cfg)
 		if err != nil {
-			return nil, fmt.Errorf("vertex-gemini ADC: %w", err)
+			return nil, fmt.Errorf("vertex-gemini credentials: %w", err)
 		}
 
 		var gopts []gemini.Option
-		gopts = append(gopts, gemini.WithGoogleTokenSource(ts))
+		gopts = append(gopts, gemini.WithGoogleTokenSource(&googleAccessTokenSource{inner: ts}))
 		gopts = append(gopts, gemini.WithPathPrefix(pathPrefix))
 		if limiter != nil {
 			gopts = append(gopts, gemini.WithRateLimiter(limiter))
 		}
-		return gemini.New("", cfg.Model, cfg.BaseURL, cfg.Proxy, cfg.InsecureSkipVerify, gopts...)
+		return gemini.New("", cfg.Model, baseURL, cfg.Proxy, cfg.InsecureSkipVerify, gopts...)
 	case "cohere":
 		if cfg.APIKey == "" {
 			return nil, fmt.Errorf("cohere provider requires an api_key (get one from https://dashboard.cohere.com)")

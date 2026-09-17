@@ -7,7 +7,9 @@
 
   storeNavbar.title = 'Features';
 
-  let savingKey = $state('');
+  // One in-flight write at a time, identified by its busy key. Feature toggles
+  // use the bare feature key; every other write namespaces itself with a colon
+  // (`group:`, `all:`, `preset:`), so `busy === feature.key` is unambiguous.
   let busy = $state('');
   let search = $state('');
 
@@ -45,7 +47,7 @@
   // its descendants resolve to, so the server answers with the whole catalog
   // rather than one row and the page never has to recompute that itself.
   async function write(label: string, busyKey: string, run: () => Promise<any>) {
-    if (busy || savingKey) return;
+    if (busy) return;
     busy = busyKey;
     try {
       applyFeatures(await run());
@@ -54,12 +56,10 @@
       addToast(e?.response?.data?.message || 'Failed to update features', 'alert');
     } finally {
       busy = '';
-      savingKey = '';
     }
   }
 
   async function toggleFeature(feature: Feature) {
-    savingKey = feature.key;
     await write(
       `${feature.name} ${feature.enabled ? 'disabled' : 'enabled'}`,
       feature.key,
@@ -249,7 +249,7 @@
                     : 'bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-surface',
                 ]}
               >
-                {#if savingKey === feature.key && busy}
+                {#if busy === feature.key}
                   <Loader2 size={13} class="animate-spin" />
                   Saving
                 {:else if feature.enabled}

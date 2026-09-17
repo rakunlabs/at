@@ -42,8 +42,44 @@ func (p *Postgres) ListAuthPasskeys(ctx context.Context, userID string) ([]servi
 	return result, nil
 }
 
+// GetAuthPasskeyByCredential identifies the account behind an asserted
+// credential ID. The column is UNIQUE, so at most one row matches; a miss is
+// not an error because it is the ordinary "unknown credential" login outcome.
+func (p *Postgres) GetAuthPasskeyByCredential(ctx context.Context, credentialID []byte) (*service.AuthPasskey, error) {
+	if len(credentialID) == 0 {
+		return nil, nil
+	}
+	var row struct {
+		ID         string     `db:"id"`
+		UserID     string     `db:"user_id"`
+		Name       string     `db:"name"`
+		Credential []byte     `db:"credential"`
+		SignCount  uint32     `db:"sign_count"`
+		CreatedAt  time.Time  `db:"created_at"`
+		LastUsedAt *time.Time `db:"last_used_at"`
+	}
+	found, err := p.goqu.From(p.tableAuthPasskeys).Select("id", "user_id", "name", "credential", "sign_count", "created_at", "last_used_at").Where(goqu.Ex{"credential_id": credentialID}).Prepared(true).ScanStructContext(ctx, &row)
+	if err != nil {
+		return nil, fmt.Errorf("get auth passkey by credential: %w", err)
+	}
+	if !found {
+		return nil, nil
+	}
+	key := service.AuthPasskey{ID: row.ID, Name: row.Name, UserID: row.UserID, CreatedAt: row.CreatedAt, LastUsedAt: row.LastUsedAt}
+	if err := json.Unmarshal(row.Credential, &key.Credential); err != nil {
+		return nil, fmt.Errorf("decode auth passkey: %w", err)
+	}
+	key.Credential.SignCount = row.SignCount
+	return &key, nil
+}
+
 func (p *Postgres) SaveAuthChallenge(ctx context.Context, c service.AuthChallenge) error {
 	if c.Purpose != "login" && c.Purpose != "enroll" {
+		return service.ErrAuthConflict
+	}
+	// Only a login ceremony may be anonymous (discoverable credential).
+	// Enrollment always belongs to the authenticated account that started it.
+	if c.UserID == "" && c.Purpose != "login" {
 		return service.ErrAuthConflict
 	}
 	if c.Data.Expires.IsZero() || !c.Data.Expires.After(time.Now()) || c.Data.Expires.After(time.Now().Add(5*time.Minute)) {
@@ -88,7 +124,13 @@ func (p *Postgres) SaveAuthChallenge(ctx context.Context, c service.AuthChalleng
 	if err != nil {
 		return fmt.Errorf("encode auth challenge: %w", err)
 	}
-	if _, err := tx.Insert(p.tableAuthChallenges).Rows(goqu.Record{"hash": c.Hash, "user_id": c.UserID, "expires_at": c.Data.Expires, "data": goqu.L("?::jsonb", string(blob))}).Prepared(true).Executor().ExecContext(ctx); err != nil {
+	// NULL, not "", for a discoverable ceremony: the column references
+	// auth_users, and an empty string is a value no account can have.
+	var owner any
+	if c.UserID != "" {
+		owner = c.UserID
+	}
+	if _, err := tx.Insert(p.tableAuthChallenges).Rows(goqu.Record{"hash": c.Hash, "user_id": owner, "expires_at": c.Data.Expires, "data": goqu.L("?::jsonb", string(blob))}).Prepared(true).Executor().ExecContext(ctx); err != nil {
 		return fmt.Errorf("save auth challenge: %w", err)
 	}
 	if err := tx.Commit(); err != nil {

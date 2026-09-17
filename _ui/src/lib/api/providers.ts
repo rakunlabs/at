@@ -27,6 +27,11 @@ export interface LLMConfig {
   // Deliberately not sent by the editor, so a config save cannot resume it.
   disabled?: boolean;
   api_key?: string;
+  // Google service-account key file, verbatim, for the vertex / vertex-gemini
+  // types. Encrypted at rest and redacted to "***" on read, so a provider that
+  // has one reads back the sentinel rather than the key. Empty means the
+  // provider falls back to the server's Application Default Credentials.
+  credentials_json?: string;
   base_url?: string;
   model: string;
   models?: string[];
@@ -66,8 +71,19 @@ export async function createProvider(key: string, config: LLMConfig): Promise<Pr
   return res.data;
 }
 
-export async function updateProvider(key: string, config: LLMConfig): Promise<ProviderRecord> {
-  const res = await api.put<ProviderRecord>(`/providers/${key}`, { config });
+// clearCredentialsJSON removes a stored Google service-account key and returns
+// the provider to Application Default Credentials. It is a separate flag
+// because an omitted credentials_json preserves the stored one — the editor
+// only ever holds the redaction sentinel, so "empty means delete" would wipe
+// the key on any unrelated edit.
+export async function updateProvider(
+  key: string,
+  config: LLMConfig,
+  clearCredentialsJSON = false,
+): Promise<ProviderRecord> {
+  const body: Record<string, any> = { config };
+  if (clearCredentialsJSON) body.clear_credentials_json = true;
+  const res = await api.put<ProviderRecord>(`/providers/${key}`, body);
   return res.data;
 }
 

@@ -18,7 +18,7 @@
   import { ReauthenticationRequired } from './lib/api/session-transport';
   import { storeAuth, authOrigins, isNativeAdmin, returnToLogin, securityCodes } from './lib/store/auth.svelte';
   import { workspaceState, loadWorkspaceAccess } from './lib/store/workspace.svelte';
-  import { routeAllowed, configurationLinks } from './lib/helper/navigation';
+  import { routeAllowed, inSettingsArea } from './lib/helper/navigation';
   import routes from './routes';
   import { pwa } from './lib/store/pwa.svelte';
   let mobileNavigation = $state<HTMLDialogElement>();
@@ -33,7 +33,7 @@
   let authState = $state<'loading'|'setup'|'login'|'ready'|'error'>('loading');
   let error = $state(''); let notice = $state(''); let loggingOut = $state(false); let checking = false;
   let revision = 0;
-  let settingsArea = $derived($location.startsWith('/settings') || configurationLinks.some(l => l.path === $location));
+  let settingsArea = $derived(inSettingsArea($location));
   let settingsLayout = $derived(settingsArea && routeAllowed($location) && (!!workspaceState.access || isNativeAdmin() || $location === '/settings/account'));
   async function checkSession() {
     if (checking || storeAuth.securityHold || ticket) return; checking = true; const start = revision;

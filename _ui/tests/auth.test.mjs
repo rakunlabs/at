@@ -167,7 +167,7 @@ test('relative auth URLs retain root and prefixed SPA base paths', () => {
 test('public status strictly opts into passkeys and rejects invalid native mode', async () => {
   for (const enabled of [false, true]) {
     for (const passkeys of [undefined, null, false, true, 'true', 1]) {
-      response = { enabled, passkeys, remember_me: true, passkey_login: 'username-first' };
+      response = { enabled, passkeys, remember_me: true, passkey_login: 'discoverable' };
       assert.deepEqual(await api.getAuthStatus(), { ...response, passkeys: enabled && passkeys === true });
     }
   }
@@ -175,7 +175,7 @@ test('public status strictly opts into passkeys and rejects invalid native mode'
   assert.deepEqual(calls[0], ['get', 'status', { headers: { 'Cache-Control': 'no-cache' } }]);
 });
 
-test('password and username-first passkey login send explicit remember choices only at begin', async () => {
+test('password and passkey login send explicit remember choices only at begin', async () => {
   const signal = new AbortController().signal;
   response = { subject: 'u1', name: 'operator', provider: 'native' };
   assert.deepEqual(await api.loginWithPassword('operator', ' password '), response);
@@ -184,6 +184,10 @@ test('password and username-first passkey login send explicit remember choices o
   response = { publicKey };
   assert.deepEqual(await api.beginPasskeyLogin('operator', false, signal), { publicKey });
   await api.beginPasskeyLogin('operator', true, signal);
+  // Discoverable login: the sign-in screen sends no username, and the empty
+  // value must reach the server as such rather than being dropped or defaulted.
+  response = { publicKey: { challenge: 'AP_-' } };
+  assert.deepEqual(await api.beginPasskeyLogin('', false, signal), response);
   const raw = { id: 'AP_-', rawId: 'AP_-', type: 'public-key', response: { clientDataJSON: 'AA', authenticatorData: '_w', signature: '-w', userHandle: null } };
   response = { subject: 'u1', name: 'operator', provider: 'native' };
   assert.deepEqual(await api.finishPasskeyLogin(raw, signal), response);
@@ -192,6 +196,7 @@ test('password and username-first passkey login send explicit remember choices o
     ['post', 'login', { username: 'operator', password: ' password ', remember_me: true }, { signal }],
     ['post', 'passkeys/login/begin', { username: 'operator', remember_me: false }, { signal }],
     ['post', 'passkeys/login/begin', { username: 'operator', remember_me: true }, { signal }],
+    ['post', 'passkeys/login/begin', { username: '', remember_me: false }, { signal }],
     ['post', 'passkeys/login/finish', raw, { signal }],
   ]);
 });

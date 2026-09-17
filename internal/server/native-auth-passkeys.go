@@ -199,37 +199,48 @@ func (a *nativeAuth) passkeyLoginBegin(w http.ResponseWriter, r *http.Request) {
 	if !decodeNativeBody(w, r, &req) {
 		return
 	}
-	u, err := a.store.GetAuthUser(r.Context(), normalizeNativeUsername(req.Username))
-	if err != nil {
-		nativeError(w, 503, "passkeys unavailable")
-		return
-	}
-	if u == nil || u.Disabled {
-		nativeError(w, 401, "passkey login unavailable; use password")
-		return
-	}
-	if !a.admitSecurityAccount(w, r, u.ID) {
-		return
-	}
-	keys, err := a.keyStore.ListAuthPasskeys(r.Context(), u.ID)
-	if err != nil {
-		nativeError(w, 503, "passkeys unavailable")
-		return
-	}
-	if len(keys) == 0 {
-		nativeError(w, 401, "passkey login unavailable; use password")
-		return
-	}
-	ids := make([][]byte, 0, len(keys))
-	for _, key := range keys {
-		ids = append(ids, key.Credential.ID)
+	// No username: a discoverable ceremony. The authenticator picks the
+	// credential and the assertion identifies the account at finish time, so
+	// nothing here reads or reveals account state. A username is still accepted
+	// because credentials that were not stored as discoverable (older hardware
+	// keys) can only be asserted from an explicit allow list.
+	challenge := service.AuthChallenge{Purpose: "login", Remember: req.RememberMe}
+	var ids [][]byte
+	if username := normalizeNativeUsername(req.Username); username != "" {
+		u, err := a.store.GetAuthUser(r.Context(), username)
+		if err != nil {
+			nativeError(w, 503, "passkeys unavailable")
+			return
+		}
+		if u == nil || u.Disabled {
+			nativeError(w, 401, "passkey login unavailable; use password")
+			return
+		}
+		if !a.admitSecurityAccount(w, r, u.ID) {
+			return
+		}
+		keys, err := a.keyStore.ListAuthPasskeys(r.Context(), u.ID)
+		if err != nil {
+			nativeError(w, 503, "passkeys unavailable")
+			return
+		}
+		if len(keys) == 0 {
+			nativeError(w, 401, "passkey login unavailable; use password")
+			return
+		}
+		ids = make([][]byte, 0, len(keys))
+		for _, key := range keys {
+			ids = append(ids, key.Credential.ID)
+		}
+		challenge.UserID, challenge.Version = u.ID, u.SessionVersion
 	}
 	opts, data, err := a.passkey.BeginLogin(ids)
 	if err != nil {
 		nativeError(w, 503, "passkeys unavailable")
 		return
 	}
-	a.savePasskeyBegin(w, r, service.AuthChallenge{Purpose: "login", UserID: u.ID, Version: u.SessionVersion, Remember: req.RememberMe, Data: *data}, opts)
+	challenge.Data = *data
+	a.savePasskeyBegin(w, r, challenge, opts)
 }
 
 func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
@@ -262,12 +273,21 @@ func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
 			nativeError(w, 413, "invalid ceremony body")
 			return
 		}
-		u, err := a.store.GetAuthUserByID(r.Context(), c.UserID)
-		if err != nil {
-			nativeError(w, 503, "passkeys unavailable")
-			return
-		}
-		if u == nil || u.Disabled || u.SessionVersion != c.Version {
+		// A discoverable login ceremony has no user yet; it is resolved below
+		// from the credential the authenticator actually asserted. Every other
+		// ceremony names its account up front and must still match it exactly.
+		var u *service.AuthUser
+		if c.UserID != "" {
+			u, err = a.store.GetAuthUserByID(r.Context(), c.UserID)
+			if err != nil {
+				nativeError(w, 503, "passkeys unavailable")
+				return
+			}
+			if u == nil || u.Disabled || u.SessionVersion != c.Version {
+				nativeError(w, 401, "invalid ceremony")
+				return
+			}
+		} else if purpose != "login" {
 			nativeError(w, 401, "invalid ceremony")
 			return
 		}
@@ -322,10 +342,40 @@ func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
 			nativeError(w, 401, "invalid passkey response")
 			return
 		}
-		keys, err := a.keyStore.ListAuthPasskeys(r.Context(), c.UserID)
-		if err != nil {
-			nativeError(w, 503, "passkeys unavailable")
-			return
+		keys, version := []service.AuthPasskey(nil), c.Version
+		if c.UserID != "" {
+			keys, err = a.keyStore.ListAuthPasskeys(r.Context(), c.UserID)
+			if err != nil {
+				nativeError(w, 503, "passkeys unavailable")
+				return
+			}
+		} else {
+			// Discoverable: the asserted credential ID is unique, so it names
+			// the account. The version is read now rather than at begin, where
+			// it was not yet knowable; the counter update still refuses to
+			// commit if it changes underneath.
+			key, err := a.keyStore.GetAuthPasskeyByCredential(r.Context(), rawID)
+			if err != nil {
+				nativeError(w, 503, "passkeys unavailable")
+				return
+			}
+			if key == nil {
+				nativeError(w, 401, "invalid passkey response")
+				return
+			}
+			u, err = a.store.GetAuthUserByID(r.Context(), key.UserID)
+			if err != nil {
+				nativeError(w, 503, "passkeys unavailable")
+				return
+			}
+			if u == nil || u.Disabled {
+				nativeError(w, 401, "invalid passkey response")
+				return
+			}
+			if !a.admitSecurityAccount(w, r, u.ID) {
+				return
+			}
+			keys, version = []service.AuthPasskey{*key}, u.SessionVersion
 		}
 		for _, key := range keys {
 			if !bytes.Equal(rawID, key.Credential.ID) {
@@ -336,7 +386,7 @@ func (a *nativeAuth) passkeyFinish(purpose string) http.HandlerFunc {
 				nativeError(w, 401, "invalid passkey response")
 				return
 			}
-			if err := a.keyStore.AdvanceAuthPasskey(r.Context(), c.UserID, key.ID, c.Version, key.Credential.SignCount, result.NewSignCount, c.Data.Expires); err != nil {
+			if err := a.keyStore.AdvanceAuthPasskey(r.Context(), u.ID, key.ID, version, key.Credential.SignCount, result.NewSignCount, c.Data.Expires); err != nil {
 				if errors.Is(err, service.ErrAuthConflict) {
 					nativeError(w, 401, "passkey changed; restart login")
 				} else {

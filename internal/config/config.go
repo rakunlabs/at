@@ -215,11 +215,27 @@ type LLMConfig struct {
 	// Required for "gemini" type (get one from https://aistudio.google.com/apikey).
 	APIKey string `cfg:"api_key" json:"api_key" log:"-"`
 
+	// CredentialsJSON holds a Google Cloud service-account key file, verbatim,
+	// for the "vertex" and "vertex-gemini" types. It is encrypted at rest with
+	// the rest of the provider config, so unlike Application Default
+	// Credentials — which are resolved from the server process and are
+	// therefore installation-wide — a pasted key belongs to one provider row
+	// and one workspace, and can be rotated from the UI without touching the
+	// host. When empty those providers fall back to ADC, which is the previous
+	// and still supported behaviour. Ignored by every other provider type.
+	//
+	// The token exchange honours Proxy and InsecureSkipVerify, because a
+	// network that only reaches Google through a proxy does not reach
+	// oauth2.googleapis.com either. ADC resolved from the GCE metadata server
+	// is deliberately never proxied.
+	CredentialsJSON string `cfg:"credentials_json" json:"credentials_json,omitempty" log:"-"`
+
 	// BaseURL is the full endpoint URL for the provider's chat completions API.
 	// For "openai" type, defaults to "https://api.openai.com/v1/chat/completions".
 	// For "anthropic" type, defaults to "https://api.anthropic.com".
-	// For "vertex" type, required. Format:
+	// For "vertex" type, format:
 	//   https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi/chat/completions
+	// It is derived from the project and region when left empty.
 	// For "gemini" type, defaults to "https://generativelanguage.googleapis.com".
 	BaseURL string `cfg:"base_url" json:"base_url"`
 

@@ -280,30 +280,36 @@
         model: 'gemini-2.5-flash',
         models: ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-2.0-flash'],
       },
+      extraHeaders: [
+        { key: 'vertex_project', value: '' },
+        { key: 'vertex_region', value: 'us-central1' },
+      ],
       setupSteps: [
         'Prerequisites: A Google Cloud project with billing enabled and Vertex AI API enabled',
         'Enable the Vertex AI API at console.cloud.google.com/apis/library/aiplatform.googleapis.com',
-        'Install the Google Cloud CLI (gcloud) from cloud.google.com/sdk/docs/install',
-        'Run: gcloud auth application-default login',
-        'A browser window opens - sign in with your Google Cloud account and grant access',
-        'This creates a credentials file at ~/.config/gcloud/application_default_credentials.json',
-        'Set the Base URL below using your GCP project ID and preferred region',
-        'Leave the API Key field empty - authentication is handled automatically via ADC',
+        'In the console open IAM & Admin → Service Accounts and create one with the "Vertex AI User" role',
+        'Open the service account → Keys → Add key → Create new key → JSON, and download the file',
+        'Upload or paste that file into the Service account field below (the project is filled in from it)',
+        'Set vertex_region to the region you want; Base URL is derived from the project and region',
+        'Leave the API Key field empty — Google Cloud does not use one',
+        'Alternative: leave Service account empty to use the server\'s Application Default Credentials (gcloud auth application-default login, or the attached service account on GCE/Cloud Run/GKE)',
       ],
       setupLinks: [
+        { label: 'Service Accounts', url: 'https://console.cloud.google.com/iam-admin/serviceaccounts' },
         { label: 'Install gcloud', url: 'https://cloud.google.com/sdk/docs/install' },
         { label: 'Enable Vertex AI', url: 'https://console.cloud.google.com/apis/library/aiplatform.googleapis.com' },
         { label: 'Vertex AI Docs', url: 'https://cloud.google.com/vertex-ai/generative-ai/docs/multimodal/call-gemini-using-openai-library' },
         { label: 'Pricing', url: 'https://cloud.google.com/vertex-ai/generative-ai/pricing' },
       ],
       notes: [
-        'No API key needed - uses Google Application Default Credentials (ADC)',
-        'ADC tokens are automatically refreshed by the vertex provider',
-        'Base URL format (replace the two placeholders):',
-        '  https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT_ID}/locations/{LOCATION}/endpoints/openapi/chat/completions',
+        'No API key — either a service-account key on this provider, or the server\'s Application Default Credentials',
+        'A pasted key is encrypted at rest and used only by this provider, so each workspace can have its own Google identity; ADC is shared by the whole installation',
+        'Access tokens are fetched and refreshed automatically, through the Proxy configured below — which matters when only the proxy can reach Google',
+        'Base URL is optional. Left empty it becomes:',
+        '  https://{REGION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{REGION}/endpoints/openapi/chat/completions',
         'Common locations: us-central1, europe-west4, asia-northeast1',
         'Find your project ID: gcloud config get-value project',
-        'If running in GKE/Cloud Run, ADC uses the service account automatically',
+        'Give the service account the "Vertex AI User" (roles/aiplatform.user) role — an owner-level key is more than this needs',
       ],
     },
     {
@@ -352,12 +358,13 @@
       ],
       setupSteps: [
         'Prerequisites: A Google Cloud project with billing enabled and Vertex AI API enabled',
-        'Run: gcloud auth application-default login (same ADC setup as the "Vertex AI" preset)',
-        'Fill the vertex_project extra header with your GCP project ID',
+        'Upload or paste a service-account JSON key in the Service account field below (same key as the "Vertex AI" preset)',
+        'vertex_project is filled in from the key; set it by hand if you use ADC instead',
         'Fill the vertex_region extra header with your preferred region (e.g. us-central1)',
         'Leave the API Key and Base URL fields empty',
       ],
       setupLinks: [
+        { label: 'Service Accounts', url: 'https://console.cloud.google.com/iam-admin/serviceaccounts' },
         { label: 'Install gcloud', url: 'https://cloud.google.com/sdk/docs/install' },
         { label: 'Enable Vertex AI', url: 'https://console.cloud.google.com/apis/library/aiplatform.googleapis.com' },
         { label: 'Pricing', url: 'https://cloud.google.com/vertex-ai/generative-ai/pricing' },
@@ -365,8 +372,9 @@
       notes: [
         'Uses the NATIVE Gemini API on Vertex (not the OpenAI-compatible endpoint)',
         'Keeps Gemini-only features: thinkingConfig, safetySettings, google search grounding',
-        'Requires vertex_project + vertex_region extra headers',
-        'No API key needed — uses Google Application Default Credentials (ADC)',
+        'Requires vertex_project; vertex_region defaults to us-central1',
+        'Base URL is derived from the region when left empty',
+        'No API key — either a service-account key on this provider, or the server\'s Application Default Credentials',
       ],
     },
     {
@@ -977,6 +985,7 @@
 
   // Config viewer state
   let configViewProvider = $state<ProviderRecord | null>(null);
+  let modelsViewProvider = $state<ProviderRecord | null>(null);
   let configFormat = $state<'yaml' | 'json'>('yaml');
   let configCopied = $state(false);
 
@@ -997,6 +1006,17 @@
   let formInsecureSkipVerify = $state(false);
   let formHasStoredKey = $state(false);
   let formExtraHeaders = $state<{ key: string; value: string }[]>([]);
+
+  // ─── Google service-account credentials (vertex / vertex-gemini) ───
+  // formCredentialsJSON holds a newly pasted or uploaded key only. A stored one
+  // reads back as the "***" sentinel, so it is tracked as a boolean and the
+  // textarea stays empty — submitting the sentinel would store it as the key.
+  let formCredentialsJSON = $state('');
+  let formHasStoredCredentials = $state(false);
+  let clearStoredCredentials = $state(false);
+  let credentialsError = $state('');
+  let credentialsFileInput = $state<HTMLInputElement | null>(null);
+  const isVertexType = $derived(formType === 'vertex' || formType === 'vertex-gemini');
   let discoveringModels = $state(false);
   let discoveringEmbeddingModels = $state(false);
 
@@ -1085,6 +1105,11 @@
     formInsecureSkipVerify = false;
     formHasStoredKey = false;
     formExtraHeaders = [];
+    formCredentialsJSON = '';
+    formHasStoredCredentials = false;
+    clearStoredCredentials = false;
+    credentialsError = '';
+    if (credentialsFileInput) credentialsFileInput.value = '';
     formRateLimitRPM = '';
     formRateLimitITPM = '';
     formRateLimitMaxConcurrent = '';
@@ -1138,6 +1163,7 @@
     // leave it empty so buildConfig() omits it and the backend preserves the real value.
     formApiKey = rec.config.api_key === '***' ? '' : (rec.config.api_key || '');
     formHasStoredKey = !!rec.config.api_key;
+    formHasStoredCredentials = !!rec.config.credentials_json;
     formBaseUrl = rec.config.base_url || '';
     formModel = rec.config.model;
     formModels = [...(rec.config.models || [])];
@@ -1171,6 +1197,9 @@
       shared_with_all_workspaces: formShared,
     };
     if (formApiKey) cfg.api_key = formApiKey;
+    // Only a key the operator actually supplied is sent; an omitted field
+    // preserves the stored one, and removal travels as its own flag.
+    if (isVertexType && formCredentialsJSON.trim()) cfg.credentials_json = formCredentialsJSON.trim();
     if (formBaseUrl) cfg.base_url = formBaseUrl;
     if (formAuthType) cfg.auth_type = formAuthType;
     if (formProxy) cfg.proxy = formProxy;
@@ -1220,10 +1249,15 @@
       return;
     }
 
+    if (credentialsError) {
+      addToast(credentialsError, 'warn');
+      return;
+    }
+
     try {
       const cfg = buildConfig();
       if (editingKey) {
-        await updateProvider(editingKey, cfg);
+        await updateProvider(editingKey, cfg, clearStoredCredentials);
         addToast(`Provider "${editingKey}" updated`);
       } else {
         await createProvider(formKey, cfg);
@@ -1277,6 +1311,92 @@
 
   function removeHeader(index: number) {
     formExtraHeaders = formExtraHeaders.filter((_, i) => i !== index);
+  }
+
+  // ─── Google service-account credentials ───
+
+  function setHeaderIfEmpty(key: string, value: string) {
+    if (!value) return;
+    const existing = formExtraHeaders.find((h) => h.key === key);
+    if (existing) {
+      if (!existing.value) existing.value = value;
+      return;
+    }
+    formExtraHeaders = [...formExtraHeaders, { key, value }];
+  }
+
+  // Validated in the browser as well as on the server: the failure this catches
+  // is the wrong file from the Cloud console, and saying so before a round-trip
+  // is the difference between a typo and a support ticket. The messages match
+  // the server's so the two never disagree.
+  function applyCredentialsJSON(raw: string) {
+    formCredentialsJSON = raw;
+    credentialsError = '';
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+
+    let parsed: any;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      credentialsError = 'Not valid JSON — paste the whole key file, including the outer braces.';
+      return;
+    }
+    if (parsed?.installed || parsed?.web) {
+      credentialsError =
+        'This is an OAuth client secret file, not a service-account key. In the Cloud console open IAM & Admin → Service Accounts → your account → Keys → Add key → JSON.';
+      return;
+    }
+    if (parsed?.type === 'service_account') {
+      const missing = ['project_id', 'client_email', 'private_key'].filter((f) => !parsed[f]);
+      if (missing.length > 0) {
+        credentialsError = `Service-account key is missing ${missing.join(', ')}.`;
+        return;
+      }
+      // The key names the only project it can reach, so the provider does not
+      // have to be told twice.
+      setHeaderIfEmpty('vertex_project', parsed.project_id);
+      setHeaderIfEmpty('vertex_region', 'us-central1');
+      clearStoredCredentials = false;
+      return;
+    }
+    if (parsed?.type === 'authorized_user') {
+      clearStoredCredentials = false;
+      return;
+    }
+    // Refused for the same reason the server refuses them: these files name a
+    // URL or command the server would fetch the real credential from, which is
+    // not something a provider form should accept.
+    if (
+      parsed?.type === 'external_account' ||
+      parsed?.type === 'external_account_authorized_user' ||
+      parsed?.type === 'impersonated_service_account'
+    ) {
+      credentialsError = `Credentials of type "${parsed.type}" are not accepted here: they tell the server to fetch the real credential from a URL or command named inside the file. Use a service-account key, or configure workload identity federation on the server itself.`;
+      return;
+    }
+    credentialsError = parsed?.type
+      ? `Unsupported credentials type "${parsed.type}" (expected service_account).`
+      : 'Credentials JSON has no "type" field; a service-account key has "type": "service_account".';
+  }
+
+  async function onCredentialsFile(event: Event) {
+    const input = event.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      applyCredentialsJSON(await file.text());
+    } catch {
+      credentialsError = 'Could not read that file.';
+    }
+    // Allow re-picking the same file after a failed parse.
+    input.value = '';
+  }
+
+  function discardCredentialsInput() {
+    formCredentialsJSON = '';
+    credentialsError = '';
+    if (credentialsFileInput) credentialsFileInput.value = '';
   }
 
   function addModel() {
@@ -1588,6 +1708,20 @@
     configCopied = true;
     addToast('Config copied to clipboard');
     setTimeout(() => { configCopied = false; }, 2000);
+  }
+
+  // ─── Models Viewer ───
+
+  // The model list is unbounded — a discovered OpenAI-compatible provider
+  // carries dozens of IDs — so joining it into the cell made a single row
+  // taller and wider than the rest of the table and pushed Base URL off the
+  // edge. The cell keeps a count; the list itself lives in a dialog.
+  function openModelsView(rec: ProviderRecord) {
+    modelsViewProvider = rec;
+  }
+
+  function closeModelsView() {
+    modelsViewProvider = null;
   }
 </script>
 
@@ -2059,9 +2193,79 @@
               type="password"
               autocomplete="off"
               bind:value={formApiKey}
-              placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : activePreset?.id === 'vertex' ? '(not needed - uses ADC)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'google-ai' ? 'AIza...' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
+              placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : isVertexType ? '(not used - see Service account below)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'google-ai' ? 'AIza...' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
               class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
             />
+          </div>
+        {/if}
+
+        <!-- Google service-account key (vertex / vertex-gemini) -->
+        {#if isVertexType}
+          <div class="grid grid-cols-4 gap-3 items-start">
+            <span class="pt-1.5 text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Service account</span>
+            <div class="col-span-3 space-y-2">
+              {#if formHasStoredCredentials && !formCredentialsJSON}
+                <div class="flex flex-wrap items-center gap-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-xs">
+                  {#if clearStoredCredentials}
+                    <span class="text-amber-700 dark:text-amber-400">
+                      The stored key will be removed on save; this provider will use the server's Application Default Credentials.
+                    </span>
+                    <button type="button" onclick={() => (clearStoredCredentials = false)} class="underline">Keep it</button>
+                  {:else}
+                    <KeyRound size={13} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
+                    <span class="text-gray-600 dark:text-dark-text-secondary">A service-account key is stored and encrypted. Upload or paste another to replace it.</span>
+                    <button type="button" onclick={() => (clearStoredCredentials = true)} class="underline text-red-600 dark:text-red-400">Remove</button>
+                  {/if}
+                </div>
+              {/if}
+
+              <div class="flex flex-wrap items-center gap-2">
+                <input
+                  bind:this={credentialsFileInput}
+                  type="file"
+                  accept="application/json,.json"
+                  onchange={onCredentialsFile}
+                  class="hidden"
+                />
+                <button
+                  type="button"
+                  onclick={() => credentialsFileInput?.click()}
+                  class="inline-flex items-center gap-1.5 border border-gray-300 dark:border-dark-border-subtle px-2.5 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
+                >
+                  <DownloadCloud size={13} class="shrink-0" />
+                  Upload key file
+                </button>
+                {#if formCredentialsJSON}
+                  <button type="button" onclick={discardCredentialsInput} class="text-xs underline text-gray-500 dark:text-dark-text-muted">
+                    Discard
+                  </button>
+                {/if}
+              </div>
+
+              <textarea
+                id="form-credentials-json"
+                rows="4"
+                spellcheck="false"
+                autocomplete="off"
+                value={formCredentialsJSON}
+                oninput={(e) => applyCredentialsJSON((e.currentTarget as HTMLTextAreaElement).value)}
+                placeholder={formHasStoredCredentials
+                  ? '(stored - leave blank to keep the current key)'
+                  : '{"type":"service_account","project_id":"...","private_key":"..."}'}
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              ></textarea>
+
+              {#if credentialsError}
+                <p class="text-xs text-red-600 dark:text-red-400">{credentialsError}</p>
+              {:else}
+                <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+                  Optional. The key is encrypted at rest and belongs to this provider, so each workspace can use its own
+                  Google identity. Leave it empty to use the server's Application Default Credentials
+                  (<span class="font-mono">GOOGLE_APPLICATION_CREDENTIALS</span>, gcloud, or the GCE metadata server),
+                  which every workspace shares. The token exchange goes through the Proxy set below.
+                </p>
+              {/if}
+            </div>
           </div>
         {/if}
 
@@ -2072,8 +2276,8 @@
             id="form-baseurl"
             type="text"
             bind:value={formBaseUrl}
-            placeholder={activePreset?.id === 'vertex'
-              ? 'https://{LOCATION}-aiplatform.googleapis.com/v1/projects/{PROJECT}/locations/{LOCATION}/endpoints/openapi/chat/completions'
+            placeholder={isVertexType
+              ? '(derived from the project and region below)'
               : activePreset?.id === 'google-ai'
               ? '(default: https://generativelanguage.googleapis.com)'
               : 'https://api.example.com/v1/chat/completions'}
@@ -2373,6 +2577,8 @@
       {/snippet}
 
       {#snippet row(rec)}
+        {@const chatModels = rec.config.models || []}
+        {@const embeddingModels = rec.config.embedding_models || []}
         <tr
           class={[
             'transition-colors',
@@ -2398,12 +2604,22 @@
           </td>
           <td class="px-4 py-2.5 font-mono text-xs text-gray-600 dark:text-dark-text-secondary">{rec.config.model}</td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">
-            {(rec.config.models || []).length > 0 ? (rec.config.models || []).join(', ') : '-'}
-            {#if (rec.config.embedding_models || []).length > 0}
-              <div class="mt-0.5 flex flex-wrap items-center gap-1">
-                <span class="px-1 py-0.5 text-[10px] uppercase tracking-wide bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800">emb</span>
-                <span>{(rec.config.embedding_models || []).join(', ')}</span>
-              </div>
+            {#if chatModels.length === 0 && embeddingModels.length === 0}
+              -
+            {:else}
+              <button
+                onclick={() => openModelsView(rec)}
+                class="inline-flex items-center gap-1.5 whitespace-nowrap border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs text-gray-600 dark:text-dark-text-secondary transition-colors hover:bg-gray-100 dark:hover:bg-dark-highest focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                title="Show every model this provider advertises"
+              >
+                <Layers size={12} class="shrink-0" />
+                {chatModels.length} {chatModels.length === 1 ? 'model' : 'models'}
+                {#if embeddingModels.length > 0}
+                  <span class="px-1 py-0.5 text-[10px] uppercase tracking-wide bg-violet-50 dark:bg-violet-900/20 text-violet-600 dark:text-violet-400 border border-violet-200 dark:border-violet-800">
+                    +{embeddingModels.length} emb
+                  </span>
+                {/if}
+              </button>
             {/if}
           </td>
           <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted truncate max-w-48" title={rec.config.base_url || ''}>
@@ -2533,6 +2749,73 @@
         <div class="px-4 py-2.5 border-t border-gray-100 dark:border-dark-border bg-white dark:bg-dark-surface">
           <p class="text-xs text-gray-500 dark:text-dark-text-muted">
             Add this to your <span class="font-mono font-medium">at.yaml</span> configuration file to define this provider.
+          </p>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- Models Modal -->
+  {#if modelsViewProvider}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 bg-black/40 dark:bg-black/60 z-50 flex items-center justify-center p-4"
+      onkeydown={(e) => { if (e.key === 'Escape') closeModelsView(); }}
+      onclick={(e) => { if (e.target === e.currentTarget) closeModelsView(); }}
+    >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <div class="bg-white dark:bg-dark-surface shadow-xl w-full max-w-lg overflow-hidden" onclick={(e) => e.stopPropagation()}>
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-elevated">
+          <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
+            Models: <span class="font-mono">{modelsViewProvider.key}</span>
+          </span>
+          <button
+            onclick={closeModelsView}
+            aria-label="Close model list"
+            class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+          >
+            <X size={14} />
+          </button>
+        </div>
+
+        <div class="max-h-[60vh] overflow-y-auto p-4 space-y-4">
+          {#if (modelsViewProvider.config.models || []).length > 0}
+            <div>
+              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-text-muted">
+                Chat models ({(modelsViewProvider.config.models || []).length})
+              </p>
+              <ul class="border border-gray-200 dark:border-dark-border divide-y divide-gray-100 dark:divide-dark-border">
+                {#each modelsViewProvider.config.models || [] as model (model)}
+                  <li class="flex items-center justify-between gap-2 px-3 py-1.5 font-mono text-xs text-gray-700 dark:text-dark-text-secondary">
+                    <span class="break-all">{model}</span>
+                    {#if model === modelsViewProvider.config.model}
+                      <span class="shrink-0 border border-gray-300 dark:border-dark-border-subtle px-1.5 py-0.5 font-sans text-[10px] uppercase tracking-wide text-gray-500 dark:text-dark-text-muted">
+                        default
+                      </span>
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+
+          {#if (modelsViewProvider.config.embedding_models || []).length > 0}
+            <div>
+              <p class="mb-2 text-xs font-medium uppercase tracking-wider text-violet-600 dark:text-violet-400">
+                Embedding models ({(modelsViewProvider.config.embedding_models || []).length})
+              </p>
+              <ul class="border border-violet-200 dark:border-violet-800 divide-y divide-violet-100 dark:divide-violet-900/40">
+                {#each modelsViewProvider.config.embedding_models || [] as model (model)}
+                  <li class="px-3 py-1.5 font-mono text-xs break-all text-gray-700 dark:text-dark-text-secondary">{model}</li>
+                {/each}
+              </ul>
+            </div>
+          {/if}
+
+          <!-- The list is advisory: the gateway forwards an unlisted model to the
+               provider anyway, so an absent entry is not a rejection. -->
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+            This list is what the gateway advertises in <span class="font-mono">/gateway/v1/models</span>. Requests naming a model that is not listed are still forwarded to the provider.
           </p>
         </div>
       </div>

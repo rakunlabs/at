@@ -6,6 +6,7 @@ import {
   FEATURE_EXTERNAL_CONNECTIONS,
   FEATURE_FILES,
   FEATURE_GOALS_PROJECTS,
+  FEATURE_GUIDES,
   FEATURE_INTEGRATION_PACKS,
   FEATURE_LLM_TRACES,
   FEATURE_MARKETPLACES,
@@ -33,9 +34,11 @@ import { isFeatureEnabled } from '@/lib/store/features.svelte';
  *
  * Keys are route prefixes; the longest match wins, so `/workflows/:id` inherits
  * `/workflows`. Routes absent from this map are never feature-gated — that is
- * deliberate for `/`, `/docs`, `/users` and everything under `/settings` except
- * the entries listed here, because those are how an administrator gets back to
- * the Features page after switching something off.
+ * deliberate for `/`, `/users` and everything under `/settings` except the
+ * entries listed here, because those are how an administrator gets back to the
+ * Features page after switching something off. `/docs` is *not* one of those
+ * escape hatches: its API answers 404 once `guides` is off, so leaving the page
+ * and its sidebar link in place only produced a load error.
  *
  * Note that `webhook_triggers` and `cron_triggers` gate *execution*, not
  * management, so the Webhooks and Schedules pages map to the builder feature:
@@ -52,6 +55,7 @@ export const routeFeatures: Record<string, string> = {
   '/agents': FEATURE_AGENTS,
   '/skills': FEATURE_SKILLS,
   '/marketplaces': FEATURE_MARKETPLACES,
+  '/docs': FEATURE_GUIDES,
   '/variables': FEATURE_VARIABLES,
   '/node-configs': FEATURE_WORKFLOW_BUILDER,
   '/workflows': FEATURE_WORKFLOW_BUILDER,

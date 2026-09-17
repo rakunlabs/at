@@ -150,7 +150,7 @@ send it automatically; scripts must set it explicitly. Do not use GET for writes
 
 | Endpoint | Access | Body / result |
 | --- | --- | --- |
-| `GET /auth/status` | Public | `{ "enabled": true, "setup_required": false, "local_login": true, "display_title": "AT", "signup_admission": "invite_only", "passkeys": true, "remember_me": true, "passkey_login": "username-first", "mobile_auth": {...} }`; DB failure returns 503 |
+| `GET /auth/status` | Public | `{ "enabled": true, "setup_required": false, "local_login": true, "display_title": "AT", "signup_admission": "invite_only", "passkeys": true, "remember_me": true, "passkey_login": "discoverable", "mobile_auth": {...} }`; DB failure returns 503 |
 | `POST /auth/setup` | Unclaimed installation + exact Origin/Host | `{ "username": "...", "password": "...", "origin": "https://at.example.com" }`; local first admin, 201; no session |
 | `GET /auth/settings` | Platform admin | Versioned auth product policy |
 | `PUT /auth/settings` | Platform admin + Origin | Full policy with expected `version`; 200 new policy, stale/lockout 409 |
@@ -497,11 +497,23 @@ This is **web-first passwordless authentication**, not a second factor added to
 password login. Ada auth's published `v0.5.1` WebAuthn engine performs all
 attestation and assertion verification. AT requests and enforces user verification
 (PIN/biometric) for enrollment and login, and requests `residentKey: preferred`.
-Login is username-first, including for discoverable keys, so older non-resident
-security keys remain usable. There is no anonymous/discoverable account chooser
-endpoint in this slice. Unknown, disabled, or keyless accounts receive the same
-401 fallback message; success/options reveal that the supplied username has keys.
-This is not an account-enumeration-resistant discovery API.
+
+Login is **discoverable by default**: `login/begin` with no username issues a
+challenge with an empty `allowCredentials`, the authenticator offers the accounts
+it holds for this RP, and the asserted credential ID — `UNIQUE` in
+`auth_passkeys` — identifies the account at `login/finish`. Such a ceremony has
+no account to record, so `auth_challenges.user_id` is nullable (migration
+`54_passkey_discoverable.sql`); the account version is read at finish instead of
+at begin, and the counter CAS still refuses to commit if it changed underneath.
+Per-account admission (`admitSecurityAccount`) runs once the account is known;
+until then only the global login rate limit and the bounded challenge pool apply.
+
+A username is still accepted and keeps the previous username-first behaviour, so
+older non-resident security keys — whose credentials can only be asserted from an
+explicit allow list — remain usable. On that path, unknown, disabled, or keyless
+accounts receive the same 401 fallback message, but success/options do reveal
+that the supplied username has keys: it is not an account-enumeration-resistant
+API. The usernameless path reveals nothing, because it reads no account state.
 
 All paths below include the configured BasePath in production, e.g.
 `/at/auth/passkeys/login/begin`. All POSTs require exact `Origin` and
@@ -514,7 +526,7 @@ session token, private key, session version, or server session data in responses
 | `GET /auth/passkeys` | Live own session; no body | `200 {"items":[{"id":"01...","name":"Laptop","created_at":"RFC3339 timestamp","last_used_at":null}]}`; last-used becomes an RFC3339 timestamp after successful assertion verification/CAS |
 | `POST /auth/passkeys/enroll/begin` | Live own session; `{"name":"Laptop","current_password":"..."}` | `200 {"publicKey": <PublicKeyCredentialCreationOptions JSON>}` and ceremony cookie |
 | `POST /auth/passkeys/enroll/finish` | Same live session and ceremony cookie; **raw WebAuthn registration credential JSON**, not a wrapper | `204`, no body; session remains unchanged |
-| `POST /auth/passkeys/login/begin` | `{"username":"operator@example.com","remember_me":false}`; remember defaults false | `200 {"publicKey": <PublicKeyCredentialRequestOptions JSON>}` and ceremony cookie |
+| `POST /auth/passkeys/login/begin` | `{"remember_me":false}` for a discoverable ceremony, or `{"username":"operator@example.com","remember_me":false}` to scope it to one account; remember defaults false | `200 {"publicKey": <PublicKeyCredentialRequestOptions JSON>}` and ceremony cookie; `allowCredentials` is absent without a username |
 | `POST /auth/passkeys/login/finish` | Ceremony cookie; **raw WebAuthn assertion credential JSON**, not a wrapper | `200` same identity DTO as password login (`subject`, `name`, `provider`, optional `roles`), plus fresh session cookie |
 | `POST /auth/passkeys/{id}/delete` | Live own session; `{"current_password":"..."}` | `204`; increments account version, revokes **all** that user's sessions and clears this browser's session cookie; UI must return to login |
 
@@ -662,7 +674,10 @@ deadline reaches both admissions and prevents a session cookie when it expires
 between them.
 
 The web login includes a default-unchecked remember-me control and a separate
-username-first passkey button. Own passkeys can be enrolled, listed and deleted
+passkey button. The button needs no username — it sits outside the local
+password form and is reachable even while that form is collapsed — and forwards
+a username only when one happens to have been typed, for non-resident keys.
+Own passkeys can be enrolled, listed and deleted
 alongside password management on the Users page, or on the non-admin account
 screen. Enrollment/deletion requires the current password; deletion signs the
 user out everywhere. Unsupported browser contexts retain password login.
@@ -764,7 +779,7 @@ only when native mobile auth is available:
   "enabled": true,
   "passkeys": true,
   "remember_me": true,
-  "passkey_login": "username-first",
+  "passkey_login": "discoverable",
   "mobile_auth": {
     "version": 1,
     "issuer": "https://at.example.com/at",

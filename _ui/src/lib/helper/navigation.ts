@@ -48,3 +48,11 @@ export const configurationLinks = [
   { path: '/pricing', label: 'Pricing', description: 'Model pricing configuration' },
   { path: '/settings/system', label: 'System', description: 'Encryption and build information' },
 ];
+// The settings layout covers `/settings/*` plus the configuration pages it
+// links to, which live at top-level routes. The shell uses this to swap in the
+// settings sidebar and the main sidebar to mark Settings as the current
+// section; they kept separate copies of the expression, so a link added here
+// changed the layout without changing what looked selected.
+export function inSettingsArea(route: string) {
+  return route.startsWith('/settings') || configurationLinks.some(l => l.path === route);
+}

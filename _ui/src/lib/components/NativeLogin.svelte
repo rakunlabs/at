@@ -35,6 +35,18 @@
     catch (e) { if (!controller.signal.aborted) error = popupFlow && e instanceof Error ? e.message : mfa ? 'The code could not be verified. Try a fresh authenticator or unused backup code, or restart sign-in.' : loginErrorMessage(e); }
     finally { busy = false; password = code = ''; }
   }
+  // Passkeys are discoverable: the authenticator lists the accounts it holds for
+  // this site, so nothing has to be typed first. A username is still forwarded
+  // when one was entered, because a credential that was not stored as
+  // discoverable can only be asserted from an explicit allow list.
+  function passkeyLogin() {
+    void run(async () => {
+      const options = await beginPasskeyLogin(username.trim(), remember, controller.signal);
+      const credential = await startAuthentication(options.publicKey, controller.signal);
+      if (!credential) throw new Error('Cancelled');
+      return finishPasskeyLogin(credential, controller.signal);
+    });
+  }
   function external(id: string) {
     const popup = externalPopup(id, { purpose: 'login', remember_me: remember, ...(location.hash.startsWith('#/mobile-authorize?') ? { mobile_request_id: new URLSearchParams(location.hash.split('?')[1]).get('request_id') } : {}) }, controller.signal);
     void run(async () => { const result = await popup; continuation = result.continue || ''; if ('subject' in result.result && result.result.subject) await authSession.adoptExternalLogin(result.result.subject); return result.result as LoginResult; }, true);
@@ -72,14 +84,13 @@
         <label>Password<input type="password" bind:value={password} required autocomplete="current-password" /></label>
         <label><input type="checkbox" bind:checked={remember} disabled={busy} />Remember this sign-in</label>
         <button class="settings-primary w-full min-h-11 sm:min-h-0" disabled={busy}>{busy ? 'Signing in…' : 'Sign in with password'}</button>
-        {#if storeAuth.passkeys && !secondaryOrigin}<button type="button" class="settings-button w-full min-h-11 sm:min-h-0" disabled={busy || !isWebAuthnSupported()} onclick={() => {
-          if (!username.trim()) { error = 'Enter your username before using a passkey.'; return; }
-          void run(async () => { const options = await beginPasskeyLogin(username, remember, controller.signal); const credential = await startAuthentication(options.publicKey, controller.signal); if (!credential) throw new Error('Cancelled'); return finishPasskeyLogin(credential, controller.signal); });
-        }}>Sign in with passkey</button>{/if}
       </form>
     {:else}
       <label><input type="checkbox" bind:checked={remember} disabled={busy} />Remember this sign-in</label>
       {#if collapsed}<p class="settings-note">Signing in with a username and password is still available from the Local sign-in control above.</p>{/if}
+    {/if}
+    {#if storeAuth.passkeys && !secondaryOrigin}
+      <button type="button" class="settings-button w-full min-h-11 sm:min-h-0" disabled={busy || !isWebAuthnSupported()} onclick={passkeyLogin}>Sign in with passkey</button>
     {/if}
     {#if secondaryOrigin}
       <div class="border-t border-gray-100 dark:border-dark-border pt-4 space-y-2">

@@ -52,6 +52,17 @@ func WithRateLimiter(l *ratelimit.Limiter) Option {
 	}
 }
 
+// WithTokenSource supplies the OAuth token source instead of letting New
+// resolve Application Default Credentials. The caller owns the decision so a
+// provider row carrying its own service-account key authenticates as that
+// account — and through that provider's proxy — rather than as the server
+// host, which every workspace shares.
+func WithTokenSource(ts oauth2.TokenSource) Option {
+	return func(p *Provider) {
+		p.tokenSource = ts
+	}
+}
+
 // New creates a Vertex AI provider.
 //
 // endpointURL is the full OpenAI-compatible chat completions endpoint, e.g.:
@@ -59,19 +70,16 @@ func WithRateLimiter(l *ratelimit.Limiter) Option {
 //	https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/endpoints/openapi/chat/completions
 //
 // proxy is an optional HTTP/HTTPS/SOCKS5 proxy URL. If empty, no proxy is used.
-// Authentication uses Google Application Default Credentials (ADC).
-// Set GOOGLE_APPLICATION_CREDENTIALS env var to your service account key file,
-// or run on GCE/Cloud Run/GKE where ADC is automatically available.
+//
+// Authentication comes from WithTokenSource when the caller supplies one —
+// that is the path a provider row with its own service-account key takes.
+// Without it, New falls back to Google Application Default Credentials
+// resolved from this process: GOOGLE_APPLICATION_CREDENTIALS, the gcloud
+// well-known file, or the GCE/Cloud Run/GKE metadata server.
 func New(model, endpointURL, proxy string, insecureSkipVerify bool, opts ...Option) (*Provider, error) {
 	if endpointURL == "" {
 		return nil, fmt.Errorf("vertex provider requires a base_url with the full endpoint URL, e.g.: " +
 			"https://us-central1-aiplatform.googleapis.com/v1/projects/PROJECT/locations/LOCATION/endpoints/openapi/chat/completions")
-	}
-
-	// Use Application Default Credentials for automatic token refresh.
-	ts, err := google.DefaultTokenSource(context.Background(), scope)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get Google credentials (set GOOGLE_APPLICATION_CREDENTIALS or run on GCE): %w", err)
 	}
 
 	clientOpts := []ok.OptionClientFn{
@@ -95,12 +103,23 @@ func New(model, endpointURL, proxy string, insecureSkipVerify bool, opts ...Opti
 	p := &Provider{
 		Model:       model,
 		EndpointURL: endpointURL,
-		tokenSource: ts,
 		client:      client,
 	}
 	for _, o := range opts {
 		o(p)
 	}
+
+	// Options are applied first so an explicit token source wins: resolving ADC
+	// unconditionally would fail provider construction on a host that has none,
+	// even for a provider that carries its own key and never needed it.
+	if p.tokenSource == nil {
+		ts, err := google.DefaultTokenSource(context.Background(), scope)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get Google credentials (paste a service-account key into the provider, set GOOGLE_APPLICATION_CREDENTIALS, or run on GCE): %w", err)
+		}
+		p.tokenSource = ts
+	}
+
 	return p, nil
 }
 

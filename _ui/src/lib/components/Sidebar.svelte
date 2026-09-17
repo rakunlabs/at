@@ -1,12 +1,12 @@
 <script lang="ts">
   import BrandLogo from './BrandLogo.svelte';
   import { location } from 'svelte-spa-router';
-  import { routeAllowed, configurationLinks } from '../helper/navigation';
+  import { routeAllowed, inSettingsArea } from '../helper/navigation';
   import { onMount } from 'svelte';
   import { loadFeatures } from '../store/features.svelte';
   import { routeFeatureEnabled } from '../helper/feature-routes';
   onMount(() => { void loadFeatures().catch(() => {}); });
-  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, BarChart3, TerminalSquare } from 'lucide-svelte';
+  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, Tally5, TerminalSquare } from 'lucide-svelte';
   const items = [
     {path:'/',label:'Home',icon:House},
     {path:'/playground',label:'Playground',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
@@ -15,14 +15,36 @@
     {path:'/runs',label:'Runs',icon:Activity}, {path:'/skills',label:'Skills',icon:WandSparkles},
     {path:'/bots',label:'Bots',icon:Radio}, {path:'/studio',label:'Studio',icon:Clapperboard},
     {path:'/files',label:'Files',icon:FolderOpen}, {path:'/integrations',label:'Integrations',icon:Package},
-    {path:'/usage',label:'Usage',icon:BarChart3}, {path:'/llm-calls',label:'Traces',icon:Activity},
+    {path:'/usage',label:'Usage',icon:Tally5}, {path:'/llm-calls',label:'Traces',icon:Activity},
     {path:'/terminal',label:'Terminal',icon:TerminalSquare},
+  ];
+  // One selection rule for every link, including the bottom nav: you are inside
+  // a section whenever the route is the link or below it, so `/tasks/:id` keeps
+  // Tasks marked and a configuration page keeps Settings marked — the settings
+  // layout swaps the page area for its own sidebar, which otherwise left the
+  // shell looking as though nothing was selected. `aria-current` follows the
+  // same rule as the styling; it used to match only the exact path, so assistive
+  // technology was told nothing was current on every detail route.
+  function navActive(path: string) {
+    if (path === '/settings') return inSettingsArea($location);
+    return $location === path || (path !== '/' && $location.startsWith(path + '/'));
+  }
+  const navClass = (active: boolean) => [
+    'flex items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent',
+    active
+      ? 'bg-gray-100 dark:bg-dark-elevated font-semibold'
+      : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated',
   ];
 </script>
 <aside class="app-sidebar border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col h-full overflow-y-auto">
   <a href="#/" class="flex items-center gap-2 px-3 py-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-accent"><BrandLogo decorative />AT</a>
   <nav aria-label="Main navigation" class="flex-1 px-2 space-y-1 pb-4">
-    {#each items.filter(item => routeAllowed(item.path) && routeFeatureEnabled(item.path)) as item}<a href={`#${item.path}`} aria-current={$location === item.path ? 'page' : undefined} class={['flex items-center gap-2 rounded-md px-2 py-2 text-xs focus-visible:outline-2 focus-visible:outline-accent', $location === item.path || (item.path !== '/' && $location.startsWith(item.path + '/')) ? 'bg-gray-100 dark:bg-dark-elevated font-semibold' : 'text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}><item.icon size={15} /><span>{item.label}</span></a>{/each}
+    <!-- Keyed by path: the list shrinks once the feature catalog loads (everything
+         reads enabled until then), and an unkeyed each reuses each index's DOM —
+         which updated the label but left the previous entry's icon behind. -->
+    {#each items.filter(item => routeAllowed(item.path) && routeFeatureEnabled(item.path)) as item (item.path)}<a href={`#${item.path}`} aria-current={navActive(item.path) ? 'page' : undefined} class={navClass(navActive(item.path))}><item.icon size={15} /><span>{item.label}</span></a>{/each}
   </nav>
-  <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1"><a href="#/docs" class="flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-gray-100 dark:hover:bg-dark-elevated"><BookOpen size={15} />Documentation</a><a href="#/settings" aria-current={$location.startsWith('/settings') || configurationLinks.some(l => l.path === $location) ? 'page' : undefined} class="flex items-center gap-2 rounded-md px-2 py-2 text-xs hover:bg-gray-100 dark:hover:bg-dark-elevated"><Settings size={15} />Settings</a></nav>
+  <!-- Settings is never gated (it is the way back to the Features page), but
+       Documentation is: its guides API answers 404 once the feature is off. -->
+  <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1">{#if routeFeatureEnabled('/docs')}<a href="#/docs" aria-current={navActive('/docs') ? 'page' : undefined} class={navClass(navActive('/docs'))}><BookOpen size={15} />Documentation</a>{/if}<a href="#/settings" aria-current={navActive('/settings') ? 'page' : undefined} class={navClass(navActive('/settings'))}><Settings size={15} />Settings</a></nav>
 </aside>

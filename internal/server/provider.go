@@ -9,6 +9,7 @@ import (
 
 	"github.com/rakunlabs/at/internal/config"
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/llm/gcp"
 	"github.com/rakunlabs/at/internal/service/workflow"
 	"github.com/rakunlabs/query"
 )
@@ -89,6 +90,14 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 // providerRequest is the JSON body for creating/updating a provider.
 type providerRequest struct {
 	Config config.LLMConfig `json:"config"`
+
+	// ClearCredentialsJSON removes a stored Google service-account key and
+	// returns the provider to Application Default Credentials. It is a separate
+	// flag rather than "an empty credentials_json means delete it", because
+	// every writer here — the UI, the MCP provider_update tool, a script —
+	// submits the whole config, and a redacted secret it never saw would then
+	// be wiped by an edit to an unrelated field.
+	ClearCredentialsJSON bool `json:"clear_credentials_json,omitempty"`
 }
 
 // validateRateLimitConfig checks that any user-provided rate-limit values
@@ -225,6 +234,11 @@ func (s *Server) CreateProviderAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if msg := validateProviderCredentialsJSON(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
+	}
+
 	// Check if provider already exists.
 	existing, err := s.store.GetProvider(r.Context(), req.Key)
 	if err != nil {
@@ -303,7 +317,16 @@ func (s *Server) UpdateProviderAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if existing != nil {
 		preserveProviderManagedAuth(&req.Config, existing.Config)
+		preserveProviderCredentialsJSON(&req.Config, existing.Config, req.ClearCredentialsJSON)
 		preserveProviderAvailability(&req.Config, existing.Config)
+	}
+
+	// Reject an unusable key at the edge rather than at provider construction,
+	// where it surfaces as a hot-reload warning in the log and a provider that
+	// silently never works.
+	if msg := validateProviderCredentialsJSON(req.Config); msg != "" {
+		httpResponse(w, msg, http.StatusBadRequest)
+		return
 	}
 
 	userEmail := s.getUserEmail(r)
@@ -419,6 +442,9 @@ func redactProviderRecord(rec *service.ProviderRecord) {
 	if rec.Config.RefreshToken != "" {
 		rec.Config.RefreshToken = "***"
 	}
+	if rec.Config.CredentialsJSON != "" {
+		rec.Config.CredentialsJSON = redactedSecret
+	}
 }
 
 // preserveProviderAvailability keeps the disabled flag out of ordinary config
@@ -426,6 +452,47 @@ func redactProviderRecord(rec *service.ProviderRecord) {
 // edit made while a provider is parked would silently resume it.
 func preserveProviderAvailability(next *config.LLMConfig, existing config.LLMConfig) {
 	next.Disabled = existing.Disabled
+}
+
+// redactedSecret is the placeholder every provider response carries in place
+// of a stored secret, and which writers round-trip unchanged.
+const redactedSecret = "***"
+
+// validateProviderCredentialsJSON rejects a Google credentials file that
+// cannot authenticate anything, at the edge rather than at provider
+// construction — where it surfaces only as a hot-reload warning in the log and
+// a provider that silently never works. A value on a non-Vertex type is named
+// as a mistake instead of being stored as an unused secret.
+func validateProviderCredentialsJSON(cfg config.LLMConfig) string {
+	if cfg.CredentialsJSON == "" || cfg.CredentialsJSON == redactedSecret {
+		return ""
+	}
+
+	if cfg.Type != "vertex" && cfg.Type != "vertex-gemini" {
+		return fmt.Sprintf("credentials_json applies to the vertex and vertex-gemini provider types, not %q", cfg.Type)
+	}
+
+	if _, err := gcp.ParseCredentials(cfg.CredentialsJSON); err != nil {
+		return err.Error()
+	}
+
+	return ""
+}
+
+// preserveProviderCredentialsJSON keeps a stored Google service-account key
+// across an edit that did not touch it — the sentinel the writer read back, or
+// an omitted field. Unlike api_key this is not auth_type-scoped: the key is
+// the credential for both vertex types regardless of auth_type, and clearing
+// it is an explicit request (providerRequest.ClearCredentialsJSON).
+func preserveProviderCredentialsJSON(next *config.LLMConfig, existing config.LLMConfig, clear bool) {
+	if clear {
+		next.CredentialsJSON = ""
+
+		return
+	}
+	if next.CredentialsJSON == "" || next.CredentialsJSON == redactedSecret {
+		next.CredentialsJSON = existing.CredentialsJSON
+	}
 }
 
 func preserveProviderManagedAuth(next *config.LLMConfig, existing config.LLMConfig) {

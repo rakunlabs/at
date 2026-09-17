@@ -6,8 +6,9 @@ import (
 	"github.com/rakunlabs/at/internal/config"
 )
 
-// EncryptLLMConfig encrypts the sensitive fields of an LLMConfig (api_key and
-// extra_headers values) in-place and returns the modified config.
+// EncryptLLMConfig encrypts the sensitive fields of an LLMConfig (api_key,
+// refresh_token, credentials_json and extra_headers values) in-place and
+// returns the modified config.
 // If key is nil, the config is returned unchanged (no-op).
 func EncryptLLMConfig(cfg config.LLMConfig, key []byte) (config.LLMConfig, error) {
 	if key == nil {
@@ -20,6 +21,16 @@ func EncryptLLMConfig(cfg config.LLMConfig, key []byte) (config.LLMConfig, error
 			return cfg, fmt.Errorf("encrypt api_key: %w", err)
 		}
 		cfg.APIKey = enc
+	}
+
+	// A Google service-account key file is a private key in plain text; it is
+	// the most sensitive value a provider row can carry.
+	if cfg.CredentialsJSON != "" {
+		enc, err := Encrypt(cfg.CredentialsJSON, key)
+		if err != nil {
+			return cfg, fmt.Errorf("encrypt credentials_json: %w", err)
+		}
+		cfg.CredentialsJSON = enc
 	}
 
 	if cfg.RefreshToken != "" {
@@ -45,8 +56,9 @@ func EncryptLLMConfig(cfg config.LLMConfig, key []byte) (config.LLMConfig, error
 	return cfg, nil
 }
 
-// DecryptLLMConfig decrypts the sensitive fields of an LLMConfig (api_key and
-// extra_headers values) in-place and returns the modified config.
+// DecryptLLMConfig decrypts the sensitive fields of an LLMConfig (api_key,
+// refresh_token, credentials_json and extra_headers values) in-place and
+// returns the modified config.
 // If key is nil, the config is returned unchanged (no-op).
 // Values that are not encrypted (no "enc:" prefix) are left as-is.
 func DecryptLLMConfig(cfg config.LLMConfig, key []byte) (config.LLMConfig, error) {
@@ -60,6 +72,14 @@ func DecryptLLMConfig(cfg config.LLMConfig, key []byte) (config.LLMConfig, error
 			return cfg, fmt.Errorf("decrypt api_key: %w", err)
 		}
 		cfg.APIKey = dec
+	}
+
+	if cfg.CredentialsJSON != "" {
+		dec, err := Decrypt(cfg.CredentialsJSON, key)
+		if err != nil {
+			return cfg, fmt.Errorf("decrypt credentials_json: %w", err)
+		}
+		cfg.CredentialsJSON = dec
 	}
 
 	if cfg.RefreshToken != "" {

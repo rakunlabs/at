@@ -1383,7 +1383,10 @@
               class="flex items-center gap-1 text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
               title="View usage"
             >
-              <BarChart3 size={12} />
+              <!-- shrink-0: an svg is a flex item like any other, so once the
+                   label grew from "View" to a token count the constrained cell
+                   squeezed the icon instead of the text. -->
+              <BarChart3 size={12} class="shrink-0" />
               {#if tokenUsageMap[token.id]}
                 {@const usage = getTotalUsage(token.id)}
                 <span>{formatNumber(usage.totalTokens)} tokens</span>
@@ -1523,7 +1526,7 @@
             <td colspan="8" class="px-4 py-3">
               <div class="flex items-center justify-between mb-2">
                 <div class="flex items-center gap-2">
-                  <BarChart3 size={12} class="text-gray-400 dark:text-dark-text-muted" />
+                  <BarChart3 size={12} class="shrink-0 text-gray-400 dark:text-dark-text-muted" />
                   <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Usage Breakdown</span>
                   {#if token.total_token_limit}
                     {@const usage = getTotalUsage(token.id)}

@@ -385,6 +385,88 @@ func TestNativePasskeySignedPostgres(t *testing.T) {
 	}
 }
 
+// Discoverable login: the sign-in screen no longer asks for a username, so the
+// ceremony starts without one and the asserted credential ID names the account.
+func TestNativePasskeyDiscoverableLoginPostgres(t *testing.T) {
+	p := postgrestest.New(t, nil)
+	u, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "reader", PasswordHash: testPasswordHash}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := newNativeAuth(nativeTestConfig(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.loginLimit = rate.NewLimiter(rate.Inf, 10000)
+	mux := ada.New()
+	a.register(mux, "/at")
+	session := nativeLoginCookie(t, mux, "reader")
+	key := newSoftwarePasskey(t)
+	challenge, ceremony := passkeyBegin(t, mux, true, session, false)
+	enrollment := key.response(t, true, challenge, a.cfg.Origin, "at.example", u.ID, 0x45, 0, false)
+	if w := passkeyRequest(mux, "/at/auth/passkeys/enroll/finish", enrollment, a.cfg.Origin, ceremony, session); w.Code != 204 {
+		t.Fatalf("enrollment: %d %s", w.Code, w.Body)
+	}
+	begin := func(t *testing.T) (string, *http.Cookie) {
+		t.Helper()
+		w := passkeyRequest(mux, "/at/auth/passkeys/login/begin", `{"remember_me":false}`, a.cfg.Origin)
+		if w.Code != 200 {
+			t.Fatalf("usernameless begin: %d %s", w.Code, w.Body)
+		}
+		var result struct {
+			PublicKey struct {
+				Challenge string `json:"challenge"`
+				RPID      string `json:"rpId"`
+				Allow     []struct {
+					ID string `json:"id"`
+				} `json:"allowCredentials"`
+			} `json:"publicKey"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		// An allow list would leak which credentials exist to an anonymous
+		// caller and defeats the point: the authenticator chooses.
+		if result.PublicKey.RPID != "at.example" || len(result.PublicKey.Allow) != 0 {
+			t.Fatalf("discoverable options: %s", w.Body)
+		}
+		return result.PublicKey.Challenge, w.Result().Cookies()[0]
+	}
+	c, cookie := begin(t)
+	w := passkeyRequest(mux, "/at/auth/passkeys/login/finish", key.response(t, false, c, a.cfg.Origin, "at.example", u.ID, 5, 1, false), a.cfg.Origin, cookie)
+	if w.Code != 200 {
+		t.Fatalf("usernameless login: %d %s", w.Code, w.Body)
+	}
+	var issued *http.Cookie
+	for _, got := range w.Result().Cookies() {
+		if got.Name == a.session.CookieName && got.Value != "" {
+			issued = got
+		}
+	}
+	if issued == nil {
+		t.Fatal("usernameless login issued no session")
+	}
+	if user, _, err := a.credentials.ResolveAuthAccess(t.Context(), nativeSessionHash(issued.Value)); err != nil || user == nil || user.ID != u.ID {
+		t.Fatalf("session identity: %+v %v", user, err)
+	}
+	t.Run("unknown credential", func(t *testing.T) {
+		c, cookie := begin(t)
+		stranger := newSoftwarePasskey(t)
+		if w := passkeyRequest(mux, "/at/auth/passkeys/login/finish", stranger.response(t, false, c, a.cfg.Origin, "at.example", u.ID, 5, 1, false), a.cfg.Origin, cookie); w.Code != 401 {
+			t.Fatalf("unenrolled credential accepted: %d %s", w.Code, w.Body)
+		}
+	})
+	t.Run("disabled account", func(t *testing.T) {
+		c, cookie := begin(t)
+		if _, err := p.InvalidateAuthUser(t.Context(), u.ID, true); err != nil {
+			t.Fatal(err)
+		}
+		if w := passkeyRequest(mux, "/at/auth/passkeys/login/finish", key.response(t, false, c, a.cfg.Origin, "at.example", u.ID, 5, 2, false), a.cfg.Origin, cookie); w.Code != 401 {
+			t.Fatalf("disabled account signed in: %d %s", w.Code, w.Body)
+		}
+	})
+}
+
 type expiredChallengeStore struct{ service.AuthPasskeyStorer }
 
 // Observe the server-held deadline at both admissions; optionally delay the
