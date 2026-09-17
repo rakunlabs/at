@@ -40,6 +40,7 @@
   import DocsCopyLinkButton from '@/lib/components/docs/DocsCopyLinkButton.svelte';
   import GuideViewer from '@/lib/components/docs/GuideViewer.svelte';
   import GuideEditor from '@/lib/components/docs/GuideEditor.svelte';
+  import { deploymentOrigin } from '@/lib/helper/deployment-url';
 
   storeNavbar.title = 'Documentation';
 
@@ -124,9 +125,10 @@
         : (activeSection?.title ?? activeGuide?.title ?? 'Documentation'),
   );
 
-  const baseUrl = $derived(
-    (window.location.origin + window.location.pathname).replace(/\/+$/, ''),
-  );
+  // Resolved from the document base, not location.pathname: on a SPA
+  // fallback deep path the latter yields the route instead of the
+  // deployment root, and every generated snippet inherits it.
+  const baseUrl = deploymentOrigin();
 
   const allModels = $derived(
     providers.flatMap((p) =>

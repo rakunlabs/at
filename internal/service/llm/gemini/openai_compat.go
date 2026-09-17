@@ -2,6 +2,7 @@ package gemini
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 
 	"github.com/rakunlabs/at/internal/service"
@@ -88,6 +89,114 @@ func translateGeminiToolChoice(v any) *functionCallingConfig {
 		}
 	}
 	return nil
+}
+
+// Token budgets used when an OpenAI-style reasoning_effort has to be
+// expressed as a Gemini 2.5 thinkingBudget.
+const (
+	thinkingBudgetLow    = 2048
+	thinkingBudgetMedium = 8192
+	thinkingBudgetHigh   = 24576
+	// thinkingBudgetDynamic (-1) tells Gemini 2.5 to pick its own budget.
+	thinkingBudgetDynamic = -1
+)
+
+// usesThinkingLevel reports whether the model takes Google's coarse
+// `thinkingLevel` enum instead of a `thinkingBudget` token count.
+//
+// Gemini 3 replaced thinkingBudget with thinkingLevel and rejects the old
+// field with 400 INVALID_ARGUMENT, while Gemini 2.5 only understands
+// thinkingBudget. The field therefore has to be selected from the model
+// generation rather than sent speculatively or sent as both.
+func usesThinkingLevel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	// Accept fully qualified names such as "models/gemini-3-pro-preview" and
+	// Vertex publisher paths.
+	if i := strings.LastIndex(m, "/"); i >= 0 {
+		m = m[i+1:]
+	}
+	rest, ok := strings.CutPrefix(m, "gemini-")
+	if !ok {
+		return false
+	}
+	digits := rest
+	if i := strings.IndexFunc(rest, func(r rune) bool { return r < '0' || r > '9' }); i >= 0 {
+		digits = rest[:i]
+	}
+	major, err := strconv.Atoi(digits)
+	return err == nil && major >= 3
+}
+
+// thinkingLevelForBudget expresses an explicit token budget as the nearest
+// Gemini 3 thinking level. Gemini 3 exposes no token-level control, so an
+// explicit budget can only be honoured approximately; 0 means "think as
+// little as possible".
+func thinkingLevelForBudget(budget int) string {
+	switch {
+	case budget == 0:
+		return "MINIMAL"
+	case budget <= thinkingBudgetLow:
+		return "LOW"
+	case budget <= thinkingBudgetMedium:
+		return "MEDIUM"
+	default:
+		return "HIGH"
+	}
+}
+
+// geminiThinkingConfig derives generationConfig.thinkingConfig from the
+// request options for the given model.
+//
+// An explicit Thinking block wins over reasoning_effort (matching the
+// Anthropic adapter). Returning nil leaves the model's own default depth
+// untouched, which is also the behaviour when no thinking option is set at
+// all — so this never changes requests that did not ask for thinking.
+func geminiThinkingConfig(model string, opts *service.ChatOptions) *thinkingConfig {
+	if opts == nil {
+		return nil
+	}
+
+	budget := 0
+	switch {
+	case opts.Thinking != nil && opts.Thinking.Type == "disabled":
+		budget = 0
+	case opts.Thinking != nil && opts.Thinking.Type == "enabled":
+		budget = opts.Thinking.BudgetTokens
+		if budget <= 0 {
+			// 0 here means "provider default" in service.ThinkingConfig, which
+			// for Gemini is the dynamic budget rather than thinking disabled.
+			budget = thinkingBudgetDynamic
+		}
+	case opts.ReasoningEffort != "":
+		switch opts.ReasoningEffort {
+		case "low":
+			budget = thinkingBudgetLow
+		case "medium":
+			budget = thinkingBudgetMedium
+		case "high":
+			budget = thinkingBudgetHigh
+		default:
+			// Unsupported effort for this provider; leave the model default.
+			return nil
+		}
+	default:
+		return nil
+	}
+
+	// includeThoughts is what actually makes Gemini emit `thought` parts. It
+	// is pointless when thinking is switched off.
+	cfg := &thinkingConfig{IncludeThoughts: budget != 0}
+	if usesThinkingLevel(model) {
+		cfg.ThinkingLevel = thinkingLevelForBudget(budget)
+		if budget == thinkingBudgetDynamic {
+			// Dynamic has no thinkingLevel equivalent; omit the field so the
+			// model keeps its own default depth.
+			cfg.ThinkingLevel = ""
+		}
+		return cfg
+	}
+	cfg.ThinkingBudget = &budget
+	return cfg
 }
 
 // geminiResponseFormat maps OpenAI's response_format value to Gemini's

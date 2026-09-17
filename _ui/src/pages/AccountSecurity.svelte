@@ -53,11 +53,12 @@
     catch { error = 'Could not copy the user ID. Select the field and copy it manually.'; }
   }
 </script>
+<svelte:head><title>AT | Account security</title></svelte:head>
 <div class="settings-page settings-form">
-  <header><h1 class="text-2xl font-semibold">Account security</h1><p class="settings-note mt-2">Manage sign-in methods for {storeAuth.identity?.name || 'your account'}.</p></header>
+  <header><h1 class="settings-title">Account security</h1><p class="settings-subtitle">Manage sign-in methods for {storeAuth.identity?.name || 'your account'}.</p></header>
   {#if storeAuth.identity}
     <section class="settings-section" aria-labelledby="account-identity-title">
-      <h2 id="account-identity-title" class="text-lg font-semibold">Your account</h2>
+      <h2 id="account-identity-title" class="settings-section-title">Your account</h2>
       <p class="settings-note">{storeAuth.identity.name} · {storeAuth.identity.roles?.includes('admin') ? 'Administrator' : 'Member'}</p>
       <div class="flex flex-wrap items-end gap-2">
         <label class="min-w-0 flex-1 basis-56">User ID<input readonly value={storeAuth.identity.subject} class="font-mono" onclick={e => e.currentTarget.select()} /></label>
@@ -69,7 +70,7 @@
     {#if error}<p role="alert" class="settings-error">{error}</p>{/if}{#if notice}<p role="status" class="settings-note">{notice}</p>{/if}
     {#if !loaded}<button class="settings-button" onclick={load} disabled={busy}>{busy ? 'Loading security…' : 'Reload security'}</button>{:else}
     {#if purpose}<RecentAuth {purpose} onproof={authorized} oncancel={() => { purpose = ''; action = undefined; }} />{/if}
-    <section class="settings-section"><h2 class="text-lg font-semibold">Authenticator</h2>
+    <section class="settings-section"><h2 class="settings-section-title">Authenticator</h2>
       <p class="settings-note">{status?.enabled ? `Enabled · ${status.backup_codes_remaining} backup codes remaining` : 'Add a second step to password, passkey and identity-provider sign-in.'}</p>
       {#if enrollment}
         <p class="settings-note">Scan this QR code with your authenticator. It is generated locally in your browser. Enrollment expires after five minutes.</p>
@@ -83,21 +84,21 @@
         {:else}<div class="flex flex-wrap gap-2"><button class="settings-button" disabled={!!purpose || busy} onclick={() => authorize('totp.backup-codes', async proof => { factorProof = proof; factorPath = 'totp/backup-codes/regenerate'; code = ''; })}>Regenerate backup codes</button><button class="settings-button" disabled={!!purpose || busy} onclick={() => authorize('totp.remove', async proof => { factorProof = proof; factorPath = 'totp/remove'; code = ''; })}>Remove authenticator</button></div>{/if}
       {:else}<button class="settings-primary" disabled={!!purpose || busy} onclick={() => authorize('totp.enroll', async proof => { const { data } = await identityAPI.post('totp/enroll', { proof }); enrollment = data; qr = await QRCode.toDataURL(data.otpauth_uri, { width: 224, margin: 4 }); })}>Set up authenticator</button>{/if}
     </section>
-    <section class="settings-section"><h2 class="text-lg font-semibold">Password</h2><p class="settings-note">Set or change a local password using any current sign-in method. This ends all sessions.</p>
+    <section class="settings-section"><h2 class="settings-section-title">Password</h2><p class="settings-note">Set or change a local password using any current sign-in method. This ends all sessions.</p>
       <form class="space-y-4 max-w-md" onsubmit={e => { e.preventDefault(); error = passwordPolicyError(password) || (password !== confirm ? 'Passwords do not match.' : ''); if (!error) authorize('password.change', async proof => { await identityAPI.post('password', { new_password: password, proof }); password = confirm = ''; returnToLogin(); }); }}>
         <label>New password<input type="password" bind:value={password} required autocomplete="new-password" /><span class="settings-note">At least 8 characters.</span></label><label>Confirm password<input type="password" bind:value={confirm} required autocomplete="new-password" /></label><button class="settings-button" disabled={!!purpose || busy}>Change password</button>
       </form>
     </section>
-    <section class="settings-section"><h2 class="text-lg font-semibold">Passkeys</h2>
+    <section class="settings-section"><h2 class="settings-section-title">Passkeys</h2>
       {#if !storeAuth.passkeys}<p class="settings-note">Passkeys are unavailable on this server.</p>{:else}
       {#if keys.length === 0}<p class="settings-note">No passkeys saved yet.</p>{/if}
-      <ul class="divide-y divide-gray-200 dark:divide-dark-border">{#each keys as key}<li class="flex flex-wrap items-center justify-between gap-3 py-3"><div><strong>{key.name}</strong><p class="settings-note">Last used: {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : 'Never'}</p></div><button class="settings-button" disabled={!!purpose || busy} onclick={() => authorize('passkey.delete', async proof => { await identityAPI.post(`passkeys/${encodeURIComponent(key.id)}/delete`, { proof }); returnToLogin(); })}>Delete and sign out</button></li>{/each}</ul>
+      <ul class="settings-list">{#each keys as key}<li class="flex flex-wrap items-center justify-between gap-3"><div><strong>{key.name}</strong><p class="settings-note">Last used: {key.last_used_at ? new Date(key.last_used_at).toLocaleString() : 'Never'}</p></div><button class="settings-button" disabled={!!purpose || busy} onclick={() => authorize('passkey.delete', async proof => { await identityAPI.post(`passkeys/${encodeURIComponent(key.id)}/delete`, { proof }); returnToLogin(); })}>Delete and sign out</button></li>{/each}</ul>
       <form class="flex flex-wrap items-end gap-3" onsubmit={e => { e.preventDefault(); authorize('passkey.enroll', async proof => { const { data } = await identityAPI.post('passkeys/enroll/begin', { name: keyName, proof }); const credential = await startRegistration(data.publicKey, controller.signal); if (!credential) throw new Error('Cancelled'); await identityAPI.post('passkeys/enroll/finish', credential); keyName = ''; await load(); }); }}><label class="flex-1">Passkey name<input bind:value={keyName} required maxlength="80" placeholder="Personal laptop" /></label><button class="settings-button" disabled={!!purpose || busy || !isWebAuthnSupported() || keys.length >= 20}>Add passkey</button></form>
       {/if}
     </section>
-    <section class="settings-section"><h2 class="text-lg font-semibold">Linked accounts</h2><p class="settings-note">Link explicitly to use an external account for this identity. Matching email addresses do not merge accounts. A last usable sign-in method cannot be removed.</p>
+    <section class="settings-section"><h2 class="settings-section-title">Linked accounts</h2><p class="settings-note">Link explicitly to use an external account for this identity. Matching email addresses do not merge accounts. A last usable sign-in method cannot be removed.</p>
       {#if !links.length}<p class="settings-note">No external accounts linked.</p>{/if}
-      <ul class="divide-y divide-gray-200 dark:divide-dark-border">{#each links as link}<li class="py-3 space-y-2"><div class="flex flex-wrap justify-between gap-3"><strong>{providers.find(p => p.id === link.provider_id)?.label || link.provider_id}</strong><button class="settings-button" disabled={!!purpose || busy} onclick={() => authorize('identity.unlink', async proof => { await identityAPI.delete(`identities/${encodeURIComponent(link.id)}`, { data: { recent_proof: proof } }); returnToLogin(); })}>Unlink account</button></div><p class="settings-note break-all">{link.issuer} · {link.subject}</p>{#if link.email}<p class="settings-note">{link.email} {link.email_verified ? '(verified)' : '(unverified)'}</p>{/if}</li>{/each}</ul>
+      <ul class="settings-list">{#each links as link}<li class="space-y-2"><div class="flex flex-wrap justify-between gap-3"><strong>{providers.find(p => p.id === link.provider_id)?.label || link.provider_id}</strong><button class="settings-button" disabled={!!purpose || busy} onclick={() => authorize('identity.unlink', async proof => { await identityAPI.delete(`identities/${encodeURIComponent(link.id)}`, { data: { recent_proof: proof } }); returnToLogin(); })}>Unlink account</button></div><p class="settings-note break-all">{link.issuer} · {link.subject}</p>{#if link.email}<p class="settings-note">{link.email} {link.email_verified ? '(verified)' : '(unverified)'}</p>{/if}</li>{/each}</ul>
       <label class="max-w-md">Identity provider<select bind:value={provider}><option value="">Choose provider</option>{#each providers as p}<option value={p.id}>{p.label}</option>{/each}</select></label>
       {#if linkProof}<button class="settings-primary" disabled={!provider || busy} onclick={link}>Open provider and link account</button>{:else}<button class="settings-button" disabled={!provider || !!purpose || busy} onclick={() => authorize('identity.link', async proof => { linkProof = proof; })}>Verify to link account</button>{/if}
     </section>

@@ -82,6 +82,111 @@ func TestOpenAIChatPreservesLengthWithoutPartialToolCall(t *testing.T) {
 	}
 }
 
+// Many OpenAI-compatible servers (Ollama, LM Studio, vLLM, several hosted
+// gateways) answer with finish_reason "stop" while still returning tool calls.
+// The agent loops gate tool execution on resp.Finished, so trusting that
+// verbatim silently drops the calls and ends the run.
+func TestOpenAIChatStopWithToolCallsStaysUnfinished(t *testing.T) {
+	for _, finish := range []string{"stop", "tool_calls", "", "end_turn"} {
+		t.Run("finish="+finish, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"choices":[{"finish_reason":%q,"message":{"content":"","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":"{}"}}]}}]}`, finish)
+			}))
+			defer srv.Close()
+			p, err := New("token", "model", srv.URL, "", false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := p.Chat(context.Background(), "", nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.ToolCalls) != 1 {
+				t.Fatalf("tool call lost: %+v", resp)
+			}
+			if resp.Finished {
+				t.Errorf("Finished=true with a pending tool call: agent loops would drop it")
+			}
+			if resp.FinishReason != "tool_calls" {
+				t.Errorf("FinishReason = %q, want tool_calls", resp.FinishReason)
+			}
+		})
+	}
+}
+
+// A truncated or filtered response already dropped its partial tool calls, so
+// its stop reason must survive reconciliation unchanged.
+func TestOpenAIChatTruncationNotRewrittenToToolCalls(t *testing.T) {
+	for _, finish := range []string{"length", "content_filter"} {
+		t.Run(finish, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"choices":[{"finish_reason":%q,"message":{"content":"partial","tool_calls":[{"id":"call_1","function":{"name":"lookup","arguments":"{\"a\":"}}]}}]}`, finish)
+			}))
+			defer srv.Close()
+			p, err := New("token", "model", srv.URL, "", false, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resp, err := p.Chat(context.Background(), "", nil, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(resp.ToolCalls) != 0 {
+				t.Fatalf("partial tool call became executable: %+v", resp.ToolCalls)
+			}
+			if resp.FinishReason != finish || !resp.Finished {
+				t.Fatalf("stop reason rewritten: finished=%v reason=%q", resp.Finished, resp.FinishReason)
+			}
+		})
+	}
+}
+
+// Text-only responses must keep reporting a plain stop.
+func TestOpenAIChatPlainStopUnchanged(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":"done"}}]}`)
+	}))
+	defer srv.Close()
+	p, err := New("token", "model", srv.URL, "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := p.Chat(context.Background(), "", nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Finished || resp.FinishReason != "stop" || resp.Content != "done" {
+		t.Fatalf("plain stop changed: %+v", resp)
+	}
+}
+
+// A refusal arrives in its own field with content null and finish_reason
+// "stop"; dropping it leaves an empty response with no stated cause.
+func TestOpenAIChatPreservesRefusal(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"choices":[{"finish_reason":"stop","message":{"content":null,"refusal":"I cannot help with that."}}]}`)
+	}))
+	defer srv.Close()
+	p, err := New("token", "model", srv.URL, "", false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := p.Chat(context.Background(), "", nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Refusal != "I cannot help with that." {
+		t.Fatalf("refusal lost: %+v", resp)
+	}
+	if resp.Content != "" {
+		t.Fatalf("refusal must not be forged into content: %q", resp.Content)
+	}
+}
+
 func TestCodexEmptyToolHistoryUsesObject(t *testing.T) {
 	input := codexInput([]service.Message{{Role: "assistant", Content: []service.ContentBlock{{Type: "tool_use", ID: "call_1", Name: "ping"}}}})
 	if len(input) != 1 || input[0].(map[string]any)["arguments"] != "{}" {

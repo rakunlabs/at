@@ -13,7 +13,7 @@ import (
 func TestInstructionsAndAgentToolHistory(t *testing.T) {
 	p := &Provider{}
 	result := []service.ContentBlock{{Type: "tool_result", ToolUseID: "call_1", Content: "found"}}
-	body := p.buildRequest(context.Background(), []service.Message{
+	body := p.buildRequest(context.Background(), "gemini-2.5-flash", []service.Message{
 		{Role: "system", Content: "first"}, {Role: "developer", Content: "second"},
 		{Role: "assistant", Content: []service.ContentBlock{{Type: "tool_use", ID: "call_1", Name: "lookup"}}},
 		{Role: "user", Content: result},
@@ -26,6 +26,65 @@ func TestInstructionsAndAgentToolHistory(t *testing.T) {
 	}
 	if result[0].Name != "" {
 		t.Fatal("caller history mutated")
+	}
+}
+
+// Anthropic-shaped (block form) system content must not be silently dropped.
+func TestBlockFormSystemInstruction(t *testing.T) {
+	p := &Provider{}
+	body := p.buildRequest(context.Background(), "gemini-2.5-flash", []service.Message{
+		{Role: "system", Content: []service.ContentBlock{
+			{Type: "text", Text: "rule one"},
+			{Type: "text", Text: " rule two"},
+		}},
+		{Role: "user", Content: "go"},
+	}, nil, nil)
+	if body.SystemInstruction == nil || len(body.SystemInstruction.Parts) != 1 {
+		t.Fatalf("block-form instructions dropped: %+v", body.SystemInstruction)
+	}
+	if got := body.SystemInstruction.Parts[0].Text; got != "rule one rule two" {
+		t.Fatalf("instruction text = %q", got)
+	}
+}
+
+// promptTokenCount already includes the cached prefix, while server-side tool
+// input is reported outside it. Both have to land in the right bucket or
+// grounded requests are billed short.
+func TestUsageSplitsCacheAndToolUseInput(t *testing.T) {
+	usage := geminiServiceUsage(&usageMetadata{
+		PromptTokenCount:        100,
+		CachedContentTokenCount: 80,
+		ToolUsePromptTokenCount: 30,
+		CandidatesTokenCount:    10,
+		ThoughtsTokenCount:      5,
+		TotalTokenCount:         145,
+	})
+	if usage.CacheReadTokens != 80 {
+		t.Errorf("cache read = %d, want 80", usage.CacheReadTokens)
+	}
+	// 100 total prompt - 80 cached + 30 tool-use input.
+	if usage.PromptTokens != 50 {
+		t.Errorf("prompt = %d, want 50", usage.PromptTokens)
+	}
+	if usage.CompletionTokens != 15 || usage.ReasoningTokens != 5 {
+		t.Errorf("completion = %d, reasoning = %d", usage.CompletionTokens, usage.ReasoningTokens)
+	}
+	if usage.TotalTokens != 145 {
+		t.Errorf("total = %d, want 145", usage.TotalTokens)
+	}
+}
+
+// When upstream omits the total, the derived total must still account for
+// every billed bucket.
+func TestUsageDerivedTotalIncludesToolUseInput(t *testing.T) {
+	usage := geminiServiceUsage(&usageMetadata{
+		PromptTokenCount:        100,
+		CachedContentTokenCount: 80,
+		ToolUsePromptTokenCount: 30,
+		CandidatesTokenCount:    10,
+	})
+	if usage.TotalTokens != 50+10+80 {
+		t.Errorf("derived total = %d, want %d", usage.TotalTokens, 50+10+80)
 	}
 }
 

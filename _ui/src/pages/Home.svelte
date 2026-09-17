@@ -4,12 +4,13 @@
   import { getInfo, type InfoProvider } from '@/lib/api/gateway';
   import { Database, Cpu, Layers, MessageSquare, ArrowRight, RefreshCw } from 'lucide-svelte';
   import DataTable from '@/lib/components/DataTable.svelte';
+  import { deploymentOrigin } from '@/lib/helper/deployment-url';
 
   storeNavbar.title = 'Dashboard';
 
-  let basePath = $derived(
-    window.location.pathname.replace(/\/+$/, '')
-  );
+  // Deployment root, not the current route: location.pathname would show the
+  // SPA fallback path on a deep link.
+  let basePath = $derived(deploymentOrigin());
 
   let providers = $state<InfoProvider[]>([]);
   let storeType = $state('');

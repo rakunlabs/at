@@ -344,6 +344,9 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		})
 	}
 
+	// A "stop" finish reason alongside tool calls must not end the agent turn.
+	common.ReconcileToolCallFinish(llmResp)
+
 	return llmResp, nil
 }
 

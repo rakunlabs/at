@@ -213,11 +213,18 @@ type inlineData struct {
 }
 
 type functionCall struct {
+	// ID is Gemini's own correlation handle. Newer models populate it and the
+	// matching functionResponse must echo it, which is the only way to pair
+	// results with calls when the same function is called more than once in
+	// a single turn. Older models leave it empty and match by name.
+	ID   string         `json:"id,omitempty"`
 	Name string         `json:"name"`
 	Args map[string]any `json:"args,omitempty"`
 }
 
 type functionResponse struct {
+	// ID pairs this result with functionCall.ID. See functionCall.ID.
+	ID       string         `json:"id,omitempty"`
 	Name     string         `json:"name"`
 	Response map[string]any `json:"response"`
 }
@@ -251,8 +258,23 @@ type generationConfig struct {
 	CandidateCount   int             `json:"candidateCount,omitempty"`
 }
 
+// thinkingConfig mirrors Google's ThinkingConfig.
+//
+// ThinkingBudget is a pointer because 0 is meaningful ("disable thinking" on
+// Gemini 2.5 Flash) and -1 means "let the model pick"; with a plain int both
+// were erased by omitempty and the field could never be sent.
+//
+// ThinkingLevel and ThinkingBudget are mutually exclusive per model
+// generation: Gemini 3+ takes thinkingLevel and rejects thinkingBudget,
+// Gemini 2.5 takes thinkingBudget and does not know thinkingLevel. See
+// geminiThinkingConfig.
 type thinkingConfig struct {
-	ThinkingBudget int `json:"thinkingBudget,omitempty"`
+	// IncludeThoughts must be true for Gemini to return `thought` parts at
+	// all. Without it the adapter's ReasoningContent is always empty even on
+	// thinking models.
+	IncludeThoughts bool   `json:"includeThoughts,omitempty"`
+	ThinkingBudget  *int   `json:"thinkingBudget,omitempty"`
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
 }
 
 // generateContentResponse is the native Google Generative Language API response.
@@ -263,9 +285,22 @@ type generateContentResponse struct {
 }
 
 type candidate struct {
-	Content       *content `json:"content,omitempty"`
-	FinishReason  string   `json:"finishReason,omitempty"`
-	SafetyRatings []any    `json:"safetyRatings,omitempty"`
+	Content      *content `json:"content,omitempty"`
+	FinishReason string   `json:"finishReason,omitempty"`
+	// FinishMessage explains the finish reason. It is the only upstream
+	// detail available for otherwise opaque failures such as
+	// MALFORMED_FUNCTION_CALL.
+	FinishMessage string `json:"finishMessage,omitempty"`
+	SafetyRatings []any  `json:"safetyRatings,omitempty"`
+}
+
+// malformedFunctionCallError builds the error for a MALFORMED_FUNCTION_CALL
+// finish, including upstream detail when Gemini supplied any.
+func malformedFunctionCallError(cand candidate) error {
+	if msg := strings.TrimSpace(cand.FinishMessage); msg != "" {
+		return fmt.Errorf("gemini returned MALFORMED_FUNCTION_CALL: %s", msg)
+	}
+	return fmt.Errorf("gemini returned MALFORMED_FUNCTION_CALL")
 }
 
 type usageMetadata struct {
@@ -273,6 +308,11 @@ type usageMetadata struct {
 	CandidatesTokenCount    int `json:"candidatesTokenCount"`
 	CachedContentTokenCount int `json:"cachedContentTokenCount"`
 	ThoughtsTokenCount      int `json:"thoughtsTokenCount"`
+	// ToolUsePromptTokenCount is input billed for feeding server-side tool
+	// results (Google Search grounding, code execution) back to the model. It
+	// is counted separately from promptTokenCount, so ignoring it
+	// under-reports billable input on every grounded request.
+	ToolUsePromptTokenCount int `json:"toolUsePromptTokenCount"`
 	TotalTokenCount         int `json:"totalTokenCount"`
 }
 
@@ -280,11 +320,18 @@ func geminiServiceUsage(u *usageMetadata) service.Usage {
 	if u == nil {
 		return service.Usage{}
 	}
+	// promptTokenCount is the total effective prompt size and already
+	// includes the cached prefix, so cache reads have to be subtracted to
+	// avoid double counting them against the uncached input price.
 	cacheRead := u.CachedContentTokenCount
 	promptTokens := u.PromptTokenCount - cacheRead
 	if promptTokens < 0 {
 		promptTokens = 0
 	}
+	// Server-side tool results are billed as input but reported outside
+	// promptTokenCount; fold them in so PromptTokens is the full uncached
+	// input the request is charged for.
+	promptTokens += u.ToolUsePromptTokenCount
 	// Gemini reports thinking tokens separately from candidatesTokenCount.
 	// OpenAI convention: completion_tokens includes reasoning tokens, with
 	// reasoning_tokens reported as a detail bucket.
@@ -325,7 +372,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	}
 	defer release()
 
-	reqBody := p.buildRequest(ctx, messages, tools, opts)
+	reqBody := p.buildRequest(ctx, model, messages, tools, opts)
 
 	var extra map[string]any
 	if opts != nil {
@@ -336,9 +383,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	path := p.pathPrefix + fmt.Sprintf("/v1beta/models/%s:generateContent", model)
+	// Vertex supplies its own versioned prefix
+	// (/v1/projects/.../publishers/google); the public API needs /v1beta.
+	path := fmt.Sprintf("/v1beta/models/%s:generateContent", model)
 	if p.pathPrefix != "" {
-		// Vertex path style: /v1/projects/.../publishers/google/models/{m}:generateContent
 		path = p.pathPrefix + fmt.Sprintf("/models/%s:generateContent", model)
 	}
 
@@ -442,7 +490,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 		}
 	}
 
-	reqBody := p.buildRequest(ctx, messages, tools, opts)
+	reqBody := p.buildRequest(ctx, model, messages, tools, opts)
 
 	var extra map[string]any
 	if opts != nil {
@@ -579,7 +627,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			cand := sr.Candidates[0]
 			if cand.FinishReason == "MALFORMED_FUNCTION_CALL" {
-				ch <- service.StreamChunk{Error: fmt.Errorf("Gemini returned MALFORMED_FUNCTION_CALL")}
+				ch <- service.StreamChunk{Error: malformedFunctionCallError(cand)}
 				return
 			}
 			chunk := service.StreamChunk{}
@@ -601,7 +649,7 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 					}
 					if p.FunctionCall != nil {
 						chunk.ToolCalls = append(chunk.ToolCalls, service.ToolCall{
-							ID:               generateToolCallID(p.FunctionCall.Name),
+							ID:               toolCallID(p.FunctionCall.ID),
 							Name:             p.FunctionCall.Name,
 							Arguments:        p.FunctionCall.Args,
 							ThoughtSignature: p.ThoughtSignature,
@@ -708,7 +756,10 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 // ─── Request building ───
 
 // buildRequest translates internal service types to Google's native API format.
-func (p *Provider) buildRequest(ctx context.Context, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) *generateContentRequest {
+//
+// model is the resolved model ID; it selects generation-specific request
+// fields (see geminiThinkingConfig) and is not otherwise part of the body.
+func (p *Provider) buildRequest(ctx context.Context, model string, messages []service.Message, tools []service.Tool, opts *service.ChatOptions) *generateContentRequest {
 	req := &generateContentRequest{
 		// Permissive safety defaults — callers can override per-call via
 		// extra_body.safetySettings, or set them at the Provider level.
@@ -764,28 +815,12 @@ func (p *Provider) buildRequest(ctx context.Context, messages []service.Message,
 			hasGenCfg = true
 		}
 
-		// Thinking / extended thinking support.
-		// Direct thinking config takes precedence over reasoning_effort.
-		if opts.Thinking != nil && opts.Thinking.Type == "enabled" {
-			budget := opts.Thinking.BudgetTokens
-			if budget > 0 {
-				genCfg.ThinkingConfig = &thinkingConfig{ThinkingBudget: budget}
-				hasGenCfg = true
-			}
-		} else if opts.ReasoningEffort != "" {
-			var budget int
-			switch opts.ReasoningEffort {
-			case "low":
-				budget = 2048
-			case "medium":
-				budget = 8192
-			case "high":
-				budget = 24576
-			}
-			if budget > 0 {
-				genCfg.ThinkingConfig = &thinkingConfig{ThinkingBudget: budget}
-				hasGenCfg = true
-			}
+		// Thinking / extended thinking support. The field used depends on the
+		// model generation (thinkingLevel on Gemini 3+, thinkingBudget on
+		// 2.5), so the model has to be known here.
+		if tc := geminiThinkingConfig(model, opts); tc != nil {
+			genCfg.ThinkingConfig = tc
+			hasGenCfg = true
 		}
 
 		if hasGenCfg {
@@ -1047,9 +1082,11 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 				// Assistant's tool call -> functionCall part.
 				name, _ := block["name"].(string)
 				args, _ := block["input"].(map[string]any)
+				id, _ := block["id"].(string)
 				if name != "" {
 					parts = append(parts, part{
 						FunctionCall: &functionCall{
+							ID:   geminiEchoableCallID(id),
 							Name: name,
 							Args: args,
 						},
@@ -1065,6 +1102,7 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 				}
 				parts = append(parts, part{
 					FunctionResponse: &functionResponse{
+						ID:   geminiEchoableCallID(toolUseID),
 						Name: name,
 						Response: map[string]any{
 							"result": toolContent,
@@ -1081,7 +1119,12 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 			switch block.Type {
 			case "text":
 				if block.Text != "" {
-					parts = append(parts, part{Text: block.Text})
+					// Gemini 3 also returns thoughtSignature on text parts and
+					// expects it echoed, not just on functionCall parts.
+					parts = append(parts, part{
+						Text:             block.Text,
+						ThoughtSignature: block.ThoughtSignature,
+					})
 				}
 			case "image":
 				// Anthropic-format image block with Source field
@@ -1127,6 +1170,7 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 				if block.Name != "" {
 					parts = append(parts, part{
 						FunctionCall: &functionCall{
+							ID:   geminiEchoableCallID(block.ID),
 							Name: block.Name,
 							Args: block.Input,
 						},
@@ -1140,6 +1184,7 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 				}
 				parts = append(parts, part{
 					FunctionResponse: &functionResponse{
+						ID:   geminiEchoableCallID(block.ToolUseID),
 						Name: name,
 						Response: map[string]any{
 							"result": block.Content,
@@ -1174,8 +1219,10 @@ func (p *Provider) convertToParts(ctx context.Context, msg service.Message) []pa
 					json.Unmarshal([]byte(argsStr), &args)
 				}
 				thoughtSig, _ := tcMap["thought_signature"].(string)
+				id, _ := tcMap["id"].(string)
 				parts = append(parts, part{
 					FunctionCall: &functionCall{
+						ID:   geminiEchoableCallID(id),
 						Name: name,
 						Args: args,
 					},
@@ -1207,13 +1254,11 @@ func convertToolResultToParts(msg service.Message, toolCallNames map[string]stri
 
 	case map[string]any:
 		// Passthrough message that includes tool_call_id, content, etc.
+		callID, _ := c["tool_call_id"].(string)
 		name, _ := c["name"].(string)
-		if name == "" {
+		if name == "" && callID != "" {
 			// Look up the function name from the toolCallNames map using tool_call_id.
-			toolCallID, _ := c["tool_call_id"].(string)
-			if toolCallID != "" {
-				name = toolCallNames[toolCallID]
-			}
+			name = toolCallNames[callID]
 		}
 		if name == "" {
 			name = "tool"
@@ -1221,6 +1266,7 @@ func convertToolResultToParts(msg service.Message, toolCallNames map[string]stri
 		content, _ := c["content"].(string)
 		return []part{{
 			FunctionResponse: &functionResponse{
+				ID:       geminiEchoableCallID(callID),
 				Name:     name,
 				Response: map[string]any{"result": content},
 			},
@@ -1247,7 +1293,7 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 
 	cand := resp.Candidates[0]
 	if cand.FinishReason == "MALFORMED_FUNCTION_CALL" {
-		return nil, fmt.Errorf("Gemini returned MALFORMED_FUNCTION_CALL")
+		return nil, malformedFunctionCallError(cand)
 	}
 	llmResp := &service.LLMResponse{
 		Finished:     true,
@@ -1277,7 +1323,7 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 			}
 			if p.FunctionCall != nil {
 				llmResp.ToolCalls = append(llmResp.ToolCalls, service.ToolCall{
-					ID:               generateToolCallID(p.FunctionCall.Name),
+					ID:               toolCallID(p.FunctionCall.ID),
 					Name:             p.FunctionCall.Name,
 					Arguments:        p.FunctionCall.Args,
 					ThoughtSignature: p.ThoughtSignature,
@@ -1297,9 +1343,13 @@ func parseResponse(resp *generateContentResponse, headers http.Header) (*service
 	return llmResp, nil
 }
 
-// normalizeGeminiFinishReason maps Gemini's finishReason vocabulary
-// onto OpenAI's. Gemini values include STOP, MAX_TOKENS, SAFETY,
-// RECITATION, OTHER, MALFORMED_FUNCTION_CALL, PROHIBITED_CONTENT, SPII.
+// normalizeGeminiFinishReason maps Gemini's finishReason vocabulary onto
+// OpenAI's.
+//
+// The unknown-value fallback is "stop", so every reason that is not actually a
+// clean stop has to be listed explicitly — otherwise a blocked or truncated
+// response is reported to the caller as a successful completion. The image
+// variants matter for the image-capable models the Studio pipelines use.
 func normalizeGeminiFinishReason(raw string, hasToolCalls bool) string {
 	switch strings.ToUpper(strings.TrimSpace(raw)) {
 	case "STOP":
@@ -1309,10 +1359,16 @@ func normalizeGeminiFinishReason(raw string, hasToolCalls bool) string {
 		return "stop"
 	case "MAX_TOKENS":
 		return "length"
-	case "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "SPII", "BLOCKLIST":
+	case "SAFETY", "RECITATION", "PROHIBITED_CONTENT", "SPII", "BLOCKLIST",
+		"LANGUAGE", "IMAGE_SAFETY", "IMAGE_PROHIBITED_CONTENT", "IMAGE_RECITATION":
 		return "content_filter"
-	case "MALFORMED_FUNCTION_CALL":
+	case "MALFORMED_FUNCTION_CALL", "UNEXPECTED_TOOL_CALL":
 		return "tool_calls"
+	case "TOO_MANY_TOOL_CALLS":
+		// A limit stop rather than a completion: report it as a budget
+		// exhaustion so the agent loops take their recovery path instead of
+		// treating a cut-off turn as a finished answer.
+		return "length"
 	case "":
 		if hasToolCalls {
 			return "tool_calls"
@@ -1346,16 +1402,62 @@ func extractText(content any) string {
 			}
 		}
 		return text.String()
+	case []service.ContentBlock:
+		// Anthropic-shaped system content. Without this case a block-form
+		// system message yielded "" and the instructions were dropped from
+		// the request entirely.
+		var text strings.Builder
+		for _, block := range c {
+			if block.Type == "text" {
+				text.WriteString(block.Text)
+			}
+		}
+		return text.String()
 	}
 	return ""
 }
 
-// generateToolCallID creates a unique tool call ID from the function name.
-// Google's API doesn't provide tool call IDs like OpenAI does, so we generate one.
-// The format is "call_<ulid>" to ensure uniqueness across multiple calls to the
-// same function.
-func generateToolCallID(name string) string {
-	return "call_" + ulid.Make().String()
+const (
+	// syntheticToolCallIDPrefix marks IDs this adapter minted itself because
+	// the upstream response carried none. See geminiEchoableCallID.
+	syntheticToolCallIDPrefix = "call_"
+	// ulidLength is the encoded length of a ULID string.
+	ulidLength = 26
+)
+
+// toolCallID returns the ID to expose for an upstream function call.
+//
+// Gemini populates functionCall.id on newer models; that value is preserved so
+// the paired functionResponse can echo it back. When upstream sends no id we
+// mint "call_<ulid>", because every caller-facing shape (OpenAI tool_call.id,
+// service.ContentBlock.ID) requires a non-empty unique identifier.
+func toolCallID(upstream string) string {
+	if upstream != "" {
+		return upstream
+	}
+	return syntheticToolCallIDPrefix + ulid.Make().String()
+}
+
+// geminiEchoableCallID reports the id to put on an outgoing functionCall /
+// functionResponse part, or "" when none should be sent.
+//
+// IDs of the exact shape minted by toolCallID are dropped: they were invented
+// locally precisely because the model produced no id, and replaying them would
+// send Gemini correlation handles it never issued. Any other id either came
+// from Gemini or from the calling client, and is echoed symmetrically on both
+// the call and the response so the pairing stays internally consistent.
+func geminiEchoableCallID(id string) string {
+	rest, ok := strings.CutPrefix(id, syntheticToolCallIDPrefix)
+	if !ok {
+		return id
+	}
+	if len(rest) != ulidLength {
+		return id
+	}
+	if _, err := ulid.ParseStrict(rest); err != nil {
+		return id
+	}
+	return ""
 }
 
 // fetchImageAsInlineData downloads a remote image URL and returns it as

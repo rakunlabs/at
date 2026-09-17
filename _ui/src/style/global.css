@@ -66,18 +66,81 @@
 
 @variant dark (&:where(.dark, .dark *));
 
+/* Settings & auth surfaces.
+ *
+ * These classes exist so the settings pages stay consistent without repeating
+ * long utility strings, but their job is to REPRODUCE the app's design system,
+ * not to define a second one. They previously diverged on every axis — rounded
+ * corners, airier density, larger type, top-rules instead of cards — which made
+ * a single sidebar click (e.g. Permissions → API tokens) visibly change styles.
+ *
+ * The reference patterns live in the list/detail pages (Providers, Agents,
+ * Secrets, Features, Tokens). When those change, change these with them.
+ */
 @layer components {
-  .settings-page { @apply mx-auto w-full max-w-4xl p-5 sm:p-8 space-y-8; }
+  /* Page container — matches `p-6 max-w-6xl mx-auto` used by app pages. */
+  .settings-page { @apply mx-auto w-full max-w-6xl p-4 sm:p-6 space-y-4; }
+
+  /* Page header. */
+  .settings-title { @apply text-lg font-semibold text-gray-900 dark:text-dark-text; }
+  .settings-subtitle { @apply text-sm text-gray-500 dark:text-dark-text-muted mt-0.5; }
+
+  /* A section is a bordered card on a surface, not a horizontal rule. */
+  .settings-section { @apply border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 space-y-4; }
+  .settings-section-title { @apply text-sm font-semibold text-gray-900 dark:text-dark-text; }
+  .settings-subsection-title { @apply text-sm font-medium text-gray-900 dark:text-dark-text; }
+
+  /* A row list inside a card: full-bleed dividers, card-body padding. */
+  .settings-list { @apply -mx-4 divide-y divide-gray-100 dark:divide-dark-border border-t border-gray-100 dark:border-dark-border; }
+  .settings-list > li { @apply px-4 py-3; }
+
   .settings-form { @apply text-sm; }
-  .settings-form label { @apply block font-medium; }
-  .settings-form input:not([type=checkbox]), .settings-form select, .settings-form textarea { @apply block mt-2 w-full rounded-md border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-3 py-2.5 text-sm font-normal; }
-  .settings-form input[type=checkbox] { @apply mr-2 accent-accent; }
-  .settings-form :is(input,select,textarea,button,a):focus-visible { @apply outline-2 outline-offset-2 outline-accent; }
-  .settings-primary { @apply rounded-md bg-gray-900 text-white dark:bg-accent dark:text-gray-950 px-4 py-2.5 font-medium hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed; }
-  .settings-button { @apply rounded-md border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-sm font-medium hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 disabled:cursor-not-allowed; }
-  .settings-note { @apply text-sm font-normal leading-6 text-gray-600 dark:text-dark-text-secondary; }
-  .settings-error { @apply text-sm leading-6 text-red-700 dark:text-red-300; }
-  .settings-section { @apply border-t border-gray-200 dark:border-dark-border pt-6 space-y-4; }
+
+  /* Field labels are small and muted; checkbox labels keep body size because
+     their text is the control's name, not a caption above it. */
+  .settings-form label:not(:has(input[type=checkbox])):not(:has(input[type=radio])) {
+    @apply block text-xs font-medium text-gray-500 dark:text-dark-text-muted;
+  }
+  .settings-form label:has(input[type=checkbox]), .settings-form label:has(input[type=radio]) {
+    @apply flex items-center gap-2 text-sm font-normal text-gray-700 dark:text-dark-text-secondary;
+  }
+
+  .settings-form input:not([type=checkbox]):not([type=radio]),
+  .settings-form select,
+  .settings-form textarea {
+    @apply block mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated
+           px-3 py-1.5 text-sm font-normal transition-colors
+           dark:text-dark-text dark:placeholder:text-dark-text-muted
+           focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20
+           focus:border-gray-400 dark:focus:border-dark-border-subtle
+           disabled:bg-gray-50 disabled:text-gray-500 dark:disabled:bg-dark-surface dark:disabled:text-dark-text-muted;
+  }
+  .settings-form textarea { @apply resize-y; }
+  .settings-form input[type=checkbox], .settings-form input[type=radio] { @apply accent-accent; }
+  .settings-form :is(button,a):focus-visible { @apply outline-2 outline-offset-2 outline-accent; }
+
+  .settings-primary {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium
+           bg-gray-900 dark:bg-accent text-white dark:text-gray-950
+           hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .settings-button {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium
+           border border-gray-300 dark:border-dark-border-subtle
+           text-gray-700 dark:text-dark-text-secondary
+           hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  /* Destructive actions had no shared class, so pages hand-rolled their own. */
+  .settings-danger {
+    @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium
+           bg-red-600 text-white hover:bg-red-700 transition-colors
+           disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .settings-note { @apply text-xs font-normal text-gray-500 dark:text-dark-text-muted; }
+  .settings-error { @apply text-sm text-red-700 dark:text-red-300; }
 }
 
 html,

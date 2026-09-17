@@ -3,7 +3,10 @@
   import { workspaceAPI } from '../lib/api/workspaces';
   import { workspaceTransport } from '../lib/api/transport';
   import { isNativeAdmin } from '../lib/store/auth.svelte';
+  import { storeNavbar } from '../lib/store/store.svelte';
   import { authErrorMessage } from '../lib/api/auth';
+
+  storeNavbar.title = 'Execution';
 
   interface Policy {
     workspace_id: string;
@@ -71,16 +74,17 @@
   }
 </script>
 
+<svelte:head><title>AT | Execution</title></svelte:head>
 <div class="settings-page settings-form">
   <header>
-    <h1 class="text-2xl font-semibold">Execution policy</h1>
-    <p class="settings-note mt-2">Choose what agents, bots and MCP servers can run in the selected workspace.</p>
+    <h1 class="settings-title">Execution policy</h1>
+    <p class="settings-subtitle">Choose what agents, bots and MCP servers can run in the selected workspace.</p>
   </header>
   {#if error}<p role="alert" class="settings-error">{error}</p>{/if}
   {#if notice}<p role="status" class="settings-note">{notice}</p>{/if}
   <button class="settings-button" disabled={busy || !workspaceTransport.selected} onclick={load}>Reload policy</button>
   {#if policy}
-    <form class="settings-section space-y-5" onsubmit={save}>
+    <form class="settings-section" onsubmit={save}>
       <fieldset disabled={!isNativeAdmin() || busy} class="space-y-5">
         {#if isNativeAdmin()}
           <div class="space-y-2">
@@ -98,7 +102,7 @@
         <p class="settings-note">{policy.mode === 'trusted_host' ? 'Tools and handlers may run on this host according to the permissions below.' : 'Restricted mode supports only non-host operations. Bash, skill handlers and builtin management tools require Trusted host.'}</p>
 
         <section class="space-y-3" aria-labelledby="execution-tools-title">
-          <h2 id="execution-tools-title" class="font-medium">Tools</h2>
+          <h2 id="execution-tools-title" class="settings-subsection-title">Tools</h2>
           <label class="flex items-center gap-2">
             <input type="checkbox" bind:checked={policy.allow_all_tools} />
             <span>Allow all tools</span>
@@ -126,7 +130,7 @@
         </section>
 
         <section class="space-y-3" aria-labelledby="execution-nodes-title">
-          <h2 id="execution-nodes-title" class="font-medium">Workflow node types</h2>
+          <h2 id="execution-nodes-title" class="settings-subsection-title">Workflow node types</h2>
           <label class="flex items-center gap-2">
             <input type="checkbox" bind:checked={policy.allow_all_nodes} />
             <span>Allow all node types</span>

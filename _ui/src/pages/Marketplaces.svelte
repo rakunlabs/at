@@ -12,6 +12,7 @@
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listMCPServers, type MCPServer, type MCPUpstream } from '@/lib/api/mcp-servers';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
+  import { deploymentUrl } from '@/lib/helper/deployment-url';
   import {
     Package,
     Plus,
@@ -266,12 +267,15 @@
     }
   }
 
+  // These URLs are pasted into Claude Code, so they must resolve from outside
+  // the SPA — including the deployment base path the routes are registered
+  // under.
   function marketplaceURL(market: Marketplace): string {
-    return `${window.location.origin}/gateway/v1/claude-code/marketplace.json?market=${encodeURIComponent(market.name)}`;
+    return deploymentUrl(`gateway/v1/claude-code/marketplace.json?market=${encodeURIComponent(market.name)}`);
   }
 
   function marketplacePluginZipURL(market: Marketplace): string {
-    return `${window.location.origin}/gateway/v1/claude-code/marketplaces/${encodeURIComponent(market.name)}/plugin.zip`;
+    return deploymentUrl(`gateway/v1/claude-code/marketplaces/${encodeURIComponent(market.name)}/plugin.zip`);
   }
 
   function installCommand(market: Marketplace): string {

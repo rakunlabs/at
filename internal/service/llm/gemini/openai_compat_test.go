@@ -71,6 +71,14 @@ func TestNormalizeGeminiFinishReason(t *testing.T) {
 		{"", true, "tool_calls"},
 		{"", false, ""},
 		{"MALFORMED_FUNCTION_CALL", false, "tool_calls"},
+		// Blocked responses must not be reported as clean stops.
+		{"LANGUAGE", false, "content_filter"},
+		{"IMAGE_SAFETY", false, "content_filter"},
+		{"IMAGE_PROHIBITED_CONTENT", false, "content_filter"},
+		{"IMAGE_RECITATION", false, "content_filter"},
+		{"BLOCKLIST", false, "content_filter"},
+		{"UNEXPECTED_TOOL_CALL", false, "tool_calls"},
+		{"TOO_MANY_TOOL_CALLS", false, "length"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.raw, func(t *testing.T) {

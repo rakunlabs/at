@@ -9,6 +9,7 @@
     type Trigger,
   } from '@/lib/api/triggers';
   import { listWorkflows, getWorkflow, type Workflow, type WorkflowNode } from '@/lib/api/workflows';
+  import { deploymentUrl, deploymentOrigin } from '@/lib/helper/deployment-url';
   import {
     Globe,
     Plus,
@@ -83,9 +84,9 @@
   }
 
   function getWebhookUrl(t: Trigger): string {
-    const base = window.location.origin;
-    const id = t.alias || t.id;
-    return `${base}/webhooks/${id}`;
+    // The route is registered under the deployment base path, so the copied
+    // URL must carry it too.
+    return deploymentUrl(`webhooks/${t.alias || t.id}`);
   }
 
   async function copyUrl(t: Trigger) {
@@ -318,7 +319,7 @@
               class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
             />
             <div class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
-              Human-friendly URL slug. Webhook URL: /webhooks/{formAlias || '&lt;id&gt;'}
+              Human-friendly URL slug. Webhook URL: {deploymentOrigin()}/webhooks/{formAlias || '&lt;id&gt;'}
             </div>
           </div>
         </div>
@@ -402,7 +403,7 @@
                   </button>
                 </div>
                 <div class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate max-w-64" title={getWebhookUrl(t)}>
-                  POST /webhooks/{t.alias || t.id}
+                  POST {deploymentOrigin()}/webhooks/{t.alias || t.id}
                 </div>
               </td>
               <td class="px-4 py-2.5">

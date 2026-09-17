@@ -200,6 +200,11 @@ Provider-specific compatibility notes:
 - **`n`** currently supports only `1`. Other values return HTTP 400 before inference across all providers. The internal response/stream contract represents one choice; forwarding `n > 1` previously paid for extra candidates and silently discarded them. Multi-choice response support requires extending that contract end-to-end.
 - **`seed`** is honoured by OpenAI/Vertex/Gemini/Cohere; Anthropic ignores it.
 - **Web search**: a synthetic tool named `web_search` (or `__google_search` / `google_search` on Gemini, `__web_search` on Anthropic) activates the provider's native internet search — Gemini/vertex-gemini `googleSearch` grounding, Anthropic server-side `web_search_20250305`. OpenAI search-preview models take `web_search_options` (also forwarded by the vertex adapter). Note the tool name is consumed by the provider: a user-defined function tool with the same name will not be called on those providers.
+- **Gemini thinking** is selected per model generation, because the two field names are mutually exclusive and sending the wrong one is a 400: Gemini 3+ (`gemini-3*`, and later majors) gets `thinkingLevel` (`MINIMAL`/`LOW`/`MEDIUM`/`HIGH`), Gemini 2.5 and earlier get `thinkingBudget` in tokens. `reasoning_effort` low/medium/high maps to 2048/8192/24576 tokens or the matching level; an explicit `thinking` block wins over it, and `thinking.budget_tokens: 0` is preserved (`thinkingBudget` is a pointer, so a zero budget is no longer erased by `omitempty`). Any enabled config also sets `includeThoughts`, which is what actually makes Gemini emit `thought` parts — without it `reasoning_content` was always empty. Requests that ask for no thinking still send no `thinkingConfig` at all. See `geminiThinkingConfig` in `internal/service/llm/gemini/openai_compat.go`.
+- **Gemini tool-call correlation** uses `functionCall.id` / `functionResponse.id` when the model supplies one. Matching results to calls by function name alone is ambiguous whenever a single turn calls the same function more than once, which is the normal parallel-tool-call case. Upstream IDs are preserved into `service.ToolCall.ID` and echoed symmetrically on both the call and the response. IDs this adapter minted itself (`call_<ulid>`, used only when the model sent none) are never replayed upstream, since Gemini never issued them.
+- **Gemini usage** folds `toolUsePromptTokenCount` into `PromptTokens`: server-side tool input (Google Search grounding, code execution) is billed as input but reported outside `promptTokenCount`, so ignoring it under-reported cost on every grounded request. `cachedContentTokenCount` is subtracted from `promptTokenCount` because the latter is the total effective prompt size and already includes the cached prefix. Explicit context caching (the `cachedContents` resource) is not managed by AT; a pre-created handle can be passed through as `extra_body.cachedContent`. Implicit caching needs no wiring and works today — the request prefix AT builds is byte-stable across calls.
+- **Finish reason vs tool calls**: adapters call `common.ReconcileToolCallFinish` after collecting tool calls, so a response carrying pending calls is always `Finished: false` / `finish_reason: "tool_calls"`. OpenAI itself reports `tool_calls`, but many OpenAI-compatible servers (Ollama, LM Studio, vLLM, several hosted gateways) return `"stop"` with a populated `tool_calls` array; the agent loops gate execution on `resp.Finished || len(resp.ToolCalls) == 0`, so taking that at face value silently dropped the calls and ended the run on whatever text came with them. Truncated/filtered responses (`length` / `content_filter`) drop their partial calls *before* reconciliation, so those stop reasons are preserved. `normalizeFinishReason` / `mapStreamFinishReason` apply the same rule at the gateway edge. Regression: `internal/service/llm/openai/compat-regression_test.go`.
+- **`refusal`** is a first-class field (`service.LLMResponse.Refusal`). OpenAI returns it *instead of* content, with `finish_reason: "stop"`, on structured-output and safety refusals — so dropping it made a refusal indistinguishable from an empty response. It is forwarded in the gateway's `message.refusal` (the wire field already existed but was never populated) and reported by org delegation as a `REFUSED` result instead of an unexplained `EMPTY_RESPONSE`.
 - Upstream provider errors surface as real gateway errors (429/5xx envelopes), never as HTTP-200 responses with error text in `content`.
 - Provider `type` strings are validated on create/update against `service.SupportedProviderTypes` (openai, anthropic, azure, bedrock, vertex, vertex-gemini, gemini, cohere, minimax).
 
@@ -224,6 +229,33 @@ ada, so `/gateway` is registered separately. `/gateway/v1/models` returns `data`
 as `[]`, never `null` — clients iterate it without a nil check — sorted by model
 ID, since Go map iteration order previously reshuffled pickers between restarts.
 Regression: `internal/server/gateway-routing_test.go`.
+
+### Deployment sub-path (`server.base_path`)
+
+`config.NormalizeBasePath` canonicalizes the value once at load: either `""`
+(root) or a cleaned path with a leading slash and no trailing slash. This has to
+be central because routes reach the table two ways — ada groups, which run
+`path.Join` and tolerate `at` or `/at/`, and raw prefix concatenation for the
+`/auth`, workspace and runtime route tables, which does not. Under `/at/` the
+latter produced patterns like `/at//auth/*` whose empty segment no request can
+match, so authentication and workspace endpoints silently disappeared while
+`/gateway` and `/api` kept working. `..` segments are rejected rather than
+resolved, because `path.Clean` would turn a typo into a prefix that serves
+somewhere else.
+
+The bare prefix (`GET /at`) redirects `301` to `/at/` instead of 404ing: a
+trailing wildcard does not match its own slashless base, and the trailing slash
+is load-bearing — asset URLs, the axios `baseURL`, the service-worker scope and
+the session cookie path are all resolved relative to it, so serving the SPA at
+`/at` would resolve every one of them a level too high.
+
+UI code that shows an absolute URL for a server route (webhooks, MCP endpoints,
+Claude Code marketplace links) must build it with `lib/helper/deployment-url.ts`
+(`deploymentUrl` / `deploymentWsUrl` / `deploymentOrigin`), which resolves
+against `document.baseURI`. `location.origin` and `location.host` drop the
+prefix, and `location.pathname` yields the current SPA route rather than the
+deployment root. Regression: `internal/config/base-path_test.go`,
+`internal/server/gateway-routing_test.go`.
 
 ### AT extensions to `/chat/completions` and `/responses`
 
@@ -667,6 +699,21 @@ See `_ui/README.md` for install, deployment and device verification instructions
 - When `<style>` needs Tailwind: `@reference "tailwindcss"` at top of style block
 - `:global()` for styling `{@html}` rendered content or third-party library elements
 - Path alias: `@/` maps to `src/`
+
+The app style is square (no `rounded*` on cards, inputs, buttons, badges or
+modals), compact (`text-xs`/`text-sm`, `px-3 py-1.5`) and card-based: a bordered
+`border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface` panel
+with a `px-4 py-3 … bg-gray-50 dark:bg-dark-base` header strip and a `p-4` body.
+Providers, Agents, Secrets, Features and Tokens are the reference pages.
+
+The `.settings-*` classes in `src/style/global.css` (`@layer components`) exist
+only to reproduce that system for the settings and auth surfaces without
+repeating long utility strings. They previously defined a *second* design system
+— rounded, airier, `text-2xl` titles, top-rules instead of cards — so a single
+sidebar click between Permissions and API tokens visibly changed styles. Keep
+them in sync with the reference pages; do not let them drift again. Note that
+inline utilities beat `@layer components`, so a page that hardcodes `text-2xl`
+overrides `.settings-title` — use the shared classes instead.
 
 ### File Naming
 - Components: PascalCase (`TaskDetail.svelte`, `KanbanBoard.svelte`)

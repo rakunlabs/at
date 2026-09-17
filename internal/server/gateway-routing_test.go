@@ -166,4 +166,25 @@ func TestGatewayRouting(t *testing.T) {
 			t.Fatalf("/v1/models: %d %s", w.Code, w.Body)
 		}
 	})
+
+	// A trailing wildcard does not match its own slashless base, so the bare
+	// prefix used to 404. Serving the SPA there instead of redirecting would
+	// resolve every relative asset, API and service-worker URL one level too
+	// high, so the only correct answer is a redirect onto the trailing slash.
+	t.Run("the bare base path redirects onto its trailing slash", func(t *testing.T) {
+		w := do(http.MethodGet, "/at", "")
+		if w.Code != http.StatusMovedPermanently {
+			t.Fatalf("/at: %d %s", w.Code, w.Body)
+		}
+		if got := w.Header().Get("Location"); got != "/at/" {
+			t.Fatalf("Location = %q, want /at/", got)
+		}
+	})
+
+	t.Run("the redirect preserves the query string", func(t *testing.T) {
+		w := do(http.MethodGet, "/at?next=%2Ftasks", "")
+		if got := w.Header().Get("Location"); got != "/at/?next=%2Ftasks" {
+			t.Fatalf("Location = %q", got)
+		}
+	})
 }

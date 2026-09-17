@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { deploymentUrl } from '@/lib/helper/deployment-url';
+
   let { data }: { data: Record<string, any> } = $props();
 </script>
 
@@ -30,7 +32,7 @@
   {#if data.trigger_id}
     <span class="text-[10px] font-medium text-gray-500 uppercase tracking-wider">Webhook URL</span>
     <div class="mt-0.5 px-2 py-1 text-[10px] font-mono text-gray-600 bg-gray-50 border border-gray-200 rounded break-all">
-      /webhooks/{data.alias || data.trigger_id}
+      {deploymentUrl(`webhooks/${data.alias || data.trigger_id}`)}
     </div>
     <div class="mt-1 text-[10px] text-gray-400">
       ID: <span class="font-mono">{data.trigger_id}</span>

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { authFetch as fetch } from './transport';
+import { deploymentUrl } from '../helper/deployment-url';
 import type { ListResult, ListParams } from './types';
 
 const api = axios.create({ baseURL: 'api/v1' });
@@ -113,9 +114,10 @@ export function sendMessage(
 ): AbortController {
   const controller = new AbortController();
 
-  const basePath = document.querySelector('base')?.getAttribute('href') || '';
-
-  fetch(`${basePath}api/v1/chat/sessions/${sessionId}/messages`, {
+  // No <base href> is ever emitted — index.html has none and the Go static
+  // handler does not inject one — so reading it always produced "". Resolve
+  // against the document base URI, which is what every other call site uses.
+  fetch(deploymentUrl(`api/v1/chat/sessions/${sessionId}/messages`), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content, attachments }),

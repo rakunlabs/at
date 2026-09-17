@@ -583,6 +583,11 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 		msg.ReasoningContent = &reasoning
 	}
 
+	if resp.Refusal != "" {
+		refusal := resp.Refusal
+		msg.Refusal = &refusal
+	}
+
 	for i, tc := range resp.ToolCalls {
 		idx := i
 		argsJSON, _ := json.Marshal(tc.Arguments)
@@ -622,6 +627,11 @@ func buildOpenAIResponse(id, model string, resp *service.LLMResponse) *ChatCompl
 func mapStreamFinishReason(raw string, hasToolCalls bool) string {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "stop", "end_turn", "stop_sequence", "endofturn":
+		// See normalizeFinishReason: a terminator delivered together with
+		// tool calls is "tool_calls", whatever the upstream called it.
+		if hasToolCalls {
+			return "tool_calls"
+		}
 		return "stop"
 	case "length", "max_tokens", "max_output_tokens":
 		return "length"
@@ -653,6 +663,13 @@ func normalizeFinishReason(resp *service.LLMResponse) string {
 	}
 	switch strings.ToLower(strings.TrimSpace(resp.FinishReason)) {
 	case "stop", "end_turn", "stop_sequence", "endofturn":
+		// A choice that carries tool_calls is "tool_calls" in the OpenAI
+		// vocabulary regardless of what the upstream reported; several
+		// OpenAI-compatible servers report a plain stop here and clients that
+		// branch on finish_reason would never run the tools.
+		if len(resp.ToolCalls) > 0 {
+			return "tool_calls"
+		}
 		return "stop"
 	case "length", "max_tokens", "max_output_tokens":
 		return "length"

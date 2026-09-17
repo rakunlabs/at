@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/alan"
@@ -64,6 +66,12 @@ type TelegramBotConfig struct {
 }
 
 type Server struct {
+	// BasePath is the sub-path prefix the whole application is served under
+	// (e.g. "/at"). Empty means the root. It is normalized by
+	// NormalizeBasePath at load time to exactly one canonical form — leading
+	// slash, no trailing slash — because routes are registered both through
+	// ada groups (which normalize) and through raw prefix concatenation
+	// (which does not), and the two disagree on any other form.
 	BasePath string `cfg:"base_path"`
 
 	Port string `cfg:"port" default:"8080"`
@@ -357,11 +365,59 @@ func (c *RateLimitConfig) RetryAfterCap() time.Duration {
 	return time.Duration(c.RetryAfterCapMs) * time.Millisecond
 }
 
+// NormalizeBasePath canonicalizes a configured base path to the single form
+// the rest of the process relies on: either "" (served at the root) or a
+// cleaned path with a leading slash and no trailing slash.
+//
+// This has to happen once, centrally. Routes are registered two different
+// ways — ada groups, which run path.Join and therefore tolerate "at" or
+// "/at/", and raw string concatenation for the /auth, workspace and runtime
+// route tables, which does not. Under "/at/" the latter produced patterns
+// like "/at//auth/*" containing an empty segment that no request can ever
+// match, so those endpoints silently disappeared while the rest of the
+// application kept working.
+//
+// An input that cannot be made safe (containing a query, fragment, escape or
+// backslash) is reported rather than silently mangled.
+func NormalizeBasePath(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+	if strings.ContainsAny(trimmed, "?#%\\") {
+		return "", fmt.Errorf("base_path %q must not contain ?, #, %% or \\", raw)
+	}
+	if !strings.HasPrefix(trimmed, "/") {
+		trimmed = "/" + trimmed
+	}
+	// Reject parent segments rather than resolving them. path.Clean would
+	// happily turn "/../etc" into "/etc", which hides an operator typo behind
+	// a prefix that silently serves somewhere else.
+	for _, segment := range strings.Split(trimmed, "/") {
+		if segment == ".." {
+			return "", fmt.Errorf("base_path %q must not contain '..' segments", raw)
+		}
+	}
+	cleaned := path.Clean(trimmed)
+	if cleaned == "/" || cleaned == "." {
+		// Serving at the root is expressed as the empty string so that
+		// prefix concatenation never produces a doubled slash.
+		return "", nil
+	}
+	return cleaned, nil
+}
+
 func Load(ctx context.Context, path string) (*Config, error) {
 	var cfg Config
 	if err := chu.Load(ctx, path, &cfg, chu.WithLoaderOption(loaderenv.New(loaderenv.WithPrefix("AT_")))); err != nil {
 		return nil, err
 	}
+
+	basePath, err := NormalizeBasePath(cfg.Server.BasePath)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Server.BasePath = basePath
 
 	if err := logi.SetLogLevel(cfg.LogLevel); err != nil {
 		return nil, fmt.Errorf("set log level %s: %w", cfg.LogLevel, err)

@@ -132,8 +132,8 @@
 
 <div class="settings-page settings-form">
   <header>
-    <h1 class="text-2xl font-semibold">Media storage</h1>
-    <p class="settings-note mt-2">
+    <h1 class="settings-title">Media storage</h1>
+    <p class="settings-subtitle">
       Where Playground image attachments are kept so they survive a reload. Without a backend, an image is sent to
       the model but only a placeholder is written to conversation history.
     </p>
@@ -155,9 +155,9 @@
     <button class="settings-button" disabled={busy} onclick={load}>{busy ? 'Working…' : 'Reload settings'}</button>
 
     {#if settings}
-      <form class="settings-section space-y-5" onsubmit={save}>
+      <form class="settings-section" onsubmit={save}>
         <fieldset disabled={!isNativeAdmin() || busy} class="space-y-5">
-          <h2 class="text-lg font-semibold">Backend</h2>
+          <h2 class="settings-section-title">Backend</h2>
           <label>
             Storage backend
             <select value={settings.backend} onchange={e => selectBackend(e.currentTarget.value)}>
@@ -191,7 +191,7 @@
               that persists across restarts and is included in your backups.
             </p>
           {:else}
-            <div class="grid sm:grid-cols-2 gap-5">
+            <div class="grid sm:grid-cols-2 gap-3">
               <label>
                 Endpoint URL
                 <input bind:value={settings.s3.endpoint} type="url" placeholder="https://s3.us-east-1.amazonaws.com" spellcheck="false" autocomplete="off" />

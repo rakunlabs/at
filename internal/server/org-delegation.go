@@ -790,6 +790,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	const outputLimitAdvisory = "Preserve existing artifacts. Write remaining output in small chapter/section file writes with small tool arguments, not one giant tool argument payload or inline response. Keep the final response concise."
 	completedNaturally := false
 	endedWithEmptyResponse := false
+	// lastRefusal carries the model's stated reason for declining, when it
+	// returned one instead of content.
+	lastRefusal := ""
 	// Set when the agent explicitly finalizes the task via the
 	// task_complete / task_block builtin. The tool executor already wrote
 	// the terminal status+result and emitted the task_completed /
@@ -997,6 +1000,10 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 
 			if resp.Content == "" {
 				endedWithEmptyResponse = true
+				// A refusal is the model's actual answer, delivered in a
+				// separate field with finish_reason "stop". Without it the
+				// run is paused as an unexplained empty response.
+				lastRefusal = resp.Refusal
 				break
 			}
 			finalContent = resp.Content
@@ -1304,7 +1311,12 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			resultReason += " Any tool calls in truncated responses were not executed. " + outputLimitAdvisory
 		} else if endedWithEmptyResponse {
 			resultCode = "EMPTY_RESPONSE"
-			resultReason = fmt.Sprintf("The model ended with finish reason %q but returned no final content.", lastFinishReason)
+			if lastRefusal != "" {
+				resultCode = "REFUSED"
+				resultReason = "The model declined to answer: " + lastRefusal
+			} else {
+				resultReason = fmt.Sprintf("The model ended with finish reason %q but returned no final content.", lastFinishReason)
+			}
 		}
 
 		slog.Warn("org-delegation: run paused — saving conversation state for continuation",

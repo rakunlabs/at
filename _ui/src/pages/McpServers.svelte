@@ -14,6 +14,7 @@
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
+  import { deploymentUrl, deploymentWsUrl } from '@/lib/helper/deployment-url';
   import {
     Server,
     Plus,
@@ -244,17 +245,16 @@
     }
   }
 
+  // Both endpoints are registered under the deployment base path, so the
+  // copied URL has to carry it or it 404s on a sub-path deployment.
   function copyEndpoint(name: string) {
-    const url = `${window.location.origin}/gateway/v1/mcp/${name}`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(deploymentUrl(`gateway/v1/mcp/${name}`));
     copiedName = `mcp:${name}`;
     setTimeout(() => { copiedName = null; }, 2000);
   }
 
   function copyWSEndpoint(name: string) {
-    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const url = `${proto}//${window.location.host}/gateway/v1/mcp/${name}/ws`;
-    navigator.clipboard.writeText(url);
+    navigator.clipboard.writeText(deploymentWsUrl(`gateway/v1/mcp/${name}/ws`));
     copiedName = `ws:${name}`;
     setTimeout(() => { copiedName = null; }, 2000);
   }

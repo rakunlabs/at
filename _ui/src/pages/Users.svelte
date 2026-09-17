@@ -109,7 +109,7 @@
   <main class="mx-auto max-w-6xl p-4 sm:p-6 space-y-6 text-gray-900 dark:text-dark-text">
     <header class="flex flex-wrap items-start justify-between gap-4">
       <div class="max-w-2xl">
-        <h1 class="text-2xl font-semibold">Users</h1>
+        <h1 class="settings-title">Users</h1>
         <p class="mt-2 text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Manage installation accounts. Installation administrators configure this server; workspace roles and permissions determine member access. Admit pending accounts by their user ID in Workspace settings.</p>
       </div>
       <button class={primaryClass} disabled={busy || loading} aria-expanded={creating} aria-controls="create-user" onclick={() => { creating = !creating; resetTarget = null; password = resetPassword = formError = ''; }}><Plus size={16} />{creating ? 'Close form' : 'Create user'}</button>

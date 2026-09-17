@@ -297,6 +297,12 @@ type LLMResponse struct {
 	// (callers fall back to deriving from Finished).
 	FinishReason string
 
+	// Refusal carries the model's explanation for declining to answer. OpenAI
+	// returns it instead of Content (which is then null) on structured-output
+	// and safety refusals, keeping finish_reason "stop" — so without this
+	// field a refusal is indistinguishable from an empty response.
+	Refusal string
+
 	// SystemFingerprint is the OpenAI `system_fingerprint` value when the
 	// upstream provider reports it. Forwarded verbatim to clients.
 	SystemFingerprint string

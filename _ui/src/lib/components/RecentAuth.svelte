@@ -16,7 +16,7 @@
   }
 </script>
 <section class="settings-section settings-form" aria-label="Verify your identity">
-  <h3 class="font-semibold">Verify your identity</h3><p class="settings-note">Use a current sign-in method to authorize this change. Verification expires after five minutes.</p>
+  <h3 class="settings-subsection-title">Verify your identity</h3><p class="settings-note">Use a current sign-in method to authorize this change. Verification expires after five minutes.</p>
   {#if challenge}
     <form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => (await identityAPI.post('external/reauth/finish', { challenge, code })).data); }}>
       <label>Authenticator or backup code<input bind:value={code} required autocomplete="one-time-code" /></label><button class="settings-primary" disabled={busy}>Verify code</button>

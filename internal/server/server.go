@@ -1206,6 +1206,23 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	spa := nativeSPAFrameProtection(http.Handler(folderM))
 	baseGroup.Handle("/*", spa)
+	if cfg.BasePath != "" {
+		// A trailing wildcard does not match its own slashless base, so
+		// "/at" would 404 while only "/at/" served the app. Everything the
+		// SPA builds is relative — asset URLs, axios baseURL, the service
+		// worker scope, the session cookie path — so the trailing slash is
+		// load-bearing and the bare prefix must be redirected onto it rather
+		// than served, which would resolve every relative URL one level too
+		// high.
+		target := cfg.BasePath + "/"
+		baseGroup.Handle("", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			redirect := target
+			if r.URL.RawQuery != "" {
+				redirect += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, redirect, http.StatusMovedPermanently)
+		}))
+	}
 
 	// Start bot adapters from DB config (managed via the UI).
 	s.startBotsFromDB(ctx)

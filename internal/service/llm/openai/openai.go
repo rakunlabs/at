@@ -197,6 +197,10 @@ type ChoiceMessage struct {
 	Content          string     `json:"content"`
 	ReasoningContent string     `json:"reasoning_content"`
 	ToolCalls        []ToolCall `json:"tool_calls"`
+	// Refusal is set instead of Content when the model declines to answer,
+	// typically under structured outputs. finish_reason stays "stop", so
+	// dropping this turns a refusal into an unexplained empty response.
+	Refusal string `json:"refusal"`
 }
 
 type ToolCall struct {
@@ -329,6 +333,7 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 	llmResp := &service.LLMResponse{
 		Content:           choice.Message.Content,
 		ReasoningContent:  choice.Message.ReasoningContent,
+		Refusal:           choice.Message.Refusal,
 		Finished:          choice.FinishReason != "tool_calls",
 		FinishReason:      choice.FinishReason,
 		Header:            headers,
@@ -355,6 +360,10 @@ func (p *Provider) Chat(ctx context.Context, model string, messages []service.Me
 			Arguments: args,
 		})
 	}
+
+	// Many OpenAI-compatible servers report "stop" while still returning tool
+	// calls; taking that at face value makes the agent loops drop the calls.
+	common.ReconcileToolCallFinish(llmResp)
 
 	return llmResp, nil
 }
@@ -532,12 +541,21 @@ func (p *Provider) ChatStream(ctx context.Context, model string, messages []serv
 
 			data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 
-			// End of stream
+			// End of stream. Tool calls can still be pending here when the
+			// upstream terminated with [DONE] without ever sending a
+			// finish_reason; they are emitted with a synthesized terminator
+			// because clients that accumulate tool-call deltas only execute
+			// them once a finish_reason arrives, and would otherwise wait
+			// forever on a stream that is already closed.
 			if data == "[DONE]" {
 				if tcs, err := flushToolCalls(); err != nil {
 					ch <- service.StreamChunk{Error: err}
 				} else if len(tcs) > 0 {
-					ch <- service.StreamChunk{ToolCalls: tcs}
+					chunk := service.StreamChunk{ToolCalls: tcs}
+					if !finished {
+						chunk.FinishReason = "tool_calls"
+					}
+					ch <- chunk
 				}
 				return
 			}
