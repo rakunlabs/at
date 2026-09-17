@@ -24,6 +24,10 @@ type AuthIdentityProvider struct {
 	Scopes          []string `json:"scopes"`
 	SubjectClaim    string   `json:"subject_claim"`
 	AuthHeaderStyle string   `json:"auth_header_style"`
+	// RolesClaims are claim paths whose values join the roles assertion used by
+	// workspace permission mappings. Empty keeps the previous behaviour: only
+	// top-level roles/groups/permissions/scope claims are recorded.
+	RolesClaims []string `json:"roles_claims,omitempty"`
 }
 
 type AuthExternalAccount struct {

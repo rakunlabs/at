@@ -1,5 +1,5 @@
 <script lang="ts">
-  import BrandLogo from './BrandLogo.svelte';
+  import AuthShell from './AuthShell.svelte';
   import { onMount } from 'svelte';
   import { identityAPI } from '../api/identity';
   import { passwordPolicyError } from '../api/auth';
@@ -13,10 +13,9 @@
     finally { busy = false; }
   }
 </script>
-<main class="min-h-full flex items-center justify-center px-6 py-12"><div class="w-full max-w-md settings-form space-y-5">
-  <BrandLogo size={48} />
-  <h1 class="text-2xl font-semibold">Recover your account</h1><p class="settings-note">Set a new local password. Recovery removes your old passwords, passkeys, linked accounts, authenticator and sessions. Your workspaces and data are preserved.</p>
-  {#if valid}<form class="space-y-5" onsubmit={redeem}><label>New password<input type="password" bind:value={password} required autocomplete="new-password" /><span class="settings-note">At least 8 characters.</span></label><label>Confirm password<input type="password" bind:value={confirm} required autocomplete="new-password" /></label><button class="settings-primary" disabled={busy}>{busy ? 'Recovering…' : 'Reset credentials'}</button></form>{:else if busy}<p role="status">Checking recovery link…</p>{/if}
+<AuthShell title="Recover your account" subtitle="Set a new local password for this installation." width="md">
+  <p class="settings-note">Recovery removes your old passwords, passkeys, linked accounts, authenticator and sessions. Your workspaces and data are preserved.</p>
+  {#if valid}<form class="space-y-4" onsubmit={redeem}><label>New password<input type="password" bind:value={password} required autocomplete="new-password" /><span class="settings-note">At least 8 characters.</span></label><label>Confirm password<input type="password" bind:value={confirm} required autocomplete="new-password" /></label><button class="settings-primary w-full min-h-11 sm:min-h-0" disabled={busy}>{busy ? 'Recovering…' : 'Reset credentials'}</button></form>{:else if busy}<p role="status" class="settings-note">Checking recovery link…</p>{/if}
   {#if error}<p role="alert" class="settings-error">{error}</p>{/if}
-  <button class="settings-button" disabled={busy} onclick={oncomplete}>Return to sign-in</button>
-</div></main>
+  <div class="border-t border-gray-100 dark:border-dark-border pt-4"><button class="settings-button" disabled={busy} onclick={oncomplete}>Return to sign-in</button></div>
+</AuthShell>

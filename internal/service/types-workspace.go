@@ -50,6 +50,11 @@ type PermissionMapping struct {
 	ClaimKind    string `json:"claim_kind"`
 	ClaimValue   string `json:"claim_value"`
 	PermissionID string `json:"permission_id"`
+	// AdmitRole optionally admits a matching external identity to the workspace
+	// with that role when it has no membership row at all. Empty means the
+	// mapping only grants capabilities to an existing member, which is the
+	// historical behaviour. Owner is never admissible.
+	AdmitRole string `json:"admit_role,omitempty"`
 }
 type AccessGrantSource struct {
 	AccessGrant

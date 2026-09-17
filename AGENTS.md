@@ -301,6 +301,73 @@ admin-only. Forwarded IP headers are deliberately not trusted: proxy deployments
 show the proxy peer. Audit storage failures are logged explicitly; last successful
 sign-in metadata survives event retention. History begins at deployment.
 
+### Sign-in screen presentation
+
+`AuthSettings.LocalLoginCollapsed` (`local_login_collapsed`, Authentication
+settings → *Hide the local sign-in form until it is requested*) makes the sign-in
+screen lead with the configured identity providers and keep the username/password
+form behind a **Local sign-in** disclosure in the card header. It lives in the
+existing `auth_settings.config` JSONB, so absent keys read as `false` and no
+migration is needed.
+
+It is **presentation, not admission**: every local account can still sign in, and
+`/auth/login` is unaffected. The access control remains `LocalLoginEnabled`, which
+a database trigger (migration 37) refuses to turn off without a usable external
+administrator. `GET /auth/status` therefore reports the collapse flag only while
+local sign-in is actually enabled, so a stale value cannot describe a form the
+browser is not allowed to show. Regression:
+`TestAuthSettingsLocalLoginCollapsedPostgres`.
+
+### Provider claims, permission bundles and claim-driven admission
+
+Workspace authorization is roles → permission bundles → provider-qualified
+mappings → denies (`workspace-access.go:resolveWorkspaceAccess`). A bundle
+(`service.PermissionBundle`, keyed per workspace) is the reusable "key"; a
+mapping binds one immutable provider ID plus a claim kind/value to a bundle.
+
+External login records the claims it may later match in
+`auth_identity_links.asserted_permissions`, never in the local identity's roles.
+Reading only top-level `roles` / `groups` / `permissions` / `scope` claims made
+nested role sets invisible — Keycloak puts realm roles under
+`realm_access.roles` and per-client roles under `resource_access.<client>.roles`.
+A provider therefore declares `roles_claims` (Authentication settings → *Role
+claim paths*): dot paths where a `*` segment matches every key of an object and
+every element of an array. Their values are folded into the roles assertion that
+mappings already match with claim kind `roles`, so no new claim kind and no
+migration are needed, and a provider without declared paths behaves exactly as
+before (opt-in: the same token asserts nothing extra). `service.HarvestClaimValues`
+bounds depth (8 segments), fan-out (512 nodes), value count (64) and total bytes
+(3072) because the assertion document is rejected past 8 KB and the claim shape
+belongs to the provider. Values are whitespace-split, so a role containing a
+space is not addressable this way. Provider-reported roles are never truncated —
+they already worked without paths. Regression:
+`internal/service/auth-claims_test.go`, plus the `nested_roles` case in
+`TestExternalStrictOIDCAndReplicaFlow`.
+
+Mappings are editable in place (POST `/api/v1/permission-mappings` with `id`),
+which keeps the row identity that delete-and-recreate discarded; the Permissions
+page offers the enabled identity providers as a dropdown and falls back to the
+raw ID when a mapping names a disabled one.
+
+Migration 53 adds `workspace_permission_mappings.admit_role`
+(`'' | viewer | member | admin`, default `''`). A non-empty value makes a
+matching external identity a member of that workspace when it has **no
+membership row at all**; empty keeps the historical behaviour, where a mapping
+only grants capabilities to somebody who is already a member. Limits are
+deliberate and asserted by `TestWorkspacePostgresClaimAdmissionAndMappingEdit`:
+`owner` is refused (schema CHECK plus `service.ValidWorkspaceAdmissionRole`), a
+`revoked` membership is never resurrected and an existing role is never
+rewritten, archived workspaces and disabled providers never admit, and
+configuring an admitting mapping needs `members.manage` at or above the admitted
+role — admission is membership authority, not permission authority, so
+`permissions.manage` alone cannot grant it. Admission runs in
+`ensureMappedMemberships` on two paths: the denied path of
+`ResolveWorkspaceAccess` (so a member's request pays nothing, and the read
+transaction's share lock is released before admission takes the row
+exclusively), and `ListWorkspaces`, because a first-time single sign-on user has
+no workspace to name yet. Each insert is logged with workspace, user, role,
+provider and mapping ID.
+
 ### Selected-workspace provider catalog and workflows
 
 `GET /api/v1/info` is workspace-admitted. Its provider/model list comes from
@@ -714,6 +781,18 @@ sidebar click between Permissions and API tokens visibly changed styles. Keep
 them in sync with the reference pages; do not let them drift again. Note that
 inline utilities beat `@layer components`, so a page that hardcodes `text-2xl`
 overrides `.settings-title` — use the shared classes instead.
+
+The full-screen auth gates render outside the app shell (sign-in, first setup,
+account recovery, backup codes, mobile approval, the connection splash), so they
+carried their own layout — a bare centred column, `text-2xl` heading, rounded
+panels — and were the first screen a user saw. They now share
+`lib/components/AuthShell.svelte`: the sidebar brand mark + `AT` wordmark above a
+single reference card (header strip with title/subtitle, `p-4` `settings-form`
+body). Add a new gate by rendering `AuthShell` with `title` / `subtitle` /
+`width` (`sm` forms, `md` setup, `lg` review screens) rather than a new layout.
+Primary/secondary actions in these gates are full-width with
+`min-h-11 sm:min-h-0`, the established touch-target pattern, because sign-in is
+the one screen that must work on a phone.
 
 ### File Naming
 - Components: PascalCase (`TaskDetail.svelte`, `KanbanBoard.svelte`)

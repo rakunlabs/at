@@ -159,12 +159,18 @@ func (s *Server) SavePermissionMappingAPI(w http.ResponseWriter, r *http.Request
 	if !decodeNativeBody(w, r, &req) {
 		return
 	}
+	// A supplied id edits that mapping in place; without one a mapping is created.
+	created := req.ID == ""
 	v, err := store.SavePermissionMapping(r.Context(), req)
 	if err != nil {
 		workspaceError(w, err)
 		return
 	}
-	httpResponseJSON(w, v, 201)
+	if created {
+		httpResponseJSON(w, v, 201)
+		return
+	}
+	httpResponseJSON(w, v, 200)
 }
 func (s *Server) DeletePermissionMappingAPI(w http.ResponseWriter, r *http.Request) {
 	store := s.workspaceStore(w)

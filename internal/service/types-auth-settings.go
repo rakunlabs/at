@@ -16,10 +16,15 @@ type AuthSettings struct {
 	SessionTTLSeconds  int64    `json:"session_ttl_seconds"`
 	RememberTTLSeconds int64    `json:"remember_ttl_seconds"`
 	LocalLoginEnabled  bool     `json:"local_login_enabled"`
-	SignupAdmission    string   `json:"signup_admission"`
-	DisplayTitle       string   `json:"display_title"`
-	MFAPolicy          string   `json:"mfa_policy"`
-	MaxSessions        int      `json:"max_sessions"`
+	// Presentation only: the sign-in screen starts with the local form hidden
+	// behind a reveal control. It is not an access control — every local user
+	// can still sign in — so it carries no validation and is reported to the
+	// browser only while local sign-in is actually enabled.
+	LocalLoginCollapsed bool   `json:"local_login_collapsed"`
+	SignupAdmission     string `json:"signup_admission"`
+	DisplayTitle        string `json:"display_title"`
+	MFAPolicy           string `json:"mfa_policy"`
+	MaxSessions         int    `json:"max_sessions"`
 }
 
 func DefaultAuthSettings() AuthSettings {

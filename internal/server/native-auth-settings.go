@@ -116,7 +116,9 @@ func (m *nativeAuthSettings) status(w http.ResponseWriter, r *http.Request) {
 	if v == nil {
 		return
 	}
-	status := map[string]any{"enabled": true, "setup_required": v.SetupRequired, "local_login": v.Settings.LocalLoginEnabled, "display_title": v.Settings.DisplayTitle, "signup_admission": v.Settings.SignupAdmission, "remember_me": true, "passkey_login": "username-first", "passkeys": false}
+	// The collapse flag is reported only while local sign-in is enabled, so a
+	// stale value cannot describe a form the browser is not allowed to show.
+	status := map[string]any{"enabled": true, "setup_required": v.SetupRequired, "local_login": v.Settings.LocalLoginEnabled, "local_login_collapsed": v.Settings.LocalLoginEnabled && v.Settings.LocalLoginCollapsed, "display_title": v.Settings.DisplayTitle, "signup_admission": v.Settings.SignupAdmission, "remember_me": true, "passkey_login": "username-first", "passkeys": false}
 	if !v.SetupRequired {
 		a, _, err := m.snapshot(v.Settings)
 		if err != nil {

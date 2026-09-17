@@ -3,14 +3,14 @@ import type { LoginResult } from './auth';
 export const identityAPI = axios.create({ baseURL: 'auth' });
 export interface AuthSettings {
   version: number; origin: string; allowed_origins?: string[]; session_ttl_seconds: number; remember_ttl_seconds: number;
-  local_login_enabled: boolean; signup_admission: 'invite_only' | 'approval_required';
+  local_login_enabled: boolean; local_login_collapsed: boolean; signup_admission: 'invite_only' | 'approval_required';
   display_title: string; mfa_policy: 'enrolled_required'; max_sessions: number;
 }
 export interface IdentityProvider {
   id: string; label: string; mode: 'oidc' | 'oauth2'; enabled: boolean; version: number;
   issuer: string; client_id: string; has_client_secret?: boolean; auth_url: string;
   token_url: string; userinfo_url: string; jwks_url: string; scopes: string[];
-  subject_claim: string; auth_header_style: string;
+  subject_claim: string; auth_header_style: string; roles_claims?: string[];
 }
 export interface IdentityLink { id: string; provider_id: string; issuer: string; subject: string; email?: string; email_verified: boolean }
 export interface RecentProof { proof: string; expires_in: number }

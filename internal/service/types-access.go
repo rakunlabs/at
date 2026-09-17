@@ -87,6 +87,13 @@ func WorkspaceRoleRank(role string) int {
 	return 0
 }
 
+// ValidWorkspaceAdmissionRole bounds the roles a provider claim may assert.
+// Owner can archive the workspace and rewrite every other membership, so it
+// stays a human decision; the empty string means the mapping admits nobody.
+func ValidWorkspaceAdmissionRole(role string) bool {
+	return role == "" || role == "viewer" || role == "member" || role == "admin"
+}
+
 func WorkspaceRoleGrants(role string) []AccessGrant {
 	rank := WorkspaceRoleRank(role)
 	var grants []AccessGrant

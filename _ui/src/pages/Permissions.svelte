@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { workspaceAPI, type Bundle, type EffectiveAccess, type Mapping } from '../lib/api/workspaces';
+  import { identityAPI } from '../lib/api/identity';
   import { workspaceState, can } from '../lib/store/workspace.svelte';
   import { isNativeAdmin, storeAuth } from '../lib/store/auth.svelte';
   import { storeNavbar } from '../lib/store/store.svelte';
@@ -12,9 +13,21 @@
   let effective = $state<EffectiveAccess | null>(workspaceState.access); let user = $state(storeAuth.identity?.subject || ''); let loadedUser = $state('');
   let grants = $state<string[]>([]); let denies = $state<string[]>([]); let editing = $state<Bundle | null>(null); let search = $state('');
   let error = $state(''); let notice = $state(''); let busy = $state(false); let provider = $state(''); let claimKind = $state('groups'); let claimValue = $state(''); let permission = $state('');
+  // Editing a mapping in place keeps its id, so references and audit trails survive.
+  let mappingID = $state(''); let admitRole = $state<'' | 'viewer' | 'member' | 'admin'>('');
+  let loginProviders = $state<{id: string; label: string}[]>([]);
   let manage = $derived(isNativeAdmin() || can('permissions.manage'));
+  let admitAllowed = $derived(isNativeAdmin() || can('members.manage'));
+  // A disabled provider keeps working in existing mappings but is not offered,
+  // so fall back to the raw identifier rather than silently rewriting it.
+  let providerListed = $derived(!provider || loginProviders.some(p => p.id === provider));
   let capabilities = $derived(registry.filter(c => !c.platform_only && c.key.includes(search)));
-  async function load() { if (!manage) return; busy = true; error = ''; try { const [b,p,c,m] = await Promise.all([workspaceAPI.get('permissions'), workspaceAPI.get('permissions/presets'), workspaceAPI.get('permissions/capabilities'), workspaceAPI.get('permission-mappings')]); bundles = b.data.items || []; presets = p.data.items || []; registry = c.data.items || []; mappings = m.data.items || []; } catch (e) { error = authErrorMessage(e, 'Could not load workspace permissions.'); } finally { busy = false; } }
+  async function load() { if (!manage) return; busy = true; error = ''; try { const [b,p,c,m] = await Promise.all([workspaceAPI.get('permissions'), workspaceAPI.get('permissions/presets'), workspaceAPI.get('permissions/capabilities'), workspaceAPI.get('permission-mappings')]); bundles = b.data.items || []; presets = p.data.items || []; registry = c.data.items || []; mappings = m.data.items || []; } catch (e) { error = authErrorMessage(e, 'Could not load workspace permissions.'); } finally { busy = false; }
+    try { loginProviders = (await identityAPI.get('login-providers')).data || []; } catch { loginProviders = []; } }
+  function editMapping(m?: Mapping) {
+    mappingID = m?.id || ''; provider = m?.provider_id || ''; claimKind = m?.claim_kind || 'groups';
+    claimValue = m?.claim_value || ''; permission = m?.permission_id || ''; admitRole = m?.admit_role || '';
+  }
   onMount(() => { void load(); });
   async function run(fn: () => Promise<void>) { if (busy) return; busy = true; error = notice = ''; try { await fn(); notice = 'Permissions updated.'; } catch (e) { error = authErrorMessage(e, 'Permission change failed. Reload and retry.'); } finally { busy = false; } }
   async function inspect() { busy = true; error = ''; loadedUser = ''; try { const [g,e] = await Promise.all([workspaceAPI.get(`user-permissions/${encodeURIComponent(user)}`), workspaceAPI.get(`users-effective/${encodeURIComponent(user)}`)]); grants = g.data.permission_ids || []; effective = e.data; denies = effective?.denied || []; loadedUser = user; } catch (e) { effective = null; error = authErrorMessage(e, 'Could not inspect this workspace member.'); } finally { busy = false; } }
@@ -47,8 +60,25 @@
     <ul class="settings-list">{#each effective.sources || [] as source}<li class="space-y-1"><div class="flex flex-wrap justify-between gap-2"><strong>{source.capability}</strong><span>{effective.denied?.includes(source.capability) ? 'Denied' : effective.capabilities?.includes(source.capability) ? 'Allowed on matching resources' : 'Inactive'}</span></div><p class="settings-note break-all">Source: {source.source}{source.permission_id ? ` · bundle ${source.permission_id}` : ''}{source.provider_id ? ` · provider ${source.provider_id}` : ''}{source.mapping_id ? ` · mapping ${source.mapping_id}` : ''}</p><p class="settings-note break-all">Resource IDs: {source.resource_ids?.join(', ') || 'All in workspace'} · Paths: {source.path_patterns?.join(', ') || 'All in workspace'}</p></li>{/each}</ul>
   {:else}<p class="settings-note">Select a workspace or inspect a member to see resolved permissions.</p>{/if}
 </section>
-{#if manage}<section class="settings-section"><h2 class="settings-section-title">Provider-qualified mappings</h2><p class="settings-note">Map verified claims from one immutable provider ID to a bundle. Mappings do not create workspace membership; email is never an identity key.</p>
-  <form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { await workspaceAPI.post('permission-mappings', { provider_id: provider, claim_kind: claimKind, claim_value: claimValue, permission_id: permission }); claimValue = ''; await load(); }); }}><div class="grid sm:grid-cols-2 gap-3"><label>Immutable provider ID<input bind:value={provider} required /></label><label>Claim kind<select bind:value={claimKind}><option>groups</option><option>roles</option><option>permissions</option><option>scope</option><option>scopes</option></select></label><label>Exact claim value<input bind:value={claimValue} required /></label><label>Permission bundle<select bind:value={permission} required><option value="">Choose bundle</option>{#each bundles as b}<option value={b.id}>{b.name}</option>{/each}</select></label></div><button class="settings-primary" disabled={busy}>Add mapping</button></form>
-  <ul class="settings-list">{#each mappings as m}<li class="flex flex-wrap justify-between gap-3"><div class="min-w-0"><p class="break-all">{m.provider_id} · {m.claim_kind} = {m.claim_value}</p><p class="settings-note">{bundles.find(b => b.id === m.permission_id)?.name || m.permission_id}</p></div><button class="settings-button" disabled={busy} onclick={() => run(async () => { await workspaceAPI.delete(`permission-mappings/${encodeURIComponent(m.id)}`); await load(); })}>Delete mapping</button></li>{/each}</ul>
+{#if manage}<section class="settings-section"><h2 class="settings-section-title">Provider-qualified mappings</h2><p class="settings-note">Map verified claims from one immutable provider ID to a bundle. Email is never an identity key. Nested role claims such as Keycloak's <code>realm_access.roles</code> are matched only after their paths are declared for that provider in Authentication settings.</p>
+  <form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { await workspaceAPI.post('permission-mappings', { ...(mappingID ? { id: mappingID } : {}), provider_id: provider, claim_kind: claimKind, claim_value: claimValue, permission_id: permission, admit_role: admitRole }); editMapping(); await load(); }); }}>
+    <div class="grid sm:grid-cols-2 gap-3">
+      <label>Identity provider
+        {#if loginProviders.length && providerListed}
+          <select bind:value={provider} required><option value="">Choose provider</option>{#each loginProviders as p}<option value={p.id}>{p.label} · {p.id}</option>{/each}</select>
+        {:else}
+          <input bind:value={provider} required spellcheck="false" />
+        {/if}
+        <span class="settings-note">{loginProviders.length ? 'Enabled providers only. A disabled provider keeps its mappings but never matches.' : 'No enabled provider is available; enter the immutable provider ID.'}</span>
+      </label>
+      <label>Claim kind<select bind:value={claimKind}><option>groups</option><option>roles</option><option>permissions</option><option>scope</option><option>scopes</option></select><span class="settings-note">roles and scopes match the provider's reported lists; groups, permissions and scope match the recorded claim of that name.</span></label>
+      <label>Exact claim value<input bind:value={claimValue} required spellcheck="false" /></label>
+      <label>Permission bundle<select bind:value={permission} required><option value="">Choose bundle</option>{#each bundles as b}<option value={b.id}>{b.name}</option>{/each}</select></label>
+      <label>Workspace admission<select bind:value={admitRole} disabled={!admitAllowed}><option value="">None — grant to existing members only</option><option value="viewer">Admit as viewer</option><option value="member">Admit as member</option><option value="admin">Admit as admin</option></select></label>
+    </div>
+    <p class="settings-note">{admitAllowed ? 'Admission creates a membership for a matching identity that has none, at or below your own role. A revoked membership is never restored and an existing role is never changed. Owner is not admissible.' : 'Admission requires the members.manage capability, because it creates workspace membership rather than granting capabilities to an existing member.'}</p>
+    <div class="flex gap-3"><button class="settings-primary" disabled={busy}>{mappingID ? 'Save mapping' : 'Add mapping'}</button>{#if mappingID}<button type="button" class="settings-button" onclick={() => editMapping()}>Cancel edit</button>{/if}</div>
+  </form>
+  <ul class="settings-list">{#each mappings as m}<li class="flex flex-wrap justify-between gap-3"><div class="min-w-0"><p class="break-all">{m.provider_id} · {m.claim_kind} = {m.claim_value}</p><p class="settings-note">{bundles.find(b => b.id === m.permission_id)?.name || m.permission_id} · {m.admit_role ? `admits as ${m.admit_role}` : 'existing members only'}</p></div><div class="flex gap-2"><button class="settings-button" disabled={busy} onclick={() => editMapping(m)}>Edit</button><button class="settings-button" disabled={busy} onclick={() => { if (confirm('Delete this provider mapping?')) void run(async () => { await workspaceAPI.delete(`permission-mappings/${encodeURIComponent(m.id)}`); if (mappingID === m.id) editMapping(); await load(); }); }}>Delete</button></div></li>{/each}</ul>
 </section>{/if}
 </div>

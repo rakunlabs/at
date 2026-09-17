@@ -3,7 +3,9 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sort"
 	"strings"
@@ -58,6 +60,19 @@ func (p *Postgres) ResolveWorkspaceAccess(ctx context.Context, workspaceID, user
 			return service.AccessPrincipal{}, service.EffectiveAccess{}, err
 		}
 	}
+	principal, report, err := p.resolveWorkspaceAccessSnapshot(ctx, workspaceID, userID, sessionID)
+	// Admission is attempted only on the denied path, so a member's request pays
+	// nothing for it, and only after the read transaction has released its share
+	// lock on the workspace row that admission needs to take exclusively.
+	if errors.Is(err, service.ErrAccessDenied) {
+		if admitted, e := p.ensureMappedMemberships(ctx, userID, sessionID, workspaceID); e == nil && admitted {
+			return p.resolveWorkspaceAccessSnapshot(ctx, workspaceID, userID, sessionID)
+		}
+	}
+	return principal, report, err
+}
+
+func (p *Postgres) resolveWorkspaceAccessSnapshot(ctx context.Context, workspaceID, userID, sessionID string) (service.AccessPrincipal, service.EffectiveAccess, error) {
 	// A transaction supplies one coherent snapshot for the effective report.
 	tx, err := p.goqu.BeginTx(ctx, nil)
 	if err != nil {
@@ -107,6 +122,112 @@ func (p *Postgres) ensureDefaultWorkspaceOwner(ctx context.Context, userID, sess
 		return fmt.Errorf("create default owner: %w", err)
 	}
 	return tx.Commit()
+}
+
+// ensureMappedMemberships admits an external identity that matches a mapping
+// carrying an admission role. Scope it to one workspace for a request that named
+// one, or pass an empty ID to sweep every workspace during discovery — without
+// the sweep a first-time single sign-on user would see an empty workspace list
+// and never send the header that would admit them.
+//
+// Deliberate limits: a workspace that already has ANY membership row for the
+// user is skipped, so a revoked membership is never resurrected and an
+// administrator's explicit role is never overwritten; archived workspaces are
+// skipped; disabled providers do not match; and the role is re-validated here,
+// not trusted from the row.
+func (p *Postgres) ensureMappedMemberships(ctx context.Context, userID, sessionID, workspaceID string) (bool, error) {
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin claim admission: %w", err)
+	}
+	defer tx.Rollback()
+	u, err := p.workspaceIdentity(ctx, tx, userID, sessionID)
+	if err != nil {
+		return false, err
+	}
+	var links []service.AuthIdentityLink
+	if err = tx.From(p.workspaceTable("auth_identity_links")).Where(goqu.Ex{"user_id": u.ID}).ScanStructsContext(ctx, &links); err != nil {
+		return false, fmt.Errorf("read admission identities: %w", err)
+	}
+	if len(links) == 0 {
+		return false, nil
+	}
+	where := []exp.Expression{goqu.C("admit_role").Neq("")}
+	if workspaceID != "" {
+		where = append(where, goqu.C("workspace_id").Eq(workspaceID))
+	}
+	var mappings []workspaceMappingRow
+	if err = tx.From(p.workspaceTable("workspace_permission_mappings")).Where(where...).Order(goqu.C("id").Asc()).ScanStructsContext(ctx, &mappings); err != nil {
+		return false, fmt.Errorf("read admission mappings: %w", err)
+	}
+	if len(mappings) == 0 {
+		return false, nil
+	}
+	enabled := map[string]bool{}
+	var providers []string
+	if err = tx.From(p.workspaceTable("auth_identity_providers")).Select("id").Where(goqu.Ex{"enabled": true}).ScanValsContext(ctx, &providers); err != nil {
+		return false, fmt.Errorf("read admission providers: %w", err)
+	}
+	for _, id := range providers {
+		enabled[id] = true
+	}
+	// Highest matching role per workspace, in a stable workspace order.
+	admit := map[string]workspaceMappingRow{}
+	var order []string
+	for _, m := range mappings {
+		if !enabled[m.ProviderID] || !service.ValidWorkspaceAdmissionRole(m.AdmitRole) || m.AdmitRole == "" {
+			continue
+		}
+		matched := false
+		for _, link := range links {
+			if link.ProviderID == m.ProviderID && workspaceClaimMatches(link, m.ClaimKind, m.ClaimValue) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		best, seen := admit[m.WorkspaceID]
+		if !seen {
+			order = append(order, m.WorkspaceID)
+		}
+		if !seen || service.WorkspaceRoleRank(m.AdmitRole) > service.WorkspaceRoleRank(best.AdmitRole) {
+			admit[m.WorkspaceID] = m
+		}
+	}
+	sort.Strings(order)
+	admitted := false
+	for _, id := range order {
+		m := admit[id]
+		var locked string
+		found, e := tx.From(p.workspaceTable("workspaces")).Select("id").Where(goqu.Ex{"id": id, "archived": false}).ForUpdate(goqu.Wait).ScanValContext(ctx, &locked)
+		if e != nil {
+			return false, fmt.Errorf("lock admission workspace: %w", e)
+		}
+		if !found {
+			continue
+		}
+		n, e := tx.From(p.workspaceTable("workspace_memberships")).Where(goqu.Ex{"workspace_id": id, "user_id": u.ID}).CountContext(ctx)
+		if e != nil {
+			return false, fmt.Errorf("read admission membership: %w", e)
+		}
+		if n > 0 {
+			continue
+		}
+		if _, e = tx.Insert(p.workspaceTable("workspace_memberships")).Rows(goqu.Record{"workspace_id": id, "user_id": u.ID, "role": m.AdmitRole, "status": "active"}).OnConflict(goqu.DoNothing()).Executor().ExecContext(ctx); e != nil {
+			return false, fmt.Errorf("admit workspace member: %w", e)
+		}
+		admitted = true
+		slog.Info("workspace claim admission", "workspace_id", id, "user_id", u.ID, "role", m.AdmitRole, "provider_id", m.ProviderID, "mapping_id", m.ID, "claim_kind", m.ClaimKind)
+	}
+	if !admitted {
+		return false, nil
+	}
+	if err = tx.Commit(); err != nil {
+		return false, fmt.Errorf("commit claim admission: %w", err)
+	}
+	return true, nil
 }
 
 func (p *Postgres) resolveWorkspaceAccess(ctx context.Context, q workspaceReader, workspaceID, userID, sessionID string) (service.AccessPrincipal, service.EffectiveAccess, error) {

@@ -263,6 +263,121 @@ func TestWorkspacePostgresProviderQualifiedMapping(t *testing.T) {
 	}
 }
 
+// Claim-driven admission is the only path that creates a membership without a
+// human act, so each of its limits is asserted here rather than assumed.
+func TestWorkspacePostgresClaimAdmissionAndMappingEdit(t *testing.T) {
+	p, ctx, w, admin := workspaceFixture(t)
+	outsider := workspaceUser(t, p, "sso-newcomer")
+	if _, err := p.goqu.Insert(p.workspaceTable("auth_identity_providers")).Rows(goqu.Record{"id": "keycloak", "enabled": true, "config": "{}"}).Executor().ExecContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The roles assertion is what the external coordinator writes after folding
+	// configured claim paths into the provider-reported roles.
+	assertions, _ := json.Marshal(map[string]any{"provider_id": "keycloak", "roles": []string{"at-editors"}})
+	if _, err := p.goqu.Insert(p.workspaceTable("auth_identity_links")).Rows(goqu.Record{"id": "kc-link", "provider_id": "keycloak", "issuer": "https://kc.test", "subject": "sub", "user_id": outsider.ID, "email_verified": false, "asserted_permissions": string(assertions)}).Executor().ExecContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	b, err := p.SavePermission(ctx, service.PermissionBundle{Key: "edit", Keys: []string{"tasks.write"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := p.SavePermissionMapping(ctx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", PermissionID: b.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Without an admission role a mapping still grants nothing to a non-member.
+	if _, _, err = p.ResolveWorkspaceAccess(ctx, w.ID, outsider.ID, ""); !errors.Is(err, service.ErrAccessDenied) {
+		t.Fatalf("mapping admitted without an admission role: %v", err)
+	}
+	if _, err = p.SavePermissionMapping(ctx, service.PermissionMapping{ID: m.ID, ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", PermissionID: b.ID, AdmitRole: "owner"}); !errors.Is(err, service.ErrWorkspaceConflict) {
+		t.Fatalf("owner admission accepted: %v", err)
+	}
+	edited, err := p.SavePermissionMapping(ctx, service.PermissionMapping{ID: m.ID, ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", PermissionID: b.ID, AdmitRole: "member"})
+	if err != nil || edited.ID != m.ID {
+		t.Fatalf("edit in place: %+v %v", edited, err)
+	}
+	rows, err := p.ListPermissionMappings(ctx)
+	if err != nil || len(rows) != 1 || rows[0].ID != m.ID || rows[0].AdmitRole != "member" {
+		t.Fatalf("edit duplicated or lost the mapping: %+v %v", rows, err)
+	}
+	a, report, err := p.ResolveWorkspaceAccess(ctx, w.ID, outsider.ID, "")
+	if err != nil || report.Role != "member" || !a.Allows("tasks.write", service.AccessResource{WorkspaceID: w.ID}) {
+		t.Fatalf("claim admission: %+v %v", report, err)
+	}
+	// A revoked membership is a decision, not an absence: never resurrect it.
+	if err = p.SetWorkspaceMember(ctx, service.WorkspaceMembership{WorkspaceID: w.ID, UserID: outsider.ID, Role: "member", Status: "revoked"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = p.ResolveWorkspaceAccess(ctx, w.ID, outsider.ID, ""); !errors.Is(err, service.ErrAccessDenied) {
+		t.Fatalf("revoked membership readmitted: %v", err)
+	}
+	// Admission is membership authority: permissions.manage alone cannot grant it.
+	delegateBundle, err := p.SavePermission(ctx, service.PermissionBundle{Key: "delegate", Keys: []string{"permissions.manage", "permissions.read", "tasks.write"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegate := workspaceUser(t, p, "permission-delegate")
+	workspaceMember(t, p, ctx, w.ID, delegate, "viewer")
+	if err = p.SetUserPermissions(ctx, delegate.ID, []string{delegateBundle.ID}); err != nil {
+		t.Fatal(err)
+	}
+	principal, _, err := p.ResolveWorkspaceAccess(ctx, w.ID, delegate.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	delegateCtx := service.WithAccessPrincipal(ctx, principal)
+	if _, err = p.SavePermissionMapping(delegateCtx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-viewers", PermissionID: b.ID}); err != nil {
+		t.Fatalf("delegated mapping without admission: %v", err)
+	}
+	if _, err = p.SavePermissionMapping(delegateCtx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-leads", PermissionID: b.ID, AdmitRole: "member"}); !errors.Is(err, service.ErrAccessDenied) {
+		t.Fatalf("admission without members.manage: %v", err)
+	}
+	// Discovery admits into a workspace the user has never named.
+	second, err := p.CreateWorkspace(ctx, "Beta", admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPrincipal, _, err := p.ResolveWorkspaceAccess(ctx, second.ID, admin.ID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondCtx := service.WithAccessPrincipal(ctx, secondPrincipal)
+	secondBundle, err := p.SavePermission(secondCtx, service.PermissionBundle{Key: "edit", Keys: []string{"tasks.write"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = p.SavePermissionMapping(secondCtx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", PermissionID: secondBundle.ID, AdmitRole: "viewer"}); err != nil {
+		t.Fatal(err)
+	}
+	listed, err := p.ListWorkspaces(service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: outsider.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	admittedRole := ""
+	for _, row := range listed {
+		if row.ID == second.ID {
+			admittedRole = row.Role
+		}
+		if row.ID == w.ID {
+			t.Fatalf("revoked workspace listed: %+v", row)
+		}
+	}
+	if admittedRole != "viewer" {
+		t.Fatalf("discovery admission role %q in %+v", admittedRole, listed)
+	}
+	// A disabled provider stops admitting, and existing members keep their role.
+	if _, err = p.goqu.Update(p.workspaceTable("auth_identity_providers")).Set(goqu.Record{"enabled": false}).Where(goqu.Ex{"id": "keycloak"}).Executor().ExecContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	third, err := p.CreateWorkspace(ctx, "Gamma", admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = p.ResolveWorkspaceAccess(ctx, third.ID, outsider.ID, ""); !errors.Is(err, service.ErrAccessDenied) {
+		t.Fatalf("disabled provider admitted: %v", err)
+	}
+}
+
 func TestWorkspacePostgresRoleCeilingsAndExecutionSwitch(t *testing.T) {
 	p, ctx, w, _ := workspaceFixture(t)
 	owner := workspaceUser(t, p, "owner")

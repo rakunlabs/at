@@ -9,7 +9,7 @@ export interface IssuedInvitation { invitation: Invitation; token: string }
 export interface Bundle { id: string; key: string; name: string; description: string; keys: string[]; key_patterns: Record<string, string[]>; resource_ids?: Record<string, string[]> }
 export interface GrantSource { capability: string; resource_ids?: string[]; path_patterns?: string[]; source: string; permission_id?: string; provider_id?: string; mapping_id?: string }
 export interface EffectiveAccess { workspace_id: string; user_id: string; role: string; membership_version: number; capabilities: string[]; patterns: Record<string, string[] | null>; sources: GrantSource[]; denied: string[]; execution_enabled: boolean }
-export interface Mapping { id: string; workspace_id: string; provider_id: string; claim_kind: string; claim_value: string; permission_id: string }
+export interface Mapping { id: string; workspace_id: string; provider_id: string; claim_kind: string; claim_value: string; permission_id: string; admit_role?: '' | 'viewer' | 'member' | 'admin' }
 export const listWorkspaces = async () => (await identityAPI.get<{ items: Workspace[] }>('workspaces')).data.items || [];
 export interface WorkspacePreferences { mode: 'default' | 'last_used' | 'workspace'; workspace_id: string; last_workspace_id: string }
 export const getWorkspacePreferences = async () => (await identityAPI.get<WorkspacePreferences>('workspaces/preferences')).data;

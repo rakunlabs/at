@@ -26,10 +26,11 @@ type workspaceMappingRow struct {
 	ClaimKind    string `db:"claim_kind"`
 	ClaimValue   string `db:"claim_value"`
 	PermissionID string `db:"permission_id"`
+	AdmitRole    string `db:"admit_role"`
 }
 
 func (r workspaceMappingRow) record() service.PermissionMapping {
-	return service.PermissionMapping{ID: r.ID, WorkspaceID: r.WorkspaceID, ProviderID: r.ProviderID, ClaimKind: r.ClaimKind, ClaimValue: r.ClaimValue, PermissionID: r.PermissionID}
+	return service.PermissionMapping{ID: r.ID, WorkspaceID: r.WorkspaceID, ProviderID: r.ProviderID, ClaimKind: r.ClaimKind, ClaimValue: r.ClaimValue, PermissionID: r.PermissionID, AdmitRole: r.AdmitRole}
 }
 
 func (p *Postgres) workspaceBundles(ctx context.Context, q workspaceReader, id string) ([]service.PermissionBundle, error) {
@@ -309,7 +310,10 @@ func (p *Postgres) ListPermissionMappings(ctx context.Context) ([]service.Permis
 	return out, nil
 }
 func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.PermissionMapping) (*service.PermissionMapping, error) {
-	if m.ID != "" || m.ClaimValue == "" || len(m.ClaimValue) > 1024 || !slices.Contains([]string{"roles", "groups", "permissions", "scope", "scopes"}, m.ClaimKind) {
+	if m.ClaimValue == "" || len(m.ClaimValue) > 1024 || !slices.Contains([]string{"roles", "groups", "permissions", "scope", "scopes"}, m.ClaimKind) {
+		return nil, service.ErrWorkspaceConflict
+	}
+	if !service.ValidWorkspaceAdmissionRole(m.AdmitRole) {
 		return nil, service.ErrWorkspaceConflict
 	}
 	tx, err := p.goqu.BeginTx(ctx, nil)
@@ -328,6 +332,13 @@ func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.Permissi
 	if _, err = p.workspacePermission(ctx, tx, a, m.PermissionID); err != nil {
 		return nil, err
 	}
+	// Admitting somebody is membership authority, not permission authority, and
+	// it cannot hand out a role the actor does not itself hold.
+	if m.AdmitRole != "" && !a.PlatformAdmin {
+		if !a.Allows("members.manage", service.AccessResource{WorkspaceID: a.WorkspaceID}) || service.WorkspaceRoleRank(m.AdmitRole) > service.WorkspaceRoleRank(a.Role) {
+			return nil, service.ErrAccessDenied
+		}
+	}
 	n, err := tx.From(p.workspaceTable("auth_identity_providers")).Where(goqu.Ex{"id": m.ProviderID, "enabled": true}).CountContext(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("validate mapping provider: %w", err)
@@ -335,9 +346,36 @@ func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.Permissi
 	if n != 1 {
 		return nil, service.ErrAccessDenied
 	}
-	m.ID = ulid.Make().String()
-	r := workspaceMappingRow{ID: m.ID, WorkspaceID: m.WorkspaceID, ProviderID: m.ProviderID, ClaimKind: m.ClaimKind, ClaimValue: m.ClaimValue, PermissionID: m.PermissionID}
-	if _, err = tx.Insert(p.workspaceTable("workspace_permission_mappings")).Rows(r).Executor().ExecContext(ctx); err != nil {
+	table := p.workspaceTable("workspace_permission_mappings")
+	update := m.ID != ""
+	if update {
+		// Editing replaces the claim, bundle and admission of one existing row.
+		// Delete-and-recreate was the only option before, which loses the row on
+		// a failed second call and changes its identity for no reason.
+		var old workspaceMappingRow
+		found, e := tx.From(table).Where(goqu.Ex{"workspace_id": a.WorkspaceID, "id": m.ID}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &old)
+		if e != nil {
+			return nil, fmt.Errorf("lock mapping: %w", e)
+		}
+		if !found {
+			return nil, service.ErrAccessResourceNotFound
+		}
+		if _, e = p.workspacePermission(ctx, tx, a, old.PermissionID); e != nil {
+			return nil, e
+		}
+		if old.AdmitRole != "" && !a.PlatformAdmin && service.WorkspaceRoleRank(old.AdmitRole) > service.WorkspaceRoleRank(a.Role) {
+			return nil, service.ErrAccessDenied
+		}
+	} else {
+		m.ID = ulid.Make().String()
+	}
+	r := workspaceMappingRow{ID: m.ID, WorkspaceID: m.WorkspaceID, ProviderID: m.ProviderID, ClaimKind: m.ClaimKind, ClaimValue: m.ClaimValue, PermissionID: m.PermissionID, AdmitRole: m.AdmitRole}
+	if update {
+		_, err = tx.Update(table).Set(goqu.Record{"provider_id": r.ProviderID, "claim_kind": r.ClaimKind, "claim_value": r.ClaimValue, "permission_id": r.PermissionID, "admit_role": r.AdmitRole}).Where(goqu.Ex{"workspace_id": a.WorkspaceID, "id": m.ID}).Executor().ExecContext(ctx)
+	} else {
+		_, err = tx.Insert(table).Rows(r).Executor().ExecContext(ctx)
+	}
+	if err != nil {
 		return nil, fmt.Errorf("save mapping: %w", err)
 	}
 	if err = p.bumpWorkspacePolicy(ctx, tx, a.WorkspaceID); err != nil {

@@ -202,6 +202,57 @@ func TestAuthSettingsRuntimePostgres(t *testing.T) {
 	}
 }
 
+// Collapsing the local sign-in form is presentation policy. It must be visible
+// to the unauthenticated sign-in screen, must not stop anyone signing in, and
+// must not become a back door for disabling local sign-in outright.
+func TestAuthSettingsLocalLoginCollapsedPostgres(t *testing.T) {
+	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
+	m, err := newNativeAuthSettings(t.Context(), config.Server{BasePath: "/at"}, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.limit = rate.NewLimiter(rate.Inf, 100)
+	if w := settingsHTTPRequest(m, "POST", "/auth/setup", map[string]string{"username": "admin", "password": "a strong initial password", "origin": "https://at.example"}, nil); w.Code != 201 {
+		t.Fatalf("setup: %d %s", w.Code, w.Body)
+	}
+	if w := settingsHTTPRequest(m, "GET", "/auth/status", nil, nil); !strings.Contains(w.Body.String(), `"local_login_collapsed":false`) {
+		t.Fatalf("default status: %s", w.Body)
+	}
+	w := settingsHTTPRequest(m, "POST", "/auth/login", map[string]string{"username": "admin", "password": "a strong initial password"}, nil)
+	if w.Code != 200 {
+		t.Fatalf("login: %d %s", w.Code, w.Body)
+	}
+	cookies := w.Result().Cookies()
+	state, err := p.GetAuthSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := state.Settings
+	v.LocalLoginCollapsed = true
+	if w := settingsHTTPRequest(m, "PUT", "/auth/settings", v, cookies); w.Code != 200 {
+		t.Fatalf("collapse: %d %s", w.Code, w.Body)
+	}
+	w = settingsHTTPRequest(m, "GET", "/auth/status", nil, nil)
+	if !strings.Contains(w.Body.String(), `"local_login_collapsed":true`) || !strings.Contains(w.Body.String(), `"local_login":true`) {
+		t.Fatalf("collapsed status: %s", w.Body)
+	}
+	if w := settingsHTTPRequest(m, "POST", "/auth/login", map[string]string{"username": "admin", "password": "a strong initial password"}, nil); w.Code != 200 {
+		t.Fatalf("collapsed login refused: %d %s", w.Code, w.Body)
+	}
+	state, err = p.GetAuthSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v = state.Settings
+	v.LocalLoginEnabled = false
+	if w := settingsHTTPRequest(m, "PUT", "/auth/settings", v, cookies); w.Code != 409 {
+		t.Fatalf("disable without external administrator: %d %s", w.Code, w.Body)
+	}
+	if w := settingsHTTPRequest(m, "GET", "/auth/status", nil, nil); !strings.Contains(w.Body.String(), `"local_login":true`) {
+		t.Fatalf("status after refused disable: %s", w.Body)
+	}
+}
+
 func TestAuthSettingsOriginsAndDurationsRuntimePostgres(t *testing.T) {
 	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
 	m, err := newNativeAuthSettings(t.Context(), config.Server{BasePath: "/at"}, p)

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import BrandLogo from './BrandLogo.svelte';
+  import AuthShell from './AuthShell.svelte';
   import { identityAPI } from '../api/identity';
   import { passwordPolicyError, authErrorMessage } from '../api/auth';
   let { oncomplete }: { oncomplete: () => Promise<void> } = $props();
@@ -12,15 +12,14 @@
     finally { busy = false; password = confirm = ''; }
   }
 </script>
-<main class="min-h-full flex items-center justify-center px-6 py-12"><div class="w-full max-w-md settings-form">
-  <div class="mb-6"><BrandLogo size={48} /></div>
-  <h1 class="text-2xl font-semibold">Set up AT</h1><p class="settings-note mt-2">Create the first local administrator for this installation. After setup, sign in to configure your workspace.</p>
-  <form onsubmit={submit} class="space-y-5 mt-8">
+<AuthShell title="Set up AT" subtitle="Create the first local administrator for this installation." width="md">
+  <p class="settings-note">After setup, sign in to configure your workspace.</p>
+  <form onsubmit={submit} class="space-y-4">
     <label>Administrator username<input bind:value={username} required minlength="3" maxlength="128" pattern={'[a-zA-Z0-9._@+\\-]{3,128}'} autocomplete="username" autocapitalize="none" /></label>
     <label>Password<input type="password" bind:value={password} required autocomplete="new-password" /><span class="settings-note">Use at least 8 characters.</span></label>
     <label>Confirm password<input type="password" bind:value={confirm} required autocomplete="new-password" /></label>
     <p class="settings-note">Server origin: <code class="break-all">{location.origin}</code></p>
     {#if error}<p role="alert" class="settings-error">{error}</p>{/if}
-    <button class="settings-primary w-full" disabled={busy}>{busy ? 'Creating administrator…' : 'Create administrator'}</button>
+    <button class="settings-primary w-full min-h-11 sm:min-h-0" disabled={busy}>{busy ? 'Creating administrator…' : 'Create administrator'}</button>
   </form>
-</div></main>
+</AuthShell>

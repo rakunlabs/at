@@ -1,5 +1,5 @@
 <script lang="ts">
-  import BrandLogo from './lib/components/BrandLogo.svelte';
+  import AuthShell from './lib/components/AuthShell.svelte';
   import Router, { location, querystring } from 'svelte-spa-router';
   import { onMount, untrack } from 'svelte';
   import { storeNavbar } from './lib/store/store.svelte';
@@ -44,7 +44,7 @@
   async function initialize() {
     if (ticket) return;
     authState = 'loading';
-    try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.title = status.display_title || 'AT'; authOrigins.primary = status.origin || ''; authOrigins.allowed = status.allowed_origins || [];
+    try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.localLoginCollapsed = status.local_login_collapsed === true; storeAuth.title = status.display_title || 'AT'; authOrigins.primary = status.origin || ''; authOrigins.allowed = status.allowed_origins || [];
       if (status.setup_required === true) authState = 'setup'; else if (status.enabled) await checkSession(); else { authState = 'error'; error = 'Native authentication is unavailable. Ask the operator to enable runtime authentication.'; }
     }     catch (e) { if (isSetupRequired(e)) { authState = 'setup'; error = ''; return; } authState = 'error'; error = 'Cannot load authentication settings. Retry when the server is available.'; }
   }
@@ -67,7 +67,7 @@
 {:else if ticket}<AccountRecovery {ticket} oncomplete={() => { ticket = ''; notice = 'Sign in with your current credentials to continue.'; void initialize(); }} />
 {:else if authState === 'setup'}<FirstSetup oncomplete={async () => { notice = 'Administrator created. Sign in to continue.'; await initialize(); }} />
 {:else if authState === 'login'}<NativeLogin onlogin={checkSession} sessionNotice={notice} />
-{:else if authState === 'loading' || authState === 'error'}<main class="min-h-full flex items-center justify-center p-6"><div class="max-w-md space-y-4"><BrandLogo size={48} /><h1 class="text-xl font-semibold">{authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'}</h1>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button" onclick={initialize}>Retry connection</button>{/if}</div></main>
+{:else if authState === 'loading' || authState === 'error'}<AuthShell title={authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'} subtitle={authState === 'loading' ? 'Checking your session with the server.' : ''}>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button w-full min-h-11 sm:min-h-0" onclick={initialize}>Retry connection</button>{:else}<p class="settings-note" role="status">One moment…</p>{/if}</AuthShell>
 {:else if $location === '/mobile-authorize'}<MobileAuthorize query={$querystring || ''} enabled={true} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else}
 <div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[9rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>

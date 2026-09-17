@@ -198,6 +198,9 @@ func validateExternalProvider(p service.AuthIdentityProvider, loopback bool) err
 			return fmt.Errorf("invalid scope")
 		}
 	}
+	if err := service.ValidateClaimPaths(p.RolesClaims); err != nil {
+		return err
+	}
 	switch p.Mode {
 	case "oidc":
 		if !slices.Contains(p.Scopes, "openid") || p.Issuer == "" {
@@ -511,7 +514,11 @@ func (e *nativeExternalAuth) callback(w http.ResponseWriter, r *http.Request) {
 			rawAssertions[key] = value
 		}
 	}
-	asserted, _ := json.Marshal(map[string]any{"provider_id": p.ID, "issuer": namespace, "roles": id.Roles, "scopes": id.Scopes, "claims": rawAssertions})
+	// Configured claim paths reach nested role sets (Keycloak realm_access.roles,
+	// resource_access.*.roles) that a flat claim read cannot see. They join the
+	// roles assertion under the same bounds, never the local identity's roles.
+	roles := service.MergeClaimValues(id.Roles, service.HarvestClaimValues(id.Claims, p.RolesClaims))
+	asserted, _ := json.Marshal(map[string]any{"provider_id": p.ID, "issuer": namespace, "roles": roles, "scopes": id.Scopes, "claims": rawAssertions})
 	verifiedEmail, _ := id.Claims["email_verified"].(bool)
 	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
 	if i.Purpose == "reauth" {

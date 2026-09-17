@@ -87,7 +87,7 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"valid", "oauth2", "missing_id_token", "issuer", "audience", "nonce", "signature", "expiry", "userinfo_subject", "discovery_issuer", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
+	for _, name := range []string{"valid", "oauth2", "nested_roles", "missing_id_token", "issuer", "audience", "nonce", "signature", "expiry", "userinfo_subject", "discovery_issuer", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
 		t.Run(name, func(t *testing.T) {
 			var issuer, nonce, challenge string
 			idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +111,7 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 					if r.Form.Get("redirect_uri") != "http://localhost/auth/external/provider/callback" {
 						t.Errorf("unexpected redirect %s", r.Form.Get("redirect_uri"))
 					}
-					claims := map[string]any{"iss": issuer, "aud": "client", "sub": "stable-subject", "nonce": nonce, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "roles": []string{"platform_admin"}}
+					claims := map[string]any{"iss": issuer, "aud": "client", "sub": "stable-subject", "nonce": nonce, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}}
 					signer := key
 					switch name {
 					case "issuer":
@@ -135,7 +135,7 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 					if name == "userinfo_subject" {
 						sub = "other"
 					}
-					json.NewEncoder(w).Encode(map[string]any{"sub": sub, "email": "same@example.test", "email_verified": true, "roles": []string{"platform_admin"}})
+					json.NewEncoder(w).Encode(map[string]any{"sub": sub, "email": "same@example.test", "email_verified": true, "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}})
 				default:
 					http.NotFound(w, r)
 				}
@@ -150,6 +150,9 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 				s.provider.TokenURL = issuer + "/token"
 				s.provider.UserInfoURL = issuer + "/userinfo"
 				s.provider.SubjectClaim = "sub"
+			}
+			if name == "nested_roles" {
+				s.provider.RolesClaims = []string{"realm_access.roles"}
 			}
 			a := &nativeAuth{cfg: config.NativeAuth{Origin: "http://localhost", InsecureHTTP: true}, session: session.Session{Cookie: session.CookieOptions{Path: "/"}}}
 			completed := 0
@@ -224,9 +227,14 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 			other, _ := newNativeExternalAuth(a, s, hooks)
 			out := httptest.NewRecorder()
 			other.callback(out, callback)
-			if name == "valid" || name == "oauth2" {
+			if name == "valid" || name == "oauth2" || name == "nested_roles" {
 				if out.Code != 204 || completed != 1 || s.completions != 1 {
 					t.Fatalf("callback %d: %s (complete=%d)", out.Code, out.Body.String(), completed)
+				}
+				// Nested role claims are recorded only for a provider that declares
+				// their path; the same token must assert nothing extra otherwise.
+				if harvested := strings.Contains(string(s.last.AssertedPermissions), "at-editors"); harvested != (name == "nested_roles") {
+					t.Fatalf("harvested=%v for %s: %s", harvested, name, s.last.AssertedPermissions)
 				}
 				replay := httptest.NewRecorder()
 				e.callback(replay, callback)
@@ -257,6 +265,18 @@ func TestExternalProviderValidation(t *testing.T) {
 		if validateExternalProvider(q, false) == nil {
 			t.Errorf("accepted %s", raw)
 		}
+	}
+	for _, paths := range [][]string{{"realm_access..roles"}, {"roles", "roles"}, {"a.b.c.d.e.f.g.h.i"}, {" roles"}} {
+		q := p
+		q.RolesClaims = paths
+		if validateExternalProvider(q, false) == nil {
+			t.Errorf("accepted claim paths %v", paths)
+		}
+	}
+	q := p
+	q.RolesClaims = []string{"realm_access.roles", "resource_access.*.roles"}
+	if err := validateExternalProvider(q, false); err != nil {
+		t.Fatalf("rejected nested claim paths: %v", err)
 	}
 	p.Mode = "oidc"
 	if validateExternalProvider(p, false) == nil {

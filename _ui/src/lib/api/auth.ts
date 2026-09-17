@@ -22,6 +22,7 @@ export interface AuthStatus {
   passkeys: boolean;
   setup_required: boolean;
   local_login: boolean;
+  local_login_collapsed?: boolean;
   display_title: string;
   origin?: string;
   allowed_origins?: string[];
