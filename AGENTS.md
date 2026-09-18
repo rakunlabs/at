@@ -953,6 +953,70 @@ because the feature had no deployed OIDC users. The provider row's immutability
 guard consequently narrows to `client_id` and `subject_claim`, the two fields
 that still decide which upstream account a stored link belongs to.
 
+### Restricting an identity provider to named addresses
+
+`AuthIdentityProvider.AllowedEmails` (Authentication settings → *Allowed email
+addresses*) is the answer to "only these people may sign in". An entry is either
+one address (`ada@example.com`) or a domain (`@firma.com`); the list lives in the
+existing `config` JSONB, so **no migration is needed** and an absent key reads as
+*empty*, which admits everyone exactly as before. It is opt-in for a reason:
+without it any successful ceremony against an enabled provider provisions an
+account, which is correct for an IdP that already holds only your own people and
+wrong for a public one, where the provider admits the world.
+
+Three properties carry the design:
+
+**It is checked on every sign-in, not at provisioning.** Enforcement sits in
+`callbackResult` immediately before `CompleteAuthExternalIdentity`, and covers
+`link` and `reauth` as well as `login`. Gating account creation alone would leave
+every identity that has already signed in — precisely the ones an administrator
+removes an entry to cut off — able to keep doing so, which makes the control
+unable to revoke anything. The address checked is the one about to be written to
+the link, so the decision cannot disagree with the record it admits.
+
+**A non-empty list requires a verified address.** The strategy runs with
+`EmailVerifyCheck`, so an address the provider did not assert
+`email_verified: true` for arrives as `""` and is refused. `AuthEmailAdmits`
+re-states the rule against both inputs rather than relying on that, because the
+value of an allowlist is entirely in what it refuses: an address a provider hands
+to whoever claims it is not an identity, and accepting one would let anybody who
+can type a listed address into a public IdP's unverified profile walk in. The
+practical consequence is a real limit — a provider that reports no verified email
+(GitHub's user endpoint) cannot be restricted this way at all, and refuses every
+sign-in while the list is non-empty. `ErrAuthEmailUnverified` is therefore a
+*distinct* error from `ErrAuthEmailNotAllowed` and the UI says so, because
+otherwise the administrator goes looking for a typo that is not there. Refusals
+answer `403` (a decision, not the retryable `409`/`503` the rest of this path
+uses) and are logged with provider, subject and reported address.
+
+**Matching is lowercased and exact.** Both sides go through
+`NormalizeAuthEmailAllowlist` (trim, lowercase, dedup) and the list is stored
+canonicalized by `saveProvider`, so a difference in case or spacing is never the
+reason a sign-in fails. This deliberately deviates from RFC 5321's
+case-sensitive local part: no IdP treats `Ali@x.com` and `ali@x.com` as two
+people, while the mismatch here is a lockout. Domain entries match that domain
+only — `@firma.com` admitting `mail.firma.com` would silently widen the rule to
+every name the provider's operator can create. A `*` is refused at validation
+rather than stored as an address with the local part `*` that matches nobody.
+Bounds: 256 entries, 320 bytes each.
+
+`refuseSelfLockout` refuses a save whose list excludes the saving
+administrator's own link on that provider — the one mistake that is not
+reversible from the UI, since with local sign-in disabled the next refused
+sign-in is theirs. It is a convenience guard, not a boundary, and fails open when
+no browser account resolves; it cannot cover *another* administrator, whose links
+this endpoint has no business enumerating. **Recovery from a self-inflicted
+lockout is local sign-in, or clearing `allowed_emails` from the provider's
+`config` JSONB.**
+
+This is admission, not authorization: it decides whether an account exists and
+grants nothing once it does. Workspace access still comes only from memberships
+and permission mappings, which remain the right tool when the restriction should
+follow a group or role claim instead of an address. Regression:
+`internal/service/auth-email-allowlist_test.go`, the `allowed_*` / `denied_*`
+subtests in `TestExternalOAuth2LoginAndReplicaFlow`, and the allowlist cases in
+`TestExternalProviderValidation`.
+
 Mappings are editable in place (POST `/api/v1/permission-mappings` with `id`),
 which keeps the row identity that delete-and-recreate discarded; the Permissions
 page offers the enabled identity providers as a dropdown and falls back to the

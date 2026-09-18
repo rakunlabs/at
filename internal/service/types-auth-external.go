@@ -40,6 +40,17 @@ type AuthIdentityProvider struct {
 	// workspace permission mappings. Empty keeps the previous behaviour: only
 	// top-level roles/groups/permissions/scope claims are recorded.
 	RolesClaims []string `json:"roles_claims,omitempty"`
+	// AllowedEmails restricts which identities this provider may assert:
+	// `person@example.com` admits one address, `@example.com` admits a domain.
+	// Empty admits everyone the provider authenticates, which is the previous
+	// and still-default behaviour.
+	//
+	// This is admission, not authorization — it decides whether an account
+	// exists at all, and grants nothing once it does. It is checked on every
+	// sign-in rather than only at provisioning, so removing an entry actually
+	// removes access instead of leaving the already-linked accounts (the ones
+	// an administrator is trying to cut off) untouched.
+	AllowedEmails []string `json:"allowed_emails,omitempty"`
 }
 
 // AuthIdentityNamespace is the identity space a provider's subjects live in.

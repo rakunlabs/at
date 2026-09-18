@@ -94,8 +94,8 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted := map[string]bool{"userinfo": true, "jwks": true, "both": true, "nested_roles": true, "no_discovery": true}
-	for _, name := range []string{"userinfo", "jwks", "both", "nested_roles", "no_discovery", "audience", "nonce", "signature", "expiry", "userinfo_subject", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
+	accepted := map[string]bool{"userinfo": true, "jwks": true, "both": true, "nested_roles": true, "no_discovery": true, "allowed_email": true, "allowed_domain": true}
+	for _, name := range []string{"userinfo", "jwks", "both", "nested_roles", "no_discovery", "allowed_email", "allowed_domain", "denied_email", "denied_domain", "denied_unverified", "audience", "nonce", "signature", "expiry", "userinfo_subject", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
 		t.Run(name, func(t *testing.T) {
 			var issuer, nonce, challenge string
 			var discovery atomic.Int64
@@ -141,7 +141,14 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 					if name == "userinfo_subject" {
 						sub = "other"
 					}
-					json.NewEncoder(w).Encode(map[string]any{"sub": sub, "preferred_username": "ada.lovelace", "email": "same@example.test", "email_verified": true, "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}})
+					claims := map[string]any{"sub": sub, "preferred_username": "ada.lovelace", "email": "same@example.test", "email_verified": true, "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}}
+					// An address the provider will not vouch for is not an
+					// identity, so a configured allowlist must refuse it even
+					// when it is the listed one.
+					if name == "denied_unverified" {
+						claims["email_verified"] = false
+					}
+					json.NewEncoder(w).Encode(claims)
 				default:
 					http.NotFound(w, r)
 				}
@@ -150,7 +157,7 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 			issuer = idp.URL
 			provider := service.AuthIdentityProvider{ID: "provider", Label: "Test", Enabled: true, Version: 1, ClientID: "client", Scopes: []string{"openid"}, SubjectClaim: "sub", AuthURL: issuer + "/authorize", TokenURL: issuer + "/token", UserInfoURL: issuer + "/userinfo", JWKSURL: issuer + "/jwks"}
 			switch name {
-			case "userinfo", "nested_roles", "no_discovery":
+			case "userinfo", "nested_roles", "no_discovery", "allowed_email", "allowed_domain", "denied_email", "denied_domain", "denied_unverified":
 				provider.JWKSURL = ""
 			case "jwks":
 				provider.UserInfoURL = ""
@@ -158,6 +165,22 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 			s := &externalTestStore{provider: provider, flows: map[string]service.AuthExternalFlow{}}
 			if name == "nested_roles" {
 				s.provider.RolesClaims = []string{"realm_access.roles"}
+			}
+			// The allowlist is admission, so it is asserted against the real
+			// ceremony rather than the matcher alone: an entry admits, a list
+			// that does not name the identity refuses before any account is
+			// created, and a domain entry does not reach a sibling domain.
+			switch name {
+			case "allowed_email":
+				s.provider.AllowedEmails = []string{"SAME@Example.test"}
+			case "allowed_domain":
+				s.provider.AllowedEmails = []string{"@example.test"}
+			case "denied_email":
+				s.provider.AllowedEmails = []string{"someone.else@example.test"}
+			case "denied_domain":
+				s.provider.AllowedEmails = []string{"@other.test"}
+			case "denied_unverified":
+				s.provider.AllowedEmails = []string{"same@example.test"}
 			}
 			a := &nativeAuth{cfg: config.NativeAuth{Origin: "http://localhost", InsecureHTTP: true}, session: session.Session{Cookie: session.CookieOptions{Path: "/"}}}
 			completed := 0
@@ -275,6 +298,21 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 				if !strings.Contains(out.Body.String(), `"error":true`) {
 					t.Fatalf("failure not reported to the opener: %d %s", out.Code, out.Body)
 				}
+				// An admission refusal is a decision, not an outage or an
+				// expired ceremony: reporting it as 409/503 would tell the user
+				// to retry something that will never succeed.
+				if strings.HasPrefix(name, "denied_") {
+					if out.Code != 403 {
+						t.Fatalf("allowlist refusal reported as %d: %s", out.Code, out.Body)
+					}
+					want := "not on the identity provider's allowed list"
+					if name == "denied_unverified" {
+						want = "did not report a verified email address"
+					}
+					if !strings.Contains(out.Body.String(), want) {
+						t.Fatalf("refusal does not say why (%s): %s", name, out.Body)
+					}
+				}
 			}
 			// Configuration is local: no endpoint is resolved over the network,
 			// so neither begin nor callback may reach a discovery document.
@@ -331,6 +369,21 @@ func TestExternalProviderValidation(t *testing.T) {
 	q.RolesClaims = []string{"realm_access.roles", "resource_access.*.roles"}
 	if err := validateExternalProvider(q, false); err != nil {
 		t.Fatalf("rejected nested claim paths: %v", err)
+	}
+	// An allowed-email list is optional, and either entry form is complete on
+	// its own. A wildcard is refused rather than stored as a rule that matches
+	// nobody.
+	q = p
+	q.AllowedEmails = []string{"ada@example.com", "@firma.test"}
+	if err := validateExternalProvider(q, false); err != nil {
+		t.Fatalf("rejected allowed emails: %v", err)
+	}
+	for _, list := range [][]string{{"ada"}, {"*@example.com"}, {"@"}, {"ada@ example.com"}} {
+		q = p
+		q.AllowedEmails = list
+		if validateExternalProvider(q, false) == nil {
+			t.Errorf("accepted allowed emails %v", list)
+		}
 	}
 	// A JWKS endpoint is held to the same transport rules as the rest.
 	q = p
@@ -469,6 +522,60 @@ func TestExternalProviderAdminRESTPostgres(t *testing.T) {
 	w := call(true)
 	if w.Code != 201 || strings.Contains(w.Body.String(), "top-secret") || !strings.Contains(w.Body.String(), `"has_client_secret":true`) {
 		t.Fatalf("admin config/redaction: %d %s", w.Code, w.Body.String())
+	}
+	// The allowed-email list is admission, so the two properties that decide
+	// whether it is usable are asserted against the real store: a save is
+	// refused when it would exclude the administrator making it — the one
+	// mistake the UI cannot undo once local sign-in is off — and an accepted
+	// list is stored canonicalized, so what is read back is what gets enforced.
+	var created service.AuthIdentityProvider
+	if err = json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "rest-allowlist", PasswordHash: "hash", Admin: true}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := httptest.NewRecorder()
+	a.finishCompletedLogin(login, httptest.NewRequest("POST", "/at/auth/login", nil), owner, false)
+	if login.Code != 200 {
+		t.Fatalf("owner login: %d %s", login.Code, login.Body.String())
+	}
+	authed := func(body string) *http.Request {
+		r := httptest.NewRequest("PUT", "/at/auth/identity-providers/"+created.ID, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", a.cfg.Origin)
+		for _, c := range login.Result().Cookies() {
+			if c.MaxAge >= 0 {
+				r.AddCookie(c)
+			}
+		}
+		return r
+	}
+	account, err := e.hooks.Account(authed(`{}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = p.CompleteAuthExternalIdentity(t.Context(), service.AuthIdentityLink{ProviderID: created.ID, Issuer: service.AuthIdentityNamespace(created.ID), Subject: "owner-subject", Email: "admin@allowed.test", EmailVerified: true, AssertedPermissions: json.RawMessage(`{}`)}, created.Version, &account, time.Now().Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	base := fmt.Sprintf(`"label":"Login provider","client_id":"client","enabled":true,"scopes":["openid"],"auth_url":"https://idp.test/authorize","token_url":"https://idp.test/token","userinfo_url":"https://idp.test/userinfo","subject_claim":"sub","version":%d`, created.Version)
+	refused := httptest.NewRecorder()
+	mux.ServeHTTP(refused, authed(`{`+base+`,"allowed_emails":["@other.test"]}`))
+	if refused.Code != 409 || !strings.Contains(refused.Body.String(), "lock you out") {
+		t.Fatalf("saved a list excluding the saving administrator: %d %s", refused.Code, refused.Body.String())
+	}
+	saved := httptest.NewRecorder()
+	mux.ServeHTTP(saved, authed(`{`+base+`,"allowed_emails":["  ADMIN@Allowed.test ","@firma.test","admin@allowed.test",""]}`))
+	if saved.Code != 200 {
+		t.Fatalf("save including the administrator: %d %s", saved.Code, saved.Body.String())
+	}
+	stored, err := p.GetAuthIdentityProvider(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fmt.Sprint(stored.AllowedEmails) != "[admin@allowed.test @firma.test]" {
+		t.Fatalf("allowed emails not canonicalized: %#v", stored.AllowedEmails)
 	}
 }
 

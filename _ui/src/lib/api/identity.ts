@@ -12,12 +12,17 @@ export interface AuthSettings {
  * configuration is the configuration, with no discovery document deciding it
  * at sign-in time. `userinfo_url` and `jwks_url` are the two claim sources and
  * at least one is required.
+ *
+ * `allowed_emails` is admission: `person@example.com` admits one address and
+ * `@example.com` a whole domain. Empty admits everyone the provider
+ * authenticates, which is the default.
  */
 export interface IdentityProvider {
   id: string; label: string; enabled: boolean; version: number;
   client_id: string; has_client_secret?: boolean; auth_url: string;
   token_url: string; userinfo_url: string; jwks_url: string; scopes: string[];
   subject_claim: string; auth_header_style: string; roles_claims?: string[];
+  allowed_emails?: string[];
 }
 export interface IdentityLink { id: string; provider_id: string; issuer: string; subject: string; email?: string; email_verified: boolean }
 export interface RecentProof { proof: string; expires_in: number }

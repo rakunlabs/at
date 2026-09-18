@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -133,8 +134,16 @@ func (e *nativeExternalAuth) saveProvider(w http.ResponseWriter, r *http.Request
 		nativeError(w, 400, "expected provider version required")
 		return
 	}
+	// Store the list canonicalized, so what the administrator reads back is
+	// what is enforced and a difference in case or spacing is never the reason
+	// a sign-in is refused.
+	req.AllowedEmails = service.NormalizeAuthEmailAllowlist(req.AllowedEmails)
 	if err := validateExternalProvider(req.AuthIdentityProvider, e.a.cfg.InsecureHTTP); err != nil {
 		nativeError(w, 400, err.Error())
+		return
+	}
+	if err := e.refuseSelfLockout(r, req.AuthIdentityProvider); err != nil {
+		nativeError(w, 409, err.Error())
 		return
 	}
 	v, err := e.store.SaveAuthIdentityProvider(r.Context(), req.AuthIdentityProvider, req.ClientSecret)
@@ -147,6 +156,46 @@ func (e *nativeExternalAuth) saveProvider(w http.ResponseWriter, r *http.Request
 		code = 201
 	}
 	httpResponseJSON(w, v, code)
+}
+
+// refuseSelfLockout stops the one allowed-email mistake that is not reversible
+// from the UI: an administrator who signs in through this provider writing a
+// list that excludes their own linked address. The list is enforced on every
+// sign-in, so the next one would be theirs, and with local sign-in disabled the
+// installation has no other way back in.
+//
+// It is a convenience guard, not a boundary, and therefore fails open: an
+// administrator reaching this endpoint without a resolvable browser account, or
+// a store that cannot answer, leaves the save alone rather than refusing it for
+// a reason that has nothing to do with the configuration. It also cannot cover
+// an administrator other than the one saving, whose links this endpoint has no
+// business enumerating.
+func (e *nativeExternalAuth) refuseSelfLockout(r *http.Request, p service.AuthIdentityProvider) error {
+	if len(p.AllowedEmails) == 0 || p.ID == "" {
+		return nil
+	}
+	account, err := e.hooks.Account(r)
+	if err != nil || account.UserID == "" {
+		return nil
+	}
+	links, err := e.store.ListAuthIdentityLinks(r.Context(), account.UserID)
+	if err != nil {
+		return nil
+	}
+	linked := false
+	for _, l := range links {
+		if l.ProviderID != p.ID {
+			continue
+		}
+		if service.AuthEmailAdmits(p.AllowedEmails, l.Email, l.EmailVerified) == nil {
+			return nil
+		}
+		linked = true
+	}
+	if !linked {
+		return nil
+	}
+	return fmt.Errorf("this list excludes your own account on this provider and would lock you out; add your address, or unlink this provider from your account first")
 }
 
 func (e *nativeExternalAuth) disableProvider(w http.ResponseWriter, r *http.Request) {
@@ -201,6 +250,9 @@ func validateExternalProvider(p service.AuthIdentityProvider, loopback bool) err
 		}
 	}
 	if err := service.ValidateClaimPaths(p.RolesClaims); err != nil {
+		return err
+	}
+	if err := service.ValidateAuthEmailAllowlist(p.AllowedEmails); err != nil {
 		return err
 	}
 	if p.AuthURL == "" || p.TokenURL == "" {
@@ -584,6 +636,23 @@ func (e *nativeExternalAuth) callbackResult(w http.ResponseWriter, r *http.Reque
 	// administrator recognises, so it is carried on the link as display
 	// metadata — the account remains keyed on provider ID plus subject.
 	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Username: service.ClaimUsername(id.Claims, id.Name), Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
+	// Admission runs here, before any account is created or any link is
+	// refreshed, and for link and reauth as well as login. Gating provisioning
+	// alone would leave every identity that already signed in — precisely the
+	// ones an administrator removes an entry to cut off — able to keep doing
+	// so. The address checked is the one about to be stored on the link, so the
+	// decision cannot disagree with the record it admits.
+	if err := service.AuthEmailAdmits(p.AllowedEmails, link.Email, link.EmailVerified); err != nil {
+		// Refusals are logged: from the browser this is one error message, and
+		// an administrator debugging "why can this person not sign in" has no
+		// other view of the address the provider actually reported.
+		slog.WarnContext(r.Context(), "external sign-in refused by allowed-email list",
+			slog.String("provider", p.ID), slog.String("subject", id.Subject),
+			slog.String("email", link.Email), slog.Bool("email_verified", link.EmailVerified),
+			slog.String("purpose", i.Purpose), slog.String("error", err.Error()))
+		nativeError(w, 403, err.Error())
+		return
+	}
 	if i.Purpose == "reauth" {
 		links, err := e.store.ListAuthIdentityLinks(r.Context(), i.Account.UserID)
 		if err != nil {
