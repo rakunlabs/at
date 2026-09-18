@@ -3,15 +3,18 @@
   import { onMount, tick } from 'svelte';
   import { ChevronDown, ChevronRight, KeyRound } from 'lucide-svelte';
   import { beginPasskeyLogin, finishPasskeyLogin, loginWithPassword, loginErrorMessage, type LoginResult, type MFAChallenge } from '../api/auth';
-  import { identityAPI, verifyMFA } from '../api/identity';
+  import { verifyMFA } from '../api/identity';
   import { externalPopup } from '../helper/auth-popup';
   import { isWebAuthnSupported, startAuthentication } from '../helper/webauthn';
-  import { storeAuth, authOrigins } from '../store/auth.svelte';
+  import { storeAuth, authOrigins, loginProviders, loadLoginProviders } from '../store/auth.svelte';
   import { authSession } from '../api/transport';
   let { onlogin, sessionNotice = '' }: { onlogin: () => Promise<void>; sessionNotice?: string } = $props();
   let username = $state(''); let password = $state(''); let code = $state(''); let remember = $state(false);
-  let busy = $state(false); let error = $state(''); let providerError = $state('');
-  let providers = $state<{id: string; label: string}[]>([]); let mfa = $state<MFAChallenge | null>(null);
+  let busy = $state(false); let error = $state('');
+  // Loaded by the auth gate before this screen is shown, so the card does not
+  // grow a beat after it appears. Only a retry re-fetches here.
+  let providers = $derived(loginProviders.items); let providerError = $derived(loginProviders.error);
+  let mfa = $state<MFAChallenge | null>(null);
   let wrongOrigin = $derived(!!authOrigins.primary && location.origin !== authOrigins.primary && !authOrigins.allowed.includes(location.origin));
   let secondaryOrigin = $derived(!!authOrigins.primary && location.origin !== authOrigins.primary);
   let continuation = ''; const controller = new AbortController();
@@ -21,8 +24,9 @@
   let collapsed = $derived(storeAuth.localLogin && storeAuth.localLoginCollapsed && !mfa && !revealed);
   let showLocal = $derived(storeAuth.localLogin && !collapsed);
   async function toggleLocal() { revealed = !revealed; error = ''; if (revealed) { await tick(); usernameInput?.focus(); } }
-  async function loadProviders() { try { providers = (await identityAPI.get('login-providers')).data || []; providerError = ''; } catch { providerError = 'Sign-in providers are unavailable. Retry loading them.'; } }
-  onMount(() => { void loadProviders(); return () => { controller.abort(); password = code = ''; }; });
+  // The gate preloads these; this covers the paths that reach the sign-in screen
+  // without it, such as a session published as expired mid-use.
+  onMount(() => { void loadLoginProviders(); return () => { controller.abort(); password = code = ''; }; });
   async function complete(result: LoginResult) {
     if ('mfa_required' in result && result.mfa_required) { mfa = result; return; }
     if (!('subject' in result) || !result.subject) throw new Error('Invalid login result');
@@ -100,7 +104,7 @@
     {:else if providers.length}
       <div class="border-t border-gray-100 dark:border-dark-border pt-4 space-y-2">{#each providers as provider}<button class="settings-button w-full min-h-11 sm:min-h-0" disabled={busy} onclick={() => external(provider.id)}>Continue with {provider.label}</button>{/each}</div>
     {/if}
-    {#if providerError}<div class="space-y-2"><p role="alert" class="settings-error">{providerError}</p><button class="settings-button" onclick={loadProviders}>Reload providers</button></div>{/if}
+    {#if providerError}<div class="space-y-2"><p role="alert" class="settings-error">{providerError}</p><button class="settings-button" onclick={() => loadLoginProviders(true)}>Reload providers</button></div>{/if}
     <p class="settings-note border-t border-gray-100 dark:border-dark-border pt-4">Need account recovery? Use a backup code after your normal sign-in. If you have lost every sign-in method, ask an installation administrator for a recovery link.</p>
   {/if}
 </AuthShell>

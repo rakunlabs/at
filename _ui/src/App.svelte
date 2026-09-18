@@ -16,7 +16,7 @@
   import { getAuthStatus, isAuthUnauthorized, isSetupRequired, logoutAuth } from './lib/api/auth';
   import { authSession } from './lib/api/transport';
   import { ReauthenticationRequired } from './lib/api/session-transport';
-  import { storeAuth, authOrigins, returnToLogin, securityCodes } from './lib/store/auth.svelte';
+  import { storeAuth, authOrigins, returnToLogin, securityCodes, loadLoginProviders, takeLoginNotice } from './lib/store/auth.svelte';
   import { loadWorkspaceAccess } from './lib/store/workspace.svelte';
   import { routeAllowed, inSettingsArea, workspaceAdmitted } from './lib/helper/navigation';
   import { isFeatureEnabled } from './lib/store/features.svelte';
@@ -33,7 +33,11 @@
   let { initialRecoveryTicket = '' }: { initialRecoveryTicket?: string } = $props();
   let ticket = $state(untrack(() => initialRecoveryTicket));
   let authState = $state<'loading'|'setup'|'login'|'ready'|'error'>('loading');
-  let error = $state(''); let notice = $state(''); let loggingOut = $state(false); let checking = false;
+  let error = $state(''); let notice = $state(takeLoginNotice()); let loggingOut = $state(false); let checking = false;
+  // The gate resolves in one round trip on a healthy server, so painting the
+  // "Connecting to AT…" card immediately meant every load showed two different
+  // cards in a row and read as a reload. Show it only once the wait is real.
+  let connecting = $state(false); let connectingTimer = 0;
   let revision = 0;
   let settingsArea = $derived(inSettingsArea($location));
   // routeAllowed already refuses every route an unadmitted account cannot use,
@@ -44,21 +48,27 @@
   let waiting = $derived(!workspaceAdmitted() && !settingsArea);
   async function checkSession() {
     if (checking || storeAuth.securityHold || ticket) return; checking = true; const start = revision;
-    try { const identity = await authSession.checkSession(); if (start !== revision || storeAuth.securityHold) return; storeAuth.identity = identity; if (!identity) { authState = 'login'; return; } if (!window.location.hash.startsWith('#/mobile-authorize?')) await loadWorkspaceAccess(); if (start !== revision || storeAuth.securityHold) return; authState = 'ready'; error = ''; notice = ''; }
+    try { const identity = await authSession.checkSession(); if (start !== revision || storeAuth.securityHold) return; storeAuth.identity = identity; if (!identity) { await loadLoginProviders(); if (start !== revision || storeAuth.securityHold) return; authState = 'login'; return; } if (!window.location.hash.startsWith('#/mobile-authorize?')) await loadWorkspaceAccess(); if (start !== revision || storeAuth.securityHold) return; authState = 'ready'; error = ''; notice = ''; }
     catch (e) { if (start !== revision || storeAuth.securityHold) return; if (isSetupRequired(e)) { storeAuth.identity = null; authState = 'setup'; error = ''; } else if (isAuthUnauthorized(e) || e instanceof ReauthenticationRequired) { storeAuth.identity = null; authState = 'login'; } else { authState = 'error'; error = 'Cannot load your session or workspace access. Retry when the server is available.'; } }
     finally { checking = false; }
   }
   async function initialize() {
     if (ticket) return;
     authState = 'loading';
+    clearTimeout(connectingTimer); connecting = false;
+    connectingTimer = window.setTimeout(() => { connecting = authState === 'loading'; }, 400);
     try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.passkeyLogin = status.passkey_login_enabled !== false && status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.localLoginCollapsed = status.local_login_collapsed === true; storeAuth.title = status.display_title || 'AT'; authOrigins.primary = status.origin || ''; authOrigins.allowed = status.allowed_origins || [];
       if (status.setup_required === true) authState = 'setup'; else if (status.enabled) await checkSession(); else { authState = 'error'; error = 'Native authentication is unavailable. Ask the operator to enable runtime authentication.'; }
     }     catch (e) { if (isSetupRequired(e)) { authState = 'setup'; error = ''; return; } authState = 'error'; error = 'Cannot load authentication settings. Retry when the server is available.'; }
   }
-  async function logout() { loggingOut = true; revision++; try { await logoutAuth(); returnToLogin(); } catch { error = 'Sign-out failed. Your session may still be active. Please retry.'; } finally { loggingOut = false; } }
+  // The transport publishes the signed-out identity from inside logoutAuth, so
+  // the subscriber below would render the sign-in screen while the reload that
+  // follows is still being queued: the card appeared, then the page reloaded it
+  // away. The notice travels through storage instead of that discarded render.
+  async function logout() { loggingOut = true; revision++; try { await logoutAuth(); returnToLogin('You have signed out.'); } catch { error = 'Sign-out failed. Your session may still be active. Please retry.'; loggingOut = false; } }
   onMount(() => {
     if (window.matchMedia('(max-width: 639px)').matches) storeNavbar.sideBarOpen = false;
-    const unsubscribe = authSession.subscribe((identity, message) => { if (storeAuth.securityHold || ticket) return; if (identity) storeAuth.identity = identity; else { revision++; storeAuth.identity = null; notice = message; authState = 'login'; } });
+    const unsubscribe = authSession.subscribe((identity, message) => { if (storeAuth.securityHold || ticket) return; if (identity) { storeAuth.identity = identity; return; } if (loggingOut) return; revision++; storeAuth.identity = null; notice = message; authState = 'login'; });
     void initialize(); const recheck = () => { if (authState === 'ready' && !storeAuth.securityHold) void checkSession(); };
     const timer = window.setInterval(recheck, 60000); window.addEventListener('focus', recheck);
     const online = () => { if (authState === 'error') void initialize(); else recheck(); };
@@ -66,7 +76,7 @@
     const resize = () => { closeNavigation(); mobileNavigation?.close(); };
     breakpoint.addEventListener('change', resize);
     window.addEventListener('online', online);
-    return () => { unsubscribe(); clearInterval(timer); window.removeEventListener('focus', recheck); window.removeEventListener('online', online); breakpoint.removeEventListener('change', resize); };
+    return () => { unsubscribe(); clearInterval(timer); clearTimeout(connectingTimer); window.removeEventListener('focus', recheck); window.removeEventListener('online', online); breakpoint.removeEventListener('change', resize); };
   });
 </script>
 <Toast />
@@ -74,7 +84,7 @@
 {:else if ticket}<AccountRecovery {ticket} oncomplete={() => { ticket = ''; notice = 'Sign in with your current credentials to continue.'; void initialize(); }} />
 {:else if authState === 'setup'}<FirstSetup oncomplete={async () => { notice = 'Administrator created. Sign in to continue.'; await initialize(); }} />
 {:else if authState === 'login'}<NativeLogin onlogin={checkSession} sessionNotice={notice} />
-{:else if authState === 'loading' || authState === 'error'}<AuthShell title={authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'} subtitle={authState === 'loading' ? 'Checking your session with the server.' : ''}>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button w-full min-h-11 sm:min-h-0" onclick={initialize}>Retry connection</button>{:else}<p class="settings-note" role="status">One moment…</p>{/if}</AuthShell>
+{:else if authState === 'loading' || authState === 'error'}{#if authState === 'error' || connecting}<AuthShell title={authState === 'loading' ? 'Connecting to AT…' : 'Connection unavailable'} subtitle={authState === 'loading' ? 'Checking your session with the server.' : ''}>{#if error}<p role="alert" class="settings-error">{error}</p><button class="settings-button w-full min-h-11 sm:min-h-0" onclick={initialize}>Retry connection</button>{:else}<p class="settings-note" role="status">One moment…</p>{/if}</AuthShell>{/if}
 {:else if $location === '/mobile-authorize'}<MobileAuthorize query={$querystring || ''} enabled={true} onlogin={() => { revision++; storeAuth.identity = null; authState = 'login'; }} />
 {:else}
 <div class={['grid h-full w-full min-w-0 bg-gray-50 dark:bg-dark-base', storeNavbar.sideBarOpen ? 'grid-cols-[minmax(0,1fr)] sm:grid-cols-[9rem_minmax(0,1fr)]' : 'grid-cols-[minmax(0,1fr)]']}>
