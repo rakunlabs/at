@@ -950,14 +950,23 @@ exclusively), and `ListWorkspaces`, because a first-time single sign-on user has
 no workspace to name yet. Each insert is logged with workspace, user, role,
 provider and mapping ID.
 
-The column keeps its four values, but the Permissions page presents admission as
-a **checkbox**, not a role picker: the mapping already names the bundle that says
-what a matching identity may do, so asking for a role on top of it asked the same
-question twice and the second answer was the larger grant. Checked, it stores
-`viewer` — the smallest membership that exists, with the bundle supplying
-everything beyond it. A mapping already storing `member` or `admin` keeps that
-role through a toggle and says so in its label, because silently downgrading a
-stored decision is worse than showing it.
+The Permissions page presents admission as a **role select** covering all four
+stored values. It was a checkbox that always wrote `viewer`, on the reasoning
+that the bundle already says what a matching identity may do — but the role is
+not the same question as the bundle. `WorkspaceRoleGrants` is a real grant source
+and role *rank* additionally bounds `workspaceMayGrantRole`, invitation issue,
+owner-membership edits and archive, none of which a bundle can reach. Admitting
+an SSO group as `admin` was therefore expressible in the store and unreachable
+from the UI. The select offers all three admissible roles unfiltered: the rank
+ceiling is the store's (`SavePermissionMapping`), and `members.manage` already
+sits at rank 3, so every actor who can reach the control can set every option a
+client-side rank check would have left enabled.
+
+Nothing offers the read-only role presets (`GET /api/v1/permissions/presets`) in
+the bundle dropdown, and the page no longer lists them: their IDs are synthetic
+(`role:<name>`), so `workspacePermission` answers `ErrAccessResourceNotFound` for
+one. The endpoint is kept — it is the only machine-readable projection of
+`WorkspaceRoleGrants`.
 
 ### External sign-in returns through a popup bridge
 
