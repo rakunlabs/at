@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -74,7 +75,12 @@ func (s *Server) registerWorkspaceRoutes(mux *ada.Server, base string) {
 				next(w, r)
 			}
 		}
-		handler := s.workspaceAuthentication(route.Class == "workspace", route.Capability)(inner)
+		// These routes are registered on the mux rather than apiGroup, so the
+		// group's feature gate never reached them. Wrap each one instead of
+		// moving them into the group, which would change their admission. The
+		// gate sits innermost so an unauthenticated or unauthorised caller is
+		// still refused for that reason rather than learning the feature state.
+		handler := s.workspaceAuthentication(route.Class == "workspace", route.Capability)(s.featureGateMiddleware()(inner))
 		mux.HandleWithMethod(route.Method, base+route.Path, handler.ServeHTTP)
 	}
 }
@@ -93,6 +99,22 @@ func validWorkspaceRoutePolicy(route workspaceRoutePolicy) bool {
 		return false
 	}
 }
+
+// workspacesPinnedToDefault reports whether the installation runs in
+// single-workspace mode. Disabling workspace management removes the surface
+// that creates workspaces and administers their membership; leaving the others
+// selectable would keep people working in a workspace whose access nobody can
+// repair. Selection is refused rather than silently rewritten, because serving
+// one workspace's data under another's identity is worse than an error.
+func (s *Server) workspacesPinnedToDefault(ctx context.Context) (bool, error) {
+	enabled, err := s.isFeatureEnabled(ctx, service.FeatureWorkspaceManagement)
+	if err != nil {
+		return false, err
+	}
+
+	return !enabled, nil
+}
+
 func workspaceError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrAccessResourceNotFound):
@@ -154,6 +176,24 @@ func (s *Server) ListWorkspacesAPI(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		workspaceError(w, err)
 		return
+	}
+	pinned, err := s.workspacesPinnedToDefault(r.Context())
+	if err != nil {
+		nativeError(w, 500, "failed to check workspace feature")
+		return
+	}
+	if pinned {
+		// Offering a workspace the caller may not select would leave the
+		// switcher listing entries that answer 403 on every subsequent
+		// request. The rows themselves are untouched and reappear here as
+		// soon as workspace management is enabled again.
+		kept := make([]service.Workspace, 0, 1)
+		for _, row := range rows {
+			if row.ID == service.DefaultWorkspaceID {
+				kept = append(kept, row)
+			}
+		}
+		rows = kept
 	}
 	httpResponseJSON(w, map[string]any{"items": rows}, 200)
 }

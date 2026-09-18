@@ -341,6 +341,12 @@ var featureDefinitions = []featureDefinition{
 		Parent:      service.FeatureOrganizationWorkflows,
 	},
 	{
+		Key:         service.FeatureWorkspaceManagement,
+		Name:        "Workspaces",
+		Description: "Creating, renaming, archiving and deleting workspaces, plus membership and invitations. Disabling it also pins every request to the default workspace: other workspaces keep their records but become unselectable until it is turned back on.",
+		Group:       "operations",
+	},
+	{
 		Key:         service.FeatureLLMTraces,
 		Name:        "Traces",
 		Description: "The trace/observation browser and its API. Observation skeletons are recorded regardless; this controls reading them.",
@@ -371,6 +377,12 @@ var featurePresets = []featurePreset{
 			// how a client gets configured against this installation — a
 			// gateway-only preset is the last one that should hide it.
 			service.FeatureGuides,
+			// Every preset enables workspace management. A preset writes an
+			// explicit row for each key, so omitting it would take membership
+			// and invitations away as a side effect of choosing which *product*
+			// surfaces to show — and a workspace is what owns the providers and
+			// tokens the gateway-only presets are about.
+			service.FeatureWorkspaceManagement,
 		},
 	},
 	{
@@ -384,6 +396,7 @@ var featurePresets = []featurePreset{
 			service.FeatureAPITokens,
 			service.FeatureRoutingProfiles,
 			service.FeatureGuides,
+			service.FeatureWorkspaceManagement,
 			service.FeatureLLMTraces,
 			service.FeatureLLMAudit,
 		},
@@ -399,6 +412,7 @@ var featurePresets = []featurePreset{
 			service.FeatureAPITokens,
 			service.FeatureRoutingProfiles,
 			service.FeatureGuides,
+			service.FeatureWorkspaceManagement,
 			service.FeatureChatWorkbench,
 			service.FeaturePlayground,
 			service.FeatureChatSessions,
@@ -442,6 +456,7 @@ var featurePresets = []featurePreset{
 			service.FeatureConnections,
 			service.FeatureExternalConnections,
 			service.FeatureIntegrationPacks,
+			service.FeatureWorkspaceManagement,
 			service.FeatureLLMTraces,
 			service.FeatureLLMAudit,
 		},

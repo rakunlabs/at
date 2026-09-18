@@ -196,6 +196,14 @@ func featureKeyForRoute(path, method, basePath string) string {
 	if strings.HasPrefix(path, "/webhooks/") {
 		return service.FeatureWebhookTriggers
 	}
+	// Accepting an invitation is how an account reaches a second workspace, so
+	// it belongs to workspace management even though it sits under /auth rather
+	// than /api/v1. The rest of /auth/workspaces (list, capabilities, sign-in
+	// preference) stays open: it is how the application resolves the workspace
+	// it is already in.
+	if strings.HasPrefix(path, "/auth/invitations/") {
+		return service.FeatureWorkspaceManagement
+	}
 	if !strings.HasPrefix(path, "/api/v1") {
 		return ""
 	}
@@ -342,6 +350,23 @@ func featureKeyForRoute(path, method, basePath string) string {
 		return service.FeatureGoalsProjects
 	case "approvals":
 		return service.FeatureApprovals
+	case "workspaces":
+		// Sub-resources are owned by the feature they configure, not by
+		// workspace administration: provider grants are provider configuration
+		// and the execution policy is a runtime setting, and both must keep
+		// working in the pinned single-workspace mode.
+		switch seg(2) {
+		case "provider-grants", "execution-policy":
+			return ""
+		}
+		// Listing workspaces and reading the selected one stay open. Every page
+		// resolves its workspace through them, so gating the reads would break
+		// the application instead of hiding a surface.
+		if method == http.MethodGet && len(segs) <= 2 {
+			return ""
+		}
+
+		return service.FeatureWorkspaceManagement
 	case "llm-calls":
 		return service.FeatureLLMTraces
 	default:

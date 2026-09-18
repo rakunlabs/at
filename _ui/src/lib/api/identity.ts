@@ -6,9 +6,16 @@ export interface AuthSettings {
   local_login_enabled: boolean; local_login_collapsed: boolean; signup_admission: 'invite_only' | 'approval_required';
   display_title: string; mfa_policy: 'enrolled_required'; max_sessions: number;
 }
+/**
+ * A plain OAuth2 authorization-code client. There is no protocol selector and
+ * no issuer URL: every endpoint is entered explicitly, so the stored
+ * configuration is the configuration, with no discovery document deciding it
+ * at sign-in time. `userinfo_url` and `jwks_url` are the two claim sources and
+ * at least one is required.
+ */
 export interface IdentityProvider {
-  id: string; label: string; mode: 'oidc' | 'oauth2'; enabled: boolean; version: number;
-  issuer: string; client_id: string; has_client_secret?: boolean; auth_url: string;
+  id: string; label: string; enabled: boolean; version: number;
+  client_id: string; has_client_secret?: boolean; auth_url: string;
   token_url: string; userinfo_url: string; jwks_url: string; scopes: string[];
   subject_claim: string; auth_header_style: string; roles_claims?: string[];
 }

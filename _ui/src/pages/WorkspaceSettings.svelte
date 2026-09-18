@@ -7,6 +7,8 @@
   import { workspaceTransport, switchWorkspace } from '../lib/api/transport';
   import { isNativeAdmin, storeAuth } from '../lib/store/auth.svelte';
   import { downloadSecret } from '../lib/helper/recovery';
+  import { isFeatureEnabled } from '../lib/store/features.svelte';
+  import { FEATURE_WORKSPACE_MANAGEMENT } from '../lib/api/features';
   import { storeNavbar } from '../lib/store/store.svelte';
   storeNavbar.title = 'Workspace';
   const id = workspaceTransport.selected; const path = `workspaces/${encodeURIComponent(id)}`;
@@ -14,9 +16,13 @@
   let members = $state<Member[]>([]); let invitations = $state<Invitation[]>([]); let error = $state(''); let notice = $state(''); let busy = $state(false);
   let name = $state(''); let owner = $state(storeAuth.identity?.subject || ''); let memberID = $state(''); let role = $state('member');
   let target = $state(''); let targetKind = $state('user_id'); let inviteRole = $state('member'); let days = $state(7); let invitationToken = $state(''); let acceptToken = $state('');
-  let mayManage = $derived(isNativeAdmin() || can('members.manage'));
-  let mayEdit = $derived(isNativeAdmin() || can('workspace.write'));
-  let mayDelete = $derived(id !== 'legacy-default' && (isNativeAdmin() || (workspaceState.access?.role === 'owner' && can('workspace.archive'))));
+  // Single-workspace mode: every route behind these sections answers 404, so
+  // the page keeps only the sign-in preference, which is account state rather
+  // than workspace administration.
+  let multiWorkspace = $derived(isFeatureEnabled(FEATURE_WORKSPACE_MANAGEMENT));
+  let mayManage = $derived(multiWorkspace && (isNativeAdmin() || can('members.manage')));
+  let mayEdit = $derived(multiWorkspace && (isNativeAdmin() || can('workspace.write')));
+  let mayDelete = $derived(multiWorkspace && id !== 'legacy-default' && (isNativeAdmin() || (workspaceState.access?.role === 'owner' && can('workspace.archive'))));
   let showDelete = $state(false); let deleteConfirmation = $state(''); let deletionComplete = $state(false);
   let startupMode = $state<WorkspacePreferences['mode']>(workspaceState.preferences.mode);
   let startupWorkspace = $state(workspaceState.preferences.workspace_id);
@@ -27,7 +33,7 @@
   async function setMember(user: string, role: string, status: string) { await workspaceAPI.put(`${path}/members/${encodeURIComponent(user)}`, { role, status }); await load(); }
 </script>
 <svelte:head><title>AT | Workspace</title></svelte:head>
-<div class="settings-page settings-form"><header><h1 class="settings-title">{workspace?.name || 'Workspace access'}</h1><p class="settings-subtitle">{workspace ? 'Manage membership and invitations for the selected workspace.' : 'Your account is ready. Join a workspace to start working.'}</p></header>
+<div class="settings-page settings-form"><header><h1 class="settings-title">{workspace?.name || 'Workspace access'}</h1><p class="settings-subtitle">{!multiWorkspace ? 'This installation runs in the default workspace only.' : workspace ? 'Manage membership and invitations for the selected workspace.' : 'Your account is ready. Join a workspace to start working.'}</p></header>
   {#if error}<p role="alert" class="settings-error">{error}</p>{/if}{#if notice}<p role="status" class="settings-note">{notice}</p>{/if}
   <section class="settings-section"><h2 class="settings-section-title">Workspace on sign-in</h2>
     <p class="settings-subtitle">Choose where your account starts after signing in. This preference follows your account across devices; open tabs keep their own selection.</p>
@@ -38,8 +44,9 @@
       <button class="settings-primary" disabled={busy}>Save sign-in preference</button>
     </form>
   </section>
-  <section class="settings-section"><h2 class="settings-section-title">Join a workspace</h2><p class="settings-note">Paste an invitation token from a workspace owner. Invitations are bound to your account or a verified linked email address.</p><form class="space-y-4 max-w-lg" onsubmit={e => { e.preventDefault(); void run(async () => { const membership = await acceptInvitation(acceptToken); acceptToken = ''; await switchWorkspace(membership.workspace_id); }); }}><label>Invitation token<input type="password" bind:value={acceptToken} required autocomplete="off" /></label><button class="settings-button" disabled={busy}>Accept invitation</button></form></section>
-  {#if workspace}
+  {#if !multiWorkspace}<p class="settings-note settings-section">Additional workspaces are disabled for this installation. Everything runs in the default workspace; creating, joining and administering workspaces is unavailable until an installation administrator re-enables Workspaces under Settings → Features.</p>{/if}
+  {#if multiWorkspace}<section class="settings-section"><h2 class="settings-section-title">Join a workspace</h2><p class="settings-note">Paste an invitation token from a workspace owner. Invitations are bound to your account or a verified linked email address.</p><form class="space-y-4 max-w-lg" onsubmit={e => { e.preventDefault(); void run(async () => { const membership = await acceptInvitation(acceptToken); acceptToken = ''; await switchWorkspace(membership.workspace_id); }); }}><label>Invitation token<input type="password" bind:value={acceptToken} required autocomplete="off" /></label><button class="settings-button" disabled={busy}>Accept invitation</button></form></section>{/if}
+  {#if workspace && multiWorkspace}
     <section class="settings-section"><h2 class="settings-section-title">Workspace details</h2>
       <form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { workspace = (await workspaceAPI.put(path, { name: workspace!.name, archived: workspace!.archived, execution_enabled: workspace!.execution_enabled })).data; }); }}>
         <label>Name<input bind:value={workspace.name} required disabled={!mayEdit} /></label><label><input type="checkbox" bind:checked={workspace.execution_enabled} disabled={!mayEdit} />Execution enabled</label><label><input type="checkbox" bind:checked={workspace.archived} disabled={!isNativeAdmin() && !can('workspace.archive')} />Archived</label>
@@ -58,7 +65,7 @@
       <ul class="settings-list">{#each invitations as i}<li><strong>{i.email || i.user_id}</strong><p class="settings-note">{i.role} · {i.consumed ? 'Accepted' : Date.parse(i.expires_at) < Date.now() ? 'Expired' : 'Pending'} · expires {new Date(i.expires_at).toLocaleString()}</p></li>{/each}</ul>
     </section>{/if}
   {/if}
-  {#if isNativeAdmin()}<section class="settings-section"><h2 class="settings-section-title">Create a workspace</h2><form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { const { data } = await workspaceAPI.post('workspaces', { name, owner_id: owner }); await switchWorkspace(data.id); }); }}><label>Workspace name<input bind:value={name} required /></label><label>Initial owner user ID<input bind:value={owner} required /></label><button class="settings-primary" disabled={busy}>Create workspace</button></form></section>{/if}
+  {#if isNativeAdmin() && multiWorkspace}<section class="settings-section"><h2 class="settings-section-title">Create a workspace</h2><form class="space-y-4" onsubmit={e => { e.preventDefault(); void run(async () => { const { data } = await workspaceAPI.post('workspaces', { name, owner_id: owner }); await switchWorkspace(data.id); }); }}><label>Workspace name<input bind:value={name} required /></label><label>Initial owner user ID<input bind:value={owner} required /></label><button class="settings-primary" disabled={busy}>Create workspace</button></form></section>{/if}
   {#if workspace && mayDelete}<section class="settings-section">
     <h2 class="settings-section-title">Delete workspace</h2>
     <p class="settings-note">Permanently delete this workspace and its agents, workflows, bots, credentials, conversations, usage records and execution files. Active work on this server will be stopped.</p>

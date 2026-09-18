@@ -403,3 +403,97 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 		t.Errorf("anonymous guide read: %d want 401", code)
 	}
 }
+
+// Disabling workspace management collapses the installation to the default
+// workspace: the administration surface answers 404 and a selection naming any
+// other workspace is refused rather than silently rewritten, which would serve
+// one workspace's data under another's identity. The records themselves are
+// untouched, so re-enabling the feature restores access.
+func TestWorkspaceManagementDisabledPinsDefault(t *testing.T) {
+	p := postgrestest.New(t, nil)
+	admin, err := p.CreateAuthUser(t.Context(), service.AuthUser{Username: "admin", PasswordHash: testPasswordHash, Admin: true}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := newNativeAuth(nativeTestConfig(), p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	feature := &fakeFeatureStore{key: service.FeatureWorkspaceManagement, enabled: true}
+	s := &Server{store: p, nativeAuth: a, featureStore: feature, config: config.Server{BasePath: "/at"}}
+	mux := ada.New()
+	a.register(mux, "/at")
+	s.registerWorkspaceRoutes(mux, "/at")
+	ctx := service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: admin.ID})
+	other, err := p.CreateWorkspace(ctx, "Other", admin.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := nativeLoginCookie(t, mux, "admin")
+	call := func(method, path, body, workspace string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(method, path, strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Origin", a.cfg.Origin)
+		if workspace != "" {
+			r.Header.Set("X-AT-Workspace-ID", workspace)
+		}
+		r.AddCookie(cookie)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, r)
+		return rec
+	}
+	workspaceIDs := func() []string {
+		rec := call("GET", "/at/api/v1/workspaces", "", "")
+		if rec.Code != 200 {
+			t.Fatalf("list workspaces %d %s", rec.Code, rec.Body)
+		}
+		var body struct {
+			Items []service.Workspace `json:"items"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+			t.Fatal(err)
+		}
+		ids := make([]string, 0, len(body.Items))
+		for _, item := range body.Items {
+			ids = append(ids, item.ID)
+		}
+
+		return ids
+	}
+	if got := workspaceIDs(); len(got) != 2 {
+		t.Fatalf("enabled list = %v, want both workspaces", got)
+	}
+	if rec := call("GET", "/at/api/v1/workspaces/"+other.ID+"/members", "", other.ID); rec.Code != 200 {
+		t.Fatalf("enabled members %d %s", rec.Code, rec.Body)
+	}
+
+	feature.enabled = false
+	s.invalidateFeatureCache()
+
+	for _, tt := range []struct {
+		name, method, path, body, workspace string
+		want                                int
+	}{
+		{"create is gated", "POST", "/at/api/v1/workspaces", `{"name":"New","owner_id":"` + admin.ID + `"}`, "", 404},
+		{"members are gated", "GET", "/at/api/v1/workspaces/" + service.DefaultWorkspaceID + "/members", "", service.DefaultWorkspaceID, 404},
+		{"invitations are gated", "POST", "/at/auth/invitations/accept", `{"token":"bad"}`, "", 404},
+		{"non-default selection is refused", "GET", "/at/api/v1/permissions", "", other.ID, 403},
+		// Selection stays usable where it must: the default workspace keeps
+		// answering, so the application still functions in pinned mode.
+		{"default selection still works", "GET", "/at/api/v1/permissions", "", service.DefaultWorkspaceID, 200},
+		{"provider grants keep working", "GET", "/at/api/v1/workspaces/" + service.DefaultWorkspaceID + "/provider-grants", "", service.DefaultWorkspaceID, 200},
+	} {
+		if rec := call(tt.method, tt.path, tt.body, tt.workspace); rec.Code != tt.want {
+			t.Errorf("%s: %d want %d %s", tt.name, rec.Code, tt.want, rec.Body)
+		}
+	}
+	if got := workspaceIDs(); len(got) != 1 || got[0] != service.DefaultWorkspaceID {
+		t.Fatalf("pinned list = %v, want only the default workspace", got)
+	}
+
+	feature.enabled = true
+	s.invalidateFeatureCache()
+	if rec := call("GET", "/at/api/v1/workspaces/"+other.ID+"/members", "", other.ID); rec.Code != 200 {
+		t.Fatalf("re-enabled members %d %s", rec.Code, rec.Body)
+	}
+}

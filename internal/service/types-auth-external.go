@@ -7,18 +7,30 @@ import (
 )
 
 // AuthIdentityProvider is installation configuration, never a workspace grant.
+//
+// Every provider is a plain OAuth2 authorization-code client whose endpoints
+// are configured one by one. There is deliberately no issuer URL and no OIDC
+// discovery: discovery turned one stored string into four endpoints fetched
+// over the network on every sign-in, so a provider's real configuration was
+// whatever the remote document happened to say, and a login could not start
+// while that document was unreachable. Explicit endpoints are also the only
+// way to point at an IdP that publishes no discovery document.
 type AuthIdentityProvider struct {
-	ID              string   `json:"id"`
-	Label           string   `json:"label"`
-	Mode            string   `json:"mode"`
-	Enabled         bool     `json:"enabled"`
-	Version         int64    `json:"version"`
-	Issuer          string   `json:"issuer"`
-	ClientID        string   `json:"client_id"`
-	ClientSecret    string   `json:"-"`
-	HasClientSecret bool     `json:"has_client_secret"`
-	AuthURL         string   `json:"auth_url"`
-	TokenURL        string   `json:"token_url"`
+	ID              string `json:"id"`
+	Label           string `json:"label"`
+	Enabled         bool   `json:"enabled"`
+	Version         int64  `json:"version"`
+	ClientID        string `json:"client_id"`
+	ClientSecret    string `json:"-"`
+	HasClientSecret bool   `json:"has_client_secret"`
+	AuthURL         string `json:"auth_url"`
+	TokenURL        string `json:"token_url"`
+	// UserInfoURL and JWKSURL are the two claim sources, and at least one is
+	// required. UserInfoURL is read with the access token, so the response
+	// speaks for the user it describes. JWKSURL instead verifies the
+	// id_token's signature, audience, expiry and nonce. Configuring both
+	// additionally binds the two together: the userinfo subject must match
+	// the id_token subject.
 	UserInfoURL     string   `json:"userinfo_url"`
 	JWKSURL         string   `json:"jwks_url"`
 	Scopes          []string `json:"scopes"`
@@ -29,6 +41,12 @@ type AuthIdentityProvider struct {
 	// top-level roles/groups/permissions/scope claims are recorded.
 	RolesClaims []string `json:"roles_claims,omitempty"`
 }
+
+// AuthIdentityNamespace is the identity space a provider's subjects live in.
+// It is the provider ID rather than an issuer URL, because the issuer was the
+// discovery root and went away with discovery; the ID is stable for the life
+// of the provider and is what `auth_identity_links.issuer` stores.
+func AuthIdentityNamespace(providerID string) string { return "oauth2:" + providerID }
 
 type AuthExternalAccount struct {
 	UserID    string

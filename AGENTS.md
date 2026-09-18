@@ -467,8 +467,29 @@ Behaviour worth knowing:
   renaming would have silently re-enabled the surface wherever it was off. Every
   preset enables it — a gateway-only installation is the one that most needs the
   API reference to configure a client.
+- `workspace_management` is presented as **Workspaces** and is the only feature
+  that changes *admission* rather than just hiding a surface. Disabling it gates
+  creating/renaming/archiving/deleting a workspace, membership, invitations and
+  `POST /auth/invitations/accept`, and additionally pins every request to
+  `service.DefaultWorkspaceID`: `workspaceAuthentication` refuses an
+  `X-AT-Workspace-ID` naming any other workspace, and `ListWorkspacesAPI`
+  returns only the default one so the switcher cannot offer an entry that would
+  then 403. Selection is **refused, not rewritten** — silently substituting the
+  default would serve one workspace's data under another's identity. Nothing is
+  deleted: the other workspaces' records are untouched and reappear the moment
+  it is re-enabled. `GET /api/v1/workspaces`, `GET /api/v1/workspaces/{id}`,
+  `/auth/workspaces/*` and the `provider-grants` / `execution-policy`
+  sub-resources stay open, because the application resolves its workspace
+  through them and those two sub-resources configure other features. Execution
+  identities (`execution_service_bindings` for bots and gateway MCP) resolve
+  outside this middleware and are deliberately unaffected, so a bot bound to a
+  non-default workspace keeps running. `/settings/workspace` is **not** in
+  `routeFeatures`: it is the join-a-workspace and sign-in-preference escape
+  hatch, so the page stays reachable and hides its own sections instead.
+  Regression: `TestWorkspaceManagementDisabledPinsDefault`.
 - Nothing gates `/api/v1/features`, `/api/v1/info`, `/auth/*` or the Settings
-  shell, so any combination is reversible from the Features page.
+  shell, so any combination is reversible from the Features page. The one
+  exception is `/auth/invitations/*`, which belongs to `workspace_management`.
 
 Bulk writes exist because the catalog is fine-grained: `PUT /api/v1/features`
 takes `{"features": {"<key>": bool}}` and `POST /api/v1/features/presets/{preset}`
@@ -647,7 +668,45 @@ belongs to the provider. Values are whitespace-split, so a role containing a
 space is not addressable this way. Provider-reported roles are never truncated —
 they already worked without paths. Regression:
 `internal/service/auth-claims_test.go`, plus the `nested_roles` case in
-`TestExternalStrictOIDCAndReplicaFlow`.
+`TestExternalOAuth2LoginAndReplicaFlow`.
+
+### Identity providers are explicit OAuth2 clients
+
+An identity provider (`service.AuthIdentityProvider`, Authentication settings →
+*Identity providers*) is a plain OAuth2 authorization-code client. There is no
+protocol selector and no issuer URL: `auth_url`, `token_url`, `userinfo_url` and
+`jwks_url` are each entered by hand. Discovery turned one stored string into
+four endpoints fetched over the network — twice per sign-in, since `adapter`
+runs at both `begin` and `callback` — so a provider's effective configuration
+was whatever the remote document said that minute, a login could not start while
+it was unreachable, and an IdP that publishes no document could not be used at
+all. `no_discovery` in `TestExternalOAuth2LoginAndReplicaFlow` asserts that
+neither leg fetches one.
+
+This is also why `oauth2.Config.IssuerURL` stays empty rather than being kept
+"for claim checking": in ada a non-empty issuer *is* the instruction to discover,
+and `RequireIDToken` refuses to initialise without a discovered issuer and key
+set. What survives is most of the value: `userinfo_url` and `jwks_url` are the
+two claim sources and **at least one is required**, enforced by
+`validateExternalProvider` and mirrored in the form. Userinfo is read with the
+access token. JWKS instead verifies the `id_token`'s signature, audience
+(ada defaults `Audience` to `ClientID`), expiry and nonce — every OIDC check
+except `iss`, which nothing declares. Configuring both additionally binds them:
+ada rejects a userinfo subject that disagrees with the `id_token` subject. Each
+of those checks has its own subtest.
+
+`subject_claim` is mandatory, because with no strict-OIDC mode ada would
+otherwise fall back to `preferred_username` / `email` — claims an IdP may
+reassign between people, which eventually hands one person another's account.
+
+The identity namespace is `service.AuthIdentityNamespace(providerID)` —
+`"oauth2:" + id`, stored in `auth_identity_links.issuer` and re-derived by the
+store rather than trusted from the caller. It used to be the issuer URL for OIDC
+providers, so an installation that had linked accounts through one **must not be
+upgraded in place without rewriting that column**; there is no migration,
+because the feature had no deployed OIDC users. The provider row's immutability
+guard consequently narrows to `client_id` and `subject_claim`, the two fields
+that still decide which upstream account a stored link belongs to.
 
 Mappings are editable in place (POST `/api/v1/permission-mappings` with `id`),
 which keeps the row identity that delete-and-recreate discarded; the Permissions

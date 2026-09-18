@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -78,7 +79,13 @@ func externalJWT(t *testing.T, key *rsa.PrivateKey, claims map[string]any) strin
 	return body + "." + base64.RawURLEncoding.EncodeToString(sig)
 }
 
-func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
+// Every provider is a plain OAuth2 client with explicit endpoints, so the
+// cases here are about the two claim sources rather than a protocol mode:
+// userinfo alone, a JWKS-verified id_token alone, and both together (where the
+// two subjects must agree). The id_token checks that survive without a
+// configured issuer — signature, audience, expiry, nonce — are asserted
+// individually, and `no_discovery` pins the property this design exists for.
+func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
@@ -87,18 +94,17 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"valid", "oauth2", "nested_roles", "missing_id_token", "issuer", "audience", "nonce", "signature", "expiry", "userinfo_subject", "discovery_issuer", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
+	accepted := map[string]bool{"userinfo": true, "jwks": true, "both": true, "nested_roles": true, "no_discovery": true}
+	for _, name := range []string{"userinfo", "jwks", "both", "nested_roles", "no_discovery", "audience", "nonce", "signature", "expiry", "userinfo_subject", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
 		t.Run(name, func(t *testing.T) {
 			var issuer, nonce, challenge string
+			var discovery atomic.Int64
 			idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/json")
 				switch r.URL.Path {
 				case "/.well-known/openid-configuration":
-					discovered := issuer
-					if name == "discovery_issuer" {
-						discovered += "/other"
-					}
-					json.NewEncoder(w).Encode(map[string]any{"issuer": discovered, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/jwks"})
+					discovery.Add(1)
+					json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "userinfo_endpoint": issuer + "/userinfo", "jwks_uri": issuer + "/jwks"})
 				case "/jwks":
 					json.NewEncoder(w).Encode(map[string]any{"keys": []any{map[string]any{"kty": "RSA", "kid": "test", "alg": "RS256", "use": "sig", "n": base64.RawURLEncoding.EncodeToString(key.N.Bytes()), "e": base64.RawURLEncoding.EncodeToString(big.NewInt(int64(key.E)).Bytes())}}})
 				case "/token":
@@ -114,8 +120,6 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 					claims := map[string]any{"iss": issuer, "aud": "client", "sub": "stable-subject", "nonce": nonce, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}}
 					signer := key
 					switch name {
-					case "issuer":
-						claims["iss"] = issuer + "/wrong"
 					case "audience":
 						claims["aud"] = "other"
 					case "nonce":
@@ -126,7 +130,9 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 						signer = wrongKey
 					}
 					response := map[string]any{"access_token": "upstream-token", "token_type": "Bearer", "id_token": externalJWT(t, signer, claims)}
-					if name == "missing_id_token" || name == "oauth2" {
+					// A provider that mints no id_token at all is the ordinary
+					// userinfo-only case (GitHub and friends).
+					if name == "userinfo" {
 						delete(response, "id_token")
 					}
 					json.NewEncoder(w).Encode(response)
@@ -142,15 +148,14 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 			}))
 			defer idp.Close()
 			issuer = idp.URL
-			s := &externalTestStore{provider: service.AuthIdentityProvider{ID: "provider", Label: "Test", Mode: "oidc", Enabled: true, Version: 1, Issuer: issuer, ClientID: "client", Scopes: []string{"openid"}}, flows: map[string]service.AuthExternalFlow{}}
-			if name == "oauth2" {
-				s.provider.Mode = "oauth2"
-				s.provider.Issuer = ""
-				s.provider.AuthURL = issuer + "/authorize"
-				s.provider.TokenURL = issuer + "/token"
-				s.provider.UserInfoURL = issuer + "/userinfo"
-				s.provider.SubjectClaim = "sub"
+			provider := service.AuthIdentityProvider{ID: "provider", Label: "Test", Enabled: true, Version: 1, ClientID: "client", Scopes: []string{"openid"}, SubjectClaim: "sub", AuthURL: issuer + "/authorize", TokenURL: issuer + "/token", UserInfoURL: issuer + "/userinfo", JWKSURL: issuer + "/jwks"}
+			switch name {
+			case "userinfo", "nested_roles", "no_discovery":
+				provider.JWKSURL = ""
+			case "jwks":
+				provider.UserInfoURL = ""
 			}
+			s := &externalTestStore{provider: provider, flows: map[string]service.AuthExternalFlow{}}
 			if name == "nested_roles" {
 				s.provider.RolesClaims = []string{"realm_access.roles"}
 			}
@@ -188,12 +193,6 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 			begin.SetPathValue("provider", "provider")
 			w := httptest.NewRecorder()
 			e.begin(w, begin)
-			if name == "discovery_issuer" {
-				if w.Code == 200 {
-					t.Fatal("accepted wrong discovery issuer")
-				}
-				return
-			}
 			if w.Code != 200 {
 				t.Fatalf("begin %d: %s", w.Code, w.Body.String())
 			}
@@ -227,7 +226,7 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 			other, _ := newNativeExternalAuth(a, s, hooks)
 			out := httptest.NewRecorder()
 			other.callback(out, callback)
-			if name == "valid" || name == "oauth2" || name == "nested_roles" {
+			if accepted[name] {
 				if out.Code != 204 || completed != 1 || s.completions != 1 {
 					t.Fatalf("callback %d: %s (complete=%d)", out.Code, out.Body.String(), completed)
 				}
@@ -244,20 +243,51 @@ func TestExternalStrictOIDCAndReplicaFlow(t *testing.T) {
 				if !strings.Contains(string(s.last.AssertedPermissions), "provider") {
 					t.Fatal("missing qualified assertions")
 				}
-				if name == "oauth2" && s.last.Issuer != "oauth2:provider" {
-					t.Fatal("generic subject lost provider namespace")
+				if s.last.Subject != "stable-subject" {
+					t.Fatalf("subject claim not honoured: %q", s.last.Subject)
+				}
+				if s.last.Issuer != service.AuthIdentityNamespace("provider") {
+					t.Fatalf("identity namespace %q is not derived from the provider ID", s.last.Issuer)
 				}
 			} else if completed != 0 || s.completions != 0 {
 				t.Fatalf("invalid %s authenticated", name)
+			}
+			// Configuration is local: no endpoint is resolved over the network,
+			// so neither begin nor callback may reach a discovery document.
+			if discovery.Load() != 0 {
+				t.Fatalf("discovery fetched %d times", discovery.Load())
 			}
 		})
 	}
 }
 
 func TestExternalProviderValidation(t *testing.T) {
-	p := service.AuthIdentityProvider{Label: "OAuth", Mode: "oauth2", ClientID: "client", AuthURL: "https://idp.test/auth", TokenURL: "https://idp.test/token", UserInfoURL: "https://idp.test/me", SubjectClaim: "id"}
+	p := service.AuthIdentityProvider{Label: "OAuth", ClientID: "client", AuthURL: "https://idp.test/auth", TokenURL: "https://idp.test/token", UserInfoURL: "https://idp.test/me", SubjectClaim: "id"}
 	if err := validateExternalProvider(p, false); err != nil {
 		t.Fatal(err)
+	}
+	// Either claim source alone is a complete configuration; neither is not.
+	jwksOnly := p
+	jwksOnly.UserInfoURL, jwksOnly.JWKSURL = "", "https://idp.test/keys"
+	if err := validateExternalProvider(jwksOnly, false); err != nil {
+		t.Fatalf("rejected JWKS-only provider: %v", err)
+	}
+	both := p
+	both.JWKSURL = "https://idp.test/keys"
+	if err := validateExternalProvider(both, false); err != nil {
+		t.Fatalf("rejected userinfo+JWKS provider: %v", err)
+	}
+	for _, missing := range []func(q *service.AuthIdentityProvider){
+		func(q *service.AuthIdentityProvider) { q.UserInfoURL = "" },
+		func(q *service.AuthIdentityProvider) { q.AuthURL = "" },
+		func(q *service.AuthIdentityProvider) { q.TokenURL = "" },
+		func(q *service.AuthIdentityProvider) { q.SubjectClaim = "" },
+	} {
+		q := p
+		missing(&q)
+		if validateExternalProvider(q, false) == nil {
+			t.Errorf("accepted incomplete provider %+v", q)
+		}
 	}
 	for _, raw := range []string{"http://public.test/auth", "https://user:pass@idp.test/auth", "https://idp.test/auth#fragment", "javascript:alert(1)"} {
 		q := p
@@ -278,14 +308,16 @@ func TestExternalProviderValidation(t *testing.T) {
 	if err := validateExternalProvider(q, false); err != nil {
 		t.Fatalf("rejected nested claim paths: %v", err)
 	}
-	p.Mode = "oidc"
-	if validateExternalProvider(p, false) == nil {
-		t.Fatal("accepted OIDC without issuer/openid")
+	// A JWKS endpoint is held to the same transport rules as the rest.
+	q = p
+	q.JWKSURL = "http://public.test/keys"
+	if validateExternalProvider(q, false) == nil {
+		t.Fatal("accepted plaintext JWKS endpoint")
 	}
 }
 
 func TestExternalLoginProviderRedaction(t *testing.T) {
-	s := &externalTestStore{provider: service.AuthIdentityProvider{ID: "id", Label: "Visible", Mode: "oidc", Enabled: true, ClientID: "private-client", ClientSecret: "secret", Issuer: "https://private.test"}}
+	s := &externalTestStore{provider: service.AuthIdentityProvider{ID: "id", Label: "Visible", Enabled: true, ClientID: "private-client", ClientSecret: "secret", AuthURL: "https://private.test/authorize", TokenURL: "https://private.test/token", UserInfoURL: "https://private.test/userinfo", SubjectClaim: "sub"}}
 	e := &nativeExternalAuth{store: s}
 	w := httptest.NewRecorder()
 	e.loginProviders(w, httptest.NewRequest("GET", "/auth/login-providers", nil))
@@ -300,11 +332,11 @@ func TestExternalCommonMFACoordinatorPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v, err := p.SaveAuthIdentityProvider(t.Context(), service.AuthIdentityProvider{Label: "IdP", Mode: "oidc", Issuer: "https://idp.test", ClientID: "client", Enabled: true, Scopes: []string{"openid"}}, nil)
+	v, err := p.SaveAuthIdentityProvider(t.Context(), service.AuthIdentityProvider{Label: "IdP", ClientID: "client", AuthURL: "https://idp.test/authorize", TokenURL: "https://idp.test/token", UserInfoURL: "https://idp.test/userinfo", SubjectClaim: "sub", Enabled: true, Scopes: []string{"openid"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	u, l, err := p.CompleteAuthExternalIdentity(t.Context(), service.AuthIdentityLink{ProviderID: v.ID, Issuer: v.Issuer, Subject: "subject", AssertedPermissions: json.RawMessage(`{}`)}, v.Version, nil, time.Now().Add(time.Minute))
+	u, l, err := p.CompleteAuthExternalIdentity(t.Context(), service.AuthIdentityLink{ProviderID: v.ID, Issuer: service.AuthIdentityNamespace(v.ID), Subject: "subject", AssertedPermissions: json.RawMessage(`{}`)}, v.Version, nil, time.Now().Add(time.Minute))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -395,7 +427,7 @@ func TestExternalProviderAdminRESTPostgres(t *testing.T) {
 		if login.Code != 200 {
 			t.Fatalf("login: %d %s", login.Code, login.Body.String())
 		}
-		r := httptest.NewRequest("POST", "/at/auth/identity-providers", strings.NewReader(`{"label":"Login provider","mode":"oidc","issuer":"https://idp.test","client_id":"client","client_secret":"top-secret","enabled":true,"scopes":["openid"]}`))
+		r := httptest.NewRequest("POST", "/at/auth/identity-providers", strings.NewReader(`{"label":"Login provider","client_id":"client","client_secret":"top-secret","enabled":true,"scopes":["openid"],"auth_url":"https://idp.test/authorize","token_url":"https://idp.test/token","userinfo_url":"https://idp.test/userinfo","subject_claim":"sub"}`))
 		r.Header.Set("Content-Type", "application/json")
 		r.Header.Set("Origin", a.cfg.Origin)
 		for _, c := range login.Result().Cookies() {

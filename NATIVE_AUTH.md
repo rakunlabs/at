@@ -701,52 +701,36 @@ self-host server selection, mobile handoff/PKCE, and revocation of active stream
 are follow-up work. Existing OAuth connectors are external-service credentials,
 not native user-login providers. No non-admin tenant isolation is claimed here.
 
-### External Login Blocker (Ada v0.5.1)
+### External login is OAuth2 with explicit endpoints
 
-External login/provider management is **not implemented or advertised** by this
-extension. There are no new external-provider CRUD, identity-linking, browser-login,
-callback, or login-options endpoints, and no external-login migration. Existing
-connector OAuth endpoints retain their separate external-service-credential role.
+External login is implemented (`internal/server/native-auth-external.go`,
+migration `36_auth_external.sql`) as a plain OAuth2 authorization-code client per
+provider. There is no protocol selector, no issuer URL and **no OIDC discovery**:
+`auth_url`, `token_url`, `userinfo_url` and `jwks_url` are configured one by one
+in Authentication settings, so strategy construction is a local operation and a
+sign-in never depends on a remote `.well-known` document being reachable or
+honest. Existing connector OAuth endpoints retain their separate
+external-service-credential role.
 
-Mock-upstream investigation reproduced two issues with published
-`github.com/rakunlabs/ada/middleware/auth v0.5.1`:
+`userinfo_url` and `jwks_url` are the two claim sources and at least one is
+required. Userinfo is read with the access token, so the response speaks for the
+user it describes. JWKS verifies the `id_token`'s signature, audience (ada
+defaults it to the client ID), expiry and nonce; the `iss` claim is the one OIDC
+check that is not performed, because nothing declares an expected issuer.
+Configuring both also binds them: a userinfo subject that disagrees with the
+`id_token` subject is rejected. `subject_claim` is mandatory so an identity is
+never keyed on a reassignable claim.
 
-- An authorization-code flow configured with an OIDC issuer, `openid` scope,
-  discovery JWKS, nonce, and PKCE returns an identity from userinfo when the token
-  response contains **no ID token**. No ID-token signature, issuer, audience, or
-  nonce verification occurs. This can be valid generic OAuth2 userinfo semantics,
-  but cannot be advertised as verified OIDC.
-- Discovery accepts a document whose `issuer` differs from the requested issuer;
-  the strategy adopts that different issuer rather than rejecting discovery.
+Ada's `Config.RequireIDToken` (strict OIDC) is deliberately unused: it requires a
+*discovered* issuer and key set, so it is unreachable without reintroducing
+discovery. PKCE, the nonce, single-use server-side flow records and the
+browser-bound flow cookie are unchanged and remain the replay defences.
 
-The relevant Ada code is `strategy/oauth2/oauth2.go` (`fetchClaims`,
-`verifyIDToken`, `NewWithContext`) and `strategy/oauth2/discovery.go` (`Discover`).
-The published public identity result has no trusted indication that an ID token
-was verified, and v0.5.1 has no strict-OIDC option requiring one.
-
-Both issues are fixed in the sibling Ada checkout, with security regressions in
-`middleware/auth/strategy/oauth2/strict_test.go`. The new explicit
-`Config.RequireIDToken` option requires verified issuer, audience, nonce, expiry
-and subject. The patch also rejects critical JWT headers and validates signed
-UserInfo issuer/audience and subject consistency while preserving generic OAuth
-profile mapping. These changes are not yet published. AT remains on published
-v0.5.1 and builds without a local module replacement; do not enable external
-login until the patched dependency and AT integration are available.
-
-A published Ada fix/strict-OIDC contract is needed before this integration can
-use that strategy as verified OIDC without intercepting protocol internals or
-duplicating a verifier. Also review raw upstream error-body logging and flow-cookie-only
-replay/expiry behavior. AT must add bounded, server-expiring, atomically consumed,
-browser-bound flow records rather than rely on cookie deletion as replay defense.
-No local module replacement was added to AT; Pika was not modified.
-
-The remaining external slice still needs encrypted runtime provider CRUD and key
-rotation integration, a next additive PostgreSQL migration, immutable provider-ID
-plus subject links approved by administrators, safe public login discovery, and
-the callback/session race and token-leak tests. It must never automatically link
-email addresses, provision users, import upstream roles, retain upstream tokens,
-or bypass native session-version issuance. These contracts are intentionally not
-promised to the UI before the backend exists.
+Identities are namespaced by `service.AuthIdentityNamespace(providerID)` and
+stored in `auth_identity_links.issuer`. Email addresses are never automatically
+linked, users are never auto-provisioned, upstream roles never become local
+roles, upstream tokens are not retained, and native session-version issuance is
+never bypassed.
 
 ## Mobile PKCE Handoff V1
 

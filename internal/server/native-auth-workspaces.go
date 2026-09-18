@@ -122,6 +122,21 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 					workspaceError(w, err)
 					return
 				}
+				// Single-workspace mode. Checked only for a non-default
+				// selection so the ordinary path pays nothing, and after
+				// admission so a caller cannot probe workspaces it has no
+				// access to.
+				if p.WorkspaceID != service.DefaultWorkspaceID {
+					pinned, ferr := s.workspacesPinnedToDefault(ctx)
+					if ferr != nil {
+						nativeError(w, 500, "failed to check workspace feature")
+						return
+					}
+					if pinned {
+						nativeError(w, 403, "additional workspaces are disabled; select the default workspace")
+						return
+					}
+				}
 				if id := r.PathValue("workspace"); id != "" && id != p.WorkspaceID {
 					nativeError(w, 404, "workspace resource not found")
 					return

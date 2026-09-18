@@ -7,6 +7,13 @@ import (
 
 type WorkspaceID string
 
+// DefaultWorkspaceID names the workspace every installation is guaranteed to
+// have: it is created on demand, sorts first, and cannot be deleted. The ID is
+// historical — it predates the workspace model and is spelled as a literal in
+// the store layer — so new call sites use this constant rather than adding
+// another copy of the string.
+const DefaultWorkspaceID = "legacy-default"
+
 type Workspace struct {
 	ID               string    `json:"id" db:"id"`
 	Name             string    `json:"name" db:"name"`

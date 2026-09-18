@@ -67,6 +67,13 @@ const (
 	FeatureApprovals     = "approvals"
 	FeatureStudio        = "studio"
 	FeatureLLMTraces     = "llm_traces"
+	// FeatureWorkspaceManagement gates the multi-workspace surface: creating,
+	// renaming, archiving and deleting workspaces, plus membership and
+	// invitations. Disabling it also pins every request to DefaultWorkspaceID,
+	// because a workspace nobody may administer is one nobody should be
+	// working in. Records of other workspaces are left untouched and become
+	// reachable again when it is re-enabled.
+	FeatureWorkspaceManagement = "workspace_management"
 )
 
 // FeatureSetting stores the persisted enabled/disabled state for a built-in

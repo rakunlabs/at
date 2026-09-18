@@ -46,6 +46,7 @@ export const FEATURE_GOALS_PROJECTS = 'goals_projects';
 export const FEATURE_APPROVALS = 'approvals';
 export const FEATURE_STUDIO = 'studio';
 export const FEATURE_LLM_TRACES = 'llm_traces';
+export const FEATURE_WORKSPACE_MANAGEMENT = 'workspace_management';
 
 export interface Feature {
   key: string;

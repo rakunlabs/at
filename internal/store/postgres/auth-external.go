@@ -126,7 +126,13 @@ func (p *Postgres) SaveAuthIdentityProvider(ctx context.Context, v service.AuthI
 		if e != nil {
 			return nil, e
 		}
-		if old.Issuer != v.Issuer || old.ClientID != v.ClientID || old.Mode != v.Mode || old.SubjectClaim != v.SubjectClaim {
+		// Both fields decide which upstream account a stored link belongs to:
+		// the client ID selects the IdP registration that issues the subject,
+		// and the subject claim selects which claim is read as that subject.
+		// Changing either while links exist silently repoints them at somebody
+		// else, so it needs a new provider instead. The namespace itself is now
+		// the immutable provider ID and can no longer drift.
+		if old.ClientID != v.ClientID || old.SubjectClaim != v.SubjectClaim {
 			n, e := tx.From(p.externalTable("auth_identity_links")).Where(goqu.Ex{"provider_id": v.ID}).CountContext(ctx)
 			if e != nil {
 				return nil, fmt.Errorf("count provider links: %w", e)
@@ -322,20 +328,11 @@ func (p *Postgres) CompleteAuthExternalIdentity(ctx context.Context, l service.A
 	if err = p.checkExternalProvider(ctx, tx, l.ProviderID, version); err != nil {
 		return nil, nil, err
 	}
-	var pr externalProviderRow
-	if _, err = tx.From(p.externalTable("auth_identity_providers")).Where(goqu.Ex{"id": l.ProviderID}).ScanStructContext(ctx, &pr); err != nil {
-		return nil, nil, fmt.Errorf("read identity namespace: %w", err)
-	}
-	pr.Secret = ""
-	provider, err := externalProviderRecord(pr, nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	namespace := provider.Issuer
-	if provider.Mode == "oauth2" {
-		namespace = "oauth2:" + provider.ID
-	}
-	if l.Issuer != namespace {
+	// The namespace is derived from the provider ID, which checkExternalProvider
+	// has just locked, so it no longer requires reading and decoding the config
+	// blob. Re-deriving it here rather than trusting the caller keeps the store
+	// authoritative over what a link may claim to belong to.
+	if l.Issuer != service.AuthIdentityNamespace(l.ProviderID) {
 		return nil, nil, service.ErrAuthConflict
 	}
 	table := p.externalTable("auth_identity_links")

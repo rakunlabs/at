@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -201,23 +200,24 @@ func validateExternalProvider(p service.AuthIdentityProvider, loopback bool) err
 	if err := service.ValidateClaimPaths(p.RolesClaims); err != nil {
 		return err
 	}
-	switch p.Mode {
-	case "oidc":
-		if !slices.Contains(p.Scopes, "openid") || p.Issuer == "" {
-			return fmt.Errorf("OIDC requires exact issuer and openid scope")
-		}
-		u, err := url.Parse(p.Issuer)
-		if err != nil || u.RawQuery != "" || u.ForceQuery {
-			return fmt.Errorf("OIDC issuer cannot contain query")
-		}
-	case "oauth2":
-		if p.Issuer != "" || p.JWKSURL != "" || p.AuthURL == "" || p.TokenURL == "" || p.UserInfoURL == "" || p.SubjectClaim == "" || len(p.SubjectClaim) > 128 {
-			return fmt.Errorf("OAuth2 requires explicit auth/token/userinfo endpoints and stable subject_claim; no OIDC fields")
-		}
-	default:
-		return fmt.Errorf("mode must be oidc or oauth2")
+	if p.AuthURL == "" || p.TokenURL == "" {
+		return fmt.Errorf("authorization and token endpoints are required")
 	}
-	for _, raw := range []string{p.Issuer, p.AuthURL, p.TokenURL, p.UserInfoURL, p.JWKSURL} {
+	// A login needs an authenticated claim source. Userinfo is read with the
+	// access token; JWKS verifies the id_token instead. With neither there is
+	// nothing to derive an identity from that the browser could not have
+	// forged, and the strategy refuses the login at callback time — so refuse
+	// the configuration here, where the administrator can see why.
+	if p.UserInfoURL == "" && p.JWKSURL == "" {
+		return fmt.Errorf("configure a userinfo endpoint, a JWKS endpoint, or both")
+	}
+	// The subject is the account's permanent name in this provider's identity
+	// namespace: a link is keyed on it, so a claim that can be reassigned
+	// (email, username) eventually hands one person another's account.
+	if p.SubjectClaim == "" || len(p.SubjectClaim) > 128 {
+		return fmt.Errorf("a stable subject claim is required")
+	}
+	for _, raw := range []string{p.AuthURL, p.TokenURL, p.UserInfoURL, p.JWKSURL} {
 		if raw != "" {
 			if err := validateExternalURL(raw, loopback); err != nil {
 				return err
@@ -296,59 +296,20 @@ func (e *nativeExternalAuth) adapter(ctx context.Context, p service.AuthIdentity
 		return nil, err
 	}
 	client := &http.Client{Transport: externalTransport{e.a.cfg.InsecureHTTP}, Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	cfg := oauth2.Config{ClientID: p.ClientID, ClientSecret: p.ClientSecret, Scopes: p.Scopes, AuthURL: p.AuthURL, TokenURL: p.TokenURL, UserInfoURL: p.UserInfoURL, JWKSURL: p.JWKSURL, IssuerURL: p.Issuer, RequireIDToken: p.Mode == "oidc"}
+	// No IssuerURL: in ada, a non-empty issuer *is* the instruction to fetch
+	// the discovery document, and there is no way to supply one for claim
+	// checking alone. Leaving it empty keeps every endpoint exactly what the
+	// administrator entered and makes strategy construction a local operation.
+	//
+	// RequireIDToken therefore stays off — it demands a discovered issuer — so
+	// ada resolves the identity through its ordinary claim path: an id_token is
+	// still signature-verified against JWKSURL when one is configured, with
+	// audience (defaulted to ClientID), expiry and nonce enforced, and userinfo
+	// is used when it is not. Only the `iss` claim goes unchecked, since
+	// nothing here declares what it should be.
+	cfg := oauth2.Config{ClientID: p.ClientID, ClientSecret: p.ClientSecret, Scopes: p.Scopes, AuthURL: p.AuthURL, TokenURL: p.TokenURL, UserInfoURL: p.UserInfoURL, JWKSURL: p.JWKSURL}
 	if err := cfg.AuthHeaderStyle.UnmarshalText([]byte(p.AuthHeaderStyle)); err != nil {
 		return nil, fmt.Errorf("configure token authentication: %w", err)
-	}
-	if p.Mode == "oidc" {
-		// Validate discovered browser endpoints as well as transport endpoints.
-		req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimRight(p.Issuer, "/")+"/.well-known/openid-configuration", nil)
-		if err != nil {
-			return nil, fmt.Errorf("create discovery request: %w", err)
-		}
-		res, err := client.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("discover external provider: %w", err)
-		}
-		defer res.Body.Close()
-		var d struct {
-			Issuer   string `json:"issuer"`
-			Auth     string `json:"authorization_endpoint"`
-			Token    string `json:"token_endpoint"`
-			UserInfo string `json:"userinfo_endpoint"`
-			JWKS     string `json:"jwks_uri"`
-		}
-		if res.StatusCode != 200 {
-			return nil, fmt.Errorf("external discovery failed")
-		}
-		if err = json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&d); err != nil {
-			return nil, fmt.Errorf("decode discovery: %w", err)
-		}
-		if d.Issuer != p.Issuer {
-			return nil, fmt.Errorf("external discovery issuer mismatch")
-		}
-		if cfg.AuthURL == "" {
-			cfg.AuthURL = d.Auth
-		}
-		if cfg.TokenURL == "" {
-			cfg.TokenURL = d.Token
-		}
-		if cfg.UserInfoURL == "" {
-			cfg.UserInfoURL = d.UserInfo
-		}
-		if cfg.JWKSURL == "" {
-			cfg.JWKSURL = d.JWKS
-		}
-		for _, raw := range []string{cfg.AuthURL, cfg.TokenURL, cfg.JWKSURL} {
-			if err = validateExternalURL(raw, e.a.cfg.InsecureHTTP); err != nil {
-				return nil, err
-			}
-		}
-		if cfg.UserInfoURL != "" {
-			if err = validateExternalURL(cfg.UserInfoURL, e.a.cfg.InsecureHTTP); err != nil {
-				return nil, err
-			}
-		}
 	}
 	secure := cookie.SecureAlways
 	if strings.HasPrefix(e.a.cfg.Origin, "http://") {
@@ -356,9 +317,7 @@ func (e *nativeExternalAuth) adapter(ctx context.Context, p service.AuthIdentity
 	}
 	base := strings.TrimSuffix(e.a.session.Cookie.Path, "/") + "/auth/external/" + p.ID
 	opts := oauth2.Options{HTTPClient: client, CallbackBaseURL: e.a.cfg.Origin, CallbackBasePath: base, FlowStore: f, FlowTTL: 5 * time.Minute, FlowCookie: cookie.Options{Path: base + "/", Secure: secure, SameSite: http.SameSiteLaxMode}, EmailVerifyCheck: true}
-	if p.Mode == "oauth2" {
-		opts.XUserClaims.Subject = []string{p.SubjectClaim}
-	}
+	opts.XUserClaims.Subject = []string{p.SubjectClaim}
 	return oauth2.NewWithContext(ctx, "callback", cfg, opts)
 }
 
@@ -503,10 +462,7 @@ func (e *nativeExternalAuth) callback(w http.ResponseWriter, r *http.Request) {
 		externalError(w, service.ErrAuthConflict)
 		return
 	}
-	namespace := p.Issuer
-	if p.Mode == "oauth2" {
-		namespace = "oauth2:" + p.ID
-	}
+	namespace := service.AuthIdentityNamespace(p.ID)
 	// Do not carry upstream Identity.Roles or Claims into the local identity.
 	rawAssertions := make(map[string]any)
 	for _, key := range []string{"roles", "groups", "permissions", "scope"} {

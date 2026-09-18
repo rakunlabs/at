@@ -237,6 +237,65 @@ func TestFeatureKeyForAPIRequest(t *testing.T) {
 			want:     service.FeatureChatSessions,
 		},
 		{
+			name:   "creating a workspace belongs to workspace management",
+			path:   "/api/v1/workspaces",
+			method: http.MethodPost,
+			want:   service.FeatureWorkspaceManagement,
+		},
+		{
+			name:   "workspace members belong to workspace management",
+			path:   "/api/v1/workspaces/ws-id/members/user-id",
+			method: http.MethodPut,
+			want:   service.FeatureWorkspaceManagement,
+		},
+		{
+			name:   "listing workspace invitations belongs to workspace management",
+			path:   "/api/v1/workspaces/ws-id/invitations",
+			method: http.MethodGet,
+			want:   service.FeatureWorkspaceManagement,
+		},
+		{
+			name:   "accepting an invitation belongs to workspace management",
+			path:   "/auth/invitations/accept",
+			method: http.MethodPost,
+			want:   service.FeatureWorkspaceManagement,
+		},
+		{
+			name:   "deleting a workspace belongs to workspace management",
+			path:   "/api/v1/workspaces/ws-id/delete",
+			method: http.MethodPost,
+			want:   service.FeatureWorkspaceManagement,
+		},
+		{
+			// Every page resolves its workspace through these, so gating the
+			// reads would break the application rather than hide a surface.
+			name:   "workspace list stays available",
+			path:   "/api/v1/workspaces",
+			method: http.MethodGet,
+		},
+		{
+			name:   "selected workspace read stays available",
+			path:   "/api/v1/workspaces/ws-id",
+			method: http.MethodGet,
+		},
+		{
+			// Provider configuration and runtime policy must keep working in
+			// the pinned single-workspace mode.
+			name:   "workspace provider grants stay with providers",
+			path:   "/api/v1/workspaces/ws-id/provider-grants",
+			method: http.MethodPost,
+		},
+		{
+			name:   "workspace execution policy stays available",
+			path:   "/api/v1/workspaces/ws-id/execution-policy",
+			method: http.MethodPut,
+		},
+		{
+			name:   "workspace sign-in preference stays available",
+			path:   "/auth/workspaces/preferences",
+			method: http.MethodPut,
+		},
+		{
 			name:   "features endpoint remains available",
 			path:   "/api/v1/features",
 			method: http.MethodGet,

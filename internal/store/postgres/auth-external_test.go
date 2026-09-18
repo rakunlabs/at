@@ -22,14 +22,14 @@ func externalFixture(t *testing.T) (*Postgres, *service.AuthIdentityProvider) {
 	t.Helper()
 	p := newTestStore(t, bytes.Repeat([]byte{1}, 32))
 	secret := "provider-secret"
-	v, err := p.SaveAuthIdentityProvider(t.Context(), service.AuthIdentityProvider{Label: "External", Mode: "oidc", Issuer: "https://idp.test", ClientID: "client", Scopes: []string{"openid"}, Enabled: true}, &secret)
+	v, err := p.SaveAuthIdentityProvider(t.Context(), service.AuthIdentityProvider{Label: "External", ClientID: "client", AuthURL: "https://idp.test/authorize", TokenURL: "https://idp.test/token", UserInfoURL: "https://idp.test/userinfo", SubjectClaim: "sub", Scopes: []string{"openid"}, Enabled: true}, &secret)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return p, v
 }
 func externalLink(p *service.AuthIdentityProvider, subject string) service.AuthIdentityLink {
-	return service.AuthIdentityLink{ProviderID: p.ID, Issuer: p.Issuer, Subject: subject, Email: "same@example.test", AssertedPermissions: json.RawMessage(`{"roles":["admin"]}`)}
+	return service.AuthIdentityLink{ProviderID: p.ID, Issuer: service.AuthIdentityNamespace(p.ID), Subject: subject, Email: "same@example.test", AssertedPermissions: json.RawMessage(`{"roles":["admin"]}`)}
 }
 func externalSession(t *testing.T, p *Postgres, u *service.AuthUser, id string) service.AuthExternalAccount {
 	t.Helper()
@@ -71,8 +71,10 @@ func TestExternalPostgresNoEmailMergeAndImmutableNamespace(t *testing.T) {
 	if err != nil || same.ID != first.ID {
 		t.Fatalf("stable subject changed: %v", err)
 	}
+	// A link may not name an identity namespace other than its own provider's:
+	// the store re-derives it rather than trusting the caller.
 	bad := externalLink(v, "subject-a")
-	bad.Issuer += "/wrong"
+	bad.Issuer += "-wrong"
 	if _, _, err = p.CompleteAuthExternalIdentity(t.Context(), bad, v.Version, nil, time.Now().Add(time.Minute)); !errors.Is(err, service.ErrAuthConflict) {
 		t.Fatalf("namespace mismatch: %v", err)
 	}
