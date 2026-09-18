@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -22,9 +21,11 @@ import (
 // nativeAuthSettings owns immutable per-version coordinators, not mutable a.cfg.
 // Every request reads the durable policy; replicas observe changes without TTLs.
 type nativeAuthSettings struct {
-	store   service.AuthSettingsStorer
-	backend any
-	cfg     config.Server
+	store    service.AuthSettingsStorer
+	backend  any
+	cfg      config.Server
+	clientIP clientIPResolver
+
 	mu      sync.Mutex
 	version int64
 	native  *nativeAuth
@@ -65,7 +66,11 @@ func newNativeAuthSettings(ctx context.Context, cfg config.Server, backend any) 
 	if state == nil {
 		return nil, fmt.Errorf("authentication settings unavailable")
 	}
-	m := &nativeAuthSettings{store: store, backend: backend, cfg: cfg, limit: rate.NewLimiter(rate.Every(6*time.Second), 5), slots: make(chan struct{}, 2)}
+	resolver, err := newClientIPResolver(cfg)
+	if err != nil {
+		return nil, err
+	}
+	m := &nativeAuthSettings{store: store, backend: backend, cfg: cfg, clientIP: resolver, limit: rate.NewLimiter(rate.Every(6*time.Second), 5), slots: make(chan struct{}, 2)}
 	if !state.SetupRequired {
 		if _, _, err := m.snapshot(state.Settings); err != nil {
 			return nil, err
@@ -118,14 +123,20 @@ func (m *nativeAuthSettings) status(w http.ResponseWriter, r *http.Request) {
 	}
 	// The collapse flag is reported only while local sign-in is enabled, so a
 	// stale value cannot describe a form the browser is not allowed to show.
-	status := map[string]any{"enabled": true, "setup_required": v.SetupRequired, "local_login": v.Settings.LocalLoginEnabled, "local_login_collapsed": v.Settings.LocalLoginEnabled && v.Settings.LocalLoginCollapsed, "display_title": v.Settings.DisplayTitle, "signup_admission": v.Settings.SignupAdmission, "remember_me": true, "passkey_login": "discoverable", "passkeys": false}
+	status := map[string]any{"enabled": true, "setup_required": v.SetupRequired, "local_login": v.Settings.LocalLoginEnabled, "local_login_collapsed": v.Settings.LocalLoginEnabled && v.Settings.LocalLoginCollapsed, "display_title": v.Settings.DisplayTitle, "signup_admission": v.Settings.SignupAdmission, "remember_me": true, "passkey_login": "discoverable", "passkeys": false, "passkey_login_enabled": false}
 	if !v.SetupRequired {
 		a, _, err := m.snapshot(v.Settings)
 		if err != nil {
 			nativeError(w, 503, "authentication unavailable")
 			return
 		}
+		// `passkeys` reports that the subsystem is usable at all, which is what
+		// account management and step-up verification depend on;
+		// `passkey_login_enabled` reports only whether it is accepted as a
+		// first factor. Collapsing the two would hide the Account security
+		// passkey list behind a switch that does not govern it.
 		status["passkeys"] = a.passkey != nil && v.Settings.LocalLoginEnabled
+		status["passkey_login_enabled"] = status["passkeys"] == true && !v.Settings.PasskeyLoginDisabled
 		status["origin"] = v.Settings.Origin
 		status["allowed_origins"] = v.Settings.AllowedOrigins
 		if a.mobileStore != nil {
@@ -167,17 +178,14 @@ func (m *nativeAuthSettings) setup(w http.ResponseWriter, r *http.Request) {
 		nativeError(w, 429, "setup rate limit exceeded")
 		return
 	}
-	// Durable source bounds survive replicas/restarts; don't hash arbitrary XFF.
+	// Durable source bounds survive replicas/restarts; hash the resolved client
+	// address, which is a forwarded one only behind a configured trusted proxy.
 	admission, ok := m.backend.(service.AuthSecurityAdmissionStorer)
 	if !ok {
 		nativeError(w, 503, "authentication admission unavailable")
 		return
 	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		host = r.RemoteAddr
-	}
-	allowed, err := admission.AdmitAuthSecuritySource(r.Context(), nativeSessionHash(host))
+	allowed, err := admission.AdmitAuthSecuritySource(r.Context(), nativeSessionHash(m.clientIP.limitKey(r)))
 	if err != nil {
 		nativeError(w, 503, "authentication unavailable")
 		return
@@ -352,6 +360,14 @@ func (m *nativeAuthSettings) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if !v.Settings.LocalLoginEnabled && (path == "/auth/login" || strings.HasPrefix(path, "/auth/passkeys/login")) {
 		nativeError(w, 403, "local login is disabled")
+		return
+	}
+	// Only the sign-in ceremony. Enrolment, listing, deletion and passkey
+	// reauthentication stay available, so an account can still manage its keys
+	// (and step up with one) while the installation does not accept them as a
+	// first factor — hiding the button alone would be a decorative switch.
+	if v.Settings.PasskeyLoginDisabled && strings.HasPrefix(path, "/auth/passkeys/login") {
+		nativeError(w, 403, "passkey sign-in is disabled")
 		return
 	}
 	a, routes, err := m.snapshot(v.Settings)

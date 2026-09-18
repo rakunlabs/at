@@ -89,7 +89,7 @@
       <label><input type="checkbox" bind:checked={remember} disabled={busy} />Remember this sign-in</label>
       {#if collapsed}<p class="settings-note">Signing in with a username and password is still available from the Local sign-in control above.</p>{/if}
     {/if}
-    {#if storeAuth.passkeys && !secondaryOrigin}
+    {#if storeAuth.passkeyLogin && !secondaryOrigin}
       <button type="button" class="settings-button w-full min-h-11 sm:min-h-0" disabled={busy || !isWebAuthnSupported()} onclick={passkeyLogin}>Sign in with passkey</button>
     {/if}
     {#if secondaryOrigin}

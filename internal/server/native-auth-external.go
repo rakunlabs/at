@@ -1,7 +1,10 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -424,7 +427,107 @@ func (e *nativeExternalAuth) begin(w http.ResponseWriter, r *http.Request) {
 	httpResponseJSON(w, map[string]string{"authorization_url": rec.Header().Get("Location")}, 200)
 }
 
+// The callback is a top-level navigation in the popup the UI opened, not an
+// XHR. Writing the result as JSON left the browser parked on a page of JSON
+// while the opener waited for a message that never came, so the whole external
+// sign-in hung at the last step. Capture the response and hand it to the opener
+// as the postMessage `_ui/src/lib/helper/auth-popup.ts` is waiting on.
+//
+// A recorder is used rather than a streaming wrapper because the decision needs
+// the finished status, headers and body: only a 2xx JSON body is a result, a
+// redirect the strategy staged must be replayed untouched, and anything else is
+// reported as an error the opener can show instead of hanging until its timeout.
 func (e *nativeExternalAuth) callback(w http.ResponseWriter, r *http.Request) {
+	rec := httptest.NewRecorder()
+	e.callbackResult(rec, r)
+	e.deliverCallback(w, rec)
+}
+
+func (e *nativeExternalAuth) deliverCallback(w http.ResponseWriter, rec *httptest.ResponseRecorder) {
+	header := w.Header()
+	for key, values := range rec.Header() {
+		// Content-Type/Length describe the captured body, not what is sent, and
+		// the continuation header is consumed here rather than forwarded. Keys
+		// arrive canonicalized, so compare in that form.
+		if key == "Content-Type" || key == "Content-Length" || key == http.CanonicalHeaderKey("X-AT-Auth-Continue") {
+			continue
+		}
+		for _, value := range values {
+			header.Add(key, value)
+		}
+	}
+	// A staged redirect is part of the ceremony (ada restarts an interrupted
+	// flow this way); wrapping it in a document would strand the popup.
+	if location := rec.Header().Get("Location"); location != "" && rec.Code >= 300 && rec.Code < 400 {
+		header.Set("Location", location)
+		w.WriteHeader(rec.Code)
+		return
+	}
+	result := rec.Body.Bytes()
+	if rec.Code < 200 || rec.Code > 299 || !json.Valid(result) {
+		message := "The identity provider could not complete this request."
+		var reported struct {
+			Message string `json:"message"`
+		}
+		if json.Valid(result) && json.Unmarshal(result, &reported) == nil && reported.Message != "" {
+			message = reported.Message
+		}
+		result, _ = json.Marshal(map[string]any{"error": true, "message": message})
+	}
+	payload, err := json.Marshal(map[string]any{"type": "at-auth-result", "result": json.RawMessage(result), "continue": rec.Header().Get("X-AT-Auth-Continue")})
+	if err != nil {
+		payload = []byte(`{"type":"at-auth-result","result":{"error":true,"message":"The sign-in result could not be delivered."}}`)
+	}
+	e.renderAuthBridge(w, rec.Code, payload)
+}
+
+// renderAuthBridge writes the popup document. The payload is posted to the exact
+// configured origin: it can carry an MFA challenge, and "*" would hand that to
+// whatever site happens to be the opener. That is also why the document is
+// unframeable and runs one nonce-pinned script and nothing else.
+func (e *nativeExternalAuth) renderAuthBridge(w http.ResponseWriter, code int, payload []byte) {
+	var escaped bytes.Buffer
+	json.HTMLEscape(&escaped, payload)
+	origin, _ := json.Marshal(e.a.cfg.Origin)
+	home, _ := json.Marshal(e.a.session.Cookie.Path)
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		nativeError(w, 503, "external authentication unavailable")
+		return
+	}
+	token := base64.RawURLEncoding.EncodeToString(nonce[:])
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Referrer-Policy", "no-referrer")
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+token+"'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if code < 200 || code > 599 {
+		code = 200
+	}
+	w.WriteHeader(code)
+	fmt.Fprintf(w, `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><title>Signing in</title></head>
+<body><p>You can close this window and return to the application.</p>
+<script type="application/json" id="at-auth-payload" nonce="%[1]s">%[2]s</script>
+<script nonce="%[1]s">
+(function () {
+  var payload = JSON.parse(document.getElementById('at-auth-payload').textContent);
+  if (window.opener) { window.opener.postMessage(payload, %[3]s); window.close(); return; }
+  // No opener: the popup was reused as a normal tab, or the browser severed the
+  // relationship. Cookies for a completed sign-in are already set, so returning
+  // to the application is the useful outcome; a pending step is reported here.
+  var result = payload.result || {};
+  if (result.error || result.mfa_required) {
+    document.body.textContent = result.message || 'Sign-in needs another step. Return to the application and start again.';
+    return;
+  }
+  location.replace(payload.continue || %[4]s);
+})();
+</script>
+</body></html>`, token, escaped.String(), string(origin), string(home))
+}
+
+func (e *nativeExternalAuth) callbackResult(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Referrer-Policy", "no-referrer")
 	p := e.loadProvider(w, r)

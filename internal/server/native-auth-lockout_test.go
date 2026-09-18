@@ -243,7 +243,8 @@ func TestPasswordLoginLockoutPostgres(t *testing.T) {
 		if err != nil || last[users["reader"].ID].At.IsZero() {
 			t.Fatalf("last login: %v %v", last, err)
 		}
-		// Caller-supplied forwarding headers must not forge the recorded address.
+		// With no trusted proxy configured, caller-supplied forwarding headers
+		// must not forge the recorded address.
 		r := httptest.NewRequest("POST", "/at/auth/login", nil)
 		r.RemoteAddr = "198.51.100.7:1234"
 		r.Header.Set("X-Forwarded-For", "203.0.113.99")
@@ -252,6 +253,16 @@ func TestPasswordLoginLockoutPostgres(t *testing.T) {
 		events, err := p.ListAuthLoginEvents(t.Context(), users["reader"].ID, 1)
 		if err != nil || len(events) != 1 || events[0].SourceIP != "198.51.100.7" || events[0].UserAgent != "AuditBrowser/1.0" {
 			t.Fatalf("source audit: %+v %v", events, err)
+		}
+		// Once that peer is declared a reverse proxy, the header it forwards is
+		// the address that signed in; the proxy's own address never is.
+		direct := a.clientIP
+		a.clientIP = testResolver(t, "", "198.51.100.0/24")
+		a.recordLoginEvent(r, users["reader"].ID, "login_failed")
+		a.clientIP = direct
+		events, err = p.ListAuthLoginEvents(t.Context(), users["reader"].ID, 1)
+		if err != nil || len(events) != 1 || events[0].SourceIP != "203.0.113.99" {
+			t.Fatalf("trusted proxy audit: %+v %v", events, err)
 		}
 		path = "/at/auth/users/" + users["reader"].ID + "/revoke-sessions"
 		if w := nativeRequest(mux, "POST", path, "", a.cfg.Origin, adminCookie); w.Code != 204 {

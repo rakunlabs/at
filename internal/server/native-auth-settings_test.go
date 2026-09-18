@@ -253,6 +253,78 @@ func TestAuthSettingsLocalLoginCollapsedPostgres(t *testing.T) {
 	}
 }
 
+// Passkey sign-in is admission, not presentation: turning it off must refuse
+// the ceremony, not merely hide its button, while leaving the passkeys
+// themselves enrollable, listable and usable for step-up verification.
+func TestAuthSettingsPasskeyLoginDisabledPostgres(t *testing.T) {
+	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
+	m, err := newNativeAuthSettings(t.Context(), config.Server{BasePath: "/at"}, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.limit = rate.NewLimiter(rate.Inf, 100)
+	if w := settingsHTTPRequest(m, "POST", "/auth/setup", map[string]string{"username": "admin", "password": "a strong initial password", "origin": "https://at.example"}, nil); w.Code != 201 {
+		t.Fatalf("setup: %d %s", w.Code, w.Body)
+	}
+	if w := settingsHTTPRequest(m, "GET", "/auth/status", nil, nil); !strings.Contains(w.Body.String(), `"passkey_login_enabled":true`) || !strings.Contains(w.Body.String(), `"passkeys":true`) {
+		t.Fatalf("default status: %s", w.Body)
+	}
+	w := settingsHTTPRequest(m, "POST", "/auth/login", map[string]string{"username": "admin", "password": "a strong initial password"}, nil)
+	if w.Code != 200 {
+		t.Fatalf("login: %d %s", w.Code, w.Body)
+	}
+	cookies := w.Result().Cookies()
+	// A begin with no enrolled credential still reaches the ceremony, so its
+	// status distinguishes "refused by policy" from "nothing to assert".
+	if w := settingsHTTPRequest(m, "POST", "/auth/passkeys/login/begin", map[string]string{}, nil); w.Code == 403 {
+		t.Fatalf("passkey login refused while enabled: %d %s", w.Code, w.Body)
+	}
+	state, err := p.GetAuthSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := state.Settings
+	v.PasskeyLoginDisabled = true
+	if w := settingsHTTPRequest(m, "PUT", "/auth/settings", v, cookies); w.Code != 200 {
+		t.Fatalf("disable passkey login: %d %s", w.Code, w.Body)
+	}
+	w = settingsHTTPRequest(m, "GET", "/auth/status", nil, nil)
+	if !strings.Contains(w.Body.String(), `"passkey_login_enabled":false`) || !strings.Contains(w.Body.String(), `"passkeys":true`) {
+		t.Fatalf("disabled status: %s", w.Body)
+	}
+	for _, route := range []string{"/auth/passkeys/login/begin", "/auth/passkeys/login/finish"} {
+		if w := settingsHTTPRequest(m, "POST", route, map[string]string{}, nil); w.Code != 403 {
+			t.Fatalf("%s: %d %s", route, w.Code, w.Body)
+		}
+	}
+	// Password sign-in and passkey management are untouched by this switch.
+	if w := settingsHTTPRequest(m, "POST", "/auth/login", map[string]string{"username": "admin", "password": "a strong initial password"}, nil); w.Code != 200 {
+		t.Fatalf("password login refused: %d %s", w.Code, w.Body)
+	}
+	if w := settingsHTTPRequest(m, "GET", "/auth/passkeys", nil, cookies); w.Code != 200 {
+		t.Fatalf("passkey list: %d %s", w.Code, w.Body)
+	}
+	if w := settingsHTTPRequest(m, "POST", "/auth/passkeys/enroll/begin", map[string]string{"name": "key", "current_password": "a strong initial password"}, cookies); w.Code != 200 {
+		t.Fatalf("passkey enrolment: %d %s", w.Code, w.Body)
+	}
+	// Re-enabling restores it without anyone touching their credentials.
+	state, err = p.GetAuthSettings(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	v = state.Settings
+	v.PasskeyLoginDisabled = false
+	if w := settingsHTTPRequest(m, "PUT", "/auth/settings", v, cookies); w.Code != 200 {
+		t.Fatalf("re-enable: %d %s", w.Code, w.Body)
+	}
+	if w := settingsHTTPRequest(m, "GET", "/auth/status", nil, nil); !strings.Contains(w.Body.String(), `"passkey_login_enabled":true`) {
+		t.Fatalf("re-enabled status: %s", w.Body)
+	}
+	if w := settingsHTTPRequest(m, "POST", "/auth/passkeys/login/begin", map[string]string{}, nil); w.Code == 403 {
+		t.Fatalf("passkey login still refused: %d %s", w.Code, w.Body)
+	}
+}
+
 func TestAuthSettingsOriginsAndDurationsRuntimePostgres(t *testing.T) {
 	p := postgrestest.New(t, []byte(strings.Repeat("k", 32)))
 	m, err := newNativeAuthSettings(t.Context(), config.Server{BasePath: "/at"}, p)

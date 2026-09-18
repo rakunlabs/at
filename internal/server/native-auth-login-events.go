@@ -3,7 +3,6 @@ package server
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -17,16 +16,10 @@ func (a *nativeAuth) recordLoginEvent(r *http.Request, userID, action string) {
 	if userID == "" {
 		return
 	}
-	ip, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		ip = r.RemoteAddr
-	}
-	// Only the socket peer is authoritative. Forwarded headers are caller input.
-	if parsed := net.ParseIP(ip); parsed != nil {
-		ip = parsed.String()
-	} else {
-		ip = ""
-	}
+	// The socket peer is authoritative unless it is a configured trusted proxy,
+	// in which case the forwarded header's first untrusted hop is. Without
+	// server.trusted_proxies this records the peer and reads no header at all.
+	ip := a.clientIP.clientIP(r)
 	agent := strings.ToValidUTF8(r.UserAgent(), "")
 	if len(agent) > 512 {
 		agent = strings.ToValidUTF8(agent[:512], "")

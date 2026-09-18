@@ -65,6 +65,38 @@ func TestMobileBeginSourceLimits(t *testing.T) {
 	}
 }
 
+// Behind a configured trusted proxy the bucket follows the real client, so one
+// abusive caller no longer spends the quota of everybody sharing that proxy —
+// while a caller that is not behind it still cannot mint buckets for itself.
+func TestMobileBeginTrustedProxySources(t *testing.T) {
+	a := &nativeAuth{mobileBeginSources: make(map[string]nativeMobileSource), clientIP: testResolver(t, "", "10.0.0.0/8")}
+	now := time.Now()
+	spend := func(peer, client string) int {
+		r := httptest.NewRequest("POST", "/auth/mobile/begin", nil)
+		r.RemoteAddr = peer
+		r.Header.Set("X-Forwarded-For", client)
+		allowed := 0
+		for range 31 {
+			if a.allowMobileBegin(r, now) {
+				allowed++
+			}
+		}
+		return allowed
+	}
+	if got := spend("10.0.0.5:1234", "203.0.113.9"); got != 30 {
+		t.Fatalf("proxied client admission: %d", got)
+	}
+	if got := spend("10.0.0.5:1234", "203.0.113.10"); got != 30 {
+		t.Fatal("one client behind the proxy starved another")
+	}
+	if got := spend("192.0.2.1:1234", "203.0.113.11"); got != 30 {
+		t.Fatalf("direct client admission: %d", got)
+	}
+	if got := spend("192.0.2.1:1234", "203.0.113.12"); got != 0 {
+		t.Fatalf("untrusted caller minted a fresh bucket: %d", got)
+	}
+}
+
 func TestMobileBeginExhaustionPreservesCredentials(t *testing.T) {
 	p := postgrestest.New(t, nil)
 	a, err := newNativeAuth(nativeTestConfig(), p)

@@ -176,7 +176,9 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 					if u.Admin || u.ID != "local-user" || c.ProviderVersion != 1 || c.LinkID != "link" {
 						t.Error("lost local identity/provenance")
 					}
-					w.WriteHeader(204)
+					// Production writes the identity as JSON here; the callback
+					// wrapper turns whatever the hook wrote into the popup message.
+					httpResponseJSON(w, map[string]any{"subject": u.ID}, 200)
 				},
 				Reauthenticate: func(http.ResponseWriter, *http.Request, *service.AuthUser, service.AuthExternalCompletion) {
 					t.Error("unexpected reauth")
@@ -226,9 +228,18 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 			other, _ := newNativeExternalAuth(a, s, hooks)
 			out := httptest.NewRecorder()
 			other.callback(out, callback)
+			// Whatever the outcome, the popup must receive a document that posts
+			// the result to its opener. Answering JSON leaves the browser parked
+			// on it and the opener waiting until its own timeout.
+			if !strings.HasPrefix(out.Header().Get("Content-Type"), "text/html") || !strings.Contains(out.Body.String(), `"at-auth-result"`) || !strings.Contains(out.Body.String(), `postMessage(payload, "http://localhost")`) {
+				t.Fatalf("callback is not a popup bridge: %d %s %s", out.Code, out.Header().Get("Content-Type"), out.Body)
+			}
 			if accepted[name] {
-				if out.Code != 204 || completed != 1 || s.completions != 1 {
+				if out.Code != 200 || completed != 1 || s.completions != 1 {
 					t.Fatalf("callback %d: %s (complete=%d)", out.Code, out.Body.String(), completed)
+				}
+				if !strings.Contains(out.Body.String(), `"subject":"local-user"`) {
+					t.Fatalf("result not delivered to the opener: %s", out.Body)
 				}
 				// Nested role claims are recorded only for a provider that declares
 				// their path; the same token must assert nothing extra otherwise.
@@ -249,8 +260,15 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 				if s.last.Issuer != service.AuthIdentityNamespace("provider") {
 					t.Fatalf("identity namespace %q is not derived from the provider ID", s.last.Issuer)
 				}
-			} else if completed != 0 || s.completions != 0 {
-				t.Fatalf("invalid %s authenticated", name)
+			} else {
+				if completed != 0 || s.completions != 0 {
+					t.Fatalf("invalid %s authenticated", name)
+				}
+				// A refusal must reach the opener as a result too; a popup that
+				// only shows an error page keeps the caller waiting.
+				if !strings.Contains(out.Body.String(), `"error":true`) {
+					t.Fatalf("failure not reported to the opener: %d %s", out.Code, out.Body)
+				}
 			}
 			// Configuration is local: no endpoint is resolved over the network,
 			// so neither begin nor callback may reach a discovery document.

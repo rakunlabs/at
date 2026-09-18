@@ -19,7 +19,10 @@ export interface AuthIdentity {
 
 export interface AuthStatus {
   enabled: boolean;
+  // passkeys: the subsystem is usable (enrolment, listing, step-up).
+  // passkey_login_enabled: it is also accepted as a first factor at sign-in.
   passkeys: boolean;
+  passkey_login_enabled?: boolean;
   setup_required: boolean;
   local_login: boolean;
   local_login_collapsed?: boolean;
@@ -80,7 +83,10 @@ export async function decideMobileAuthRequest(id: string, approve: boolean, sign
 export async function getAuthStatus(): Promise<AuthStatus> {
   const { data } = await api.get<AuthStatus>('status', { headers: { 'Cache-Control': 'no-cache' } });
   if (data?.enabled !== true && data?.enabled !== false) throw new Error('Invalid authentication status');
-  return { ...data, passkeys: data.enabled === true && data.passkeys === true };
+  const passkeys = data.enabled === true && data.passkeys === true;
+  // An older server does not report the field; treat its absence as enabled so
+  // an upgrade cannot silently remove passkey sign-in.
+  return { ...data, passkeys, passkey_login_enabled: passkeys && data.passkey_login_enabled !== false };
 }
 
 export interface MFAChallenge { mfa_required: true; challenge: string; expires_in: number; methods: string[] }

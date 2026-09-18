@@ -99,10 +99,17 @@ func (a *Attachment) Resize(cols, rows uint16) error {
 // own viewport through Resize and is letterboxed when it is smaller. Best effort
 // for the same reason as the window-size option above.
 func ResizeWindow(ctx context.Context, id string, cols, rows uint16) {
-	if validID(id) != nil || cols < 2 || cols > 500 || rows < 2 || rows > 300 {
+	if validID(id) != nil {
 		return
 	}
-	_ = exec.CommandContext(ctx, "tmux", "-S", socketPath(id), "resize-window", "-t", "shell",
+	resizeWindowSocket(ctx, socketPath(id), cols, rows)
+}
+
+func resizeWindowSocket(ctx context.Context, socket string, cols, rows uint16) {
+	if cols < 2 || cols > 500 || rows < 2 || rows > 300 {
+		return
+	}
+	_ = exec.CommandContext(ctx, "tmux", "-S", socket, "resize-window", "-t", "shell",
 		"-x", strconv.FormatUint(uint64(cols), 10), "-y", strconv.FormatUint(uint64(rows), 10)).Run()
 }
 

@@ -89,6 +89,7 @@ type nativeAuth struct {
 	store              service.AuthStorer
 	credentials        service.AuthCredentialStorer
 	cfg                config.NativeAuth
+	clientIP           clientIPResolver
 	session            session.Session
 	password           password.PBKDF2
 	loginLimit         *rate.Limiter
@@ -142,7 +143,11 @@ func newNativeAuth(cfg config.Server, store any) (*nativeAuth, error) {
 	if !ok || authStore == nil {
 		return nil, fmt.Errorf("native_auth requires a persistent AuthStorer")
 	}
-	a := &nativeAuth{store: authStore, cfg: c, password: nativePasswordHasher(), loginLimit: rate.NewLimiter(rate.Every(6*time.Second), 5), passwordSlots: make(chan struct{}, 2)}
+	resolver, err := newClientIPResolver(cfg)
+	if err != nil {
+		return nil, err
+	}
+	a := &nativeAuth{store: authStore, cfg: c, clientIP: resolver, password: nativePasswordHasher(), loginLimit: rate.NewLimiter(rate.Every(6*time.Second), 5), passwordSlots: make(chan struct{}, 2)}
 	a.credentials, ok = store.(service.AuthCredentialStorer)
 	if !ok {
 		return nil, fmt.Errorf("native_auth requires a persistent AuthCredentialStorer")
@@ -266,11 +271,7 @@ func (a *nativeAuth) sameOrigin(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if unsafe && strings.HasPrefix(r.URL.Path, a.session.Cookie.Path+"auth/") {
 		if limiter, ok := a.security.(service.AuthSecurityAdmissionStorer); ok {
-			host, _, err := net.SplitHostPort(r.RemoteAddr)
-			if err != nil {
-				host = r.RemoteAddr
-			}
-			allowed, err := limiter.AdmitAuthSecuritySource(r.Context(), nativeSessionHash(host))
+			allowed, err := limiter.AdmitAuthSecuritySource(r.Context(), nativeSessionHash(a.clientIP.limitKey(r)))
 			if err != nil {
 				nativeError(w, 503, "authentication unavailable")
 				return false

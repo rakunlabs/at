@@ -77,23 +77,41 @@ func TestTerminalPTYReattach(t *testing.T) {
 	a := attach()
 	_, _ = a.File.Write([]byte("export AT_TEST_PERSIST=survived; printf 'first-%s\\n' ready\n"))
 	terminalReadUntil(t, a, "first-ready")
-	if err := a.Resize(90, 40); err != nil {
-		t.Fatal(err)
-	}
-	// SIGWINCH is asynchronous; wait for tmux to propagate the new client size
-	// to the inner pane before asking the shell's tty for its dimensions.
-	deadline := time.Now().Add(2 * time.Second)
 	paneTTY, err := exec.CommandContext(ctx, "tmux", "-S", socket, "display-message", "-p", "-t", "shell", "#{pane_tty}").Output()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for {
+	paneSize := func() string {
 		out, err := exec.CommandContext(ctx, "stty", "-F", strings.TrimSpace(string(paneTTY)), "size").Output()
-		if err == nil && strings.TrimSpace(string(out)) == "40 90" {
-			break
+		if err != nil {
+			t.Fatalf("read pane size: %v %q", err, out)
 		}
+		return strings.TrimSpace(string(out))
+	}
+	// A client resizes only its own viewport. The shared window the shell's
+	// programs see must not follow it, or a phone watching a desktop shell would
+	// reflow the writer's screen; the small client is letterboxed instead. This
+	// needs `window-size manual`, which tmux before 3.1 does not have.
+	if err := a.Resize(90, 40); err != nil {
+		t.Fatal(err)
+	}
+	option, _ := exec.CommandContext(ctx, "tmux", "-S", socket, "show-options", "-gv", "window-size").Output()
+	if strings.TrimSpace(string(option)) == "manual" {
+		// A reflow would arrive with the client's SIGWINCH, so give it time to
+		// happen rather than asserting on an instant the change could miss.
+		time.Sleep(250 * time.Millisecond)
+		if got := paneSize(); got != "30 120" {
+			t.Fatalf("viewport resize reflowed the shared window: %q", got)
+		}
+	}
+	// The control holder resizes the window itself. SIGWINCH is asynchronous;
+	// wait for tmux to propagate it to the inner pane before asking the shell's
+	// tty for its dimensions.
+	resizeWindowSocket(ctx, socket, 90, 40)
+	deadline := time.Now().Add(2 * time.Second)
+	for paneSize() != "40 90" {
 		if time.Now().After(deadline) {
-			t.Fatalf("pane did not resize: %q %v", out, err)
+			t.Fatalf("pane did not resize: %q", paneSize())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

@@ -112,6 +112,28 @@ type Server struct {
 	// requires Alan security.enabled with a shared admission key.
 	Alan *alan.Config `cfg:"alan"`
 
+	// TrustedProxies lists the reverse proxies whose forwarded client-address
+	// header this deployment believes. Entries are CIDR blocks, single IP
+	// addresses, or the aliases `loopback` / `private`.
+	//
+	// Empty (the default) means no forwarded header is ever read and the
+	// socket peer is the client address. Behind a proxy that peer is the
+	// proxy, so login history, the sign-in lockout audit and the per-source
+	// admission limiters all collapse onto one address until this is set.
+	//
+	// It is deliberately a bootstrap knob rather than a runtime setting:
+	// whoever sets it decides whether callers can choose their own recorded
+	// IP, and that is a property of the network the process is deployed in,
+	// not of a workspace. Only list proxies that overwrite (not append to)
+	// the configured header for inbound requests — trusting a proxy that
+	// forwards a client-supplied value trusts the client.
+	TrustedProxies []string `cfg:"trusted_proxies"`
+
+	// TrustedProxyHeader selects which header carries the client address:
+	// "X-Forwarded-For" (default), "X-Real-IP", or "Forwarded" (RFC 7239).
+	// It has no effect while TrustedProxies is empty.
+	TrustedProxyHeader string `cfg:"trusted_proxy_header"`
+
 	// Workspace controls where per-task working directories and
 	// truncated tool-output dumps are written, and (with an explicit root)
 	// where persistent assets live. Defaults baked into
@@ -434,6 +456,18 @@ func Load(ctx context.Context, path string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Server.BasePath = basePath
+
+	// Fail fast: a malformed entry here would otherwise degrade silently into
+	// "trust nothing", and the symptom (every login recorded from the proxy)
+	// looks identical to not having configured it at all.
+	if _, err := ParseTrustedProxies(cfg.Server.TrustedProxies); err != nil {
+		return nil, err
+	}
+	proxyHeader, err := NormalizeTrustedProxyHeader(cfg.Server.TrustedProxyHeader)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Server.TrustedProxyHeader = proxyHeader
 
 	if err := logi.SetLogLevel(cfg.LogLevel); err != nil {
 		return nil, fmt.Errorf("set log level %s: %w", cfg.LogLevel, err)

@@ -20,11 +20,21 @@ type AuthSettings struct {
 	// behind a reveal control. It is not an access control — every local user
 	// can still sign in — so it carries no validation and is reported to the
 	// browser only while local sign-in is actually enabled.
-	LocalLoginCollapsed bool   `json:"local_login_collapsed"`
-	SignupAdmission     string `json:"signup_admission"`
-	DisplayTitle        string `json:"display_title"`
-	MFAPolicy           string `json:"mfa_policy"`
-	MaxSessions         int    `json:"max_sessions"`
+	LocalLoginCollapsed bool `json:"local_login_collapsed"`
+	// PasskeyLoginDisabled removes passkey sign-in: the button disappears from
+	// the sign-in screen and both login ceremony endpoints are refused. Unlike
+	// LocalLoginCollapsed this is admission, not presentation.
+	//
+	// It is stored inverted because absent JSON keys read as false, so every
+	// existing installation keeps passkey sign-in without a migration. It needs
+	// no lockout guard either: passkey sign-in is already gated on
+	// LocalLoginEnabled, so whenever this switch can matter, password sign-in
+	// is available as well.
+	PasskeyLoginDisabled bool   `json:"passkey_login_disabled"`
+	SignupAdmission      string `json:"signup_admission"`
+	DisplayTitle         string `json:"display_title"`
+	MFAPolicy            string `json:"mfa_policy"`
+	MaxSessions          int    `json:"max_sessions"`
 }
 
 func DefaultAuthSettings() AuthSettings {

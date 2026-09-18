@@ -3,7 +3,7 @@ import type { LoginResult } from './auth';
 export const identityAPI = axios.create({ baseURL: 'auth' });
 export interface AuthSettings {
   version: number; origin: string; allowed_origins?: string[]; session_ttl_seconds: number; remember_ttl_seconds: number;
-  local_login_enabled: boolean; local_login_collapsed: boolean; signup_admission: 'invite_only' | 'approval_required';
+  local_login_enabled: boolean; local_login_collapsed: boolean; passkey_login_disabled: boolean; signup_admission: 'invite_only' | 'approval_required';
   display_title: string; mfa_policy: 'enrolled_required'; max_sessions: number;
 }
 /**

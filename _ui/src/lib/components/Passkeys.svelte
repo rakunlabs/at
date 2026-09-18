@@ -104,6 +104,9 @@
   {#if !storeAuth.passkeys}
     <p class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">Passkeys are not enabled for this server. Continue using your password.</p>
   {:else}
+    {#if !storeAuth.passkeyLogin}
+      <p role="status" class="text-sm leading-6 text-gray-600 dark:text-dark-text-secondary">An administrator has turned off passkey sign-in for this server, so your passkeys are not offered on the sign-in screen. They still work for verifying sensitive changes, and become available again if it is turned back on.</p>
+    {/if}
     <div class="flex flex-wrap items-center justify-between gap-3 max-w-2xl">
       <p role="status" class="text-sm text-gray-600 dark:text-dark-text-secondary">{!loaded ? (busy ? 'Loading passkeys...' : 'Passkey list unavailable') : `${keys.length} of 20 passkeys`}</p>
       <button class={buttonClass} disabled={busy} onclick={load}>Reload passkeys</button>

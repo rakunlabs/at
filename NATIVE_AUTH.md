@@ -21,6 +21,14 @@ are not alternative login credentials. Gateway tokens remain separate.
 server:
   base_path: /at  # optional; omit for the root. No trailing slash.
   external_url: https://at.example.com/at  # optional pre-setup deployment anchor
+  # Behind a reverse proxy the socket peer is the proxy, so sign-in history and
+  # the per-source admission limiters would all collapse onto one address. List
+  # the proxies whose forwarded client address is believed. Entries are CIDR
+  # blocks, single IPs, or the aliases loopback / private. Omit when AT is
+  # exposed directly; only list proxies that OVERWRITE the header for inbound
+  # requests, because trusting one that appends to it trusts the client.
+  trusted_proxies: ["private"]
+  trusted_proxy_header: X-Forwarded-For  # or X-Real-IP, or Forwarded (RFC 7239)
 store:
   postgres:
     datasource: postgres://at:REPLACE@postgres/at?sslmode=require
@@ -150,7 +158,7 @@ send it automatically; scripts must set it explicitly. Do not use GET for writes
 
 | Endpoint | Access | Body / result |
 | --- | --- | --- |
-| `GET /auth/status` | Public | `{ "enabled": true, "setup_required": false, "local_login": true, "display_title": "AT", "signup_admission": "invite_only", "passkeys": true, "remember_me": true, "passkey_login": "discoverable", "mobile_auth": {...} }`; DB failure returns 503 |
+| `GET /auth/status` | Public | `{ "enabled": true, "setup_required": false, "local_login": true, "display_title": "AT", "signup_admission": "invite_only", "passkeys": true, "passkey_login_enabled": true, "remember_me": true, "passkey_login": "discoverable", "mobile_auth": {...} }`; DB failure returns 503 |
 | `POST /auth/setup` | Unclaimed installation + exact Origin/Host | `{ "username": "...", "password": "...", "origin": "https://at.example.com" }`; local first admin, 201; no session |
 | `GET /auth/settings` | Platform admin | Versioned auth product policy |
 | `PUT /auth/settings` | Platform admin + Origin | Full policy with expected `version`; 200 new policy, stale/lockout 409 |
@@ -732,6 +740,19 @@ linked, users are never auto-provisioned, upstream roles never become local
 roles, upstream tokens are not retained, and native session-version issuance is
 never bypassed.
 
+`GET <issuer>/auth/external/{provider}/callback` is a top-level navigation in
+the popup the sign-in screen opened. Its response is an HTML bridge document,
+not JSON: it posts `{"type":"at-auth-result","result":…,"continue":…}` to the
+configured origin via `postMessage` (never `*`) and closes the popup. A 2xx JSON
+body from the login machinery becomes the `result`; a refusal becomes
+`{"error":true,"message":…}` so the opener reports it instead of waiting; a 3xx
+ceremony redirect is replayed untouched. Set-Cookie survives, and
+`X-AT-Auth-Continue` (the mobile continuation, when present) travels inside the
+message as `continue`. The document is `X-Frame-Options: DENY`, CSP
+`default-src 'none'` with a nonce-pinned script, and its payload is HTML-escaped
+where it is embedded. With no opener it navigates to the continuation or the
+application root; a pending second factor is reported as text instead.
+
 ## Mobile PKCE Handoff V1
 
 This backend contract is implemented independently of external OIDC. It brokers
@@ -762,6 +783,7 @@ only when native mobile auth is available:
 {
   "enabled": true,
   "passkeys": true,
+  "passkey_login_enabled": true,
   "remember_me": true,
   "passkey_login": "discoverable",
   "mobile_auth": {
@@ -780,7 +802,12 @@ only when native mobile auth is available:
 }
 ```
 
-`passkeys` still reflects actual passkey availability. When native auth is off,
+`passkeys` still reflects actual passkey availability — the subsystem is usable
+for enrolment, listing and step-up verification. `passkey_login_enabled` reports
+separately whether a passkey is accepted as a **first factor**; an administrator
+turns it off with *Allow passkey sign-in* in Authentication settings, which also
+refuses `/auth/passkeys/login/*`. A client that does not see the field (older
+server) must treat passkey sign-in as enabled. When native auth is off,
 `mobile_auth` is absent, not an empty object. Clients must reject unsupported
 versions or an issuer different from their selected canonical instance. Do not
 follow token-endpoint redirects to another host or silently adopt a different
@@ -1016,12 +1043,15 @@ JSON errors, never login redirects. POST bodies are capped at 4096 bytes, requir
 `application/json`, and reject unknown fields and trailing JSON. Native begin,
 exchange, refresh, and logout each retain a ten-second request deadline.
 
-**Begin-only admission:** each socket peer IP has a per-process bucket of 30
+**Begin-only admission:** each client IP has a per-process bucket of 30
 initial requests and one replenished request per second. Invalid begin bodies also
 spend this quota. Source ports are ignored and IPv4-mapped IPv6 addresses normalize
-to IPv4. Only `RemoteAddr` is trusted, never `X-Forwarded-For`, `X-Real-IP`, or
-`Forwarded`. Behind a reverse proxy, clients share that proxy peer's bucket; there
-is no trusted-proxy override in this limiter. The source map is capped at 1024
+to IPv4. The client IP is the socket peer unless that peer is listed in
+`server.trusted_proxies`, in which case it is the first hop in the configured
+forwarded header that is not itself a trusted proxy (see *Client address behind a
+reverse proxy* in AGENTS.md). Without that configuration `RemoteAddr` alone is
+trusted, never `X-Forwarded-For`, `X-Real-IP` or `Forwarded`, and clients behind a
+reverse proxy share that proxy peer's bucket. The source map is capped at 1024
 entries. New sources are rejected while it is full; admission of a new source
 prunes entries idle for at least five minutes, without evicting live buckets or
 resetting their quota. Invalid peer addresses share a single fallback bucket.

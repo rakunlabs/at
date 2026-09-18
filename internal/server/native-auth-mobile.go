@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -30,15 +29,12 @@ type nativeMobileSource struct {
 	lastSeen time.Time
 }
 
-// Only socket peer IPs are trusted. A proxy's clients share its bucket; forwarded
-// headers must not let callers manufacture fresh quotas or unbounded map keys.
+// Only the socket peer is trusted, or — behind a configured trusted proxy — the
+// client address that proxy reports. An untrusted caller's forwarded header must
+// not let it manufacture fresh quotas or unbounded map keys, so unconfigured
+// deployments still bucket a proxy's clients together.
 func (a *nativeAuth) allowMobileBegin(r *http.Request, now time.Time) bool {
-	addr, err := netip.ParseAddrPort(r.RemoteAddr)
-	ip := addr.Addr()
-	if err != nil {
-		ip, _ = netip.ParseAddr(r.RemoteAddr)
-	}
-	key := ip.Unmap().String() // Invalid addresses share one bounded fallback bucket.
+	key := a.clientIP.sourceKey(r) // Invalid addresses share one bounded fallback bucket.
 	a.mobileBeginMu.Lock()
 	defer a.mobileBeginMu.Unlock()
 	source, ok := a.mobileBeginSources[key]

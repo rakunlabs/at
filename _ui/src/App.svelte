@@ -44,7 +44,7 @@
   async function initialize() {
     if (ticket) return;
     authState = 'loading';
-    try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.localLoginCollapsed = status.local_login_collapsed === true; storeAuth.title = status.display_title || 'AT'; authOrigins.primary = status.origin || ''; authOrigins.allowed = status.allowed_origins || [];
+    try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.passkeyLogin = status.passkey_login_enabled !== false && status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.localLoginCollapsed = status.local_login_collapsed === true; storeAuth.title = status.display_title || 'AT'; authOrigins.primary = status.origin || ''; authOrigins.allowed = status.allowed_origins || [];
       if (status.setup_required === true) authState = 'setup'; else if (status.enabled) await checkSession(); else { authState = 'error'; error = 'Native authentication is unavailable. Ask the operator to enable runtime authentication.'; }
     }     catch (e) { if (isSetupRequired(e)) { authState = 'setup'; error = ''; return; } authState = 'error'; error = 'Cannot load authentication settings. Retry when the server is available.'; }
   }

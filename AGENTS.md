@@ -535,14 +535,59 @@ to zero. Regression coverage: `TestPasswordLoginLockoutPostgres`.
 
 Migration 51 adds `auth_login_events` and persistent `auth_users.last_login_at` /
 `last_login_ip`. Password failures, lock/blocked attempts, completed sign-ins,
-administrator unlocks and session revocations are recorded with socket-peer IP,
-bounded client User-Agent and actor ID for administrator actions. Users displays
+administrator unlocks and session revocations are recorded with the resolved
+client IP (see *Client address behind a reverse proxy*), bounded client
+User-Agent and actor ID for administrator actions. Users displays
 last sign-in and an expandable **Sign-in history** (latest 50 events, retained for
 90 days by the bounded auth janitor); **Sign out all sessions** uses the existing
 session-version revocation. GET `/auth/users/{id}/login-events` is installation-
-admin-only. Forwarded IP headers are deliberately not trusted: proxy deployments
-show the proxy peer. Audit storage failures are logged explicitly; last successful
+admin-only. Audit storage failures are logged explicitly; last successful
 sign-in metadata survives event retention. History begins at deployment.
+
+### Client address behind a reverse proxy
+
+The socket peer is the only address the process observes directly, and behind a
+reverse proxy it is the proxy. Everything keyed on the caller's address —
+`auth_login_events.source_ip`, `auth_users.last_login_ip`, the lockout audit log
+line, the durable `AdmitAuthSecuritySource` bucket and the in-process mobile
+`begin` limiter — therefore collapsed onto one address for the whole
+installation, which makes the sign-in history useless and turns one abusive
+client into a rate limit on everybody.
+
+`server.trusted_proxies` (bootstrap YAML/env, default empty) lists the proxies
+whose forwarded header is believed: CIDR blocks, single IPs, or the aliases
+`loopback` / `private` — the aliases exist because an ingress pod's address is
+assigned from a pool and cannot be enumerated. `server.trusted_proxy_header`
+selects `X-Forwarded-For` (default), `X-Real-IP` or `Forwarded` (RFC 7239).
+Both are validated at load, because a typo would degrade into "trust nothing",
+whose symptom is identical to not configuring the feature at all.
+
+This is deliberately **not** a runtime/workspace setting. Whoever sets it decides
+whether callers may choose their own recorded IP, which is a property of the
+network the process is deployed in. Only list proxies that *overwrite* the header
+for inbound requests: trusting a proxy that appends to a client-supplied value
+trusts the client.
+
+Resolution (`clientIPResolver`, `internal/server/client-ip.go`) reads the header
+only when the peer is trusted, then walks the chain **right to left** and returns
+the first hop that is not itself a trusted proxy. That is what makes the result
+unforgeable — a client may prepend anything to `X-Forwarded-For`, but its own
+connection appends the one entry it cannot choose, and everything left of the
+trusted suffix is ignored. An obfuscated or malformed hop ends the verifiable
+chain and the peer is reported instead of a guess; the walk is bounded at 64
+hops because the header is caller-influenced. `X-Real-IP` is single-valued, so a
+comma list there is malformed rather than a chain. Addresses are normalized
+(port dropped, IPv4-mapped IPv6 unmapped, zone removed) so one client is one key.
+
+An address that cannot be parsed is recorded as `""` rather than a placeholder —
+an audit column must not be able to lie. The two limiters differ on purpose:
+durable admission keeps the raw form (one odd transport must not rate-limit every
+other one with it), while the entry-capped in-process map collapses them into one
+bucket (there the unbounded key space is the risk). With the default empty
+configuration behaviour is byte-for-byte what it was before. Regression:
+`internal/server/client-ip_test.go`, `internal/config/trusted-proxies_test.go`,
+plus the trusted-proxy cases in `TestPasswordLoginLockoutPostgres` and
+`TestMobileBeginTrustedProxySources`.
 
 ### Sign-in screen presentation
 
@@ -560,6 +605,30 @@ administrator. `GET /auth/status` therefore reports the collapse flag only while
 local sign-in is actually enabled, so a stale value cannot describe a form the
 browser is not allowed to show. Regression:
 `TestAuthSettingsLocalLoginCollapsedPostgres`.
+
+### Turning off passkey sign-in
+
+`AuthSettings.PasskeyLoginDisabled` (`passkey_login_disabled`, Authentication
+settings → *Allow passkey sign-in*) removes the passkey button from the sign-in
+screen **and** refuses `/auth/passkeys/login/*`, next to the existing
+`LocalLoginEnabled` check in `nativeAuthSettings.ServeHTTP` — hiding the button
+alone would be a decorative switch. It lives in the existing `auth_settings.config`
+JSONB and is stored inverted, so absent keys read as `false` and no installation
+loses passkey sign-in on upgrade.
+
+Scope is the **first factor only**: enrolment, listing, deletion and passkey
+step-up (`/auth/reauth`) keep working, so an account can still manage its keys
+and verify sensitive changes with one while the installation does not accept
+them to sign in. `/auth/status` therefore reports two flags — `passkeys` (the
+subsystem is usable at all, which Account security and `RecentAuth` depend on)
+and `passkey_login_enabled` (it is accepted as a first factor). Collapsing them
+into one would hide the passkey list behind a switch that does not govern it; a
+UI talking to an older server treats the missing field as enabled.
+
+No lockout guard is needed, unlike `LocalLoginEnabled` with its database
+trigger: passkey sign-in is already gated on `LocalLoginEnabled`, so wherever
+this switch can matter, password sign-in is available too. Regression:
+`TestAuthSettingsPasskeyLoginDisabledPostgres`.
 
 ### Passkey sign-in is usernameless
 
@@ -731,6 +800,41 @@ transaction's share lock is released before admission takes the row
 exclusively), and `ListWorkspaces`, because a first-time single sign-on user has
 no workspace to name yet. Each insert is logged with workspace, user, role,
 provider and mapping ID.
+
+### External sign-in returns through a popup bridge
+
+`GET /auth/external/{provider}/callback` is a **top-level navigation** inside the
+popup `_ui/src/lib/helper/auth-popup.ts` opened, not an XHR. It used to answer
+with the login JSON, which left the browser parked on a page of JSON while the
+opener waited for a `postMessage` that never came — external sign-in completed
+on the server and hung in the UI at its last step.
+
+`callback` now runs the real handler (`callbackResult`) into a recorder and
+`deliverCallback` converts the finished response into the popup document. A
+recorder rather than a streaming wrapper, because the decision needs the whole
+response: a 3xx with `Location` is a ceremony step ada staged and is replayed
+untouched; a 2xx JSON body becomes `{"type":"at-auth-result","result":…}`;
+anything else — a refusal, a non-JSON body — becomes `{"error":true,"message":…}`
+so the opener reports it instead of waiting out its five-minute timeout. Set-Cookie
+survives (it is the entire point of the callback); `X-AT-Auth-Continue` is
+consumed into the message's `continue` field rather than forwarded as a header
+nobody read.
+
+The document posts to the exact configured origin, never `*`: the payload can
+carry an MFA challenge, and the wildcard would hand it to whatever page happens
+to be the opener. It is `X-Frame-Options: DENY` with
+`default-src 'none'; script-src 'nonce-…'`, and the payload rides a
+`<script type="application/json">` block escaped with `json.HTMLEscape` so an
+upstream error message cannot close the element it sits in. With no opener (the
+popup reused as a tab) it navigates to the continuation or the app root, since
+the session cookies are already set; a pending second factor says so instead.
+
+ada's own flow (used by pika) answers `<script>window.close()</script>` and lets
+the opener re-check `/auth/me`. That does not work here: AT's callback can return
+`mfa_required` with a challenge the main window must continue with, so the result
+has to travel back as data. Regression:
+`internal/server/native-auth-external-bridge_test.go` plus the bridge assertions
+in `TestExternalOAuth2LoginAndReplicaFlow`.
 
 ### Selected-workspace provider catalog and workflows
 
