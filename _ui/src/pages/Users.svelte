@@ -1,7 +1,8 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { Plus, RefreshCw, Search, Trash2, ChevronDown, ChevronRight, X, KeyRound, LogOut, Unlock, Power, Users as UsersIcon } from 'lucide-svelte';
-  import { authErrorMessage, authUserLabel, createAuthUser, deleteAuthUser, getAuthUser, isAuthUnauthorized, listAuthUsers, passwordPolicyError, resetAuthUserPassword, revokeAuthUserSessions, setAuthUserEnabled, unlockAuthUserLogin, type AuthUser, type AuthUserDetail } from '@/lib/api/auth';
+  import { authErrorMessage, authUserLabel, authUserMeta, createAuthUser, deleteAuthUser, getAuthUser, isAuthUnauthorized, listAuthUsers, passwordPolicyError, resetAuthUserPassword, revokeAuthUserSessions, setAuthUserEnabled, unlockAuthUserLogin, type AuthUser, type AuthUserDetail } from '@/lib/api/auth';
+  import { identityAPI } from '@/lib/api/identity';
   import { isNativeAdmin, returnToLogin, storeAuth } from '@/lib/store/auth.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -31,6 +32,12 @@
   let expanded = $state('');
   let detail = $state<AuthUserDetail | null>(null);
   let detailError = $state('');
+  // A link's provider is stored as an immutable ULID, which is not a name. The
+  // public sign-in list supplies the configured label; it reports enabled
+  // providers only, so a link left by a disabled one falls back to its raw ID
+  // rather than being labelled with a provider it does not belong to.
+  let providerLabels = $state<Record<string, string>>({});
+  const providerLabel = (id: string) => providerLabels[id] || id;
 
   async function load(target = 0, after = '') {
     if (!isNativeAdmin()) return;
@@ -59,7 +66,16 @@
     searchTimer = window.setTimeout(() => { cursors = ['']; void load(0, ''); }, 300);
   }
 
-  onMount(() => { if (isNativeAdmin()) void load(); return () => clearTimeout(searchTimer); });
+  onMount(() => {
+    if (isNativeAdmin()) {
+      void load();
+      // Labels are presentation only; a failure leaves the raw provider IDs.
+      void identityAPI.get<{ id: string; label: string }[]>('login-providers')
+        .then(res => { providerLabels = Object.fromEntries((res.data || []).map(p => [p.id, p.label])); })
+        .catch(() => {});
+    }
+    return () => clearTimeout(searchTimer);
+  });
 
   async function toggleDetail(user: AuthUser) {
     if (expanded === user.id) { expanded = ''; return; }
@@ -219,7 +235,7 @@
                       {#if expanded === user.id}<ChevronDown size={14} class="mt-0.5 shrink-0 text-gray-400" />{:else}<ChevronRight size={14} class="mt-0.5 shrink-0 text-gray-400" />{/if}
                       <span class="min-w-0">
                         <span class="block font-medium text-gray-900 dark:text-dark-text break-all">{authUserLabel(user)}</span>
-                        <span class="block text-xs text-gray-400 dark:text-dark-text-muted break-all">{authUserLabel(user) === user.username ? user.id : `${user.username} · ${user.id}`}</span>
+                        <span class="block text-xs text-gray-400 dark:text-dark-text-muted break-all">{authUserMeta(user)}</span>
                       </span>
                     </button>
                   </td>
@@ -267,14 +283,33 @@
                     <div class="grid gap-4 sm:grid-cols-2">
                       <div>
                         <h3 class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-text-muted mb-2">Identity</h3>
-                        <dl class="space-y-1 text-xs">
-                          <div class="flex gap-2"><dt class="text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Username</dt><dd class="font-mono break-all">{user.username}</dd></div>
-                          <div class="flex gap-2"><dt class="text-gray-500 dark:text-dark-text-muted w-20 shrink-0">Account ID</dt><dd class="font-mono break-all">{user.id}</dd></div>
-                          {#each detail?.identities || [] as identity}
-                            <div class="flex gap-2"><dt class="text-gray-500 dark:text-dark-text-muted w-20 shrink-0">{identity.provider_id}</dt><dd class="break-all">{identity.email || identity.subject}{identity.email && !identity.email_verified ? ' (unverified)' : ''}<span class="block font-mono text-gray-400 dark:text-dark-text-muted">{identity.subject}</span></dd></div>
-                          {/each}
-                          {#if detail && !detail.identities?.length}<p class="text-gray-500 dark:text-dark-text-muted">Local account — no external identity linked.</p>{/if}
+                        <!-- A grid rather than a flex row with a fixed-width
+                             term: the term used to be the provider's ULID in a
+                             `w-20 shrink-0` box with no wrapping, so it
+                             overflowed its column and ran over the value beside
+                             it. Grid columns cannot overlap, and
+                             `minmax(0,1fr)` is what lets the value wrap instead
+                             of pushing the track wider. -->
+                        <dl class="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                          <dt class="text-gray-500 dark:text-dark-text-muted">Username</dt><dd class="font-mono break-all">{user.username}</dd>
+                          <dt class="text-gray-500 dark:text-dark-text-muted">Account ID</dt><dd class="font-mono break-all">{user.id}</dd>
                         </dl>
+                        <!-- Every value on a link is an opaque string, so each
+                             one is named. Showing the subject as the value of a
+                             term that was itself an ID read as two unrelated
+                             IDs stacked on each other. -->
+                        {#each detail?.identities || [] as identity}
+                          <div class="mt-2 border-l-2 border-gray-200 dark:border-dark-border pl-3">
+                            <p class="text-xs font-medium break-all">{providerLabel(identity.provider_id)}</p>
+                            <dl class="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs mt-1">
+                              {#if identity.username}<dt class="text-gray-500 dark:text-dark-text-muted">Username</dt><dd class="break-all">{identity.username}</dd>{/if}
+                              {#if identity.email}<dt class="text-gray-500 dark:text-dark-text-muted">Email</dt><dd class="break-all">{identity.email}{identity.email_verified ? '' : ' (unverified)'}</dd>{/if}
+                              <dt class="text-gray-500 dark:text-dark-text-muted">Subject</dt><dd class="font-mono break-all">{identity.subject}</dd>
+                              {#if providerLabel(identity.provider_id) !== identity.provider_id}<dt class="text-gray-500 dark:text-dark-text-muted">Provider ID</dt><dd class="font-mono break-all text-gray-400 dark:text-dark-text-muted">{identity.provider_id}</dd>{/if}
+                            </dl>
+                          </div>
+                        {/each}
+                        {#if detail && !detail.identities?.length}<p class="text-xs text-gray-500 dark:text-dark-text-muted mt-1">Local account — no external identity linked.</p>{/if}
                       </div>
                       <div>
                         <h3 class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-text-muted mb-2">Workspaces</h3>

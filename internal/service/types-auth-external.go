@@ -73,6 +73,9 @@ type AuthIdentityLink struct {
 	UserID        string `json:"-" db:"user_id"`
 	Email         string `json:"email,omitempty" db:"email"`
 	EmailVerified bool   `json:"email_verified" db:"email_verified"`
+	// Username is the handle the provider reports (OIDC preferred_username).
+	// Display metadata refreshed from every sign-in, never an identity key.
+	Username string `json:"username,omitempty" db:"username"`
 	// AssertedPermissions is raw provider-qualified metadata, not local authority.
 	AssertedPermissions json.RawMessage `json:"asserted_permissions" db:"asserted_permissions"`
 }

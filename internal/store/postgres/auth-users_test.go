@@ -133,12 +133,14 @@ func TestNativeAuthUserSearchDirectoryAndDeletion(t *testing.T) {
 	if _, err := p.goqu.Insert(p.workspaceTable("auth_identity_providers")).Rows(goqu.Record{"id": "keycloak", "enabled": true, "config": "{}"}).Executor().ExecContext(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.goqu.Insert(p.workspaceTable("auth_identity_links")).Rows(goqu.Record{"id": "kc-link", "provider_id": "keycloak", "issuer": "oauth2:keycloak", "subject": "sub-1", "user_id": external.ID, "email": "Ada@Example.COM", "email_verified": true, "asserted_permissions": "{}"}).Executor().ExecContext(ctx); err != nil {
+	if _, err := p.goqu.Insert(p.workspaceTable("auth_identity_links")).Rows(goqu.Record{"id": "kc-link", "provider_id": "keycloak", "issuer": "oauth2:keycloak", "subject": "sub-1", "user_id": external.ID, "username": "ada.lovelace", "email": "Ada@Example.COM", "email_verified": true, "asserted_permissions": "{}"}).Executor().ExecContext(ctx); err != nil {
 		t.Fatal(err)
 	}
-	// The generated username carries no information, so the email on the link is
-	// the only searchable name such an account has.
-	for _, term := range []string{"ada@example", "ADA@EXAMPLE.com", "external-01h", external.ID} {
+	// The generated username carries no information, so the email and the
+	// provider's own username on the link are the only searchable names such an
+	// account has. A provider that releases no email leaves the username as the
+	// only one, which is why it is a search term and not just a rendered field.
+	for _, term := range []string{"ada@example", "ADA@EXAMPLE.com", "ada.love", "ADA.LOVELACE", "external-01h", external.ID} {
 		page, err := p.ListAuthUsers(ctx, service.AuthUserQuery{Search: term, Limit: 10})
 		if err != nil || len(page) != 1 || page[0].ID != external.ID {
 			t.Fatalf("search %q: %+v %v", term, page, err)
@@ -152,7 +154,7 @@ func TestNativeAuthUserSearchDirectoryAndDeletion(t *testing.T) {
 		t.Fatalf("wildcard search: %+v %v", page, err)
 	}
 	identities, err := p.ListAuthUserIdentities(ctx, []string{external.ID, admin.ID})
-	if err != nil || len(identities[external.ID]) != 1 || identities[external.ID][0].Email != "Ada@Example.COM" || len(identities[admin.ID]) != 0 {
+	if err != nil || len(identities[external.ID]) != 1 || identities[external.ID][0].Email != "Ada@Example.COM" || identities[external.ID][0].Username != "ada.lovelace" || len(identities[admin.ID]) != 0 {
 		t.Fatalf("identity directory: %+v %v", identities, err)
 	}
 	spaces, err := p.ListAuthUserWorkspaces(ctx, external.ID)

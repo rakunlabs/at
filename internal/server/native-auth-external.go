@@ -579,7 +579,11 @@ func (e *nativeExternalAuth) callbackResult(w http.ResponseWriter, r *http.Reque
 	roles := service.MergeClaimValues(id.Roles, service.HarvestClaimValues(id.Claims, p.RolesClaims))
 	asserted, _ := json.Marshal(map[string]any{"provider_id": p.ID, "issuer": namespace, "roles": roles, "scopes": id.Scopes, "claims": rawAssertions})
 	verifiedEmail, _ := id.Claims["email_verified"].(bool)
-	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
+	// The local username of a just-in-time account is `external-<ulid>`, which
+	// is the account ID again. The provider's own username is the only name an
+	// administrator recognises, so it is carried on the link as display
+	// metadata — the account remains keyed on provider ID plus subject.
+	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Username: service.ClaimUsername(id.Claims, id.Name), Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
 	if i.Purpose == "reauth" {
 		links, err := e.store.ListAuthIdentityLinks(r.Context(), i.Account.UserID)
 		if err != nil {

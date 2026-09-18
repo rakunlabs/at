@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestValidateClaimPath(t *testing.T) {
@@ -121,5 +122,45 @@ func TestHarvestClaimValuesBounded(t *testing.T) {
 	}
 	if MergeClaimValues(nil, nil) != nil {
 		t.Fatal("empty merge allocated a value")
+	}
+}
+
+// The username a provider reports is what the administrator directory calls an
+// account whose local username is `external-<ulid>`. It is a label refreshed
+// from every sign-in, so the only requirements are that the right claim wins
+// and that a hostile value cannot break the surface that renders it.
+func TestClaimUsername(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		claims   map[string]any
+		fallback string
+		want     string
+	}{
+		{"preferred_username wins over name", map[string]any{"preferred_username": "ada.lovelace", "name": "Ada Lovelace"}, "Ada Lovelace", "ada.lovelace"},
+		{"nickname before name", map[string]any{"nickname": "ada", "name": "Ada Lovelace"}, "", "ada"},
+		{"name when it is all there is", map[string]any{"name": "Ada Lovelace"}, "", "Ada Lovelace"},
+		// ada resolves Identity.Name from name/preferred_username itself, so the
+		// fallback covers a strategy that exposes it nowhere else.
+		{"strategy fallback", map[string]any{}, "Ada Lovelace", "Ada Lovelace"},
+		{"nothing to report", nil, "", ""},
+		{"blank claim does not win", map[string]any{"preferred_username": "   ", "name": "Ada"}, "", "Ada"},
+		{"non-string claim is skipped", map[string]any{"preferred_username": 42, "name": "Ada"}, "", "Ada"},
+		{"whitespace is collapsed", map[string]any{"name": "  Ada\t\tLovelace \n"}, "", "Ada Lovelace"},
+		{"control characters are dropped", map[string]any{"name": "Ada\u0000<script>"}, "", "Ada <script>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ClaimUsername(tt.claims, tt.fallback); got != tt.want {
+				t.Fatalf("ClaimUsername = %q want %q", got, tt.want)
+			}
+		})
+	}
+	// Truncation is on runes: cutting bytes could store an invalid UTF-8 tail.
+	long := strings.Repeat("ä", AuthUsernameMax+10)
+	got := ClaimUsername(map[string]any{"preferred_username": long}, "")
+	if runes := []rune(got); len(runes) != AuthUsernameMax {
+		t.Fatalf("truncated to %d runes want %d", len(runes), AuthUsernameMax)
+	}
+	if !utf8.ValidString(got) {
+		t.Fatal("truncation produced invalid UTF-8")
 	}
 }

@@ -117,7 +117,7 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 					if r.Form.Get("redirect_uri") != "http://localhost/auth/external/provider/callback" {
 						t.Errorf("unexpected redirect %s", r.Form.Get("redirect_uri"))
 					}
-					claims := map[string]any{"iss": issuer, "aud": "client", "sub": "stable-subject", "nonce": nonce, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}}
+					claims := map[string]any{"iss": issuer, "aud": "client", "sub": "stable-subject", "preferred_username": "ada.lovelace", "nonce": nonce, "iat": time.Now().Unix(), "exp": time.Now().Add(time.Minute).Unix(), "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}}
 					signer := key
 					switch name {
 					case "audience":
@@ -141,7 +141,7 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 					if name == "userinfo_subject" {
 						sub = "other"
 					}
-					json.NewEncoder(w).Encode(map[string]any{"sub": sub, "email": "same@example.test", "email_verified": true, "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}})
+					json.NewEncoder(w).Encode(map[string]any{"sub": sub, "preferred_username": "ada.lovelace", "email": "same@example.test", "email_verified": true, "roles": []string{"platform_admin"}, "realm_access": map[string]any{"roles": []string{"at-editors"}}})
 				default:
 					http.NotFound(w, r)
 				}
@@ -256,6 +256,12 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 				}
 				if s.last.Subject != "stable-subject" {
 					t.Fatalf("subject claim not honoured: %q", s.last.Subject)
+				}
+				// A just-in-time account is named `external-<ulid>` locally, so
+				// the provider's username is carried on the link — but only as
+				// a label: the subject above is still what identifies it.
+				if s.last.Username != "ada.lovelace" {
+					t.Fatalf("preferred_username not carried onto the link: %q", s.last.Username)
 				}
 				if s.last.Issuer != service.AuthIdentityNamespace("provider") {
 					t.Fatalf("identity namespace %q is not derived from the provider ID", s.last.Issuer)

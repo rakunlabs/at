@@ -359,6 +359,7 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 	for _, route := range []struct{ method, path string }{
 		{"GET", "/v1/guides"}, {"POST", "/v1/guides"}, {"GET", "/v1/guides/{id}"},
 		{"PUT", "/v1/guides/{id}"}, {"DELETE", "/v1/guides/{id}"}, {"GET", "/v1/bots"},
+		{"GET", "/v1/features"}, {"PUT", "/v1/features"},
 	} {
 		api.HandleWithMethod(route.method, route.path, reached)
 	}
@@ -386,6 +387,14 @@ func TestSharedPlatformRoutesAdmitNonAdministrators(t *testing.T) {
 		{"PUT", "/at/api/v1/guides/abc", "reader", 200},
 		{"DELETE", "/at/api/v1/guides/abc", "reader", 200},
 		{"GET", "/at/api/v1/guides", "admin", 200},
+		// Reading the feature catalog is how the UI knows which surfaces exist.
+		// Refusing it left `isFeatureEnabled` reporting its pre-load default —
+		// enabled — so every disabled feature stayed visible for non-admins.
+		{"GET", "/at/api/v1/features", "reader", 200},
+		{"GET", "/at/api/v1/features", "admin", 200},
+		// Changing it is still administration.
+		{"PUT", "/at/api/v1/features", "reader", 403},
+		{"PUT", "/at/api/v1/features", "admin", 200},
 		// Bots require workspace admission; this reader has no membership.
 		{"GET", "/at/api/v1/bots", "reader", 403},
 		{"GET", "/at/api/v1/bots", "admin", 200},

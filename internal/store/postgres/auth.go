@@ -64,11 +64,14 @@ func (p *Postgres) ListAuthUsers(ctx context.Context, q service.AuthUserQuery) (
 		// is matched literally rather than as a pattern.
 		replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 		pattern := "%" + replacer.Replace(q.Search) + "%"
-		// The email lives on the identity link, not the account: an external
-		// account's own username is a generated ULID, so matching only the
-		// username would leave every SSO user unfindable.
+		// The email and the provider's username live on the identity link, not
+		// the account: an external account's own username is a generated ULID,
+		// so matching only the account would leave every SSO user unfindable.
+		// The provider's username is included because it is what an
+		// administrator is told the person is called, and it is often the only
+		// name a provider that releases no email ever reports.
 		links := p.externalTable("auth_identity_links").As("l")
-		exists := p.goqu.From(links).Select(goqu.L("1")).Where(goqu.I("l.user_id").Eq(goqu.I("u.id")), goqu.I("l.email").ILike(pattern))
+		exists := p.goqu.From(links).Select(goqu.L("1")).Where(goqu.I("l.user_id").Eq(goqu.I("u.id")), goqu.Or(goqu.I("l.email").ILike(pattern), goqu.I("l.username").ILike(pattern)))
 		where = append(where, goqu.Or(
 			goqu.I("u.id").ILike(pattern),
 			goqu.I("u.username").ILike(pattern),

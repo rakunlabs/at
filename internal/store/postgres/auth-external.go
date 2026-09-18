@@ -317,6 +317,9 @@ func (p *Postgres) CompleteAuthExternalIdentity(ctx context.Context, l service.A
 	if l.Subject == "" || len(l.Subject) > 1024 || len(l.Email) > 512 || len(l.AssertedPermissions) > 8192 || !json.Valid(l.AssertedPermissions) {
 		return nil, nil, service.ErrAuthConflict
 	}
+	// Normalised rather than refused: the username is display metadata a
+	// provider chooses, so an odd one must not be able to fail a sign-in.
+	l.Username = service.NormalizeAuthUsername(l.Username)
 	tx, err := p.goqu.BeginTx(ctx, &sql.TxOptions{})
 	if err != nil {
 		return nil, nil, fmt.Errorf("begin external identity: %w", err)
@@ -392,14 +395,15 @@ func (p *Postgres) CompleteAuthExternalIdentity(ctx context.Context, l service.A
 		}
 		// Refresh metadata from this verified assertion without changing identity.
 		existing.Email, existing.EmailVerified, existing.AssertedPermissions = l.Email, l.EmailVerified, l.AssertedPermissions
-		if _, e = tx.Update(table).Set(goqu.Record{"email": existing.Email, "email_verified": existing.EmailVerified, "asserted_permissions": string(existing.AssertedPermissions)}).Where(goqu.Ex{"id": existing.ID}).Executor().ExecContext(ctx); e != nil {
+		existing.Username = l.Username
+		if _, e = tx.Update(table).Set(goqu.Record{"email": existing.Email, "email_verified": existing.EmailVerified, "username": existing.Username, "asserted_permissions": string(existing.AssertedPermissions)}).Where(goqu.Ex{"id": existing.ID}).Executor().ExecContext(ctx); e != nil {
 			return nil, nil, fmt.Errorf("update asserted identity metadata: %w", e)
 		}
 		l = existing
 	} else {
 		l.ID = ulid.Make().String()
 		l.UserID = u.ID
-		_, err = tx.Insert(table).Rows(goqu.Record{"id": l.ID, "provider_id": l.ProviderID, "issuer": l.Issuer, "subject": l.Subject, "user_id": l.UserID, "email": l.Email, "email_verified": l.EmailVerified, "asserted_permissions": string(l.AssertedPermissions)}).Executor().ExecContext(ctx)
+		_, err = tx.Insert(table).Rows(goqu.Record{"id": l.ID, "provider_id": l.ProviderID, "issuer": l.Issuer, "subject": l.Subject, "user_id": l.UserID, "email": l.Email, "email_verified": l.EmailVerified, "username": l.Username, "asserted_permissions": string(l.AssertedPermissions)}).Executor().ExecContext(ctx)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create identity link: %w", err)
 		}

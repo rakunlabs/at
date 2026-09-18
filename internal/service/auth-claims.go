@@ -129,6 +129,50 @@ func MergeClaimValues(reported, harvested []string) []string {
 	return out
 }
 
+// AuthUsernameClaims are read, in order, for the username an external provider
+// reports. `preferred_username` is OIDC's username claim and comes first;
+// `nickname` and `name` are display names and are only a fallback, because they
+// are usually a full personal name rather than the handle an administrator
+// types into a search box.
+//
+// This is a label, never an identity. The account stays keyed on provider ID
+// plus subject, the value is refreshed from every sign-in, and a provider that
+// reassigns a username therefore renames a row and grants nothing.
+var AuthUsernameClaims = []string{"preferred_username", "nickname", "name"}
+
+// AuthUsernameMax bounds the stored value in runes. The provider chooses this
+// string and it is rendered in the administrator directory.
+const AuthUsernameMax = 128
+
+// ClaimUsername picks the first non-empty username claim, falling back to the
+// name the strategy already resolved (ada reads `name` then
+// `preferred_username` into Identity.Name, so the fallback covers a provider
+// that only exposes it there).
+func ClaimUsername(claims map[string]any, fallback string) string {
+	for _, key := range AuthUsernameClaims {
+		if text, ok := claims[key].(string); ok {
+			if value := NormalizeAuthUsername(text); value != "" {
+				return value
+			}
+		}
+	}
+	return NormalizeAuthUsername(fallback)
+}
+
+// NormalizeAuthUsername collapses whitespace, drops control characters and
+// truncates on a rune boundary. Truncating on bytes would be able to store an
+// invalid UTF-8 tail, which the JSON encoder then replaces on the way out.
+func NormalizeAuthUsername(value string) string {
+	fields := strings.FieldsFunc(value, func(r rune) bool {
+		return r == ' ' || r == '\t' || r == '\r' || r == '\n' || r < 0x20 || r == 0x7f
+	})
+	out := strings.Join(fields, " ")
+	if runes := []rune(out); len(runes) > AuthUsernameMax {
+		out = string(runes[:AuthUsernameMax])
+	}
+	return out
+}
+
 func walkClaimPath(node any, segments []string, nodes *int, leaf func(any)) {
 	if *nodes >= authClaimNodesMax {
 		return

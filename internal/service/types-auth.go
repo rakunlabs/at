@@ -39,8 +39,13 @@ type AuthUserQuery struct {
 // carries no asserted permissions: this answers "who is this account", not
 // "what may it do".
 type AuthUserIdentity struct {
-	ProviderID    string `json:"provider_id" db:"provider_id"`
-	Subject       string `json:"subject" db:"subject"`
+	ProviderID string `json:"provider_id" db:"provider_id"`
+	Subject    string `json:"subject" db:"subject"`
+	// Username is what the provider calls this person. The local username of an
+	// externally provisioned account is `external-<ulid>`, so without it the
+	// directory has no name a human recognises unless the provider also
+	// released an email.
+	Username      string `json:"username" db:"username"`
 	Email         string `json:"email" db:"email"`
 	EmailVerified bool   `json:"email_verified" db:"email_verified"`
 }

@@ -490,6 +490,18 @@ Behaviour worth knowing:
 - Nothing gates `/api/v1/features`, `/api/v1/info`, `/auth/*` or the Settings
   shell, so any combination is reversible from the Features page. The one
   exception is `/auth/invitations/*`, which belongs to `workspace_management`.
+- `GET /api/v1/features` is a **shared platform route**
+  (`sharedPlatformRoutes`), so every signed-in account may read the catalog. It
+  had no `BusinessRoutePolicy`, which meant `requireWorkspacePlatform(true)` —
+  installation administrator only. Because `isFeatureEnabled` reports *enabled*
+  until the catalog arrives, a non-administrator's 403 left the store unloaded
+  and every disabled feature visible and linked, for exactly the accounts that
+  cannot change it. The response is installation configuration, not workspace
+  data, and it is already the answer to "which pages does this deployment have"
+  that the sidebar has to know. Writes (`PUT /features`, `PUT /features/{key}`,
+  the presets) keep the default admission. Regressions:
+  `TestFeatureCatalogReadIsShared`, plus the feature cases in
+  `TestSharedPlatformRoutesAdmitNonAdministrators`.
 
 Bulk writes exist because the catalog is fine-grained: `PUT /api/v1/features`
 takes `{"features": {"<key>": bool}}` and `POST /api/v1/features/presets/{preset}`
@@ -554,16 +566,42 @@ external provisioning mints `external-<lowercased ULID>`
 (`auth-external.go:CompleteAuthExternalIdentity`), which is the account ID again
 with a prefix and identifies nobody; the prefix is also the hard-cap predicate
 for JIT accounts, so it cannot be changed. `ListAuthUserIdentities` therefore
-joins `auth_identity_links` for the page and the row is labelled with the
-verified email (`authUserLabel` in `_ui/src/lib/api/auth.ts`), falling back to
-the upstream subject and then the username. The stored username is unchanged and
+joins `auth_identity_links` for the page and the row is labelled from the link
+(`authUserLabel` in `_ui/src/lib/api/auth.ts`) in decreasing order of what a
+person recognises: the username the provider reports, then a verified email,
+then any email, then the upstream subject. The stored username is unchanged and
 still shown as secondary metadata: it is the unique key the account signs in
 with, and rewriting it would collide in the one `username` column both local and
 external accounts share.
 
+Migration 56 adds `auth_identity_links.username`, filled from the token at every
+sign-in by `service.ClaimUsername` — `preferred_username` first, then `nickname`
+/ `name`, then ada's already-resolved `Identity.Name`. It is **display metadata,
+never an identity**: the link stays keyed on provider ID plus subject, the value
+is refreshed on each login (so an upstream rename follows), and a provider that
+reassigns a handle therefore renames a row and grants nothing. The value is
+normalized rather than refused — whitespace collapsed, control characters
+dropped, truncated at 128 runes on a rune boundary, because a provider chooses
+this string and an odd one must not be able to fail a sign-in or store an
+invalid UTF-8 tail. Absent columns read as `''`, so nothing changes for accounts
+that predate it until their next sign-in.
+
+The Users detail panel lays its identity block out on a
+`grid-cols-[5.5rem_minmax(0,1fr)]`, not a flex row with a fixed-width term. The
+term used to be the provider's raw ULID in a `w-20 shrink-0` box with no
+wrapping, so it overflowed its own column and ran over the value beside it —
+two opaque IDs rendered on top of each other. Grid columns cannot overlap and
+`minmax(0,1fr)` is what lets the value wrap instead of widening the track. Each
+link is now its own labelled sub-block titled with the provider's configured
+label (from the public `/auth/login-providers` list, which reports enabled
+providers only, so a link left by a disabled one falls back to its raw ID), and
+every value under it is named rather than implied.
+
 **Search is a store predicate, not a filter over the page.** `AuthUserQuery`
-matches the account ID, the username and the identity link's email, with LIKE
-metacharacters escaped so a pasted address is matched literally. The list
+matches the account ID, the local username, and the identity link's email and
+provider-reported username, with LIKE metacharacters escaped so a pasted address
+is matched literally. The provider's username is searchable because it is often
+the only name a provider that releases no email ever reports. The list
 handler's query allowlist accepts `q` alongside `limit`/`after` and still 400s
 on anything else. Without it an SSO installation is unnavigable: the only way to
 find one of a thousand `external-…` rows is to page 50 at a time.
@@ -619,6 +657,41 @@ itself stays unguarded — it is still the join-a-workspace escape hatch when th
 feature comes back. `/` renders the dashboard for everyone now; it previously
 rendered Workspace settings for non-administrators, which meant Home and a
 settings page were the same screen while that page was being hidden elsewhere.
+
+### Capability routes vs administration surfaces
+
+`navigation.ts` classifies every page twice over: `capabilityRoutes` names the
+workspace capability that admits it, and `platformRoutes` marks it installation
+administration. No API reports which of the two a route is, so the lists are
+hardcoded — and that is exactly what drifts.
+
+The rule is mechanical: a route belongs in `capabilityRoutes` **only** when its
+API is capability-admitted, meaning it has an entry in
+`workspaceBusinessPolicies()` (or in `workspaceRoutePolicies` /
+`registerRuntimeRoutes`, which admit on capabilities from outside `apiGroup`).
+Everything else registered on `apiGroup` falls through to
+`requireWorkspacePlatform(true)` and is administrator-only. Fourteen routes
+claimed a capability their API never reads — Playground, Sessions, Skills,
+Marketplaces, Integrations, Variables, Node configurations, Webhooks, Schedules,
+Connections, MCP servers, MCP sets, Usage and Traces — so a member was shown the
+link, opened the page, and every request it made answered 403. The capability
+the UI named had no bearing on the decision, which made the map look like an
+authorization model rather than the presentation registry it is.
+
+`/studio` and `/files` stay capability-gated because their data plane is
+`/api/v1/files/*`, which `registerRuntimeRoutes` admits on `files.read`; only
+Studio's one-click setup reaches administration APIs.
+
+Scoping one of those APIs backend-side is what moves its route back.
+`TestUICapabilityRoutesAreCapabilityAdmitted` and `TestUIPlatformOnlySurfaces`
+(`internal/server/ui-navigation_test.go`) read the two lists out of
+`navigation.ts` and check each entry against the real admission tables, in both
+directions, so neither a newly scoped API nor a newly added page can leave the
+UI describing an authorization decision the server does not make. A route with
+no probe fails rather than being skipped.
+
+This is presentation only. `AccessPrincipal.Allows` plus the store's row
+scoping remain the boundary; hiding a link has never been what stops a request.
 
 ### Client address behind a reverse proxy
 

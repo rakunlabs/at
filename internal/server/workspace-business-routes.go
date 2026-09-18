@@ -112,8 +112,20 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 // documentation surface: `/docs` is open to all authenticated users, so gating
 // its content behind the admin role only produced a broken page for everyone
 // else.
+//
+// Reading the feature catalog is the other one. It is how the UI decides which
+// surfaces exist at all, and `isFeatureEnabled` reports *enabled* until the
+// catalog arrives so a slow request never blanks the application. Admin-only
+// admission therefore inverted the switch for exactly the accounts that cannot
+// change it: a non-administrator's request answered 403, the catalog never
+// loaded, and every disabled feature stayed visible and linked. The response is
+// installation configuration, not workspace data, and it is already the answer
+// to "which pages does this deployment have" that the sidebar must know.
+// Writing it (`PUT /features`, `PUT /features/{key}`, the presets) stays
+// administration and keeps the default admission.
 func sharedPlatformRoutes() []BusinessRoutePolicy {
 	return []BusinessRoutePolicy{
+		{"GET", "/features", "", "", ""},
 		{"GET", "/guides", "", "", ""},
 		{"POST", "/guides", "", "", ""},
 		{"GET", "/guides/{id}", "", "", ""},

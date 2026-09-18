@@ -4,19 +4,37 @@ import { isFeatureEnabled } from '../store/features.svelte';
 import { FEATURE_WORKSPACE_MANAGEMENT } from '../api/features';
 import { routeFeatureEnabled } from './feature-routes';
 // Finite presentation registry. Backend remains authoritative for resource selectors.
+//
+// A route belongs here only when its API is capability-admitted, which means it
+// has an entry in `workspaceBusinessPolicies()`
+// (internal/server/workspace-business-routes.go). Everything else registered on
+// `apiGroup` falls through to `requireWorkspacePlatform(true)` and is
+// installation-administrator only, so naming a workspace capability for it
+// advertised a page that answered 403 on load — the link looked available and
+// the capability it claimed had no bearing on the decision. `/studio` and
+// `/files` stay because their data plane is `/api/v1/files/*`, which
+// `registerRuntimeRoutes` admits on capabilities; only Studio's one-click setup
+// reaches administration APIs.
 const capabilityRoutes: Record<string, string> = {
-  '/providers': 'providers.read', '/routing-profiles': 'providers.read', '/skills': 'skills.read', '/marketplaces': 'packs.read',
-  '/agents': 'agents.read', '/variables': 'variables.read',
-  // `/playground/:id` is covered by the longest-prefix match below.
-  '/playground': 'models.use', '/sessions': 'agents.read', '/node-configs': 'workflows.read',
-  '/workflows': 'workflows.read', '/runs': 'workflows.read', '/webhooks': 'workflows.read',
-  '/crons': 'workflows.read', '/connections': 'connections.read', '/integrations': 'packs.read',
-  '/mcp-servers': 'mcp.read', '/mcps': 'mcp.read', '/bots': 'bots.read',
-  '/organizations': 'organizations.read', '/tasks': 'tasks.read', '/studio': 'files.read',
-  '/llm-calls': 'traces.read', '/usage': 'usage.read', '/files': 'files.read',
+  '/providers': 'providers.read', '/routing-profiles': 'providers.read',
+  '/agents': 'agents.read', '/workflows': 'workflows.read', '/runs': 'workflows.read',
+  '/bots': 'bots.read', '/organizations': 'organizations.read', '/tasks': 'tasks.read',
+  '/studio': 'files.read', '/files': 'files.read',
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
 };
-const platformRoutes = ['/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system'];
+// Installation-administration surfaces. The second row is the set whose APIs are
+// registered on `apiGroup` without a business policy: skills and skill
+// templates, marketplaces, integration packs and pack sources, variables,
+// node configurations, triggers, connections/connectors/oauth, MCP servers and
+// sets, the usage rollups, the trace store, chat sessions, and the Playground's
+// admin chat endpoint. Scoping any of them backend-side is what moves the route
+// back into `capabilityRoutes`; `TestUIPlatformOnlySurfaces` fails when one is.
+const platformRoutes = [
+  '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system',
+  '/playground', '/sessions', '/skills', '/marketplaces', '/integrations', '/variables',
+  '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers', '/mcps',
+  '/usage', '/llm-calls',
+];
 // An account with no membership anywhere resolves nothing: every workspace
 // route answers 403, including Documentation, whose guide API is workspace
 // scoped. Only the account and workspace pages do real work, plus the Settings

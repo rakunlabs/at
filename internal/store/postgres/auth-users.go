@@ -107,18 +107,19 @@ func (p *Postgres) ListAuthUserIdentities(ctx context.Context, ids []string) (ma
 		UserID        string `db:"user_id"`
 		ProviderID    string `db:"provider_id"`
 		Subject       string `db:"subject"`
+		Username      string `db:"username"`
 		Email         string `db:"email"`
 		EmailVerified bool   `db:"email_verified"`
 	}
 	err := p.goqu.From(p.externalTable("auth_identity_links")).
-		Select("user_id", "provider_id", "subject", "email", "email_verified").
+		Select("user_id", "provider_id", "subject", "username", "email", "email_verified").
 		Where(goqu.I("user_id").In(ids)).Order(goqu.I("id").Asc()).ScanStructsContext(ctx, &rows)
 	if err != nil {
 		return nil, fmt.Errorf("list auth user identities: %w", err)
 	}
 	for _, row := range rows {
 		out[row.UserID] = append(out[row.UserID], service.AuthUserIdentity{
-			ProviderID: row.ProviderID, Subject: row.Subject, Email: row.Email, EmailVerified: row.EmailVerified,
+			ProviderID: row.ProviderID, Subject: row.Subject, Username: row.Username, Email: row.Email, EmailVerified: row.EmailVerified,
 		})
 	}
 	return out, nil

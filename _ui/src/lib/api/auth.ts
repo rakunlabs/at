@@ -122,6 +122,8 @@ export async function deleteAuthPasskey(id: string, current_password: string, si
 export interface AuthUserIdentity {
   provider_id: string;
   subject: string;
+  /** What the provider calls this person (OIDC `preferred_username`). */
+  username: string;
   email: string;
   email_verified: boolean;
 }
@@ -148,13 +150,31 @@ export interface AuthUserDetail extends AuthUser {
 }
 
 // An externally provisioned account is named `external-<ulid>`, which is the
-// account ID again and identifies nobody. The verified email on its identity
-// link is the only name a person recognises, so it is what the UI shows.
+// account ID again and identifies nobody. The name it is known by therefore has
+// to come from the identity link, in decreasing order of what a person would
+// recognise: the username the provider reports, then a verified email, then any
+// email, then the opaque upstream subject. A local account keeps its own
+// username, which is the one it signs in with.
 export function authUserLabel(user: AuthUser): string {
+  const named = user.identities?.find(i => i.username);
+  if (named?.username) return named.username;
   const identity = user.identities?.find(i => i.email_verified && i.email) || user.identities?.find(i => i.email);
   if (identity?.email) return identity.email;
   if (user.username.startsWith('external-')) return user.identities?.[0]?.subject || user.username;
   return user.username;
+}
+
+// The distinguishing facts the label left out, for the row's secondary line.
+// The generated `external-<ulid>` username is omitted: it is the account ID
+// with a prefix, which the ID next to it already shows.
+export function authUserMeta(user: AuthUser): string {
+  const label = authUserLabel(user);
+  const email = user.identities?.find(i => i.email)?.email;
+  const parts = [] as string[];
+  if (email && email !== label) parts.push(email);
+  if (!user.username.startsWith('external-') && user.username !== label) parts.push(user.username);
+  parts.push(user.id);
+  return parts.join(' · ');
 }
 
 export interface AuthLoginEvent {
