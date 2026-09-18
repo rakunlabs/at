@@ -75,6 +75,7 @@ type Storer interface {
 	GuideStorer
 	ConnectionStorer
 	ConnectorStorer
+	RoutingProfileStorer
 	FeatureSettingStorer
 	LLMCallStorer
 }

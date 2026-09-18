@@ -544,6 +544,7 @@
         <option value="gateway">gateway</option>
         <option value="gateway_stream">gateway_stream</option>
         <option value="responses">responses</option>
+        <option value="gateway_passthrough">gateway_passthrough</option>
         <option value="chat">chat</option>
         <option value="agent">agent</option>
         <option value="workflow">workflow</option>

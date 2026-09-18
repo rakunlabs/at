@@ -182,6 +182,11 @@ type ModelData struct {
 	ID      string `json:"id"`
 	Object  string `json:"object"`
 	OwnedBy string `json:"owned_by"`
+	// RoutingProfile marks an entry that is a stored model chain rather than a
+	// concrete provider model. It is an AT extension on an otherwise standard
+	// OpenAI object; the object stays "model" so that clients with a fixed model
+	// picker — which is the reason profiles exist — actually render it.
+	RoutingProfile bool `json:"at_routing_profile,omitempty"`
 }
 
 // ─── Streaming response types (SSE / chat.completion.chunk format) ───
@@ -373,11 +378,14 @@ func translateOpenAIToAnthropic(msgs []OpenAIMessage) (systemPrompt string, mess
 			// OpenAI tool results → Anthropic tool_result content blocks.
 			// In Anthropic format, tool results are sent as role="user" with
 			// content blocks of type "tool_result".
-			content := extractContentString(msg.Content)
+			// A tool result may be an array containing non-text parts — an image
+			// returned by a browser tool is the ordinary case. Flattening it to
+			// text discarded them silently, so structured content is preserved
+			// when there is any; a plain string result is unchanged.
 			block := service.ContentBlock{
 				Type:      "tool_result",
 				ToolUseID: msg.ToolCallID,
-				Content:   content,
+				Content:   extractToolResultContent(msg.Content),
 			}
 			// Check if the last message is already a user message with tool results
 			// (Anthropic expects all tool results for a single turn in one message).
@@ -911,6 +919,90 @@ func convertOpenAIContentToAnthropic(raw json.RawMessage) []service.ContentBlock
 		return []service.ContentBlock{{Type: "text", Text: string(raw)}}
 	}
 	return blocks
+}
+
+// extractToolResultContent turns an OpenAI tool message's content into either a
+// string or a []service.ContentBlock.
+//
+// extractContentString, which this replaces on the tool path, concatenated only
+// `type: "text"` parts and dropped everything else without a trace. That is a
+// real loss: OpenAI-shape clients send tool results containing images, and the
+// discarded part never reached a provider that could have used it.
+//
+// A string stays a string, and an array of text-only parts collapses to the same
+// concatenation as before, so nothing about existing traffic changes shape. Only
+// a genuinely multimodal result becomes structured.
+func extractToolResultContent(raw json.RawMessage) any {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return s
+	}
+
+	var parts []struct {
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL *struct {
+			URL string `json:"url"`
+		} `json:"image_url"`
+		Source *service.MediaSource `json:"source"`
+	}
+	if err := json.Unmarshal(raw, &parts); err != nil {
+		return string(raw)
+	}
+
+	blocks := make([]service.ContentBlock, 0, len(parts))
+	multimodal := false
+	for _, p := range parts {
+		switch {
+		case p.Type == "text" || p.Type == "":
+			blocks = append(blocks, service.ContentBlock{Type: "text", Text: p.Text})
+		case p.Source != nil:
+			// Already in Anthropic block form.
+			blocks = append(blocks, service.ContentBlock{Type: p.Type, Source: p.Source})
+			multimodal = true
+		case p.ImageURL != nil && p.ImageURL.URL != "":
+			if source := mediaSourceFromURL(p.ImageURL.URL); source != nil {
+				blocks = append(blocks, service.ContentBlock{Type: "image", Source: source})
+				multimodal = true
+			}
+		}
+	}
+
+	if !multimodal {
+		// Preserve the historical shape exactly for text-only results.
+		var text string
+		for _, b := range blocks {
+			text += b.Text
+		}
+
+		return text
+	}
+
+	return blocks
+}
+
+// mediaSourceFromURL converts an OpenAI image_url to an Anthropic media source.
+// A data URL becomes inline base64; anything else is passed through as a URL
+// reference for the providers that accept one.
+func mediaSourceFromURL(url string) *service.MediaSource {
+	if strings.HasPrefix(url, "data:") {
+		meta, data, found := strings.Cut(strings.TrimPrefix(url, "data:"), ",")
+		if !found {
+			return nil
+		}
+		mediaType, encoding, _ := strings.Cut(meta, ";")
+		if encoding != "base64" || data == "" {
+			return nil
+		}
+
+		return &service.MediaSource{Type: "base64", MediaType: mediaType, Data: data}
+	}
+
+	return &service.MediaSource{Type: "url", URL: url}
 }
 
 // extractContentString extracts a plain string from OpenAI message content.

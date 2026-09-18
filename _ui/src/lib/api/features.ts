@@ -17,6 +17,7 @@ export const FEATURE_LLM_AUDIT = 'llm_audit';
 export const FEATURE_MODEL_PRICING = 'model_pricing';
 export const FEATURE_USAGE_ANALYTICS = 'usage_analytics';
 export const FEATURE_API_TOKENS = 'api_tokens';
+export const FEATURE_ROUTING_PROFILES = 'routing_profiles';
 export const FEATURE_PLAYGROUND = 'playground';
 export const FEATURE_CHAT_SESSIONS = 'chat_sessions';
 export const FEATURE_BOTS = 'bots';

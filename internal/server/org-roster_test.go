@@ -190,7 +190,7 @@ func messageText(m service.Message) string {
 		for _, blk := range blocks {
 			b.WriteString(blk.Text)
 			b.WriteString(" ")
-			b.WriteString(blk.Content)
+			b.WriteString(blk.ContentText())
 			b.WriteString(" ")
 		}
 		return b.String()

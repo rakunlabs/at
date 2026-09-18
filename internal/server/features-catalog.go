@@ -83,6 +83,13 @@ var featureDefinitions = []featureDefinition{
 		Group:       "llm_gateway",
 	},
 	{
+		Key:         service.FeatureRoutingProfiles,
+		Name:        "Routing Profiles",
+		Description: "Named model chains that a gateway request may use in place of a provider/model pair. Disabling removes the management surface; existing profiles keep routing gateway traffic.",
+		Group:       "llm_gateway",
+		Parent:      service.FeatureProviderSetup,
+	},
+	{
 		Key:         service.FeatureModelPricing,
 		Name:        "Model Pricing",
 		Description: "Per-model price records, the pricing catalog and its external sync sources.",
@@ -359,6 +366,7 @@ var featurePresets = []featurePreset{
 			service.FeatureModelPricing,
 			service.FeatureUsageAnalytics,
 			service.FeatureAPITokens,
+			service.FeatureRoutingProfiles,
 			// The Documentation page carries the gateway API reference, which is
 			// how a client gets configured against this installation — a
 			// gateway-only preset is the last one that should hide it.
@@ -374,6 +382,7 @@ var featurePresets = []featurePreset{
 			service.FeatureModelPricing,
 			service.FeatureUsageAnalytics,
 			service.FeatureAPITokens,
+			service.FeatureRoutingProfiles,
 			service.FeatureGuides,
 			service.FeatureLLMTraces,
 			service.FeatureLLMAudit,
@@ -388,6 +397,7 @@ var featurePresets = []featurePreset{
 			service.FeatureModelPricing,
 			service.FeatureUsageAnalytics,
 			service.FeatureAPITokens,
+			service.FeatureRoutingProfiles,
 			service.FeatureGuides,
 			service.FeatureChatWorkbench,
 			service.FeaturePlayground,
@@ -410,6 +420,7 @@ var featurePresets = []featurePreset{
 			service.FeatureModelPricing,
 			service.FeatureUsageAnalytics,
 			service.FeatureAPITokens,
+			service.FeatureRoutingProfiles,
 			service.FeatureChatWorkbench,
 			service.FeaturePlayground,
 			service.FeatureChatSessions,

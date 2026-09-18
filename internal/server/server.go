@@ -264,6 +264,15 @@ type Server struct {
 	// (multi-instance OAuth/token credentials referenced by agents).
 	connectionStore service.ConnectionStorer
 
+	// routingProfileStore is the persistent store for named model chains that a
+	// gateway request may name as its model instead of a provider/model pair.
+	routingProfileStore service.RoutingProfileStorer
+
+	// cooldown tracks which providers have told us they are exhausted, so chain
+	// resolution can deprioritize them. In-memory and per replica by design; see
+	// provider-availability.go.
+	cooldown *providerCooldown
+
 	// connectorStore is the persistent store for user-defined connector
 	// definitions (external-service connection TYPES). Built-in connectors are
 	// embedded JSON, merged with DB rows at read time (DB overrides by slug).
@@ -504,6 +513,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		packSourceStore:          store,
 		guideStore:               store,
 		connectionStore:          store,
+		routingProfileStore:      store,
+		cooldown:                 newProviderCooldown(),
 		connectorStore:           store,
 		featureStore:             store,
 		llmCallStore:             store,
@@ -700,6 +711,10 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		})
 	})
 	gatewayGroup.POST("/v1/chat/completions", s.ChatCompletions)
+	// Native Anthropic Messages. A client with its Anthropic base URL set to
+	// <base>/gateway resolves /v1/messages here, so Claude Code, Cline, Roo and
+	// Kilo reach routing, fallback, budgets and tracing unmodified.
+	gatewayGroup.POST("/v1/messages", s.AnthropicMessages)
 	gatewayGroup.GET("/v1/models", s.ListModels)
 	gatewayGroup.POST("/v1/embeddings", s.Embeddings)
 	gatewayGroup.POST("/v1/responses", s.Responses)
@@ -807,6 +822,13 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.DELETE("/v1/api-tokens/{id}", s.DeleteAPITokenAPI)
 	apiGroup.GET("/v1/api-tokens/{id}/usage", s.GetTokenUsageAPI)
 	apiGroup.POST("/v1/api-tokens/{id}/usage/reset", s.ResetTokenUsageAPI)
+
+	// Routing profile management
+	apiGroup.GET("/v1/routing-profiles", s.ListRoutingProfilesAPI)
+	apiGroup.POST("/v1/routing-profiles", s.CreateRoutingProfileAPI)
+	apiGroup.GET("/v1/routing-profiles/{id}", s.GetRoutingProfileAPI)
+	apiGroup.PUT("/v1/routing-profiles/{id}", s.UpdateRoutingProfileAPI)
+	apiGroup.DELETE("/v1/routing-profiles/{id}", s.DeleteRoutingProfileAPI)
 
 	// Workflow management
 	apiGroup.GET("/v1/workflow-node-types", s.ListWorkflowNodeTypesAPI)

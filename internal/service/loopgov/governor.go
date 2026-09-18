@@ -322,8 +322,8 @@ func stringContent(m service.Message) string {
 			if blk.Text != "" {
 				b = append(b, blk.Text...)
 				b = append(b, '\n')
-			} else if blk.Content != "" {
-				b = append(b, blk.Content...)
+			} else if text := blk.ContentText(); text != "" {
+				b = append(b, text...)
 				b = append(b, '\n')
 			}
 		}
@@ -354,7 +354,7 @@ func estimateMessage(m service.Message) int {
 		total := 0
 		for _, blk := range v {
 			total += estimateTokens(blk.Text)
-			total += estimateTokens(blk.Content)
+			total += estimateTokens(blk.ContentText())
 			// Tool args / inputs add bytes too — JSON-marshal-ish.
 			for k, val := range blk.Input {
 				total += estimateTokens(k)

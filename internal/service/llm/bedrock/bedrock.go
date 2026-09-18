@@ -234,9 +234,15 @@ type converseToolResult struct {
 	Content   []converseToolResultBlk `json:"content"`
 }
 
+// converseToolResultBlk mirrors Converse's ToolResultContentBlock. Image and
+// Document are modelled because a tool result can legitimately carry them — a
+// browser tool returning a screenshot is the ordinary case — and a text-only
+// block silently dropped them.
 type converseToolResultBlk struct {
-	Text *string `json:"text,omitempty"`
-	JSON any     `json:"json,omitempty"`
+	Text     *string           `json:"text,omitempty"`
+	JSON     any               `json:"json,omitempty"`
+	Image    *converseImage    `json:"image,omitempty"`
+	Document *converseDocument `json:"document,omitempty"`
 }
 
 type converseDocument struct {
@@ -514,7 +520,7 @@ func convertContentToConverse(content any) []converseContentB {
 			case "tool_result":
 				out = append(out, converseContentB{ToolResult: &converseToolResult{
 					ToolUseID: b.ToolUseID,
-					Content:   []converseToolResultBlk{{Text: &b.Content}},
+					Content:   converseToolResultContent(b),
 				}})
 			case "image":
 				if b.Source != nil && b.Source.Data != "" {
@@ -638,6 +644,56 @@ func translateBedrockToolChoice(v any) *converseToolChoice {
 		}
 	}
 	return nil
+}
+
+// converseToolResultContent builds a Converse tool-result payload from a
+// ContentBlock whose Content is either a string or a list of blocks.
+//
+// A structured result is expanded into one Converse block per part, so an image
+// inside a tool result reaches the model instead of being flattened away. A
+// string result produces exactly the single text block it did before, so nothing
+// about existing traffic changes.
+func converseToolResultContent(b service.ContentBlock) []converseToolResultBlk {
+	blocks, structured := b.ContentBlocks()
+	if !structured {
+		text := b.ContentText()
+
+		return []converseToolResultBlk{{Text: &text}}
+	}
+
+	out := make([]converseToolResultBlk, 0, len(blocks))
+	for _, part := range blocks {
+		switch part.Type {
+		case "image":
+			if part.Source != nil && part.Source.Data != "" {
+				out = append(out, converseToolResultBlk{Image: &converseImage{
+					Format: imageFormatFromMime(part.Source.MediaType),
+					Source: converseImageSourceB{Bytes: part.Source.Data},
+				}})
+			}
+		case "document":
+			if part.Source != nil && part.Source.Data != "" {
+				out = append(out, converseToolResultBlk{Document: &converseDocument{
+					Format: documentFormatFromMime(part.Source.MediaType),
+					Name:   "document",
+					Source: converseImageSourceB{Bytes: part.Source.Data},
+				}})
+			}
+		default:
+			if part.Text != "" {
+				text := part.Text
+				out = append(out, converseToolResultBlk{Text: &text})
+			}
+		}
+	}
+	if len(out) == 0 {
+		// Converse rejects an empty tool result; send an explicit empty string
+		// rather than a malformed request.
+		empty := ""
+		out = append(out, converseToolResultBlk{Text: &empty})
+	}
+
+	return out
 }
 
 func imageFormatFromMime(mime string) string {
@@ -825,6 +881,15 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 		return err
 	}
 	defer resp.Body.Close()
+
+	// Meter the passthrough. This adapter relays by hand rather than through a
+	// ReverseProxy, so the hook is applied directly; it wraps resp.Body, and the
+	// deferred Close above is what fires the observation.
+	if observe := common.ProxyResponseObserver(r.Context()); observe != nil {
+		if obsErr := observe(resp); obsErr != nil {
+			slog.Warn("bedrock proxy observation failed", "error", obsErr)
+		}
+	}
 
 	for k, vals := range resp.Header {
 		for _, v := range vals {

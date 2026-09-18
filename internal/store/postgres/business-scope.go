@@ -45,6 +45,12 @@ func (p *Postgres) businessTablePolicy(table interface{}) (string, string, bool)
 	switch name {
 	case "providers":
 		return "providers.read", "id", true
+	case "routing_profiles":
+		// A routing profile is provider configuration under another name, so it
+		// reuses the provider capability rather than introducing a new kind that
+		// every existing permission bundle would lack — which would deny the
+		// surface to everyone until each bundle was edited.
+		return "providers.read", "id", true
 	case "tokens":
 		return "tokens.read", "id", true
 	case "token_usage":

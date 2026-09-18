@@ -77,6 +77,7 @@ type Postgres struct {
 	tableGuides               exp.IdentifierExpression
 	tableConnections          exp.IdentifierExpression
 	tableConnectors           exp.IdentifierExpression
+	tableRoutingProfiles      exp.IdentifierExpression
 	tableFeatureSettings      exp.IdentifierExpression
 	tableLLMCalls             exp.IdentifierExpression
 	tableAuthUsers            exp.IdentifierExpression
@@ -241,6 +242,7 @@ func New(ctx context.Context, cfg *config.StorePostgres, encKey []byte) (*Postgr
 		tableGuides:               goqu.T(tablePrefix + "guides"),
 		tableConnections:          goqu.T(tablePrefix + "connections"),
 		tableConnectors:           goqu.T(tablePrefix + "connectors"),
+		tableRoutingProfiles:      goqu.T(tablePrefix + "routing_profiles"),
 		tableFeatureSettings:      goqu.T(tablePrefix + "feature_settings"),
 		tableLLMCalls:             goqu.T(tablePrefix + "llm_calls"),
 		encKey:                    encKey,

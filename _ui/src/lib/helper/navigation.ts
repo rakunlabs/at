@@ -3,7 +3,7 @@ import { isNativeAdmin } from '../store/auth.svelte';
 import { routeFeatureEnabled } from './feature-routes';
 // Finite presentation registry. Backend remains authoritative for resource selectors.
 const capabilityRoutes: Record<string, string> = {
-  '/providers': 'providers.read', '/skills': 'skills.read', '/marketplaces': 'packs.read',
+  '/providers': 'providers.read', '/routing-profiles': 'providers.read', '/skills': 'skills.read', '/marketplaces': 'packs.read',
   '/agents': 'agents.read', '/variables': 'variables.read',
   // `/playground/:id` is covered by the longest-prefix match below.
   '/playground': 'models.use', '/sessions': 'agents.read', '/node-configs': 'workflows.read',
@@ -35,6 +35,7 @@ export const configurationLinks = [
   { path: '/settings/execution', label: 'Execution', description: 'Restricted and trusted-host policy' },
   { path: '/settings/media', label: 'Media storage', description: 'Where Playground image attachments are stored' },
   { path: '/providers', label: 'Model providers', description: 'Model connections and credentials' },
+  { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
   { path: '/connections', label: 'Connections', description: 'External-service credentials and connectors' },
   { path: '/variables', label: 'Variables', description: 'Workspace variables and secrets' },
   { path: '/mcp-servers', label: 'MCP servers', description: 'Tool servers and endpoints' },

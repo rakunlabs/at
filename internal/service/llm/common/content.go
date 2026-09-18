@@ -98,7 +98,9 @@ func ConvertContentBlocksToOpenAI(role string, blocks []service.ContentBlock) []
 			msgs = append(msgs, map[string]any{
 				"role":         "tool",
 				"tool_call_id": b.ToolUseID,
-				"content":      b.Content,
+				// An OpenAI tool message carries a string; structured parts are
+				// flattened rather than emitted as an array the schema rejects.
+				"content": b.ContentText(),
 			})
 		}
 	}

@@ -609,7 +609,10 @@ func (p *CodexProvider) Proxy(w http.ResponseWriter, r *http.Request, path strin
 	if err != nil {
 		return err
 	}
-	release, err := p.limiter.Acquire(r.Context(), 0)
+	// An estimate is the intended semantic for a self-imposed throttle; it is
+	// deliberately not what gets written to cost_events. Passing 0 here spent an
+	// RPM and a concurrency slot but never counted against input-TPM.
+	release, err := p.limiter.Acquire(r.Context(), common.ProxyInputWeight(r))
 	if err != nil {
 		return err
 	}
@@ -625,7 +628,8 @@ func (p *CodexProvider) Proxy(w http.ResponseWriter, r *http.Request, path strin
 			req.URL = target
 			req.Host = target.Host
 		},
-		Transport: p.httpClient.Transport,
+		ModifyResponse: common.ProxyResponseObserver(r.Context()),
+		Transport:      p.httpClient.Transport,
 		ErrorHandler: func(writer http.ResponseWriter, _ *http.Request, proxyErr error) {
 			slog.Error("Codex proxy error", "error", proxyErr)
 			http.Error(writer, fmt.Sprintf("proxy error: %v", proxyErr), http.StatusBadGateway)
@@ -825,7 +829,8 @@ func codexContentBlockInput(role string, blocks []service.ContentBlock) []any {
 			input = append(input, map[string]any{
 				"type":    "function_call_output",
 				"call_id": block.ToolUseID,
-				"output":  block.Content,
+				// The Responses function_call_output field is a string.
+				"output": block.ContentText(),
 			})
 		}
 	}

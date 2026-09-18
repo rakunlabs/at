@@ -632,6 +632,16 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 		return err
 	}
 	defer resp.Body.Close()
+
+	// Meter the passthrough. This adapter relays by hand rather than through a
+	// ReverseProxy, so the hook is applied directly; it wraps resp.Body, and the
+	// deferred Close above is what fires the observation.
+	if observe := common.ProxyResponseObserver(r.Context()); observe != nil {
+		if obsErr := observe(resp); obsErr != nil {
+			slog.Warn("cohere proxy observation failed", "error", obsErr)
+		}
+	}
+
 	for k, vals := range resp.Header {
 		for _, v := range vals {
 			w.Header().Add(k, v)

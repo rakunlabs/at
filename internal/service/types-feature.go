@@ -26,6 +26,9 @@ const (
 	FeatureModelPricing   = "model_pricing"
 	FeatureUsageAnalytics = "usage_analytics"
 	FeatureAPITokens      = "api_tokens"
+	// FeatureRoutingProfiles gates the management surface for named model
+	// chains. Existing profiles keep routing gateway traffic when it is off.
+	FeatureRoutingProfiles = "routing_profiles"
 
 	// Workspace.
 	FeaturePlayground         = "playground"

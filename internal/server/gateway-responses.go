@@ -218,7 +218,25 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	providerKey, actualModel, err := parseModelID(req.Model)
+	// A bare model name may be a routing profile. Expansion happens before
+	// validation so the rest of this handler sees a concrete provider/model.
+	routingProfile, effectiveModel, effectiveFallbacks, profileUsable := s.expandRoutingProfileTargets(r.Context(), auth, req.Model, req.AtFallbacks)
+	if routingProfile != "" {
+		w.Header().Set("x-at-routing-profile", routingProfile)
+	}
+	if !profileUsable {
+		httpResponseJSON(w, map[string]any{
+			"error": map[string]any{
+				"message": fmt.Sprintf("routing profile %q has no usable target for this token", routingProfile),
+				"type":    "invalid_request_error",
+				"param":   "model",
+				"code":    "model_not_found",
+			},
+		}, http.StatusForbidden)
+		return
+	}
+
+	providerKey, actualModel, err := parseModelID(effectiveModel)
 	if err != nil {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
@@ -231,7 +249,7 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !auth.isModelAllowed(providerKey, req.Model) {
+	if !auth.isModelAllowed(providerKey, effectiveModel) {
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
 				"message": fmt.Sprintf("token does not have access to model %q", req.Model),
@@ -290,23 +308,16 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 	callCtx, cancel := withRequestTimeout(r.Context(), req.TimeoutMs)
 	defer cancel()
 
-	if req.Stream {
-		// Streaming: no fallback (same constraint as chat streaming).
-		sMessages, _ := s.buildProviderMessages(info.providerType, chatMsgs, nil)
-		s.handleStreamingResponses(w, r.WithContext(callCtx), auth, info, providerKey, actualModel, req.Model, req.Metadata, req.ParallelToolCalls, sMessages, tools, cloneChatOptions(baseOpts))
-		return
-	}
-
 	// Build fallback chain. Primary is implied by req.Model (validated above
 	// — info is the primary). For fallbacks we go through the chain
 	// resolver and skip invalid entries.
 	chain := []chatCallTarget{{
-		fullModel:   req.Model,
+		fullModel:   effectiveModel,
 		providerKey: providerKey,
 		actualModel: actualModel,
 		info:        info,
 	}}
-	for _, m := range req.AtFallbacks {
+	for _, m := range effectiveFallbacks {
 		pKey, actual, fInfo, ferr := s.resolveModel(auth, m)
 		if ferr != nil {
 			slog.Warn("responses fallback skipping invalid entry", "model", m, "error", ferr.Error())
@@ -315,6 +326,38 @@ func (s *Server) Responses(w http.ResponseWriter, r *http.Request) {
 		chain = append(chain, chatCallTarget{
 			fullModel: m, providerKey: pKey, actualModel: actual, info: fInfo,
 		})
+	}
+	chain = s.partitionCooledTargets(chain)
+
+	if req.Stream {
+		// Streaming falls back the same way chat streaming does: response.created
+		// is emitted lazily, so an upstream open failure leaves the response
+		// completely unwritten and the next target can serve it invisibly.
+		var streamErr error
+		for i, target := range chain {
+			sMessages, _ := s.buildProviderMessages(target.info.providerType, chatMsgs, nil)
+
+			committed, err := s.handleStreamingResponses(w, r.WithContext(callCtx), auth, target.info,
+				target.providerKey, target.actualModel, req.Model, req.Metadata, req.ParallelToolCalls,
+				sMessages, tools, cloneChatOptions(baseOpts))
+			if err == nil {
+				return
+			}
+			streamErr = err
+
+			if committed || callCtx.Err() != nil || !shouldFallback(err) || i == len(chain)-1 {
+				break
+			}
+			clearStreamHeaders(w)
+			slog.Warn("responses: streaming fallback advancing",
+				"failed_provider", target.providerKey, "error", err)
+		}
+
+		status, body := classifyGatewayError(streamErr)
+		addGatewayRateLimitHeaders(w, streamErr)
+		httpResponseJSON(w, body, status)
+
+		return
 	}
 
 	var (
@@ -409,7 +452,7 @@ func (s *Server) handleStreamingResponses(
 	messages []service.Message,
 	tools []service.Tool,
 	opts *service.ChatOptions,
-) {
+) (committed bool, streamErr error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		httpResponseJSON(w, map[string]any{
@@ -418,7 +461,7 @@ func (s *Server) handleStreamingResponses(
 				"type":    "server_error",
 			},
 		}, http.StatusInternalServerError)
-		return
+		return true, nil
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -428,26 +471,36 @@ func (s *Server) handleStreamingResponses(
 	respID := "resp_" + generateChatID()
 	createdAt := time.Now().Unix()
 
-	emit := func(eventType string, data any) {
+	emitRaw := func(eventType string, data any) {
 		buf, _ := json.Marshal(data)
 		fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventType, buf)
 		flusher.Flush()
 	}
 
-	// 1. response.created
-	emit("response.created", map[string]any{
-		"type": "response.created",
-		"response": map[string]any{
-			"id":                  respID,
-			"object":              "response",
-			"created_at":          createdAt,
-			"status":              "in_progress",
-			"model":               fullModel,
-			"output":              []any{},
-			"metadata":            metadata,
-			"parallel_tool_calls": parallelToolCalls,
-		},
-	})
+	// response.created is emitted lazily, on the first event that actually has
+	// something to say. It used to be written before the upstream stream was
+	// opened, which committed the response to this provider and is why streaming
+	// could not fall back — the event carries no upstream information, so
+	// deferring it costs nothing and makes an open failure recoverable.
+	emit := func(eventType string, data any) {
+		if !committed {
+			committed = true
+			emitRaw("response.created", map[string]any{
+				"type": "response.created",
+				"response": map[string]any{
+					"id":                  respID,
+					"object":              "response",
+					"created_at":          createdAt,
+					"status":              "in_progress",
+					"model":               fullModel,
+					"output":              []any{},
+					"metadata":            metadata,
+					"parallel_tool_calls": parallelToolCalls,
+				},
+			})
+		}
+		emitRaw(eventType, data)
+	}
 
 	// Try true streaming first.
 	callStart := time.Now()
@@ -498,12 +551,11 @@ func (s *Server) handleStreamingResponses(
 	if sp, ok := info.provider.(service.LLMStreamProvider); ok {
 		chunks, _, err := sp.ChatStream(r.Context(), actualModel, messages, tools, opts)
 		if err != nil {
-			emit("response.failed", map[string]any{
-				"type":  "response.failed",
-				"error": map[string]any{"message": err.Error(), "type": "server_error"},
-			})
+			s.noteProviderError(providerKey, err)
 			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{}, time.Since(callStart).Milliseconds(), "error", classifyHTTPError(err), err.Error())
-			return
+
+			// Nothing emitted yet: the caller may advance the fallback chain.
+			return false, err
 		}
 		for chunk := range chunks {
 			if chunk.Error != nil {
@@ -511,7 +563,9 @@ func (s *Server) handleStreamingResponses(
 					"type":  "response.failed",
 					"error": map[string]any{"message": chunk.Error.Error(), "type": "server_error"},
 				})
-				return
+
+				// Reported on the committed stream; the chain cannot advance.
+				return true, nil
 			}
 			if chunk.Usage != nil {
 				u := *chunk.Usage
@@ -564,12 +618,11 @@ func (s *Server) handleStreamingResponses(
 		// and emit the whole result as a single delta.
 		resp, err := info.provider.Chat(r.Context(), actualModel, messages, tools, opts)
 		if err != nil {
-			emit("response.failed", map[string]any{
-				"type":  "response.failed",
-				"error": map[string]any{"message": err.Error(), "type": "server_error"},
-			})
+			s.noteProviderError(providerKey, err)
 			s.recordUsageAsync(r.Context(), auth, fullModel, service.Usage{}, time.Since(callStart).Milliseconds(), "error", classifyHTTPError(err), err.Error())
-			return
+
+			// Uncommitted for the same reason as the true-streaming open.
+			return false, err
 		}
 		if resp.ReasoningContent != "" {
 			reasoningText.WriteString(resp.ReasoningContent)
@@ -726,6 +779,8 @@ func (s *Server) handleStreamingResponses(
 		"type":     "response.completed",
 		"response": finalResp,
 	})
+
+	return true, nil
 }
 
 func responsesReasoningItemFromSignature(signature string) (responsesOutItem, bool) {

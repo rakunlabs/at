@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -187,12 +188,104 @@ type ContentBlock struct {
 	Name      string         `json:"name,omitempty"`
 	Input     map[string]any `json:"input,omitempty"`
 	ToolUseID string         `json:"tool_use_id,omitempty"`
-	Content   string         `json:"content,omitempty"`
-	Source    *MediaSource   `json:"source,omitempty"` // For media content blocks (images, documents, audio, video — Anthropic format)
+	// Content is a tool_result payload: either a string or a []ContentBlock.
+	//
+	// It is deliberately not a plain string. A tool result may carry an image —
+	// a browser tool's screenshot is the ordinary case — and a string field
+	// silently discarded every non-text part on the way to the provider,
+	// whatever route the request took. Use ContentText() where a flat string is
+	// the correct semantic (token estimation, OpenAI-shape output) and type-
+	// switch where the provider can carry structure.
+	//
+	// The JSON tag is unchanged and a string still marshals identically, so
+	// persisted history stays readable and no migration is required.
+	Content any          `json:"content,omitempty"`
+	Source  *MediaSource `json:"source,omitempty"` // For media content blocks (images, documents, audio, video — Anthropic format)
 	// ThoughtSignature is opaque provider reasoning state (for example Gemini's
 	// thoughtSignature or Codex encrypted reasoning) that must be echoed back on
 	// the corresponding tool_use block across function-calling turns.
 	ThoughtSignature string `json:"thought_signature,omitempty"`
+}
+
+// ContentText flattens Content to a string for consumers where a string is the
+// correct semantic: token estimation, and providers whose tool-result field is
+// textual. Structured parts contribute their text; non-text parts contribute a
+// short placeholder so the reader can tell something was there rather than
+// seeing a silently shorter result.
+func (b ContentBlock) ContentText() string {
+	switch v := b.Content.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []ContentBlock:
+		return flattenContentBlocks(v)
+	case []any:
+		blocks := make([]ContentBlock, 0, len(v))
+		for _, item := range v {
+			if block, ok := item.(ContentBlock); ok {
+				blocks = append(blocks, block)
+			}
+		}
+
+		return flattenContentBlocks(blocks)
+	}
+
+	return ""
+}
+
+// ContentBlocks returns the structured form of Content, if it has one.
+func (b ContentBlock) ContentBlocks() ([]ContentBlock, bool) {
+	switch v := b.Content.(type) {
+	case []ContentBlock:
+		return v, true
+	case []any:
+		blocks := make([]ContentBlock, 0, len(v))
+		for _, item := range v {
+			block, ok := item.(ContentBlock)
+			if !ok {
+				return nil, false
+			}
+			blocks = append(blocks, block)
+		}
+
+		return blocks, true
+	}
+
+	return nil, false
+}
+
+// HasContent reports whether the block carries any tool-result payload. It
+// replaces the `Content != ""` checks that a string field allowed.
+func (b ContentBlock) HasContent() bool {
+	switch v := b.Content.(type) {
+	case string:
+		return v != ""
+	case []ContentBlock:
+		return len(v) > 0
+	case []any:
+		return len(v) > 0
+	}
+
+	return false
+}
+
+func flattenContentBlocks(blocks []ContentBlock) string {
+	var out strings.Builder
+	for _, block := range blocks {
+		switch block.Type {
+		case "text", "":
+			out.WriteString(block.Text)
+		case "image":
+			out.WriteString("[image]")
+		case "document":
+			out.WriteString("[document]")
+		default:
+			out.WriteString("[" + block.Type + "]")
+		}
+	}
+
+	return out.String()
 }
 
 // MediaSource represents a media source for content blocks (images, documents, audio, video).

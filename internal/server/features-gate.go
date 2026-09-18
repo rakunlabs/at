@@ -228,6 +228,8 @@ func featureKeyForRoute(path, method, basePath string) string {
 		return service.FeatureUsageAnalytics
 	case "api-tokens":
 		return service.FeatureAPITokens
+	case "routing-profiles":
+		return service.FeatureRoutingProfiles
 
 	// ─── Automation ───
 	case "workflows":

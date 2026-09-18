@@ -1,6 +1,7 @@
 import {
   FEATURE_AGENTS,
   FEATURE_API_TOKENS,
+  FEATURE_ROUTING_PROFILES,
   FEATURE_BOTS,
   FEATURE_CHAT_SESSIONS,
   FEATURE_EXTERNAL_CONNECTIONS,
@@ -49,6 +50,7 @@ export const routeFeatures: Record<string, string> = {
   '/pricing': FEATURE_MODEL_PRICING,
   '/usage': FEATURE_USAGE_ANALYTICS,
   '/settings/tokens': FEATURE_API_TOKENS,
+  '/routing-profiles': FEATURE_ROUTING_PROFILES,
   '/playground': FEATURE_PLAYGROUND,
   '/sessions': FEATURE_CHAT_SESSIONS,
   '/bots': FEATURE_BOTS,

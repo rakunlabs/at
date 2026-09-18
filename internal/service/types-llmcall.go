@@ -95,7 +95,10 @@ type LLMCall struct {
 	// header, chat session ID, or task ID).
 	SessionID string `json:"session_id,omitempty"`
 	// Source tells which subsystem made the call: "gateway",
-	// "gateway_stream", "responses", "agent", "chat", "workflow".
+	// "gateway_stream", "responses", "gateway_passthrough", "agent", "chat",
+	// "workflow". Passthrough is deliberately its own family rather than folded
+	// into "gateway": it carries an opaque provider-native body, so its usage
+	// coverage and error shapes differ and grouping them would hide that.
 	Source string `json:"source"`
 	// Endpoint is the HTTP path that received the original request.
 	Endpoint string `json:"endpoint,omitempty"`

@@ -156,6 +156,7 @@ OpenAI HTTP API. Endpoints exposed today:
 | Endpoint | Notes |
 |---|---|
 | `POST /gateway/v1/chat/completions` | Full OpenAI shape. Supports `tool_choice`, `parallel_tool_calls`, `n`, `presence_penalty`, `frequency_penalty`, `logit_bias`, `user`, `logprobs`, `top_logprobs`, `store`, `metadata`, `service_tier`, `seed`, `response_format`, streaming with `stream_options.include_usage`, `system_fingerprint`, full `finish_reason` vocabulary (`stop` / `length` / `content_filter` / `tool_calls` / `function_call`), `usage.completion_tokens_details.reasoning_tokens`. AT extensions: `at_fallbacks`, `extra_body`, `mock_response`, `timeout_ms`, and `Idempotency-Key` header. |
+| `POST /gateway/v1/messages` | Native Anthropic Messages API, sync and streaming. Lets an unmodified Anthropic-native client (Claude Code, Cline, Roo, Kilo) point its base URL at `<base>/gateway` and get routing, fallback, budgets and tracing. Accepts `x-api-key` as well as `Authorization`. Bare model names resolve through routing profiles. Errors use the Anthropic envelope, not the OpenAI one. |
 | `POST /gateway/v1/embeddings` | OpenAI-shape embeddings. Accepts string or `[]string` `input`. Backed by `service.EmbeddingProvider` (OpenAI, Cohere, Gemini). Providers can declare `embedding_models` (Provider UI: "Embedding Models" + discovery via `POST /api/v1/providers/discover-embedding-models`); these are advertised alongside chat models by `/gateway/v1/models` (advisory — unlisted models are still forwarded). |
 | `POST /gateway/v1/responses` | OpenAI Responses API with streaming. Supports `input` (string or array of items), `instructions`, `tools` (function only), `tool_choice`, `reasoning.effort`, `text.format`, `parallel_tool_calls`, `metadata`. SSE event types: `response.created`, `response.output_item.added`, `response.output_text.delta`, `response.output_text.done`, `response.output_item.done`, `response.completed`, `response.failed`. Does NOT support `previous_response_id` (no server-side state). |
 | `POST /gateway/v1/images/generations` | OpenAI-shape image generation. Backed by `service.ImageProvider` (OpenAI, MiniMax). |
@@ -265,11 +266,144 @@ upstream OpenAI when none of them are present.
 
 | Field | Default | Behaviour |
 |---|---|---|
-| `at_fallbacks: ["provider/model", ...]` | `[]` (off) | When set, the gateway retries on the next entry if the primary fails with a retryable upstream error (429 / 529 / 5xx / timeout / context cancel). 4xx other than 429 does NOT trigger fallback. The model that actually served the response is reported in the `x-at-model-used` response header. Streaming requests ignore this field — once SSE headers are flushed we can't restart. |
+| `at_fallbacks: ["provider/model", ...]` | `[]` (off) | When set, the gateway retries on the next entry if the primary fails with a retryable upstream error (429 / 529 / 5xx / timeout / context cancel). 4xx other than 429 does NOT trigger fallback. The model that actually served the response is reported in the `x-at-model-used` response header. Streaming requests fall back too, bounded by the commitment boundary: nothing is written to the client until the upstream stream opens, so an open failure is recoverable and a failure after the first chunk is not. |
 | `extra_body: {...}` | `{}` (off) | Merged into the upstream provider request body **after** AT's own field mapping. Keys collide-overwrite our own keys. Use it for provider-native fields we don't surface yet (Anthropic `cache_control`, Gemini `safetySettings`, Bedrock `additionalModelRequestFields`, …). |
 | `mock_response: "..."` | `""` (off) | When non-empty, returns a synthesized response immediately with no upstream call. Works for both sync and streaming. Streaming emits `role` → `content` → `finish=stop` chunks. Response carries `x-at-mock-response: true`. |
 | `timeout_ms: <int>` | `0` (off) | Per-call deadline applied via `context.WithTimeout` across the entire fallback chain. `0` inherits the request context (no extra cap). |
 | `Idempotency-Key: <string>` (header) | unset (off) | When present, the gateway caches the response (status + body + headers) for 5 minutes scoped to `(token_id, path, key)`. Subsequent requests with the same key replay the cached response and add `x-at-idempotent-replay: true`. 5xx responses are not cached. |
+
+### Routing profiles
+
+`at_fallbacks` is read from the request body, which the clients that most need it
+cannot write: Claude Code, Cursor, Cline and Roo send a fixed body shape, so the
+fallback engine was unreachable for them. A **routing profile** is a stored,
+workspace-scoped name bound to an ordered list of `provider/model` targets. A
+request whose `model` is that name expands to the chain and routes through the
+same machinery.
+
+Resolution lives in `chatCallChain` (`internal/server/gateway-extensions.go`) and
+fires only when the request carries no `at_fallbacks` **and** the model contains
+no `/`. Explicit beats implicit, and a qualified model is never looked up, so no
+request that works today changes meaning. The absence of `/` is the whole
+discriminator, which is why a profile name may not contain one — enforced in
+`service.ValidateRoutingProfile`, the HTTP handler and a schema CHECK, because a
+stored name with a slash would be permanently unreachable.
+
+Expansion happens *before* `resolveModel`, so every target still passes the
+unchanged token model-access and provider-allowlist checks: a profile grants
+routing, never authorization. Targets the token cannot use are skipped; a profile
+whose every target is denied reports against the profile rather than naming
+models the caller may not enumerate. The serving name is reported in
+`x-at-routing-profile`, and profiles are advertised by `GET /gateway/v1/models`
+with `at_routing_profile: true` (as `object: "model"`, because a client with a
+fixed model picker is the reason they exist). Managed at
+`/api/v1/routing-profiles` under the `providers.read`/`.write` capability —
+deliberately reusing it rather than introducing a kind no existing permission
+bundle would carry. Migration `55`; feature key `routing_profiles`.
+
+### Passthrough metering
+
+`ProxyRequest` enforces auth, token spend limits, provider-disabled fail-closed,
+token model access and the provider allowlist — but it used to record nothing.
+`checkTokenLimits` gates on the accumulated `cost_events` sum that passthrough
+never wrote to, so passthrough spend was invisible to budgets and to Traces, and
+every adapter's `Proxy` took its rate-limiter slot with weight `0`, contributing
+nothing to input-TPM.
+
+It now records a cost event and an observation (`source: gateway_passthrough`,
+its own conversation family) on success and failure alike. Usage carries an
+explicit `usage_source`: `parsed`, `stream_parsed`, or `unavailable` when the
+body is binary, unrecognised, or over the 256 KB inspection bound. **Token counts
+are never estimated** — an estimate in the column real counts use would corrupt
+budgets and the Usage dashboard — so an unreadable response records a zero-token
+row rather than nothing, which is what made the gap invisible. Recording an empty
+row is opt-in via `recordUsage(..., recordEmpty: true)`; the OpenAI-shape
+endpoints keep the nothing-to-record shortcut, where a successful response always
+reports usage. The estimate is used only for the limiter weight
+(`common.ProxyInputWeight`), which is a self-imposed throttle and the one place
+an approximation is the intended semantic. Observation happens through
+`service.ContextWithProxyObserver`, which rides the context rather than the
+`Proxy` signature that seven adapters implement and the gateway asserts
+structurally; the response is never buffered.
+
+**Upgrade note**: previously-uncounted passthrough spend now accumulates, so a
+token close to its `SpendLimitCents` may begin failing. That is the defect being
+fixed, but it is behaviour-visible.
+
+### Provider cooldown
+
+Upstream rate-limit headers were captured into `LLMResponse.Header`, forwarded to
+the client, and never read, so a provider that had just reported an empty bucket
+was still first in line on the next request. `internal/server/provider-availability.go`
+parses the Anthropic (`anthropic-ratelimit-*-remaining`/`-reset`), OpenAI-family
+(`x-ratelimit-remaining-*`/`-reset-*`) and `Retry-After` conventions into a
+per-provider deadline. A typed 429/529 or a zero-remaining bucket enters
+cooldown; a successful call reporting headroom clears it; a malformed header is
+ignored rather than guessed at. Deadlines are clamped to `[1s, 15m]` because they
+are upstream-controlled strings.
+
+Chain resolution **stable-partitions** cooled targets to the back and never drops
+them, so a single cooled target — or an all-cooled chain — is still attempted.
+That is the fail-open property: a stale cooldown costs one wasted attempt,
+whereas removal would turn bad cache state into a hard 503. State is in-memory
+and per replica, deliberately not shared: a database write on the request path
+for information that expires in seconds, and that each replica re-learns from its
+own next 429, is a permanent cost for a benefit that evaporates. Health reports
+`cooling` distinctly from `disabled`. `providerCooldownDisabled` is the in-code
+rollback switch.
+
+### Inbound shapes and the translation matrix
+
+`buildProviderMessages` has always branched on provider family; there is no
+OpenAI "pivot" to reuse. `[]OpenAIMessage` is an *inbound DTO*, and
+`service.ContentBlock` is modelled on Anthropic's block shape (`Source` is
+commented "Anthropic format"). Anthropic inbound therefore translates directly
+per target rather than round-tripping through the OpenAI DTO, which would be a
+lossy detour back to where the input started:
+
+| | OpenAI-family target | Anthropic-family target |
+|---|---|---|
+| **OpenAI inbound** | `translateOpenAIMessages` | `translateOpenAIToAnthropic` |
+| **Anthropic inbound** | `translateAnthropicToOpenAI` | `translateAnthropicMessages` (near-identity) |
+
+The branch is evaluated per fallback attempt from the original request, so a
+chain spanning provider families never derives one attempt from another's form.
+This is attractive at two inbound shapes and bad at three (3×3 = 9 cells), which
+is the usual argument for a pivot; Gemini and Ollama inbound are explicit
+non-goals, and if a third is ever added the right pivot is `ContentBlock`, not
+the OpenAI DTO.
+
+**`ContentBlock.Content` is `any`** (string or `[]ContentBlock`), not a string.
+A tool result may carry an image — a browser tool's screenshot is the ordinary
+case — and the string field discarded every non-text part regardless of route.
+Use `ContentText()` where a flat string is correct (token estimation,
+OpenAI-shape output, Gemini `functionResponse`, Codex `function_call_output`) and
+`ContentBlocks()` where the provider can carry structure (Anthropic native block
+arrays, Bedrock Converse image/document tool-result blocks). The JSON tag is
+unchanged and a string marshals identically, so persisted history stays readable
+and no migration is needed. Regression: `internal/service/content-block_test.go`
+asserts the string wire form byte-for-byte.
+
+### Streaming fallback and the commitment boundary
+
+Streaming used to take `chain[0]` and return, on the stated grounds that SSE
+headers had already been flushed. That is not true where the decision is made:
+`w.Header().Set` only populates the header map, and the upstream stream is opened
+before any `Write`/`Flush`, so an open failure leaves the response completely
+unwritten. Since every coding CLI streams, `at_fallbacks` was effectively dead
+even for clients that could set it.
+
+`handleStreamingChat` now returns `(committed bool, err error)`. `committed` is
+set at exactly one place — immediately before the first chunk is written — so the
+invariant "committed implies bytes may have reached the client" cannot drift. The
+caller loops the chain on `shouldFallback(err)` while uncommitted, clearing the
+headers a failed attempt staged (`clearStreamHeaders`), and renders a real status
+code if every target fails. A mid-stream failure after commitment is reported on
+the open stream and never advances. `handleStreamingResponses` got the same
+treatment, which required emitting `response.created` lazily instead of before
+the upstream open — the event carries no upstream information, so deferring it
+costs nothing and is what makes the failure recoverable.
+
 
 ## Runtime configuration
 

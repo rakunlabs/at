@@ -659,7 +659,10 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 		}
 	}
 
-	release, err := p.limiter.Acquire(r.Context(), 0)
+	// An estimate is the intended semantic for a self-imposed throttle; it is
+	// deliberately not what gets written to cost_events. Passing 0 here spent an
+	// RPM and a concurrency slot but never counted against input-TPM.
+	release, err := p.limiter.Acquire(r.Context(), common.ProxyInputWeight(r))
 	if err != nil {
 		return err
 	}
@@ -681,7 +684,8 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 
 			req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 		},
-		Transport: p.client.HTTP.Transport,
+		ModifyResponse: common.ProxyResponseObserver(r.Context()),
+		Transport:      p.client.HTTP.Transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if err == context.Canceled {
 				// Client disconnected

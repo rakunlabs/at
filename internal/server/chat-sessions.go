@@ -1744,14 +1744,17 @@ func (s *Server) persistToolResults(ctx context.Context, sessionID string, resul
 
 	var msgs []service.ChatMessage
 	for _, r := range results {
-		content := r.Content
+		// The chat transcript is text, so a structured tool result is flattened
+		// here. The structure still reaches the provider — this is the persisted
+		// rendering, not the payload.
+		content := r.ContentText()
 		// Sanitize: remove non-UTF8 bytes that break PostgreSQL
 		if !utf8.ValidString(content) {
 			content = strings.ToValidUTF8(content, "")
 		}
 		// Truncate very large tool results (e.g., binary file dumps) to prevent DB bloat
-		if len(content) > 50000 {
-			content = content[:50000] + "\n... [truncated, " + fmt.Sprintf("%d", len(r.Content)) + " bytes total]"
+		if original := len(content); original > 50000 {
+			content = content[:50000] + "\n... [truncated, " + fmt.Sprintf("%d", original) + " bytes total]"
 		}
 		msgs = append(msgs, service.ChatMessage{
 			SessionID: sessionID,

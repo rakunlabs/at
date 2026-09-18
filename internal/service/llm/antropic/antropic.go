@@ -815,7 +815,10 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 		}
 	}
 
-	release, err := p.limiter.Acquire(r.Context(), 0)
+	// An estimate is the intended semantic for a self-imposed throttle; it is
+	// deliberately not what gets written to cost_events. Passing 0 here spent an
+	// RPM and a concurrency slot but never counted against input-TPM.
+	release, err := p.limiter.Acquire(r.Context(), common.ProxyInputWeight(r))
 	if err != nil {
 		return err
 	}
@@ -885,7 +888,8 @@ func (p *Provider) Proxy(w http.ResponseWriter, r *http.Request, path string) er
 				req.Header.Set("anthropic-version", "2023-06-01")
 			}
 		},
-		Transport: p.Client.HTTP.Transport,
+		ModifyResponse: common.ProxyResponseObserver(r.Context()),
+		Transport:      p.Client.HTTP.Transport,
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
 			if err == context.Canceled {
 				// Client disconnected
@@ -1720,8 +1724,20 @@ func contentBlockToMap(b service.ContentBlock) map[string]any {
 			"type":        "tool_result",
 			"tool_use_id": b.ToolUseID,
 		}
-		if b.Content != "" {
-			m["content"] = b.Content
+		// Anthropic accepts either a string or a block array here, so a
+		// structured result is emitted natively: an image inside a tool result
+		// (a browser tool's screenshot) reaches the model instead of being
+		// flattened to text. A string result serializes exactly as before.
+		if blocks, structured := b.ContentBlocks(); structured {
+			parts := make([]any, 0, len(blocks))
+			for _, part := range blocks {
+				parts = append(parts, contentBlockToMap(part))
+			}
+			if len(parts) > 0 {
+				m["content"] = parts
+			}
+		} else if text := b.ContentText(); text != "" {
+			m["content"] = text
 		}
 		return m
 	case "image", "document", "audio", "video":

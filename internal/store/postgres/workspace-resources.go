@@ -17,7 +17,7 @@ var _ service.WorkspaceResourceStorer = (*Postgres)(nil)
 // are not SQL supplied by callers. Composite-key resources require their parent.
 func workspaceResourceTable(kind string) string {
 	switch kind {
-	case "organizations", "agents", "projects", "goals", "tasks", "labels", "approvals", "workflows", "workflow_versions", "triggers", "skills", "skill_servers", "variables", "connections", "bots", "providers", "tokens", "node_configs", "chat_sessions", "chat_messages", "mcp_servers", "mcp_sets", "marketplaces", "marketplace_sources", "pack_sources", "guides", "connectors", "llm_calls", "heartbeat_runs", "wakeup_requests", "agent_config_revisions", "cost_events":
+	case "organizations", "agents", "projects", "goals", "tasks", "labels", "approvals", "workflows", "workflow_versions", "triggers", "skills", "skill_servers", "variables", "connections", "bots", "providers", "tokens", "node_configs", "chat_sessions", "chat_messages", "mcp_servers", "mcp_sets", "marketplaces", "marketplace_sources", "pack_sources", "guides", "connectors", "routing_profiles", "llm_calls", "heartbeat_runs", "wakeup_requests", "agent_config_revisions", "cost_events":
 		if kind == "bots" {
 			return "bot_configs"
 		}

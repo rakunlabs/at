@@ -516,6 +516,14 @@ func (s *Server) HealthOverall(w http.ResponseWriter, r *http.Request) {
 			providers[k] = "disabled"
 			continue
 		}
+		// "cooling" is deliberately distinct from "disabled": one is an
+		// administrative decision, the other is upstream telling us it is out of
+		// quota for a bounded window. Collapsing them would make a transient
+		// rate limit look like a configuration problem.
+		if _, cooling := s.cooldown.CooledUntil(k); cooling {
+			providers[k] = "cooling"
+			continue
+		}
 		providers[k] = "ok"
 	}
 	s.providerMu.RUnlock()
@@ -553,13 +561,20 @@ func (s *Server) HealthProvider(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	httpResponseJSON(w, map[string]any{
+	body := map[string]any{
 		"status":        "ok",
 		"provider":      providerKey,
 		"provider_type": info.providerType,
 		"default_model": info.defaultModel,
 		"model_count":   len(info.models),
-	}, http.StatusOK)
+	}
+	if until, cooling := s.cooldown.CooledUntil(providerKey); cooling {
+		body["status"] = "cooling"
+		body["cooling_until"] = until.UTC().Format(time.RFC3339)
+		body["cooling_for_seconds"] = int(time.Until(until).Seconds())
+	}
+
+	httpResponseJSON(w, body, http.StatusOK)
 }
 
 // ─── Helpers ───

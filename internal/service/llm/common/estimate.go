@@ -38,7 +38,7 @@ func EstimateInputTokens(system string, messages []service.Message, tools []serv
 		case []service.ContentBlock:
 			for _, b := range c {
 				n += len(b.Text)
-				n += len(b.Content)
+				n += len(b.ContentText())
 				if len(b.Input) > 0 {
 					if buf, err := json.Marshal(b.Input); err == nil {
 						n += len(buf)

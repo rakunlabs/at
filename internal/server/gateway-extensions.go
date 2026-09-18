@@ -23,9 +23,14 @@ import (
 // model that produced the eventual response is reflected in the
 // `x-at-model-used` header.
 //
-// Fallback is OFF for streaming today — once we've flushed SSE headers
-// to the client we can't restart cleanly. Streaming clients should
-// supply a single model.
+// Streaming falls back too, bounded by the commitment boundary. An earlier
+// revision disabled it on the grounds that SSE headers had already been flushed;
+// that is not true at the point the decision is made. w.Header().Set only
+// populates the header map, and the upstream stream is opened before any
+// Write/Flush — so an open failure leaves the response completely unwritten and
+// a different target can serve it invisibly. Once the first chunk is written the
+// response is committed and the chain stops; handleStreamingChat reports that
+// through its `committed` return, set at exactly one place.
 
 // shouldFallback reports whether the given error is worth swapping the
 // model for. RateLimitError, 5xx, timeouts, and connection errors all
@@ -319,11 +324,109 @@ func (s *Server) resolveModel(auth *authResult, fullModel string) (providerKey, 
 	return providerKey, actualModel, pInfo, nil
 }
 
+// resolveRoutingProfile expands a bare model name into a stored chain.
+//
+// It only runs when the request supplied no at_fallbacks (explicit beats
+// implicit) and the model carries no "/" — a qualified model is never looked up,
+// so no request that works today can change meaning. A miss returns no targets
+// and the caller falls through to the usual "model must be provider/model"
+// rejection.
+//
+// The workspace comes from the presented token, not from a session principal;
+// see service.GatewayRoutingProfileStorer.
+func (s *Server) resolveRoutingProfile(ctx context.Context, auth *authResult, model string, fallbacks []string) (name string, targets []string) {
+	if len(fallbacks) > 0 || model == "" || strings.Contains(model, "/") {
+		return "", nil
+	}
+	store, ok := s.routingProfileStore.(service.GatewayRoutingProfileStorer)
+	if !ok || auth == nil || auth.token == nil || auth.token.WorkspaceID == "" {
+		return "", nil
+	}
+
+	profile, err := store.GetGatewayRoutingProfile(ctx, model, auth.token.WorkspaceID)
+	if err != nil {
+		// A lookup failure must not turn a routable request into a 500: the
+		// caller still rejects an unqualified model, which is the pre-change
+		// behaviour, and the error is visible in logs.
+		slog.Error("routing profile lookup failed", "model", model, "error", err)
+		return "", nil
+	}
+	if profile == nil || len(profile.Targets) == 0 {
+		return "", nil
+	}
+
+	return profile.Name, profile.Targets
+}
+
+// expandRoutingProfileTargets returns an effective (primary, fallbacks) pair for
+// handlers whose validation is structured around a single primary model rather
+// than a chain — the Responses and Anthropic endpoints.
+//
+// Targets this token cannot use are dropped rather than left in front, so a
+// denied first entry does not fail a request the chat endpoint would serve.
+// ok is false when the name matched a profile whose every target is unusable;
+// the caller reports that against the profile, not the individual models.
+func (s *Server) expandRoutingProfileTargets(ctx context.Context, auth *authResult, model string, fallbacks []string) (name, primary string, rest []string, ok bool) {
+	profileName, targets := s.resolveRoutingProfile(ctx, auth, model, fallbacks)
+	if profileName == "" {
+		return "", model, fallbacks, true
+	}
+
+	usable := make([]string, 0, len(targets))
+	for _, m := range targets {
+		if _, _, _, err := s.resolveModel(auth, m); err != nil {
+			slog.Warn("routing profile: skipping unusable target",
+				"profile", profileName, "model", m, "error", err.Error())
+			continue
+		}
+		usable = append(usable, m)
+	}
+	if len(usable) == 0 {
+		return profileName, "", nil, false
+	}
+
+	return profileName, usable[0], usable[1:], true
+}
+
 // chatCallChain returns the ordered list of (full model, providerKey,
 // actualModel, info) to try, beginning with the primary and then each
 // fallback. Entries that fail validation are skipped (with a warning
 // log) so a single bad fallback doesn't break the whole chain.
-func (s *Server) chatCallChain(auth *authResult, primary string, fallbacks []string) []chatCallTarget {
+//
+// When the model names a routing profile, the profile's targets become the whole
+// chain. Every target still goes through resolveModel, so a profile grants
+// routing and never authorization.
+func (s *Server) chatCallChain(ctx context.Context, auth *authResult, primary string, fallbacks []string) ([]chatCallTarget, string) {
+	profileName, targets := s.resolveRoutingProfile(ctx, auth, primary, fallbacks)
+	if profileName != "" {
+		out := make([]chatCallTarget, 0, len(targets))
+		for _, m := range targets {
+			pKey, actual, info, err := s.resolveModel(auth, m)
+			if err != nil {
+				slog.Warn("routing profile: skipping unusable target",
+					"profile", profileName, "model", m, "error", err.Error())
+				continue
+			}
+			out = append(out, chatCallTarget{
+				fullModel:   m,
+				providerKey: pKey,
+				actualModel: actual,
+				info:        info,
+			})
+		}
+		if len(out) == 0 {
+			// Every target was denied or unavailable. Report it against the
+			// profile rather than the individual models, which the caller may
+			// not be permitted to enumerate.
+			return []chatCallTarget{{
+				fullModel: primary,
+				err:       fmt.Errorf("routing profile %q has no usable target for this token", profileName),
+			}}, profileName
+		}
+
+		return out, profileName
+	}
+
 	out := make([]chatCallTarget, 0, 1+len(fallbacks))
 	for _, m := range append([]string{primary}, fallbacks...) {
 		pKey, actual, info, err := s.resolveModel(auth, m)
@@ -345,7 +448,7 @@ func (s *Server) chatCallChain(auth *authResult, primary string, fallbacks []str
 			info:        info,
 		})
 	}
-	return out
+	return out, ""
 }
 
 type chatCallTarget struct {

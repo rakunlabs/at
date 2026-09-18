@@ -158,8 +158,15 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve the call chain: primary + at_fallbacks.
-	chain := s.chatCallChain(auth, req.Model, req.AtFallbacks)
+	// Resolve the call chain: a routing profile, or primary + at_fallbacks.
+	chain, routingProfile := s.chatCallChain(r.Context(), auth, req.Model, req.AtFallbacks)
+	if routingProfile != "" {
+		respW.Header().Set("x-at-routing-profile", routingProfile)
+	}
+	// Providers that told us they are exhausted go to the back of the chain.
+	// They are moved, never dropped, so a stale entry costs one attempt instead
+	// of failing a request a healthy provider could have served.
+	chain = s.partitionCooledTargets(chain)
 	if len(chain) == 0 {
 		httpResponseJSON(respW, map[string]any{
 			"error": map[string]any{
@@ -226,17 +233,53 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	baseOpts := buildChatOptions(&req)
 
 	if req.Stream {
-		// Streaming path: no fallback. Use the primary only.
-		target := chain[0]
-		messages, tools := s.buildProviderMessages(target.info.providerType, req.Messages, req.Tools)
-		opts := cloneChatOptions(baseOpts)
+		// Streaming falls back too, bounded by the commitment boundary: nothing
+		// is written to the client until the upstream stream opens, so an open
+		// failure can still be retried against the next target invisibly. Once
+		// the first chunk is written the response is committed and the chain
+		// stops. See handleStreamingChat's `committed` return.
 		audit := streamAuditCtx{
 			auth: auth, endpoint: r.URL.Path,
 			traceID: traceID, sessionID: sessionID, userField: req.User,
 			requestBody: rawBody, requestedModel: req.Model,
 		}
-		s.handleStreamingChat(w, r.WithContext(callCtx), auth, target.info.provider, target.info.RetryAfterCap(),
-			target.providerKey, target.actualModel, target.fullModel, messages, tools, req.StreamOptions, opts, audit)
+
+		var streamErr error
+		for i, target := range chain {
+			if target.err != nil {
+				continue
+			}
+			messages, tools := s.buildProviderMessages(target.info.providerType, req.Messages, req.Tools)
+			opts := cloneChatOptions(baseOpts)
+
+			if target.fullModel != req.Model {
+				w.Header().Set("x-at-model-used", target.fullModel)
+			}
+
+			committed, err := s.handleStreamingChat(w, r.WithContext(callCtx), auth, target.info.provider, target.info.RetryAfterCap(),
+				target.providerKey, target.actualModel, target.fullModel, messages, tools, req.StreamOptions, opts, audit)
+			if err == nil {
+				return
+			}
+			streamErr = err
+
+			// Committed means bytes may already have reached the client; there
+			// is no way to start a different response behind them.
+			if committed || callCtx.Err() != nil || !shouldFallback(err) || i == len(chain)-1 {
+				break
+			}
+
+			// The failed attempt staged headers that must not leak into the
+			// response the next target serves.
+			clearStreamHeaders(w)
+			slog.Warn("gateway: streaming fallback advancing",
+				"failed_provider", target.providerKey, "error", err)
+		}
+
+		status, body := classifyGatewayError(streamErr)
+		addGatewayRateLimitHeaders(w, streamErr)
+		httpResponseJSON(w, body, status)
+
 		return
 	}
 
@@ -267,6 +310,7 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		lastErr = err
+		s.noteProviderError(target.providerKey, err)
 		slog.Warn("provider chat failed",
 			"attempt", i, "provider", target.providerKey, "model", target.actualModel, "error", err)
 		s.recordUsageAsync(r.Context(), auth, target.fullModel, service.Usage{}, totalLatency, "error", classifyHTTPError(err), err.Error())
@@ -291,7 +335,10 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward provider headers (e.g. rate limits).
+	// Forward provider headers (e.g. rate limits), and read them: a provider
+	// that reports an exhausted bucket here is one we should stop putting first
+	// on the next request. They used to be relayed without ever being inspected.
+	s.noteProviderResponse(used.providerKey, resp.Header)
 	for k, v := range resp.Header {
 		for _, val := range v {
 			respW.Header().Add(k, val)
@@ -322,6 +369,43 @@ func (s *Server) ChatCompletions(w http.ResponseWriter, r *http.Request) {
 	s.maybeStoreIdempotent(idempKey, cap, w)
 }
 
+// anthropicFamilyProvider reports whether a provider type consumes the
+// Anthropic content-block shape. Bedrock's Converse API uses an Anthropic-style
+// block shape and the adapter converts service.ContentBlock internally.
+func anthropicFamilyProvider(providerType string) bool {
+	switch providerType {
+	case "anthropic", "minimax", "bedrock":
+		return true
+	}
+
+	return false
+}
+
+// buildAnthropicProviderMessages is the Anthropic-inbound row of the
+// inbound-shape × provider-family translation matrix.
+//
+// The Anthropic-to-Anthropic cell is a near-identity decode, because
+// service.ContentBlock is modelled on Anthropic's block shape. Routing that cell
+// through the OpenAI DTO would be a lossy detour back to where the input
+// started. Translation is selected per fallback attempt from the original
+// request, so a chain spanning provider families never compounds conversions.
+func (s *Server) buildAnthropicProviderMessages(providerType string, req *anthropicMessagesRequest) ([]service.Message, []service.Tool) {
+	tools := translateAnthropicTools(req.Tools)
+
+	if anthropicFamilyProvider(providerType) {
+		systemPrompt, messages := translateAnthropicMessages(req)
+		if systemPrompt != "" {
+			messages = append([]service.Message{{Role: "system", Content: systemPrompt}}, messages...)
+		}
+
+		return messages, tools
+	}
+
+	openAIMessages := translateAnthropicToOpenAI(req)
+
+	return translateOpenAIMessages(openAIMessages, s.lookupThoughtSignature), tools
+}
+
 // buildProviderMessages translates the OpenAI-shape messages + tools into
 // the provider-flavoured service.Message and service.Tool slices.
 func (s *Server) buildProviderMessages(providerType string, msgs []OpenAIMessage, tools []OpenAITool) ([]service.Message, []service.Tool) {
@@ -338,6 +422,30 @@ func (s *Server) buildProviderMessages(providerType string, msgs []OpenAIMessage
 		return messages, tt
 	default:
 		return translateOpenAIMessages(msgs, s.lookupThoughtSignature), tt
+	}
+}
+
+// streamResponseHeaders are the headers a streaming attempt stages before it is
+// known whether the upstream will open.
+var streamResponseHeaders = []string{
+	"Content-Type", "Cache-Control", "Connection", "X-Accel-Buffering",
+}
+
+// clearStreamHeaders removes the headers a failed streaming attempt staged, plus
+// the upstream headers it forwarded, so they cannot appear on the response a
+// later chain target serves. Nothing has been written at this point, so the
+// header map is still mutable.
+func clearStreamHeaders(w http.ResponseWriter) {
+	header := w.Header()
+	for _, k := range streamResponseHeaders {
+		header.Del(k)
+	}
+	for k := range header {
+		// Provider rate-limit headers describe the attempt that just failed.
+		if strings.HasPrefix(strings.ToLower(k), "anthropic-ratelimit-") ||
+			strings.HasPrefix(strings.ToLower(k), "x-ratelimit-") {
+			header.Del(k)
+		}
 	}
 }
 
@@ -465,19 +573,64 @@ func (s *Server) ProxyRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Forward request
+	// Forward request.
+	//
+	// Passthrough spends the same provider credits as the OpenAI-shape endpoint,
+	// so it records the same way: a cost event for the budget that gates it and
+	// an observation so the request is visible in Traces. Before this it did
+	// neither, which meant checkTokenLimits gated on a sum passthrough never
+	// contributed to — its spend was invisible and effectively unlimited.
 	if sender, ok := info.provider.(interface {
 		Proxy(w http.ResponseWriter, r *http.Request, path string) error
 	}); ok {
-		if err := sender.Proxy(w, r, proxyPath); err != nil {
+		fullModel := providerKey + "/" + proxyModel
+		if !hasProxyModel {
+			fullModel = providerKey
+		}
+		traceID, sessionID := auditTraceInfo(r)
+		started := time.Now()
+
+		var once sync.Once
+		record := func(obs service.ProxyObservation, err error) {
+			once.Do(func() {
+				s.recordProxyCall(r.Context(), auth, proxyCallRecord{
+					providerKey: providerKey,
+					fullModel:   fullModel,
+					proxyPath:   proxyPath,
+					traceID:     traceID,
+					sessionID:   sessionID,
+					latencyMs:   time.Since(started).Milliseconds(),
+					obs:         obs,
+					err:         err,
+				})
+			})
+		}
+
+		// The observer fires when the upstream body finishes relaying, which is
+		// also the case where usage is readable. A transport failure never gets
+		// there, so the error path records separately; sync.Once keeps a
+		// response that both observed and errored to a single row.
+		proxyCtx := service.ContextWithProxyObserver(r.Context(), func(obs service.ProxyObservation) {
+			record(obs, nil)
+		})
+
+		if err := sender.Proxy(w, r.WithContext(proxyCtx), proxyPath); err != nil {
 			slog.Error("proxy request failed", "provider", providerKey, "path", proxyPath, "error", err)
+			record(service.ProxyObservation{UsageSource: service.UsageSourceUnavailable}, err)
 			httpResponseJSON(w, map[string]any{
 				"error": map[string]any{
 					"message": fmt.Sprintf("proxy error: %v", err),
 					"type":    "server_error",
 				},
 			}, http.StatusBadGateway)
+
+			return
 		}
+
+		// An adapter that ignores the observer seam still produces a record:
+		// no usage is better than no visibility.
+		record(service.ProxyObservation{UsageSource: service.UsageSourceUnavailable}, nil)
+
 		return
 	}
 
@@ -553,6 +706,11 @@ func (s *Server) ListModels(w http.ResponseWriter, r *http.Request) {
 	// order on every call and model pickers reshuffled between restarts.
 	sort.Slice(models, func(i, j int) bool { return models[i].ID < models[j].ID })
 
+	// Routing profiles are advertised after the concrete models, already sorted
+	// by name, so a client that renders the list in order sees provider models
+	// first and the installation's own chains grouped at the end.
+	models = append(models, s.routingProfileModels(r.Context(), auth)...)
+
 	httpResponseJSON(w, ModelsResponse{
 		Object: "list",
 		Data:   models,
@@ -591,7 +749,7 @@ func parseModelID(model string) (providerKey, actualModel string, err error) {
 	idx := strings.Index(model, "/")
 	if idx < 0 {
 		return "", "", fmt.Errorf(
-			"model %q must use format \"provider/model\" (e.g., \"openai/gpt-4o\", \"anthropic/claude-haiku-4-5\")",
+			"model %q must use format \"provider/model\" (e.g., \"openai/gpt-4o\", \"anthropic/claude-haiku-4-5\") or name a routing profile",
 			model,
 		)
 	}
@@ -806,7 +964,7 @@ func (s *Server) handleStreamingChat(
 	streamOpts *StreamOptions,
 	opts *service.ChatOptions,
 	audit streamAuditCtx,
-) {
+) (committed bool, streamErr error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		httpResponseJSON(w, map[string]any{
@@ -815,7 +973,7 @@ func (s *Server) handleStreamingChat(
 				"type":    "server_error",
 			},
 		}, http.StatusInternalServerError)
-		return
+		return true, nil
 	}
 
 	// Set SSE headers
@@ -861,24 +1019,29 @@ func (s *Server) handleStreamingChat(
 				latencyMs: time.Since(streamStart).Milliseconds(), streamed: true, status: "error",
 				errCode: classifyHTTPError(err), errMsg: err.Error(),
 			})
+			s.noteProviderError(providerKey, err)
 			slog.Error("provider stream failed", "provider", providerKey, "error", err)
-			// SSE headers haven't been committed yet (only set on the
-			// ResponseWriter, not flushed), so we can still emit a
-			// JSON error with an upstream-faithful status code.
-			status, body := classifyGatewayError(err)
-			addGatewayRateLimitHeaders(w, err)
-			httpResponseJSON(w, body, status)
-			return
+			// Nothing has been written to the client: w.Header().Set only
+			// populates the header map, and no Write/Flush has run. The response
+			// is therefore uncommitted, so the caller may either advance the
+			// fallback chain or render an upstream-faithful status code.
+			return false, err
 		}
 		chunks := opened.chunks
 		headers := opened.headers
 
-		// Forward provider headers (e.g. rate limits)
+		// Forward provider headers (e.g. rate limits), and read them.
+		s.noteProviderResponse(providerKey, headers)
 		for k, v := range headers {
 			for _, val := range v {
 				w.Header().Add(k, val)
 			}
 		}
+
+		// Commitment boundary. Set immediately before the first byte reaches
+		// the client and nowhere else, so the invariant "committed implies bytes
+		// may have been written" cannot drift as this function changes.
+		committed = true
 
 		// First chunk: send role
 		writeSSEChunk(w, flusher, ChatCompletionChunk{
@@ -916,7 +1079,9 @@ func (s *Server) handleStreamingChat(
 					streamed: true, status: "error", errCode: "provider_error", errMsg: fmt.Sprintf("%v", chunk.Error),
 				})
 				writeSSEError(w, flusher, chatID, fullModel, fmt.Sprintf("stream error: %v", chunk.Error))
-				return
+
+				// Reported on the committed stream; the chain cannot advance.
+				return true, nil
 			}
 
 			// Capture usage if present (don't emit it yet).
@@ -1054,14 +1219,15 @@ func (s *Server) handleStreamingChat(
 				latencyMs: fakeLatencyMs, streamed: true, status: "error",
 				errCode: classifyHTTPError(err), errMsg: err.Error(),
 			})
+			s.noteProviderError(providerKey, err)
 			slog.Error("provider chat failed", "provider", providerKey, "error", err)
-			status, body := classifyGatewayError(err)
-			addGatewayRateLimitHeaders(w, err)
-			httpResponseJSON(w, body, status)
-			return
+
+			// Uncommitted for the same reason as the true-streaming open.
+			return false, err
 		}
 
 		// Chunk 1: role
+		committed = true
 		writeSSEChunk(w, flusher, ChatCompletionChunk{
 			ID:     chatID,
 			Object: "chat.completion.chunk",
@@ -1171,6 +1337,8 @@ func (s *Server) handleStreamingChat(
 	// End the stream
 	fmt.Fprint(w, "data: [DONE]\n\n")
 	flusher.Flush()
+
+	return true, nil
 }
 
 // buildDeltaContent constructs the delta content for an SSE chunk.
@@ -1344,6 +1512,18 @@ func (s *Server) shouldResetUsage(token *service.APIToken) bool {
 // latencyMs, status, errCode, and errMsg are best-effort — callers pass zero /
 // empty when they don't have the info (the summary response usually does).
 func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullModel string, usage service.Usage, latencyMs int64, status, errCode, errMsg string) {
+	s.recordUsage(ctx, auth, fullModel, usage, latencyMs, status, errCode, errMsg, false)
+}
+
+// recordUsage is recordUsageAsync with an explicit control over the
+// nothing-to-record shortcut.
+//
+// recordEmpty is for callers where a successful call with no readable usage is
+// itself the information — native passthrough, where the upstream body is opaque
+// and may carry no usage object at all. On the OpenAI-shape endpoints a
+// successful response always reports usage, so a zero-token row there would be
+// pure noise and the shortcut stands.
+func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel string, usage service.Usage, latencyMs int64, status, errCode, errMsg string, recordEmpty bool) {
 	if auth == nil || auth.token == nil || auth.token.ID == "" {
 		return // config token or unrestricted — no tracking
 	}
@@ -1355,7 +1535,7 @@ func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullMod
 	}
 	// Skip entirely if we have nothing to record.
 	hasUsage := usage.TotalTokenCount() > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0
-	if !hasUsage && status == "ok" {
+	if !hasUsage && status == "ok" && !recordEmpty {
 		return
 	}
 
