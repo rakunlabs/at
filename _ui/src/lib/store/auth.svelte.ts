@@ -36,7 +36,9 @@ export function isNativeAdmin(): boolean {
 // A reload discards `notice`, so a message that explains why the sign-in screen
 // is being shown has to survive it. sessionStorage is per tab and scoped to the
 // deployment path, matching the other coordination keys.
-const noticeKey = `at-auth:${new URL('.', document.baseURI).pathname}:notice`;
+const storageKey = (name: string) => `at-auth:${new URL('.', document.baseURI).pathname}:${name}`;
+const noticeKey = storageKey('notice');
+const signedOutKey = storageKey('signed-out');
 
 export function takeLoginNotice(): string {
   try {
@@ -46,12 +48,29 @@ export function takeLoginNotice(): string {
   } catch { return ''; }
 }
 
-export function returnToLogin(notice = '') {
-  storeAuth.identity = null;
+// A deliberate sign-out already holds the answer `auth/session` would give, so
+// the reload that follows can skip that probe and go straight to the sign-in
+// screen. Consumed once, like the notice: any later load must probe again, and
+// a stale hint can at worst show the sign-in card to a session established by
+// another tab mid-reload.
+export function takeSignedOut(): boolean {
+  try {
+    const value = sessionStorage.getItem(signedOutKey) === '1';
+    sessionStorage.removeItem(signedOutKey);
+    return value;
+  } catch { return false; }
+}
+
+export function returnToLogin(notice = '', signedOut = false) {
   try {
     if (notice) sessionStorage.setItem(noticeKey, notice);
     else sessionStorage.removeItem(noticeKey);
+    if (signedOut) sessionStorage.setItem(signedOutKey, '1');
   } catch { /* The reload still returns to sign-in; only the explanation is lost. */ }
-  // Match logout: discard all in-memory management data, not just the identity.
+  // The reload discards the whole heap, so clearing the identity here bought
+  // nothing and cost a frame: Svelte flushes before the new document commits,
+  // so the shell re-rendered signed-out — sidebar links and the account menu
+  // visibly disappearing — for the entire duration of the navigation. Leave the
+  // last painted frame intact and let the document swap be the only transition.
   window.location.reload();
 }

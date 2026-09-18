@@ -16,7 +16,7 @@
   import { getAuthStatus, isAuthUnauthorized, isSetupRequired, logoutAuth } from './lib/api/auth';
   import { authSession } from './lib/api/transport';
   import { ReauthenticationRequired } from './lib/api/session-transport';
-  import { storeAuth, authOrigins, returnToLogin, securityCodes, loadLoginProviders, takeLoginNotice } from './lib/store/auth.svelte';
+  import { storeAuth, authOrigins, returnToLogin, securityCodes, loadLoginProviders, takeLoginNotice, takeSignedOut } from './lib/store/auth.svelte';
   import { loadWorkspaceAccess } from './lib/store/workspace.svelte';
   import { routeAllowed, inSettingsArea, workspaceAdmitted } from './lib/helper/navigation';
   import { isFeatureEnabled } from './lib/store/features.svelte';
@@ -34,6 +34,10 @@
   let ticket = $state(untrack(() => initialRecoveryTicket));
   let authState = $state<'loading'|'setup'|'login'|'ready'|'error'>('loading');
   let error = $state(''); let notice = $state(takeLoginNotice()); let loggingOut = $state(false); let checking = false;
+  // Set by the reload a sign-out queued. Read once, here, because `initialize`
+  // also runs after first-run setup and account recovery, where the session is
+  // whatever the server just established and must still be probed.
+  let signedOut = untrack(() => takeSignedOut());
   // The gate resolves in one round trip on a healthy server, so painting the
   // "Connecting to AT…" card immediately meant every load showed two different
   // cards in a row and read as a reload. Show it only once the wait is real.
@@ -57,15 +61,24 @@
     authState = 'loading';
     clearTimeout(connectingTimer); connecting = false;
     connectingTimer = window.setTimeout(() => { connecting = authState === 'loading'; }, 400);
+    // The post-sign-out gate used to be three serial round trips — status, then
+    // `auth/session`, then the provider list the sign-in card waits for — with a
+    // blank screen across all of them. A deliberate sign-out already holds the
+    // probe's answer, so it is skipped and the public provider list is warmed
+    // beside status instead of after it, leaving one request on the path.
+    const providers = signedOut ? loadLoginProviders() : undefined;
     try { const status = await getAuthStatus(); authSession.setEnabled(status.enabled); storeAuth.passkeys = status.passkeys; storeAuth.passkeyLogin = status.passkey_login_enabled !== false && status.passkeys; storeAuth.localLogin = status.local_login !== false; storeAuth.localLoginCollapsed = status.local_login_collapsed === true; storeAuth.title = status.display_title || 'AT'; authOrigins.primary = status.origin || ''; authOrigins.allowed = status.allowed_origins || [];
-      if (status.setup_required === true) authState = 'setup'; else if (status.enabled) await checkSession(); else { authState = 'error'; error = 'Native authentication is unavailable. Ask the operator to enable runtime authentication.'; }
+      if (status.setup_required === true) authState = 'setup';
+      else if (!status.enabled) { authState = 'error'; error = 'Native authentication is unavailable. Ask the operator to enable runtime authentication.'; }
+      else if (providers) { signedOut = false; await providers; storeAuth.identity = null; authState = 'login'; }
+      else await checkSession();
     }     catch (e) { if (isSetupRequired(e)) { authState = 'setup'; error = ''; return; } authState = 'error'; error = 'Cannot load authentication settings. Retry when the server is available.'; }
   }
   // The transport publishes the signed-out identity from inside logoutAuth, so
   // the subscriber below would render the sign-in screen while the reload that
   // follows is still being queued: the card appeared, then the page reloaded it
   // away. The notice travels through storage instead of that discarded render.
-  async function logout() { loggingOut = true; revision++; try { await logoutAuth(); returnToLogin('You have signed out.'); } catch { error = 'Sign-out failed. Your session may still be active. Please retry.'; loggingOut = false; } }
+  async function logout() { loggingOut = true; revision++; try { await logoutAuth(); returnToLogin('You have signed out.', true); } catch { error = 'Sign-out failed. Your session may still be active. Please retry.'; loggingOut = false; } }
   onMount(() => {
     if (window.matchMedia('(max-width: 639px)').matches) storeNavbar.sideBarOpen = false;
     const unsubscribe = authSession.subscribe((identity, message) => { if (storeAuth.securityHold || ticket) return; if (identity) { storeAuth.identity = identity; return; } if (loggingOut) return; revision++; storeAuth.identity = null; notice = message; authState = 'login'; });
