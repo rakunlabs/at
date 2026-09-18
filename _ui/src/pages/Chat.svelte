@@ -13,6 +13,7 @@
     streamChatCompletion,
   } from '@/lib/helper/chat';
   import { listMCPTools, callMCPTool, callSkillTool, listBuiltinTools, callBuiltinTool, type MCPToolInfo, type BuiltinToolDef } from '@/lib/api/mcp';
+  import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listAgents, type Agent, type SkillRef } from '@/lib/api/agents';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
@@ -1962,7 +1963,7 @@
                       <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-600 dark:border-accent/50" />
                     {:else if part.type === 'image' && part.media_id}
                       <img
-                        src={mediaImageURL(part.media_id)}
+                        src={mediaImageURL(part.media_id, workspaceTransport.selected)}
                         alt={part.name || 'Stored image attachment'}
                         loading="lazy"
                         class="max-w-full max-h-64 mb-2 border border-gray-600 dark:border-accent/50"
@@ -2008,7 +2009,7 @@
                       <img src={part.image_url.url} alt="" class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border" />
                     {:else if part.type === 'image' && part.media_id}
                       <img
-                        src={mediaImageURL(part.media_id)}
+                        src={mediaImageURL(part.media_id, workspaceTransport.selected)}
                         alt={part.name || 'Stored image attachment'}
                         loading="lazy"
                         class="max-w-full max-h-64 mb-2 border border-gray-200 dark:border-dark-border"

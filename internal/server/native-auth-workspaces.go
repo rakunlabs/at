@@ -93,8 +93,8 @@ func (s *Server) workspaceAuthentication(selected bool, capability string) func(
 				values := r.Header.Values("X-AT-Workspace-ID")
 				// Native media elements and download/new-tab navigations cannot set
 				// custom headers. A nonsecret, explicit workspace selector is allowed
-				// only for file reads; all live admission below remains mandatory.
-				if (r.Method == http.MethodGet || r.Method == http.MethodHead) && r.URL.Path == a.session.Cookie.Path+"api/v1/files/serve" {
+				// only for blob reads; all live admission below remains mandatory.
+				if (r.Method == http.MethodGet || r.Method == http.MethodHead) && nativeBlobReadPath(a.session.Cookie.Path, r.URL.Path) {
 					q, parseErr := url.ParseQuery(r.URL.RawQuery)
 					if parseErr != nil {
 						nativeError(w, 400, "invalid file query")
@@ -161,6 +161,21 @@ func (s *Server) withRuntimeAuth(next http.Handler) http.Handler {
 		return next
 	}
 	return s.authSettings.withRuntime(next)
+}
+
+// nativeBlobReadPath names the GET/HEAD surfaces a browser loads as native
+// media elements: workspace file serving, and the owner-scoped media objects
+// behind Playground image previews. Both answer with bytes, never JSON, and
+// both stay scoped by ownership or rooted paths after the selector resolves
+// the workspace.
+func nativeBlobReadPath(cookiePath, path string) bool {
+	if path == cookiePath+"api/v1/files/serve" {
+		return true
+	}
+	rest, ok := strings.CutPrefix(path, cookiePath+"api/v1/media/")
+	// Media object ids are single segments; "settings" is the JSON
+	// configuration surface and never a native element.
+	return ok && rest != "" && !strings.Contains(rest, "/")
 }
 
 // revalidateAccessPrincipal is the runtime admission callback. A missing principal

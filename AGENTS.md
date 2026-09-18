@@ -670,13 +670,40 @@ API is capability-admitted, meaning it has an entry in
 `workspaceBusinessPolicies()` (or in `workspaceRoutePolicies` /
 `registerRuntimeRoutes`, which admit on capabilities from outside `apiGroup`).
 Everything else registered on `apiGroup` falls through to
-`requireWorkspacePlatform(true)` and is administrator-only. Fourteen routes
-claimed a capability their API never reads — Playground, Sessions, Skills,
+`requireWorkspacePlatform(true)` and is administrator-only. Eleven routes
+claimed a capability their API never reads — Sessions, Skills,
 Marketplaces, Integrations, Variables, Node configurations, Webhooks, Schedules,
-Connections, MCP servers, MCP sets, Usage and Traces — so a member was shown the
+Connections, MCP servers and MCP sets — so a member was shown the
 link, opened the page, and every request it made answered 403. The capability
 the UI named had no bearing on the decision, which made the map look like an
 authorization model rather than the presentation registry it is.
+
+The Playground, Usage and Traces moved out of that set by scoping their APIs.
+The Playground rides `models.use` (rank 2): its history and media objects are
+owner-scoped in the handlers, so the capability only gates entry, and the
+playground chat endpoint resolves a **workspace member's** provider through
+`workspaceProviderInfo` (workspace catalog, model grants, disabled state)
+rather than the global gateway registry — an installation administrator keeps
+the registry, which is what the endpoint always served. Usage and Traces ride
+`usage.read` / `traces.read`, which the role ladder now hands out at **admin
+rank** (they were installation-only surfaces, and trace bodies carry full
+prompts), so a member reaches them only through a bundle. Row scoping follows:
+`GetUsageSummary/Grouped/TimeSeries` and `ListAgentBudgets` bound a scoped
+non-platform principal to their workspace while the installation administrator
+keeps the installation-wide dashboard; `GetLLMCall`, `ListLLMCallTraces` and
+`ListLLMCallConversations` bound any scoped principal to their workspace,
+matching what `ListLLMCalls` already derived from `businessReadScope`, so one
+Traces page cannot mix scopes. Regression: `TestWorkspacePostgresAnalyticsScope`
+and `TestWorkspaceAnalyticsCapabilityRank`
+(`internal/store/postgres/analytics-scope_test.go`).
+
+Because `<img src>` cannot send `X-AT-Workspace-ID`, the workspace query
+selector that `fileServeUrl` pins for `/api/v1/files/serve` also applies to
+owner-scoped `GET /api/v1/media/{id}` (`nativeBlobReadPath`; `mediaImageURL`
+takes the selected workspace as its second argument). `/media/settings*` stays
+installation administration: the literal `GET /media/settings` policy
+(`platform.manage`) must precede `/media/{id}` in the policy slice, whose
+`{id}` parameter would otherwise swallow it.
 
 `/studio` and `/files` stay capability-gated because their data plane is
 `/api/v1/files/*`, which `registerRuntimeRoutes` admits on `files.read`; only
@@ -961,6 +988,16 @@ from the UI. The select offers all three admissible roles unfiltered: the rank
 ceiling is the store's (`SavePermissionMapping`), and `members.manage` already
 sits at rank 3, so every actor who can reach the control can set every option a
 client-side rank check would have left enabled.
+
+Migration 57 makes the bundle **optional** for a mapping: `permission_id` is
+nullable (NULL, not `''` — the composite foreign key is relaxed only by a NULL
+member), a partial unique index keeps duplicate bundle-less rows off one claim
+(the base UNIQUE treats NULLs as distinct), and a CHECK refuses a mapping with
+neither a bundle nor an admission role, which would match claims and do
+nothing. The role a mapping admits is itself a grant source, so requiring a
+bundle only forced placeholder bundles into existence. A bundle-less mapping
+grants nothing to existing members; `resolveWorkspaceAccess` skips it for
+grants and `ensureMappedMemberships` still admits on it.
 
 Nothing offers the read-only role presets (`GET /api/v1/permissions/presets`) in
 the bundle dropdown, and the page no longer lists them: their IDs are synthetic

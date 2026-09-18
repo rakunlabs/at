@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"slices"
@@ -24,13 +25,19 @@ type workspaceMappingRow struct {
 	WorkspaceID  string `db:"workspace_id"`
 	ProviderID   string `db:"provider_id"`
 	ClaimKind    string `db:"claim_kind"`
-	ClaimValue   string `db:"claim_value"`
-	PermissionID string `db:"permission_id"`
-	AdmitRole    string `db:"admit_role"`
+	ClaimValue string `db:"claim_value"`
+	// Null when the mapping only admits and grants no bundle. The service type
+	// keeps a plain string, so the wire shape is unchanged and "" means none.
+	PermissionID sql.NullString `db:"permission_id"`
+	AdmitRole    string         `db:"admit_role"`
+}
+
+func mappingPermissionID(id string) sql.NullString {
+	return sql.NullString{String: id, Valid: id != ""}
 }
 
 func (r workspaceMappingRow) record() service.PermissionMapping {
-	return service.PermissionMapping{ID: r.ID, WorkspaceID: r.WorkspaceID, ProviderID: r.ProviderID, ClaimKind: r.ClaimKind, ClaimValue: r.ClaimValue, PermissionID: r.PermissionID, AdmitRole: r.AdmitRole}
+	return service.PermissionMapping{ID: r.ID, WorkspaceID: r.WorkspaceID, ProviderID: r.ProviderID, ClaimKind: r.ClaimKind, ClaimValue: r.ClaimValue, PermissionID: r.PermissionID.String, AdmitRole: r.AdmitRole}
 }
 
 func (p *Postgres) workspaceBundles(ctx context.Context, q workspaceReader, id string) ([]service.PermissionBundle, error) {
@@ -316,6 +323,11 @@ func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.Permissi
 	if !service.ValidWorkspaceAdmissionRole(m.AdmitRole) {
 		return nil, service.ErrWorkspaceConflict
 	}
+	// The bundle is optional, because the admission role is itself a grant
+	// source; a mapping that supplies neither matches claims and does nothing.
+	if m.PermissionID == "" && m.AdmitRole == "" {
+		return nil, service.ErrWorkspaceConflict
+	}
 	tx, err := p.goqu.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin mapping save: %w", err)
@@ -329,8 +341,10 @@ func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.Permissi
 		return nil, service.ErrAccessDenied
 	}
 	m.WorkspaceID = a.WorkspaceID
-	if _, err = p.workspacePermission(ctx, tx, a, m.PermissionID); err != nil {
-		return nil, err
+	if m.PermissionID != "" {
+		if _, err = p.workspacePermission(ctx, tx, a, m.PermissionID); err != nil {
+			return nil, err
+		}
 	}
 	// Admitting somebody is membership authority, not permission authority, and
 	// it cannot hand out a role the actor does not itself hold.
@@ -360,8 +374,10 @@ func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.Permissi
 		if !found {
 			return nil, service.ErrAccessResourceNotFound
 		}
-		if _, e = p.workspacePermission(ctx, tx, a, old.PermissionID); e != nil {
-			return nil, e
+		if old.PermissionID.Valid {
+			if _, e = p.workspacePermission(ctx, tx, a, old.PermissionID.String); e != nil {
+				return nil, e
+			}
 		}
 		if old.AdmitRole != "" && !a.PlatformAdmin && service.WorkspaceRoleRank(old.AdmitRole) > service.WorkspaceRoleRank(a.Role) {
 			return nil, service.ErrAccessDenied
@@ -369,7 +385,7 @@ func (p *Postgres) SavePermissionMapping(ctx context.Context, m service.Permissi
 	} else {
 		m.ID = ulid.Make().String()
 	}
-	r := workspaceMappingRow{ID: m.ID, WorkspaceID: m.WorkspaceID, ProviderID: m.ProviderID, ClaimKind: m.ClaimKind, ClaimValue: m.ClaimValue, PermissionID: m.PermissionID, AdmitRole: m.AdmitRole}
+	r := workspaceMappingRow{ID: m.ID, WorkspaceID: m.WorkspaceID, ProviderID: m.ProviderID, ClaimKind: m.ClaimKind, ClaimValue: m.ClaimValue, PermissionID: mappingPermissionID(m.PermissionID), AdmitRole: m.AdmitRole}
 	if update {
 		_, err = tx.Update(table).Set(goqu.Record{"provider_id": r.ProviderID, "claim_kind": r.ClaimKind, "claim_value": r.ClaimValue, "permission_id": r.PermissionID, "admit_role": r.AdmitRole}).Where(goqu.Ex{"workspace_id": a.WorkspaceID, "id": m.ID}).Executor().ExecContext(ctx)
 	} else {
@@ -404,8 +420,10 @@ func (p *Postgres) DeletePermissionMapping(ctx context.Context, id string) error
 	if !found {
 		return service.ErrAccessResourceNotFound
 	}
-	if _, err = p.workspacePermission(ctx, tx, a, r.PermissionID); err != nil {
-		return err
+	if r.PermissionID.Valid {
+		if _, err = p.workspacePermission(ctx, tx, a, r.PermissionID.String); err != nil {
+			return err
+		}
 	}
 	if _, err = tx.Delete(p.workspaceTable("workspace_permission_mappings")).Where(goqu.Ex{"workspace_id": a.WorkspaceID, "id": id}).Executor().ExecContext(ctx); err != nil {
 		return fmt.Errorf("delete mapping: %w", err)

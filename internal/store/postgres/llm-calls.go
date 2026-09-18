@@ -244,11 +244,26 @@ func (p *Postgres) ListLLMCalls(ctx context.Context, q *query.Query) (*service.L
 	}, rows.Err()
 }
 
+// traceWorkspaceScope bounds a trace view to the caller's workspace.
+// ListLLMCalls already derives this from businessReadScope; the detail and
+// aggregate queries repeat it so one page cannot mix scopes. A caller without
+// a scoped principal (the legacy installation view) is unbounded, which is
+// what those views have always been.
+func traceWorkspaceScope(ctx context.Context) (string, bool) {
+	if a, ok := service.AccessPrincipalFromContext(ctx); ok && a.WorkspaceID != "" {
+		return a.WorkspaceID, true
+	}
+	return "", false
+}
+
 func (p *Postgres) GetLLMCall(ctx context.Context, id string) (*service.LLMCall, error) {
-	query, _, err := p.goqu.From(p.tableLLMCalls).
+	ds := p.goqu.From(p.tableLLMCalls).
 		Select(llmCallColumns...).
-		Where(goqu.I("id").Eq(id)).
-		ToSQL()
+		Where(goqu.I("id").Eq(id))
+	if ws, ok := traceWorkspaceScope(ctx); ok {
+		ds = ds.Where(goqu.C("workspace_id").Eq(ws))
+	}
+	query, _, err := ds.ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get llm call query: %w", err)
 	}
@@ -275,6 +290,9 @@ func (p *Postgres) ListLLMCallTraces(ctx context.Context, q *query.Query) (*serv
 	tbl := p.tableLLMCalls.GetTable()
 
 	ds := p.goqu.From(p.tableLLMCalls).Where(goqu.I("trace_id").Neq(""))
+	if ws, ok := traceWorkspaceScope(ctx); ok {
+		ds = ds.Where(goqu.C("workspace_id").Eq(ws))
+	}
 	if q != nil {
 		if exprs := adaptergoqu.Expression(q); len(exprs) > 0 {
 			ds = ds.Where(exprs...)

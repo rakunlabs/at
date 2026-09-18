@@ -52,6 +52,9 @@ func playgroundRequest(s *Server, token, method, path, body string) *httptest.Re
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
+	// The Playground is workspace-admitted (models.use), so every request names
+	// its workspace; the fixtures run against the installation default.
+	r.Header.Set("X-AT-Workspace-ID", "legacy-default")
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.server.ServeHTTP(w, r)

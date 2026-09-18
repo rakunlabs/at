@@ -308,8 +308,13 @@ func (p *Postgres) resolveWorkspaceAccess(ctx context.Context, q workspaceReader
 			if !matched {
 				continue
 			}
+			// A mapping may carry no bundle at all: its admission role is the
+			// grant, and that already arrives through the role source above.
+			if !mapping.PermissionID.Valid {
+				continue
+			}
 			for _, b := range bundles {
-				if b.ID != mapping.PermissionID {
+				if b.ID != mapping.PermissionID.String {
 					continue
 				}
 				gs, e := b.Grants()

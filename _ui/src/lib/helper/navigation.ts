@@ -21,19 +21,21 @@ const capabilityRoutes: Record<string, string> = {
   '/bots': 'bots.read', '/organizations': 'organizations.read', '/tasks': 'tasks.read',
   '/studio': 'files.read', '/files': 'files.read',
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
+  '/playground': 'models.use',
+  '/usage': 'usage.read', '/llm-calls': 'traces.read',
 };
 // Installation-administration surfaces. The second row is the set whose APIs are
 // registered on `apiGroup` without a business policy: skills and skill
 // templates, marketplaces, integration packs and pack sources, variables,
 // node configurations, triggers, connections/connectors/oauth, MCP servers and
-// sets, the usage rollups, the trace store, chat sessions, and the Playground's
-// admin chat endpoint. Scoping any of them backend-side is what moves the route
-// back into `capabilityRoutes`; `TestUIPlatformOnlySurfaces` fails when one is.
+// sets, and chat sessions. Scoping any of them backend-side is what moves the
+// route back into `capabilityRoutes`; `TestUIPlatformOnlySurfaces` fails when
+// one is. The Playground, Usage and Traces moved out: they ride models.use,
+// usage.read and traces.read, which the role ladder hands out at admin rank.
 const platformRoutes = [
   '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system',
-  '/playground', '/sessions', '/skills', '/marketplaces', '/integrations', '/variables',
+  '/sessions', '/skills', '/marketplaces', '/integrations', '/variables',
   '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers', '/mcps',
-  '/usage', '/llm-calls',
 ];
 // An account with no membership anywhere resolves nothing: every workspace
 // route answers 403, including Documentation, whose guide API is workspace

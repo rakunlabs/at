@@ -92,9 +92,15 @@ func (p *Postgres) GetAgentBudget(ctx context.Context, agentID string) (*service
 	return agentBudgetRowToRecord(row), nil
 }
 
-// ListAgentBudgets returns all configured agent budgets.
+// ListAgentBudgets returns all configured agent budgets. A scoped workspace
+// member sees only their own workspace's budgets; the installation
+// administrator keeps the installation-wide list.
 func (p *Postgres) ListAgentBudgets(ctx context.Context) ([]service.AgentBudget, error) {
-	query, _, err := p.goqu.From(p.tableAgentBudgets).
+	ds := p.goqu.From(p.tableAgentBudgets)
+	if a, ok := service.AccessPrincipalFromContext(ctx); ok && !a.PlatformAdmin && a.WorkspaceID != "" {
+		ds = ds.Where(goqu.C("workspace_id").Eq(a.WorkspaceID))
+	}
+	query, _, err := ds.
 		Select("id", "agent_id", "monthly_limit", "current_spend", "period_start", "period_end", "budget_period", "budget_reset_day", "budget_reset_time", "budget_timezone", "created_at", "updated_at").
 		Order(goqu.I("agent_id").Asc()).
 		ToSQL()

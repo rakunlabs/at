@@ -147,8 +147,12 @@ const mediaPath = (id: string) => `/media/${encodeURIComponent(id)}`;
 /**
  * Same-origin, cookie-authenticated URL for an `<img src>`. Relative, so it
  * resolves against the SPA base path exactly like the axios `baseURL` does.
+ * Native elements cannot set X-AT-Workspace-ID, so the caller passes the
+ * selected workspace and it rides the nonsecret query selector, the same
+ * contract as `fileServeUrl`.
  */
-export const mediaImageURL = (id: string) => `api/v1/media/${encodeURIComponent(id)}`;
+export const mediaImageURL = (id: string, workspace?: string) =>
+  `api/v1/media/${encodeURIComponent(id)}${workspace ? `?workspace_id=${encodeURIComponent(workspace)}` : ''}`;
 
 /** Multipart upload. The server sniffs the type and ignores our Content-Type. */
 export async function uploadMedia(file: Blob, name = 'image'): Promise<MediaObject> {

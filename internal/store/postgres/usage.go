@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -11,6 +12,22 @@ import (
 )
 
 // ─── Usage Dashboard Aggregations ───
+
+// applyUsageScope appends the caller's workspace to a raw usage filter. The
+// installation administrator keeps the installation-wide dashboard the Usage
+// page has always served; a scoped workspace member sees only their own
+// workspace's spend, which is the rows their workspace's requests paid for.
+func applyUsageScope(ctx context.Context, where string, args []interface{}) (string, []interface{}) {
+	a, ok := service.AccessPrincipalFromContext(ctx)
+	if !ok || a.PlatformAdmin || a.WorkspaceID == "" {
+		return where, args
+	}
+	cond := "workspace_id = $" + strconv.Itoa(len(args)+1)
+	if where == "" {
+		return " WHERE " + cond, append(args, a.WorkspaceID)
+	}
+	return where + " AND " + cond, append(args, a.WorkspaceID)
+}
 
 // applyUsageFilter builds a WHERE clause and args ($1..) matching UsageFilter.
 // Uses $N placeholders (postgres) counted from startIdx.
@@ -86,6 +103,7 @@ const usageAggregateSelect = `
 
 func (p *Postgres) GetUsageSummary(ctx context.Context, filter service.UsageFilter) (service.UsageSummary, error) {
 	where, args := applyUsageFilter(filter, 1)
+	where, args = applyUsageScope(ctx, where, args)
 	q := fmt.Sprintf(`SELECT %s FROM %s%s`, usageAggregateSelect, p.tableCostEvents.GetTable(), where)
 
 	var sum service.UsageSummary
@@ -138,6 +156,7 @@ func (p *Postgres) GetUsageGrouped(ctx context.Context, filter service.UsageFilt
 	}
 
 	where, args := applyUsageFilter(filter, 1)
+	where, args = applyUsageScope(ctx, where, args)
 	limitClause := ""
 	if limit > 0 {
 		limitClause = fmt.Sprintf(" LIMIT %d", limit)
@@ -192,6 +211,7 @@ func (p *Postgres) GetUsageTimeSeries(ctx context.Context, filter service.UsageF
 	}
 
 	where, args := applyUsageFilter(filter, 1)
+	where, args = applyUsageScope(ctx, where, args)
 	q := fmt.Sprintf(
 		`SELECT date_trunc('%s', created_at) AS bucket,
             COALESCE(SUM(input_tokens), 0),

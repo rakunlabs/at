@@ -90,6 +90,38 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/task-board", "tasks.read", "", ""},
 		{"PUT", "/task-board", "tasks.write", "", ""},
 		{"DELETE", "/task-board", "tasks.write", "", ""},
+		// The Playground is the per-account model workbench. History and media
+		// are owner-scoped in the handlers, so models.use only gates entry —
+		// the same rank as every other execution surface, so members keep it
+		// and viewers do not.
+		{"POST", "/chat/completions", "models.use", "", ""},
+		{"GET", "/playground/conversations", "models.use", "", ""},
+		{"POST", "/playground/conversations", "models.use", "", ""},
+		{"GET", "/playground/conversations/{id}", "models.use", "", ""},
+		{"PATCH", "/playground/conversations/{id}", "models.use", "", ""},
+		{"DELETE", "/playground/conversations/{id}", "models.use", "", ""},
+		{"POST", "/playground/conversations/{id}/fork", "models.use", "", ""},
+		{"GET", "/playground/conversations/{id}/messages", "models.use", "", ""},
+		{"POST", "/playground/conversations/{id}/messages", "models.use", "", ""},
+		{"DELETE", "/playground/conversations/{id}/messages", "models.use", "", ""},
+		// Media settings are installation configuration; the literal pattern
+		// must precede /media/{id}, whose parameter would otherwise swallow it.
+		{"GET", "/media/settings", "platform.manage", "", ""},
+		{"POST", "/media", "models.use", "", ""},
+		{"GET", "/media/{id}", "models.use", "", ""},
+		{"DELETE", "/media/{id}", "models.use", "", ""},
+		// Usage and traces are workspace data (cost_events and llm_calls carry
+		// workspace_id), so they ride their registry capabilities. The role
+		// ladder places both at admin rank: they were installation-only
+		// surfaces, and trace bodies carry full prompts.
+		{"GET", "/usage/summary", "usage.read", "", ""},
+		{"GET", "/usage/grouped", "usage.read", "", ""},
+		{"GET", "/usage/timeseries", "usage.read", "", ""},
+		{"GET", "/usage/budgets", "usage.read", "", ""},
+		{"GET", "/llm-calls", "traces.read", "", ""},
+		{"GET", "/llm-calls/traces", "traces.read", "", ""},
+		{"GET", "/llm-calls/conversations", "traces.read", "", ""},
+		{"GET", "/llm-calls/{id}", "traces.read", "", ""},
 	}
 	for _, kind := range []string{"organizations", "agents", "goals", "projects", "tasks", "labels", "approvals", "workflows", "bots"} {
 		routes = append(routes, BusinessRoutePolicy{"GET", "/" + kind, kind + ".read", "", ""}, BusinessRoutePolicy{"POST", "/" + kind, kind + ".write", "", ""}, BusinessRoutePolicy{"GET", "/" + kind + "/{id}", kind + ".read", kind, "id"}, BusinessRoutePolicy{"PUT", "/" + kind + "/{id}", kind + ".write", kind, "id"})

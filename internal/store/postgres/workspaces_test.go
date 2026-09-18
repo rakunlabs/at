@@ -292,6 +292,10 @@ func TestWorkspacePostgresClaimAdmissionAndMappingEdit(t *testing.T) {
 	if _, err = p.SavePermissionMapping(ctx, service.PermissionMapping{ID: m.ID, ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", PermissionID: b.ID, AdmitRole: "owner"}); !errors.Is(err, service.ErrWorkspaceConflict) {
 		t.Fatalf("owner admission accepted: %v", err)
 	}
+	// Neither a bundle nor an admission role leaves a mapping with no effect.
+	if _, err = p.SavePermissionMapping(ctx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-nobody"}); !errors.Is(err, service.ErrWorkspaceConflict) {
+		t.Fatalf("mapping with no effect accepted: %v", err)
+	}
 	edited, err := p.SavePermissionMapping(ctx, service.PermissionMapping{ID: m.ID, ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", PermissionID: b.ID, AdmitRole: "member"})
 	if err != nil || edited.ID != m.ID {
 		t.Fatalf("edit in place: %+v %v", edited, err)
@@ -342,12 +346,16 @@ func TestWorkspacePostgresClaimAdmissionAndMappingEdit(t *testing.T) {
 		t.Fatal(err)
 	}
 	secondCtx := service.WithAccessPrincipal(ctx, secondPrincipal)
-	secondBundle, err := p.SavePermission(secondCtx, service.PermissionBundle{Key: "edit", Keys: []string{"tasks.write"}})
-	if err != nil {
-		t.Fatal(err)
+	// Admission alone, with no bundle: the role is the grant, so requiring one
+	// would only have forced a placeholder bundle into existence.
+	bare, err := p.SavePermissionMapping(secondCtx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", AdmitRole: "viewer"})
+	if err != nil || bare.PermissionID != "" {
+		t.Fatalf("bundle-less admission mapping: %+v %v", bare, err)
 	}
-	if _, err = p.SavePermissionMapping(secondCtx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", PermissionID: secondBundle.ID, AdmitRole: "viewer"}); err != nil {
-		t.Fatal(err)
+	// NULL is distinct under UNIQUE, so the partial index is what stops a claim
+	// from collecting duplicate bundle-less rows.
+	if _, err = p.SavePermissionMapping(secondCtx, service.PermissionMapping{ProviderID: "keycloak", ClaimKind: "roles", ClaimValue: "at-editors", AdmitRole: "viewer"}); err == nil {
+		t.Fatal("duplicate bundle-less mapping accepted")
 	}
 	listed, err := p.ListWorkspaces(service.WithAccessPrincipal(t.Context(), service.AccessPrincipal{UserID: outsider.ID}))
 	if err != nil {

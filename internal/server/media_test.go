@@ -73,6 +73,9 @@ func mediaRequest(t *testing.T, s *Server, token, method, path, body string) *ht
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
+	// Object reads and uploads are workspace-admitted (models.use); settings
+	// accepts the header too and strips it on the administrator-only routes.
+	r.Header.Set("X-AT-Workspace-ID", "legacy-default")
 	r.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	s.server.ServeHTTP(w, r)
@@ -100,6 +103,7 @@ func mediaUpload(t *testing.T, s *Server, token, filename string, data []byte, d
 	}
 	r := httptest.NewRequest("POST", "/at/api/v1/media", bytes.NewReader(buf.Bytes()))
 	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("X-AT-Workspace-ID", "legacy-default")
 	r.Header.Set("Content-Type", form.FormDataContentType())
 	w := httptest.NewRecorder()
 	s.server.ServeHTTP(w, r)

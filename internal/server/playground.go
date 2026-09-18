@@ -42,9 +42,11 @@ type playgroundList[T any] struct {
 	Meta playgroundListMeta `json:"meta"`
 }
 
-// playgroundAccess mirrors the guard the retired personal chat used: native
-// authentication must be configured, the caller must be a native
-// administrator, and the store must actually implement playground history.
+// playgroundAccess guards the Playground surfaces: native authentication must
+// be configured and the caller must hold models.use for the selected
+// workspace. Route admission already checked the capability; this second gate
+// means the history never depends on route configuration alone. Transcripts
+// stay owner-scoped regardless of how broad the caller's grants are.
 func (s *Server) playgroundAccess(w http.ResponseWriter, r *http.Request) (service.PlaygroundStorer, string) {
 	w.Header().Set("Cache-Control", "no-store")
 	// Authentication settings live in the database, so the coordinator is
@@ -54,7 +56,16 @@ func (s *Server) playgroundAccess(w http.ResponseWriter, r *http.Request) (servi
 		return nil, ""
 	}
 	id := identity.FromContext(r.Context())
-	if id == nil || id.Subject == "" || !id.HasRole("admin") {
+	if id == nil || id.Subject == "" {
+		nativeError(w, http.StatusForbidden, "playground history requires a native user")
+		return nil, ""
+	}
+	if a, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		if !a.PlatformAdmin && !a.Allows("models.use", service.AccessResource{WorkspaceID: a.WorkspaceID}) {
+			nativeError(w, http.StatusForbidden, "playground requires the models.use capability")
+			return nil, ""
+		}
+	} else if !id.HasRole("admin") {
 		nativeError(w, http.StatusForbidden, "playground history requires a native administrator")
 		return nil, ""
 	}

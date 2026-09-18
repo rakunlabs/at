@@ -2,10 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
+
+	"github.com/rakunlabs/at/internal/service"
 )
 
 // AdminChatCompletions handles POST /api/v1/chat/completions.
@@ -42,16 +45,29 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Look up provider
-	info, ok := s.getProviderInfo(providerKey)
-	if !ok {
-		available := s.availableProviderKeys()
+	info, err := s.chatProviderInfo(r, providerKey, actualModel)
+	if err != nil {
+		status, code := http.StatusBadGateway, "server_error"
+		msg := fmt.Sprintf("provider resolution failed: %v", err)
+		var unavailable *chatProviderUnavailableError
+		switch {
+		case errors.As(err, &unavailable):
+			status, code = http.StatusNotFound, "model_not_found"
+			msg = unavailable.message
+		case errors.Is(err, service.ErrAccessDenied):
+			status, code = http.StatusForbidden, "access_denied"
+			msg = fmt.Sprintf("this workspace cannot use provider %q", providerKey)
+		case errors.Is(err, service.ErrAccessResourceNotFound), errors.Is(err, service.ErrProviderDisabled):
+			status, code = http.StatusNotFound, "model_not_found"
+			msg = fmt.Sprintf("provider %q or model %q is not available in this workspace", providerKey, actualModel)
+		}
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
-				"message": s.providerUnavailableMessage(providerKey, fmt.Sprintf("provider %q not found; available: %v", providerKey, available)),
+				"message": msg,
 				"type":    "invalid_request_error",
-				"code":    "model_not_found",
+				"code":    code,
 			},
-		}, http.StatusNotFound)
+		}, status)
 		return
 	}
 
@@ -123,3 +139,27 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	chatResp := buildOpenAIResponse(generateChatID(), req.Model, resp)
 	httpResponseJSON(w, chatResp, http.StatusOK)
 }
+
+// chatProviderInfo resolves the provider for the admin chat endpoint. An
+// installation administrator keeps the global gateway registry, which is what
+// the endpoint has always served. A scoped workspace member resolves through
+// the workspace catalog instead, so the Playground cannot reach a provider or
+// credential the member's workspace is not allowed to use.
+func (s *Server) chatProviderInfo(r *http.Request, key, model string) (ProviderInfo, error) {
+	if a, ok := service.AccessPrincipalFromContext(r.Context()); ok && !a.PlatformAdmin {
+		return s.workspaceProviderInfo(r.Context(), key, model)
+	}
+	info, ok := s.getProviderInfo(key)
+	if !ok {
+		available := s.availableProviderKeys()
+		return ProviderInfo{}, &chatProviderUnavailableError{message: s.providerUnavailableMessage(key, fmt.Sprintf("provider %q not found; available: %v", key, available))}
+	}
+	return info, nil
+}
+
+// chatProviderUnavailableError keeps the legacy registry's richer 404 message
+// (provider availability) distinct from the workspace-catalog errors, which
+// deliberately do not enumerate providers the caller may not list.
+type chatProviderUnavailableError struct{ message string }
+
+func (e *chatProviderUnavailableError) Error() string { return e.message }

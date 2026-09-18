@@ -17,6 +17,9 @@ func (p *Postgres) ListLLMCallConversations(ctx context.Context, q *query.Query)
 	family := goqu.L("CASE WHEN source IN ('gateway', 'gateway_stream', 'responses') THEN 'gateway' ELSE source END")
 	key := goqu.L("CASE WHEN session_id <> '' THEN 'session:' || session_id ELSE 'trace:' || trace_id END")
 	ds := p.goqu.From(p.tableLLMCalls).Where(goqu.I("trace_id").Neq(""))
+	if ws, ok := traceWorkspaceScope(ctx); ok {
+		ds = ds.Where(goqu.C("workspace_id").Eq(ws))
+	}
 	if q != nil {
 		ds = ds.Where(adaptergoqu.Expression(q)...)
 	}

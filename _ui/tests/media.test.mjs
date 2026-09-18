@@ -117,6 +117,10 @@ test('object reads ask for raw bytes and every id is path encoded', async () => 
   // Relative, so an `<img src>` resolves against the SPA base exactly like axios does.
   assert.equal(api.mediaImageURL('01K'), 'api/v1/media/01K');
   assert.equal(api.mediaImageURL('a/b'), 'api/v1/media/a%2Fb');
+  // Native elements cannot send the workspace header, so the selected
+  // workspace rides the nonsecret query selector, like fileServeUrl.
+  assert.equal(api.mediaImageURL('01K', 'legacy-default'), 'api/v1/media/01K?workspace_id=legacy-default');
+  assert.equal(api.mediaImageURL('a/b', 'ws two'), 'api/v1/media/a%2Fb?workspace_id=ws%20two');
 });
 
 test('data URIs convert to typed blobs and reject anything that is not base64', async () => {

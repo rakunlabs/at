@@ -114,6 +114,11 @@ func WorkspaceRoleGrants(role string) []AccessGrant {
 		if slices.Contains([]string{"workspace.write", "providers.write", "tokens.write", "connections.write", "variables.write", "bots.write", "mcp.write", "skills.write"}, c.Key) {
 			min = 3
 		}
+		// Usage and traces were installation-only surfaces, and trace bodies
+		// carry full prompts; the role ladder hands them out at admin rank.
+		if slices.Contains([]string{"usage.read", "traces.read"}, c.Key) {
+			min = 3
+		}
 		if c.Key == "workspace.archive" {
 			min = 4
 		}
