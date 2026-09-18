@@ -1,5 +1,7 @@
-import { can } from '../store/workspace.svelte';
+import { can, workspaceState } from '../store/workspace.svelte';
 import { isNativeAdmin } from '../store/auth.svelte';
+import { isFeatureEnabled } from '../store/features.svelte';
+import { FEATURE_WORKSPACE_MANAGEMENT } from '../api/features';
 import { routeFeatureEnabled } from './feature-routes';
 // Finite presentation registry. Backend remains authoritative for resource selectors.
 const capabilityRoutes: Record<string, string> = {
@@ -15,7 +17,18 @@ const capabilityRoutes: Record<string, string> = {
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
 };
 const platformRoutes = ['/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system'];
+// An account with no membership anywhere resolves nothing: every workspace
+// route answers 403, including Documentation, whose guide API is workspace
+// scoped. Only the account and workspace pages do real work, plus the Settings
+// index that reaches them and Home, which is where the shell explains why the
+// rest is missing. Listing anything else produced links that looked available
+// and then landed on the same waiting screen.
+const unadmittedRoutes = ['/', '/settings', '/settings/account', '/settings/workspace'];
+export function workspaceAdmitted() {
+  return isNativeAdmin() || !!workspaceState.access;
+}
 export function routeAllowed(route: string) {
+  if (!workspaceAdmitted()) return unadmittedRoutes.includes(route);
   if (platformRoutes.some(p => route === p || route.startsWith(p + '/'))) return isNativeAdmin();
   if (['/', '/docs', '/settings', '/settings/account', '/settings/workspace', '/settings/permissions'].includes(route)) return true;
   const key = Object.keys(capabilityRoutes).sort((a,b) => b.length-a.length).find(p => route === p || route.startsWith(p + '/'));
@@ -24,6 +37,11 @@ export function routeAllowed(route: string) {
 // Settings indexes listed pages whose router guard bounces straight back to
 // Home when their feature is off, so they filter on both.
 export function settingsLinkVisible(route: string) {
+  // Single-workspace mode pins every request to Default, so the Workspace page
+  // keeps only a sign-in preference that cannot vary and sections whose APIs
+  // answer 404. It is not offered; the route stays reachable for a direct link,
+  // because it is also the join-a-workspace escape hatch once re-enabled.
+  if (route === '/settings/workspace' && !isFeatureEnabled(FEATURE_WORKSPACE_MANAGEMENT)) return false;
   return routeAllowed(route) && routeFeatureEnabled(route);
 }
 export const configurationLinks = [

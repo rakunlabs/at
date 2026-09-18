@@ -16,9 +16,11 @@
   import { getAuthStatus, isAuthUnauthorized, isSetupRequired, logoutAuth } from './lib/api/auth';
   import { authSession } from './lib/api/transport';
   import { ReauthenticationRequired } from './lib/api/session-transport';
-  import { storeAuth, authOrigins, isNativeAdmin, returnToLogin, securityCodes } from './lib/store/auth.svelte';
-  import { workspaceState, loadWorkspaceAccess } from './lib/store/workspace.svelte';
-  import { routeAllowed, inSettingsArea } from './lib/helper/navigation';
+  import { storeAuth, authOrigins, returnToLogin, securityCodes } from './lib/store/auth.svelte';
+  import { loadWorkspaceAccess } from './lib/store/workspace.svelte';
+  import { routeAllowed, inSettingsArea, workspaceAdmitted } from './lib/helper/navigation';
+  import { isFeatureEnabled } from './lib/store/features.svelte';
+  import { FEATURE_WORKSPACE_MANAGEMENT } from './lib/api/features';
   import routes from './routes';
   import { pwa } from './lib/store/pwa.svelte';
   let mobileNavigation = $state<HTMLDialogElement>();
@@ -34,7 +36,12 @@
   let error = $state(''); let notice = $state(''); let loggingOut = $state(false); let checking = false;
   let revision = 0;
   let settingsArea = $derived(inSettingsArea($location));
-  let settingsLayout = $derived(settingsArea && routeAllowed($location) && (!!workspaceState.access || isNativeAdmin() || $location === '/settings/account'));
+  // routeAllowed already refuses every route an unadmitted account cannot use,
+  // so the settings pages it *can* use (account, workspace, and the index that
+  // reaches them) get the normal settings layout instead of being replaced by
+  // the waiting screen — which is what made Settings unclickable.
+  let settingsLayout = $derived(settingsArea && routeAllowed($location));
+  let waiting = $derived(!workspaceAdmitted() && !settingsArea);
   async function checkSession() {
     if (checking || storeAuth.securityHold || ticket) return; checking = true; const start = revision;
     try { const identity = await authSession.checkSession(); if (start !== revision || storeAuth.securityHold) return; storeAuth.identity = identity; if (!identity) { authState = 'login'; return; } if (!window.location.hash.startsWith('#/mobile-authorize?')) await loadWorkspaceAccess(); if (start !== revision || storeAuth.securityHold) return; authState = 'ready'; error = ''; notice = ''; }
@@ -80,11 +87,10 @@
   </dialog>
   <div class="grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] min-h-0 min-w-0"><div class="min-w-0"><Navbar onlogout={logout} {loggingOut} />{#if pwa.offline}<p role="status" class="border-b border-gray-200 dark:border-dark-border px-3 py-2 text-sm">You’re offline. Reconnect to send messages and save changes.</p>{/if}</div><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto']}>
     {#if error}<p role="alert" class="settings-error px-5 py-2">{error}</p>{/if}
-    {#if !workspaceState.access && !isNativeAdmin() && $location !== '/settings/account'}
-      <div class="settings-page"><h1 class="settings-title">Waiting for workspace access</h1><p class="settings-note">You’re signed in. Ask a workspace owner to admit your user ID <code class="break-all">{storeAuth.identity?.subject}</code>, or accept an invitation below.</p><div class="flex flex-wrap gap-3"><button class="settings-button" onclick={checkSession}>Check access again</button><a class="settings-button" href="#/settings/account">Account security</a></div></div><WorkspaceSettings />
+    {#if waiting}
+      <div class="settings-page"><h1 class="settings-title">No workspace access yet</h1><p class="settings-note">You’re signed in, but your account is not a member of any workspace, so nothing in the application is available to you{$location !== '/' ? ' — including the page you opened' : ''}. Ask a workspace owner to admit your user ID <code class="break-all">{storeAuth.identity?.subject}</code>{isFeatureEnabled(FEATURE_WORKSPACE_MANAGEMENT) ? ', or accept an invitation below' : ''}.</p><div class="flex flex-wrap gap-3"><button class="settings-button" onclick={checkSession}>Check access again</button><a class="settings-button" href="#/settings/account">Account security</a></div></div>{#if isFeatureEnabled(FEATURE_WORKSPACE_MANAGEMENT)}<WorkspaceSettings />{/if}
     {:else if !routeAllowed($location)}<div class="settings-page"><h1 class="settings-title">Access unavailable</h1><p class="settings-note">Your selected workspace does not grant access to this section. A workspace owner can review your effective permissions.</p><a class="settings-button inline-block" href="#/settings">Open Settings</a></div>
     {:else if settingsArea}<div class="grid flex-1 min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] sm:grid-rows-[minmax(0,1fr)] sm:grid-cols-[11rem_minmax(0,1fr)]"><SettingsSidebar /><div class="min-h-0 min-w-0 overflow-y-auto overscroll-contain"><Router {routes} /></div></div>
-    {:else if $location === '/' && !isNativeAdmin()}<WorkspaceSettings />
     {:else}<Router {routes} />{/if}
   </div></div>
 </div>

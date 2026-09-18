@@ -44,7 +44,9 @@
          which updated the label but left the previous entry's icon behind. -->
     {#each items.filter(item => routeAllowed(item.path) && routeFeatureEnabled(item.path)) as item (item.path)}<a href={`#${item.path}`} aria-current={navActive(item.path) ? 'page' : undefined} class={navClass(navActive(item.path))}><item.icon size={15} /><span>{item.label}</span></a>{/each}
   </nav>
-  <!-- Settings is never gated (it is the way back to the Features page), but
-       Documentation is: its guides API answers 404 once the feature is off. -->
-  <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1">{#if routeFeatureEnabled('/docs')}<a href="#/docs" aria-current={navActive('/docs') ? 'page' : undefined} class={navClass(navActive('/docs'))}><BookOpen size={15} />Documentation</a>{/if}<a href="#/settings" aria-current={navActive('/settings') ? 'page' : undefined} class={navClass(navActive('/settings'))}><Settings size={15} />Settings</a></nav>
+  <!-- Settings is never gated (it is the way back to the Features page, and the
+       only surface an account with no workspace can use), but Documentation is:
+       its guides API answers 404 once the feature is off and 403 for an account
+       with no workspace, so the link is filtered on both. -->
+  <nav aria-label="Application" class="px-2 py-3 border-t border-gray-200 dark:border-dark-border space-y-1">{#if routeAllowed('/docs') && routeFeatureEnabled('/docs')}<a href="#/docs" aria-current={navActive('/docs') ? 'page' : undefined} class={navClass(navActive('/docs'))}><BookOpen size={15} />Documentation</a>{/if}<a href="#/settings" aria-current={navActive('/settings') ? 'page' : undefined} class={navClass(navActive('/settings'))}><Settings size={15} />Settings</a></nav>
 </aside>

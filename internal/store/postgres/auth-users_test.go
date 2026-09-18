@@ -23,20 +23,20 @@ func TestNativeAuthUserAdministration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := p.ListAuthUsers(ctx, "", 1)
+	page, err := p.ListAuthUsers(ctx, service.AuthUserQuery{Limit: 1})
 	if err != nil || len(page) != 1 || page[0].ID != admin.ID || page[0].PasswordHash != "" || page[0].SessionVersion != 0 {
 		t.Fatalf("first page: %+v %v", page, err)
 	}
-	page, err = p.ListAuthUsers(ctx, page[0].ID, 101)
+	page, err = p.ListAuthUsers(ctx, service.AuthUserQuery{After: page[0].ID, Limit: 101})
 	if err != nil || len(page) != 1 || page[0].ID != reader.ID || page[0].Admin {
 		t.Fatalf("second page: %+v %v", page, err)
 	}
-	page, err = p.ListAuthUsers(ctx, reader.ID, 1)
+	page, err = p.ListAuthUsers(ctx, service.AuthUserQuery{After: reader.ID, Limit: 1})
 	if err != nil || page == nil || len(page) != 0 {
 		t.Fatalf("empty page: %+v %v", page, err)
 	}
 	for _, limit := range []uint{0, 102} {
-		if _, err := p.ListAuthUsers(ctx, "", limit); err == nil {
+		if _, err := p.ListAuthUsers(ctx, service.AuthUserQuery{Limit: limit}); err == nil {
 			t.Fatal("unbounded list allowed")
 		}
 	}
@@ -119,6 +119,67 @@ func TestNativeAuthUserAdministration(t *testing.T) {
 	}
 	if _, err := p.InvalidateAuthUser(ctx, admin.ID, true); !errors.Is(err, service.ErrAuthConflict) {
 		t.Fatalf("last admin protection lost: %v", err)
+	}
+}
+
+// Search and deletion are the two administrator operations that reach outside
+// auth_users: search joins the identity link an external account is named by,
+// and deletion has to sweep every table keyed on the account, including the
+// ones whose foreign key does not cascade.
+func TestNativeAuthUserSearchDirectoryAndDeletion(t *testing.T) {
+	p, ctx, w, admin := workspaceFixture(t)
+	external := workspaceUser(t, p, "external-01hzzz")
+	workspaceMember(t, p, ctx, w.ID, external, "member")
+	if _, err := p.goqu.Insert(p.workspaceTable("auth_identity_providers")).Rows(goqu.Record{"id": "keycloak", "enabled": true, "config": "{}"}).Executor().ExecContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.goqu.Insert(p.workspaceTable("auth_identity_links")).Rows(goqu.Record{"id": "kc-link", "provider_id": "keycloak", "issuer": "oauth2:keycloak", "subject": "sub-1", "user_id": external.ID, "email": "Ada@Example.COM", "email_verified": true, "asserted_permissions": "{}"}).Executor().ExecContext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The generated username carries no information, so the email on the link is
+	// the only searchable name such an account has.
+	for _, term := range []string{"ada@example", "ADA@EXAMPLE.com", "external-01h", external.ID} {
+		page, err := p.ListAuthUsers(ctx, service.AuthUserQuery{Search: term, Limit: 10})
+		if err != nil || len(page) != 1 || page[0].ID != external.ID {
+			t.Fatalf("search %q: %+v %v", term, page, err)
+		}
+	}
+	if page, err := p.ListAuthUsers(ctx, service.AuthUserQuery{Search: "workspace-admin", Limit: 10}); err != nil || len(page) != 1 || page[0].ID != admin.ID {
+		t.Fatalf("username search: %+v %v", page, err)
+	}
+	// Metacharacters are matched literally: a pattern would match everything.
+	if page, err := p.ListAuthUsers(ctx, service.AuthUserQuery{Search: "%", Limit: 10}); err != nil || len(page) != 0 {
+		t.Fatalf("wildcard search: %+v %v", page, err)
+	}
+	identities, err := p.ListAuthUserIdentities(ctx, []string{external.ID, admin.ID})
+	if err != nil || len(identities[external.ID]) != 1 || identities[external.ID][0].Email != "Ada@Example.COM" || len(identities[admin.ID]) != 0 {
+		t.Fatalf("identity directory: %+v %v", identities, err)
+	}
+	spaces, err := p.ListAuthUserWorkspaces(ctx, external.ID)
+	if err != nil || len(spaces) != 1 || spaces[0].WorkspaceID != w.ID || spaces[0].Role != "member" || spaces[0].Status != "active" {
+		t.Fatalf("workspace directory: %+v %v", spaces, err)
+	}
+	if found, err := p.DeleteAuthUser(ctx, "missing"); err != nil || found {
+		t.Fatalf("delete missing: %v %v", found, err)
+	}
+	if _, err := p.DeleteAuthUser(ctx, admin.ID); !errors.Is(err, service.ErrAuthConflict) {
+		t.Fatalf("last administrator deleted: %v", err)
+	}
+	// A membership has no ON DELETE CASCADE, so deletion must sweep it or the
+	// account cannot be removed at all.
+	found, err := p.DeleteAuthUser(ctx, external.ID)
+	if err != nil || !found {
+		t.Fatalf("delete: %v %v", found, err)
+	}
+	if u, err := p.GetAuthUserByID(ctx, external.ID); err != nil || u != nil {
+		t.Fatalf("account survived deletion: %+v %v", u, err)
+	}
+	for _, table := range []string{"workspace_memberships", "auth_identity_links", "auth_login_events"} {
+		column := "user_id"
+		count, err := p.goqu.From(p.workspaceTable(table)).Where(goqu.Ex{column: external.ID}).CountContext(ctx)
+		if err != nil || count != 0 {
+			t.Fatalf("%s retained rows: %d %v", table, count, err)
+		}
 	}
 }
 

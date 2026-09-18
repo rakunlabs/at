@@ -119,6 +119,13 @@ export async function deleteAuthPasskey(id: string, current_password: string, si
   await api.post(`passkeys/${encodeURIComponent(id)}/delete`, { current_password }, { signal });
 }
 
+export interface AuthUserIdentity {
+  provider_id: string;
+  subject: string;
+  email: string;
+  email_verified: boolean;
+}
+
 export interface AuthUser {
   id: string;
   username: string;
@@ -126,6 +133,28 @@ export interface AuthUser {
   disabled: boolean;
   password_locked_until?: string;
   last_login?: { at: string; source_ip: string };
+  identities?: AuthUserIdentity[];
+}
+
+export interface AuthUserWorkspace {
+  workspace_id: string;
+  name: string;
+  role: string;
+  status: string;
+}
+
+export interface AuthUserDetail extends AuthUser {
+  workspaces: AuthUserWorkspace[];
+}
+
+// An externally provisioned account is named `external-<ulid>`, which is the
+// account ID again and identifies nobody. The verified email on its identity
+// link is the only name a person recognises, so it is what the UI shows.
+export function authUserLabel(user: AuthUser): string {
+  const identity = user.identities?.find(i => i.email_verified && i.email) || user.identities?.find(i => i.email);
+  if (identity?.email) return identity.email;
+  if (user.username.startsWith('external-')) return user.identities?.[0]?.subject || user.username;
+  return user.username;
 }
 
 export interface AuthLoginEvent {
@@ -161,8 +190,20 @@ export async function logoutAuth(): Promise<void> {
   await api.post('logout', {});
 }
 
-export async function listAuthUsers(after = ''): Promise<AuthUserPage> {
-  return (await api.get<AuthUserPage>('users', { params: { limit: 50, after } })).data;
+export async function listAuthUsers(after = '', search = '', limit = 50): Promise<AuthUserPage> {
+  // The server allowlists query keys, so an empty search must be omitted rather
+  // than sent as an empty value.
+  const params: Record<string, string | number> = { limit, after };
+  if (search) params.q = search;
+  return (await api.get<AuthUserPage>('users', { params })).data;
+}
+
+export async function getAuthUser(id: string): Promise<AuthUserDetail> {
+  return (await api.get<AuthUserDetail>(`users/${encodeURIComponent(id)}`)).data;
+}
+
+export async function deleteAuthUser(id: string): Promise<void> {
+  await api.delete(`users/${encodeURIComponent(id)}`);
 }
 
 export async function createAuthUser(user: CreateAuthUser): Promise<AuthIdentity> {

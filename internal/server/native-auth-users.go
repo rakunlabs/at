@@ -2,9 +2,11 @@ package server
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rakunlabs/ada/middleware/auth/identity"
@@ -13,12 +15,56 @@ import (
 )
 
 type nativeUser struct {
-	ID                  string                 `json:"id"`
-	Username            string                 `json:"username"`
-	Admin               bool                   `json:"admin"`
-	Disabled            bool                   `json:"disabled"`
-	PasswordLockedUntil *time.Time             `json:"password_locked_until,omitempty"`
-	LastLogin           *service.AuthLastLogin `json:"last_login,omitempty"`
+	ID                  string                     `json:"id"`
+	Username            string                     `json:"username"`
+	Admin               bool                       `json:"admin"`
+	Disabled            bool                       `json:"disabled"`
+	PasswordLockedUntil *time.Time                 `json:"password_locked_until,omitempty"`
+	LastLogin           *service.AuthLastLogin     `json:"last_login,omitempty"`
+	Identities          []service.AuthUserIdentity `json:"identities,omitempty"`
+}
+
+// decorate fills the parts of the list row that live outside auth_users: the
+// active password lock, the last sign-in, and the external identities that give
+// a generated `external-<ulid>` account a name a person recognises.
+func (a *nativeAuth) decorateUsers(r *http.Request, users []service.AuthUser) ([]nativeUser, int, string) {
+	ids := make([]string, 0, len(users))
+	for _, u := range users {
+		ids = append(ids, u.ID)
+	}
+	var locks map[string]time.Time
+	if reader, ok := a.security.(service.AuthLoginLockoutReader); ok {
+		var err error
+		if locks, err = reader.ListAuthLoginLocks(r.Context(), ids); err != nil {
+			return nil, 503, "account security unavailable"
+		}
+	}
+	var lastLogins map[string]service.AuthLastLogin
+	if store, ok := a.store.(service.AuthLoginEventStorer); ok {
+		var err error
+		if lastLogins, err = store.ListAuthLastLogins(r.Context(), ids); err != nil {
+			return nil, 503, "login history unavailable"
+		}
+	}
+	var identities map[string][]service.AuthUserIdentity
+	if store, ok := a.store.(service.AuthUserDirectory); ok {
+		var err error
+		if identities, err = store.ListAuthUserIdentities(r.Context(), ids); err != nil {
+			return nil, 503, "identity directory unavailable"
+		}
+	}
+	out := make([]nativeUser, 0, len(users))
+	for _, u := range users {
+		item := nativeUser{ID: u.ID, Username: u.Username, Admin: u.Admin, Disabled: u.Disabled, Identities: identities[u.ID]}
+		if until, ok := locks[u.ID]; ok {
+			item.PasswordLockedUntil = &until
+		}
+		if last, ok := lastLogins[u.ID]; ok {
+			item.LastLogin = &last
+		}
+		out = append(out, item)
+	}
+	return out, 0, ""
 }
 
 func (a *nativeAuth) listUsers(w http.ResponseWriter, r *http.Request) {
@@ -31,17 +77,19 @@ func (a *nativeAuth) listUsers(w http.ResponseWriter, r *http.Request) {
 	if q.Has("limit") {
 		limit, err = strconv.Atoi(q.Get("limit"))
 	}
-	if err != nil || limit < 1 || limit > 100 || len(q.Get("after")) > 128 {
-		nativeError(w, 400, "limit must be 1-100; after must be at most 128 bytes")
+	if err != nil || limit < 1 || limit > 100 || len(q.Get("after")) > 128 || len(q.Get("q")) > 128 {
+		nativeError(w, 400, "limit must be 1-100; after and q must be at most 128 bytes")
 		return
 	}
 	for key, values := range q {
-		if (key != "limit" && key != "after") || len(values) != 1 {
+		if (key != "limit" && key != "after" && key != "q") || len(values) != 1 {
 			nativeError(w, 400, "invalid user list query")
 			return
 		}
 	}
-	users, err := a.store.ListAuthUsers(r.Context(), q.Get("after"), uint(limit+1))
+	// One row over the page decides whether a cursor is reported, so an exact
+	// page boundary does not advertise a next page that is empty.
+	users, err := a.store.ListAuthUsers(r.Context(), service.AuthUserQuery{After: q.Get("after"), Search: strings.TrimSpace(q.Get("q")), Limit: uint(limit + 1)})
 	if err != nil {
 		nativeError(w, 503, "authentication unavailable")
 		return
@@ -49,42 +97,77 @@ func (a *nativeAuth) listUsers(w http.ResponseWriter, r *http.Request) {
 	result := struct {
 		Data       []nativeUser `json:"data"`
 		NextCursor string       `json:"next_cursor"`
-	}{Data: make([]nativeUser, 0, len(users))}
+	}{Data: []nativeUser{}}
 	if len(users) > limit {
 		users = users[:limit]
 		result.NextCursor = users[len(users)-1].ID
 	}
-	var locks map[string]time.Time
-	ids := make([]string, 0, len(users))
-	for _, u := range users {
-		ids = append(ids, u.ID)
+	data, status, message := a.decorateUsers(r, users)
+	if status != 0 {
+		nativeError(w, status, message)
+		return
 	}
-	if reader, ok := a.security.(service.AuthLoginLockoutReader); ok {
-		locks, err = reader.ListAuthLoginLocks(r.Context(), ids)
+	result.Data = data
+	httpResponseJSON(w, result, 200)
+}
+
+// getUser answers the account detail an administrator needs to act on a row:
+// who the account is upstream, and which workspaces it actually reaches. The
+// list endpoint cannot carry the memberships — that is one query per account.
+func (a *nativeAuth) getUser(w http.ResponseWriter, r *http.Request) {
+	u, err := a.store.GetAuthUserByID(r.Context(), r.PathValue("id"))
+	if err != nil {
+		nativeError(w, 503, "authentication unavailable")
+		return
+	}
+	if u == nil {
+		nativeError(w, 404, "user not found")
+		return
+	}
+	data, status, message := a.decorateUsers(r, []service.AuthUser{*u})
+	if status != 0 {
+		nativeError(w, status, message)
+		return
+	}
+	result := struct {
+		nativeUser
+		Workspaces []service.AuthUserWorkspace `json:"workspaces"`
+	}{nativeUser: data[0], Workspaces: []service.AuthUserWorkspace{}}
+	if store, ok := a.store.(service.AuthUserDirectory); ok {
+		workspaces, err := store.ListAuthUserWorkspaces(r.Context(), u.ID)
 		if err != nil {
-			nativeError(w, 503, "account security unavailable")
+			nativeError(w, 503, "workspace directory unavailable")
 			return
 		}
-	}
-	var lastLogins map[string]service.AuthLastLogin
-	if store, ok := a.store.(service.AuthLoginEventStorer); ok {
-		lastLogins, err = store.ListAuthLastLogins(r.Context(), ids)
-		if err != nil {
-			nativeError(w, 503, "login history unavailable")
-			return
-		}
-	}
-	for _, u := range users {
-		item := nativeUser{ID: u.ID, Username: u.Username, Admin: u.Admin, Disabled: u.Disabled}
-		if until, ok := locks[u.ID]; ok {
-			item.PasswordLockedUntil = &until
-		}
-		if last, ok := lastLogins[u.ID]; ok {
-			item.LastLogin = &last
-		}
-		result.Data = append(result.Data, item)
+		result.Workspaces = workspaces
 	}
 	httpResponseJSON(w, result, 200)
+}
+
+// deleteUser is irreversible and deliberately narrower than disable: an account
+// that is still referenced as the only active administrator, or is the caller's
+// own, is refused rather than silently locking the installation out of itself.
+func (a *nativeAuth) deleteUser(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == identity.FromContext(r.Context()).Subject {
+		nativeError(w, 409, "cannot delete your own account")
+		return
+	}
+	found, err := a.store.DeleteAuthUser(r.Context(), id)
+	if errors.Is(err, service.ErrAuthConflict) {
+		nativeError(w, 409, "cannot delete the last active administrator, or the last administrator external sign-in depends on")
+		return
+	}
+	if err != nil {
+		nativeError(w, 503, "authentication unavailable")
+		return
+	}
+	if !found {
+		nativeError(w, 404, "user not found")
+		return
+	}
+	slog.InfoContext(r.Context(), "account deleted", "user_id", id, "actor_id", identity.FromContext(r.Context()).Subject)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (a *nativeAuth) enableUser(w http.ResponseWriter, r *http.Request) {

@@ -580,6 +580,8 @@ func (a *nativeAuth) register(mux *ada.Server, base string) {
 	admin.Use(a.require(true))
 	admin.POST("", a.createUser(false))
 	admin.GET("", a.listUsers)
+	admin.GET("/{id}", a.getUser)
+	admin.DELETE("/{id}", a.deleteUser)
 	admin.POST("/{id}/enable", a.enableUser)
 	admin.POST("/{id}/unlock-login", a.unlockLogin)
 	admin.GET("/{id}/login-events", a.loginEvents)

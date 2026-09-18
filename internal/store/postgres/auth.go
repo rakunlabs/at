@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -53,12 +54,29 @@ func (p *Postgres) GetAuthUserByID(ctx context.Context, id string) (*service.Aut
 	return authUserRowToRecord(row), nil
 }
 
-func (p *Postgres) ListAuthUsers(ctx context.Context, after string, limit uint) ([]service.AuthUser, error) {
-	if limit == 0 || limit > 101 {
+func (p *Postgres) ListAuthUsers(ctx context.Context, q service.AuthUserQuery) ([]service.AuthUser, error) {
+	if q.Limit == 0 || q.Limit > 101 {
 		return nil, fmt.Errorf("list auth users: limit must be 1-101")
 	}
+	where := []goqu.Expression{goqu.I("u.id").Gt(q.After)}
+	if q.Search != "" {
+		// Escape the LIKE metacharacters so a pasted address or an ID fragment
+		// is matched literally rather than as a pattern.
+		replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+		pattern := "%" + replacer.Replace(q.Search) + "%"
+		// The email lives on the identity link, not the account: an external
+		// account's own username is a generated ULID, so matching only the
+		// username would leave every SSO user unfindable.
+		links := p.externalTable("auth_identity_links").As("l")
+		exists := p.goqu.From(links).Select(goqu.L("1")).Where(goqu.I("l.user_id").Eq(goqu.I("u.id")), goqu.I("l.email").ILike(pattern))
+		where = append(where, goqu.Or(
+			goqu.I("u.id").ILike(pattern),
+			goqu.I("u.username").ILike(pattern),
+			goqu.L("EXISTS ?", exists),
+		))
+	}
 	var rows []authUserRow
-	err := p.goqu.From(p.tableAuthUsers).Select("id", "username", "admin", "disabled").Where(goqu.I("id").Gt(after)).Order(goqu.I("id").Asc()).Limit(limit).ScanStructsContext(ctx, &rows)
+	err := p.goqu.From(p.tableAuthUsers.As("u")).Select("u.id", "u.username", "u.admin", "u.disabled").Where(where...).Order(goqu.I("u.id").Asc()).Limit(q.Limit).ScanStructsContext(ctx, &rows)
 	if err != nil {
 		return nil, fmt.Errorf("list auth users: %w", err)
 	}

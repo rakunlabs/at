@@ -24,6 +24,44 @@ type AuthUser struct {
 	SessionVersion int64 `json:"-"`
 }
 
+// AuthUserQuery bounds an administrator's user listing. Search is deliberately
+// part of the store query rather than a client-side filter over one page: an
+// externally provisioned account is named `external-<ulid>`, which nobody can
+// recognise or type, so the only way to find one is to match the email its
+// identity link carries.
+type AuthUserQuery struct {
+	After  string
+	Search string
+	Limit  uint
+}
+
+// AuthUserIdentity is the administrator-visible part of an identity link. It
+// carries no asserted permissions: this answers "who is this account", not
+// "what may it do".
+type AuthUserIdentity struct {
+	ProviderID    string `json:"provider_id" db:"provider_id"`
+	Subject       string `json:"subject" db:"subject"`
+	Email         string `json:"email" db:"email"`
+	EmailVerified bool   `json:"email_verified" db:"email_verified"`
+}
+
+// AuthUserWorkspace is one membership row, reported so an administrator can see
+// why an account reaches nothing without opening every workspace in turn.
+type AuthUserWorkspace struct {
+	WorkspaceID string `json:"workspace_id" db:"workspace_id"`
+	Name        string `json:"name" db:"name"`
+	Role        string `json:"role" db:"role"`
+	Status      string `json:"status" db:"status"`
+}
+
+// AuthUserDirectory is optional: it is what turns an opaque account into a
+// person. Kept off AuthStorer because it reads tables (identity links,
+// workspace memberships) that native authentication itself never needs.
+type AuthUserDirectory interface {
+	ListAuthUserIdentities(context.Context, []string) (map[string][]AuthUserIdentity, error)
+	ListAuthUserWorkspaces(context.Context, string) ([]AuthUserWorkspace, error)
+}
+
 type AuthSession struct {
 	Transport       string
 	AccessHash      string `json:"-"`
@@ -79,11 +117,15 @@ type AuthStorer interface {
 	CreateAuthUser(context.Context, AuthUser, bool) (*AuthUser, error)
 	GetAuthUser(context.Context, string) (*AuthUser, error) // normalized username
 	GetAuthUserByID(context.Context, string) (*AuthUser, error)
-	ListAuthUsers(context.Context, string, uint) ([]AuthUser, error)           // after ID, bounded limit
+	ListAuthUsers(context.Context, AuthUserQuery) ([]AuthUser, error)
 	EnableAuthUser(context.Context, string) (bool, error)                      // always revoke
 	SetAuthUserPassword(context.Context, string, string, *int64) (bool, error) // optional verified version; always revoke
 	CreateAuthSession(context.Context, AuthSession) error
 	ResolveAuthSession(context.Context, string) (*AuthUser, time.Time, error)
 	DeleteAuthSession(context.Context, string) error
 	InvalidateAuthUser(context.Context, string, bool) (bool, error) // optionally disable, always revoke
+	// DeleteAuthUser removes the account and everything keyed on it. It is
+	// irreversible and refuses the last active administrator, so disable stays
+	// the reversible option.
+	DeleteAuthUser(context.Context, string) (bool, error)
 }

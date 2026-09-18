@@ -544,6 +544,82 @@ session-version revocation. GET `/auth/users/{id}/login-events` is installation-
 admin-only. Audit storage failures are logged explicitly; last successful
 sign-in metadata survives event retention. History begins at deployment.
 
+### Installation accounts (Users)
+
+`/settings/users` is the installation-admin account directory. Three properties
+of it are load-bearing:
+
+**An account is named by its identity link, not by its username.** Just-in-time
+external provisioning mints `external-<lowercased ULID>`
+(`auth-external.go:CompleteAuthExternalIdentity`), which is the account ID again
+with a prefix and identifies nobody; the prefix is also the hard-cap predicate
+for JIT accounts, so it cannot be changed. `ListAuthUserIdentities` therefore
+joins `auth_identity_links` for the page and the row is labelled with the
+verified email (`authUserLabel` in `_ui/src/lib/api/auth.ts`), falling back to
+the upstream subject and then the username. The stored username is unchanged and
+still shown as secondary metadata: it is the unique key the account signs in
+with, and rewriting it would collide in the one `username` column both local and
+external accounts share.
+
+**Search is a store predicate, not a filter over the page.** `AuthUserQuery`
+matches the account ID, the username and the identity link's email, with LIKE
+metacharacters escaped so a pasted address is matched literally. The list
+handler's query allowlist accepts `q` alongside `limit`/`after` and still 400s
+on anything else. Without it an SSO installation is unnavigable: the only way to
+find one of a thousand `external-…` rows is to page 50 at a time.
+
+**Deletion is a real delete, and narrower than disable.** `DELETE
+/auth/users/{id}` → `DeleteAuthUser` refuses the caller's own account and the
+last active administrator, takes the same `auth_bootstrap` lock as
+`InvalidateAuthUser` so two administrators cannot remove each other
+concurrently, and maps the deferred `auth_settings_primary_guard` trigger's
+23514 at COMMIT to a 409 — deleting the last external administrator while local
+sign-in is off is refused by the database, not by the handler. Most references
+cascade; `authUserDeletionTables` sweeps the ones that do not (workspace
+membership and the permission/deny rows keyed on it, invitations the account
+issued, execution service bindings, recovery events, mobile requests, Playground
+history). `media_objects` is deliberately left: its rows only point at blobs in
+the media backend, which a database transaction cannot delete, so removing them
+would strand the blobs instead of freeing them. Disable remains the reversible
+option and is what the UI still offers first.
+
+`GET /auth/users/{id}` returns the same row plus its identities and *all* its
+workspace memberships, revoked ones included — "revoked" is the answer to "why
+does this account see nothing", and claim admission never restores one, so
+hiding it would hide the explanation. The page renders it in an expandable row
+together with recovery and sign-in history. Regressions:
+`TestNativeAuthUserSearchDirectoryAndDeletion` (store),
+`TestNativeAuthUserDetailAndDeletion` and the search cases in
+`TestNativeAuthUserListing` (handlers).
+
+### Navigation for an account with no workspace
+
+A signed-in account that is a member of no workspace resolves nothing: every
+workspace-scoped API answers 403, Documentation's guide API included. The shell
+used to replace *every* route except `/settings/account` with the waiting
+screen, so the Settings link was visible and unclickable, Documentation was
+offered and dead, and Home looked like it did nothing because it rendered the
+screen the user was already looking at.
+
+`routeAllowed` (`_ui/src/lib/helper/navigation.ts`) now answers the admission
+question first: with no membership and no platform role, only `/`, `/settings`,
+`/settings/account` and `/settings/workspace` are allowed. That one predicate
+drives the sidebar, the settings indexes and the shell, so the three cannot
+disagree. `/` stays allowed deliberately — it is where the shell explains the
+situation, names the account ID to hand to a workspace owner, and offers the
+invitation form; a hidden Home would remove the explanation rather than the
+confusion. `settingsLayout` is now just `settingsArea && routeAllowed(...)`,
+which is what makes Settings open instead of being intercepted.
+
+Two related trims: the Documentation link is filtered on `routeAllowed` as well
+as its feature, and `settingsLinkVisible` hides `/settings/workspace` while
+`workspace_management` is off, because single-workspace mode pins every request
+to Default and leaves that page with one preference that cannot vary. The route
+itself stays unguarded — it is still the join-a-workspace escape hatch when the
+feature comes back. `/` renders the dashboard for everyone now; it previously
+rendered Workspace settings for non-administrators, which meant Home and a
+settings page were the same screen while that page was being hidden elsewhere.
+
 ### Client address behind a reverse proxy
 
 The socket peer is the only address the process observes directly, and behind a
@@ -800,6 +876,15 @@ transaction's share lock is released before admission takes the row
 exclusively), and `ListWorkspaces`, because a first-time single sign-on user has
 no workspace to name yet. Each insert is logged with workspace, user, role,
 provider and mapping ID.
+
+The column keeps its four values, but the Permissions page presents admission as
+a **checkbox**, not a role picker: the mapping already names the bundle that says
+what a matching identity may do, so asking for a role on top of it asked the same
+question twice and the second answer was the larger grant. Checked, it stores
+`viewer` — the smallest membership that exists, with the bundle supplying
+everything beyond it. A mapping already storing `member` or `admin` keeps that
+role through a toggle and says so in its label, because silently downgrading a
+stored decision is worse than showing it.
 
 ### External sign-in returns through a popup bridge
 

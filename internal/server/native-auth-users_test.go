@@ -30,7 +30,7 @@ func (f *fakeAuthStore) GetAuthUserByID(_ context.Context, id string) (*service.
 	return nil, nil
 }
 
-func (f *fakeAuthStore) ListAuthUsers(_ context.Context, after string, limit uint) ([]service.AuthUser, error) {
+func (f *fakeAuthStore) ListAuthUsers(_ context.Context, q service.AuthUserQuery) ([]service.AuthUser, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail {
@@ -38,15 +38,51 @@ func (f *fakeAuthStore) ListAuthUsers(_ context.Context, after string, limit uin
 	}
 	var users []service.AuthUser
 	for _, u := range f.users {
-		if u.ID > after {
-			users = append(users, u)
+		if u.ID <= q.After {
+			continue
 		}
+		if q.Search != "" && !strings.Contains(strings.ToLower(u.Username), strings.ToLower(q.Search)) && !strings.Contains(strings.ToLower(u.ID), strings.ToLower(q.Search)) {
+			continue
+		}
+		users = append(users, u)
 	}
 	slices.SortFunc(users, func(a, b service.AuthUser) int { return strings.Compare(a.ID, b.ID) })
-	if len(users) > int(limit) {
-		users = users[:limit]
+	if len(users) > int(q.Limit) {
+		users = users[:q.Limit]
 	}
 	return users, nil
+}
+
+func (f *fakeAuthStore) DeleteAuthUser(_ context.Context, id string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.fail {
+		return false, errors.New("database unavailable")
+	}
+	for name, u := range f.users {
+		if u.ID != id {
+			continue
+		}
+		if u.Admin && !u.Disabled {
+			active := 0
+			for _, other := range f.users {
+				if other.Admin && !other.Disabled {
+					active++
+				}
+			}
+			if active <= 1 {
+				return false, service.ErrAuthConflict
+			}
+		}
+		delete(f.users, name)
+		for hash, s := range f.sessions {
+			if s.UserID == id {
+				delete(f.sessions, hash)
+			}
+		}
+		return true, nil
+	}
+	return false, nil
 }
 
 func (f *fakeAuthStore) EnableAuthUser(_ context.Context, id string) (bool, error) {
@@ -129,7 +165,7 @@ func TestNativeAuthUserManagementBoundary(t *testing.T) {
 func TestNativeAuthUserListing(t *testing.T) {
 	_, _, mux := nativeFixture(t)
 	admin := nativeLoginCookie(t, mux, "admin")
-	for _, query := range []string{"limit=0", "limit=101", "limit=-1", "limit=x", "limit=1&limit=2", "unknown=x", "after=" + strings.Repeat("x", 129), "after=%zz"} {
+	for _, query := range []string{"limit=0", "limit=101", "limit=-1", "limit=x", "limit=1&limit=2", "unknown=x", "after=" + strings.Repeat("x", 129), "q=" + strings.Repeat("x", 129), "after=%zz"} {
 		if w := nativeRequest(mux, "GET", "/at/auth/users?"+query, "", "", admin); w.Code != 400 {
 			t.Fatalf("query %s: %d", query, w.Code)
 		}
@@ -160,6 +196,67 @@ func TestNativeAuthUserListing(t *testing.T) {
 		} else if len(result.Data) != 1 || result.Data[0]["id"] != tt.id || len(result.Data[0]) != 4 {
 			t.Fatalf("incorrect or leaking DTO: %s", w.Body)
 		}
+	}
+	// Search is a store predicate, not a filter over the current page, so the
+	// cursor and the page bound still apply to the matching set.
+	for _, tt := range []struct {
+		query string
+		ids   []string
+	}{{"q=read", []string{"reader"}}, {"q=READ", []string{"reader"}}, {"q=", []string{"admin", "reader"}}, {"q=nobody", nil}} {
+		w := nativeRequest(mux, "GET", "/at/auth/users?"+tt.query, "", "", admin)
+		var result struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &result) != nil || len(result.Data) != len(tt.ids) {
+			t.Fatalf("search %q: %d %s", tt.query, w.Code, w.Body)
+		}
+		for i, id := range tt.ids {
+			if result.Data[i].ID != id {
+				t.Fatalf("search %q: %s", tt.query, w.Body)
+			}
+		}
+	}
+}
+
+// Deletion is irreversible, so its refusals matter more than its success path.
+func TestNativeAuthUserDetailAndDeletion(t *testing.T) {
+	_, _, mux := nativeFixture(t)
+	admin := nativeLoginCookie(t, mux, "admin")
+	w := nativeRequest(mux, "GET", "/at/auth/users/reader", "", "", admin)
+	var detail struct {
+		ID         string           `json:"id"`
+		Username   string           `json:"username"`
+		Workspaces []map[string]any `json:"workspaces"`
+	}
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &detail) != nil || detail.ID != "reader" || detail.Workspaces == nil {
+		t.Fatalf("detail: %d %s", w.Code, w.Body)
+	}
+	if w := nativeRequest(mux, "GET", "/at/auth/users/missing", "", "", admin); w.Code != 404 {
+		t.Fatalf("missing detail: %d", w.Code)
+	}
+	for _, origin := range []string{"", "https://evil.example"} {
+		if w := nativeRequest(mux, "DELETE", "/at/auth/users/reader", "", origin, admin); w.Code != 403 {
+			t.Fatalf("CSRF delete %q: %d", origin, w.Code)
+		}
+	}
+	if w := nativeRequest(mux, "DELETE", "/at/auth/users/reader", "", "https://at.example", nativeLoginCookie(t, mux, "reader")); w.Code != 403 {
+		t.Fatalf("non-administrator delete: %d", w.Code)
+	}
+	// Removing yourself, or the only account that can still administer the
+	// installation, is refused rather than performed.
+	if w := nativeRequest(mux, "DELETE", "/at/auth/users/admin", "", "https://at.example", admin); w.Code != 409 {
+		t.Fatalf("self delete: %d %s", w.Code, w.Body)
+	}
+	if w := nativeRequest(mux, "DELETE", "/at/auth/users/missing", "", "https://at.example", admin); w.Code != 404 {
+		t.Fatalf("missing delete: %d", w.Code)
+	}
+	if w := nativeRequest(mux, "DELETE", "/at/auth/users/reader", "", "https://at.example", admin); w.Code != 204 {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	if w := nativeRequest(mux, "GET", "/at/auth/users/reader", "", "", admin); w.Code != 404 {
+		t.Fatalf("deleted account still resolves: %d", w.Code)
 	}
 }
 

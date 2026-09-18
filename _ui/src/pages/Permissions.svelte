@@ -15,6 +15,12 @@
   let error = $state(''); let notice = $state(''); let busy = $state(false); let provider = $state(''); let claimKind = $state('groups'); let claimValue = $state(''); let permission = $state('');
   // Editing a mapping in place keeps its id, so references and audit trails survive.
   let mappingID = $state(''); let admitRole = $state<'' | 'viewer' | 'member' | 'admin'>('');
+  // Admission is presented as a yes/no decision. The bundle already says what a
+  // matching identity may do, so picking a role on top of it asked the same
+  // question twice and the second answer was the larger grant. Checking the box
+  // admits as viewer, the smallest membership there is; a mapping stored with a
+  // higher role keeps it rather than being silently downgraded by a toggle.
+  let storedAdmitRole = $state<'' | 'viewer' | 'member' | 'admin'>('');
   let loginProviders = $state<{id: string; label: string}[]>([]);
   let manage = $derived(isNativeAdmin() || can('permissions.manage'));
   let admitAllowed = $derived(isNativeAdmin() || can('members.manage'));
@@ -27,6 +33,7 @@
   function editMapping(m?: Mapping) {
     mappingID = m?.id || ''; provider = m?.provider_id || ''; claimKind = m?.claim_kind || 'groups';
     claimValue = m?.claim_value || ''; permission = m?.permission_id || ''; admitRole = m?.admit_role || '';
+    storedAdmitRole = admitRole;
   }
   onMount(() => { void load(); });
   async function run(fn: () => Promise<void>) { if (busy) return; busy = true; error = notice = ''; try { await fn(); notice = 'Permissions updated.'; } catch (e) { error = authErrorMessage(e, 'Permission change failed. Reload and retry.'); } finally { busy = false; } }
@@ -74,11 +81,11 @@
       <label>Claim kind<select bind:value={claimKind}><option>groups</option><option>roles</option><option>permissions</option><option>scope</option><option>scopes</option></select><span class="settings-note">roles and scopes match the provider's reported lists; groups, permissions and scope match the recorded claim of that name.</span></label>
       <label>Exact claim value<input bind:value={claimValue} required spellcheck="false" /></label>
       <label>Permission bundle<select bind:value={permission} required><option value="">Choose bundle</option>{#each bundles as b}<option value={b.id}>{b.name}</option>{/each}</select></label>
-      <label>Workspace admission<select bind:value={admitRole} disabled={!admitAllowed}><option value="">None — grant to existing members only</option><option value="viewer">Admit as viewer</option><option value="member">Admit as member</option><option value="admin">Admit as admin</option></select></label>
     </div>
-    <p class="settings-note">{admitAllowed ? 'Admission creates a membership for a matching identity that has none, at or below your own role. A revoked membership is never restored and an existing role is never changed. Owner is not admissible.' : 'Admission requires the members.manage capability, because it creates workspace membership rather than granting capabilities to an existing member.'}</p>
+    <label class="flex items-start gap-2"><input type="checkbox" checked={admitRole !== ''} disabled={!admitAllowed} onchange={e => admitRole = e.currentTarget.checked ? (storedAdmitRole || 'viewer') : ''} /><span>Add matching users to this workspace automatically{admitRole && admitRole !== 'viewer' ? ` (existing mapping joins as ${admitRole})` : ''}</span></label>
+    <p class="settings-note">{admitAllowed ? 'Unchecked, the mapping only grants its bundle to someone who is already a member. Checked, a matching identity with no membership joins as a viewer and the bundle supplies the rest. An existing role is never changed and a revoked membership is never restored.' : 'Adding members requires the members.manage capability, because it creates workspace membership rather than granting capabilities to an existing member.'}</p>
     <div class="flex gap-3"><button class="settings-primary" disabled={busy}>{mappingID ? 'Save mapping' : 'Add mapping'}</button>{#if mappingID}<button type="button" class="settings-button" onclick={() => editMapping()}>Cancel edit</button>{/if}</div>
   </form>
-  <ul class="settings-list">{#each mappings as m}<li class="flex flex-wrap justify-between gap-3"><div class="min-w-0"><p class="break-all">{m.provider_id} · {m.claim_kind} = {m.claim_value}</p><p class="settings-note">{bundles.find(b => b.id === m.permission_id)?.name || m.permission_id} · {m.admit_role ? `admits as ${m.admit_role}` : 'existing members only'}</p></div><div class="flex gap-2"><button class="settings-button" disabled={busy} onclick={() => editMapping(m)}>Edit</button><button class="settings-button" disabled={busy} onclick={() => { if (confirm('Delete this provider mapping?')) void run(async () => { await workspaceAPI.delete(`permission-mappings/${encodeURIComponent(m.id)}`); if (mappingID === m.id) editMapping(); await load(); }); }}>Delete</button></div></li>{/each}</ul>
+  <ul class="settings-list">{#each mappings as m}<li class="flex flex-wrap justify-between gap-3"><div class="min-w-0"><p class="break-all">{m.provider_id} · {m.claim_kind} = {m.claim_value}</p><p class="settings-note">{bundles.find(b => b.id === m.permission_id)?.name || m.permission_id} · {m.admit_role ? (m.admit_role === 'viewer' ? 'adds matching users to this workspace' : `adds matching users as ${m.admit_role}`) : 'existing members only'}</p></div><div class="flex gap-2"><button class="settings-button" disabled={busy} onclick={() => editMapping(m)}>Edit</button><button class="settings-button" disabled={busy} onclick={() => { if (confirm('Delete this provider mapping?')) void run(async () => { await workspaceAPI.delete(`permission-mappings/${encodeURIComponent(m.id)}`); if (mappingID === m.id) editMapping(); await load(); }); }}>Delete</button></div></li>{/each}</ul>
 </section>{/if}
 </div>
