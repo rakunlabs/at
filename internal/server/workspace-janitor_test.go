@@ -151,43 +151,47 @@ func TestSweepWorkspaceOnce(t *testing.T) {
 }
 
 func TestSweepWorkspaceOnce_PreservesAssets(t *testing.T) {
-	for _, symlink := range []bool{false, true} {
-		name := "directory"
-		if symlink {
-			name = "symlink"
-		}
-		t.Run(name, func(t *testing.T) {
-			root := t.TempDir()
-			assets := filepath.Join(root, "assets")
-			target := assets
+	// "assets" (persistent media) and "mcps" (uploaded MCP binaries/config
+	// files) are both reserved: neither may be treated as a task workspace.
+	for _, reserved := range []string{"assets", "mcps"} {
+		for _, symlink := range []bool{false, true} {
+			name := reserved + "/directory"
 			if symlink {
-				target = t.TempDir()
-				if err := os.Symlink(target, assets); err != nil {
-					t.Skipf("symlinks unavailable: %v", err)
+				name = reserved + "/symlink"
+			}
+			t.Run(name, func(t *testing.T) {
+				root := t.TempDir()
+				reservedDir := filepath.Join(root, reserved)
+				target := reservedDir
+				if symlink {
+					target = t.TempDir()
+					if err := os.Symlink(target, reservedDir); err != nil {
+						t.Skipf("symlinks unavailable: %v", err)
+					}
+				} else {
+					mustMkdir(t, reservedDir)
 				}
-			} else {
-				mustMkdir(t, assets)
-			}
-			mustWriteFile(t, filepath.Join(target, "portrait.png"), 100)
-			old := time.Now().Add(-100 * time.Hour)
-			if err := os.Chtimes(target, old, old); err != nil {
-				t.Fatal(err)
-			}
-			store := &janitorTaskStore{tasks: map[string]*service.Task{
-				"assets": {ID: "assets", Status: service.TaskStatusDone, CompletedAt: old.UTC().Format(time.RFC3339)},
-			}}
-			s := &Server{taskStore: store}
-			s.sweepWorkspaceOnce(context.Background(), root, time.Hour)
-			if len(store.lookups) != 0 {
-				t.Fatalf("reserved assets triggered DB lookups: %v", store.lookups)
-			}
-			if _, err := os.Lstat(assets); err != nil {
-				t.Fatal(err)
-			}
-			if data, err := os.ReadFile(filepath.Join(target, "portrait.png")); err != nil || len(data) != 100 {
-				t.Fatalf("asset lost: %v", err)
-			}
-		})
+				mustWriteFile(t, filepath.Join(target, "portrait.png"), 100)
+				old := time.Now().Add(-100 * time.Hour)
+				if err := os.Chtimes(target, old, old); err != nil {
+					t.Fatal(err)
+				}
+				store := &janitorTaskStore{tasks: map[string]*service.Task{
+					reserved: {ID: reserved, Status: service.TaskStatusDone, CompletedAt: old.UTC().Format(time.RFC3339)},
+				}}
+				s := &Server{taskStore: store}
+				s.sweepWorkspaceOnce(context.Background(), root, time.Hour)
+				if len(store.lookups) != 0 {
+					t.Fatalf("reserved %s triggered DB lookups: %v", reserved, store.lookups)
+				}
+				if _, err := os.Lstat(reservedDir); err != nil {
+					t.Fatal(err)
+				}
+				if data, err := os.ReadFile(filepath.Join(target, "portrait.png")); err != nil || len(data) != 100 {
+					t.Fatalf("reserved file lost: %v", err)
+				}
+			})
+		}
 	}
 }
 

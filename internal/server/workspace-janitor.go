@@ -105,7 +105,7 @@ func (s *Server) sweepWorkspaceOnce(ctx context.Context, root string, ttl time.D
 			removedTasks += s.sweepExecutionWorkspaces(ctx, root, now, ttl)
 			continue
 		}
-		if name == "assets" {
+		if name == "assets" || name == "mcps" {
 			continue
 		}
 		full := filepath.Join(root, name)

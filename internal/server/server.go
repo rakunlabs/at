@@ -458,6 +458,22 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	} else {
 		slog.Info("startup: persistent asset library ready", "path", assets)
 	}
+	// Persistent MCP program library: binaries / config files that stdio MCP
+	// upstreams reference. Sibling of assets under the same workspace root,
+	// reserved from the workspace janitor. Failure is non-fatal — the gateway
+	// stays available; only UI binary uploads would fail.
+	mcpDirErr := workflow.ConfigureMCPDir(workspaceRoot)
+	mcpDir := workflow.MCPDir()
+	if mcpDirErr == nil {
+		mcpDir, mcpDirErr = workflow.EnsureMCPDirReady()
+	}
+	if mcpDirErr != nil {
+		slog.Error("startup: persistent MCP program library unavailable; gateway remains available",
+			"path", mcpDir, "error", mcpDirErr.Error(),
+			"hint", "set server.workspace.root to a writable persistent volume; unset root uses ./data/mcps")
+	} else {
+		slog.Info("startup: persistent MCP program library ready", "path", mcpDir)
+	}
 
 	mux := ada.New()
 	mux.Use(
@@ -1153,6 +1169,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/mcp/servers/{id}", s.UpdateMCPServerAPI)
 	apiGroup.DELETE("/v1/mcp/servers/{id}", s.DeleteMCPServerAPI)
 	apiGroup.GET("/v1/mcp/servers/{id}/export", s.ExportMCPServerAPI)
+	apiGroup.GET("/v1/mcp/servers/{id}/stdio-status", s.MCPServerStdioStatusAPI)
+	apiGroup.POST("/v1/mcp/servers/{id}/stdio-restart", s.MCPServerStdioRestartAPI)
+	apiGroup.POST("/v1/mcp/servers/{id}/stdio-stop", s.MCPServerStdioStopAPI)
 
 	// MCP set management (internal MCPs)
 	apiGroup.GET("/v1/mcp/sets", s.ListMCPSetsAPI)
@@ -1163,6 +1182,16 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.PUT("/v1/mcp/sets/{id}", s.UpdateMCPSetAPI)
 	apiGroup.DELETE("/v1/mcp/sets/{id}", s.DeleteMCPSetAPI)
 	apiGroup.GET("/v1/mcp/sets/{id}/export", s.ExportMCPSetAPI)
+	apiGroup.GET("/v1/mcp/sets/{id}/stdio-status", s.MCPSetStdioStatusAPI)
+	apiGroup.POST("/v1/mcp/sets/{id}/stdio-restart", s.MCPSetStdioRestartAPI)
+	apiGroup.POST("/v1/mcp/sets/{id}/stdio-stop", s.MCPSetStdioStopAPI)
+
+	// Stdio MCP process introspection + persistent program library
+	// (binaries / config files referenced by stdio upstream commands).
+	apiGroup.GET("/v1/mcp/stdio-processes", s.ListStdioProcessesAPI)
+	apiGroup.GET("/v1/mcp/binaries", s.ListMCPBinariesAPI)
+	apiGroup.POST("/v1/mcp/binaries", s.UploadMCPBinaryAPI)
+	apiGroup.DELETE("/v1/mcp/binaries/{name}", s.DeleteMCPBinaryAPI)
 
 	// MCP set tool resolution (for Chat UI)
 	apiGroup.GET("/v1/mcp/set-tools/{name}", s.ListMCPSetToolsAPI)

@@ -27,6 +27,7 @@ type infoResponse struct {
 	BuildDate     string         `json:"build_date"`
 	WorkspaceRoot string         `json:"workspace_root"` // Effective task workspace base dir (loopgov.WorkspaceRoot, falls back to /tmp/at-tasks)
 	AssetsRoot    string         `json:"assets_root"`    // Persistent asset library root (characters, voices, series) — ./data/assets
+	MCPRoot       string         `json:"mcp_root"`       // Persistent MCP program library root (uploaded binaries / config files) — ./data/mcps
 }
 
 type infoProvider struct {
@@ -82,6 +83,7 @@ func (s *Server) InfoAPI(w http.ResponseWriter, r *http.Request) {
 		BuildDate:     s.buildDate,
 		WorkspaceRoot: s.taskWorkspaceBase(),
 		AssetsRoot:    workflow.AssetsDir(),
+		MCPRoot:       workflow.MCPDir(),
 	}, http.StatusOK)
 }
 

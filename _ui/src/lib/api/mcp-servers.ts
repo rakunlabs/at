@@ -88,6 +88,43 @@ export async function deleteMCPServer(id: string): Promise<void> {
   await api.delete(`/mcp/servers/${id}`);
 }
 
+// ─── Stdio upstream lifecycle ───
+
+// Per-upstream status of the local (stdio) MCP subprocesses behind a record.
+// index refers to the position in config.mcp_upstreams; HTTP upstreams are
+// omitted (they have no local process).
+export interface MCPStdioUpstreamStatus {
+  index: number;
+  command: string;
+  args?: string[];
+  running: boolean;
+  pid?: number;
+  started_at?: string;
+  uptime_seconds?: number;
+  exit_error?: string;
+  error?: string; // restart failure
+}
+
+export interface MCPStdioStatusResult {
+  name: string;
+  upstreams: MCPStdioUpstreamStatus[];
+}
+
+export async function getMCPServerStdioStatus(id: string): Promise<MCPStdioStatusResult> {
+  const res = await api.get<MCPStdioStatusResult>(`/mcp/servers/${id}/stdio-status`);
+  return res.data;
+}
+
+export async function restartMCPServerStdio(id: string, index?: number): Promise<MCPStdioStatusResult> {
+  const res = await api.post<MCPStdioStatusResult>(`/mcp/servers/${id}/stdio-restart`, index !== undefined ? { index } : {});
+  return res.data;
+}
+
+export async function stopMCPServerStdio(id: string, index?: number): Promise<MCPStdioStatusResult> {
+  const res = await api.post<MCPStdioStatusResult>(`/mcp/servers/${id}/stdio-stop`, index !== undefined ? { index } : {});
+  return res.data;
+}
+
 // ─── Import / Export ───
 
 export async function exportMCPServer(id: string): Promise<Partial<MCPServer>> {

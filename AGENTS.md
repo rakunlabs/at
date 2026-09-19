@@ -1347,6 +1347,49 @@ recognizes `x-at-session-id`, `X-Session-Id`, `x-opencode-session`, then string
 are not conversation identities. Existing rows with session IDs group immediately;
 missing historical IDs are not guessed or rewritten.
 
+## Stdio MCP processes & the MCP program library
+
+Stdio MCP upstreams (`command`/`args`/`env` in `mcp_upstreams`) run in a
+process-wide lazy pool (`service.StdioProcessManager`, keyed by resolved
+command+args). Three lifecycle properties are load-bearing:
+
+- **Crash reaping**: every `StdioMCPClient` owns a reaper goroutine calling
+  `cmd.Wait()` the moment the child exits, so `Alive()` reflects a self-crashed
+  process (previously it only flipped after an explicit `Close()`, and a dead
+  client kept being handed out). `Close()` kills and waits on the reaper.
+- **Env-change respawn**: the cache key excludes env, so `GetOrCreate` compares
+  the requested (var-resolved) env against the running process's snapshot and
+  replaces it on mismatch — an env edit or a rotated `{{var:...}}` secret takes
+  effect on the next acquisition instead of surviving until server restart.
+- **Explicit lifecycle**: `GET /api/v1/mcp/stdio-processes` (global list;
+  args/env omitted because resolved args can carry secrets), and per record
+  `GET .../mcp/{servers|sets}/{id}/stdio-status`, `POST .../stdio-restart`
+  (optional `{"index": N}`), `POST .../stdio-stop`. Status/restart resolve
+  `{{var:...}}` the same way tool execution does, so they address the process a
+  tool call would reach; responses echo *stored* command/args, never resolved
+  ones. Restart failures are per-upstream entries, not a 500. All are
+  installation-admin (no `BusinessRoutePolicy`) and gated by `mcp_servers`.
+  UI: the MCP page shows an `x/y running` chip + restart per set, and
+  per-upstream status/restart/stop in the editor. Regression:
+  `internal/service/stdio-manager_test.go`, `internal/server/mcp-processes_test.go`.
+
+The **MCP program library** (`workflow.MCPDir()`, `internal/service/workflow/mcpdir.go`)
+is `<server.workspace.root>/mcps` (or `./data/mcps` when root is unset) — the
+durable home for binaries a stdio `command` references and config files an env
+var points at. Like `assets` it is reserved in the workspace janitor and never
+swept; `/api/v1/info` reports it as `mcp_root`. Managed from the MCP page's
+**Binaries** tab via `GET/POST /api/v1/mcp/binaries` and
+`DELETE /api/v1/mcp/binaries/{name}` (installation-admin; flat names only, no
+separators or dot-prefixes). Uploads land atomically (temp + rename), default
+0755 (`executable=false` → 0644 for config files). Archives
+(`.tar.gz`/`.tgz`/`.tar`) are extracted server-side into
+`<library>/<archive base name>/` unless `extract=false`: entry paths are
+traversal-checked, symlinks/hardlinks/devices skipped, bounded at 10k files /
+1 GiB decompressed, tar exec bits normalized to 0755/0644, and re-uploading the
+same archive replaces the directory (the upgrade path). Delete removes a file
+or a whole extracted directory. AT still installs nothing itself — `npx`/`uvx`
+caches remain host concerns. Regression: `internal/server/mcp-binaries_test.go`.
+
 ## Connections & Connectors
 
 External-service credentials are modeled in two layers:

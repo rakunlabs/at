@@ -2,12 +2,13 @@
   import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, type MCPSet } from '@/lib/api/mcp-sets';
+  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, getMCPSetStdioStatus, restartMCPSetStdio, stopMCPSetStdio, type MCPSet, type MCPStdioUpstreamStatus } from '@/lib/api/mcp-sets';
   import { type MCPHTTPTool, type MCPUpstream } from '@/lib/api/mcp-servers';
+  import { listMCPBinaries, uploadMCPBinary, deleteMCPBinary, listStdioProcesses, type MCPBinary, type StdioProcess } from '@/lib/api/mcp-binaries';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
   import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch } from 'lucide-svelte';
+  import { Layers, Plus, Pencil, Trash2, X, Save, RefreshCw, ChevronDown, ChevronRight, Globe, Network, Wand2, Bot, Store, Download, Upload, Check, Package, Wrench, GitBranch, HardDrive, RotateCw, Square, Copy } from 'lucide-svelte';
   import { listMCPTemplates, installMCPTemplate, type MCPTemplate } from '@/lib/api/mcp-templates';
   import { toggleSort, buildSortParam } from '@/lib/helper/sort';
   import DataTable from '@/lib/components/DataTable.svelte';
@@ -18,7 +19,7 @@
 
   // ─── Tab State ───
 
-  const tabRoute = routeChoice('tab', ['my-mcps', 'store'] as const, 'my-mcps');
+  const tabRoute = routeChoice('tab', ['my-mcps', 'store', 'binaries'] as const, 'my-mcps');
   let activeTab = $derived(tabRoute.value);
 
   // ─── Store State ───
@@ -407,6 +408,154 @@
     showUpstreamSection = true;
   }
 
+  // ─── Stdio process status / restart ───
+
+  function hasStdioUpstreams(set: MCPSet): boolean {
+    return (set.config?.mcp_upstreams ?? []).some((u) => (u.command ?? '') !== '');
+  }
+
+  // set id → per-upstream stdio status (index refers to config.mcp_upstreams)
+  let stdioStatus = $state<Record<string, MCPStdioUpstreamStatus[]>>({});
+  let stdioBusy = $state<Record<string, boolean>>({});
+
+  async function refreshStdioStatus(setId: string) {
+    try {
+      const res = await getMCPSetStdioStatus(setId);
+      stdioStatus[setId] = res.upstreams || [];
+    } catch {}
+  }
+
+  async function refreshAllStdioStatuses() {
+    await Promise.all((sets || []).filter(hasStdioUpstreams).map((s) => refreshStdioStatus(s.id)));
+  }
+
+  async function handleRestartStdio(setId: string, index?: number) {
+    stdioBusy[setId] = true;
+    try {
+      const res = await restartMCPSetStdio(setId, index);
+      stdioStatus[setId] = res.upstreams || [];
+      const failed = (res.upstreams || []).filter((u) => u.error);
+      if (failed.length > 0) {
+        addToast(`Restart failed: ${failed[0].error}`, 'alert');
+      } else {
+        addToast('Local MCP process restarted');
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to restart', 'alert');
+    } finally {
+      stdioBusy[setId] = false;
+    }
+  }
+
+  async function handleStopStdio(setId: string, index?: number) {
+    stdioBusy[setId] = true;
+    try {
+      await stopMCPSetStdio(setId, index);
+      await refreshStdioStatus(setId);
+      addToast('Local MCP process stopped');
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to stop', 'alert');
+    } finally {
+      stdioBusy[setId] = false;
+    }
+  }
+
+  function stdioSummary(setId: string): { running: number; total: number } | null {
+    const st = stdioStatus[setId];
+    if (!st) return null;
+    return { running: st.filter((u) => u.running).length, total: st.length };
+  }
+
+  $effect(() => {
+    // Refresh stdio statuses whenever the visible set list changes.
+    if (sets.length > 0) refreshAllStdioStatuses();
+  });
+
+  // ─── Binaries tab (persistent MCP program library) ───
+
+  let binDir = $state('');
+  let binFiles = $state<MCPBinary[]>([]);
+  let binLoading = $state(false);
+  let binUploading = $state(false);
+  let binExecutable = $state(true);
+  let binDeleteConfirm = $state<string | null>(null);
+  let binFileInput = $state<HTMLInputElement | undefined>(undefined);
+  let stdioProcesses = $state<StdioProcess[]>([]);
+
+  async function loadBinaries() {
+    binLoading = true;
+    try {
+      const res = await listMCPBinaries();
+      binDir = res.dir;
+      binFiles = res.files || [];
+      stdioProcesses = await listStdioProcesses();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load binaries', 'alert');
+    } finally {
+      binLoading = false;
+    }
+  }
+
+  async function handleBinaryUpload(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const files = input.files;
+    if (!files || files.length === 0) return;
+    binUploading = true;
+    try {
+      for (const file of Array.from(files)) {
+        const res = await uploadMCPBinary(file, { executable: binExecutable });
+        if (res.extracted) {
+          addToast(`"${file.name}" extracted (${res.files} files) → ${res.name}/`);
+        } else {
+          addToast(`"${file.name}" uploaded`);
+        }
+      }
+      await loadBinaries();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Upload failed', 'alert');
+    } finally {
+      binUploading = false;
+      input.value = '';
+    }
+  }
+
+  async function handleBinaryDelete(name: string) {
+    try {
+      await deleteMCPBinary(name);
+      binDeleteConfirm = null;
+      addToast(`"${name}" deleted`);
+      await loadBinaries();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to delete', 'alert');
+    }
+  }
+
+  function copyBinaryPath(name: string) {
+    const path = `${binDir}/${name}`;
+    navigator.clipboard?.writeText(path).then(
+      () => addToast('Path copied'),
+      () => addToast(path, 'warn'),
+    );
+  }
+
+  function fmtSize(size: number): string {
+    if (size < 1024) return `${size} B`;
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function fmtUptime(seconds: number): string {
+    if (seconds < 60) return `${seconds}s`;
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+    return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+  }
+
+  $effect(() => {
+    if (activeTab === 'binaries') {
+      loadBinaries();
+    }
+  });
+
   // Input schema editing as JSON string per tool
   let httpToolSchemaText = $state<Record<number, string>>({});
 
@@ -448,6 +597,13 @@
         >
           <Store size={14} />
           MCP Store
+        </button>
+        <button
+          onclick={() => (tabRoute.value = 'binaries')}
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'binaries' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+        >
+          <HardDrive size={14} />
+          Binaries
         </button>
       </div>
 
@@ -945,6 +1101,41 @@
                             </div>
                           </label>
                         </div>
+                        {#if editingId}
+                          {@const st = (stdioStatus[editingId] || []).find((u) => u.index === i)}
+                          <div class="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-dark-border text-xs">
+                            {#if st?.running}
+                              <span class="flex items-center gap-1 text-green-600 dark:text-green-400">
+                                <span class="w-1.5 h-1.5 bg-green-500 inline-block"></span>
+                                Running — pid {st.pid}{st.uptime_seconds !== undefined ? ` · up ${fmtUptime(st.uptime_seconds)}` : ''}
+                              </span>
+                            {:else if st?.exit_error}
+                              <span class="text-red-500 dark:text-red-400 truncate" title={st.exit_error}>Exited: {st.exit_error}</span>
+                            {:else}
+                              <span class="text-gray-400 dark:text-dark-text-muted">Not running — starts on first use</span>
+                            {/if}
+                            {#if st?.error}
+                              <span class="text-red-500 dark:text-red-400 truncate" title={st.error}>{st.error}</span>
+                            {/if}
+                            <span class="ml-auto flex items-center gap-1">
+                              <button type="button" onclick={() => handleRestartStdio(editingId!, i)} disabled={stdioBusy[editingId]}
+                                class="flex items-center gap-1 px-1.5 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors disabled:opacity-50"
+                                title="Kill and respawn this process (picks up saved env/config changes)">
+                                <RotateCw size={10} class={stdioBusy[editingId] ? 'animate-spin' : ''} />
+                                Restart
+                              </button>
+                              {#if st?.running}
+                                <button type="button" onclick={() => handleStopStdio(editingId!, i)} disabled={stdioBusy[editingId]}
+                                  class="flex items-center gap-1 px-1.5 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors disabled:opacity-50"
+                                  title="Stop this process (next tool call respawns it)">
+                                  <Square size={10} />
+                                  Stop
+                                </button>
+                              {/if}
+                            </span>
+                          </div>
+                          <p class="text-xs text-gray-400 dark:text-dark-text-muted">Status reflects the saved configuration; save your changes before restarting.</p>
+                        {/if}
                       {:else}
                         <!-- HTTP mode -->
                         <div class="grid grid-cols-4 gap-2 items-center">
@@ -1099,6 +1290,19 @@
                   {#if (set.config?.mcp_upstreams ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 font-mono">{(set.config.mcp_upstreams ?? []).length} external</span>
                   {/if}
+                  {#if hasStdioUpstreams(set)}
+                    {@const sum = stdioSummary(set.id)}
+                    {#if sum}
+                      <span
+                        class={["px-1.5 py-0.5 border font-mono", sum.running === sum.total && sum.total > 0
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
+                          : sum.running > 0
+                            ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                            : 'bg-gray-50 dark:bg-dark-base text-gray-500 dark:text-dark-text-muted border-gray-200 dark:border-dark-border']}
+                        title="Local MCP processes running / configured"
+                      >{sum.running}/{sum.total} running</span>
+                    {/if}
+                  {/if}
                   {#if (set.config?.enabled_builtin_tools ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-slate-50 dark:bg-slate-900/20 text-slate-600 dark:text-slate-400 border border-slate-200 dark:border-slate-800 font-mono">{(set.config.enabled_builtin_tools ?? []).length} builtin</span>
                   {/if}
@@ -1109,6 +1313,16 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  {#if hasStdioUpstreams(set)}
+                    <button
+                      onclick={() => handleRestartStdio(set.id)}
+                      disabled={stdioBusy[set.id]}
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors disabled:opacity-50"
+                      title="Restart local MCP processes (picks up env/config changes)"
+                    >
+                      <RotateCw size={14} class={stdioBusy[set.id] ? 'animate-spin' : ''} />
+                    </button>
+                  {/if}
                   <button
                     onclick={() => handleExportMCPSet(set)}
                     class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
@@ -1242,6 +1456,179 @@
             {/each}
           </div>
         {/if}
+      {/if}
+
+      <!-- Binaries Tab (persistent MCP program library) -->
+      {#if activeTab === 'binaries'}
+        <div class="flex items-center justify-between mb-4">
+          <div class="flex items-center gap-2">
+            <HardDrive size={16} class="text-gray-500 dark:text-dark-text-muted" />
+            <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Binaries &amp; Files</h2>
+            <span class="text-xs text-gray-400 dark:text-dark-text-muted">({binFiles.length})</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              onclick={loadBinaries}
+              class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+              title="Refresh"
+            >
+              <RefreshCw size={14} class={binLoading ? 'animate-spin' : ''} />
+            </button>
+            <label class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-dark-text-secondary cursor-pointer">
+              <input type="checkbox" bind:checked={binExecutable} class="w-3.5 h-3.5 dark:bg-dark-elevated dark:border-dark-border-subtle dark:accent-accent" />
+              Executable
+            </label>
+            <button
+              onclick={() => binFileInput?.click()}
+              disabled={binUploading}
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+            >
+              <Upload size={12} />
+              {binUploading ? 'Uploading…' : 'Upload'}
+            </button>
+            <input bind:this={binFileInput} type="file" multiple onchange={handleBinaryUpload} class="hidden" />
+          </div>
+        </div>
+
+        <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface mb-4">
+          <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50 flex items-center gap-2">
+            <span class="text-xs text-gray-500 dark:text-dark-text-muted">Library directory</span>
+            <code class="text-xs font-mono text-gray-700 dark:text-dark-text-secondary truncate">{binDir || '…'}</code>
+            {#if binDir}
+              <button
+                onclick={() => navigator.clipboard?.writeText(binDir).then(() => addToast('Path copied'))}
+                class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+                title="Copy directory path"
+              >
+                <Copy size={12} />
+              </button>
+            {/if}
+          </div>
+          <div class="p-4 text-xs text-gray-500 dark:text-dark-text-muted space-y-1">
+            <p>Files uploaded here survive restarts (mount <code class="font-mono">server.workspace.root</code> on a persistent volume). Reference them from a Local command upstream: <code class="font-mono">{binDir ? `${binDir}/my-mcp` : '<dir>/my-mcp'}</code>, or point an env var at a config file, e.g. <code class="font-mono">MY_TOOL_CONFIG={binDir ? `${binDir}/config.json` : '<dir>/config.json'}</code>.</p>
+            <p>Archives (<code class="font-mono">.tar.gz</code> / <code class="font-mono">.tgz</code> / <code class="font-mono">.tar</code>) are extracted automatically into a folder named after the archive — exec bits are preserved from the archive. Re-uploading the same archive replaces the folder (upgrade).</p>
+          </div>
+        </div>
+
+        {#if binLoading && binFiles.length === 0}
+          <div class="flex items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted">
+            <RefreshCw size={16} class="animate-spin mr-2" />
+            Loading…
+          </div>
+        {:else if binFiles.length === 0}
+          <div class="flex flex-col items-center justify-center py-12 text-gray-400 dark:text-dark-text-muted border border-dashed border-gray-200 dark:border-dark-border">
+            <HardDrive size={24} class="mb-2" />
+            <p class="text-sm">No files uploaded</p>
+            <p class="text-xs mt-1">Upload MCP binaries, config files, or release tarballs</p>
+          </div>
+        {:else}
+          <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+                  <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Name</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Type</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Size</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Mode</th>
+                  <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Modified</th>
+                  <th class="text-right px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider w-24"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each binFiles as file (file.name)}
+                  <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+                    <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{file.name}</td>
+                    <td class="px-4 py-2.5 text-xs">
+                      {#if file.dir}
+                        <span class="px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800 font-mono">folder · {file.entries ?? 0} entries</span>
+                      {:else if file.executable}
+                        <span class="px-1.5 py-0.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800 font-mono">executable</span>
+                      {:else}
+                        <span class="px-1.5 py-0.5 bg-gray-50 dark:bg-dark-base text-gray-500 dark:text-dark-text-muted border border-gray-200 dark:border-dark-border font-mono">file</span>
+                      {/if}
+                    </td>
+                    <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{file.dir ? '-' : fmtSize(file.size)}</td>
+                    <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{file.mode}</td>
+                    <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{new Date(file.modified_at).toLocaleString()}</td>
+                    <td class="px-4 py-2.5 text-right">
+                      <div class="flex justify-end gap-1">
+                        <button
+                          onclick={() => copyBinaryPath(file.name)}
+                          class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                          title="Copy full path"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        {#if binDeleteConfirm === file.name}
+                          <button
+                            onclick={() => handleBinaryDelete(file.name)}
+                            class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onclick={() => (binDeleteConfirm = null)}
+                            class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        {:else}
+                          <button
+                            onclick={() => (binDeleteConfirm = file.name)}
+                            class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        {/if}
+                      </div>
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
+
+        <!-- Running local MCP processes -->
+        <div class="mt-6">
+          <div class="flex items-center gap-2 mb-2">
+            <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Running local MCP processes</h3>
+            <span class="text-xs text-gray-400 dark:text-dark-text-muted">({stdioProcesses.length})</span>
+          </div>
+          {#if stdioProcesses.length === 0}
+            <p class="text-xs text-gray-400 dark:text-dark-text-muted">No local MCP processes are running. They start lazily on the first tool call.</p>
+          {:else}
+            <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface overflow-x-auto">
+              <table class="w-full text-sm">
+                <thead>
+                  <tr class="border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+                    <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Command</th>
+                    <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">PID</th>
+                    <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Status</th>
+                    <th class="text-left px-4 py-2.5 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Uptime</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {#each stdioProcesses as proc}
+                    <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0">
+                      <td class="px-4 py-2.5 font-mono text-xs text-gray-900 dark:text-dark-text">{proc.command}</td>
+                      <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{proc.pid}</td>
+                      <td class="px-4 py-2.5 text-xs">
+                        {#if proc.alive}
+                          <span class="flex items-center gap-1 text-green-600 dark:text-green-400"><span class="w-1.5 h-1.5 bg-green-500 inline-block"></span>running</span>
+                        {:else}
+                          <span class="text-red-500 dark:text-red-400" title={proc.exit_error}>exited{proc.exit_error ? ` (${proc.exit_error})` : ''}</span>
+                        {/if}
+                      </td>
+                      <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted">{proc.alive ? fmtUptime(proc.uptime_seconds) : '-'}</td>
+                    </tr>
+                  {/each}
+                </tbody>
+              </table>
+            </div>
+          {/if}
+        </div>
       {/if}
     </div>
   </div>

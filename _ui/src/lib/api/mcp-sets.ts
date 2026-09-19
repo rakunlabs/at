@@ -1,6 +1,8 @@
 import axios from 'axios';
 import type { ListResult, ListParams } from './types';
-import type { MCPServerConfig } from './mcp-servers';
+import type { MCPServerConfig, MCPStdioStatusResult } from './mcp-servers';
+
+export type { MCPStdioStatusResult, MCPStdioUpstreamStatus } from './mcp-servers';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -63,6 +65,25 @@ export async function importMCPSet(data: Partial<MCPSet>): Promise<MCPSet> {
 
 export async function previewImportMCPSet(data: Partial<MCPSet>): Promise<Partial<MCPSet>> {
   const res = await api.post<Partial<MCPSet>>('/mcp/sets/import/preview', data);
+  return res.data;
+}
+
+// ─── Stdio upstream lifecycle ───
+
+export async function getMCPSetStdioStatus(id: string): Promise<MCPStdioStatusResult> {
+  const res = await api.get<MCPStdioStatusResult>(`/mcp/sets/${id}/stdio-status`);
+  return res.data;
+}
+
+export async function restartMCPSetStdio(id: string, index?: number): Promise<MCPStdioStatusResult> {
+  const body = index !== undefined ? { index } : {};
+  const res = await api.post<MCPStdioStatusResult>(`/mcp/sets/${id}/stdio-restart`, body);
+  return res.data;
+}
+
+export async function stopMCPSetStdio(id: string, index?: number): Promise<MCPStdioStatusResult> {
+  const body = index !== undefined ? { index } : {};
+  const res = await api.post<MCPStdioStatusResult>(`/mcp/sets/${id}/stdio-stop`, body);
   return res.data;
 }
 

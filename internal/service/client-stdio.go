@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 // StdioMCPClient communicates with an MCP server over stdin/stdout of a subprocess.
@@ -17,6 +18,20 @@ type StdioMCPClient struct {
 	dec    *json.Decoder
 	mu     sync.Mutex
 	nextID int32
+
+	// Process metadata for status reporting (StdioProcessManager).
+	command   string
+	args      []string
+	env       map[string]string // configured env snapshot (resolved values)
+	startedAt time.Time
+	pid       int
+
+	// done is closed by the reaper goroutine once the subprocess has exited
+	// and been waited on. This is what makes Alive() detect crashes: the
+	// previous ProcessState check only flipped after an explicit Close(),
+	// so a subprocess that died on its own kept being handed out.
+	done    chan struct{}
+	waitErr error
 }
 
 // NewStdioMCPClient starts a subprocess and performs the MCP initialize handshake.
@@ -47,17 +62,35 @@ func NewStdioMCPClient(ctx context.Context, command string, args []string, env m
 		return nil, fmt.Errorf("start process %q: %w", command, err)
 	}
 
-	c := &StdioMCPClient{
-		cmd:    cmd,
-		stdin:  stdinPipe,
-		dec:    json.NewDecoder(stdoutPipe),
-		nextID: 1,
+	envCopy := make(map[string]string, len(env))
+	for k, v := range env {
+		envCopy[k] = v
 	}
+	c := &StdioMCPClient{
+		cmd:       cmd,
+		stdin:     stdinPipe,
+		dec:       json.NewDecoder(stdoutPipe),
+		nextID:    1,
+		command:   command,
+		args:      append([]string(nil), args...),
+		env:       envCopy,
+		startedAt: time.Now(),
+		pid:       cmd.Process.Pid,
+		done:      make(chan struct{}),
+	}
+
+	// Reap the subprocess as soon as it exits, whether or not anyone calls
+	// Close(). Without this a self-crashed child stays a zombie and the
+	// manager keeps handing out a dead client.
+	go func() {
+		c.waitErr = cmd.Wait()
+		close(c.done)
+	}()
 
 	if err := c.initialize(ctx); err != nil {
 		// Kill the process on init failure.
 		_ = cmd.Process.Kill()
-		_ = cmd.Wait()
+		<-c.done
 		return nil, err
 	}
 
@@ -207,12 +240,38 @@ func (c *StdioMCPClient) Close() error {
 
 	if c.cmd.Process != nil {
 		_ = c.cmd.Process.Kill()
-		_ = c.cmd.Wait()
+		// The reaper goroutine owns cmd.Wait(); wait for it to finish so the
+		// process is fully reaped before Close returns.
+		<-c.done
 	}
 	return nil
 }
 
-// Alive returns true if the subprocess is still running.
+// Alive returns true if the subprocess is still running. The reaper goroutine
+// closes done as soon as the process exits, so this detects crashes too — not
+// only processes that were explicitly Close()d.
 func (c *StdioMCPClient) Alive() bool {
-	return c.cmd.ProcessState == nil // not yet exited
+	select {
+	case <-c.done:
+		return false
+	default:
+		return true
+	}
+}
+
+// PID returns the subprocess PID.
+func (c *StdioMCPClient) PID() int { return c.pid }
+
+// StartedAt returns when the subprocess was started.
+func (c *StdioMCPClient) StartedAt() time.Time { return c.startedAt }
+
+// ExitError returns the wait error after the process exited, or nil while it
+// is still running.
+func (c *StdioMCPClient) ExitError() error {
+	select {
+	case <-c.done:
+		return c.waitErr
+	default:
+		return nil
+	}
 }
