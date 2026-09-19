@@ -121,6 +121,14 @@ type AgentConfig struct {
 	ConfirmationRequiredTools []string `json:"confirmation_required_tools,omitempty"` // Tools that require human confirmation before execution
 	AvatarSeed                string   `json:"avatar_seed,omitempty"`                 // Seed for deterministic avatar generation (defaults to agent name when empty)
 
+	// SharedWithAllWorkspaces marks a Default-workspace agent as globally
+	// visible (read/use) from every workspace, mirroring the provider flag of
+	// the same name. Only a platform administrator operating in the Default
+	// workspace may set it, and it is mutually exclusive with a personal
+	// owner (enforced in the store). Cross-workspace visibility is read-only:
+	// edits still require the Default workspace.
+	SharedWithAllWorkspaces bool `json:"shared_with_all_workspaces,omitempty"`
+
 	// Connections maps a provider name (e.g. "youtube", "google") to a
 	// connection ID. Tool handlers that request variables bound to a provider
 	// (e.g. getVar("youtube_refresh_token")) resolve through this map before
@@ -133,17 +141,46 @@ type AgentConfig struct {
 	// join table so that agents can belong to multiple organizations with per-org metadata.
 }
 
+// Agent scope constants for the create API. The scope decides ownership at
+// creation time; it is not persisted as its own column.
+const (
+	AgentScopeWorkspace = "workspace"
+	AgentScopePersonal  = "personal"
+	AgentScopeGlobal    = "global"
+)
+
 // Agent represents a reusable agent configuration that can be referenced
 // by agent_call nodes in workflows.
+//
+// OwnerUserID empty = workspace agent (shared inside its workspace).
+// Non-empty = personal agent: listed and resolvable only for its owner (and
+// platform administrators), and only writable by them. The "global" tier is
+// Config.SharedWithAllWorkspaces on a Default-workspace agent.
 type Agent struct {
 	ID          string      `json:"id"`
 	WorkspaceID string      `json:"workspace_id"`
+	OwnerUserID string      `json:"owner_user_id,omitempty"`
 	Name        string      `json:"name"`
 	Config      AgentConfig `json:"config"`
 	CreatedAt   string      `json:"created_at"`
 	UpdatedAt   string      `json:"updated_at"`
 	CreatedBy   string      `json:"created_by"`
 	UpdatedBy   string      `json:"updated_by"`
+
+	// Scope is a create-time request field ("workspace" | "personal" |
+	// "global"); it is derived on read and never stored.
+	Scope string `json:"scope,omitempty"`
+}
+
+// DeriveAgentScope reports the tier an agent record belongs to.
+func DeriveAgentScope(a Agent) string {
+	if a.OwnerUserID != "" {
+		return AgentScopePersonal
+	}
+	if a.Config.SharedWithAllWorkspaces {
+		return AgentScopeGlobal
+	}
+	return AgentScopeWorkspace
 }
 
 // AgentStorer defines CRUD operations for agents.

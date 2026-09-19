@@ -1,7 +1,8 @@
 <script lang="ts">
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listAgents, createAgent, updateAgent, deleteAgent, exportAgent, importAgent, type Agent } from '@/lib/api/agents';
+  import { listAgents, createAgent, updateAgent, deleteAgent, exportAgent, importAgent, type Agent, type AgentScope } from '@/lib/api/agents';
+  import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import { listActiveDelegations, type ActiveDelegation } from '@/lib/api/tasks';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
@@ -90,6 +91,10 @@
   let formConfirmationTools = $state<string[]>([]);
   let formAvatarSeed = $state('');
   let showAvatarSeed = $state(false);
+  // Ownership tier. Chosen at creation; there is no tier conversion, so the
+  // selector is disabled while editing. "global" is offered to installation
+  // administrators only (the server refuses it for everyone else anyway).
+  let formScope = $state<AgentScope>('workspace');
   let formAgentBudget = $state<AgentBudget | null>(null);
   let formBudgetLimit = $state<number | undefined>(undefined);
   let formBudgetPeriod = $state('monthly');
@@ -329,6 +334,7 @@
     formBudgetResetTime = '00:00';
     formBudgetTimezone = 'UTC';
     formConnections = {};
+    formScope = 'workspace';
     editingId = null;
     showForm = false;
   }
@@ -358,6 +364,7 @@
     formConfirmationTools = [...(agent.config.confirmation_required_tools || [])];
     formAvatarSeed = agent.config.avatar_seed || '';
     formConnections = { ...(agent.config.connections || {}) };
+    formScope = agent.scope || 'workspace';
     showForm = true;
     const requestedAgentID = agent.id;
     try {
@@ -412,7 +419,11 @@
           confirmation_required_tools: formConfirmationTools,
           avatar_seed: formAvatarSeed || undefined,
           connections: Object.keys(formConnections).length > 0 ? formConnections : undefined,
+          // The flag must survive edits of a global agent: config is sent
+          // wholesale, so omitting it would silently unshare on every save.
+          shared_with_all_workspaces: formScope === 'global' ? true : undefined,
         },
+        scope: editingId ? undefined : formScope,
       };
 
       let savedAgent: Agent;
@@ -631,6 +642,26 @@
                     placeholder="e.g., code_reviewer, data_analyst"
                     class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
                   />
+                </div>
+
+                <!-- Ownership tier (chosen at creation; no tier conversion) -->
+                <div>
+                  <label for="form-scope" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Availability</label>
+                  <select
+                    id="form-scope"
+                    bind:value={formScope}
+                    disabled={!!editingId}
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 transition-colors dark:text-dark-text disabled:opacity-60"
+                  >
+                    <option value="workspace">Workspace — shared with this workspace</option>
+                    <option value="personal">Personal — only visible to you</option>
+                    {#if isNativeAdmin() || formScope === 'global'}
+                      <option value="global">Global — available in every workspace</option>
+                    {/if}
+                  </select>
+                  {#if !editingId}
+                    <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">The tier is fixed after creation. Global requires an installation administrator in the Default workspace.</p>
+                  {/if}
                 </div>
 
                 <!-- Description -->
@@ -1053,6 +1084,11 @@
                   <div class="flex flex-col gap-0.5 min-w-0">
                     <div class="flex items-center gap-1.5">
                       <span class="font-mono font-medium text-gray-900 dark:text-dark-text">{agent.name}</span>
+                      {#if agent.scope === 'personal'}
+                        <span class="px-1.5 py-0 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40" title="Personal agent — only visible to its owner">personal</span>
+                      {:else if agent.scope === 'global'}
+                        <span class="px-1.5 py-0 text-[10px] font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900/40" title="Global agent — available in every workspace">global</span>
+                      {/if}
                       {#if activeByAgent[agent.id]?.length}
                         <span class="flex items-center gap-1 px-1.5 py-0 text-[10px] font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-900/40" title="{activeByAgent[agent.id].length} active task{activeByAgent[agent.id].length === 1 ? '' : 's'}: {activeByAgent[agent.id].map(d => d.duration).join(', ')}">
                           <span class="relative flex w-1.5 h-1.5">

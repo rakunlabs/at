@@ -233,7 +233,10 @@
   async function loadAgents() {
     try {
       const res = await listAgents();
-      agents = res.data || [];
+      // Personal agents first (they are "yours"), then workspace, then
+      // global; alphabetical inside each tier.
+      const tierRank = (a: Agent) => (a.scope === 'personal' ? 0 : a.scope === 'global' ? 2 : 1);
+      agents = (res.data || []).slice().sort((a, b) => tierRank(a) - tierRank(b) || a.name.localeCompare(b.name));
     } catch {
       // Agents may not be configured
     }
@@ -1440,6 +1443,11 @@
               <img src={agentAvatar(agent.config.avatar_seed, agent.name, 20)} alt="" class="w-5 h-5 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
               <div>
                 <span class="font-medium text-gray-700 dark:text-dark-text">{agent.name}</span>
+                {#if agent.scope === 'personal'}
+                  <span class="ml-1.5 px-1 py-0 text-[10px] font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-900/40" title="Personal agent — only visible to you">personal</span>
+                {:else if agent.scope === 'global'}
+                  <span class="ml-1.5 px-1 py-0 text-[10px] font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-700 dark:text-purple-400 border border-purple-200 dark:border-purple-900/40" title="Global agent — available in every workspace">global</span>
+                {/if}
                 {#if agent.config.group}<span class="ml-2 text-xs text-gray-500 dark:text-dark-text-secondary">{agent.config.group}</span>{/if}
                 {#if agent.config.description}
                   <span class="text-gray-400 dark:text-dark-text-muted ml-1">— {agent.config.description}</span>

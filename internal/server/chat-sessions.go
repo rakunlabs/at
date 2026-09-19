@@ -21,6 +21,37 @@ import (
 
 // ─── Chat Session CRUD ───
 
+// chatSessionForRequest loads a session and enforces workspace + owner scope
+// for the browser CRUD surface. Sessions are per-account: a scoped principal
+// reaches only sessions it owns, while platform administrators additionally
+// reach ownerless rows (bot/platform sessions and legacy data) in their
+// selected workspace. Foreign and unknown sessions are deliberately
+// indistinguishable (both 404) so ownership cannot be probed — the
+// Playground precedent. Legacy admin-token requests carry no principal and
+// keep their historical full access.
+func (s *Server) chatSessionForRequest(r *http.Request, id string) (*service.ChatSession, int, string) {
+	record, err := s.chatSessionStore.GetChatSession(r.Context(), id)
+	if err != nil {
+		slog.Error("get chat session failed", "id", id, "error", err)
+		return nil, http.StatusInternalServerError, fmt.Sprintf("failed to get chat session: %v", err)
+	}
+	if record == nil {
+		return nil, http.StatusNotFound, fmt.Sprintf("session %q not found", id)
+	}
+	if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		// Rows persisted before workspace attribution report the column
+		// default; an in-memory record without one means the same thing.
+		workspace := record.WorkspaceID
+		if workspace == "" {
+			workspace = service.DefaultWorkspaceID
+		}
+		if workspace != principal.WorkspaceID || (!principal.PlatformAdmin && (record.OwnerUserID == "" || record.OwnerUserID != principal.UserID)) {
+			return nil, http.StatusNotFound, fmt.Sprintf("session %q not found", id)
+		}
+	}
+	return record, 0, ""
+}
+
 // ListChatSessionsAPI handles GET /api/v1/chat/sessions.
 //
 // Optional query params (filter applied after store list):
@@ -98,15 +129,9 @@ func (s *Server) GetChatSessionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	record, err := s.chatSessionStore.GetChatSession(r.Context(), id)
-	if err != nil {
-		slog.Error("get chat session failed", "id", id, "error", err)
-		httpResponse(w, fmt.Sprintf("failed to get chat session: %v", err), http.StatusInternalServerError)
-		return
-	}
-
+	record, status, msg := s.chatSessionForRequest(r, id)
 	if record == nil {
-		httpResponse(w, fmt.Sprintf("session %q not found", id), http.StatusNotFound)
+		httpResponse(w, msg, status)
 		return
 	}
 
@@ -149,6 +174,17 @@ func (s *Server) CreateChatSessionAPI(w http.ResponseWriter, r *http.Request) {
 	req.CreatedBy = userEmail
 	req.UpdatedBy = userEmail
 
+	// Ownership is server-decided, never taken from the request body. A
+	// scoped principal pins the session to its workspace and account; the
+	// legacy admin-token path keeps the historical unscoped row.
+	if principal, ok := service.AccessPrincipalFromContext(r.Context()); ok {
+		req.WorkspaceID = principal.WorkspaceID
+		req.OwnerUserID = principal.UserID
+	} else {
+		req.WorkspaceID = ""
+		req.OwnerUserID = ""
+	}
+
 	record, err := s.chatSessionStore.CreateChatSession(r.Context(), req)
 	if err != nil {
 		slog.Error("create chat session failed", "error", err)
@@ -175,6 +211,11 @@ func (s *Server) UpdateChatSessionAPI(w http.ResponseWriter, r *http.Request) {
 	var req service.ChatSession
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	if existing, status, msg := s.chatSessionForRequest(r, id); existing == nil {
+		httpResponse(w, msg, status)
 		return
 	}
 
@@ -209,6 +250,11 @@ func (s *Server) DeleteChatSessionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if existing, status, msg := s.chatSessionForRequest(r, id); existing == nil {
+		httpResponse(w, msg, status)
+		return
+	}
+
 	if err := s.chatSessionStore.DeleteChatSession(r.Context(), id); err != nil {
 		slog.Error("delete chat session failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to delete chat session: %v", err), http.StatusInternalServerError)
@@ -231,6 +277,11 @@ func (s *Server) DeleteChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if existing, status, msg := s.chatSessionForRequest(r, id); existing == nil {
+		httpResponse(w, msg, status)
+		return
+	}
+
 	if err := s.chatSessionStore.DeleteChatMessages(r.Context(), id); err != nil {
 		slog.Error("delete chat messages failed", "session_id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to delete messages: %v", err), http.StatusInternalServerError)
@@ -250,6 +301,11 @@ func (s *Server) ListChatMessagesAPI(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		httpResponse(w, "session id is required", http.StatusBadRequest)
+		return
+	}
+
+	if existing, status, msg := s.chatSessionForRequest(r, id); existing == nil {
+		httpResponse(w, msg, status)
 		return
 	}
 
@@ -1335,6 +1391,13 @@ func (s *Server) SendChatMessageAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Ownership is checked before the stream commits: after the SSE headers
+	// are flushed only an in-band error event can be reported.
+	if existing, status, msg := s.chatSessionForRequest(r, sessionID); existing == nil {
+		httpResponse(w, msg, status)
+		return
+	}
+
 	// Set SSE headers.
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -1394,6 +1457,16 @@ func (s *Server) ConfirmToolCallAPI(w http.ResponseWriter, r *http.Request) {
 	if sessionID == "" {
 		httpResponse(w, "session id is required", http.StatusBadRequest)
 		return
+	}
+
+	// Only the session's owner (or an administrator) may answer a pending
+	// tool confirmation — otherwise any admitted account could approve
+	// another account's dangerous tool call by guessing IDs.
+	if s.chatSessionStore != nil {
+		if existing, status, msg := s.chatSessionForRequest(r, sessionID); existing == nil {
+			httpResponse(w, msg, status)
+			return
+		}
 	}
 
 	var req confirmToolCallRequest

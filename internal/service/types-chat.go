@@ -32,8 +32,18 @@ type ChatSessionConfig struct {
 }
 
 // ChatSession represents a persistent chat session tied to an agent.
+//
+// WorkspaceID and OwnerUserID scope the session. OwnerUserID is the account
+// that created the session through the UI; it never changes after create.
+// Empty means "no browser owner" (bot/platform sessions and legacy rows),
+// which only administrators may see. Owner-scoped rows are visible to their
+// owner alone — enforcement lives in the HTTP handlers plus the list
+// predicate, because the store methods are shared with bot adapters that run
+// under execution identities.
 type ChatSession struct {
 	ID             string            `json:"id"`
+	WorkspaceID    string            `json:"workspace_id,omitempty"`
+	OwnerUserID    string            `json:"owner_user_id,omitempty"`
 	AgentID        string            `json:"agent_id"`
 	TaskID         string            `json:"task_id,omitempty"`
 	OrganizationID string            `json:"organization_id,omitempty"`

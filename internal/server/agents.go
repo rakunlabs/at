@@ -134,6 +134,29 @@ func (s *Server) CreateAgentAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The scope request field decides ownership at creation time. The owner
+	// is always the authenticated account — never a client-supplied ID — and
+	// the store re-checks tier authority (personal ⊕ global, global only for
+	// a platform administrator in the Default workspace).
+	principal, hasPrincipal := service.AccessPrincipalFromContext(r.Context())
+	switch req.Scope {
+	case "", service.AgentScopeWorkspace:
+		req.OwnerUserID = ""
+	case service.AgentScopePersonal:
+		if !hasPrincipal || principal.UserID == "" {
+			httpResponse(w, "personal agents require a signed-in account", http.StatusBadRequest)
+			return
+		}
+		req.OwnerUserID = principal.UserID
+		req.Config.SharedWithAllWorkspaces = false
+	case service.AgentScopeGlobal:
+		req.OwnerUserID = ""
+		req.Config.SharedWithAllWorkspaces = true
+	default:
+		httpResponse(w, fmt.Sprintf("invalid scope %q (expected workspace, personal or global)", req.Scope), http.StatusBadRequest)
+		return
+	}
+
 	// Set defaults if missing.
 	if req.Config.MaxIterations == 0 {
 		req.Config.MaxIterations = 10
@@ -229,6 +252,9 @@ func (s *Server) DeleteAgentAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := s.agentStore.DeleteAgent(r.Context(), id); err != nil {
+		if workspaceBusinessError(w, err) {
+			return
+		}
 		slog.Error("delete agent failed", "id", id, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to delete agent: %v", err), http.StatusInternalServerError)
 		return

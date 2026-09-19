@@ -34,6 +34,8 @@ var authUserDeletionTables = []struct {
 	{"auth_recovery_events", "user_id"},
 	{"auth_mobile_requests", "user_id"},
 	{"playground_conversations", "owner_user_id"},
+	{"chat_sessions", "owner_user_id"},
+	{"agents", "owner_user_id"},
 }
 
 // DeleteAuthUser removes an account permanently. Disable stays the reversible

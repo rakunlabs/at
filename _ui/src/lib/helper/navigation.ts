@@ -17,7 +17,8 @@ import { routeFeatureEnabled } from './feature-routes';
 // reaches administration APIs.
 const capabilityRoutes: Record<string, string> = {
   '/providers': 'providers.read', '/routing-profiles': 'providers.read',
-  '/agents': 'agents.read', '/workflows': 'workflows.read', '/runs': 'workflows.read',
+  '/agents': 'agents.read', '/sessions': 'agents.read',
+  '/workflows': 'workflows.read', '/runs': 'workflows.read',
   '/bots': 'bots.read', '/organizations': 'organizations.read', '/tasks': 'tasks.read',
   '/studio': 'files.read', '/files': 'files.read',
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
@@ -27,14 +28,15 @@ const capabilityRoutes: Record<string, string> = {
 // Installation-administration surfaces. The second row is the set whose APIs are
 // registered on `apiGroup` without a business policy: skills and skill
 // templates, marketplaces, integration packs and pack sources, variables,
-// node configurations, triggers, connections/connectors/oauth, MCP servers and
-// sets, and chat sessions. Scoping any of them backend-side is what moves the
-// route back into `capabilityRoutes`; `TestUIPlatformOnlySurfaces` fails when
-// one is. The Playground, Usage and Traces moved out: they ride models.use,
-// usage.read and traces.read, which the role ladder hands out at admin rank.
+// node configurations, triggers, connections/connectors/oauth, and MCP servers
+// and sets. Scoping any of them backend-side is what moves the route back into
+// `capabilityRoutes`; `TestUIPlatformOnlySurfaces` fails when one is. The
+// Playground, Usage, Traces and Sessions moved out: they ride models.use,
+// usage.read, traces.read and agents.read (chat sessions are owner-scoped in
+// the handlers), which the role ladder hands out at member/admin rank.
 const platformRoutes = [
   '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system',
-  '/sessions', '/skills', '/marketplaces', '/integrations', '/variables',
+  '/skills', '/marketplaces', '/integrations', '/variables',
   '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers', '/mcps',
 ];
 // An account with no membership anywhere resolves nothing: every workspace

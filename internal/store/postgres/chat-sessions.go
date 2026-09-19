@@ -12,6 +12,7 @@ import (
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
+	"github.com/rakunlabs/query/adapter/adaptergoqu"
 	"github.com/worldline-go/types"
 )
 
@@ -19,6 +20,8 @@ import (
 
 type chatSessionRow struct {
 	ID             string         `db:"id"`
+	WorkspaceID    string         `db:"workspace_id"`
+	OwnerUserID    string         `db:"owner_user_id"`
 	AgentID        string         `db:"agent_id"`
 	TaskID         string         `db:"task_id"`
 	OrganizationID string         `db:"organization_id"`
@@ -30,6 +33,16 @@ type chatSessionRow struct {
 	UpdatedBy      sql.NullString `db:"updated_by"`
 }
 
+// chatSessionColumns is the shared select list; scanChatSessionRow must scan
+// in the same order.
+var chatSessionColumns = []interface{}{"id", "workspace_id", "owner_user_id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by"}
+
+func scanChatSessionRow(scan func(dest ...any) error) (chatSessionRow, error) {
+	var row chatSessionRow
+	err := scan(&row.ID, &row.WorkspaceID, &row.OwnerUserID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	return row, err
+}
+
 type chatMessageRow struct {
 	ID        string        `db:"id"`
 	SessionID string        `db:"session_id"`
@@ -38,8 +51,42 @@ type chatMessageRow struct {
 	CreatedAt time.Time     `db:"created_at"`
 }
 
+// ListChatSessions is workspace-scoped like every business list, plus an
+// owner predicate: a non-administrator sees only sessions they own. Rows
+// with an empty owner_user_id (bot/platform sessions and legacy rows) stay
+// visible to platform administrators only.
 func (p *Postgres) ListChatSessions(ctx context.Context, q *query.Query) (*service.ListResult[service.ChatSession], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableChatSessions, q, "id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by")
+	a, err := p.businessPrincipal(ctx)
+	if err != nil {
+		return nil, err
+	}
+	scope, err := businessPredicate(a, "agents.read", "id")
+	if err != nil {
+		return nil, err
+	}
+	where := scope
+	if !a.PlatformAdmin {
+		where = goqu.And(scope, goqu.C("owner_user_id").Eq(a.UserID))
+	}
+	ds := p.goqu.From(p.tableChatSessions).Where(where)
+
+	countDs := ds
+	if q != nil {
+		if exprs := adaptergoqu.Expression(q); len(exprs) > 0 {
+			countDs = countDs.Where(exprs...)
+		}
+	}
+	countSQL, _, err := countDs.Select(goqu.COUNT("*")).ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build count chat sessions query: %w", err)
+	}
+	var total uint64
+	if err := p.db.QueryRowContext(ctx, countSQL).Scan(&total); err != nil {
+		return nil, fmt.Errorf("count chat sessions: %w", err)
+	}
+
+	ds = adaptergoqu.Select(q, ds, adaptergoqu.WithParameterized(false))
+	sql, _, err := ds.Select(chatSessionColumns...).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build list chat sessions query: %w", err)
 	}
@@ -52,8 +99,8 @@ func (p *Postgres) ListChatSessions(ctx context.Context, q *query.Query) (*servi
 
 	var items []service.ChatSession
 	for rows.Next() {
-		var row chatSessionRow
-		if err := rows.Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy); err != nil {
+		row, err := scanChatSessionRow(rows.Scan)
+		if err != nil {
 			return nil, fmt.Errorf("scan chat session row: %w", err)
 		}
 
@@ -78,15 +125,14 @@ func (p *Postgres) ListChatSessions(ctx context.Context, q *query.Query) (*servi
 
 func (p *Postgres) GetChatSession(ctx context.Context, id string) (*service.ChatSession, error) {
 	query, _, err := p.goqu.From(p.tableChatSessions).
-		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
+		Select(chatSessionColumns...).
 		Where(goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build get chat session query: %w", err)
 	}
 
-	var row chatSessionRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	row, err := scanChatSessionRow(p.db.QueryRowContext(ctx, query).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -101,7 +147,7 @@ func (p *Postgres) GetChatSessionByPlatform(ctx context.Context, platform, platf
 	// botConfigID scopes the session to a specific BotConfig. See the
 	// SQLite implementation for the rollout/legacy-row notes.
 	query, _, err := p.goqu.From(p.tableChatSessions).
-		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
+		Select(chatSessionColumns...).
 		Where(
 			goqu.L("config->>'platform'").Eq(platform),
 			goqu.L("config->>'platform_user_id'").Eq(platformUserID),
@@ -114,8 +160,7 @@ func (p *Postgres) GetChatSessionByPlatform(ctx context.Context, platform, platf
 		return nil, fmt.Errorf("build get chat session by platform query: %w", err)
 	}
 
-	var row chatSessionRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	row, err := scanChatSessionRow(p.db.QueryRowContext(ctx, query).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -128,7 +173,7 @@ func (p *Postgres) GetChatSessionByPlatform(ctx context.Context, platform, platf
 
 func (p *Postgres) GetChatSessionByTaskID(ctx context.Context, taskID string) (*service.ChatSession, error) {
 	query, _, err := p.goqu.From(p.tableChatSessions).
-		Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").
+		Select(chatSessionColumns...).
 		Where(
 			goqu.I("task_id").Eq(taskID),
 			goqu.I("task_id").Neq(""),
@@ -139,8 +184,7 @@ func (p *Postgres) GetChatSessionByTaskID(ctx context.Context, taskID string) (*
 		return nil, fmt.Errorf("build get chat session by task id query: %w", err)
 	}
 
-	var row chatSessionRow
-	err = p.db.QueryRowContext(ctx, query).Scan(&row.ID, &row.AgentID, &row.TaskID, &row.OrganizationID, &row.Name, &row.Config, &row.CreatedAt, &row.UpdatedAt, &row.CreatedBy, &row.UpdatedBy)
+	row, err := scanChatSessionRow(p.db.QueryRowContext(ctx, query).Scan)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -160,20 +204,26 @@ func (p *Postgres) CreateChatSession(ctx context.Context, session service.ChatSe
 	id := ulid.Make().String()
 	now := time.Now().UTC()
 
-	query, _, err := p.goqu.Insert(p.tableChatSessions).Rows(
-		goqu.Record{
-			"id":              id,
-			"agent_id":        session.AgentID,
-			"task_id":         session.TaskID,
-			"organization_id": session.OrganizationID,
-			"name":            session.Name,
-			"config":          types.RawJSON(configJSON),
-			"created_at":      now,
-			"updated_at":      now,
-			"created_by":      session.CreatedBy,
-			"updated_by":      session.UpdatedBy,
-		},
-	).ToSQL()
+	record := goqu.Record{
+		"id":              id,
+		"owner_user_id":   session.OwnerUserID,
+		"agent_id":        session.AgentID,
+		"task_id":         session.TaskID,
+		"organization_id": session.OrganizationID,
+		"name":            session.Name,
+		"config":          types.RawJSON(configJSON),
+		"created_at":      now,
+		"updated_at":      now,
+		"created_by":      session.CreatedBy,
+		"updated_by":      session.UpdatedBy,
+	}
+	// Callers that resolved a workspace (the HTTP handlers) pin it; bot and
+	// legacy writers leave it empty and keep the column default.
+	if session.WorkspaceID != "" {
+		record["workspace_id"] = session.WorkspaceID
+	}
+
+	query, _, err := p.goqu.Insert(p.tableChatSessions).Rows(record).ToSQL()
 	if err != nil {
 		return nil, fmt.Errorf("build insert chat session query: %w", err)
 	}
@@ -184,6 +234,8 @@ func (p *Postgres) CreateChatSession(ctx context.Context, session service.ChatSe
 
 	return &service.ChatSession{
 		ID:             id,
+		WorkspaceID:    session.WorkspaceID,
+		OwnerUserID:    session.OwnerUserID,
 		AgentID:        session.AgentID,
 		TaskID:         session.TaskID,
 		OrganizationID: session.OrganizationID,
@@ -501,6 +553,8 @@ func chatSessionRowToRecord(row chatSessionRow) (*service.ChatSession, error) {
 
 	return &service.ChatSession{
 		ID:             row.ID,
+		WorkspaceID:    row.WorkspaceID,
+		OwnerUserID:    row.OwnerUserID,
 		AgentID:        row.AgentID,
 		TaskID:         row.TaskID,
 		OrganizationID: row.OrganizationID,

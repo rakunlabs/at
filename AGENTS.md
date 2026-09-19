@@ -709,6 +709,58 @@ installation administration: the literal `GET /media/settings` policy
 `/api/v1/files/*`, which `registerRuntimeRoutes` admits on `files.read`; only
 Studio's one-click setup reaches administration APIs.
 
+Sessions later moved out the same way — see *Per-user chat sessions and agent
+tiers* below.
+
+### Per-user chat sessions and agent tiers
+
+Chat sessions (`/sessions`, `/api/v1/chat/sessions*`) are **per-account**.
+Migration 58 adds `chat_sessions.owner_user_id`; the HTTP handlers stamp it
+from the authenticated principal on create (never from the request body) and
+every read/write goes through `chatSessionForRequest`
+(`internal/server/chat-sessions.go`): a scoped principal reaches only sessions
+it owns in its selected workspace, a platform administrator additionally
+reaches **ownerless** rows (bot/platform sessions and pre-existing data, whose
+`owner_user_id` is `''`), and foreign sessions answer 404 exactly like unknown
+ones so ownership cannot be probed (Playground precedent). `ListChatSessions`
+applies the same rule as a SQL predicate. Bot adapters keep using the shared
+store methods under execution identities — enforcement deliberately lives in
+the handlers plus the list predicate, not in `GetChatSession`, because the
+agentic loop and the Telegram/Discord paths load sessions the browser never
+owns. Route admission moved from installation-administrator to
+`agents.read` (look) / `agents.execute` (create, send, confirm, delete) in
+`workspaceBusinessPolicies`, so `/sessions` now sits in `capabilityRoutes`.
+Answering a pending tool confirmation is ownership-checked too.
+
+Agents come in **three tiers**, decided at creation by the `scope` request
+field (`workspace` | `personal` | `global`, no tier conversion afterwards):
+
+- **workspace** (`owner_user_id = ''`) — unchanged: shared inside its
+  workspace, writable by anyone with `agents.write`.
+- **personal** (`owner_user_id = <account>`) — visible and resolvable only for
+  its owner (platform administrators also see them); only the owner or an
+  administrator may update/delete. The owner is always the authenticated
+  account, never a client-supplied ID.
+- **global** — a Default-workspace agent carrying
+  `config.shared_with_all_workspaces` (the provider sharing pattern, so no
+  extra column). Readable/usable from every workspace via the visibility
+  union in `agentVisibilityScope` (`internal/store/postgres/agents.go`);
+  writable only by a platform administrator in the Default workspace
+  (`agentOwnershipWriteGuard`, re-checked against the *stored* row under a
+  row lock in `lockAgentForWrite`). Personal ⊕ global is enforced. A global
+  agent should reference a shared provider, or execution fails resolving the
+  provider key in the caller's workspace.
+
+`GetAgent` uses the same visibility scope, which is what lets the chat loop
+run a personal or global agent; `service.DeriveAgentScope` reports the tier on
+every read (`scope` field). Deleting an account sweeps its personal agents and
+chat sessions (`authUserDeletionTables`; messages cascade on the session FK).
+Regression: `TestAgentOwnershipTiersPostgres`,
+`TestChatSessionOwnerScopePostgres`
+(`internal/store/postgres/agent-ownership_test.go`),
+`TestChatSessionForRequestOwnership`
+(`internal/server/chat-session-ownership_test.go`).
+
 Scoping one of those APIs backend-side is what moves its route back.
 `TestUICapabilityRoutesAreCapabilityAdmitted` and `TestUIPlatformOnlySurfaces`
 (`internal/server/ui-navigation_test.go`) read the two lists out of

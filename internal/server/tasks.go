@@ -688,15 +688,21 @@ func (s *Server) CreateTaskChatAPI(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Create the chat session.
-	session, err := s.chatSessionStore.CreateChatSession(ctx, service.ChatSession{
+	// Create the chat session, owned by the requesting account so the
+	// session-list scoping (owner or administrator) admits it.
+	newSession := service.ChatSession{
 		AgentID:        agentID,
 		TaskID:         taskID,
 		OrganizationID: orgID,
 		Name:           sessionName,
 		CreatedBy:      s.getUserEmail(r),
 		UpdatedBy:      s.getUserEmail(r),
-	})
+	}
+	if principal, ok := service.AccessPrincipalFromContext(ctx); ok {
+		newSession.WorkspaceID = principal.WorkspaceID
+		newSession.OwnerUserID = principal.UserID
+	}
+	session, err := s.chatSessionStore.CreateChatSession(ctx, newSession)
 	if err != nil {
 		slog.Error("task chat: create session failed", "task_id", taskID, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to create session: %v", err), http.StatusInternalServerError)

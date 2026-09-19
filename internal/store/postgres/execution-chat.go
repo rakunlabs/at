@@ -21,7 +21,7 @@ func (p *Postgres) GetExecutionBotSession(ctx context.Context, platform, userID,
 		return nil, service.ErrExecutionDenied
 	}
 	var row chatSessionRow
-	found, err := p.goqu.From(p.tableChatSessions).Select("id", "agent_id", "task_id", "organization_id", "name", "config", "created_at", "updated_at", "created_by", "updated_by").Where(
+	found, err := p.goqu.From(p.tableChatSessions).Select(chatSessionColumns...).Where(
 		goqu.Ex{"workspace_id": principal.WorkspaceID},
 		goqu.L("config->>'platform'").Eq(platform), goqu.L("config->>'platform_user_id'").Eq(userID),
 		goqu.L("config->>'platform_channel_id'").Eq(channelID), goqu.L("config->>'bot_config_id'").Eq(botID),

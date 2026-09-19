@@ -25,6 +25,9 @@ export interface ListChatSessionsParams extends ListParams {
 
 export interface ChatSession {
   id: string;
+  workspace_id?: string;
+  /** Owning account. Empty = bot/platform or legacy session (admin-only). */
+  owner_user_id?: string;
   agent_id: string;
   task_id?: string;
   organization_id?: string;

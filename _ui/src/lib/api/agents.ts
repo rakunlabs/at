@@ -36,10 +36,23 @@ export interface AgentConfig {
   avatar_seed?: string;
   /** provider name → connection ID (agent-level default binding) */
   connections?: Record<string, string>;
+  /**
+   * Default-workspace agents visible from every workspace (the provider
+   * sharing pattern). Only a platform administrator may set it.
+   */
+  shared_with_all_workspaces?: boolean;
 }
+
+/** Agent ownership tier: derived on read, requested via `scope` on create. */
+export type AgentScope = 'workspace' | 'personal' | 'global';
 
 export interface Agent {
   id: string;
+  workspace_id?: string;
+  /** Non-empty = personal agent owned by that account. */
+  owner_user_id?: string;
+  /** Tier derived by the server ("workspace" | "personal" | "global"). */
+  scope?: AgentScope;
   name: string;
   config: AgentConfig;
   created_at: string;

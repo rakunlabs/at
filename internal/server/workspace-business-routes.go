@@ -104,6 +104,21 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/playground/conversations/{id}/messages", "models.use", "", ""},
 		{"POST", "/playground/conversations/{id}/messages", "models.use", "", ""},
 		{"DELETE", "/playground/conversations/{id}/messages", "models.use", "", ""},
+		// Chat sessions are per-account: rows are owner-scoped in the handlers
+		// and the list predicate (an administrator additionally sees ownerless
+		// bot/legacy rows), so the capability only gates entry — agents.read
+		// to look, agents.execute to create sessions and drive the agentic
+		// loop. No Kind/IDParam: the resource decision is ownership, which the
+		// admission middleware cannot express.
+		{"GET", "/chat/sessions", "agents.read", "", ""},
+		{"POST", "/chat/sessions", "agents.execute", "", ""},
+		{"GET", "/chat/sessions/{id}", "agents.read", "", ""},
+		{"PUT", "/chat/sessions/{id}", "agents.execute", "", ""},
+		{"DELETE", "/chat/sessions/{id}", "agents.execute", "", ""},
+		{"GET", "/chat/sessions/{id}/messages", "agents.read", "", ""},
+		{"POST", "/chat/sessions/{id}/messages", "agents.execute", "", ""},
+		{"DELETE", "/chat/sessions/{id}/messages", "agents.execute", "", ""},
+		{"POST", "/chat/sessions/{id}/confirm", "agents.execute", "", ""},
 		// Media settings are installation configuration; the literal pattern
 		// must precede /media/{id}, whose parameter would otherwise swallow it.
 		{"GET", "/media/settings", "platform.manage", "", ""},
