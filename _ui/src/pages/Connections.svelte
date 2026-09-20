@@ -525,7 +525,7 @@
     <div class="flex items-center gap-2 shrink-0">
       <button
         onclick={() => load()}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
         title="Refresh"
         aria-label="Refresh"
       >
@@ -533,7 +533,7 @@
       </button>
       <button
         onclick={runImport}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
         title="Import from existing global variables (youtube_client_id, etc.)"
       >
         <Download size={14} />
@@ -541,7 +541,7 @@
       </button>
       <button
         onclick={openConnectorCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
         title="Add a new provider type (connector)"
       >
         <Cable size={14} />
@@ -593,7 +593,7 @@
             {#if connector}
               <button
                 onclick={() => openConnectorEdit(connector)}
-                class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
                 title="Edit provider definition"
                 aria-label="Edit provider definition"
               >
@@ -602,7 +602,7 @@
             {/if}
             <button
               onclick={() => connector ? openCreate(connector) : openCreate({ slug: section.provider, name: section.provider, auth_kind: 'custom' } as Connector)}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
             >
               <Plus size={12} />
               Add account
@@ -670,7 +670,7 @@
                     {#if isOAuth(connector) && isSetupComplete(c, connector) && !isConnected(c, connector)}
                       <button
                         onclick={() => startPopupOAuth(c)}
-                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
                       >
                         <Plug size={12} /> Connect
                       </button>
@@ -678,7 +678,7 @@
                     {#if isOAuth(connector) && isConnected(c, connector)}
                       <button
                         onclick={() => startPopupOAuth(c)}
-                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+                        class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated "
                         title="Re-authorize"
                       >
                         <RefreshCw size={12} />
@@ -686,14 +686,14 @@
                     {/if}
                     <button
                       onclick={() => openEdit(c)}
-                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated "
                       title="Edit"
                     >
                       <Pencil size={12} />
                     </button>
                     <button
                       onclick={() => remove(c)}
-                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                      class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 "
                       title="Delete"
                     >
                       <Trash2 size={12} />
@@ -714,13 +714,13 @@
                             href={oauthAuthURL[c.id]}
                             target="_blank"
                             rel="noopener"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover "
                           >
                             <ExternalLink size={12} /> Open authorization
                           </a>
                           <button
                             onclick={() => (oauthStep[c.id] = 'paste-code')}
-                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated "
                           >
                             <ClipboardPaste size={12} /> I have the code
                           </button>
@@ -741,12 +741,12 @@
                             value={oauthCode[c.id] ?? ''}
                             oninput={(e) => (oauthCode[c.id] = (e.target as HTMLInputElement).value)}
                             placeholder="Paste code here"
-                            class="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono"
+                            class="flex-1 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono"
                           />
                           <button
                             onclick={() => submitOAuthCode(c)}
                             disabled={saving}
-                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
                           >
                             <Plug size={12} /> {saving ? 'Connecting…' : 'Connect'}
                           </button>
@@ -764,7 +764,7 @@
                   <div class="border-t border-gray-100 dark:border-dark-border px-3 py-2">
                     <button
                       onclick={() => startManualOAuth(c)}
-                      class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                      class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-blue-600 dark:hover:text-blue-400 "
                     >
                       Popup blocked? Use manual connection
                     </button>
@@ -789,7 +789,7 @@
         <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">
           {editor.kind === 'create' ? `Add ${providerLabel(editorProvider())} account` : `Edit ${providerLabel(editorProvider())} account`}
         </h2>
-        <button onclick={closeEditor} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" aria-label="Close">
+        <button onclick={closeEditor} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " aria-label="Close">
           <X size={16} />
         </button>
       </div>
@@ -801,7 +801,7 @@
             type="text"
             bind:value={formName}
             placeholder="e.g. Main Channel"
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
           />
         </label>
 
@@ -811,7 +811,7 @@
             type="text"
             bind:value={formDescription}
             placeholder="Optional note for future-you"
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
           />
         </label>
 
@@ -842,7 +842,7 @@
                     type={f.type === 'secret' && !showSecrets ? 'password' : 'text'}
                     bind:value={formFields[f.key]}
                     placeholder={stored && f.type === 'secret' ? '(leave blank to keep stored value)' : (f.placeholder ?? '')}
-                    class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono"
+                    class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono"
                   />
                   {#if f.help}<span class="block text-[11px] text-gray-400 dark:text-dark-text-muted mt-0.5">{f.help}</span>{/if}
                 </label>
@@ -858,11 +858,11 @@
       </div>
 
       <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <button onclick={closeEditor} class="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Cancel</button>
+        <button onclick={closeEditor} class="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
         <button
           onclick={saveEditor}
           disabled={saving || !formName.trim()}
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
         >
           {saving ? 'Saving…' : editor.kind === 'create' ? 'Create' : 'Save'}
         </button>
@@ -889,7 +889,7 @@
               <Trash2 size={15} />
             </button>
           {/if}
-          <button onclick={closeConnectorEditor} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" aria-label="Close">
+          <button onclick={closeConnectorEditor} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " aria-label="Close">
             <X size={16} />
           </button>
         </div>
@@ -904,7 +904,7 @@
               bind:value={cSlug}
               disabled={connectorEditor.kind === 'edit'}
               placeholder="e.g. spotify"
-              class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono disabled:opacity-60"
+              class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle font-mono disabled:opacity-60"
             />
           </label>
           <label class="block">
@@ -913,7 +913,7 @@
               type="text"
               bind:value={cName}
               placeholder="Spotify"
-              class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+              class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text placeholder-gray-400 dark:placeholder:text-dark-text-muted focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
             />
           </label>
         </div>
@@ -923,7 +923,7 @@
           <input
             type="text"
             bind:value={cDescription}
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
           />
         </label>
 
@@ -931,7 +931,7 @@
           <span class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Auth kind</span>
           <select
             bind:value={cAuthKind}
-            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
+            class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle"
           >
             <option value="oauth2">OAuth2</option>
             <option value="token">Token / API key</option>
@@ -942,15 +942,15 @@
         {#if cAuthKind === 'oauth2'}
           <div class="pt-2 border-t border-gray-100 dark:border-dark-border space-y-2">
             <h3 class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">OAuth2 endpoints</h3>
-            <input bind:value={cAuthURL} placeholder="Authorize URL *" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-            <input bind:value={cTokenURL} placeholder="Token URL *" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-            <input bind:value={cScopes} placeholder="Scopes (space or comma separated)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+            <input bind:value={cAuthURL} placeholder="Authorize URL *" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+            <input bind:value={cTokenURL} placeholder="Token URL *" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+            <input bind:value={cScopes} placeholder="Scopes (space or comma separated)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
             <div class="grid grid-cols-2 gap-2">
-              <input bind:value={cAccessType} placeholder="access_type (e.g. offline)" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-              <input bind:value={cPrompt} placeholder="prompt (e.g. consent)" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+              <input bind:value={cAccessType} placeholder="access_type (e.g. offline)" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+              <input bind:value={cPrompt} placeholder="prompt (e.g. consent)" class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
             </div>
-            <input bind:value={cUserinfoURL} placeholder="Userinfo URL (optional, for account label)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-            <input bind:value={cAccountLabelPath} placeholder="Account label path (e.g. email)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+            <input bind:value={cUserinfoURL} placeholder="Userinfo URL (optional, for account label)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+            <input bind:value={cAccountLabelPath} placeholder="Account label path (e.g. email)" class="w-full px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
             <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-dark-text-secondary">
               <input type="checkbox" bind:checked={cUsePKCE} /> Use PKCE (for public clients / X / Twitter)
             </label>
@@ -970,9 +970,9 @@
           <div class="space-y-2">
             {#each cFields as f, i (i)}
               <div class="flex items-center gap-2">
-                <input bind:value={f.key} placeholder="key (e.g. spotify_client_id)" class="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-                <input bind:value={f.label} placeholder="label" class="w-24 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
-                <select bind:value={f.type} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text transition-colors focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle">
+                <input bind:value={f.key} placeholder="key (e.g. spotify_client_id)" class="flex-1 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+                <input bind:value={f.label} placeholder="label" class="w-24 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle" />
+                <select bind:value={f.type} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle">
                   <option value="text">text</option>
                   <option value="secret">secret</option>
                 </select>
@@ -989,11 +989,11 @@
       </div>
 
       <div class="flex items-center justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
-        <button onclick={closeConnectorEditor} class="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Cancel</button>
+        <button onclick={closeConnectorEditor} class="px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
         <button
           onclick={saveConnector}
           disabled={cSaving || !cSlug.trim()}
-          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white dark:text-gray-950 hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
         >
           {cSaving ? 'Saving…' : connectorEditor.kind === 'create' ? 'Create' : 'Save'}
         </button>

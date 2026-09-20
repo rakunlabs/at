@@ -477,14 +477,14 @@
       <div class="flex border border-gray-200 dark:border-dark-border">
         <button
           onclick={() => setViewMode('list')}
-          class="p-1.5 transition-colors {viewMode === 'list' ? 'bg-gray-900 text-white dark:bg-accent' : 'text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+          class="p-1.5 {viewMode === 'list' ? 'bg-gray-900 text-white dark:bg-accent' : 'text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
           title="List view"
         >
           <List size={14} />
         </button>
         <button
           onclick={() => setViewMode('board')}
-          class="p-1.5 transition-colors {viewMode === 'board' ? 'bg-gray-900 text-white dark:bg-accent' : 'text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+          class="p-1.5 {viewMode === 'board' ? 'bg-gray-900 text-white dark:bg-accent' : 'text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
           title="Board view"
         >
           <LayoutGrid size={14} />
@@ -496,7 +496,7 @@
         <button
           onclick={() => (showBoardEditor = true)}
           disabled={boardLoading}
-          class="flex items-center gap-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+          class="flex items-center gap-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
           title="Choose which columns the board shows and which statuses each one collects"
         >
           <Columns3 size={12} />
@@ -507,7 +507,7 @@
       <!-- Sub-task toggle -->
       <button
         onclick={toggleSubTasks}
-        class="flex items-center gap-1 px-2 py-1.5 text-xs border transition-colors {showSubTasks ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white' : 'border-gray-200 dark:border-dark-border text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
+        class="flex items-center gap-1 px-2 py-1.5 text-xs border {showSubTasks ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white' : 'border-gray-200 dark:border-dark-border text-gray-400 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated'}"
         title={showSubTasks ? 'Showing sub-tasks — click to hide' : 'Sub-tasks hidden — click to show'}
       >
         <GitBranch size={12} />
@@ -550,14 +550,14 @@
 
       <button
         onclick={refresh}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
       >
         <Plus size={12} />
         New Task
@@ -572,7 +572,7 @@
         <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
           {editingId ? `Edit: ${formTitle}` : 'New Task'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
           <X size={14} />
         </button>
       </div>
@@ -583,13 +583,13 @@
           <div>
             <label for="form-title" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Title</label>
             <input id="form-title" type="text" bind:value={formTitle} placeholder="e.g., Implement user auth"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text " />
           </div>
           <!-- Identifier -->
           <div>
             <label for="form-identifier" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Identifier</label>
             <input id="form-identifier" type="text" bind:value={formIdentifier} placeholder="e.g., PROJ-123"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text " />
           </div>
         </div>
 
@@ -597,7 +597,7 @@
         <div>
           <label for="form-description" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Description</label>
           <textarea id="form-description" bind:value={formDescription} placeholder="Describe the task (optional)" rows="2"
-            class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors resize-y"></textarea>
+            class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"></textarea>
         </div>
 
         <div class="grid grid-cols-5 gap-3">
@@ -605,7 +605,7 @@
           <div>
             <label for="form-status" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Status</label>
             <select id="form-status" bind:value={formStatus}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors">
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
               {#each TASK_STATUSES as status}
                 <option value={status}>{TASK_STATUS_LABELS[status]}</option>
               {/each}
@@ -618,7 +618,7 @@
           <div>
             <label for="form-priority-level" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Priority Level</label>
             <select id="form-priority-level" bind:value={formPriorityLevel}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors">
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
               <option value="">None</option>
               {#each TASK_PRIORITIES as prio}
                 <option value={prio}>{TASK_PRIORITY_LABELS[prio]}</option>
@@ -629,7 +629,7 @@
           <div>
             <label for="form-organization" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Organization</label>
             <select id="form-organization" bind:value={formOrganizationId}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors">
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
               <option value="">None</option>
               {#each organizations as org}
                 <option value={org.id}>{org.name}</option>
@@ -640,7 +640,7 @@
           <div>
             <label for="form-assigned-agent" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Assigned Agent</label>
             <select id="form-assigned-agent" bind:value={formAssignedAgentId}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors">
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text ">
               <option value="">Unassigned</option>
               {#each agents as agent}
                 <option value={agent.id}>{agent.name}</option>
@@ -651,7 +651,7 @@
           <div>
             <label for="form-project-id" class="block text-xs font-medium text-gray-700 dark:text-dark-text-secondary mb-1">Project ID</label>
             <input id="form-project-id" type="text" bind:value={formProjectId} placeholder="Project ID"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none dark:bg-dark-elevated dark:text-dark-text " />
           </div>
           <!-- Max Iterations (per-task override) -->
           <div>
@@ -662,24 +662,24 @@
             <input id="form-max-iterations" type="number" min="0" bind:value={formMaxIterations}
               placeholder="0"
               title="Per-task override of the agent's max_iterations. Counter resets to 0 every time this task runs."
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text " />
           </div>
         </div>
 
         <!-- Actions -->
         <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
           <button type="button" onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors">
+            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary ">
             Cancel
           </button>
           <button type="submit" disabled={saving}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
             <Save size={14} />
             {#if saving}Saving...{:else}{editingId ? 'Update' : 'Create'}{/if}
           </button>
           <button type="button" onclick={() => handleSubmit(true)} disabled={saving || !formOrganizationId}
             title={!formOrganizationId ? 'Select an organization first' : 'Create the task and immediately send it to the organization head agent'}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-700 text-white hover:bg-green-800 dark:bg-green-700 dark:hover:bg-green-600 transition-colors disabled:opacity-50">
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-green-700 text-white hover:bg-green-800 dark:bg-green-700 dark:hover:bg-green-600 disabled:opacity-50">
             <Play size={14} />
             {#if saving}Saving...{:else}{editingId ? 'Update & Process' : 'Create & Process'}{/if}
           </button>
@@ -701,7 +701,7 @@
           <button
             onclick={loadBoard}
             disabled={boardLoading}
-            class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+            class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
           >
             {boardLoading ? 'Retrying…' : 'Try again'}
           </button>
@@ -716,7 +716,7 @@
           {#if mayEditBoard}
             <button
               onclick={() => (showBoardEditor = true)}
-              class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
+              class="ml-auto px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent"
             >
               Edit columns
             </button>
@@ -776,13 +776,13 @@
 
         {#snippet row(task)}
           <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors" oncontextmenu={(e) => openContextMenu(e, task)}>
+          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 " oncontextmenu={(e) => openContextMenu(e, task)}>
             <td class="px-4 py-2.5">
               <div class="flex items-center gap-2">
                 {#if task.identifier}
                   <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{task.identifier}</span>
                 {/if}
-                <a href="#/tasks/{task.id}" class="font-medium text-gray-900 dark:text-dark-text hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+                <a href="#/tasks/{task.id}" class="font-medium text-gray-900 dark:text-dark-text hover:text-gray-600 dark:hover:text-dark-text-secondary ">
                   {task.title || task.identifier || task.id.slice(0, 12)}
                 </a>
               </div>
@@ -832,27 +832,27 @@
                   <button
                     onclick={confirmCheckout}
                     disabled={!checkoutAgentId}
-                    class="px-2 py-0.5 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                    class="px-2 py-0.5 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
                   >
                     OK
                   </button>
                   <button
                     onclick={cancelCheckout}
-                    class="px-2 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                    class="px-2 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
                   >
                     Cancel
                   </button>
                 {:else}
                   <button
                     onclick={() => push(`/tasks/${task.id}`)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
                     title="View details"
                   >
                     <ExternalLink size={14} />
                   </button>
                   <button
                     onclick={() => openCheckout(task)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
                     title="Checkout"
                   >
                     <UserCheck size={14} />
@@ -860,7 +860,7 @@
                   {#if task.checked_out_by}
                     <button
                       onclick={() => handleRelease(task)}
-                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
                       title="Release"
                     >
                       <UserX size={14} />
@@ -868,7 +868,7 @@
                   {/if}
                   <button
                     onclick={() => openEdit(task)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -876,20 +876,20 @@
                   {#if deleteConfirm === task.id}
                     <button
                       onclick={() => handleDelete(task.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = task.id)}
-                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary hover:text-red-700 dark:hover:text-red-400 transition-colors motion-reduce:transition-none"
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-secondary hover:text-red-700 dark:hover:text-red-400 "
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -930,7 +930,7 @@
   >
     <button
       onclick={() => { handleProcess(contextMenu!.task); closeContextMenu(); }}
-      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated "
     >
       <Play size={14} class="text-green-500" />
       Start Processing

@@ -29,11 +29,11 @@
   });
 </script>
 
-<div class="app-navbar min-w-0 max-w-full bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border flex items-center px-2 py-1 transition-colors">
+<div class="app-navbar min-h-9 min-w-0 max-w-full bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border flex items-stretch px-2">
   <button
     aria-label="Toggle navigation"
     aria-expanded={storeNavbar.sideBarOpen}
-    class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+    class="inline-flex shrink-0 items-center justify-center py-2 px-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
     onclick={() => (storeNavbar.sideBarOpen = !storeNavbar.sideBarOpen)}
   >
     {#if storeNavbar.sideBarOpen}
@@ -42,18 +42,18 @@
       <Menu size={16} />
     {/if}
   </button>
-  <span class="ml-2 min-w-0 flex-1 truncate text-sm font-medium text-gray-800 dark:text-dark-text">
+  <span class="ml-2 min-w-0 flex-1 self-center truncate text-sm font-medium text-gray-800 dark:text-dark-text">
     {storeNavbar.title}
   </span>
 
-  <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-4">
-    {#if maySwitch && workspaceState.items.length}<label class="text-xs"><span class="sr-only">Workspace</span><select aria-label="Workspace" value={workspaceTransport.selected} class="max-w-32 sm:max-w-56 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 py-1" onchange={async e => { try { await switchWorkspace(e.currentTarget.value); } catch { workspaceError = 'Could not switch workspaces. Check your access and browser storage.'; } }}>
+  <div class="ml-auto flex shrink-0 items-stretch gap-1 sm:gap-4">
+    {#if maySwitch && workspaceState.items.length}<label class="flex items-stretch text-xs"><span class="sr-only">Workspace</span><select aria-label="Workspace" value={workspaceTransport.selected} class="max-w-32 sm:max-w-56 border-l border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 py-1" onchange={async e => { try { await switchWorkspace(e.currentTarget.value); } catch { workspaceError = 'Could not switch workspaces. Check your access and browser storage.'; } }}>
       {#each workspaceState.items.filter(w => !w.archived) as workspace}<option value={workspace.id}>{workspace.name}</option>{/each}
     </select></label>{/if}
-    {#if workspaceError}<span role="alert" class="settings-error">{workspaceError}</span>{/if}
+    {#if workspaceError}<span role="alert" class="settings-error self-center">{workspaceError}</span>{/if}
     <button
       onclick={() => (storeTheme.mode = storeTheme.mode === 'light' ? 'dark' : 'light')}
-      class="shrink-0 p-1.5 text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+      class="inline-flex shrink-0 items-center justify-center px-1.5 text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent"
       aria-label={storeTheme.mode === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
       title="Toggle theme"
     >

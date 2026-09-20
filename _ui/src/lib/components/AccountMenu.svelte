@@ -2,7 +2,6 @@
   import { storeInfo } from '@/lib/store/store.svelte';
   import { ChevronDown, LogOut, Settings, ShieldCheck, User } from 'lucide-svelte';
   import { isNativeAdmin, storeAuth } from '@/lib/store/auth.svelte';
-  import { expoOut } from 'svelte/easing';
 
   interface Props { onlogout?: () => Promise<void>; loggingOut?: boolean }
   let { onlogout, loggingOut = false }: Props = $props();
@@ -91,17 +90,6 @@
     return () => document.removeEventListener('pointerdown', onPointerDown, true);
   });
 
-  const reveal = (_: HTMLElement, { duration = 140 }: { duration?: number }) => {
-    const reduced =
-      typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    return {
-      duration: reduced ? 0 : duration,
-      easing: expoOut,
-      css: (t: number, u: number) =>
-        `opacity:${t};transform:translateY(${u * -6}px) scale(${1 - u * 0.03});transform-origin:top right`
-    };
-  };
-
   const signOut = async () => {
     if (!onlogout || loggingOut) return;
     close(false);
@@ -110,7 +98,7 @@
 </script>
 
 {#if hasContent}
-  <div class="relative shrink-0">
+  <div class="relative flex shrink-0 items-stretch">
     <button
       bind:this={trigger}
       type="button"
@@ -120,7 +108,7 @@
       aria-label={`Account menu for ${accountLabel}`}
       onclick={toggle}
       onkeydown={onTriggerKeydown}
-      class="inline-flex h-8 items-center gap-1.5 rounded px-2 text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent transition-colors {open
+      class="inline-flex min-h-8 items-center gap-1.5 px-2 text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent {open
         ? 'bg-gray-100 dark:bg-dark-elevated text-gray-900 dark:text-dark-text'
         : ''}"
     >
@@ -132,7 +120,6 @@
     {#if open}
       <div
         bind:this={panel}
-        transition:reveal={{}}
         class="absolute right-0 top-full z-50 mt-1 w-64 max-w-[calc(100vw-2rem)] border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface shadow-lg"
       >
         {#if storeInfo.name || storeAuth.identity}
@@ -178,7 +165,7 @@
               role="menuitem"
               disabled={loggingOut}
               onclick={signOut}
-              class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:bg-gray-100 dark:focus-visible:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:bg-gray-100 dark:focus-visible:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-not-allowed "
             >
               <LogOut size={14} class="shrink-0" />
               <span>{loggingOut ? 'Signing out…' : 'Sign out'}</span>

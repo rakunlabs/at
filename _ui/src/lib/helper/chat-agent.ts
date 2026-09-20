@@ -7,10 +7,14 @@ export interface ChatSelections {
 }
 
 /** Agent contributions never mutate the user's explicit selections. */
-export function agentSelections(config?: AgentConfig): ChatSelections {
+export function agentSelections(config?: AgentConfig, skills: readonly { id: string; name: string }[] = []): ChatSelections {
+  // Agent attachments accept IDs and names; the chat picker and discovery use names.
+  const skillName = (ref: string) => skills.find(skill => skill.id === ref)?.name
+    ?? skills.find(skill => skill.name === ref)?.name
+    ?? ref;
   return {
     mcp_sets: [...new Set(config?.mcp_sets ?? [])],
-    skills: [...new Set((config?.skills ?? []).map(skill => typeof skill === 'string' ? skill : skill.id).filter(Boolean))],
+    skills: [...new Set((config?.skills ?? []).map(skill => typeof skill === 'string' ? skill : skill.id).filter(Boolean).map(skillName))],
     builtin_tools: [...new Set(config?.builtin_tools ?? [])],
   };
 }

@@ -126,7 +126,7 @@
               type="button"
               onclick={() => usePreset(preset.key, preset.name)}
               disabled={!!busy}
-              class="text-left border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated p-3 hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 transition-colors"
+              class="text-left border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated p-3 hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 "
             >
               <div class="flex items-center gap-1.5">
                 {#if busy === `preset:${preset.key}`}
@@ -243,7 +243,7 @@
                 onclick={() => toggleFeature(feature)}
                 disabled={!!busy}
                 class={[
-                  'shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border transition-colors disabled:opacity-50',
+                  'shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border disabled:opacity-50',
                   feature.enabled
                     ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent hover:bg-gray-800 dark:hover:bg-accent-hover'
                     : 'bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-surface',

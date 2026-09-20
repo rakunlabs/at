@@ -1,6 +1,5 @@
 <script lang="ts">
   import { dndzone } from 'svelte-dnd-action';
-  import { flip } from 'svelte/animate';
   import { push } from 'svelte-spa-router';
   import type { Task } from '@/lib/api/tasks';
   import type { Organization } from '@/lib/api/organizations';
@@ -94,18 +93,6 @@
       data[col.id].sort((a, b) => (b.task.updated_at || '').localeCompare(a.task.updated_at || ''));
     }
     columnData = data;
-  });
-
-  // Motion: the flip animation is decorative, so it collapses to an instant
-  // reorder when the reader has asked for reduced motion.
-  let flipMs = $state(200);
-  $effect(() => {
-    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
-    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const apply = () => { flipMs = query.matches ? 0 : 200; };
-    apply();
-    query.addEventListener('change', apply);
-    return () => query.removeEventListener('change', apply);
   });
 
   // Handle DnD events
@@ -251,16 +238,15 @@
       <div
         class="flex-1 overflow-y-auto p-2.5 space-y-2.5 min-h-[100px]"
         aria-label="{col.label} tasks"
-        use:dndzone={{ items: columnData[col.id] || [], flipDurationMs: flipMs, dropTargetStyle: {} }}
+        use:dndzone={{ items: columnData[col.id] || [], flipDurationMs: 0, dropAnimationDisabled: true, dropTargetStyle: {} }}
         onconsider={(e) => handleDndConsider(col.id, e)}
         onfinalize={(e) => handleDndFinalize(col.id, e)}
       >
         {#each columnData[col.id] || [] as item (item.id)}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
-            animate:flip={{ duration: flipMs }}
             class={[
-              'bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border border-l-3 p-3.5 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm transition-all motion-reduce:transition-none',
+              'bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border border-l-3 p-3.5 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm ',
               statusStripeColor(item.task.status),
               isFailedStatus(item.task.status) ? 'opacity-70' : '',
               'cursor-grab active:cursor-grabbing',
@@ -358,7 +344,7 @@
   >
     <button
       onclick={handleContextProcess}
-      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+      class="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated "
     >
       <Play size={14} class="text-green-500" />
       Start Processing

@@ -710,7 +710,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
       {#if streaming}
         <button
           onclick={stopStreaming}
-          class="p-1.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors shrink-0"
+          class="p-1.5 rounded bg-red-500 text-white hover:bg-red-600 shrink-0"
         >
           <Square size={12} />
         </button>
@@ -718,7 +718,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
         <button
           onclick={sendMessage}
           disabled={!userInput.trim() || !selectedModel}
-          class="p-1.5 rounded bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+          class="p-1.5 rounded bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent/80 disabled:opacity-30 disabled:cursor-not-allowed shrink-0"
         >
           <Send size={12} />
         </button>
@@ -727,7 +727,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
     {#if messages.length > 0 && !streaming}
       <button
         onclick={clearChat}
-        class="mt-1.5 w-full text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text transition-colors"
+        class="mt-1.5 w-full text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text "
       >
         Clear conversation
       </button>

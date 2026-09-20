@@ -158,7 +158,7 @@
       <div class="mt-5 flex flex-wrap justify-center gap-x-5 gap-y-1 text-[10px] uppercase tracking-wide text-gray-400 dark:text-dark-text-muted">
         <span>Character bible</span><span>Style lock</span><span>Shot continuity</span><span>Structured renders</span>
       </div>
-      <button onclick={setupStudio} disabled={installing} class="mt-6 inline-flex items-center gap-2 px-4 py-2 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+      <button onclick={setupStudio} disabled={installing} class="mt-6 inline-flex items-center gap-2 px-4 py-2 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50">
         {#if installing}<Loader2 size={13} class="animate-spin" />{:else}<Clapperboard size={13} />{/if}
         {installing ? 'Installing studio…' : 'Set up Video Studio'}
       </button>
@@ -190,10 +190,10 @@
       {/if}
 
       <nav class="mt-5 flex flex-wrap gap-x-5 gap-y-3 border-b border-gray-200 dark:border-dark-border" aria-label="Studio sections">
-        <button onclick={() => (tabRoute.value = 'characters')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'characters' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><User size={12} /> Characters</button>
-        <button onclick={() => (tabRoute.value = 'series')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'series' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Film size={12} /> Series</button>
-        <button onclick={() => (tabRoute.value = 'long-videos')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'long-videos' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Clapperboard size={12} /> Long Videos</button>
-        <button onclick={() => (tabRoute.value = 'productions')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 transition-colors', tab === 'productions' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Video size={12} /> Productions</button>
+        <button onclick={() => (tabRoute.value = 'characters')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 ', tab === 'characters' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><User size={12} /> Characters</button>
+        <button onclick={() => (tabRoute.value = 'series')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 ', tab === 'series' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Film size={12} /> Series</button>
+        <button onclick={() => (tabRoute.value = 'long-videos')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 ', tab === 'long-videos' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Clapperboard size={12} /> Long Videos</button>
+        <button onclick={() => (tabRoute.value = 'productions')} class={['pb-2.5 text-xs font-medium border-b-2 -mb-px flex items-center gap-1.5 ', tab === 'productions' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-dark-text-secondary']}><Video size={12} /> Productions</button>
       </nav>
 
       <main class="mt-5">

@@ -81,7 +81,7 @@
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               onclick={() => { editingIndex = editingIndex === i ? null : i; }}
-              class="w-full flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+              class="w-full flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-elevated "
             >
               {#if editingIndex === i}<ChevronDown size={9} class="text-gray-400 shrink-0" />{:else}<ChevronRight size={9} class="text-gray-400 shrink-0" />{/if}
               <span class="text-[11px] font-mono font-medium text-gray-700 dark:text-dark-text-secondary truncate">{field.name || '(unnamed)'}</span>

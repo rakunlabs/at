@@ -134,7 +134,7 @@
 </script>
 
 <div class="border-y border-gray-200 bg-white dark:border-dark-border dark:bg-dark-surface">
-  <button onclick={toggle} aria-expanded={open} class="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">
+  <button onclick={toggle} aria-expanded={open} class="w-full px-3 py-2 flex items-center gap-2 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated ">
     <FilePenLine size={13} class="text-gray-500 dark:text-dark-text-muted" />
     <span class="text-[11px] font-medium text-gray-800 dark:text-dark-text">Edit episode & references</span>
     <span class="ml-auto text-[10px] text-gray-400 dark:text-dark-text-muted">{references.length || episode.manifest.references?.length || 0} visual refs</span>

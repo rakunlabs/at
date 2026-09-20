@@ -441,7 +441,7 @@
       ><List size={12} /> Observations</button>
       <button
         onclick={refreshView}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
         title="Refresh"
       >
         <RefreshCw size={14} class={(view === 'calls' ? loading : view === 'conversations' && !selectedConversation ? conversationsLoading : selectedTrace ? traceObsLoading : tracesLoading) ? 'animate-spin motion-reduce:animate-none' : ''} />
@@ -618,7 +618,7 @@
 
         {#snippet row(trace)}
           <tr
-            class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer"
+            class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 cursor-pointer"
             onclick={() => openTrace(trace)}
           >
             <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap font-mono">{formatDateTime(trace.started_at)}</td>
@@ -677,7 +677,7 @@
 
         {#snippet row(call)}
           <tr
-            class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors cursor-pointer"
+            class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 cursor-pointer"
             onclick={() => openDetail(call)}
           >
             <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted whitespace-nowrap font-mono">{formatDateTime(call.created_at)}</td>
@@ -718,7 +718,7 @@
 {#snippet obsRow(o: LLMCall, nested: boolean)}
   <button
     class={[
-      'w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors',
+      'w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-gray-50 dark:hover:bg-dark-elevated/50 ',
       nested ? 'pl-10' : '',
       isError(o) ? 'bg-red-50/50 dark:bg-red-900/10' : '',
     ]}

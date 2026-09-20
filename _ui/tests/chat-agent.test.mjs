@@ -20,6 +20,17 @@ test('binding supplies tools without marking them as personal selections', () =>
   assert.deepEqual(mergeChatSelections(user, agentSelections()), before, 'removing the agent restores personal choices');
 });
 
+test('skill IDs and names resolve to one inherited picker and discovery selection', () => {
+  const skills = [{ id: 'skill-123', name: 'browser' }];
+  const config = { skills: ['skill-123', { id: 'skill-123' }, 'browser', { id: 'missing' }] };
+  const before = structuredClone(config);
+  const inherited = agentSelections(config, skills);
+  assert.deepEqual(inherited.skills, ['browser', 'missing']);
+  assert.deepEqual(mergeChatSelections({ mcp_sets: [], skills: ['browser'], builtin_tools: [] }, inherited).skills, ['browser', 'missing']);
+  assert.deepEqual(config, before, 'resolving display names must not mutate agent configuration');
+  assert.deepEqual(agentSelections(config).skills, ['skill-123', 'browser', 'missing'], 'references survive until the catalog loads');
+});
+
 test('dual-source tools run once and removing personal selection retains inheritance', () => {
   const agent = agentSelections({ skills: ['browser', { id: 'browser' }], builtin_tools: ['search', 'search'] });
   const user = { mcp_sets: [], skills: ['browser'], builtin_tools: ['search'] };

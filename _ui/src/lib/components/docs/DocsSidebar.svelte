@@ -155,7 +155,7 @@
   }
 
   const rowBase =
-    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent';
+    'flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent';
   const groupRow = `${rowBase} font-semibold text-gray-900 dark:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated`;
   const subHeading =
     'flex items-center gap-1.5 px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-gray-600 dark:text-dark-text-secondary';
@@ -254,7 +254,7 @@
         >
           <ChevronRight
             size={13}
-            class="shrink-0 transition-transform motion-reduce:transition-none {groups.api
+            class="shrink-0 {groups.api
               ? 'rotate-90'
               : ''}"
             aria-hidden="true"
@@ -296,7 +296,7 @@
           >
             <ChevronRight
               size={13}
-              class="shrink-0 transition-transform motion-reduce:transition-none {groups.guides
+              class="shrink-0 {groups.guides
                 ? 'rotate-90'
                 : ''}"
               aria-hidden="true"
@@ -322,7 +322,7 @@
             onclick={onnewguide}
             aria-label="New guide"
             title="New guide"
-            class="mr-2 shrink-0 border border-gray-300 p-1 text-gray-700 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 motion-reduce:transition-none dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text dark:focus-visible:outline-accent"
+            class="mr-2 shrink-0 border border-gray-300 p-1 text-gray-700 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text dark:focus-visible:outline-accent"
           >
             <Plus size={13} aria-hidden="true" />
           </button>

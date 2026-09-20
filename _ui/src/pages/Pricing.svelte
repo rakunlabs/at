@@ -445,7 +445,7 @@
       <button
         onclick={downloadCatalog}
         disabled={exportingCatalog}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors disabled:opacity-50"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
       >
         <Download size={12} />
         {exportingCatalog ? 'Downloading...' : 'Download Catalog'}
@@ -453,7 +453,7 @@
       <button
         onclick={() => catalogImportFileInput.click()}
         disabled={importingCatalog}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors disabled:opacity-50"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
       >
         <Upload size={12} />
         {importingCatalog ? 'Importing...' : 'Upload Catalog'}
@@ -472,7 +472,7 @@
       <button
         onclick={() => runPreview()}
         disabled={previewLoading || applying}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
       >
         <RefreshCw size={12} class={previewLoading ? 'animate-spin' : ''} />
         {previewLoading ? 'Loading...' : `Fetch ${sourceLabel(selectedSyncSource)}`}
@@ -489,7 +489,7 @@
           <p class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">Tell a configured provider where to look, paste source text, or allow web search if that model supports it. The result is a preview before anything is applied.</p>
         </div>
       </div>
-      <button onclick={runAgentPreview} disabled={previewLoading || applying || !agentCanRun} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+      <button onclick={runAgentPreview} disabled={previewLoading || applying || !agentCanRun} class="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
         <Bot size={12} />
         {previewLoading ? 'Previewing...' : 'Run Agent Preview'}
       </button>
@@ -584,7 +584,7 @@
             <input id="pricing-cache-write" type="number" step="0.000001" min="0" bind:value={form.cache_write_price_per_1m} class="w-full border border-gray-200 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text px-2.5 py-1.5 text-sm focus:outline-none focus:border-gray-400" />
           </div>
         </div>
-        <button onclick={savePricing} disabled={saving} class="w-full px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+        <button onclick={savePricing} disabled={saving} class="w-full px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
           {saving ? 'Saving...' : editingID ? 'Save Override' : 'Add Price'}
         </button>
       </div>
@@ -679,7 +679,7 @@
         <label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
           <input type="checkbox" bind:checked={overwriteOverrides} class="h-3 w-3" /> overwrite overrides
         </label>
-        <button onclick={applySelected} disabled={applying || previewLoading || selectedPreview.length === 0} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+        <button onclick={applySelected} disabled={applying || previewLoading || selectedPreview.length === 0} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
           <Check size={12} /> {applying ? 'Applying...' : `Apply Selected (${selectedPreview.length})`}
         </button>
       </div>

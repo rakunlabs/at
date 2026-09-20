@@ -21,7 +21,7 @@
     type ChatMessage,
     type ChatAttachment,
   } from '@/lib/api/chat-sessions';
-  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download, Pencil } from 'lucide-svelte';
+  import { Send, Square, Plus, Loader2, Trash2, RotateCcw, Bot, ChevronDown, ShieldCheck, ShieldX, Wrench, Brain, Terminal, Check, Code, Eye, GitBranch, Search, ArrowLeft, ArrowDown, Copy, Paperclip, X, FileText, Download, Pencil, PanelLeft } from 'lucide-svelte';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import { agentAvatar } from '@/lib/helper/avatar';
   import Markdown from '@/lib/components/Markdown.svelte';
@@ -45,6 +45,8 @@
   let botFilter = $state<string>('all');
   let sessionSearch = $state('');
   let showSessionList = $state(true);
+  // Desktop collapse is independent of mobile list/chat navigation.
+  let showDesktopSessionList = $state(true);
   let loadingMessages = $state(false);
   let messageError = $state('');
   let turnError = $state('');
@@ -74,7 +76,7 @@
   let attachmentError = $state('');
   let draggingFiles = $state(false);
   let fileInput = $state<HTMLInputElement>();
-  const composerControl = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-0 shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
+  const composerControl = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-0 shrink-0 items-center justify-center gap-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40';
   const secondaryControl = `${composerControl} border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated`;
 
   async function addAttachments(files: File[]) {
@@ -267,6 +269,7 @@
   function openNewSession() {
     showNewSession = true;
     showSessionList = true;
+    showDesktopSessionList = true;
     newTargetId = '';
     void loadOrganizations();
   }
@@ -927,7 +930,7 @@
     role="button"
     tabindex="0"
     class={[
-      'w-full text-left py-1.5 text-xs leading-4 border-b border-gray-100 dark:border-dark-border/50 group flex items-center gap-1.5 cursor-pointer transition-colors focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
+      'w-full text-left py-1.5 text-xs leading-4 border-b border-gray-100 dark:border-dark-border/50 group flex items-center gap-1.5 cursor-pointer focus-visible:outline-2 focus-visible:outline-accent focus-visible:-outline-offset-2',
       nested ? 'pl-7 pr-3 bg-gray-50/60 dark:bg-dark-base/40' : 'pl-5 pr-3',
       selectedSessionId === session.id
         ? 'bg-gray-100 dark:bg-dark-elevated'
@@ -962,14 +965,14 @@
     <button
       onclick={(e) => { e.stopPropagation(); clearChatMessages(session.id).then(() => { if (selectedSessionId === session.id) messages = []; addToast('Messages cleared'); }).catch(() => addToast('Failed to clear', 'alert')); }}
       disabled={sending && selectedSessionId === session.id}
-      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-orange-500 transition-opacity disabled:opacity-30"
+      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-orange-500 disabled:opacity-30"
       title="Clear messages"
     >
       <RotateCcw size={11} />
     </button>
     <button
       onclick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
-      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-red-500 transition-opacity"
+      class="sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 p-1.5 text-gray-500 dark:text-dark-text-secondary hover:text-red-500 "
       title="Delete"
     >
       <Trash2 size={11} />
@@ -983,13 +986,13 @@
 
 <div class="flex h-full min-h-0 overflow-hidden bg-gray-50 dark:bg-dark-base">
   <!-- Left: Session list -->
-  <div class={[showSessionList ? 'flex' : 'hidden', 'sm:flex w-full sm:w-64 lg:w-72 flex-shrink-0 min-h-0 border-r border-gray-200 dark:border-dark-border flex-col bg-white dark:bg-dark-surface']}>
+  <div id="sessions-sidebar" class={[showSessionList ? 'flex' : 'hidden', showDesktopSessionList ? 'sm:flex' : 'sm:hidden', 'w-full sm:w-64 lg:w-72 flex-shrink-0 min-h-0 border-r border-gray-200 dark:border-dark-border flex-col bg-white dark:bg-dark-surface']}>
     <div class="flex items-center justify-between px-3 h-10 shrink-0 border-b border-gray-200 dark:border-dark-border">
       <h1 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Sessions</h1>
       <button
         onclick={openNewSession}
         disabled={sending}
-        class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-900 text-white dark:bg-accent dark:text-gray-950 disabled:opacity-40"
+        class="flex items-center gap-1 px-2 py-1 text-xs font-medium bg-gray-900 text-white dark:bg-accent dark:text-gray-950 disabled:opacity-40"
         title="New session (or type /new)"
       >
         <Plus size={16} /> New
@@ -997,14 +1000,14 @@
     </div>
 
     {#if showNewSession}
-      <form onsubmit={(e) => { e.preventDefault(); void createTargetSession(); }} class="space-y-3 border-b border-gray-200 bg-gray-50 p-3 text-xs dark:border-dark-border dark:bg-dark-base">
+      <form onsubmit={(e) => { e.preventDefault(); void createTargetSession(); }} class="space-y-3 border-b border-gray-200 bg-gray-50 p-2 text-xs dark:border-dark-border dark:bg-dark-base">
         <label class="block space-y-1"><span class="font-medium text-gray-900 dark:text-dark-text">Talk to</span>
-          <select bind:value={targetType} onchange={() => { newTargetId = ''; }} disabled={creatingSession} class="w-full border border-gray-300 bg-white px-2 py-2 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
+          <select bind:value={targetType} onchange={() => { newTargetId = ''; }} disabled={creatingSession} class="w-full border border-gray-300 bg-white px-2 py-1 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
             <option value="agent">Agent</option><option value="organization">Organization</option>
           </select>
         </label>
         <label class="block space-y-1"><span class="font-medium text-gray-900 dark:text-dark-text">{targetType === 'agent' ? 'Agent' : 'Organization'}</span>
-          <select bind:value={newTargetId} disabled={creatingSession || (targetType === 'organization' && loadingOrganizations)} class="w-full border border-gray-300 bg-white px-2 py-2 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
+          <select bind:value={newTargetId} disabled={creatingSession || (targetType === 'organization' && loadingOrganizations)} class="w-full border border-gray-300 bg-white px-2 py-1 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
             <option value="">Select {targetType === 'agent' ? 'an agent' : 'an organization'}…</option>
             {#if targetType === 'agent'}
               {#each agents as agent (agent.id)}<option value={agent.id}>{agent.name}</option>{/each}
@@ -1018,13 +1021,13 @@
           {#if loadingOrganizations}<p role="status">Loading organizations…</p>{:else if organizationError}<p role="alert" class="text-red-700 dark:text-red-300">{organizationError}</p><button type="button" onclick={loadOrganizations} class="underline">Retry</button>{:else if !organizations.length}<p>No organizations available in this workspace.</p>{/if}
         {/if}
         <div class="flex gap-2">
-          <button type="submit" disabled={!newTargetId || creatingSession} class="min-h-11 border border-gray-900 bg-gray-900 px-3 py-1.5 text-white disabled:opacity-40 dark:border-accent dark:bg-accent dark:text-gray-950">{creatingSession ? 'Starting…' : 'Start chat'}</button>
-          <button type="button" onclick={() => { showNewSession = false; }} disabled={creatingSession} class="min-h-11 border border-gray-300 px-3 py-1.5 dark:border-dark-border dark:text-dark-text">Cancel</button>
+          <button type="submit" disabled={!newTargetId || creatingSession} class="border border-gray-900 bg-gray-900 px-3 py-1.5 text-white disabled:opacity-40 dark:border-accent dark:bg-accent dark:text-gray-950">{creatingSession ? 'Starting…' : 'Start chat'}</button>
+          <button type="button" onclick={() => { showNewSession = false; }} disabled={creatingSession} class="border border-gray-300 px-3 py-1.5 dark:border-dark-border dark:text-dark-text">Cancel</button>
         </div>
       </form>
     {/if}
 
-    <label class="flex items-center gap-2 m-2 px-2 h-8 shrink-0 rounded border border-gray-200 dark:border-dark-border focus-within:ring-1 focus-within:ring-accent text-gray-500 dark:text-dark-text-secondary">
+    <label class="flex items-center gap-2 m-2 px-2 h-8 shrink-0 border border-gray-200 dark:border-dark-border focus-within:ring-1 focus-within:ring-accent text-gray-500 dark:text-dark-text-secondary">
       <Search size={14} />
       <input bind:value={sessionSearch} aria-label="Search sessions" placeholder="Search sessions…" class="w-full min-w-0 bg-transparent text-base sm:text-xs text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary outline-none" />
     </label>
@@ -1033,7 +1036,7 @@
       <div class="px-2 py-1.5 border-b border-gray-200 dark:border-dark-border">
         <select
           bind:value={botFilter}
-          class="w-full text-xs px-2 py-1 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-accent"
+          class="w-full text-xs px-2 py-1 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated text-gray-700 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-accent"
           title="Filter sessions by bot"
         >
           <option value="all">All sessions</option>
@@ -1082,12 +1085,24 @@
 
   <!-- Right: Chat area -->
   <div class={[showSessionList ? 'hidden' : 'flex', 'sm:flex flex-1 flex-col min-w-0 min-h-0 relative']}>
-    <button onclick={() => { showSessionList = true; }} class="sm:hidden flex items-center gap-2 px-4 py-3 text-sm border-b border-gray-200 dark:border-dark-border">
-      <ArrowLeft size={16} /> All sessions
-    </button>
     <!-- Top bar: current agent indicator -->
-    {#if selectedSession}
-      <div class="flex items-center gap-3 h-10 shrink-0 px-4 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+      <div class="flex items-center gap-2 h-10 shrink-0 px-2 border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+        <button
+          onclick={() => { showSessionList = true; }}
+          aria-label="All sessions"
+          aria-controls="sessions-sidebar"
+          title="All sessions"
+          class="sm:hidden inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
+        ><ArrowLeft size={16} /></button>
+        <button
+          onclick={() => { showDesktopSessionList = !showDesktopSessionList; }}
+          aria-label={showDesktopSessionList ? 'Hide session list' : 'Show session list'}
+          aria-expanded={showDesktopSessionList}
+          aria-controls="sessions-sidebar"
+          title={showDesktopSessionList ? 'Hide session list' : 'Show session list'}
+          class="hidden sm:inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"
+        ><PanelLeft size={16} /></button>
+      {#if selectedSession}
         <div class="min-w-0 flex-1 flex items-center gap-3">
           {#if editingTitle}
             <form class="flex min-w-0 flex-1 items-center gap-1" onsubmit={(event) => { event.preventDefault(); void saveTitle(); }}>
@@ -1105,16 +1120,16 @@
                   }
                   if (event.key === 'Enter' && event.isComposing) event.preventDefault();
                 }}
-                class="h-8 min-w-0 flex-1 rounded border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-2 text-sm text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+                class="h-8 min-w-0 flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-2 text-sm text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
               />
-              <button type="submit" disabled={savingTitle || !titleDraft.trim()} aria-label={savingTitle ? 'Saving session name' : 'Save session name'} title="Save (Enter)" class="flex h-9 w-9 shrink-0 items-center justify-center rounded text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">
+              <button type="submit" disabled={savingTitle || !titleDraft.trim()} aria-label={savingTitle ? 'Saving session name' : 'Save session name'} title="Save (Enter)" class="flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40">
                 {#if savingTitle}<Loader2 size={15} class="animate-spin" />{:else}<Check size={15} />{/if}
               </button>
-              <button type="button" onclick={cancelTitleEdit} disabled={savingTitle} aria-label="Cancel rename" title="Cancel (Escape)" class="flex h-9 w-9 shrink-0 items-center justify-center rounded text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><X size={15} /></button>
+              <button type="button" onclick={cancelTitleEdit} disabled={savingTitle} aria-label="Cancel rename" title="Cancel (Escape)" class="flex h-9 w-9 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><X size={15} /></button>
             </form>
           {:else}
             <h2 class="min-w-0 text-sm font-medium text-gray-900 dark:text-dark-text">
-              <button bind:this={titleButton} onclick={editTitle} title="Rename session" aria-label={`Rename session: ${selectedSession.name || 'Untitled session'}`} class="flex h-9 max-w-full items-center gap-2 rounded px-1 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">
+              <button bind:this={titleButton} onclick={editTitle} title="Rename session" aria-label={`Rename session: ${selectedSession.name || 'Untitled session'}`} class="flex h-9 max-w-full items-center gap-2 px-1 text-left hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">
                 <span class="truncate">{selectedSession.name || 'Untitled session'}</span><Pencil size={12} class="shrink-0 text-gray-500 dark:text-dark-text-secondary" />
               </button>
             </h2>
@@ -1123,9 +1138,11 @@
         </div>
         {#if toolActivityCount > 0}<button onclick={() => { showToolActivity = !showToolActivity; }} aria-pressed={showToolActivity} class="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text" title={showToolActivity ? 'Hide tool activity' : 'Show tool activity'}><Wrench size={13} /><span class="hidden sm:inline">Activity</span> {toolActivityCount}</button>{/if}
         {#if selectedSession.task_id || selectedSession.config?.active_task_id}<a href={`#/tasks/${selectedSession.task_id || selectedSession.config.active_task_id}`} class="flex shrink-0 items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"><GitBranch size={12} /> Task</a>{/if}
-        <button onclick={refreshMessages} disabled={sending || loadingMessages} title="Refresh messages" class="p-1.5 rounded text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-40"><RotateCcw size={14} /></button>
+        <button onclick={refreshMessages} disabled={sending || loadingMessages} aria-label="Refresh messages" title="Refresh messages" class="inline-flex h-9 w-9 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"><RotateCcw size={14} /></button>
+      {:else}
+        <h2 class="min-w-0 truncate text-sm font-medium text-gray-900 dark:text-dark-text">New session</h2>
+      {/if}
       </div>
-    {/if}
 
     <!-- Messages area -->
     <div bind:this={messagesContainer} onscroll={handleMessagesScroll} class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-base leading-7">
@@ -1146,7 +1163,7 @@
                     aria-pressed={pendingAgentId === agent.id}
                     title={agent.config.description || agent.name}
                     class={[
-                      'inline-flex min-h-10 max-w-full items-center gap-2 px-3 py-2 text-sm rounded-md border transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
+                      'inline-flex min-h-10 max-w-full items-center gap-2 px-3 py-2 text-sm border focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
                       pendingAgentId === agent.id
                         ? 'border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white dark:text-gray-950'
                         : 'border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated',
@@ -1170,7 +1187,7 @@
       {:else}
         <div class="w-full px-4 py-4 space-y-4">
           {#if messageError}
-            <div role="alert" class="flex flex-wrap items-center gap-2 rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">
+            <div role="alert" class="flex flex-wrap items-center gap-2 border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">
               <span class="flex-1">Messages could not be refreshed. {messageError}</span>
               <button onclick={refreshMessages} class="font-semibold underline underline-offset-4">Try again</button>
             </div>
@@ -1207,7 +1224,7 @@
                   {#if msg.data.attachments?.length}
                     <div class="mb-2 flex max-w-full flex-wrap justify-end gap-2">
                       {#each msg.data.attachments as file}
-                        <button onclick={() => downloadChatAttachment(file)} class="max-w-full overflow-hidden rounded-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface text-left text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title={`Download ${file.name}`}>
+                        <button onclick={() => downloadChatAttachment(file)} class="max-w-full overflow-hidden border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface text-left text-gray-900 dark:text-dark-text focus-visible:outline-2 focus-visible:outline-accent" title={`Download ${file.name}`}>
                           {#if attachmentIsImage(file)}
                             <img src={attachmentImageURL(file)} alt={file.name} class="max-h-56 max-w-full object-contain" loading="lazy" />
                           {/if}
@@ -1237,7 +1254,7 @@
                       <button
                         type="button"
                         onclick={() => { rawSourceMode[msg.id] = !rawSourceMode[msg.id]; }}
-                        class="flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                        class="flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
                         title={showSource ? 'Show rendered markdown' : 'Show raw source'}
                       >
                         {#if showSource}
@@ -1255,7 +1272,7 @@
                   {#if reasoning}
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div class="mb-2 border border-gray-200 dark:border-dark-border px-3 py-2 rounded-md">
+                    <div class="mb-2 border border-gray-200 dark:border-dark-border px-3 py-2">
                       <button aria-expanded={!!expandedTools[reasoningId]} class="w-full flex items-center gap-2 text-sm text-gray-600 dark:text-dark-text-secondary text-left" onclick={() => { expandedTools[reasoningId] = !expandedTools[reasoningId]; }}>
                         <Brain size={12} />
                         <span class="font-medium">Reasoning</span>
@@ -1270,7 +1287,7 @@
                   <!-- Main text body: rendered markdown OR raw source -->
                   {#if text}
                     {#if showSource}
-                      <pre class="px-3 py-2 rounded-2xl rounded-tl-sm bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{text}</pre>
+                      <pre class="px-3 py-2 bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{text}</pre>
                     {:else}
                       <Markdown
                         source={text}
@@ -1289,7 +1306,7 @@
                         {@const tcId = `tc-${msg.id}-${tc.id || tc.name}`}
                         <!-- svelte-ignore a11y_click_events_have_key_events -->
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
-                        <div class="rounded-md border border-yellow-300 dark:border-yellow-700/60 bg-yellow-50/60 dark:bg-yellow-950/20">
+                        <div class="border border-yellow-300 dark:border-yellow-700/60 bg-yellow-50/60 dark:bg-yellow-950/20">
                           <button aria-expanded={!!expandedTools[tcId]} class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-left text-yellow-800 dark:text-yellow-300" onclick={() => { expandedTools[tcId] = !expandedTools[tcId]; }}>
                             <Wrench size={11} />
                             <span class="font-mono font-semibold break-all">{tc.name || '(tool)'}</span>
@@ -1297,7 +1314,7 @@
                             <ChevronDown size={14} class={`ml-auto shrink-0 ${expandedTools[tcId] ? '' : '-rotate-90'}`} />
                           </button>
                           {#if expandedTools[tcId] && tc.args}
-                            <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-white dark:bg-dark-base rounded border border-yellow-200 dark:border-yellow-800/40 max-h-64 overflow-y-auto">{tc.args}</pre>
+                            <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-white dark:bg-dark-base border border-yellow-200 dark:border-yellow-800/40 max-h-64 overflow-y-auto">{tc.args}</pre>
                           {/if}
                         </div>
                       {/each}
@@ -1327,16 +1344,16 @@
                     <ChevronDown size={14} class={`ml-auto text-gray-500 dark:text-dark-text-secondary ${expandedTools[toolId] ? '' : '-rotate-90'}`} />
                   </button>
                   {#if expandedTools[toolId]}
-                    <pre class="text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base p-2.5 rounded-md border border-gray-200 dark:border-dark-border max-h-96 overflow-y-auto">{pretty.pretty}</pre>
+                    <pre class="text-[11px] font-mono text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base p-2.5 border border-gray-200 dark:border-dark-border max-h-96 overflow-y-auto">{pretty.pretty}</pre>
                   {:else}
-                    <pre class="text-[11px] font-mono text-gray-500 dark:text-dark-text-muted whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base/50 px-2.5 py-1.5 rounded-md border border-gray-200 dark:border-dark-border/60 line-clamp-2 overflow-hidden">{toolText.slice(0, 240)}{toolText.length > 240 ? '…' : ''}</pre>
+                    <pre class="text-[11px] font-mono text-gray-500 dark:text-dark-text-muted whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base/50 px-2.5 py-1.5 border border-gray-200 dark:border-dark-border/60 line-clamp-2 overflow-hidden">{toolText.slice(0, 240)}{toolText.length > 240 ? '…' : ''}</pre>
                   {/if}
                 </div>
               </div>
 
             {:else if msg.role === 'system'}
               <!-- System message (hint banner) -->
-              <div class="px-3 py-2 rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-[12px] text-amber-800 dark:text-amber-300">
+              <div class="px-3 py-2 bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/40 text-[12px] text-amber-800 dark:text-amber-300">
                 <div class="text-[10px] font-semibold uppercase tracking-wider mb-0.5 opacity-70">System</div>
                 <div class="whitespace-pre-wrap">{getMessageText(msg.data)}</div>
               </div>
@@ -1344,7 +1361,7 @@
           {/each}
 
           {#if turnError}
-            <div role="alert" class="rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">{turnError}</div>
+            <div role="alert" class="border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 text-sm text-red-800 dark:text-red-300">{turnError}</div>
           {/if}
           {#if missingFinalReply}
             <div class="flex flex-wrap items-center gap-3 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-3 text-sm text-gray-600 dark:text-dark-text-secondary">
@@ -1361,7 +1378,7 @@
             <div class="flex justify-start py-1">
               <button
                 onclick={retryLastMessage}
-                class="flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+                class="flex items-center gap-1.5 px-2 py-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated "
                 title="Retry last message"
               >
                 <RotateCcw size={11} />
@@ -1386,7 +1403,7 @@
               <div class="flex-1 min-w-0 space-y-1">
                 {#each toolEvents as evt}
                   {#if evt.type === 'call'}
-                    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] rounded-md bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800/40 text-yellow-800 dark:text-yellow-300">
+                    <div class="flex items-center gap-1.5 px-2 py-1 text-[11px] bg-yellow-50 dark:bg-yellow-950/20 border border-yellow-200 dark:border-yellow-800/40 text-yellow-800 dark:text-yellow-300">
                       <Loader2 size={11} class="animate-spin" />
                       <span class="font-mono font-semibold">{evt.name}</span>
                       <span class="text-[10px] opacity-60">running…</span>
@@ -1397,7 +1414,7 @@
                     {@const evtId = `stream-${evt.id || evt.name}`}
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div class="rounded-md border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated">
+                    <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated">
                       <button aria-expanded={!!expandedTools[evtId]} class="w-full flex flex-wrap items-center gap-1.5 px-3 py-2 text-xs text-left" onclick={() => { expandedTools[evtId] = !expandedTools[evtId]; }}>
                         <Check size={11} class="text-green-600 dark:text-green-400" />
                         <span class="font-mono font-semibold text-gray-700 dark:text-dark-text">{evt.name}</span>
@@ -1405,7 +1422,7 @@
                         <ChevronDown size={14} class={`ml-auto text-gray-500 dark:text-dark-text-secondary ${expandedTools[evtId] ? '' : '-rotate-90'}`} />
                       </button>
                       {#if expandedTools[evtId]}
-                        <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base rounded border border-gray-200 dark:border-dark-border max-h-80 overflow-y-auto">{evtPretty.pretty}</pre>
+                        <pre class="mx-2 mb-2 px-2 py-1.5 text-[11px] font-mono whitespace-pre-wrap break-all bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border max-h-80 overflow-y-auto">{evtPretty.pretty}</pre>
                       {:else if evtResult}
                         <div class="mx-2 mb-1.5 px-2 py-1 text-[11px] font-mono text-gray-500 dark:text-dark-text-muted truncate">{evtResult.slice(0, 200)}{evtResult.length > 200 ? '…' : ''}</div>
                       {/if}
@@ -1418,7 +1435,7 @@
 
           <!-- Tool confirmation prompt -->
           {#if pendingConfirmation}
-            <div class="py-3 px-4 my-1 border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30 rounded-md">
+            <div class="py-3 px-4 my-1 border border-orange-300 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/30">
               <div class="flex items-center gap-1.5 text-[12px] font-semibold text-orange-700 dark:text-orange-400 mb-1.5">
                 <ShieldCheck size={14} />
                 <span>Tool confirmation required</span>
@@ -1430,19 +1447,19 @@
                 <summary class="text-[10px] text-gray-500 dark:text-dark-text-muted cursor-pointer hover:text-gray-700 dark:hover:text-dark-text-secondary">
                   Show arguments
                 </summary>
-                <pre class="text-[10px] text-gray-600 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-1 max-h-40 overflow-y-auto bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded p-2 font-mono">{(() => { try { return JSON.stringify(JSON.parse(pendingConfirmation.arguments), null, 2); } catch { return pendingConfirmation.arguments; } })()}</pre>
+                <pre class="text-[10px] text-gray-600 dark:text-dark-text-secondary whitespace-pre-wrap break-all mt-1 max-h-40 overflow-y-auto bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border p-2 font-mono">{(() => { try { return JSON.stringify(JSON.parse(pendingConfirmation.arguments), null, 2); } catch { return pendingConfirmation.arguments; } })()}</pre>
               </details>
               <div class="flex items-center gap-2">
                 <button
                   onclick={() => handleConfirmation(true)}
-                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded bg-green-600 hover:bg-green-700 text-white transition-colors"
+                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-green-600 hover:bg-green-700 text-white "
                 >
                   <ShieldCheck size={12} />
                   Approve
                 </button>
                 <button
                   onclick={() => handleConfirmation(false)}
-                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium rounded bg-red-500 hover:bg-red-600 text-white transition-colors"
+                  class="flex items-center gap-1 px-3 py-1 text-[11px] font-medium bg-red-500 hover:bg-red-600 text-white "
                 >
                   <ShieldX size={12} />
                   Reject
@@ -1462,7 +1479,7 @@
                   <button
                     type="button"
                     onclick={() => { rawSourceMode['__streaming'] = !rawSourceMode['__streaming']; }}
-                    class="ml-auto flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                    class="ml-auto flex items-center gap-1 px-2 py-1 text-xs border border-gray-200 dark:border-dark-border text-gray-500 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated"
                     title={streamShowSource ? 'Show rendered markdown' : 'Show raw source'}
                   >
                     {#if streamShowSource}
@@ -1475,7 +1492,7 @@
                   </button>
                 </div>
                 {#if streamShowSource}
-                  <pre class="px-3 py-2 rounded-2xl rounded-tl-sm bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{streamContent}</pre>
+                  <pre class="px-3 py-2 bg-gray-50 dark:bg-dark-base border border-gray-200 dark:border-dark-border text-[12px] font-mono whitespace-pre-wrap break-words text-gray-800 dark:text-dark-text max-h-[32rem] overflow-y-auto">{streamContent}</pre>
                 {:else}
                   <Markdown
                     source={streamContent}
@@ -1491,17 +1508,17 @@
     </div>
 
     {#if !nearBottom && selectedSessionId}
-      <div class="flex justify-center py-2"><button onclick={() => { nearBottom = true; scrollToBottom(); }} class="flex items-center gap-2 rounded-full border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-2 text-sm shadow-sm"><ArrowDown size={16} /> Latest messages</button></div>
+      <div class="flex justify-center py-2"><button onclick={() => { nearBottom = true; scrollToBottom(); }} class="flex items-center gap-2 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-2 text-sm shadow-sm"><ArrowDown size={16} /> Latest messages</button></div>
     {/if}
     <!-- Input bar -->
     <section aria-label="Message composer" ondragover={(e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); draggingFiles = true; } }} ondragleave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) draggingFiles = false; }} ondrop={(e) => { e.preventDefault(); draggingFiles = false; void addAttachments(Array.from(e.dataTransfer?.files || [])); }} class={['relative shrink-0 border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface', draggingFiles ? 'ring-2 ring-inset ring-accent' : '']}>
       <!-- Slash command menu -->
       {#if showSlashMenu && filteredSlashCommands.length > 0}
-        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border rounded-lg shadow-lg overflow-hidden z-10">
+        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border shadow-lg overflow-hidden z-10">
           {#each filteredSlashCommands as cmd}
             <button
               onclick={() => handleSlashCommand(cmd.cmd)}
-              class="w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 dark:hover:bg-dark-elevated flex items-center gap-3 transition-colors"
+              class="w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 dark:hover:bg-dark-elevated flex items-center gap-3 "
             >
               <span class="font-mono font-bold text-gray-700 dark:text-dark-text w-20">{cmd.cmd}</span>
               <span class="text-gray-500 dark:text-dark-text-secondary">{cmd.desc}</span>
@@ -1512,13 +1529,13 @@
 
       <!-- Agent picker dropdown -->
       {#if showAgentPicker && !selectedSession?.config?.organization_chat}
-        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-lg shadow-lg overflow-hidden z-10">
+        <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-lg overflow-hidden z-10">
           <div class="px-3 py-2 text-sm font-medium text-gray-600 dark:text-dark-text-secondary border-b border-gray-100 dark:border-dark-border/50">Switch agent</div>
           {#each agents as agent (agent.id)}
             <button
               onclick={() => switchAgent(agent.id)}
               class={[
-                'w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 dark:hover:bg-dark-elevated flex items-center gap-2 transition-colors',
+                'w-full text-left px-3 py-2 text-[12px] hover:bg-gray-50 dark:hover:bg-dark-elevated flex items-center gap-2 ',
                 selectedSession?.agent_id === agent.id ? 'bg-gray-50 dark:bg-dark-elevated' : '',
               ]}
             >
@@ -1554,8 +1571,8 @@
             {#if attachments.length}
               <ul class="flex flex-wrap gap-2" aria-label="Attachments ready to send">
                 {#each attachments as file, i}
-                  <li class="flex min-w-0 max-w-full items-center gap-2 rounded-md border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base py-2 pl-2 pr-1">
-                    {#if attachmentIsImage(file)}<img src={attachmentImageURL(file)} alt="" class="size-10 rounded object-cover" />{:else}<FileText size={20} class="mx-2 shrink-0 text-gray-500 dark:text-dark-text-secondary" />{/if}
+                  <li class="flex min-w-0 max-w-full items-center gap-2 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base py-2 pl-2 pr-1">
+                    {#if attachmentIsImage(file)}<img src={attachmentImageURL(file)} alt="" class="size-10 object-cover" />{:else}<FileText size={20} class="mx-2 shrink-0 text-gray-500 dark:text-dark-text-secondary" />{/if}
                     <div class="min-w-0"><p class="max-w-44 truncate text-sm text-gray-900 dark:text-dark-text" title={file.name}>{file.name}</p><p class="text-xs text-gray-500 dark:text-dark-text-secondary">{attachmentSize(attachmentBytes(file))}</p></div>
                     <button class={`${composerControl} w-10 text-gray-500 hover:bg-gray-200 dark:hover:bg-dark-elevated`} disabled={sending || readingAttachments} aria-label={`Remove ${file.name}`} onclick={() => { attachments = attachments.filter((_, index) => index !== i); attachmentError = ''; }}><X size={16} /></button>
                   </li>
@@ -1578,11 +1595,11 @@
             placeholder={attachments.length ? 'Add a message about these files…' : selectedSessionId ? 'Message… (/ for commands)' : 'Start typing to create a session…'}
             rows={2}
             disabled={sending || loadingMessages}
-            class="block w-full min-w-0 resize-y max-h-48 rounded-md border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-base leading-6 text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
+            class="block w-full min-w-0 resize-y max-h-48 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-3 py-2 text-base leading-6 text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent disabled:opacity-50"
           ></textarea>
         </div>
         <!-- Agent pill -->
-        <div class="min-w-0 basis-full lg:basis-auto lg:max-w-44">
+        <div class="min-w-0 max-w-44">
         {#if selectedSession}
           <button
             onclick={() => { showAgentPicker = !showAgentPicker; showSlashMenu = false; }}
@@ -1619,7 +1636,7 @@
             <Send size={16} /> Send
           </button>
         {/if}
-        <p id="session-composer-help" class="basis-full text-xs leading-5 text-gray-500 dark:text-dark-text-secondary"><span class="hidden sm:inline">Enter to send · Shift + Enter for a new line.</span>{' '}Up to 4 files · 5 MB each · 8 MB total. Supported file formats depend on the agent’s model.</p>
+        <p id="session-composer-help" class="hidden sm:block basis-full text-xs leading-5 text-gray-500 dark:text-dark-text-secondary">Enter to send · Shift + Enter for a new line. Up to 4 files · 5 MB each · 8 MB total. Supported file formats depend on the agent’s model.</p>
       </div>
     </section>
   </div>

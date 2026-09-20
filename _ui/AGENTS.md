@@ -48,6 +48,13 @@ in-flight turn, so they must stay merged.
 - **Workflow editor**: components in `lib/components/workflow/` — one Svelte component per node type, matching backend node registry
 - **Build output**: `make build-ui` → moves `_ui/dist/` to `internal/server/dist/` for Go embedding
 
+## Interaction style
+
+UI state changes are immediate: do not add Tailwind transition utilities, CSS
+transitions, Svelte enter/exit transitions, animated reordering or smooth scrolling.
+Hover/focus colors still change, without interpolation. Theme changes directly
+toggle the dark class; no temporary transition-suppression mechanism is needed.
+
 ## Terminal display settings
 
 `pages/Terminal.svelte` + `lib/components/HostTerminal.svelte` keep the terminal

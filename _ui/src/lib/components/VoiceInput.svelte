@@ -47,7 +47,7 @@
   let settingsLeft = $state(12);
   let settingsBottom = $state(64);
   const settingsId = $props.id();
-  const control = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-10 shrink-0 items-center justify-center gap-1 rounded-md border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
+  const control = 'inline-flex h-11 min-w-11 sm:h-10 sm:min-w-10 shrink-0 items-center justify-center gap-1 border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
   const label = $derived(method === 'browser' ? 'Browser' : method === 'openai' ? 'API' : model);
 
   function clearTimer() { clearInterval(timer); timer = undefined; duration = 0; }
@@ -162,21 +162,21 @@
 
 <div bind:this={settings} id={settingsId} popover="auto" role="dialog" aria-label="Voice input settings" ontoggle={event => { settingsOpen = event.newState === 'open'; }}
   style:left={`${settingsLeft}px`} style:bottom={`${settingsBottom}px`} style:max-height={`calc(100dvh - ${settingsBottom + 12}px)`}
-  class="fixed top-auto right-auto m-0 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-lg border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-3 text-gray-900 dark:text-dark-text shadow-lg">
-  <div class="mb-2 flex items-center justify-between gap-2"><h2 class="text-sm font-semibold">Voice input</h2><button onclick={() => settings?.hidePopover()} class="inline-flex size-11 sm:size-8 items-center justify-center rounded hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent" aria-label="Close voice settings"><X size={16} /></button></div>
+  class="fixed top-auto right-auto m-0 w-72 max-w-[calc(100vw-1.5rem)] overflow-y-auto border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-3 text-gray-900 dark:text-dark-text shadow-lg">
+  <div class="mb-2 flex items-center justify-between gap-2"><h2 class="text-sm font-semibold">Voice input</h2><button onclick={() => settings?.hidePopover()} class="inline-flex size-11 sm:size-8 items-center justify-center hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent" aria-label="Close voice settings"><X size={16} /></button></div>
   <label class="block text-sm">Transcription method
-    <select value={method} onchange={event => { method = event.currentTarget.value; save('at-voice-method', method); }} class="mt-1 h-11 w-full rounded border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">
+    <select value={method} onchange={event => { method = event.currentTarget.value; save('at-voice-method', method); }} class="mt-1 h-11 w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">
       {#each methods as option}<option value={option.value} disabled={option.value === 'browser' && !browserSupported}>{option.label}{option.value === 'browser' && !browserSupported ? ' — unavailable' : ''}</option>{/each}
     </select>
   </label>
   {#if method === 'browser'}
     <label class="mt-3 block text-sm">Dictation language
-      <select value={language} onchange={event => { language = event.currentTarget.value; save('at-voice-language', language); }} class="mt-1 h-11 w-full rounded border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">{#each languages as option}<option value={option.value}>{option.label}</option>{/each}</select>
+      <select value={language} onchange={event => { language = event.currentTarget.value; save('at-voice-language', language); }} class="mt-1 h-11 w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">{#each languages as option}<option value={option.value}>{option.label}</option>{/each}</select>
     </label>
     <p class="mt-3 text-xs leading-5 text-gray-600 dark:text-dark-text-secondary">Uses your browser’s speech service, not AT’s transcription API. The browser may use an online service; offline processing is not guaranteed.</p>
   {:else if method !== 'openai'}
     <label class="mt-3 block text-sm">Whisper model
-      <select value={model} onchange={event => { model = event.currentTarget.value; save('at-voice-model', model); }} class="mt-1 h-11 w-full rounded border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">{#each ['tiny', 'base', 'small', 'medium'] as value}<option {value}>{value}</option>{/each}</select>
+      <select value={model} onchange={event => { model = event.currentTarget.value; save('at-voice-model', model); }} class="mt-1 h-11 w-full border border-gray-300 dark:border-dark-border bg-white dark:bg-dark-elevated px-2 text-base sm:text-sm">{#each ['tiny', 'base', 'small', 'medium'] as value}<option {value}>{value}</option>{/each}</select>
     </label>
   {/if}
   {#if !browserSupported}<p class="mt-3 text-xs leading-5 text-gray-600 dark:text-dark-text-secondary">Browser dictation is unavailable here. Use an API method or your keyboard’s microphone.</p>{/if}

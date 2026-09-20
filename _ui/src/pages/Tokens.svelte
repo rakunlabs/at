@@ -294,7 +294,7 @@
       await loadTokens();
       // The secret is unrecoverable, so make sure the panel holding it is what
       // the user is looking at after the list reloads.
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: 'instant' });
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to rotate token. The current token still works.', 'alert');
     } finally {
@@ -608,14 +608,14 @@
     <div class="flex items-center gap-2">
       <button
         onclick={loadTokens}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={() => { showCreate = !showCreate; if (!showCreate) resetForm(); }}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
       >
         <Plus size={12} />
         New Token
@@ -645,7 +645,7 @@
         <code class="flex-1 bg-white dark:bg-dark-elevated border border-green-200 dark:border-green-800 px-3 py-2 text-xs font-mono text-green-900 dark:text-green-200 break-all select-all">{revealedToken}</code>
         <button
           onclick={() => copyToClipboard(revealedToken!)}
-          class="shrink-0 p-2 bg-white dark:bg-dark-elevated border border-green-200 dark:border-green-800 hover:bg-green-100 transition-colors"
+          class="shrink-0 p-2 bg-white dark:bg-dark-elevated border border-green-200 dark:border-green-800 hover:bg-green-100 "
           title="Copy"
         >
           <Copy size={14} class={copied ? 'text-green-600' : 'text-green-500'} />
@@ -704,7 +704,7 @@
               <button
                 onclick={() => { formProvidersMode = mode as any; }}
                 class={[
-                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  'px-2.5 py-1 text-xs font-medium border ',
                   formProvidersMode === mode
                     ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                     : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -721,7 +721,7 @@
                   <button
                     onclick={() => toggleProvider(key)}
                     class={[
-                      'px-2 py-1 text-xs border transition-colors',
+                      'px-2 py-1 text-xs border ',
                       formSelectedProviders.includes(key)
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -751,7 +751,7 @@
               <button
                 onclick={() => { formModelsMode = mode as any; }}
                 class={[
-                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  'px-2.5 py-1 text-xs font-medium border ',
                   formModelsMode === mode
                     ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                     : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -769,7 +769,7 @@
                     <button
                       onclick={() => toggleModel(model)}
                       class={[
-                        'px-2 py-0.5 text-xs border font-mono transition-colors',
+                        'px-2 py-0.5 text-xs border font-mono ',
                         formSelectedModels.includes(model)
                           ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                           : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -800,7 +800,7 @@
               <button
                 onclick={() => { formWebhooksMode = mode as any; }}
                 class={[
-                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  'px-2.5 py-1 text-xs font-medium border ',
                   formWebhooksMode === mode
                     ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                     : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -821,7 +821,7 @@
                         <button
                           onclick={() => toggleWebhook(trigger.id)}
                           class={[
-                            'px-2 py-0.5 text-xs border font-mono transition-colors',
+                            'px-2 py-0.5 text-xs border font-mono ',
                             formSelectedWebhooks.includes(trigger.id)
                               ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                               : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -854,7 +854,7 @@
               <button
                 onclick={() => { formMcpServersMode = mode as any; }}
                 class={[
-                  'px-2.5 py-1 text-xs font-medium border transition-colors',
+                  'px-2.5 py-1 text-xs font-medium border ',
                   formMcpServersMode === mode
                     ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                     : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -871,7 +871,7 @@
                   <button
                     onclick={() => toggleMcpServer(name)}
                     class={[
-                      'px-2 py-1 text-xs border transition-colors',
+                      'px-2 py-1 text-xs border ',
                       formSelectedMcpServers.includes(name)
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -959,13 +959,13 @@
         <button
           onclick={handleCreate}
           disabled={creating}
-          class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+          class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
         >
           {creating ? 'Creating...' : 'Create Token'}
         </button>
         <button
           onclick={() => { showCreate = false; resetForm(); }}
-          class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+          class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
         >
           Cancel
         </button>
@@ -1025,7 +1025,7 @@
                   <button
                     onclick={() => { editProvidersMode = mode as any; }}
                     class={[
-                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      'px-2.5 py-1 text-xs font-medium border ',
                       editProvidersMode === mode
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1042,7 +1042,7 @@
                       <button
                         onclick={() => toggleEditProvider(key)}
                         class={[
-                          'px-2 py-1 text-xs border transition-colors',
+                          'px-2 py-1 text-xs border ',
                           editSelectedProviders.includes(key)
                             ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                             : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1071,7 +1071,7 @@
                   <button
                     onclick={() => { editModelsMode = mode as any; }}
                     class={[
-                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      'px-2.5 py-1 text-xs font-medium border ',
                       editModelsMode === mode
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1089,7 +1089,7 @@
                         <button
                           onclick={() => toggleEditModel(model)}
                           class={[
-                            'px-2 py-0.5 text-xs border font-mono transition-colors',
+                            'px-2 py-0.5 text-xs border font-mono ',
                             editSelectedModels.includes(model)
                               ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                               : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1119,7 +1119,7 @@
                   <button
                     onclick={() => { editWebhooksMode = mode as any; }}
                     class={[
-                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      'px-2.5 py-1 text-xs font-medium border ',
                       editWebhooksMode === mode
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1140,7 +1140,7 @@
                             <button
                               onclick={() => toggleEditWebhook(trigger.id)}
                               class={[
-                                'px-2 py-0.5 text-xs border font-mono transition-colors',
+                                'px-2 py-0.5 text-xs border font-mono ',
                                 editSelectedWebhooks.includes(trigger.id)
                                   ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                                   : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1173,7 +1173,7 @@
                   <button
                     onclick={() => { editMcpServersMode = mode as any; }}
                     class={[
-                      'px-2.5 py-1 text-xs font-medium border transition-colors',
+                      'px-2.5 py-1 text-xs font-medium border ',
                       editMcpServersMode === mode
                         ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                         : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-muted dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1190,7 +1190,7 @@
                       <button
                         onclick={() => toggleEditMcpServer(name)}
                         class={[
-                          'px-2 py-1 text-xs border transition-colors',
+                          'px-2 py-1 text-xs border ',
                           editSelectedMcpServers.includes(name)
                             ? 'bg-gray-900 text-white border-gray-900 dark:bg-accent dark:text-white dark:border-accent'
                             : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 dark:bg-dark-elevated dark:text-dark-text-secondary dark:border-dark-border dark:hover:border-dark-border-subtle'
@@ -1277,13 +1277,13 @@
             <button
               onclick={handleSaveEdit}
               disabled={saving}
-              class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+              class="px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
             >
               {saving ? 'Saving...' : 'Save'}
             </button>
             <button
               onclick={cancelEditing}
-              class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+              class="px-3 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
             >
               Cancel
             </button>
@@ -1321,7 +1321,7 @@
     {/snippet}
 
     {#snippet row(token)}
-        <tr class={editingTokenId === token.id ? 'bg-red-50/30 dark:bg-red-900/10' : 'hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors'}>
+        <tr class={editingTokenId === token.id ? 'bg-red-50/30 dark:bg-red-900/10' : 'hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 '}>
           <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">
             {token.name}
             {#if token.paused}
@@ -1382,7 +1382,7 @@
           <td class="px-4 py-2.5 text-xs">
             <button
               onclick={() => toggleUsage(token.id)}
-              class="flex items-center gap-1 text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+              class="flex items-center gap-1 text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
               title="View usage"
             >
               <!-- shrink-0: an svg is a flex item like any other, so once the
@@ -1420,13 +1420,13 @@
               <div class="flex items-center gap-1 justify-end">
                 <button
                   onclick={() => handleDelete(token.id)}
-                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                 >
                   Confirm
                 </button>
                 <button
                   onclick={() => (deleteConfirmId = null)}
-                  class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                  class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
                 >
                   Cancel
                 </button>
@@ -1435,7 +1435,7 @@
               <div class="flex items-center gap-1 justify-end">
                 <button
                   onclick={() => openConfigView(token)}
-                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
                   title="View Config"
                 >
                   <FileCode size={14} />
@@ -1463,14 +1463,14 @@
                 </button>
                 <button
                   onclick={() => startEditing(token)}
-                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
                   title="Edit"
                 >
                   <Pencil size={14} />
                 </button>
                 <button
                   onclick={() => { rotateConfirmId = null; deleteConfirmId = token.id; }}
-                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                  class="p-1 text-gray-300 dark:text-dark-text-faint hover:text-red-500 dark:hover:text-red-400 "
                   title="Delete"
                 >
                   <Trash2 size={14} />
@@ -1505,7 +1505,7 @@
                   <button
                     onclick={() => handleRotate(token)}
                     disabled={rotating[token.id]}
-                    class="inline-flex min-h-8 items-center gap-1 px-2.5 text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-wait transition-colors"
+                    class="inline-flex min-h-8 items-center gap-1 px-2.5 text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50 disabled:cursor-wait "
                   >
                     <KeyRound size={14} aria-hidden="true" />
                     {rotating[token.id] ? 'Rotating…' : 'Rotate token'}
@@ -1513,7 +1513,7 @@
                   <button
                     onclick={() => (rotateConfirmId = null)}
                     disabled={rotating[token.id]}
-                    class="min-h-8 px-2.5 text-xs text-gray-600 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text-secondary disabled:opacity-50 transition-colors"
+                    class="min-h-8 px-2.5 text-xs text-gray-600 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text-secondary disabled:opacity-50 "
                   >
                     Cancel
                   </button>
@@ -1538,7 +1538,7 @@
                     </span>
                     <div class="w-24 h-1.5 bg-gray-200 dark:bg-dark-border rounded-full overflow-hidden">
                       <div
-                        class="h-full rounded-full transition-all {pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}"
+                        class="h-full rounded-full {pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-yellow-500' : 'bg-green-500'}"
                         style="width: {pct}%"
                       ></div>
                     </div>
@@ -1557,7 +1557,7 @@
                 <button
                   onclick={() => handleResetUsage(token.id)}
                   disabled={resettingUsage[token.id]}
-                  class="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 border border-gray-200 dark:border-dark-border hover:border-red-300 dark:hover:border-red-800 transition-colors disabled:opacity-50"
+                  class="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 border border-gray-200 dark:border-dark-border hover:border-red-300 dark:hover:border-red-800 disabled:opacity-50"
                   title="Reset all usage counters"
                 >
                   <RotateCcw size={10} />
@@ -1621,7 +1621,7 @@
           <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
             Config: <span class="font-mono">{configViewToken.name}</span>
           </span>
-          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
             <X size={14} />
           </button>
         </div>
@@ -1631,20 +1631,20 @@
           <div class="flex gap-1">
             <button
               onclick={() => { configFormat = 'yaml'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'yaml' ? 'bg-gray-900 text-white dark:bg-accent' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-elevated dark:text-dark-text-secondary'}"
+              class="px-2.5 py-1 text-xs font-medium {configFormat === 'yaml' ? 'bg-gray-900 text-white dark:bg-accent' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-elevated dark:text-dark-text-secondary'}"
             >
               YAML
             </button>
             <button
               onclick={() => { configFormat = 'json'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'json' ? 'bg-gray-900 text-white dark:bg-accent' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-elevated dark:text-dark-text-secondary'}"
+              class="px-2.5 py-1 text-xs font-medium {configFormat === 'json' ? 'bg-gray-900 text-white dark:bg-accent' : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-elevated dark:text-dark-text-secondary'}"
             >
               JSON
             </button>
           </div>
           <button
             onclick={copyConfigSnippet}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
           >
             {#if configCopied}
               <Check size={12} class="text-green-600" />

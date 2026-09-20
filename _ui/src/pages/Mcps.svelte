@@ -585,7 +585,7 @@
       <div class="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border">
         <button
           onclick={() => (tabRoute.value = 'my-mcps')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'my-mcps' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'my-mcps' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Layers size={14} />
           My MCPs
@@ -593,14 +593,14 @@
         </button>
         <button
           onclick={() => (tabRoute.value = 'store')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Store size={14} />
           MCP Store
         </button>
         <button
           onclick={() => (tabRoute.value = 'binaries')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'binaries' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'binaries' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <HardDrive size={14} />
           Binaries
@@ -618,14 +618,14 @@
         <div class="flex items-center gap-2">
           <button
             onclick={loadData}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={() => mcpImportFileInput?.click()}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
             title="Import MCP from JSON file"
           >
             <Upload size={12} />
@@ -640,7 +640,7 @@
           />
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
           >
             <Plus size={12} />
             New MCP
@@ -652,12 +652,12 @@
         <div class="flex items-center gap-2 px-4 py-2 flex-wrap">
           <button
             onclick={() => mySelectedCategory = ''}
-            class={["px-2 py-0.5 text-xs border transition-colors", !mySelectedCategory ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+            class={["px-2 py-0.5 text-xs border ", !mySelectedCategory ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
           >All</button>
           {#each myCategories as cat}
             <button
               onclick={() => mySelectedCategory = cat}
-              class={["px-2 py-0.5 text-xs border transition-colors", mySelectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+              class={["px-2 py-0.5 text-xs border ", mySelectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
             >{cat}</button>
           {/each}
         </div>
@@ -670,7 +670,7 @@
             <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
               {editingId ? `Edit: ${formName}` : 'New MCP'}
             </span>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
+            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
               <X size={14} />
             </button>
           </div>
@@ -684,7 +684,7 @@
                 type="text"
                 bind:value={formName}
                 placeholder="e.g., dev_tools, production_apis"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -696,7 +696,7 @@
                 type="text"
                 bind:value={formDescription}
                 placeholder="What this MCP contains"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -708,7 +708,7 @@
                 type="text"
                 bind:value={formCategory}
                 placeholder="e.g. OpenMontage, Utilities"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -721,7 +721,7 @@
                 value={formTags.join(', ')}
                 oninput={(e) => { formTags = (e.target as HTMLInputElement).value.split(',').map(t => t.trim()).filter(Boolean); }}
                 placeholder="e.g. video, production"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -730,7 +730,7 @@
               <button
                 type="button"
                 onclick={() => showHTTPSection = !showHTTPSection}
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
               >
                 {#if showHTTPSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
                 <Globe size={14} />
@@ -746,7 +746,7 @@
                     <div class="border border-gray-200 dark:border-dark-border p-3 space-y-3 relative">
                       <div class="flex items-center justify-between">
                         <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Tool #{i + 1}</span>
-                        <button type="button" onclick={() => removeHTTPTool(i)} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Remove tool">
+                        <button type="button" onclick={() => removeHTTPTool(i)} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 " title="Remove tool">
                           <Trash2 size={12} />
                         </button>
                       </div>
@@ -755,7 +755,7 @@
                         <label class="contents">
                           <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Name</span>
                           <input type="text" bind:value={tool.name} placeholder="e.g., get_user, create_ticket"
-                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
                         </label>
                       </div>
 
@@ -763,7 +763,7 @@
                         <label class="contents">
                           <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Description</span>
                           <input type="text" bind:value={tool.description} placeholder="What this tool does"
-                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
                         </label>
                       </div>
 
@@ -772,7 +772,7 @@
                           <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary">Request</span>
                           <div class="col-span-3 flex gap-2">
                           <select bind:value={tool.method}
-                            class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text transition-colors w-24">
+                            class="border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text w-24">
                             <option value="GET">GET</option>
                             <option value="POST">POST</option>
                             <option value="PUT">PUT</option>
@@ -781,7 +781,7 @@
                             <option value="HEAD">HEAD</option>
                           </select>
                           <input type="text" bind:value={tool.url} placeholder={"https://api.example.com/{{.id}}"}
-                            class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors" />
+                            class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted " />
                           </div>
                         </label>
                       </div>
@@ -796,7 +796,7 @@
                               <div class="flex items-center gap-1">
                                 <span class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
                                 <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted truncate">{hv}</span>
-                                <button type="button" onclick={() => removeHeader(i, hk)} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 transition-colors">
+                                <button type="button" onclick={() => removeHeader(i, hk)} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 ">
                                   <X size={10} />
                                 </button>
                               </div>
@@ -804,10 +804,10 @@
                           {/if}
                           <div class="flex items-center gap-1">
                             <input type="text" placeholder="Key" bind:value={httpToolNewHeaderKey[i]}
-                              class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+                              class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text " />
                             <input type="text" placeholder="Value" bind:value={httpToolNewHeaderValue[i]}
-                              class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
-                            <button type="button" onclick={() => addHeader(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary transition-colors">
+                              class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text " />
+                            <button type="button" onclick={() => addHeader(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary ">
                               Add
                             </button>
                           </div>
@@ -823,7 +823,7 @@
                             <span class="text-xs font-medium text-gray-600 dark:text-dark-text-secondary pt-1">Body</span>
                             <textarea bind:value={tool.body_template} placeholder={'{"key": "{{.value}}"}'}
                               rows="3"
-                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors resize-y"></textarea>
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted resize-y"></textarea>
                           </label>
                         </div>
                       {/if}
@@ -837,7 +837,7 @@
                             oninput={(e) => setSchemaText(i, (e.target as HTMLTextAreaElement).value)}
                             rows="4"
                             placeholder={'{"type": "object", "properties": {}, "required": []}'}
-                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors resize-y"
+                            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted resize-y"
                           ></textarea>
                         </label>
                       </div>
@@ -848,7 +848,7 @@
                     <button
                       type="button"
                       onclick={addHTTPTool}
-                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors justify-center"
+                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary justify-center"
                     >
                       <Plus size={12} />
                       Add HTTP Tool
@@ -856,7 +856,7 @@
                     <button
                       type="button"
                       onclick={() => { showAIPanel = !showAIPanel; }}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
                       title="Toggle AI HTTP Tool Builder"
                     >
                       <Bot size={12} />
@@ -872,7 +872,7 @@
               <button
                 type="button"
                 onclick={() => showSkillsSection = !showSkillsSection}
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
               >
                 {#if showSkillsSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
                 <Wand2 size={14} />
@@ -886,7 +886,7 @@
                 <div class="px-4 pb-4 pt-2 space-y-2 border-t border-gray-200 dark:border-dark-border-subtle">
                   {#if availableSkills.length > 0}
                     {#each availableSkills as skill}
-                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">
+                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated ">
                         <input
                           type="checkbox"
                           checked={formEnabledSkills.includes(skill.name)}
@@ -922,7 +922,7 @@
               <button
                 type="button"
                 onclick={() => showBuiltinToolsSection = !showBuiltinToolsSection}
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
               >
                 {#if showBuiltinToolsSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
                 <Wrench size={14} />
@@ -936,7 +936,7 @@
                 <div class="px-4 pb-4 pt-2 space-y-2 border-t border-gray-200 dark:border-dark-border-subtle">
                   {#if builtinToolDefs.length > 0}
                     {#each builtinToolDefs as tool}
-                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">
+                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated ">
                         <input
                           type="checkbox"
                           checked={formBuiltinTools.includes(tool.name)}
@@ -969,7 +969,7 @@
               <button
                 type="button"
                 onclick={() => showWorkflowsSection = !showWorkflowsSection}
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
               >
                 {#if showWorkflowsSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
                 <GitBranch size={14} />
@@ -983,7 +983,7 @@
                 <div class="px-4 pb-4 pt-2 space-y-2 border-t border-gray-200 dark:border-dark-border-subtle">
                   {#if availableWorkflows.length > 0}
                     {#each availableWorkflows as wf}
-                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">
+                      <label class="flex items-start gap-2 cursor-pointer p-2 border border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated ">
                         <input
                           type="checkbox"
                           checked={formWorkflowIds.includes(wf.id)}
@@ -1016,7 +1016,7 @@
               <button
                 type="button"
                 onclick={() => showUpstreamSection = !showUpstreamSection}
-                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
               >
                 {#if showUpstreamSection}<ChevronDown size={14} />{:else}<ChevronRight size={14} />{/if}
                 <Network size={14} />
@@ -1035,15 +1035,15 @@
                         <div class="flex items-center gap-2">
                           <div class="flex items-center gap-1 text-xs">
                             <button type="button" onclick={() => { formMCPUpstreams[i] = { url: upstream.url || '', headers: upstream.headers || {} }; formMCPUpstreams = [...formMCPUpstreams]; }}
-                              class="px-1.5 py-0.5 transition-colors {!upstream.command ? 'bg-gray-800 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}">
+                              class="px-1.5 py-0.5 {!upstream.command ? 'bg-gray-800 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}">
                               HTTP
                             </button>
                             <button type="button" onclick={() => { formMCPUpstreams[i] = { command: upstream.command || '', args: upstream.args || [], env: upstream.env || {} }; formMCPUpstreams = [...formMCPUpstreams]; }}
-                              class="px-1.5 py-0.5 transition-colors {upstream.command !== undefined && upstream.command !== null ? 'bg-gray-800 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}">
+                              class="px-1.5 py-0.5 {upstream.command !== undefined && upstream.command !== null ? 'bg-gray-800 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}">
                               Local
                             </button>
                           </div>
-                          <button type="button" onclick={() => { formMCPUpstreams = formMCPUpstreams.filter((_, idx) => idx !== i); }} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Remove server">
+                          <button type="button" onclick={() => { formMCPUpstreams = formMCPUpstreams.filter((_, idx) => idx !== i); }} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 " title="Remove server">
                             <Trash2 size={12} />
                           </button>
                         </div>
@@ -1058,7 +1058,7 @@
                               type="text"
                               bind:value={formMCPUpstreams[i].command}
                               placeholder="npx"
-                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
                             />
                           </label>
                         </div>
@@ -1070,7 +1070,7 @@
                               value={(upstream.args ?? []).join(' ')}
                               oninput={(e: Event) => { formMCPUpstreams[i].args = (e.target as HTMLInputElement).value.split(/\s+/).filter(Boolean); formMCPUpstreams = [...formMCPUpstreams]; }}
                               placeholder="@playwright/mcp@latest --headless"
-                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
                             />
                           </label>
                         </div>
@@ -1083,7 +1083,7 @@
                                 <div class="flex items-center gap-1">
                                   <span class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{ek}=</span>
                                   <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted truncate">{ev}</span>
-                                  <button type="button" onclick={() => { if (upstream.env) { delete upstream.env[ek]; formMCPUpstreams = [...formMCPUpstreams]; } }} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 transition-colors">
+                                  <button type="button" onclick={() => { if (upstream.env) { delete upstream.env[ek]; formMCPUpstreams = [...formMCPUpstreams]; } }} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 ">
                                     <X size={10} />
                                   </button>
                                 </div>
@@ -1091,10 +1091,10 @@
                             {/if}
                             <div class="flex items-center gap-1">
                               <input type="text" placeholder="Key" bind:value={upstreamNewEnvKey[i]}
-                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text " />
                               <input type="text" placeholder="Value" bind:value={upstreamNewEnvValue[i]}
-                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
-                              <button type="button" onclick={() => addUpstreamEnv(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary transition-colors">
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text " />
+                              <button type="button" onclick={() => addUpstreamEnv(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary ">
                                 Add
                               </button>
                             </div>
@@ -1119,14 +1119,14 @@
                             {/if}
                             <span class="ml-auto flex items-center gap-1">
                               <button type="button" onclick={() => handleRestartStdio(editingId!, i)} disabled={stdioBusy[editingId]}
-                                class="flex items-center gap-1 px-1.5 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors disabled:opacity-50"
+                                class="flex items-center gap-1 px-1.5 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
                                 title="Kill and respawn this process (picks up saved env/config changes)">
                                 <RotateCw size={10} class={stdioBusy[editingId] ? 'animate-spin' : ''} />
                                 Restart
                               </button>
                               {#if st?.running}
                                 <button type="button" onclick={() => handleStopStdio(editingId!, i)} disabled={stdioBusy[editingId]}
-                                  class="flex items-center gap-1 px-1.5 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors disabled:opacity-50"
+                                  class="flex items-center gap-1 px-1.5 py-0.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
                                   title="Stop this process (next tool call respawns it)">
                                   <Square size={10} />
                                   Stop
@@ -1145,7 +1145,7 @@
                               type="text"
                               bind:value={formMCPUpstreams[i].url}
                               placeholder="https://other-server:8000/sse"
-                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
                             />
                           </label>
                         </div>
@@ -1159,7 +1159,7 @@
                                 <div class="flex items-center gap-1">
                                   <span class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
                                   <span class="text-xs font-mono text-gray-500 dark:text-dark-text-muted truncate">{hv}</span>
-                                  <button type="button" onclick={() => { if (upstream.headers) { delete upstream.headers[hk]; formMCPUpstreams = [...formMCPUpstreams]; } }} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 transition-colors">
+                                  <button type="button" onclick={() => { if (upstream.headers) { delete upstream.headers[hk]; formMCPUpstreams = [...formMCPUpstreams]; } }} class="ml-auto p-0.5 text-gray-400 hover:text-red-500 ">
                                     <X size={10} />
                                   </button>
                                 </div>
@@ -1167,10 +1167,10 @@
                             {/if}
                             <div class="flex items-center gap-1">
                               <input type="text" placeholder="Key" bind:value={upstreamNewHeaderKey[i]}
-                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text " />
                               <input type="text" placeholder="Value" bind:value={upstreamNewHeaderValue[i]}
-                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text transition-colors" />
-                              <button type="button" onclick={() => addUpstreamHeader(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary transition-colors">
+                                class="flex-1 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text " />
+                              <button type="button" onclick={() => addUpstreamHeader(i)} class="px-1.5 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated hover:bg-gray-200 dark:hover:bg-dark-border text-gray-600 dark:text-dark-text-secondary ">
                                 Add
                               </button>
                             </div>
@@ -1190,12 +1190,12 @@
                       bind:value={npmPackageInput}
                       placeholder="@playwright/mcp@latest --headless"
                       onkeydown={(e: KeyboardEvent) => { if (e.key === 'Enter') { e.preventDefault(); addNpmPackage(); } }}
-                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1.5 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
                     />
                     <button
                       type="button"
                       onclick={addNpmPackage}
-                      class="px-3 py-1.5 text-xs font-medium bg-gray-800 dark:bg-accent text-white hover:bg-gray-700 dark:hover:bg-accent-hover transition-colors shrink-0"
+                      class="px-3 py-1.5 text-xs font-medium bg-gray-800 dark:bg-accent text-white hover:bg-gray-700 dark:hover:bg-accent-hover shrink-0"
                     >
                       Add NPM
                     </button>
@@ -1206,7 +1206,7 @@
                     <button
                       type="button"
                       onclick={() => { formMCPUpstreams = [...formMCPUpstreams, { url: '', headers: {} }]; }}
-                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors justify-center"
+                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary justify-center"
                     >
                       <Globe size={12} />
                       Add HTTP Server
@@ -1214,7 +1214,7 @@
                     <button
                       type="button"
                       onclick={() => { formMCPUpstreams = [...formMCPUpstreams, { command: '', args: [], env: {} }]; }}
-                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors justify-center"
+                      class="flex-1 flex items-center gap-1.5 px-3 py-1.5 text-xs border border-dashed border-gray-300 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary justify-center"
                     >
                       <Bot size={12} />
                       Add Local Command
@@ -1230,14 +1230,14 @@
               <button
                 type="button"
                 onclick={resetForm}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
               >
                 <Save size={14} />
                 {#if saving}
@@ -1274,7 +1274,7 @@
           {/snippet}
 
           {#snippet row(set)}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
               <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{set.name}</td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={set.description}>
                 {set.description || '-'}
@@ -1317,7 +1317,7 @@
                     <button
                       onclick={() => handleRestartStdio(set.id)}
                       disabled={stdioBusy[set.id]}
-                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors disabled:opacity-50"
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text disabled:opacity-50"
                       title="Restart local MCP processes (picks up env/config changes)"
                     >
                       <RotateCw size={14} class={stdioBusy[set.id] ? 'animate-spin' : ''} />
@@ -1325,14 +1325,14 @@
                   {/if}
                   <button
                     onclick={() => handleExportMCPSet(set)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Export as JSON"
                   >
                     <Download size={14} />
                   </button>
                   <button
                     onclick={() => openEdit(set)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -1340,20 +1340,20 @@
                   {#if deleteConfirm === set.id}
                     <button
                       onclick={() => handleDelete(set.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = set.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -1377,7 +1377,7 @@
             {#each categories as cat}
               <button
                 onclick={() => selectCategory(cat)}
-                class="px-2.5 py-1 text-xs font-medium transition-colors {selectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+                class="px-2.5 py-1 text-xs font-medium {selectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
               >
                 {cat}
               </button>
@@ -1385,7 +1385,7 @@
             {#if selectedCategory}
               <button
                 onclick={() => selectCategory('')}
-                class="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+                class="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
               >
                 Clear
               </button>
@@ -1446,7 +1446,7 @@
                 {#if !installedSlugs.has(tmpl.slug)}
                   <button
                     onclick={() => handleInstallTemplate(tmpl.slug)}
-                    class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                    class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                   >
                     <Download size={12} />
                     Install
@@ -1469,7 +1469,7 @@
           <div class="flex items-center gap-2">
             <button
               onclick={loadBinaries}
-              class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+              class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
               title="Refresh"
             >
               <RefreshCw size={14} class={binLoading ? 'animate-spin' : ''} />
@@ -1481,7 +1481,7 @@
             <button
               onclick={() => binFileInput?.click()}
               disabled={binUploading}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
             >
               <Upload size={12} />
               {binUploading ? 'Uploading…' : 'Upload'}
@@ -1497,7 +1497,7 @@
             {#if binDir}
               <button
                 onclick={() => navigator.clipboard?.writeText(binDir).then(() => addToast('Path copied'))}
-                class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+                class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
                 title="Copy directory path"
               >
                 <Copy size={12} />
@@ -1536,7 +1536,7 @@
               </thead>
               <tbody>
                 {#each binFiles as file (file.name)}
-                  <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+                  <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
                     <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{file.name}</td>
                     <td class="px-4 py-2.5 text-xs">
                       {#if file.dir}
@@ -1554,7 +1554,7 @@
                       <div class="flex justify-end gap-1">
                         <button
                           onclick={() => copyBinaryPath(file.name)}
-                          class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                          class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                           title="Copy full path"
                         >
                           <Copy size={14} />
@@ -1562,20 +1562,20 @@
                         {#if binDeleteConfirm === file.name}
                           <button
                             onclick={() => handleBinaryDelete(file.name)}
-                            class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                            class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                           >
                             Confirm
                           </button>
                           <button
                             onclick={() => (binDeleteConfirm = null)}
-                            class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                            class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
                           >
                             Cancel
                           </button>
                         {:else}
                           <button
                             onclick={() => (binDeleteConfirm = file.name)}
-                            class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                            class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                             title="Delete"
                           >
                             <Trash2 size={14} />

@@ -380,14 +380,14 @@
         <div class="flex items-center gap-2">
           <button
             onclick={loadData}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
           >
             <Plus size={12} />
             New Bot
@@ -402,7 +402,7 @@
             <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
               {editingId ? `Edit: ${formName || formPlatform}` : 'New Bot'}
             </span>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
+            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
               <X size={14} />
             </button>
           </div>
@@ -419,7 +419,7 @@
               <select
                 id="form-platform"
                 bind:value={formPlatform}
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
               >
                 <option value="discord">Discord</option>
                 <option value="telegram">Telegram</option>
@@ -504,7 +504,7 @@
                 type="text"
                 bind:value={formName}
                 placeholder="e.g., My Discord Bot"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -516,7 +516,7 @@
                 type="password"
                 bind:value={formToken}
                 placeholder="Bot token"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -527,7 +527,7 @@
                 <select
                   id="form-agent"
                   bind:value={formDefaultAgentID}
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
                 >
                   <option value="">Select an agent...</option>
                   {#each agents as a (a.id)}
@@ -559,7 +559,7 @@
               <select
                 id="form-access-mode"
                 bind:value={formAccessMode}
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
               >
                 <option value="open">Open (everyone)</option>
                 <option value="allowlist">Allowlist (approved users only)</option>
@@ -586,12 +586,12 @@
                         type="text"
                         bind:value={entry.value}
                         placeholder="User ID"
-                        class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                       />
                       <button
                         type="button"
                         onclick={() => removeAllowedUser(i)}
-                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                         title="Remove"
                       >
                         <X size={14} />
@@ -601,7 +601,7 @@
                   <button
                     type="button"
                     onclick={addAllowedUser}
-                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
                   >
                     <Plus size={12} />
                     Add user ID
@@ -622,14 +622,14 @@
                         <button
                           type="button"
                           onclick={() => approvePendingUser(userID)}
-                          class="px-2 py-1 text-xs bg-green-600 text-white hover:bg-green-700 transition-colors"
+                          class="px-2 py-1 text-xs bg-green-600 text-white hover:bg-green-700 "
                         >
                           Approve
                         </button>
                         <button
                           type="button"
                           onclick={() => denyPendingUser(userID)}
-                          class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                          class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                         >
                           Deny
                         </button>
@@ -652,11 +652,11 @@
                       type="text"
                       bind:value={entry.key}
                       placeholder={formPlatform === 'discord' ? 'Channel ID' : 'Chat ID'}
-                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                     />
                     <select
                       bind:value={entry.value}
-                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
                     >
                       <option value="">Select agent...</option>
                       {#each agents as a}
@@ -666,7 +666,7 @@
                     <button
                       type="button"
                       onclick={() => removeChannelAgent(i)}
-                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                       title="Remove"
                     >
                       <X size={14} />
@@ -676,7 +676,7 @@
                 <button
                   type="button"
                   onclick={addChannelAgent}
-                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
                 >
                   <Plus size={12} />
                   Add override
@@ -722,13 +722,13 @@
                     <button
                       type="button"
                       onclick={() => formAllowedAgentIDs = agents.map((a) => a.id)}
-                      class="text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                      class="text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
                     >Select all</button>
                     <span class="text-gray-300 dark:text-dark-border">·</span>
                     <button
                       type="button"
                       onclick={() => formAllowedAgentIDs = []}
-                      class="text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                      class="text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
                     >Clear all</button>
                     <span class="ml-auto text-gray-400 dark:text-dark-text-muted">
                       {formAllowedAgentIDs.length} selected
@@ -750,7 +750,7 @@
               <div class="col-span-3 space-y-2">
                 <select
                   bind:value={formSpeechToText}
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text "
                 >
                   <option value="openai">OpenAI Whisper API (cloud, best quality)</option>
                   <option value="local">Local Whisper (free, uses CPU/GPU)</option>
@@ -760,7 +760,7 @@
                 {#if formSpeechToText === 'local' || formSpeechToText === 'faster-whisper'}
                   <select
                     bind:value={formWhisperModel}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text "
                   >
                     <option value="tiny">tiny (39M, fastest)</option>
                     <option value="base">base (74M, fast)</option>
@@ -860,7 +860,7 @@
                         <button
                           type="button"
                           onclick={() => removeCustomCommand(i)}
-                          class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                          class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                           title="Remove command"
                         >
                           <X size={14} />
@@ -969,7 +969,7 @@
                   <button
                     type="button"
                     onclick={addCustomCommand}
-                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
                   >
                     <Plus size={12} />
                     Add custom command
@@ -983,14 +983,14 @@
               <button
                 type="button"
                 onclick={resetForm}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
               >
                 <Save size={14} />
                 {#if saving}
@@ -1032,7 +1032,7 @@
           {/snippet}
 
           {#snippet row(bot)}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
               <td class="px-4 py-2.5">
                 <span class={[
                   'px-2 py-0.5 text-xs font-medium',
@@ -1077,7 +1077,7 @@
                   {#if botStatuses[bot.id]?.running}
                     <button
                       onclick={() => handleStopBot(bot.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                       title="Stop bot"
                     >
                       <Square size={14} />
@@ -1086,7 +1086,7 @@
                     <button
                       onclick={() => handleStartBot(bot.id)}
                       disabled={!bot.token}
-                      class="p-1.5 hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-400 hover:text-green-600 dark:text-dark-text-muted dark:hover:text-green-400 transition-colors disabled:opacity-30"
+                      class="p-1.5 hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-400 hover:text-green-600 dark:text-dark-text-muted dark:hover:text-green-400 disabled:opacity-30"
                       title="Start bot"
                     >
                       <Play size={14} />
@@ -1094,7 +1094,7 @@
                   {/if}
                   <button
                     onclick={() => openEdit(bot)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -1102,20 +1102,20 @@
                   {#if deleteConfirm === bot.id}
                     <button
                       onclick={() => handleDelete(bot.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = bot.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                       title="Delete"
                     >
                       <Trash2 size={14} />

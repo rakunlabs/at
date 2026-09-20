@@ -571,14 +571,14 @@
         <div class="flex items-center gap-2">
           <button
             onclick={loadData}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={() => importFileInput.click()}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
             title="Import agent from .md file"
           >
             <Upload size={12} />
@@ -593,7 +593,7 @@
           />
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
           >
             <Plus size={12} />
             New Agent
@@ -613,16 +613,16 @@
                 <button
                   type="button"
                   onclick={pasteAgent}
-                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text "
                   title="Paste agent from clipboard"
                 >
                   <ClipboardPaste size={12} />
                   Paste
                 </button>
               {/if}
-              <button type="button" disabled={saving} aria-expanded={showAIBuilder} onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border transition-colors {showAIBuilder ? 'bg-accent-muted text-accent dark:text-accent-text border-accent/30' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
+              <button type="button" disabled={saving} aria-expanded={showAIBuilder} onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border {showAIBuilder ? 'bg-accent-muted text-accent dark:text-accent-text border-accent/30' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
             </div>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
+            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
               <X size={14} />
             </button>
           </div>
@@ -645,11 +645,11 @@
                   class="w-24 h-24 bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border"
                 />
                 <!-- Overlay buttons — visible on hover -->
-                <div class="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div class="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 ">
                   <button
                     type="button"
                     onclick={() => { showAvatarSeed = !showAvatarSeed; }}
-                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white transition-colors"
+                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white "
                     title="Custom seed"
                   >
                     <Pencil size={13} />
@@ -657,7 +657,7 @@
                   <button
                     type="button"
                     onclick={() => { formAvatarSeed = (formName || 'agent') + '_' + Math.random().toString(36).slice(2, 8); }}
-                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white transition-colors"
+                    class="p-1 bg-black/30 hover:bg-black/50 text-white/70 hover:text-white "
                     title="Randomize avatar"
                   >
                     <RefreshCcw size={13} />
@@ -686,7 +686,7 @@
                     type="text"
                     bind:value={formName}
                     placeholder="e.g., code_reviewer, data_analyst"
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                   />
                 </div>
 
@@ -697,7 +697,7 @@
                     id="form-scope"
                     bind:value={formScope}
                     disabled={!!editingId}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 transition-colors dark:text-dark-text disabled:opacity-60"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text disabled:opacity-60"
                   >
                     <option value="workspace">Workspace — shared with this workspace</option>
                     <option value="personal">Personal — only visible to you</option>
@@ -718,7 +718,7 @@
                     type="text"
                     bind:value={formDescription}
                     placeholder="What this agent does"
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                   />
                 </div>
 
@@ -732,7 +732,7 @@
                       list="agent-group-options"
                       bind:value={formGroup}
                       placeholder="e.g. YouTube Shorts"
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                     />
                     <datalist id="agent-group-options">
                       {#each existingGroups as g}
@@ -745,7 +745,7 @@
                     <select
                       id="form-provider"
                       bind:value={formProvider}
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
                     >
                       <option value="">Select a provider...</option>
                       {#each providers as p}
@@ -759,7 +759,7 @@
                       <select
                         id="form-model"
                         bind:value={formModel}
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
                       >
                         <option value="">Default ({selectedProviderConfig?.config.model})</option>
                         {#each availableModels as m}
@@ -772,7 +772,7 @@
                         type="text"
                         bind:value={formModel}
                         placeholder="Override default model"
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                       />
                     {/if}
                   </div>
@@ -787,7 +787,7 @@
                 bind:value={formReasoningEffort}
                 aria-describedby="form-reasoning-help form-reasoning-warning"
                 aria-invalid={!!reasoningEffortError}
-                class="w-full sm:w-64 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                class="w-full sm:w-64 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
               >
                 <option value="">Default</option>
                 {#each reasoningEffortOptions as effort}
@@ -829,7 +829,7 @@
                 bind:value={formSystemPrompt}
                 rows={3}
                 placeholder="You are a helpful assistant..."
-                class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
               ></textarea>
             </div>
 
@@ -987,13 +987,13 @@
                         type="text"
                         value={url}
                         oninput={(e) => updateMcpInput(i, (e.target as HTMLInputElement).value)}
-                        class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                         placeholder="http://localhost:8000/sse"
                       />
                       <button
                         type="button"
                         onclick={() => removeMcpInput(i)}
-                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                         title="Remove URL"
                       >
                         <X size={14} />
@@ -1003,7 +1003,7 @@
                   <button
                     type="button"
                     onclick={addMcpInput}
-                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
                   >
                     <Plus size={12} />
                     Add URL
@@ -1060,7 +1060,7 @@
                   type="number"
                   bind:value={formMaxIterations}
                   min="1"
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
                 />
               </div>
               <div>
@@ -1070,7 +1070,7 @@
                   type="number"
                   bind:value={formToolTimeout}
                   min="1"
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text"
                 />
               </div>
             </div>
@@ -1080,14 +1080,14 @@
               <button
                 type="button"
                 onclick={resetForm}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving || builderBusy}
-                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
               >
                 <Save size={14} />
                 {#if saving}
@@ -1126,7 +1126,7 @@
           {/snippet}
 
           {#snippet row(agent)}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
               <td class="px-4 py-2.5">
                 <div class="flex items-center gap-2.5">
                   <img src={agentAvatar(agent.config.avatar_seed, agent.name, 32)} alt="" class="w-8 h-8 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
@@ -1178,21 +1178,21 @@
                 <div class="flex justify-end gap-1">
                   <button
                     onclick={() => handleExport(agent)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Export as .md"
                   >
                     <Download size={14} />
                   </button>
                   <button
                     onclick={() => copyAgent(agent)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Copy agent"
                   >
                     <Copy size={14} />
                   </button>
                   <button
                     onclick={() => openEdit(agent)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -1200,20 +1200,20 @@
                   {#if deleteConfirm === agent.id}
                     <button
                       onclick={() => handleDelete(agent.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = agent.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                       title="Delete"
                     >
                       <Trash2 size={14} />

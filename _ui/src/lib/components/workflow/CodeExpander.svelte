@@ -118,7 +118,7 @@
     <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">{label}</span>
     <button
       onclick={openExpanded}
-      class="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+      class="flex items-center gap-0.5 text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
       title="Expand editor"
     >
       <Maximize2 size={10} />
@@ -147,7 +147,7 @@
       </div>
       <button
         onclick={closeExpanded}
-        class="flex items-center gap-1 px-3 py-1 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:text-gray-800 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated rounded transition-colors"
+        class="flex items-center gap-1 px-3 py-1 text-xs font-medium text-gray-600 dark:text-dark-text-secondary hover:text-gray-800 dark:hover:text-dark-text hover:bg-gray-100 dark:hover:bg-dark-elevated rounded "
       >
         <Minimize2 size={12} />
         Close
@@ -162,7 +162,7 @@
       <span class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono">{value.split('\n').length} lines · {value.length} chars</span>
       <button
         onclick={closeExpanded}
-        class="px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded transition-colors"
+        class="px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded "
       >
         Done
       </button>

@@ -472,7 +472,7 @@
       <div class="flex items-center gap-3">
         <button
           onclick={() => push('/organizations')}
-          class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+          class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
         >
           <ArrowLeft size={14} />
           Back
@@ -495,14 +495,14 @@
             <button
               onclick={saveOrg}
               disabled={saving}
-              class="flex items-center gap-1 px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+              class="flex items-center gap-1 px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
             >
               <Save size={12} />
               Save
             </button>
             <button
               onclick={() => { editingOrg = false; }}
-              class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+              class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
             >
               Cancel
             </button>
@@ -541,14 +541,14 @@
         <div class="h-4 border-l border-gray-200 dark:border-dark-border"></div>
         <button
           onclick={() => { load(); }}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated "
         >
           <RefreshCw size={12} />
           Refresh
         </button>
         <button
           onclick={handleExportBundle}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated "
           title="Export organization bundle as ZIP"
         >
           <Download size={12} />
@@ -556,7 +556,7 @@
         </button>
         <button
           onclick={() => bundleImportFileInput?.click()}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated "
           title="Import organization bundle from ZIP"
         >
           <Upload size={12} />
@@ -571,7 +571,7 @@
         />
         <button
           onclick={() => { showAddPanel = !showAddPanel; showTaskPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showAddPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
         >
           <UserPlus size={12} />
           Add Agent
@@ -580,14 +580,14 @@
           onclick={() => { showTaskPanel = !showTaskPanel; showAddPanel = false; showContainerPanel = false; showBudgetPanel = false; }}
           disabled={!organization.head_agent_id}
           title={organization.head_agent_id ? 'Submit a task to this organization' : 'Set a head agent first'}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showTaskPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showTaskPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Send size={12} />
           Submit Task
         </button>
         <button
           onclick={() => { showContainerPanel = !showContainerPanel; showAddPanel = false; showTaskPanel = false; showBudgetPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showContainerPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showContainerPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
         >
           <Container size={12} />
           Container
@@ -597,7 +597,7 @@
         </button>
         <button
           onclick={() => { showBudgetPanel = !showBudgetPanel; showAddPanel = false; showTaskPanel = false; showContainerPanel = false; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showBudgetPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showBudgetPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
           title="Configure the organization spending limit"
         >
           <DollarSign size={12} />
@@ -655,7 +655,7 @@
             </div>
             <div class="h-1.5 bg-gray-100 dark:bg-dark-elevated overflow-hidden">
               <div
-                class="h-full transition-all"
+                class="h-full "
                 class:bg-emerald-500={usagePercent < 80}
                 class:bg-amber-500={usagePercent >= 80 && usagePercent < 100}
                 class:bg-red-500={usagePercent >= 100}
@@ -692,7 +692,7 @@
           <button
             onclick={saveBudget}
             disabled={saving}
-            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded transition-colors disabled:opacity-50"
+            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded disabled:opacity-50"
           >
             <Save size={12} />
             Save
@@ -772,7 +772,7 @@
         <div class="flex justify-end mt-3 pt-2 border-t border-gray-100 dark:border-dark-border">
           <button
             onclick={saveContainerConfig}
-            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded transition-colors"
+            class="flex items-center gap-1 px-3 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover rounded "
           >
             <Save size={12} />
             Save
@@ -853,7 +853,7 @@
             <button
               onclick={handleSubmitTask}
               disabled={submittingTask || !taskTitle.trim()}
-              class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+              class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
             >
               <Send size={12} />
               {submittingTask ? 'Submitting...' : 'Submit'}
@@ -885,7 +885,7 @@
             {:else}
               {#each availableAgents() as agent (agent.id)}
                 <div
-                  class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                  class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-elevated "
                 >
                   <div class="flex items-center gap-2 min-w-0">
                     <img src={agentAvatar(agent.config.avatar_seed, agent.name, 24)} alt="" class="w-6 h-6 rounded-full shrink-0 bg-gray-100 dark:bg-dark-elevated" />
@@ -898,7 +898,7 @@
                   </div>
                   <button
                     onclick={() => handleAddAgent(agent)}
-                    class="shrink-0 ml-2 p-1 text-gray-400 dark:text-dark-text-muted hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                    class="shrink-0 ml-2 p-1 text-gray-400 dark:text-dark-text-muted hover:text-green-600 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 rounded "
                     title="Add to organization"
                   >
                     <Plus size={14} />
@@ -992,7 +992,7 @@
           <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
             <button
               onclick={() => { if (selectedAgentId) handleRemoveAgent(selectedAgentId); }}
-              class="w-full flex items-center justify-center gap-1 px-2 py-1 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              class="w-full flex items-center justify-center gap-1 px-2 py-1 text-xs text-red-600 dark:text-red-400 border border-red-200 dark:border-red-800 rounded hover:bg-red-50 dark:hover:bg-red-900/20 "
             >
               <Trash2 size={12} />
               Remove from Org

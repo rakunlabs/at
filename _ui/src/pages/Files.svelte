@@ -26,9 +26,9 @@
   let browseError = $state('');
   let browseVersion = 0;
   let previewController: AbortController | null = null;
-  const controlClass = 'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded border border-gray-200 dark:border-dark-border px-2 text-xs text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
-  const iconClass = 'inline-flex size-7 shrink-0 items-center justify-center rounded text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
-  const inputClass = 'h-7 w-full min-w-0 rounded border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 text-base sm:text-xs text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent';
+  const controlClass = 'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 border border-gray-200 dark:border-dark-border px-2 text-xs text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40 disabled:cursor-not-allowed';
+  const iconClass = 'inline-flex size-7 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40';
+  const inputClass = 'h-7 w-full min-w-0 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-2 text-base sm:text-xs text-gray-900 dark:text-dark-text placeholder:text-gray-500 dark:placeholder:text-dark-text-secondary focus:outline-none focus:ring-1 focus:ring-accent';
 
   // Search & Sort & Hidden
   let searchQuery = $state('');
@@ -255,7 +255,7 @@
             <button
               onclick={() => browse(crumb.path)}
               class={[
-                'shrink-0 min-h-7 truncate max-w-40 px-1 rounded focus-visible:outline-2 focus-visible:outline-accent transition-colors',
+                'shrink-0 min-h-7 truncate max-w-40 px-1 rounded focus-visible:outline-2 focus-visible:outline-accent ',
                 i === breadcrumbs.length - 1
                   ? 'text-gray-900 dark:text-dark-text font-medium'
                   : 'text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text'
@@ -357,7 +357,7 @@
             {#each filteredEntries as entry}
               {@const FileIcon = getFileIcon(entry)}
               <tr class={[
-                'transition-colors group',
+                'group',
                 previewFile?.path === entry.path
                   ? 'bg-gray-100 dark:bg-dark-elevated'
                   : 'hover:bg-gray-50 dark:hover:bg-dark-elevated'
@@ -365,7 +365,7 @@
                 <td class="px-3 py-0.5">
                   <button
                     onclick={() => openPreview(entry)}
-                    class="flex min-h-7 min-w-0 items-center gap-2 text-left transition-colors w-full rounded focus-visible:outline-2 focus-visible:outline-accent"
+                    class="flex min-h-7 min-w-0 items-center gap-2 text-left w-full rounded focus-visible:outline-2 focus-visible:outline-accent"
                     title={entry.name}
                   >
                     <span class="inline-flex size-4 shrink-0 items-center justify-center text-gray-600 dark:text-dark-text-secondary">

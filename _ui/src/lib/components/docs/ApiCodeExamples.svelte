@@ -72,7 +72,7 @@
         onclick={() => (activeTab = tab.id)}
         onkeydown={onKeydown}
         class={[
-          '-mb-px border-b-2 px-3 py-2 text-xs font-medium transition-colors motion-reduce:transition-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent',
+          '-mb-px border-b-2 px-3 py-2 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:focus-visible:outline-accent',
           selected
             ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-accent-text'
             : 'border-transparent text-gray-600 hover:text-gray-900 dark:text-dark-text-secondary dark:hover:text-dark-text',

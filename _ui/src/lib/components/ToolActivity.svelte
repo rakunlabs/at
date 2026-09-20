@@ -19,7 +19,7 @@
 
 <details class="min-w-0 border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base" ontoggle={event => { open = event.currentTarget.open; }}>
   <summary class="flex min-h-11 cursor-pointer list-none flex-wrap items-center gap-2 px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent [&::-webkit-details-marker]:hidden">
-    <ChevronRight size={14} class={`shrink-0 transition-transform ${open ? 'rotate-90' : ''}`} />
+    <ChevronRight size={14} class={`shrink-0 ${open ? 'rotate-90' : ''}`} />
     <Wrench size={13} class="shrink-0 text-gray-500 dark:text-dark-text-muted" />
     <span class="min-w-0 flex-1 break-all font-mono font-medium text-gray-800 dark:text-dark-text">{call.function.name}</span>
     {#if source}<span class="text-gray-500 dark:text-dark-text-muted">{source}</span>{/if}

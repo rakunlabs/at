@@ -261,14 +261,14 @@
     <div class="flex items-center gap-2">
       <button
         onclick={load}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
       >
         <Plus size={12} />
         New Cron Job
@@ -283,7 +283,7 @@
         <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
           {editingId ? 'Edit Cron Job' : 'New Cron Job'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ">
           <X size={14} />
         </button>
       </div>
@@ -296,7 +296,7 @@
             id="form-target-type"
             bind:value={formTargetType}
             onchange={() => { formTargetId = ''; formEntryNodeId = ''; inputNodes = []; }}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
           >
             <option value="workflow">Workflow</option>
           </select>
@@ -309,7 +309,7 @@
             id="form-target"
             value={formTargetId}
             onchange={(e) => handleTargetIdChange((e.target as HTMLSelectElement).value)}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
           >
             <option value="">Select target...</option>
             {#each workflows as w}
@@ -326,7 +326,7 @@
               <select
                 id="form-entry-node"
                 bind:value={formEntryNodeId}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text "
               >
                 <option value="">All input nodes (default)</option>
                 {#each inputNodes as node}
@@ -346,14 +346,14 @@
               type="text"
               bind:value={formSchedule}
               placeholder="*/5 * * * *"
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
             />
             <div class="flex flex-wrap gap-1 mt-1.5">
               {#each scheduleExamples as ex}
                 <button
                   type="button"
                   onclick={() => (formSchedule = ex.value)}
-                  class="px-1.5 py-0.5 text-[10px] border border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted transition-colors"
+                  class="px-1.5 py-0.5 text-[10px] border border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted "
                 >
                   {ex.label}
                 </button>
@@ -371,7 +371,7 @@
               type="text"
               bind:value={formTimezone}
               placeholder="UTC (default), America/New_York, Europe/London..."
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
             />
           </div>
         </div>
@@ -386,7 +386,7 @@
                 bind:value={formPayload}
                 rows={3}
                 placeholder={'{}'}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors resize-y"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted resize-y"
               ></textarea>
               <div class="text-xs text-gray-400 dark:text-dark-text-muted mt-1">
                 Static JSON data passed as workflow inputs alongside trigger metadata.
@@ -401,17 +401,17 @@
           <div class="col-span-3 flex items-center gap-3">
             <label class="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" bind:checked={formEnabled} class="sr-only peer" />
-              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-900/10 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:after:border-dark-border-subtle peer-checked:bg-gray-900 dark:peer-checked:bg-accent"></div>
+              <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-gray-900/10 dark:peer-focus:ring-accent/20 rounded-full peer dark:bg-dark-elevated peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 dark:after:border-dark-border-subtle peer-checked:bg-gray-900 dark:peer-checked:bg-accent"></div>
             </label>
           </div>
         </div>
 
         <!-- Actions -->
         <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
-          <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors">
+          <button type="button" onclick={resetForm} class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary ">
             Cancel
           </button>
-          <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50">
+          <button type="submit" disabled={saving} class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50">
             <Save size={14} />
             {saving ? 'Saving...' : editingId ? 'Update' : 'Create'}
           </button>
@@ -445,7 +445,7 @@
         </thead>
         <tbody>
           {#each triggers as t}
-            <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+            <tr class="border-b border-gray-100 dark:border-dark-border last:border-b-0 hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
               <td class="px-4 py-2.5">
                 <div class="font-mono text-xs text-gray-900 dark:text-dark-text">{t.config?.schedule || '—'}</div>
                 <div class="text-[10px] text-gray-400 dark:text-dark-text-muted">{describeSchedule(t.config?.schedule as string || '')}</div>
@@ -462,7 +462,7 @@
               <td class="px-4 py-2.5">
                 <button
                   onclick={() => toggleEnabled(t)}
-                  class="inline-flex items-center gap-1 text-xs transition-colors"
+                  class="inline-flex items-center gap-1 text-xs "
                   class:text-green-600={t.enabled}
                   class:dark:text-green-400={t.enabled}
                   class:text-gray-400={!t.enabled}
@@ -482,18 +482,18 @@
                 <div class="flex justify-end gap-1">
                   <button
                     onclick={() => openEdit(t)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
                     title="Edit"
                   >
                     <Pencil size={14} />
                   </button>
                   {#if deleteConfirm === t.id}
-                    <button onclick={() => handleDelete(t.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors">Confirm</button>
-                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Cancel</button>
+                    <button onclick={() => handleDelete(t.id)} class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 ">Confirm</button>
+                    <button onclick={() => (deleteConfirm = null)} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = t.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 "
                       title="Delete"
                     >
                       <Trash2 size={14} />

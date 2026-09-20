@@ -68,7 +68,7 @@
         type="button"
         onclick={oncancel}
         disabled={saving}
-        class="inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 motion-reduce:transition-none disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent"
+        class="inline-flex items-center gap-1.5 border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent"
       >
         <X size={12} aria-hidden="true" />
         Cancel
@@ -76,7 +76,7 @@
       <button
         type="submit"
         disabled={!canSave}
-        class="inline-flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 motion-reduce:transition-none disabled:opacity-50 dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover dark:focus-visible:outline-accent"
+        class="inline-flex items-center gap-1.5 bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 disabled:opacity-50 dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover dark:focus-visible:outline-accent"
       >
         {#if saving}
           <Loader2 size={12} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />

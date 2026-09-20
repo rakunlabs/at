@@ -31,7 +31,7 @@
   const content = $derived(guide.content.trim());
 
   const btn =
-    'inline-flex items-center gap-1.5 border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 motion-reduce:transition-none disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent';
+    'inline-flex items-center gap-1.5 border border-gray-300 px-2 py-1 text-xs font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:focus-visible:outline-accent';
 </script>
 
 <DocsPaneHeader title={guide.title} description={guide.description}>
@@ -74,7 +74,7 @@
           type="button"
           onclick={() => ondelete(guide.id)}
           disabled={deleting}
-          class="inline-flex items-center gap-1.5 border border-red-700 bg-red-700 px-2 py-1 text-xs font-medium text-white transition-colors hover:bg-red-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 motion-reduce:transition-none disabled:opacity-50"
+          class="inline-flex items-center gap-1.5 border border-red-700 bg-red-700 px-2 py-1 text-xs font-medium text-white hover:bg-red-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 disabled:opacity-50"
         >
           <Trash2 size={12} aria-hidden="true" />
           {deleting ? 'Deleting…' : 'Confirm delete'}
@@ -86,7 +86,7 @@
         <button
           type="button"
           onclick={() => (confirming = true)}
-          class="inline-flex items-center gap-1.5 border border-red-400 px-2 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 motion-reduce:transition-none dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/25 dark:focus-visible:outline-red-400"
+          class="inline-flex items-center gap-1.5 border border-red-400 px-2 py-1 text-xs font-medium text-red-700 hover:bg-red-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-700 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/25 dark:focus-visible:outline-red-400"
         >
           <Trash2 size={12} aria-hidden="true" />
           Delete

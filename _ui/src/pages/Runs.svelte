@@ -114,7 +114,7 @@
       </label>
       <button
         onclick={loadRuns}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
         title="Refresh"
       >
         <RefreshCw size={14} />
@@ -145,7 +145,7 @@
     {/snippet}
 
     {#snippet row(run)}
-      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
         <td class="px-4 py-2.5">
           <code class="text-xs font-mono text-gray-600 dark:text-dark-text-secondary">{run.id}</code>
         </td>
@@ -172,13 +172,13 @@
               <button
                 onclick={() => handleCancel(run.id)}
                 disabled={cancellingId === run.id}
-                class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50"
+                class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {cancellingId === run.id ? 'Cancelling...' : 'Confirm'}
               </button>
               <button
                 onclick={() => (cancelConfirmId = null)}
-                class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                class="px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
               >
                 No
               </button>
@@ -186,7 +186,7 @@
           {:else}
             <button
               onclick={() => (cancelConfirmId = run.id)}
-              class="flex items-center gap-1 px-2 py-1 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+              class="flex items-center gap-1 px-2 py-1 text-xs text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 "
               title="Cancel run"
             >
               <Square size={11} />

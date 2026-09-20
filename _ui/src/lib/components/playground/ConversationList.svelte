@@ -74,12 +74,12 @@
 </script>
 
 <aside class="w-60 shrink-0 border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col h-full">
-  <div class="px-2 py-2 border-b border-gray-200 dark:border-dark-border shrink-0">
+  <div class="px-2 py-1 border-b border-gray-200 dark:border-dark-border shrink-0">
     <button
       onclick={onNew}
-      class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+      class="h-9 w-full inline-flex items-center justify-center gap-1.5 px-2.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent "
     >
-      <Plus size={13} />
+      <Plus size={14} />
       New conversation
     </button>
   </div>
@@ -105,19 +105,19 @@
               onkeydown={handleRenameKeydown}
               autofocus
               aria-label="Conversation title"
-              class="flex-1 min-w-0 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+              class="flex-1 min-w-0 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text px-1.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
             />
             <button
               onclick={commitRename}
               aria-label="Save title"
-              class="p-1 text-gray-500 dark:text-dark-text-muted hover:text-green-600 dark:hover:text-green-400 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+              class="p-1 text-gray-500 dark:text-dark-text-muted hover:text-green-600 dark:hover:text-green-400 focus-visible:outline-2 focus-visible:outline-accent "
             >
               <Check size={12} />
             </button>
             <button
               onclick={() => (editingId = '')}
               aria-label="Cancel rename"
-              class="p-1 text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+              class="p-1 text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent "
             >
               <X size={12} />
             </button>
@@ -128,13 +128,13 @@
             <div class="flex gap-1.5">
               <button
                 onclick={() => { confirmingId = ''; onDelete(c.id); }}
-                class="px-2 py-0.5 text-[11px] bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+                class="px-2 py-0.5 text-[11px] bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-accent "
               >
                 Delete
               </button>
               <button
                 onclick={() => (confirmingId = '')}
-                class="px-2 py-0.5 text-[11px] border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-white dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+                class="px-2 py-0.5 text-[11px] border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-white dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent "
               >
                 Cancel
               </button>
@@ -144,7 +144,7 @@
           <button
             onclick={() => onSelect(c.id)}
             aria-current={activeId === c.id ? 'page' : undefined}
-            class={['w-full text-left px-2 py-1.5 pr-12 focus-visible:outline-2 focus-visible:outline-accent transition-colors', activeId === c.id ? 'bg-gray-100 dark:bg-dark-elevated' : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/60']}
+            class={['w-full text-left px-2 py-1.5 pr-12 focus-visible:outline-2 focus-visible:outline-accent ', activeId === c.id ? 'bg-gray-100 dark:bg-dark-elevated' : 'hover:bg-gray-50 dark:hover:bg-dark-elevated/60']}
           >
             <div class="flex items-center gap-1">
               {#if c.forked_from_sequence}
@@ -154,18 +154,18 @@
             </div>
             <div class="text-[10px] text-gray-400 dark:text-dark-text-muted mt-0.5">{relativeTime(c.updated_at)}</div>
           </button>
-          <div class="absolute right-1 top-1 flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity">
+          <div class="absolute right-1 top-1 flex opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 ">
             <button
               onclick={() => startRename(c)}
               aria-label={`Rename ${titleOf(c)}`}
-              class="p-1 text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+              class="p-1 text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent "
             >
               <Pencil size={11} />
             </button>
             <button
               onclick={() => { editingId = ''; confirmingId = c.id; }}
               aria-label={`Delete ${titleOf(c)}`}
-              class="p-1 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+              class="p-1 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent "
             >
               <Trash2 size={11} />
             </button>
@@ -186,7 +186,7 @@
     {:else if hasMore}
       <button
         onclick={onLoadMore}
-        class="w-full px-2 py-1.5 text-[11px] text-gray-500 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+        class="w-full px-2 py-1.5 text-[11px] text-gray-500 dark:text-dark-text-muted hover:text-gray-800 dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent "
       >
         Load older conversations
       </button>

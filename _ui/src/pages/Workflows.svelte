@@ -273,14 +273,14 @@
         <div class="flex items-center gap-2">
           <button
             onclick={() => loadWorkflows()}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={() => (showCreateForm = !showCreateForm)}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
           >
             <Plus size={12} />
             New Workflow
@@ -293,7 +293,7 @@
         <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
           <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
             <span class="text-sm font-medium text-gray-900 dark:text-dark-text">New Workflow</span>
-            <button onclick={() => (showCreateForm = false)} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
+            <button onclick={() => (showCreateForm = false)} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
               <Plus size={14} class="rotate-45" />
             </button>
           </div>
@@ -305,7 +305,7 @@
                   type="text"
                   bind:value={newName}
                   placeholder="Workflow name"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                 />
               </label>
             </div>
@@ -316,21 +316,21 @@
                   type="text"
                   bind:value={newDescription}
                   placeholder="Description (optional)"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                 />
               </label>
             </div>
             <div class="flex justify-end gap-2 pt-3 border-t border-gray-100 dark:border-dark-border">
               <button
                 onclick={() => (showCreateForm = false)}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
               >
                 Cancel
               </button>
               <button
                 onclick={handleCreate}
                 disabled={creating}
-                class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 transition-colors"
+                class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 "
               >
                 {creating ? 'Creating...' : 'Create'}
               </button>
@@ -363,7 +363,7 @@
         {/snippet}
 
         {#snippet row(wf)}
-          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+          <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
             <td class="px-4 py-2.5">
               <div>
                 <button
@@ -376,7 +376,7 @@
                   <span class="font-mono">{wf.id}</span>
                   <button
                     onclick={(e) => copyID(wf.id, e)}
-                    class="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted"
+                    class="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted"
                     title="Copy ID"
                   >
                     <Copy size={10} />
@@ -403,7 +403,7 @@
               <div class="flex items-center justify-end gap-1">
                 <button
                   onclick={() => push(`/workflows/${wf.id}`)}
-                  class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                  class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                   title="Edit"
                 >
                   <Pencil size={14} />
@@ -412,20 +412,20 @@
                   <span class="text-xs text-red-600 dark:text-red-400 mr-1">Delete?</span>
                   <button
                     onclick={() => handleDelete(wf.id)}
-                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                   >
                     Yes
                   </button>
                   <button
                     onclick={() => (deletingId = null)}
-                    class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                    class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
                   >
                     No
                   </button>
                 {:else}
                   <button
                     onclick={() => (deletingId = wf.id)}
-                    class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                    class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                     title="Delete"
                   >
                     <Trash2 size={14} />
@@ -448,7 +448,7 @@
           <div class="text-sm font-medium text-gray-900 dark:text-dark-text truncate">Run: {runPanelWorkflow.name}</div>
           <div class="text-[10px] text-gray-400 dark:text-dark-text-muted font-mono">{runPanelWorkflow.id}</div>
         </div>
-        <button onclick={closeRunPanel} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors shrink-0">
+        <button onclick={closeRunPanel} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text shrink-0">
           <X size={14} />
         </button>
       </div>
@@ -463,7 +463,7 @@
               bind:value={runSelectedEntry}
               onchange={() => syncFormFromEntry()}
               disabled={runRunning}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text "
             >
               {#each runInputNodes as node}
                 <option value={node.id}>{getInputNodeLabel(node)}</option>
@@ -483,7 +483,7 @@
               <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Inputs</span>
               <button
                 onclick={() => { runUseForm = false; runInputsJson = JSON.stringify(runFormValues, null, 2); }}
-                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
               >Switch to JSON</button>
             </div>
             {#each fields as field}
@@ -499,7 +499,7 @@
                     value={runFormValues[field.name] ?? field.default ?? ''}
                     onchange={(e) => { runFormValues[field.name] = (e.target as HTMLSelectElement).value; }}
                     disabled={runRunning}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
                   >
                     {#each field.options as opt}
                       <option value={opt}>{opt}</option>
@@ -511,7 +511,7 @@
                     value={runFormValues[field.name] ?? field.default ?? 0}
                     oninput={(e) => { runFormValues[field.name] = Number((e.target as HTMLInputElement).value); }}
                     disabled={runRunning}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
                   />
                 {:else if field.type === 'boolean'}
                   <label class="flex items-center gap-2 cursor-pointer">
@@ -530,7 +530,7 @@
                     oninput={(e) => { runFormValues[field.name] = (e.target as HTMLTextAreaElement).value; }}
                     disabled={runRunning}
                     rows={3}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono resize-y focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
                   ></textarea>
                 {:else}
                   <input
@@ -538,7 +538,7 @@
                     value={runFormValues[field.name] ?? field.default ?? ''}
                     oninput={(e) => { runFormValues[field.name] = (e.target as HTMLInputElement).value; }}
                     disabled={runRunning}
-                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text transition-colors"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-400 dark:focus:ring-accent/20 dark:text-dark-text "
                   />
                 {/if}
               </label>
@@ -551,7 +551,7 @@
               {#if runInputNodes.find(n => n.id === runSelectedEntry)?.data?.fields}
                 <button
                   onclick={() => { syncFormFromEntry(); }}
-                  class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                  class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
                 >Switch to Form</button>
               {/if}
             </div>
@@ -559,7 +559,7 @@
               bind:value={runInputsJson}
               disabled={runRunning}
               rows={6}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-3 py-2 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted transition-colors"
+              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-surface px-3 py-2 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:text-dark-text dark:placeholder:text-dark-text-muted "
               placeholder={'{"key": "value"}'}
             ></textarea>
           </label>
@@ -570,7 +570,7 @@
           {#if runRunning}
             <button
               onclick={stopRun}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-600 text-white hover:bg-red-700 transition-colors"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-red-600 text-white hover:bg-red-700 "
             >
               <X size={12} />
               Stop
@@ -583,7 +583,7 @@
             <button
               onclick={handleRun}
               disabled={!runPanelWorkflow || runInputNodes.length === 0}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 transition-colors"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 "
             >
               <Play size={12} />
               Run
@@ -602,7 +602,7 @@
             {#if runStatus === 'completed' || runStatus === 'error'}
               <button
                 onclick={() => { runEvents = []; runStatus = 'idle'; }}
-                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors ml-auto"
+                class="text-[10px] text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary ml-auto"
               >Clear</button>
             {/if}
           {/if}

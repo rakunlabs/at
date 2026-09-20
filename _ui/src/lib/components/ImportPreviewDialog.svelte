@@ -63,7 +63,7 @@
           </span>
         {/if}
       </div>
-      <button onclick={oncancel} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
+      <button onclick={oncancel} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
         <X size={14} />
       </button>
     </div>
@@ -154,14 +154,14 @@
     <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
       <button
         onclick={oncancel}
-        class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+        class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
       >
         Cancel
       </button>
       <button
         onclick={handleConfirm}
         disabled={importing}
-        class="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+        class="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
       >
         {#if importing}
           <RefreshCw size={14} class="animate-spin" />

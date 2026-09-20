@@ -59,14 +59,14 @@
     <button
       onclick={prev}
       disabled={offset === 0}
-      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-dark-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-accent"
+      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
     >
       Previous
     </button>
     <button
       onclick={next}
       disabled={offset + limit >= total}
-      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-dark-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-accent"
+      class="min-h-11 sm:min-h-0 px-3 sm:px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated hover:bg-gray-50 dark:hover:bg-dark-surface disabled:opacity-50 disabled:cursor-not-allowed text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
     >
       Next
     </button>

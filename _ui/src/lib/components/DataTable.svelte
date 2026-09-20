@@ -108,13 +108,13 @@
           onblur={commitSearch}
           placeholder={searchPlaceholder}
           aria-label={searchPlaceholder}
-          class="w-full min-h-11 sm:min-h-0 pl-8 pr-12 sm:pr-7 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:border-gray-500 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+          class="w-full min-h-11 sm:min-h-0 pl-8 pr-12 sm:pr-7 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated focus:outline-none focus:border-gray-500 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
         />
         {#if searchInput}
           <button
             onclick={clearSearch}
             aria-label="Clear search"
-            class="absolute right-0 sm:right-1.5 top-1/2 -translate-y-1/2 size-11 sm:size-auto flex items-center justify-center p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors focus-visible:outline-2 focus-visible:outline-accent"
+            class="absolute right-0 sm:right-1.5 top-1/2 -translate-y-1/2 size-11 sm:size-auto flex items-center justify-center p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
           >
             <X size={12} />
           </button>

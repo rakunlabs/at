@@ -318,7 +318,7 @@
     <button
       onclick={refresh}
       disabled={loading}
-      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors disabled:opacity-50"
+      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary disabled:opacity-50"
       title="Refresh"
     >
       <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
@@ -602,7 +602,7 @@
             </div>
             <div class="flex-1 h-4 relative bg-gray-100 dark:bg-dark-elevated rounded-sm overflow-hidden">
               <div
-                class="h-full transition-all"
+                class="h-full "
                 class:bg-blue-500={!over && pct < 80}
                 class:bg-yellow-500={!over && pct >= 80}
                 class:bg-red-500={over}

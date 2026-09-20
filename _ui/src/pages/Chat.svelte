@@ -945,7 +945,7 @@
   }
 
   const boundAgent = $derived(boundAgentId ? agents.find(a => a.id === boundAgentId) : undefined);
-  const inherited = $derived(agentSelections(boundAgent?.config));
+  const inherited = $derived(agentSelections(boundAgent?.config, skills));
   const effectiveSelections = $derived(mergeChatSelections({
     mcp_sets: selectedMCPSetNames,
     skills: selectedSkillNames,
@@ -1524,7 +1524,7 @@
     disabled={sequence === null}
     aria-label={sequence === null ? 'Fork unavailable: this message is not saved yet' : `Fork a new conversation from message ${sequence}`}
     title={sequence === null ? 'Fork becomes available once this message is saved to history' : 'Fork a new conversation from here'}
-    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-0 disabled:group-hover:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-400 transition-opacity"
+    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-0 disabled:group-hover:opacity-40 disabled:cursor-not-allowed disabled:hover:text-gray-400 "
   >
     <GitBranch size={11} />
     Fork
@@ -1581,26 +1581,26 @@
   {/if}
 
   <!-- Toolbar -->
-  <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-2 flex items-center gap-2 shrink-0">
+  <div class="border-b border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-3 py-1 flex flex-wrap items-center gap-1.5 shrink-0">
     <!-- Conversation panel toggle -->
     <button
       onclick={() => (showConversations = !showConversations)}
       aria-label={showConversations ? 'Hide conversation list' : 'Show conversation list'}
       aria-expanded={showConversations}
       title={showConversations ? 'Hide conversations' : 'Show conversations'}
-      class="p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-muted dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+      class="h-9 w-9 shrink-0 inline-flex items-center justify-center border border-gray-300 hover:bg-gray-50 text-gray-600 hover:text-gray-900 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-secondary dark:hover:text-dark-text focus-visible:outline-2 focus-visible:outline-accent "
     >
       <PanelLeft size={14} />
     </button>
 
     <!-- Model selector -->
-    <div class="relative flex-1 max-w-xs">
+    <div class="relative min-w-0 flex-1 basis-40 max-w-xs">
       <select
         bind:value={selectedModel}
         onchange={scheduleSettingsSave}
         aria-label="Model"
         disabled={loading || models.length === 0}
-        class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
+        class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
       >
         {#if modelOptions.length === 0}
           <option value="">No models available</option>
@@ -1615,12 +1615,9 @@
     <!-- System prompt toggle -->
     <button
       onclick={() => (showSystemPrompt = !showSystemPrompt)}
-      class="p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
-      class:bg-gray-900={showSystemPrompt}
-      class:text-white={showSystemPrompt}
-      class:border-gray-900={showSystemPrompt}
-      class:hover:bg-gray-800={showSystemPrompt}
-      class:hover:text-white={showSystemPrompt}
+      aria-label="System prompt"
+      aria-expanded={showSystemPrompt}
+      class={['h-9 w-9 shrink-0 inline-flex items-center justify-center border focus-visible:outline-2 focus-visible:outline-accent ', showSystemPrompt ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
       title="System prompt"
     >
       <Settings size={14} />
@@ -1629,17 +1626,14 @@
     <!-- Tools toggle -->
     <button
       onclick={() => (showToolsConfig = !showToolsConfig)}
-      class="p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors relative"
-      class:bg-gray-900={showToolsConfig}
-      class:text-white={showToolsConfig}
-      class:border-gray-900={showToolsConfig}
-      class:hover:bg-gray-800={showToolsConfig}
-      class:hover:text-white={showToolsConfig}
+      aria-label={`Tools${toolCount > 0 ? ` (${toolCount})` : ''}`}
+      aria-expanded={showToolsConfig}
+      class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showToolsConfig ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
       title="Tools (MCP, Skills, Built-in, Chat)"
     >
       <Wrench size={14} />
       {#if toolCount > 0}
-        <span class="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-blue-600 text-white text-[9px] font-medium flex items-center justify-center px-1">{toolCount}</span>
+        <span class="tabular-nums">{toolCount}</span>
       {/if}
     </button>
 
@@ -1647,23 +1641,20 @@
     {#if todos.length > 0}
       <button
         onclick={() => (showTodoPanel = !showTodoPanel)}
-        class="p-1.5 border border-gray-300 hover:bg-gray-50 text-gray-500 hover:text-gray-700 dark:border-dark-border-subtle dark:hover:bg-dark-elevated dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors relative"
-        class:bg-gray-900={showTodoPanel}
-        class:text-white={showTodoPanel}
-        class:border-gray-900={showTodoPanel}
-        class:hover:bg-gray-800={showTodoPanel}
-        class:hover:text-white={showTodoPanel}
+        aria-label={`Todo list${todoActiveCount > 0 ? ` (${todoActiveCount} active)` : ''}`}
+        aria-expanded={showTodoPanel}
+        class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showTodoPanel ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
         title="Todo list"
       >
         <ListChecks size={14} />
         {#if todoActiveCount > 0}
-          <span class="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 bg-amber-500 text-white text-[9px] font-medium flex items-center justify-center px-1">{todoActiveCount}</span>
+          <span class="tabular-nums">{todoActiveCount}</span>
         {/if}
       </button>
     {/if}
 
     <!-- Unsaved / saving indicator (right-aligned) -->
-    <div class="ml-auto flex items-center gap-2">
+    <div class="ml-auto flex flex-wrap min-w-0 items-center justify-end gap-1.5">
       {#if saving}
         <span class="flex items-center gap-1 text-[11px] text-gray-400 dark:text-dark-text-muted">
           <Loader2 size={11} class="animate-spin" />
@@ -1674,9 +1665,9 @@
           onclick={() => persistPending()}
           aria-label={`Retry saving ${unsavedCount} unsaved message${unsavedCount === 1 ? '' : 's'}`}
           title="These messages are only in this browser tab. Click to retry saving them."
-          class="flex items-center gap-1 px-1.5 py-0.5 text-[11px] border border-amber-300 dark:border-amber-900/60 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+          class="h-9 inline-flex shrink-0 items-center justify-center gap-1.5 px-2 text-xs border border-amber-300 dark:border-amber-900/60 text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 focus-visible:outline-2 focus-visible:outline-accent "
         >
-          <CloudOff size={11} />
+          <CloudOff size={14} />
           {unsavedCount} unsaved
         </button>
       {/if}
@@ -1689,7 +1680,7 @@
       {/if}
 
       {#if boundAgentId}
-        <button onclick={() => showToolsConfig = !showToolsConfig} title={boundAgent?.name ?? boundAgentId} aria-label="Configure selected agent" class="flex min-w-0 max-w-40 items-center gap-1.5 px-2 py-1 text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline-2 focus-visible:outline-accent">
+        <button onclick={() => showToolsConfig = !showToolsConfig} title={boundAgent?.name ?? boundAgentId} aria-label="Configure selected agent" aria-expanded={showToolsConfig} class="h-9 inline-flex min-w-0 max-w-40 items-center justify-center gap-1.5 px-2.5 border border-gray-300 dark:border-dark-border-subtle text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline-2 focus-visible:outline-accent ">
           <Bot size={14} class="shrink-0" /><span class="truncate">{boundAgent?.name ?? 'Unavailable agent'}</span>
         </button>
       {/if}
@@ -1701,7 +1692,7 @@
         disabled={streaming || saving || (messages.length === 0 && !systemPrompt && pendingImages.length === 0)}
         aria-label={confirmClear ? 'Confirm clearing the transcript' : 'Clear transcript'}
         title={conversationId ? 'Clear transcript (deletes saved messages)' : 'Clear transcript'}
-        class={['flex items-center gap-1 px-1.5 py-1 text-[11px] focus-visible:outline-2 focus-visible:outline-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed', confirmClear ? 'bg-red-600 text-white hover:bg-red-700' : 'text-gray-400 dark:text-dark-text-muted hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400']}
+        class={['h-9 min-w-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-2 border text-xs focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-30 disabled:cursor-not-allowed', confirmClear ? 'border-red-600 bg-red-600 text-white hover:bg-red-700' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400']}
       >
         <Trash2 size={14} />
         {#if confirmClear}Confirm?{/if}
@@ -1741,7 +1732,7 @@
         aria-label="System prompt"
         placeholder="System prompt (optional)"
         rows={2}
-        class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+        class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
       ></textarea>
     </div>
   {/if}
@@ -1754,8 +1745,8 @@
         <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Agent</span>
         {#if boundAgentId}
           <div class="flex flex-wrap items-center gap-2">
-            <button onclick={clearBoundAgent} disabled={streaming} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 transition-colors">Remove agent</button>
-            <button onclick={adoptAgentSettings} disabled={streaming || !boundAgent} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 transition-colors">Copy to my settings</button>
+            <button onclick={clearBoundAgent} disabled={streaming} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Remove agent</button>
+            <button onclick={adoptAgentSettings} disabled={streaming || !boundAgent} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Copy to my settings</button>
           </div>
           <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Purple left border: from agent. Filled background: selected by you. Both marks mean both sources. Copying makes the prompt editable and removes the agent binding.</p>
           {#if !boundAgent}<p role="status" class="mt-1 text-xs text-amber-700 dark:text-amber-300">Agent unavailable. Remove it or reload before sending a message.</p>{/if}
@@ -1765,7 +1756,7 @@
               <select
                 bind:value={agentPickerId}
                 aria-label="Agent"
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
               >
                 <option value="">Choose an agent…</option>
                 {#each agents as agent}
@@ -1777,7 +1768,7 @@
             <button
               onclick={() => bindAgent(agentPickerId)}
               disabled={!agentPickerId || streaming}
-              class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 transition-colors"
+              class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 "
             >
               Use
             </button>
@@ -1787,7 +1778,7 @@
 
       <!-- MCP Sets (Internal MCPs) -->
       {#if availableMCPSets.length > 0}
-        <label class="block">
+        <div role="group" aria-label="MCP" class="block">
           <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
           <div class="flex flex-wrap gap-1.5">
             {#each availableMCPSets as mcpSet}
@@ -1797,7 +1788,7 @@
                 aria-label={`${mcpSet.name}${inherited.mcp_sets.includes(mcpSet.name) ? ' · From agent' : ''}${selectedMCPSetNames.includes(mcpSet.name) ? ' · Selected by you' : ''}`}
                 style:border-left-width={inherited.mcp_sets.includes(mcpSet.name) ? '4px' : undefined}
                 style:border-left-color={inherited.mcp_sets.includes(mcpSet.name) ? 'var(--color-purple-400)' : undefined}
-                class="px-2.5 py-1 text-xs border transition-colors {selectedMCPSetNames.includes(mcpSet.name)
+                class="px-2.5 py-1 text-xs border {selectedMCPSetNames.includes(mcpSet.name)
                   ? 'bg-purple-700 dark:bg-purple-600 text-white border-purple-700 dark:border-purple-600'
                   : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
                 title={mcpSet.description || mcpSet.name}
@@ -1807,7 +1798,7 @@
               </button>
             {/each}
           </div>
-        </label>
+        </div>
       {/if}
 
       <!-- Direct MCP URLs were removed: register the server as an MCP set so it
@@ -1829,7 +1820,7 @@
 
       <!-- Skills -->
       {#if skills.length > 0}
-        <label class="block">
+        <div role="group" aria-label="Skills" class="block">
           <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
           <div class="flex flex-wrap gap-1.5">
             {#each skills as skill}
@@ -1839,7 +1830,7 @@
                 aria-label={`${skill.name}${inherited.skills.includes(skill.name) ? ' · From agent' : ''}${selectedSkillNames.includes(skill.name) ? ' · Selected by you' : ''}`}
                 style:border-left-width={inherited.skills.includes(skill.name) ? '4px' : undefined}
                 style:border-left-color={inherited.skills.includes(skill.name) ? 'var(--color-purple-400)' : undefined}
-                class="px-2.5 py-1 text-xs border transition-colors {selectedSkillNames.includes(skill.name)
+                class="px-2.5 py-1 text-xs border {selectedSkillNames.includes(skill.name)
                   ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
                   : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
                 title={skill.description || skill.name}
@@ -1852,12 +1843,12 @@
               </button>
             {/each}
           </div>
-        </label>
+        </div>
       {/if}
 
       <!-- Server Tools (built-in) -->
       {#if builtinTools.length > 0}
-        <label class="block">
+        <div role="group" aria-label="Server Tools" class="block">
           <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
           <div class="flex flex-wrap gap-1.5">
             {#each builtinTools as tool}
@@ -1867,7 +1858,7 @@
                 aria-label={`${tool.name}${inherited.builtin_tools.includes(tool.name) ? ' · From agent' : ''}${enabledBuiltinTools.includes(tool.name) ? ' · Selected by you' : ''}`}
                 style:border-left-width={inherited.builtin_tools.includes(tool.name) ? '4px' : undefined}
                 style:border-left-color={inherited.builtin_tools.includes(tool.name) ? 'var(--color-purple-400)' : undefined}
-                class="px-2.5 py-1 text-xs border transition-colors {enabledBuiltinTools.includes(tool.name)
+                class="px-2.5 py-1 text-xs border {enabledBuiltinTools.includes(tool.name)
                   ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
                   : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
                 title={tool.description}
@@ -1877,17 +1868,18 @@
               </button>
             {/each}
           </div>
-        </label>
+        </div>
       {/if}
 
       <!-- Chat Tools (frontend-only) -->
-      <label class="block">
+      <div role="group" aria-label="Chat Tools" class="block">
         <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
         <div class="flex flex-wrap gap-1.5">
           {#each FRONTEND_TOOLS as tool}
             <button
               onclick={() => toggleFrontendTool(tool.function.name)}
-              class="px-2.5 py-1 text-xs border transition-colors {enabledFrontendTools.includes(tool.function.name)
+              aria-pressed={enabledFrontendTools.includes(tool.function.name)}
+              class="px-2.5 py-1 text-xs border {enabledFrontendTools.includes(tool.function.name)
                 ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
                 : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
               title={tool.function.description}
@@ -1896,7 +1888,7 @@
             </button>
           {/each}
         </div>
-      </label>
+      </div>
 
       <!-- Discovered tools summary + clear button -->
       <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted pt-1 border-t border-gray-200 dark:border-dark-border">
@@ -1916,7 +1908,7 @@
         {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
           <button
             onclick={clearAllToolSelections}
-            class="ml-auto shrink-0 px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 transition-colors"
+            class="ml-auto shrink-0 px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 "
             title="Clear your selections; tools supplied by the agent stay available"
           >
             Clear my selections
@@ -1937,7 +1929,7 @@
         </div>
         <button
           onclick={() => (showTodoPanel = false)}
-          class="p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+          class="p-0.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary "
         >
           <X size={12} />
         </button>
@@ -1981,7 +1973,7 @@
       <div class="text-center py-12">
         <div class="text-gray-400 dark:text-dark-text-muted mb-2">No providers configured</div>
         <div class="text-xs text-gray-400 dark:text-dark-text-muted">
-          Add providers on the <a href="#/providers" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text transition-colors">Providers</a> page first.
+          Add providers on the <a href="#/providers" class="underline underline-offset-2 hover:text-gray-700 dark:hover:text-dark-text ">Providers</a> page first.
         </div>
       </div>
     {:else if messages.length === 0}
@@ -2033,7 +2025,7 @@
                     onclick={() => retryFromIndex(i)}
                     disabled={saving}
                     aria-label="Retry from this message"
-                    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+                    class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text flex items-center gap-1 focus-visible:outline-2 focus-visible:outline-accent "
                     title="Retry from this message"
                   >
                     <RotateCcw size={11} />
@@ -2136,7 +2128,7 @@
             <button
               onclick={() => removeImage(i)}
               aria-label={`Remove ${img.name}`}
-              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 dark:bg-accent text-white flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent transition-opacity"
+              class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-900 dark:bg-accent text-white flex items-center justify-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-accent "
               title="Remove"
             >
               <X size={12} />
@@ -2173,7 +2165,7 @@
         onclick={() => fileInput?.click()}
         disabled={models.length === 0}
         aria-label="Attach image"
-        class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 focus-visible:outline-2 focus-visible:outline-accent transition-colors"
+        class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 focus-visible:outline-2 focus-visible:outline-accent "
         title={`Attach image — paste or drop works too. Saved to history up to 16 MB (${MEDIA_ALLOWED_LABEL}).`}
       >
         <ImagePlus size={14} />
@@ -2189,14 +2181,14 @@
         placeholder={models.length === 0 ? 'No models available' : 'Write a message…'}
         disabled={models.length === 0}
         rows={1}
-        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-base sm:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
+        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-base sm:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
       ></textarea>
       <VoiceInput contextKey={voiceContext} disabled={models.length === 0 || streaming} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
 
       {#if streaming}
         <button
           onclick={stopStreaming}
-          class="ml-auto min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 px-3 py-2 bg-red-600 text-white hover:bg-red-700 flex items-center justify-center gap-1.5 transition-colors"
+          class="ml-auto min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 px-3 py-2 bg-red-600 text-white hover:bg-red-700 flex items-center justify-center gap-1.5 "
           title="Stop"
         >
           <Square size={14} />
@@ -2205,7 +2197,7 @@
         <button
           onclick={sendMessage}
           disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools || (!!boundAgentId && !boundAgent)}
-          class="ml-auto min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 px-3 py-2 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 flex items-center justify-center gap-1.5 transition-colors"
+          class="ml-auto min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 px-3 py-2 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 flex items-center justify-center gap-1.5 "
           title="Send (Ctrl+Enter / ⌘+Enter)"
           aria-label="Send message"
         >
@@ -2213,7 +2205,7 @@
         </button>
       {/if}
     </div>
-    <p id="chats-composer-hint" class="mt-1.5 text-xs text-gray-500 dark:text-dark-text-muted">Enter for a new line · Ctrl+Enter / ⌘+Enter to send</p>
+    <p id="chats-composer-hint" class="hidden sm:block mt-1.5 text-xs text-gray-500 dark:text-dark-text-muted">Enter for a new line · Ctrl+Enter / ⌘+Enter to send</p>
   </div>
 
   <!-- Question modal overlay -->
@@ -2236,7 +2228,7 @@
             {#each pendingQuestion.options as opt}
               <button
                 onclick={() => { const q = pendingQuestion; if (q) { pendingQuestion = null; q.resolve(opt.label); } }}
-                class="w-full text-left px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+                class="w-full text-left px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
               >
                 <div class="font-medium">{opt.label}</div>
                 {#if opt.description}
@@ -2254,11 +2246,11 @@
                     name="custom_answer"
                     type="text"
                     placeholder="Type your own answer..."
-                    class="flex-1 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+                    class="flex-1 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
                   />
                   <button
                     type="submit"
-                    class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                    class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                   >
                     Submit
                   </button>

@@ -201,12 +201,12 @@
       bind:value={newBody}
       placeholder="Add a comment..."
       rows="2"
-      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors resize-y"
+      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"
     ></textarea>
     <button
       type="submit"
       disabled={submitting || !newBody.trim()}
-      class="self-end p-2 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-40"
+      class="self-end p-2 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-40"
       title="Send"
     >
       <Send size={16} />
@@ -232,15 +232,15 @@
       {/if}
 
       <!-- Actions (show on hover) -->
-      <div class="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div class="ml-auto flex items-center gap-1 opacity-0 group-hover:opacity-100 ">
         {#if !isReply}
           <button onclick={() => startReply(comment.id)}
-            class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Reply">
+            class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " title="Reply">
             <Reply size={12} />
           </button>
         {/if}
         <button onclick={() => startEdit(comment)}
-          class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors" title="Edit">
+          class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary " title="Edit">
           <Pencil size={12} />
         </button>
         {#if deleteConfirm === comment.id}
@@ -250,7 +250,7 @@
             class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated">Cancel</button>
         {:else}
           <button onclick={() => (deleteConfirm = comment.id)}
-            class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 transition-colors" title="Delete">
+            class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 " title="Delete">
             <Trash2 size={12} />
           </button>
         {/if}
@@ -261,12 +261,12 @@
     {#if editingId === comment.id}
       <div class="flex gap-2">
         <textarea bind:value={editBody} rows="2"
-          class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text transition-colors resize-y"></textarea>
+          class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm dark:bg-dark-elevated dark:text-dark-text resize-y"></textarea>
         <div class="flex flex-col gap-1 self-end">
-          <button onclick={saveEdit} class="p-1 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors" title="Save">
+          <button onclick={saveEdit} class="p-1 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover " title="Save">
             <Check size={14} />
           </button>
-          <button onclick={cancelEdit} class="p-1 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 transition-colors" title="Cancel">
+          <button onclick={cancelEdit} class="p-1 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 " title="Cancel">
             <X size={14} />
           </button>
         </div>

@@ -232,14 +232,14 @@
 
       <button
         onclick={load}
-        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+        class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
         title="Refresh"
       >
         <RefreshCw size={14} />
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover "
       >
         <Plus size={12} />
         New Config
@@ -254,7 +254,7 @@
         <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
           {editingId ? `Edit: ${formName}` : 'New Config'}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
           <X size={14} />
         </button>
       </div>
@@ -268,7 +268,7 @@
             type="text"
             bind:value={formName}
             placeholder="e.g., Production SMTP"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
           />
         </div>
 
@@ -278,7 +278,7 @@
           <select
             id="form-type"
             bind:value={formType}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm bg-white dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle "
           >
             <option value="email">Email (SMTP)</option>
           </select>
@@ -294,7 +294,7 @@
               type="text"
               bind:value={formHost}
               placeholder="smtp.example.com"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
             />
           </div>
 
@@ -306,7 +306,7 @@
               type="number"
               bind:value={formPort}
               placeholder="587"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
             />
           </div>
 
@@ -318,7 +318,7 @@
               type="text"
               bind:value={formUsername}
               placeholder="(optional) user@example.com"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
             />
           </div>
 
@@ -331,12 +331,12 @@
                 type={formShowPassword ? 'text' : 'password'}
                 bind:value={formPassword}
                 placeholder={editingId && formHasStoredPassword ? '(stored - leave blank to keep)' : '(optional) SMTP password'}
-                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
               />
               <button
                 type="button"
                 onclick={() => { formShowPassword = !formShowPassword; }}
-                class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+                class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
                 title={formShowPassword ? 'Hide password' : 'Show password'}
               >
                 {#if formShowPassword}
@@ -356,7 +356,7 @@
               type="text"
               bind:value={formFrom}
               placeholder="noreply@example.com"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
             />
           </div>
 
@@ -416,7 +416,7 @@
               type="text"
               bind:value={formProxy}
               placeholder="(optional) http://user:pass@proxy:8080"
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
             />
           </div>
         {/if}
@@ -426,14 +426,14 @@
           <button
             type="button"
             onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary transition-colors"
+            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary "
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={saving}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50"
           >
             <Save size={14} />
             {#if saving}
@@ -471,7 +471,7 @@
       {/snippet}
 
       {#snippet row(config)}
-        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 transition-colors">
+        <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-highest/50 ">
           <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text">{config.name}</td>
           <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{config.type}</td>
           <td class="px-4 py-2.5 text-xs font-mono text-gray-500 dark:text-dark-text-muted">{parseConfigSummary(config)}</td>
@@ -480,7 +480,7 @@
             <div class="flex justify-end gap-1">
               <button
                 onclick={() => openEdit(config)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text "
                 title="Edit"
               >
                 <Pencil size={14} />
@@ -488,20 +488,20 @@
               {#if deleteConfirm === config.id}
                 <button
                   onclick={() => handleDelete(config.id)}
-                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                 >
                   Confirm
                 </button>
                 <button
                   onclick={() => (deleteConfirm = null)}
-                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
+                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest "
                 >
                   Cancel
                 </button>
               {:else}
                 <button
                   onclick={() => (deleteConfirm = config.id)}
-                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 "
                   title="Delete"
                 >
                   <Trash2 size={14} />

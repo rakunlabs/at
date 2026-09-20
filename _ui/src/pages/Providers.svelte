@@ -1740,14 +1740,14 @@
     <div class="flex gap-2">
       <button
         onclick={openPresets}
-        class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 dark:bg-accent text-white text-sm hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 dark:bg-accent text-white text-sm hover:bg-gray-800 dark:hover:bg-accent-hover "
       >
         <Layers size={14} />
         From Template
       </button>
       <button
         onclick={openCreate}
-        class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary transition-colors"
+        class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary "
       >
         <Plus size={14} />
         Custom
@@ -1760,7 +1760,7 @@
     <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
       <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border">
         <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Choose a Template</span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+        <button onclick={resetForm} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
           <X size={14} />
         </button>
       </div>
@@ -1768,7 +1768,7 @@
         {#each PRESETS as preset}
           <button
             onclick={() => applyPreset(preset)}
-            class="text-left border border-gray-200 dark:border-dark-border p-3 hover:border-gray-400 dark:hover:border-dark-border-subtle hover:shadow-sm transition-all group"
+            class="text-left border border-gray-200 dark:border-dark-border p-3 hover:border-gray-400 dark:hover:border-dark-border-subtle hover:shadow-sm group"
           >
             <div class="font-medium text-sm text-gray-900 dark:text-dark-text group-hover:text-gray-900 dark:group-hover:text-dark-text">{preset.name}</div>
             <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-1 leading-relaxed">{preset.description}</div>
@@ -1794,7 +1794,7 @@
             New Provider (Custom)
           {/if}
         </span>
-        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+        <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
           <X size={14} />
         </button>
       </div>
@@ -1830,7 +1830,7 @@
                       href={link.url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-border-subtle hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                      class="inline-flex items-center gap-1 text-xs px-2 py-1 bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary hover:border-gray-400 dark:hover:border-dark-border-subtle hover:text-gray-900 dark:hover:text-dark-text "
                     >
                       {link.label}
                       <ExternalLink size={10} />
@@ -1874,7 +1874,7 @@
             bind:value={formKey}
             disabled={!!editingKey}
             placeholder="e.g., anthropic, groq, ollama"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 disabled:text-gray-500 dark:disabled:bg-dark-surface dark:disabled:text-dark-text-muted dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 disabled:text-gray-500 dark:disabled:bg-dark-surface dark:disabled:text-dark-text-muted dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
           />
         </div>
 
@@ -1886,7 +1886,7 @@
               id="form-type"
               bind:value={formType}
               onchange={() => { formAuthType = ''; }}
-              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
+              class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle "
             >
               {#each PROVIDER_TYPES as t}
                 <option value={t}>{t}</option>
@@ -1909,7 +1909,7 @@
                     formBaseUrl = 'https://chatgpt.com/backend-api/codex/responses';
                   }
                 }}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle "
               >
                 <option value="">(none)</option>
                 {#if formType === 'openai'}
@@ -1941,7 +1941,7 @@
                     <button
                       type="button"
                       onclick={() => { navigator.clipboard.writeText(deviceAuthCode); addToast('Code copied to clipboard'); }}
-                      class="px-2.5 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary transition-colors"
+                      class="px-2.5 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary "
                     >
                       Copy
                     </button>
@@ -1953,7 +1953,7 @@
                   <button
                     type="button"
                     onclick={stopDeviceAuthPolling}
-                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
                   >
                     Cancel
                   </button>
@@ -1968,7 +1968,7 @@
                   <button
                     type="button"
                     onclick={handleDeviceAuth}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
                   >
                     <LogIn size={13} />
                     Re-authorize
@@ -1980,7 +1980,7 @@
                   <button
                     type="button"
                     onclick={handleDeviceAuth}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                   >
                     <LogIn size={14} />
                     Authorize with {deviceAuthProviderName()}
@@ -2013,7 +2013,7 @@
                     <button
                       type="button"
                       onclick={() => { navigator.clipboard.writeText(claudeAuthURL); addToast('URL copied to clipboard'); }}
-                      class="shrink-0 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary transition-colors"
+                      class="shrink-0 px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary "
                     >
                       Copy
                     </button>
@@ -2026,13 +2026,13 @@
                       type="text"
                       bind:value={claudeAuthCode}
                       placeholder="Paste authorization code here"
-                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                      class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                     />
                     <button
                       type="button"
                       onclick={handleClaudeAuthSubmit}
                       disabled={claudeAuthSubmitting || !claudeAuthCode.trim()}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed "
                     >
                       {#if claudeAuthSubmitting}
                         <RefreshCw size={13} class="animate-spin" />
@@ -2046,7 +2046,7 @@
                   <button
                     type="button"
                     onclick={resetClaudeAuth}
-                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                    class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
                   >
                     Cancel
                   </button>
@@ -2067,14 +2067,14 @@
                       bind:value={claudeTokenAccess}
                       placeholder="Access Token"
                       autocomplete="off"
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                     />
                     <input
                       type="password"
                       bind:value={claudeTokenRefresh}
                       placeholder="Refresh Token"
                       autocomplete="off"
-                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                      class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                     />
                   </div>
                   <div class="flex items-center gap-2">
@@ -2082,7 +2082,7 @@
                       type="button"
                       onclick={handleClaudeTokenSubmit}
                       disabled={claudeTokenSubmitting || !claudeTokenAccess.trim() || !claudeTokenRefresh.trim()}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 disabled:cursor-not-allowed "
                     >
                       {#if claudeTokenSubmitting}
                         <RefreshCw size={13} class="animate-spin" />
@@ -2095,7 +2095,7 @@
                     <button
                       type="button"
                       onclick={() => { claudeTokenMode = false; claudeTokenAccess = ''; claudeTokenRefresh = ''; }}
-                      class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                      class="text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
                     >
                       Cancel
                     </button>
@@ -2111,7 +2111,7 @@
                   <button
                     type="button"
                     onclick={handleClaudeAuth}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
                   >
                     <LogIn size={13} />
                     Re-authorize
@@ -2119,7 +2119,7 @@
                   <button
                     type="button"
                     onclick={() => { claudeTokenMode = true; }}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
                   >
                     <KeyRound size={13} />
                     Paste Token
@@ -2128,7 +2128,7 @@
                     type="button"
                     onclick={handleClaudeSync}
                     disabled={claudeSyncing}
-                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 transition-colors"
+                    class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 "
                   >
                     {#if claudeSyncing}
                       <RefreshCw size={13} class="animate-spin" />
@@ -2145,7 +2145,7 @@
                   <button
                     type="button"
                     onclick={handleClaudeAuth}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                   >
                     <LogIn size={14} />
                     Authorize with Claude
@@ -2153,7 +2153,7 @@
                   <button
                     type="button"
                     onclick={() => { claudeTokenMode = true; }}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
                   >
                     <KeyRound size={14} />
                     Paste Token
@@ -2162,7 +2162,7 @@
                     type="button"
                     onclick={handleClaudeSync}
                     disabled={claudeSyncing}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 "
                   >
                     {#if claudeSyncing}
                       <RefreshCw size={14} class="animate-spin" />
@@ -2194,7 +2194,7 @@
               autocomplete="off"
               bind:value={formApiKey}
               placeholder={formHasStoredKey ? '(stored - leave blank to keep)' : isVertexType ? '(not used - see Service account below)' : activePreset?.id === 'ollama' ? '(not needed)' : activePreset?.id === 'google-ai' ? 'AIza...' : activePreset?.id === 'github-models' ? 'github_pat_...' : 'sk-...'}
-              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+              class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
             />
           </div>
         {/if}
@@ -2230,7 +2230,7 @@
                 <button
                   type="button"
                   onclick={() => credentialsFileInput?.click()}
-                  class="inline-flex items-center gap-1.5 border border-gray-300 dark:border-dark-border-subtle px-2.5 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
+                  class="inline-flex items-center gap-1.5 border border-gray-300 dark:border-dark-border-subtle px-2.5 py-1.5 text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-highest "
                 >
                   <DownloadCloud size={13} class="shrink-0" />
                   Upload key file
@@ -2252,7 +2252,7 @@
                 placeholder={formHasStoredCredentials
                   ? '(stored - leave blank to keep the current key)'
                   : '{"type":"service_account","project_id":"...","private_key":"..."}'}
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
               ></textarea>
 
               {#if credentialsError}
@@ -2281,7 +2281,7 @@
               : activePreset?.id === 'google-ai'
               ? '(default: https://generativelanguage.googleapis.com)'
               : 'https://api.example.com/v1/chat/completions'}
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
           />
         </div>
 
@@ -2293,7 +2293,7 @@
             type="text"
             bind:value={formProxy}
             placeholder="e.g., http://proxy:8080 or socks5://127.0.0.1:1080"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
           />
         </div>
 
@@ -2315,7 +2315,7 @@
           <button
             type="button"
             onclick={() => (showRateLimitSection = !showRateLimitSection)}
-            class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+            class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
           >
             <ChevronDown size={14} class={showRateLimitSection ? '' : '-rotate-90'} />
             Rate Limit (optional)
@@ -2334,7 +2334,7 @@
                   min="0"
                   bind:value={formRateLimitMaxConcurrent}
                   placeholder="0 = unlimited"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
@@ -2345,7 +2345,7 @@
                   min="0"
                   bind:value={formRateLimitRPM}
                   placeholder="0 = unlimited"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
@@ -2356,7 +2356,7 @@
                   min="0"
                   bind:value={formRateLimitITPM}
                   placeholder="0 = unlimited"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
@@ -2367,7 +2367,7 @@
                   min="0"
                   bind:value={formRateLimitWaitTimeoutMs}
                   placeholder="default 60000"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                 />
               </div>
               <div class="grid grid-cols-4 gap-3 items-center">
@@ -2378,7 +2378,7 @@
                   min="-1"
                   bind:value={formRateLimitRetryAfterCapMs}
                   placeholder="default 60000, -1 = no cap"
-                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                  class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                 />
               </div>
             </div>
@@ -2393,7 +2393,7 @@
             type="text"
             bind:value={formModel}
             placeholder="e.g., gpt-4o, claude-haiku-4-5"
-            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+            class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
           />
         </div>
 
@@ -2407,7 +2407,7 @@
                 <button
                   type="button"
                   onclick={() => removeModel(i)}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint transition-colors"
+                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint "
                 >
                   <X size={12} />
                 </button>
@@ -2419,12 +2419,12 @@
                 bind:value={newModelInput}
                 placeholder="model name"
                 onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addModel(); } }}
-                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
               />
               <button
                 type="button"
                 onclick={addModel}
-                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors shrink-0"
+                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text shrink-0"
               >
                 + Add
               </button>
@@ -2432,7 +2432,7 @@
                 type="button"
                 onclick={handleDiscoverModels}
                 disabled={discoveringModels}
-                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 title="Fetch available models from the provider using the API key above"
               >
                 <RefreshCw size={13} class={discoveringModels ? 'animate-spin' : ''} />
@@ -2457,7 +2457,7 @@
                 <button
                   type="button"
                   onclick={() => removeEmbeddingModel(i)}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint transition-colors"
+                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint "
                 >
                   <X size={12} />
                 </button>
@@ -2469,12 +2469,12 @@
                 bind:value={newEmbeddingModelInput}
                 placeholder="e.g., text-embedding-3-small"
                 onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addEmbeddingModel(); } }}
-                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
               />
               <button
                 type="button"
                 onclick={addEmbeddingModel}
-                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors shrink-0"
+                class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text shrink-0"
               >
                 + Add
               </button>
@@ -2482,7 +2482,7 @@
                 type="button"
                 onclick={handleDiscoverEmbeddingModels}
                 disabled={discoveringEmbeddingModels}
-                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                class="flex items-center gap-1.5 px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                 title="Fetch available embedding models from the provider using the API key above"
               >
                 <RefreshCw size={13} class={discoveringEmbeddingModels ? 'animate-spin' : ''} />
@@ -2504,18 +2504,18 @@
                   type="text"
                   bind:value={header.key}
                   placeholder="Header-Name"
-                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                 />
                 <input
                   type="text"
                   bind:value={header.value}
                   placeholder="value"
-                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted transition-colors"
+                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder-dark-text-muted "
                 />
                 <button
                   type="button"
                   onclick={() => removeHeader(i)}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint transition-colors"
+                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-red-50 dark:hover:bg-red-900/30 hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 text-gray-400 dark:text-dark-text-faint "
                 >
                   <X size={12} />
                 </button>
@@ -2524,7 +2524,7 @@
             <button
               type="button"
               onclick={addHeader}
-              class="text-sm text-gray-500 dark:text-dark-text-muted hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+              class="text-sm text-gray-500 dark:text-dark-text-muted hover:text-gray-900 dark:hover:text-dark-text "
             >
               + Add header
             </button>
@@ -2536,13 +2536,13 @@
           <button
             type="button"
             onclick={resetForm}
-            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary transition-colors"
+            class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-700 dark:text-dark-text-secondary "
           >
             Cancel
           </button>
           <button
             type="submit"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
           >
             <Save size={14} />
             {editingKey ? 'Update' : 'Create'}
@@ -2581,7 +2581,7 @@
         {@const embeddingModels = rec.config.embedding_models || []}
         <tr
           class={[
-            'transition-colors',
+            '',
             rec.config.disabled
               ? 'bg-gray-100/70 dark:bg-dark-base text-gray-400 dark:text-dark-text-faint hover:bg-gray-100 dark:hover:bg-dark-elevated/60'
               : 'hover:bg-gray-50/50 dark:hover:bg-dark-highest/50',
@@ -2609,7 +2609,7 @@
             {:else}
               <button
                 onclick={() => openModelsView(rec)}
-                class="inline-flex items-center gap-1.5 whitespace-nowrap border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs text-gray-600 dark:text-dark-text-secondary transition-colors hover:bg-gray-100 dark:hover:bg-dark-highest focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+                class="inline-flex items-center gap-1.5 whitespace-nowrap border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-highest focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                 title="Show every model this provider advertises"
               >
                 <Layers size={12} class="shrink-0" />
@@ -2629,7 +2629,7 @@
             <div class="flex justify-end gap-1">
               <button
                 onclick={() => openConfigView(rec)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary "
                 title="View Config"
               >
                 <FileCode size={14} />
@@ -2638,7 +2638,7 @@
                 onclick={() => toggleDisabled(rec)}
                 disabled={changingDisabled[rec.key]}
                 class={[
-                  'p-1.5 transition-colors disabled:cursor-wait disabled:opacity-50',
+                  'p-1.5 disabled:cursor-wait disabled:opacity-50',
                   rec.config.disabled
                     ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/30'
                     : 'text-gray-400 dark:text-dark-text-faint hover:bg-gray-100 dark:hover:bg-dark-highest hover:text-gray-700 dark:hover:text-dark-text-secondary',
@@ -2656,7 +2656,7 @@
               </button>
               <button
                 onclick={() => openEdit(rec)}
-                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-700 dark:hover:text-dark-text-secondary "
                 title="Edit"
               >
                 <Pencil size={14} />
@@ -2664,20 +2664,20 @@
               {#if deleteConfirm === rec.key}
                 <button
                   onclick={() => handleDelete(rec.key)}
-                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                  class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                 >
                   Confirm
                 </button>
                 <button
                   onclick={() => (deleteConfirm = null)}
-                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest transition-colors"
+                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-highest "
                 >
                   Cancel
                 </button>
               {:else}
                 <button
                   onclick={() => (deleteConfirm = rec.key)}
-                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/30 text-gray-400 dark:text-dark-text-faint hover:text-red-600 dark:hover:text-red-400 "
                   title="Delete"
                 >
                   <Trash2 size={14} />
@@ -2705,7 +2705,7 @@
           <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
             Config: <span class="font-mono">{configViewProvider.key}</span>
           </span>
-          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors">
+          <button onclick={closeConfigView} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary ">
             <X size={14} />
           </button>
         </div>
@@ -2715,20 +2715,20 @@
           <div class="flex gap-1">
             <button
               onclick={() => { configFormat = 'yaml'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'yaml' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
+              class="px-2.5 py-1 text-xs font-medium {configFormat === 'yaml' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
             >
               YAML
             </button>
             <button
               onclick={() => { configFormat = 'json'; configCopied = false; }}
-              class="px-2.5 py-1 text-xs font-medium transition-colors {configFormat === 'json' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
+              class="px-2.5 py-1 text-xs font-medium {configFormat === 'json' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-highest'}"
             >
               JSON
             </button>
           </div>
           <button
             onclick={copyConfigSnippet}
-            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+            class="flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-200 dark:border-dark-border hover:bg-gray-50 dark:hover:bg-dark-highest text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text "
           >
             {#if configCopied}
               <Check size={12} class="text-green-600" />
@@ -2772,7 +2772,7 @@
           <button
             onclick={closeModelsView}
             aria-label="Close model list"
-            class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors"
+            class="p-1 hover:bg-gray-200 dark:hover:bg-dark-highest text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary "
           >
             <X size={14} />
           </button>

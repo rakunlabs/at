@@ -816,7 +816,7 @@
 
   function scrollChatToBottom() {
     setTimeout(() => {
-      chatMessagesEnd?.scrollIntoView({ behavior: 'smooth' });
+      chatMessagesEnd?.scrollIntoView({ behavior: 'instant' });
     }, 50);
   }
 
@@ -926,12 +926,12 @@
 {#snippet delegationNode(node: TaskWithSubtasks, depth: number)}
   {@const isLive = activeTaskIds.has(node.id)}
   <div class="subtask-row {isLive ? 'subtask-row-live' : ''}" style="padding-left: {depth * 20}px">
-    <div class="subtask-inner flex items-center gap-2 px-3 py-2 transition-colors">
+    <div class="subtask-inner flex items-center gap-2 px-3 py-2 ">
       <!-- Expand/collapse toggle -->
       {#if node.sub_tasks?.length}
         <button
           onclick={() => toggleNode(node.id)}
-          class="p-0.5 text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors shrink-0"
+          class="p-0.5 text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary shrink-0"
         >
           {#if expandedNodes.has(node.id)}
             <ChevronDown size={12} />
@@ -964,7 +964,7 @@
       <!-- Title (clickable link) -->
       <a
         href="#/tasks/{node.id}"
-        class="text-sm text-gray-900 dark:text-dark-text hover:text-blue-600 dark:hover:text-blue-400 transition-colors truncate flex-1 {isLive ? 'font-medium' : ''}"
+        class="text-sm text-gray-900 dark:text-dark-text hover:text-blue-600 dark:hover:text-blue-400 truncate flex-1 {isLive ? 'font-medium' : ''}"
       >
         {node.title}
       </a>
@@ -1006,7 +1006,7 @@
       <div class="flex items-center justify-between mb-4">
         <button
           onclick={() => push('/tasks')}
-          class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+          class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
         >
           <ArrowLeft size={14} />
           Back to Tasks
@@ -1014,7 +1014,7 @@
         <button
           onclick={() => { loadTask(); loadLabels(); loadSubTasks(); }}
           disabled={loading}
-          class="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors"
+          class="flex items-center gap-1.5 px-2 py-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-50 "
           title="Refresh task"
         >
           <RefreshCw size={13} class={loading ? 'animate-spin' : ''} />
@@ -1033,14 +1033,14 @@
                   type="text"
                   bind:value={editTitle}
                   onkeydown={(e) => { if (e.key === 'Enter') saveTitle(); if (e.key === 'Escape') cancelEditTitle(); }}
-                  class="flex-1 text-xl font-semibold border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                  class="flex-1 text-xl font-semibold border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text "
                 />
                 <button onclick={saveTitle} disabled={saving}
-                  class="p-1.5 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors" title="Save">
+                  class="p-1.5 bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover " title="Save">
                   <Check size={14} />
                 </button>
                 <button onclick={cancelEditTitle}
-                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 transition-colors" title="Cancel">
+                  class="p-1.5 border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 " title="Cancel">
                   <X size={14} />
                 </button>
               </div>
@@ -1053,7 +1053,7 @@
                   {task.title}
                 </h1>
                 <button onclick={startEditTitle}
-                  class="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-all shrink-0" title="Edit title">
+                  class="p-1.5 opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text shrink-0" title="Edit title">
                   <Pencil size={14} />
                 </button>
               </div>
@@ -1066,7 +1066,7 @@
               <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Description</span>
               {#if !editingDescription}
                 <button onclick={startEditDescription}
-                  class="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-all" title="Edit description">
+                  class="p-1 opacity-0 group-hover:opacity-100 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text " title="Edit description">
                   <Pencil size={12} />
                 </button>
               {/if}
@@ -1077,16 +1077,16 @@
                 <textarea
                   bind:value={editDescription}
                   rows="5"
-                  class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text transition-colors resize-y"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:text-dark-text resize-y"
                   placeholder="Add a description..."
                 ></textarea>
                 <div class="flex gap-2">
                   <button onclick={saveDescription} disabled={saving}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors">
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover ">
                     <Save size={12} /> Save
                   </button>
                   <button onclick={cancelEditDescription}
-                    class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors">
+                    class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary ">
                     Cancel
                   </button>
                 </div>
@@ -1127,7 +1127,7 @@
             <div class="flex gap-0">
               <button
                 onclick={() => (tabRoute.value = 'activity')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'activity' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'activity' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <Activity size={13} />
                 Activity
@@ -1137,14 +1137,14 @@
               </button>
               <button
                 onclick={() => (tabRoute.value = 'comments')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'comments' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'comments' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <MessageSquare size={13} />
                 Comments
               </button>
               <button
                 onclick={() => (tabRoute.value = 'subtasks')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'subtasks' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'subtasks' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <ListTree size={13} />
                 Sub-tasks
@@ -1160,7 +1160,7 @@
               </button>
               <button
                 onclick={() => (tabRoute.value = 'events')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'events' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'events' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
                 title="Live audit timeline for this task and its delegation tree"
               >
                 <Clock size={13} />
@@ -1174,7 +1174,7 @@
               </button>
               <button
                 onclick={() => (tabRoute.value = 'labels')}
-                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium transition-colors border-b-2 {activeTab === 'labels' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+                class="flex items-center gap-1.5 px-4 py-2 text-xs font-medium border-b-2 {activeTab === 'labels' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
               >
                 <Tag size={13} />
                 Labels
@@ -1210,7 +1210,7 @@
                         <button
                           onclick={handleOpenChat}
                           disabled={openingChat}
-                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                          class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
                         >
                           <MessageSquare size={12} />
                           {openingChat ? 'Starting...' : 'Start Chat Session'}
@@ -1354,7 +1354,7 @@
                       {#if chatSending}
                         <button
                           onclick={stopChatGeneration}
-                          class="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                          class="p-1.5 text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
                           title="Stop generation"
                         >
                           <Square size={14} />
@@ -1363,7 +1363,7 @@
                         <button
                           onclick={handleChatSend}
                           disabled={!chatInput.trim()}
-                          class="p-1.5 text-gray-500 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-20 transition-colors shrink-0"
+                          class="p-1.5 text-gray-500 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-20 shrink-0"
                           title="Send"
                         >
                           <Send size={14} />
@@ -1398,7 +1398,7 @@
                   <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Trace Timeline</span>
                   <button
                     onclick={loadEvents}
-                    class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors"
+                    class="flex items-center gap-1 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary "
                     title="Refresh"
                   >
                     <RefreshCw size={11} class={eventsLoading ? 'animate-spin' : ''} />
@@ -1497,7 +1497,7 @@
                         {label.name}
                         <button
                           onclick={() => toggleLabel(label)}
-                          class="ml-1 p-0.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-red-500 transition-colors"
+                          class="ml-1 p-0.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-red-500 "
                           title="Remove label"
                         >
                           <X size={10} />
@@ -1510,7 +1510,7 @@
                 <!-- Add label -->
                 <button
                   onclick={() => (showLabelPicker = !showLabelPicker)}
-                  class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary transition-colors mb-3"
+                  class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary mb-3"
                 >
                   <Tag size={12} />
                   {showLabelPicker ? 'Hide label picker' : 'Add label'}
@@ -1530,7 +1530,7 @@
                       <button
                         onclick={handleCreateLabel}
                         disabled={creatingLabel || !newLabelName.trim()}
-                        class="px-2.5 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                        class="px-2.5 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
                       >
                         {creatingLabel ? '...' : 'Create'}
                       </button>
@@ -1541,7 +1541,7 @@
                         <button
                           onclick={() => (newLabelColor = color)}
                           class={[
-                            'w-5 h-5 rounded-full border-2 transition-all',
+                            'w-5 h-5 rounded-full border-2 ',
                             newLabelColor === color ? 'border-gray-900 dark:border-white scale-110' : 'border-transparent hover:border-gray-300 dark:hover:border-dark-border-subtle',
                           ]}
                           style="background-color: {color}"
@@ -1557,7 +1557,7 @@
                       {#each allLabels as label}
                         <button
                           onclick={() => toggleLabel(label)}
-                          class="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-elevated/50 transition-colors {isLabelAttached(label.id) ? 'bg-gray-50 dark:bg-dark-elevated/30' : ''}"
+                          class="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-elevated/50 {isLabelAttached(label.id) ? 'bg-gray-50 dark:bg-dark-elevated/30' : ''}"
                         >
                           {#if label.color}
                             <span class="w-3 h-3 rounded-full shrink-0" style="background-color: {label.color}"></span>
@@ -1587,7 +1587,7 @@
               <select
                 value={task.status}
                 onchange={(e) => updateField('status', (e.target as HTMLSelectElement).value)}
-                class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
               >
                 {#each TASK_STATUSES as status}
                   <option value={status}>{TASK_STATUS_LABELS[status]}</option>
@@ -1608,7 +1608,7 @@
               <select
                 value={task.priority_level || ''}
                 onchange={(e) => updateField('priority_level', (e.target as HTMLSelectElement).value)}
-                class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-sm focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
               >
                 <option value="">None</option>
                 {#each TASK_PRIORITIES as prio}
@@ -1631,7 +1631,7 @@
                 <select
                   value={task.organization_id || ''}
                   onchange={(e) => updateField('organization_id', (e.target as HTMLSelectElement).value)}
-                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
                 >
                   <option value="">None</option>
                   {#each organizations as org}
@@ -1647,7 +1647,7 @@
                 <select
                   value={task.assigned_agent_id || ''}
                   onchange={(e) => updateField('assigned_agent_id', (e.target as HTMLSelectElement).value)}
-                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
                 >
                   <option value="">Unassigned</option>
                   {#each agents as agent}
@@ -1714,14 +1714,14 @@
                     <button
                       onclick={loadCost}
                       disabled={costLoading}
-                      class="ml-auto p-0.5 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text disabled:opacity-50 transition-colors"
+                      class="ml-auto p-0.5 text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text disabled:opacity-50 "
                       title="Refresh cost"
                     >
                       <RefreshCw size={10} class={costLoading ? 'animate-spin' : ''} />
                     </button>
                     <a
                       href={costEventsUrl}
-                      class="p-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors"
+                      class="p-0.5 text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 "
                       title="View traces for this task tree"
                     >
                       <Receipt size={10} />
@@ -1765,7 +1765,7 @@
                     updateField('max_iterations', Number.isFinite(n) && n >= 0 ? n : 0);
                   }}
                   placeholder="0 = agent default"
-                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text transition-colors"
+                  class="flex-1 min-w-0 border border-gray-200 dark:border-dark-border-subtle px-1.5 py-0.5 text-xs focus:outline-none dark:bg-dark-elevated dark:text-dark-text "
                 />
               </div>
 
@@ -1869,7 +1869,7 @@
                     <button
                       onclick={handleCancelDelegation}
                       disabled={cancelling || !delegationRootActive}
-                      class="px-2 py-1 text-[10px] font-medium bg-red-600 text-white hover:bg-red-700 transition-colors disabled:opacity-50 shrink-0"
+                      class="px-2 py-1 text-[10px] font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 shrink-0"
                       title={delegationRootActive ? 'Cancel delegation' : 'Cancellation must be initiated on the root task'}
                     >
                       {cancelling ? '...' : 'Stop'}
@@ -1880,7 +1880,7 @@
                 <button
                   onclick={handleProcess}
                   disabled={processing || delegationActive}
-                  class="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 transition-colors disabled:opacity-50"
+                  class="flex items-center gap-1.5 text-xs text-green-700 dark:text-green-400 hover:text-green-800 dark:hover:text-green-300 disabled:opacity-50"
                 >
                   <Play size={12} />
                   {processing ? 'Processing...' : 'Process (Start Delegation)'}
@@ -1889,7 +1889,7 @@
                 <button
                   onclick={handleOpenChat}
                   disabled={openingChat}
-                  class="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 transition-colors disabled:opacity-50"
+                  class="flex items-center gap-1.5 text-xs text-blue-700 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 disabled:opacity-50"
                 >
                   <Activity size={12} />
                   {openingChat ? 'Opening...' : 'Open Chat'}
@@ -1902,20 +1902,20 @@
                         bind:value={revisionFeedback}
                         rows="3"
                         placeholder="Describe what needs to change..."
-                        class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-xs bg-transparent dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:border-gray-400 dark:focus:border-accent/50 resize-y transition-colors"
+                        class="w-full border border-gray-200 dark:border-dark-border-subtle px-2 py-1.5 text-xs bg-transparent dark:bg-dark-elevated dark:text-dark-text focus:outline-none focus:border-gray-400 dark:focus:border-accent/50 resize-y "
                       ></textarea>
                       <div class="flex gap-1.5">
                         <button
                           onclick={handleRequestRevision}
                           disabled={requestingRevision || !revisionFeedback.trim()}
-                          class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-orange-600 text-white hover:bg-orange-700 transition-colors disabled:opacity-50"
+                          class="flex-1 flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-50"
                         >
                           <RotateCcw size={11} />
                           {requestingRevision ? 'Sending...' : 'Send & Reprocess'}
                         </button>
                         <button
                           onclick={() => { showRevisionForm = false; revisionFeedback = ''; }}
-                          class="px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted transition-colors"
+                          class="px-2 py-1.5 text-xs border border-gray-200 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted "
                         >
                           Cancel
                         </button>
@@ -1924,7 +1924,7 @@
                   {:else}
                     <button
                       onclick={() => (showRevisionForm = true)}
-                      class="flex items-center gap-1.5 text-xs text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 transition-colors"
+                      class="flex items-center gap-1.5 text-xs text-orange-600 dark:text-orange-400 hover:text-orange-700 dark:hover:text-orange-300 "
                     >
                       <RotateCcw size={12} />
                       Request Revision
@@ -1946,13 +1946,13 @@
                   <span class="text-xs text-red-600 dark:text-red-400">Delete this task?</span>
                   <button
                     onclick={handleDelete}
-                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                    class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                   >
                     Confirm
                   </button>
                   <button
                     onclick={() => (deleteConfirm = false)}
-                    class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                    class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated "
                   >
                     Cancel
                   </button>
@@ -1960,7 +1960,7 @@
               {:else}
                 <button
                   onclick={() => (deleteConfirm = true)}
-                  class="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors"
+                  class="flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 "
                 >
                   <Trash2 size={12} />
                   Delete task

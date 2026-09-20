@@ -219,7 +219,7 @@
         </button>
         <button
           onclick={() => (showForm = !showForm)}
-          class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+          class="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium border border-gray-300 dark:border-dark-border text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
         >
           <Plus size={12} /> New character
         </button>
@@ -274,7 +274,7 @@
           <button
             onclick={() => openEditor(c)}
             class={[
-              'group relative text-left border transition-colors',
+              'group relative text-left border ',
               selected?.manifest.slug === c.manifest.slug
                 ? 'border-gray-900 dark:border-accent ring-1 ring-gray-900 dark:ring-accent'
                 : 'border-gray-200 dark:border-dark-border hover:border-gray-400 dark:hover:border-dark-text-muted',
@@ -300,7 +300,7 @@
               tabindex="0"
               onclick={(e) => { e.stopPropagation(); removeCharacter(c); }}
               onkeydown={(e) => { if (e.key === 'Enter') { e.stopPropagation(); removeCharacter(c); } }}
-              class="absolute top-1 right-1 p-1 bg-white/80 dark:bg-dark-base/80 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+              class="absolute top-1 right-1 p-1 bg-white/80 dark:bg-dark-base/80 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 "
               title="Delete character"
             >
               <Trash2 size={11} />

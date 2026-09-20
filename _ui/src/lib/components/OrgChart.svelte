@@ -334,7 +334,7 @@
         <div
           style="height: {NODE_H}px;"
           class={[
-            'border overflow-hidden transition-colors duration-100',
+            'border overflow-hidden ',
             isSelected
               ? 'border-accent bg-white dark:bg-dark-surface'
               : isHead
@@ -421,17 +421,17 @@
   <div class="org-controls absolute bottom-3 left-3 flex items-center gap-px border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
     <button
       onclick={(e) => { e.stopPropagation(); zoomTo(scale * 1.25); }}
-      class="w-7 h-7 flex items-center justify-center text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors border-r border-gray-200 dark:border-dark-border"
+      class="w-7 h-7 flex items-center justify-center text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated border-r border-gray-200 dark:border-dark-border"
       title="Zoom in"
     >+</button>
     <button
       onclick={(e) => { e.stopPropagation(); zoomTo(scale * 0.8); }}
-      class="w-7 h-7 flex items-center justify-center text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors border-r border-gray-200 dark:border-dark-border"
+      class="w-7 h-7 flex items-center justify-center text-xs text-gray-600 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated border-r border-gray-200 dark:border-dark-border"
       title="Zoom out"
     >-</button>
     <button
       onclick={(e) => { e.stopPropagation(); fitView(); }}
-      class="h-7 px-2 flex items-center justify-center text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+      class="h-7 px-2 flex items-center justify-center text-[10px] text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated "
       title="Fit view"
     >fit</button>
   </div>

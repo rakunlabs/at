@@ -148,9 +148,9 @@
     } finally { resetPassword = ''; busy = false; }
   }
 
-  const iconButton = 'p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed';
-  const smallButton = 'px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors disabled:opacity-50';
-  const primaryButton = 'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover transition-colors disabled:opacity-50';
+  const iconButton = 'p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text disabled:opacity-40 disabled:cursor-not-allowed';
+  const smallButton = 'px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary disabled:opacity-50';
+  const primaryButton = 'flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 text-white hover:bg-gray-800 dark:bg-accent dark:hover:bg-accent-hover disabled:opacity-50';
   const inputClass = 'w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-accent';
   const badge = 'inline-flex items-center px-1.5 py-0.5 text-[10px] font-medium border';
 </script>
@@ -229,7 +229,7 @@
             </tr></thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-border">
               {#each users as user (user.id)}
-                <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors align-top">
+                <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 align-top">
                   <td class="px-4 py-2.5 min-w-0">
                     <button class="flex items-start gap-1.5 text-left max-w-full" onclick={() => toggleDetail(user)} aria-expanded={expanded === user.id} title="Account detail">
                       {#if expanded === user.id}<ChevronDown size={14} class="mt-0.5 shrink-0 text-gray-400" />{:else}<ChevronRight size={14} class="mt-0.5 shrink-0 text-gray-400" />{/if}
@@ -262,7 +262,7 @@
                       <!-- Deletion confirms through the prompt rather than an
                            inline arm/confirm pair: it is irreversible, and the
                            prompt is where what it removes can be named. -->
-                      <button class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed" disabled={busy || loading || user.id === storeAuth.identity?.subject} title={user.id === storeAuth.identity?.subject ? 'You cannot delete your own account' : 'Delete account permanently'} onclick={() => mutate(user, 'delete')}><Trash2 size={14} /></button>
+                      <button class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 dark:text-dark-text-muted hover:text-red-600 disabled:opacity-40 disabled:cursor-not-allowed" disabled={busy || loading || user.id === storeAuth.identity?.subject} title={user.id === storeAuth.identity?.subject ? 'You cannot delete your own account' : 'Delete account permanently'} onclick={() => mutate(user, 'delete')}><Trash2 size={14} /></button>
                     </div>
                   </td>
                 </tr>

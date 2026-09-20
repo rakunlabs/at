@@ -600,7 +600,7 @@
       <div class="flex items-center gap-4 mb-4 border-b border-gray-200 dark:border-dark-border">
         <button
           onclick={() => (tabRoute.value = 'my-skills')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'my-skills' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'my-skills' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Wand2 size={14} />
           My Skills
@@ -608,14 +608,14 @@
         </button>
         <button
           onclick={() => (tabRoute.value = 'store')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'store' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Store size={14} />
           Skill Store
         </button>
         <button
           onclick={() => (tabRoute.value = 'community')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 transition-colors {activeTab === 'community' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'community' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
         >
           <Globe size={14} />
           Community
@@ -632,7 +632,7 @@
         <div class="flex items-center gap-2">
           <button
             onclick={() => { showAIPanel = !showAIPanel; }}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
             title="Toggle AI Skill Builder"
           >
             <Bot size={12} />
@@ -640,7 +640,7 @@
           </button>
           <button
             onclick={() => { showImportURL = !showImportURL; if (showImportURL) showImportRaw = false; }}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
             title="Import skill from URL"
           >
             <ExternalLink size={12} />
@@ -648,7 +648,7 @@
           </button>
           <button
             onclick={() => { showImportRaw = !showImportRaw; if (showImportRaw) showImportURL = false; }}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
             title="Paste raw SKILL.md content"
           >
             <FileText size={12} />
@@ -656,14 +656,14 @@
           </button>
           <button
             onclick={load}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
             title="Refresh"
           >
             <RefreshCw size={14} />
           </button>
           <button
             onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
           >
             <Plus size={12} />
             New Skill
@@ -682,14 +682,14 @@
           />
           <button
             onclick={handleImportURL}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
           >
             <Upload size={12} />
             Import
           </button>
           <button
             onclick={() => { showImportURL = false; }}
-            class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
           >
             <X size={14} />
           </button>
@@ -703,7 +703,7 @@
             <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Paste raw SKILL.md content</span>
             <button
               onclick={() => { showImportRaw = false; }}
-              class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+              class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
             >
               <X size={14} />
             </button>
@@ -712,13 +712,13 @@
             bind:value={importRawContent}
             rows={10}
             placeholder={"---\nname: my_skill\ndescription: What this skill does\n---\n\n# Instructions\n\nYour system prompt content here..."}
-            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+            class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
           ></textarea>
           <div class="flex justify-end">
             <button
               onclick={handleImportRaw}
               disabled={importingRaw}
-              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
             >
               <Upload size={12} />
               {importingRaw ? 'Importing...' : 'Import SKILL.md'}
@@ -732,12 +732,12 @@
         <div class="flex items-center gap-2 px-4 py-2 flex-wrap">
           <button
             onclick={() => mySelectedCategory = ''}
-            class={["px-2 py-0.5 text-xs border transition-colors", !mySelectedCategory ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+            class={["px-2 py-0.5 text-xs border ", !mySelectedCategory ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
           >All</button>
           {#each myCategories as cat}
             <button
               onclick={() => mySelectedCategory = cat}
-              class={["px-2 py-0.5 text-xs border transition-colors", mySelectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
+              class={["px-2 py-0.5 text-xs border ", mySelectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated']}
             >{cat}</button>
           {/each}
         </div>
@@ -755,7 +755,7 @@
                 <button
                   type="button"
                   onclick={pasteSkill}
-                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text transition-colors"
+                  class="flex items-center gap-1 px-2 py-1 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated hover:text-gray-900 dark:hover:text-dark-text "
                   title="Paste skill from clipboard"
                 >
                   <ClipboardPaste size={12} />
@@ -763,7 +763,7 @@
                 </button>
               {/if}
             </div>
-            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
+            <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ">
               <X size={14} />
             </button>
           </div>
@@ -777,7 +777,7 @@
                 type="text"
                 bind:value={formName}
                 placeholder="e.g., web_search, code_review"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -789,7 +789,7 @@
                 type="text"
                 bind:value={formDescription}
                 placeholder="What this skill does"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -801,7 +801,7 @@
                 type="text"
                 bind:value={formCategory}
                 placeholder="e.g. OpenMontage, Utilities"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -814,7 +814,7 @@
                 value={formTags.join(', ')}
                 oninput={(e) => { formTags = (e.target as HTMLInputElement).value.split(',').map(t => t.trim()).filter(Boolean); }}
                 placeholder="e.g. video, production"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
               />
             </div>
 
@@ -826,7 +826,7 @@
                 bind:value={formSystemPrompt}
                 rows={3}
                 placeholder="Instructions for the agent when using this skill"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
               ></textarea>
             </div>
 
@@ -841,7 +841,7 @@
                       <button
                         type="button"
                         onclick={() => removeTool(i)}
-                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                        class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                         title="Remove tool"
                       >
                         <X size={12} />
@@ -852,13 +852,13 @@
                         type="text"
                         bind:value={tool.name}
                         placeholder="Tool name (e.g., search_web)"
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                       />
                       <input
                         type="text"
                         bind:value={tool.description}
                         placeholder="Tool description"
-                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                        class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
                       />
                       <div>
                         <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-0.5">Input Schema (JSON)</div>
@@ -866,7 +866,7 @@
                           value={JSON.stringify(tool.inputSchema || {}, null, 2)}
                           oninput={(e) => updateToolSchema(i, (e.target as HTMLTextAreaElement).value)}
                           rows={3}
-                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
                           placeholder={'{\n  "type": "object",\n  "properties": { ... }\n}'}
                         ></textarea>
                       </div>
@@ -884,7 +884,7 @@
                         <textarea
                           bind:value={tool.handler}
                           rows={3}
-                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y transition-colors dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                          class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2.5 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle resize-y dark:text-dark-text dark:placeholder:text-dark-text-muted"
                           placeholder={tool.handler_type === 'bash'
                             ? '#!/bin/bash\ncurl -s "$ARG_URL" | jq .'
                             : '// Access tool arguments as "args"\nvar result = httpGet(args.url);\nreturn result.body;'}
@@ -896,7 +896,7 @@
                 <button
                   type="button"
                   onclick={addTool}
-                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                  class="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-900 dark:text-dark-text-muted dark:hover:text-dark-text "
                 >
                   <Plus size={12} />
                   Add tool
@@ -909,14 +909,14 @@
               <button
                 type="button"
                 onclick={resetForm}
-                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary transition-colors"
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 disabled={saving}
-                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
               >
                 <Save size={14} />
                 {#if saving}
@@ -953,7 +953,7 @@
           {/snippet}
 
           {#snippet row(skill)}
-            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+            <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
               <td class="px-4 py-2.5 font-mono font-medium text-gray-900 dark:text-dark-text">{skill.name}</td>
               <td class="px-4 py-2.5 text-xs text-gray-500 dark:text-dark-text-muted max-w-64 truncate" title={skill.description}>
                 {skill.description || '-'}
@@ -974,28 +974,28 @@
                 <div class="flex justify-end gap-1">
                   <button
                     onclick={() => handleExport(skill)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Export skill as JSON"
                   >
                     <Download size={14} />
                   </button>
                   <button
                     onclick={() => copySkill(skill)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Copy skill"
                   >
                     <Copy size={14} />
                   </button>
                   <button
                     onclick={() => openEditWithAI(skill)}
-                    class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-gray-400 hover:text-blue-600 dark:text-dark-text-muted dark:hover:text-accent-text transition-colors"
+                    class="p-1.5 hover:bg-blue-50 dark:hover:bg-accent-muted text-gray-400 hover:text-blue-600 dark:text-dark-text-muted dark:hover:text-accent-text "
                     title="Edit with AI"
                   >
                     <Bot size={14} />
                   </button>
                   <button
                     onclick={() => openEdit(skill)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors"
+                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
                     title="Edit"
                   >
                     <Pencil size={14} />
@@ -1003,20 +1003,20 @@
                   {#if deleteConfirm === skill.id}
                     <button
                       onclick={() => handleDelete(skill.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 transition-colors"
+                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
                     >
                       Confirm
                     </button>
                     <button
                       onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary transition-colors"
+                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => (deleteConfirm = skill.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                       title="Delete"
                     >
                       <Trash2 size={14} />
@@ -1040,7 +1040,7 @@
             {#each categories as cat}
               <button
                 onclick={() => selectCategory(cat)}
-                class="px-2.5 py-1 text-xs font-medium transition-colors {selectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+                class="px-2.5 py-1 text-xs font-medium {selectedCategory === cat ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
               >
                 {cat}
               </button>
@@ -1048,7 +1048,7 @@
             {#if selectedCategory}
               <button
                 onclick={() => selectCategory('')}
-                class="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+                class="px-2 py-1 text-xs text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
               >
                 Clear
               </button>
@@ -1136,7 +1136,7 @@
                       {#if !oauthAllVarsReady(tmpl)}
                         <button
                           onclick={() => saveOAuthVars(tmpl)}
-                          class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium bg-gray-800 dark:bg-dark-elevated text-white hover:bg-gray-700 dark:hover:bg-dark-border transition-colors"
+                          class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs font-medium bg-gray-800 dark:bg-dark-elevated text-white hover:bg-gray-700 dark:hover:bg-dark-border "
                         >
                           <Save size={10} />
                           Save Credentials
@@ -1153,7 +1153,7 @@
                         {:else}
                           <button
                             onclick={() => startOAuthConnect(tmpl.oauth!)}
-                            class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 transition-colors"
+                            class="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 "
                           >
                             <ExternalLink size={10} />
                             Connect {tmpl.oauth.charAt(0).toUpperCase() + tmpl.oauth.slice(1)} Account (Optional)
@@ -1166,7 +1166,7 @@
                       {#if oauthAllVarsReady(tmpl)}
                         <button
                           onclick={() => handleInstallTemplate(tmpl.slug)}
-                          class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                          class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                         >
                           <Download size={12} />
                           Install
@@ -1176,14 +1176,14 @@
 
                     <button
                       onclick={() => { oauthSetupSlug = ''; }}
-                      class="w-full text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors py-1"
+                      class="w-full text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary py-1"
                     >
                       Cancel
                     </button>
                   {:else}
                     <button
                       onclick={() => startOAuthSetup(tmpl.slug)}
-                      class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                      class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                     >
                       <Settings size={12} />
                       Setup & Install
@@ -1194,7 +1194,7 @@
                 {:else if !installedSlugs.has(tmpl.slug)}
                   <button
                     onclick={() => handleInstallTemplate(tmpl.slug)}
-                    class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                    class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                   >
                     <Download size={12} />
                     Install
@@ -1213,21 +1213,21 @@
           <span class="text-xs text-gray-500 dark:text-dark-text-muted">Sources:</span>
           <button
             onclick={() => handleSourceFilter('')}
-            class="px-2.5 py-1 text-xs font-medium transition-colors {communitySourceFilter === '' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+            class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === '' ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
           >
             All
           </button>
           {#each communitySources.filter((s) => s.enabled) as src}
             <button
               onclick={() => handleSourceFilter(src.id)}
-              class="px-2.5 py-1 text-xs font-medium transition-colors {communitySourceFilter === src.id ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
+              class="px-2.5 py-1 text-xs font-medium {communitySourceFilter === src.id ? 'bg-gray-900 dark:bg-accent text-white' : 'bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary hover:bg-gray-200 dark:hover:bg-dark-border'}"
             >
               {src.name}
             </button>
           {/each}
           <button
             onclick={() => { showManageSources = !showManageSources; }}
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors ml-auto"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary ml-auto"
             title="Manage sources"
           >
             <Settings size={14} />
@@ -1248,7 +1248,7 @@
           </div>
           <button
             onclick={loadCommunitySkills}
-            class="p-2 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors"
+            class="p-2 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
             title="Refresh"
           >
             <RefreshCw size={14} />
@@ -1262,7 +1262,7 @@
               <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">Marketplace Sources</h3>
               <button
                 onclick={() => { showAddSource = !showAddSource; }}
-                class="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                class="flex items-center gap-1 px-2.5 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
               >
                 <Plus size={12} />
                 Add Source
@@ -1278,8 +1278,8 @@
                 <input type="text" bind:value={newSourceSearchURL} placeholder="Search API URL" class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm dark:text-dark-text dark:placeholder:text-dark-text-muted" />
                 <input type="text" bind:value={newSourceTopURL} placeholder="Top/Trending API URL (optional)" class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm dark:text-dark-text dark:placeholder:text-dark-text-muted" />
                 <div class="flex justify-end gap-2">
-                  <button onclick={() => { showAddSource = false; }} class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Cancel</button>
-                  <button onclick={handleAddSource} class="px-3 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors">Add</button>
+                  <button onclick={() => { showAddSource = false; }} class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">Cancel</button>
+                  <button onclick={handleAddSource} class="px-3 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover ">Add</button>
                 </div>
               </div>
             {/if}
@@ -1291,9 +1291,9 @@
                     <button
                       onclick={() => toggleSourceEnabled(src)}
                       aria-label="Toggle {src.name}"
-                      class="w-8 h-5 rounded-full transition-colors {src.enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-dark-border'} relative"
+                      class="w-8 h-5 rounded-full {src.enabled ? 'bg-green-500' : 'bg-gray-300 dark:bg-dark-border'} relative"
                     >
-                      <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white shadow transition-all"></span>
+                      <span class="absolute top-0.5 {src.enabled ? 'right-0.5' : 'left-0.5'} w-4 h-4 rounded-full bg-white shadow "></span>
                     </button>
                     <div>
                       <span class="text-sm font-medium text-gray-900 dark:text-dark-text">{src.name}</span>
@@ -1303,7 +1303,7 @@
                   {#if !src.id.startsWith('default-')}
                     <button
                       onclick={() => handleDeleteSource(src.id)}
-                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
+                      class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
                       title="Delete source"
                     >
                       <Trash2 size={14} />
@@ -1368,7 +1368,7 @@
 
                 <button
                   onclick={() => handlePreview(skill)}
-                  class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                  class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
                 >
                   <Eye size={12} />
                   Preview
@@ -1391,7 +1391,7 @@
                   <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{previewSkill.name}</h3>
                   <span class="text-[10px] text-gray-400 dark:text-dark-text-muted">from {previewSkill.source}</span>
                 </div>
-                <button onclick={() => { previewSkill = null; previewData = null; }} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 transition-colors">
+                <button onclick={() => { previewSkill = null; previewData = null; }} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 ">
                   <X size={14} />
                 </button>
               </div>
@@ -1444,14 +1444,14 @@
               <div class="flex justify-end gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
                 <button
                   onclick={() => { previewSkill = null; previewData = null; }}
-                  class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors"
+                  class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
                 >
                   Cancel
                 </button>
                 {#if previewData}
                   <button
                     onclick={() => handleCommunityImport(previewSkill.url)}
-                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+                    class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
                   >
                     <Download size={12} />
                     Import Skill

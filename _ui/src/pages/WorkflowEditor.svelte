@@ -667,7 +667,7 @@
       <div class="flex items-center gap-3">
         <button
           onclick={() => push('/workflows')}
-          class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text transition-colors"
+          class="flex items-center gap-1 text-xs text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text "
         >
           <ArrowLeft size={14} />
           Back
@@ -711,7 +711,7 @@
         {/if}
         <button
           onclick={() => { showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showVersionPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showVersionPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
         >
           <History size={12} />
           Versions
@@ -719,21 +719,21 @@
         <button
           onclick={handleSave}
           disabled={saving}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50 transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50 "
         >
           <Save size={12} />
           {saving ? 'Saving...' : 'Save'}
         </button>
         <button
           onclick={() => { showChatPanel = !showChatPanel; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showChatPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs {showChatPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
         >
           <Bot size={12} />
           AI
         </button>
         <button
           onclick={() => (showRunPanel = !showRunPanel)}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-white bg-green-600 rounded hover:bg-green-700 transition-colors"
+          class="flex items-center gap-1 px-2 py-1 text-xs text-white bg-green-600 rounded hover:bg-green-700 "
         >
           <Play size={12} />
           Run
@@ -749,7 +749,7 @@
         </span>
         <button
           onclick={loadCurrentToCanvas}
-          class="px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400 bg-white dark:bg-dark-surface border border-amber-300 dark:border-amber-800 rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors"
+          class="px-2 py-0.5 text-xs text-amber-700 dark:text-amber-400 bg-white dark:bg-dark-surface border border-amber-300 dark:border-amber-800 rounded hover:bg-amber-100 dark:hover:bg-amber-900/30 "
         >
           Back to latest
         </button>
@@ -768,7 +768,7 @@
             >
               <ChevronRight
                 size={10}
-                class="text-gray-400 dark:text-dark-text-faint transition-transform {collapsedGroups[group.label] ? '' : 'rotate-90'}"
+                class="text-gray-400 dark:text-dark-text-faint {collapsedGroups[group.label] ? '' : 'rotate-90'}"
               />
               <span class="text-[10px] font-medium text-gray-400 dark:text-dark-text-faint uppercase tracking-wider">{group.label}</span>
             </button>
@@ -778,7 +778,7 @@
                   draggable="true"
                   ondragstart={(e) => handleDragStart(e, opt.type)}
                   onclick={() => addNode(opt.type)}
-                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left text-gray-700 dark:text-dark-text-secondary rounded hover:bg-gray-100 dark:hover:bg-dark-highest transition-colors mb-0.5 cursor-grab active:cursor-grabbing"
+                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left text-gray-700 dark:text-dark-text-secondary rounded hover:bg-gray-100 dark:hover:bg-dark-highest mb-0.5 cursor-grab active:cursor-grabbing"
                 >
                   <Plus size={11} class="text-gray-400 dark:text-dark-text-faint shrink-0" />
                   <div>
@@ -842,7 +842,7 @@
               {#if viewingVersion != null}
                 <button
                   onclick={loadCurrentToCanvas}
-                  class="w-full px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b border-gray-100 dark:border-dark-border text-left transition-colors"
+                  class="w-full px-3 py-2 text-xs text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 border-b border-gray-100 dark:border-dark-border text-left "
                 >
                   Back to latest
                 </button>
@@ -851,7 +851,7 @@
                 {@const isActive = workflow.active_version === v.version}
                 {@const isViewing = viewingVersion === v.version}
                 <div
-                  class="px-3 py-2 border-b border-gray-100 dark:border-dark-border {isViewing ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-gray-50 dark:hover:bg-dark-elevated'} transition-colors"
+                  class="px-3 py-2 border-b border-gray-100 dark:border-dark-border {isViewing ? 'bg-amber-50 dark:bg-amber-900/20' : 'hover:bg-gray-50 dark:hover:bg-dark-elevated'} "
                 >
                   <div class="flex items-center justify-between mb-0.5">
                     <div class="flex items-center gap-1.5">
@@ -868,7 +868,7 @@
                         <button
                           onclick={() => handleSetActiveVersion(v.version)}
                           disabled={settingActive}
-                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-green-700 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded transition-colors disabled:opacity-50"
+                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-green-700 dark:hover:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/30 rounded disabled:opacity-50"
                           title="Set as active version"
                         >
                           Set active
@@ -877,7 +877,7 @@
                       {#if !isViewing}
                         <button
                           onclick={() => loadVersionToCanvas(v.version)}
-                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                          class="px-1.5 py-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted hover:text-blue-700 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded "
                           title="Load this version into canvas"
                         >
                           Load
@@ -975,7 +975,7 @@
           <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
             <button
               onclick={applyNodeData}
-              class="w-full px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+              class="w-full px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover "
             >
               Apply
             </button>
@@ -1093,11 +1093,11 @@
                     <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
                       <button
                         onclick={() => { runInputMode = 'text'; }}
-                        class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runInputMode === 'text' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                        class="px-1.5 py-0.5 text-[10px] font-medium {runInputMode === 'text' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                       >Text</button>
                       <button
                         onclick={() => { runInputMode = 'json'; }}
-                        class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-dark-border-subtle {runInputMode === 'json' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                        class="px-1.5 py-0.5 text-[10px] font-medium border-l border-gray-300 dark:border-dark-border-subtle {runInputMode === 'json' ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                       >JSON</button>
                     </div>
                   </div>
@@ -1118,11 +1118,11 @@
               <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
                 <button
                   onclick={() => { runSync = true; }}
-                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors {runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                  class="px-1.5 py-0.5 text-[10px] font-medium {runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                 >Sync</button>
                 <button
                   onclick={() => { runSync = false; }}
-                  class="px-1.5 py-0.5 text-[10px] font-medium transition-colors border-l border-gray-300 dark:border-dark-border-subtle {!runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
+                  class="px-1.5 py-0.5 text-[10px] font-medium border-l border-gray-300 dark:border-dark-border-subtle {!runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
                 >Async</button>
               </div>
             </div>
@@ -1148,7 +1148,7 @@
             <button
               onclick={handleRun}
               disabled={running}
-              class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 transition-colors"
+              class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 "
             >
               <Play size={12} />
               {running ? 'Running...' : 'Execute'}
@@ -1170,7 +1170,7 @@
             {#if runResult || runError || Object.keys(workflowRun.nodeRunStates).length > 0}
               <button
                 onclick={() => { clearRunState(); runResult = null; runError = null; }}
-                class="w-full px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-100 dark:hover:bg-dark-elevated transition-colors"
+                class="w-full px-2 py-1 text-[10px] text-gray-500 dark:text-dark-text-muted border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-100 dark:hover:bg-dark-elevated "
               >
                 Clear Results
               </button>

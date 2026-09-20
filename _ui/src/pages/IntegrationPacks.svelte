@@ -183,7 +183,7 @@
     </div>
     <div class="flex items-center gap-1">
       {#if !hasArpa}
-        <button onclick={handleAddArpa} disabled={addingArpa} class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50 mr-1" title="Add official AT integration packs from rakunlabs/arpa">
+        <button onclick={handleAddArpa} disabled={addingArpa} class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 mr-1" title="Add official AT integration packs from rakunlabs/arpa">
           {#if addingArpa}
             <RefreshCw size={12} class="animate-spin" />
           {:else}
@@ -192,13 +192,13 @@
           Official Packs
         </button>
       {/if}
-      <button onclick={() => showCreate = !showCreate} class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors" title="Create Pack">
+      <button onclick={() => showCreate = !showCreate} class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary " title="Create Pack">
         <Plus size={14} />
       </button>
-      <button onclick={() => showAddSource = !showAddSource} class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors" title="Add Git Source">
+      <button onclick={() => showAddSource = !showAddSource} class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary " title="Add Git Source">
         <GitBranch size={14} />
       </button>
-      <button onclick={loadPacks} class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors" title="Refresh">
+      <button onclick={loadPacks} class="p-1.5 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary " title="Refresh">
         <RefreshCw size={14} class={loading ? 'animate-spin' : ''} />
       </button>
     </div>
@@ -244,10 +244,10 @@
             {#if src.last_sync}
               <span class="text-[10px] text-gray-400 dark:text-dark-text-muted mr-2">{new Date(src.last_sync).toLocaleDateString()}</span>
             {/if}
-            <button onclick={() => handleSyncSource(src.id)} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text transition-colors" title="Sync">
+            <button onclick={() => handleSyncSource(src.id)} class="p-1 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text " title="Sync">
               <RefreshCcw size={12} />
             </button>
-            <button onclick={() => handleDeleteSource(src.id)} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors" title="Remove">
+            <button onclick={() => handleDeleteSource(src.id)} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 " title="Remove">
               <Trash2 size={12} />
             </button>
           </div>
@@ -298,7 +298,7 @@
           <button
             onclick={handleAddArpa}
             disabled={addingArpa}
-            class="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+            class="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
           >
             {#if addingArpa}
               <RefreshCw size={14} class="animate-spin" />
@@ -309,7 +309,7 @@
             {/if}
           </button>
         {:else}
-          <button onclick={async () => { for (const s of sources) { if (s.url.includes('rakunlabs/arpa')) await syncPackSource(s.id); } addToast('Syncing...'); setTimeout(async () => { await loadSources(); await loadPacks(); }, 3000); }} class="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">
+          <button onclick={async () => { for (const s of sources) { if (s.url.includes('rakunlabs/arpa')) await syncPackSource(s.id); } addToast('Syncing...'); setTimeout(async () => { await loadSources(); await loadPacks(); }, 3000); }} class="flex items-center gap-2 px-4 py-2 text-sm font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated ">
             <RefreshCcw size={14} />
             Sync Official Packs
           </button>
@@ -337,7 +337,7 @@
                     <span class="px-1.5 py-0.5 text-[10px] bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border border-green-200 dark:border-green-800">User</span>
                   {/if}
                   {#if pack.source === 'user'}
-                    <button onclick={(e: MouseEvent) => { e.stopPropagation(); handleDelete(pack.slug); }} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 transition-colors" title="Delete pack">
+                    <button onclick={(e: MouseEvent) => { e.stopPropagation(); handleDelete(pack.slug); }} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-500 " title="Delete pack">
                       <Trash2 size={12} />
                     </button>
                   {/if}
@@ -365,7 +365,7 @@
               {/if}
               <button
                 onclick={() => toggleExpand(pack.slug)}
-                class={["w-full py-1.5 text-xs font-medium transition-colors", expandedSlug === pack.slug ? 'bg-gray-200 dark:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary' : 'bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover']}
+                class={["w-full py-1.5 text-xs font-medium ", expandedSlug === pack.slug ? 'bg-gray-200 dark:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary' : 'bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover']}
               >
                 {expandedSlug === pack.slug ? 'Close' : 'Install'}
               </button>
@@ -402,7 +402,7 @@
                 <button
                   onclick={handleInstall}
                   disabled={installing || (!installSkills && !installMCPSets && !installAgents && !installOrg)}
-                  class="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
+                  class="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50"
                 >
                   {#if installing}
                     <RefreshCw size={12} class="animate-spin" />

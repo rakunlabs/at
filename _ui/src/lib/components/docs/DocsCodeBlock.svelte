@@ -46,7 +46,7 @@
       type="button"
       onclick={copy}
       aria-label={copyLabel}
-      class="inline-flex shrink-0 items-center gap-1.5 border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 transition-colors hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 motion-reduce:transition-none dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-highest dark:focus-visible:outline-accent"
+      class="inline-flex shrink-0 items-center gap-1.5 border border-gray-300 px-2 py-1 text-[11px] font-medium text-gray-700 hover:bg-gray-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-highest dark:focus-visible:outline-accent"
     >
       {#if copied}
         <Check size={12} aria-hidden="true" />

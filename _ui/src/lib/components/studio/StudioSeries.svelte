@@ -365,7 +365,7 @@
           {#if characters.length}
             <div class="flex flex-wrap gap-1.5">
               {#each characters as c (c.manifest.slug)}
-                <button onclick={() => (newCast = toggleIn(newCast, c.manifest.slug))} class={['px-2 py-1 text-[10px] border transition-colors', newCast.includes(c.manifest.slug) ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary']}>{c.manifest.name}</button>
+                <button onclick={() => (newCast = toggleIn(newCast, c.manifest.slug))} class={['px-2 py-1 text-[10px] border ', newCast.includes(c.manifest.slug) ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent' : 'border-gray-200 dark:border-dark-border text-gray-600 dark:text-dark-text-secondary']}>{c.manifest.name}</button>
               {/each}
             </div>
           {:else}
@@ -383,7 +383,7 @@
     {:else}
       <div class="divide-y divide-gray-100 dark:divide-dark-border border-y border-gray-200 dark:border-dark-border">
         {#each seriesList as s (s.slug)}
-          <button onclick={() => selectSeries(s)} class="w-full py-3 flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-dark-surface transition-colors">
+          <button onclick={() => selectSeries(s)} class="w-full py-3 flex items-center gap-3 text-left hover:bg-gray-50 dark:hover:bg-dark-surface ">
             <div class="w-10 h-14 shrink-0 bg-gray-900 dark:bg-dark-highest flex items-end p-1.5"><Film size={14} class="text-white dark:text-accent" /></div>
             <div class="min-w-0">
               <h3 class="text-xs font-semibold text-gray-900 dark:text-dark-text">{s.name}</h3>
@@ -433,7 +433,7 @@
         {/if}
         <div class="space-y-px">
           {#each episodes as ep (ep.manifest.number)}
-            <button onclick={() => (selectedEpisode = ep)} class={['w-full text-left px-2 py-2 border-l transition-colors', selectedEpisode?.manifest.number === ep.manifest.number ? 'border-gray-900 dark:border-accent bg-gray-50 dark:bg-dark-elevated' : 'border-transparent hover:bg-gray-50 dark:hover:bg-dark-surface']}><div class="flex items-center gap-1"><span class="text-[10px] font-mono text-gray-400">E{String(ep.manifest.number).padStart(2, '0')}</span><span class={['ml-auto text-[9px] font-medium', EPISODE_STATUS_COLORS[ep.manifest.status || 'draft']]}>{ep.manifest.status || 'draft'}</span></div><div class="text-[11px] font-medium text-gray-700 dark:text-dark-text-secondary truncate">{ep.manifest.title || 'Untitled episode'}</div><div class="text-[9px] text-gray-400">{(ep.manifest.shots || []).length} shots · {ep.manifest.duration_s || '—'}s</div></button>
+            <button onclick={() => (selectedEpisode = ep)} class={['w-full text-left px-2 py-2 border-l ', selectedEpisode?.manifest.number === ep.manifest.number ? 'border-gray-900 dark:border-accent bg-gray-50 dark:bg-dark-elevated' : 'border-transparent hover:bg-gray-50 dark:hover:bg-dark-surface']}><div class="flex items-center gap-1"><span class="text-[10px] font-mono text-gray-400">E{String(ep.manifest.number).padStart(2, '0')}</span><span class={['ml-auto text-[9px] font-medium', EPISODE_STATUS_COLORS[ep.manifest.status || 'draft']]}>{ep.manifest.status || 'draft'}</span></div><div class="text-[11px] font-medium text-gray-700 dark:text-dark-text-secondary truncate">{ep.manifest.title || 'Untitled episode'}</div><div class="text-[9px] text-gray-400">{(ep.manifest.shots || []).length} shots · {ep.manifest.duration_s || '—'}s</div></button>
           {/each}
           {#if !episodes.length && !showEpisodeForm}<p class="py-5 text-center text-[10px] text-gray-400">No episodes yet.</p>{/if}
         </div>

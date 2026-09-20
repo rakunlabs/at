@@ -44,7 +44,7 @@
   <title>AT | Dashboard</title>
 </svelte:head>
 
-<div class="w-full min-w-0 p-3 sm:p-6 max-w-6xl mx-auto">
+<div class="w-full min-w-0 p-2 sm:p-4 max-w-6xl mx-auto">
   <!-- Stats -->
   <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4 mb-6">
     <!-- Providers count -->
@@ -108,10 +108,10 @@
   <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
     <a
       href="#/chats"
-      class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group transition-all"
+      class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group "
     >
       <div class="flex items-center gap-3">
-        <div class="p-2 bg-gray-100 dark:bg-dark-elevated group-hover:bg-gray-200 dark:group-hover:bg-dark-highest transition-colors">
+        <div class="p-2 bg-gray-100 dark:bg-dark-elevated group-hover:bg-gray-200 dark:group-hover:bg-dark-highest ">
           <MessageSquare size={16} class="text-gray-600 dark:text-dark-text-secondary" />
         </div>
         <div>
@@ -119,15 +119,15 @@
           <div class="text-xs text-gray-500 dark:text-dark-text-muted">Test models with MCP servers, skills and tools</div>
         </div>
       </div>
-      <ArrowRight size={16} class="text-gray-300 dark:text-dark-text-faint group-hover:text-gray-500 dark:group-hover:text-dark-text-muted transition-colors" />
+      <ArrowRight size={16} class="text-gray-300 dark:text-dark-text-faint group-hover:text-gray-500 dark:group-hover:text-dark-text-muted " />
     </a>
 
     <a
       href="#/providers"
-      class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group transition-all"
+      class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4 hover:border-gray-300 dark:hover:border-dark-border-subtle hover:shadow-sm flex items-center justify-between group "
     >
       <div class="flex items-center gap-3">
-        <div class="p-2 bg-gray-100 dark:bg-dark-elevated group-hover:bg-gray-200 dark:group-hover:bg-dark-highest transition-colors">
+        <div class="p-2 bg-gray-100 dark:bg-dark-elevated group-hover:bg-gray-200 dark:group-hover:bg-dark-highest ">
           <Cpu size={16} class="text-gray-600 dark:text-dark-text-secondary" />
         </div>
         <div>
@@ -135,7 +135,7 @@
           <div class="text-xs text-gray-500 dark:text-dark-text-muted">Add, edit, or remove LLM providers</div>
         </div>
       </div>
-      <ArrowRight size={16} class="text-gray-300 dark:text-dark-text-faint group-hover:text-gray-500 dark:group-hover:text-dark-text-muted transition-colors" />
+      <ArrowRight size={16} class="text-gray-300 dark:text-dark-text-faint group-hover:text-gray-500 dark:group-hover:text-dark-text-muted " />
     </a>
   </div>
 
@@ -144,7 +144,7 @@
     <span class="text-sm font-medium text-gray-900 dark:text-dark-text">Registered Providers</span>
     <button
       onclick={load}
-      class="inline-flex size-11 sm:size-7 items-center justify-center hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 hover:text-gray-700 dark:text-dark-text-secondary dark:hover:text-dark-text transition-colors rounded focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
+      class="inline-flex size-11 sm:size-7 items-center justify-center hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-500 hover:text-gray-700 dark:text-dark-text-secondary dark:hover:text-dark-text rounded focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50"
       title="Refresh"
       aria-label="Refresh providers"
       disabled={loading}
@@ -162,7 +162,7 @@
     emptyTitle="No providers registered"
   >
     {#snippet emptyAction()}
-      <a href="#/providers" class="text-sm text-gray-500 dark:text-accent-text hover:text-gray-900 dark:hover:text-accent underline underline-offset-2 transition-colors">
+      <a href="#/providers" class="text-sm text-gray-500 dark:text-accent-text hover:text-gray-900 dark:hover:text-accent underline underline-offset-2 ">
         Add your first provider
       </a>
     {/snippet}
@@ -175,7 +175,7 @@
     {/snippet}
 
     {#snippet row(p)}
-      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 transition-colors">
+      <tr class="hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 ">
         <td class="px-4 py-2.5 break-all align-top font-mono font-medium text-gray-900 dark:text-dark-text">{p.key}{#if p.shared}<span class="ml-2 font-sans text-xs font-normal text-gray-500 dark:text-dark-text-muted">Shared</span>{/if}</td>
         <td class="px-4 py-2.5 break-all align-top">
           <span class="px-2 py-0.5 text-xs bg-gray-100 dark:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary font-mono">{p.type}</span>

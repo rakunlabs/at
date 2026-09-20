@@ -5,22 +5,15 @@
   const close = (id: number) => {
     removeToast(id);
   };
-  const customSlide = (_: HTMLElement, { duration }: { duration: number }) => {
-    return {
-      duration,
-      css: (_: number, u: number) => `transform: translateX(${u * 400}px)`
-    };
-  };
 </script>
 
 <div class="fixed bottom-4 right-4 z-[200] flex flex-col gap-2">
   {#each storeToast as toast (toast.id)}
     <div
       class={`toast-${toast.type} flex items-center gap-2 px-3 py-2 shadow-lg border text-sm max-w-sm`}
-      transition:customSlide={{ duration: 200 }}
     >
       <span class="flex-1">{toast.message}</span>
-      <button onclick={() => close(toast.id)} class="shrink-0 p-0.5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors">
+      <button onclick={() => close(toast.id)} class="shrink-0 p-0.5 hover:bg-black/10 dark:hover:bg-white/10 ">
         <X size={14} />
       </button>
     </div>

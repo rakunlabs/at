@@ -15,7 +15,7 @@
     <div class="text-gray-500 dark:text-dark-text-muted mb-4">Page not found</div>
     <a
       href="#/"
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors"
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
     >
       <Home size={14} />
       Back to Dashboard

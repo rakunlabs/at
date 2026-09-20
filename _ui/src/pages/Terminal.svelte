@@ -444,7 +444,7 @@
       {#if maximized}
         <!-- Full screen drops the toolbar, so copying needs its own control here;
         both share the fade so neither covers shell output while you work. -->
-        <div class={['absolute top-3 right-4 z-10 flex items-center gap-1.5 transition-opacity', controls ? 'opacity-100' : 'pointer-events-none opacity-0']}>
+        <div class={['absolute top-3 right-4 z-10 flex items-center gap-1.5 ', controls ? 'opacity-100' : 'pointer-events-none opacity-0']}>
           <button
             class={floatingControl}
             title={copyHint}

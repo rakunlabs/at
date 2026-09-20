@@ -67,7 +67,7 @@
           type="button"
           onclick={() => copy(model)}
           aria-label={`Copy model id ${model}`}
-          class="shrink-0 border-l border-gray-200 p-1.5 text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gray-900 motion-reduce:transition-none dark:border-dark-border dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text dark:focus-visible:outline-accent"
+          class="shrink-0 border-l border-gray-200 p-1.5 text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-gray-900 dark:border-dark-border dark:text-dark-text-secondary dark:hover:bg-dark-elevated dark:hover:text-dark-text dark:focus-visible:outline-accent"
         >
           {#if copiedId === model}
             <Check size={12} aria-hidden="true" />

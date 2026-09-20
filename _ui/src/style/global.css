@@ -109,7 +109,7 @@
   .settings-form select,
   .settings-form textarea {
     @apply block mt-1 w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated
-           px-3 py-1.5 text-sm font-normal transition-colors
+           px-3 py-1.5 text-sm font-normal
            dark:text-dark-text dark:placeholder:text-dark-text-muted
            focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20
            focus:border-gray-400 dark:focus:border-dark-border-subtle
@@ -122,20 +122,20 @@
   .settings-primary {
     @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium
            bg-gray-900 dark:bg-accent text-white dark:text-gray-950
-           hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors
+           hover:bg-gray-800 dark:hover:bg-accent-hover
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
   .settings-button {
     @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium
            border border-gray-300 dark:border-dark-border-subtle
            text-gray-700 dark:text-dark-text-secondary
-           hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors
+           hover:bg-gray-50 dark:hover:bg-dark-elevated
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
   /* Destructive actions had no shared class, so pages hand-rolled their own. */
   .settings-danger {
     @apply inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium
-           bg-red-600 text-white hover:bg-red-700 transition-colors
+           bg-red-600 text-white hover:bg-red-700
            disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
@@ -169,22 +169,10 @@ body {
 .mobile-navigation::backdrop { background: rgb(0 0 0 / 45%); }
 
 @media (max-width: 639px) {
-  .app-navbar button, .app-navbar select { min-height: 44px; }
-  .app-navbar button { min-width: 44px; }
   .app-navbar select { max-width: 7rem; }
   .app-sidebar a { min-height: 44px; display: flex; align-items: center; font-size: 14px; }
   /* Avoid iOS focus zoom while retaining pinch zoom for the whole interface. */
   input:not([type='checkbox']):not([type='radio']), select, textarea { font-size: 16px !important; }
-}
-
-/* Set by applyTheme() in lib/store/store.svelte.ts only while the light/dark
-   class is swapped, so the whole page repaints in one frame instead of
-   cross-fading every transition-colors element. */
-html.theme-switching,
-html.theme-switching *,
-html.theme-switching *::before,
-html.theme-switching *::after {
-  transition: none !important;
 }
 
 button,
@@ -414,7 +402,6 @@ select {
   border-radius: 3px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 120ms, background 120ms, color 120ms;
 }
 
 .markdown-body pre.md-pre:hover .md-pre-copy,
