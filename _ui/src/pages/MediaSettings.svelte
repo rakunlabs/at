@@ -100,8 +100,8 @@
       secretInput = '';
       replacingSecret = false;
       notice = settings.backend
-        ? 'Media storage settings saved. New Playground images are stored from now on.'
-        : 'Media storage is now disabled. New Playground images will not be saved to conversation history.';
+        ? 'Media storage settings saved. New images in Chats are stored from now on.'
+        : 'Media storage is now disabled. New images in Chats will not be saved to conversation history.';
     } catch (err) {
       conflict = isMediaSettingsConflict(err);
       error = mediaSettingsErrorMessage(err);
@@ -134,7 +134,7 @@
   <header>
     <h1 class="settings-title">Media storage</h1>
     <p class="settings-subtitle">
-      Where Playground image attachments are kept so they survive a reload. Without a backend, an image is sent to
+      Where image attachments in Chats are kept so they survive a reload. Without a backend, an image is sent to
       the model but only a placeholder is written to conversation history.
     </p>
   </header>
@@ -169,7 +169,7 @@
 
           {#if settings.backend === ''}
             <p class="settings-note">
-              Media storage is off. Playground images are still sent to the model for the turn you send them in, but
+              Media storage is off. Images in Chats are still sent to the model for the turn you send them in, but
               conversation history keeps only a “not saved to history” placeholder, so reopening the conversation — or
               re-sending it to a model — will not include the image. Pick a backend to keep them.
             </p>

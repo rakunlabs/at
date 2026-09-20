@@ -123,7 +123,7 @@
       : action === 'unlock' ? 'Clear the incorrect-password counter and allow password sign-in now?'
       : action === 'enable' ? 'Enable this account? Any existing sessions will also end.'
       : action === 'password' ? 'Replace this account password and end all its sessions? Its role and enabled status will not change.'
-      : action === 'delete' ? 'Delete this account permanently? Its sessions, passkeys, linked identities, workspace memberships and Playground history are removed. This cannot be undone.'
+      : action === 'delete' ? 'Delete this account permanently? Its sessions, passkeys, linked identities, workspace memberships and Chats history are removed. This cannot be undone.'
       : 'End all sessions for this account? It can sign in again with its existing password.';
     if (!window.confirm(`${label}\n\n${description}${self && action !== 'unlock' ? '\n\nThis is your account. You will need to sign in again.' : ''}`)) return;
     busy = true;

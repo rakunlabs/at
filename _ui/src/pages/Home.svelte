@@ -115,7 +115,7 @@
           <MessageSquare size={16} class="text-gray-600 dark:text-dark-text-secondary" />
         </div>
         <div>
-          <div class="font-medium text-sm text-gray-900 dark:text-dark-text">Playground</div>
+          <div class="font-medium text-sm text-gray-900 dark:text-dark-text">Chats</div>
           <div class="text-xs text-gray-500 dark:text-dark-text-muted">Test models with MCP servers, skills and tools</div>
         </div>
       </div>

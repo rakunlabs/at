@@ -114,12 +114,12 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:         service.FeatureChatWorkbench,
 		Name:        "Chat Workbench",
-		Description: "Umbrella for every interactive chat surface. Disabling it removes Playground, Sessions, Bots and audio transcription at once.",
+		Description: "Umbrella for every interactive chat surface. Disabling it removes Chats, Sessions, Bots and audio transcription at once.",
 		Group:       "workspace",
 	},
 	{
 		Key:         service.FeaturePlayground,
-		Name:        "Playground",
+		Name:        "Chats",
 		Description: "The scratch chat surface, admin chat completions, saved playground conversations and their media attachments.",
 		Group:       "workspace",
 		Parent:      service.FeatureChatWorkbench,
@@ -127,7 +127,7 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:         service.FeatureChatSessions,
 		Name:        "Chat Sessions",
-		Description: "Persistent agent chat sessions, their stored messages and tool-call confirmations. Independent of Playground.",
+		Description: "Persistent agent chat sessions, their stored messages and tool-call confirmations. Independent of Chats.",
 		Group:       "workspace",
 		Parent:      service.FeatureChatWorkbench,
 	},
@@ -404,7 +404,7 @@ var featurePresets = []featurePreset{
 	{
 		Key:         "gateway_chat",
 		Name:        "Gateway + chat",
-		Description: "Providers, API tokens, Playground and Sessions with tool calling. No agents, workflows, organizations or bots.",
+		Description: "Providers, API tokens, Chats and Sessions with tool calling. No agents, workflows, organizations or bots.",
 		Enabled: []string{
 			service.FeatureProviderSetup,
 			service.FeatureModelPricing,

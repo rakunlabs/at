@@ -73,7 +73,7 @@ export const configurationLinks = [
   { path: '/settings/authentication', label: 'Authentication', description: 'Local sign-in, admission policy and identity providers' },
   { path: '/settings/users', label: 'Users', description: 'Installation accounts and full account recovery' },
   { path: '/settings/execution', label: 'Execution', description: 'Restricted and trusted-host policy' },
-  { path: '/settings/media', label: 'Media storage', description: 'Where Playground image attachments are stored' },
+  { path: '/settings/media', label: 'Media storage', description: 'Where image attachments in Chats are stored' },
   { path: '/providers', label: 'Model providers', description: 'Model connections and credentials' },
   { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
   { path: '/connections', label: 'Connections', description: 'External-service credentials and connectors' },

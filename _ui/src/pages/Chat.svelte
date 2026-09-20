@@ -60,7 +60,7 @@
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
 
-  storeNavbar.title = 'Playground';
+  storeNavbar.title = 'Chats';
 
   // svelte-spa-router yields `{id: null}` for the bare `/playground` route.
   let { params = {} }: { params?: { id?: string | null } } = $props();
@@ -581,7 +581,7 @@
       meta = loaded.map(m => ({ sequence: m.sequence, provider_key: m.provider_key, model: m.model, imageNames: [] }));
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
       void refreshTools();
-      scrollToBottom();
+      scrollToBottom(true);
     } catch (e) {
       if (conversationId !== id) return;
       addToast(playgroundErrorMessage(e, 'Failed to open conversation'), 'alert');
@@ -837,10 +837,20 @@
 
   // ─── Scroll ───
 
-  function scrollToBottom() {
+  let followLatest = true;
+
+  function handleChatScroll() {
     if (chatContainer) {
+      followLatest = chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight <= 4;
+    }
+  }
+
+  function scrollToBottom(force = false) {
+    if (force) followLatest = true;
+    if (chatContainer && followLatest) {
       requestAnimationFrame(() => {
-        chatContainer!.scrollTop = chatContainer!.scrollHeight;
+        // Recheck: the reader may have scrolled up since this frame was queued.
+        if (chatContainer && followLatest) chatContainer.scrollTop = chatContainer.scrollHeight;
       });
     }
   }
@@ -1045,7 +1055,7 @@
       boundAgentId = saved.id;
       showSaveAgent = false;
       if (enabledFrontendTools.length > 0) {
-        addToast('Chat tools (todo, question) run only in the Playground and were not saved to the agent', 'warn');
+        addToast('Chat tools (todo, question) run only in Chats and were not saved to the agent', 'warn');
       }
       scheduleSettingsSave();
       void saveDefaults();
@@ -1315,7 +1325,7 @@
     // still runs, it just stays unsaved.
     if (!conversationId) {
       try {
-        await ensureConversation(text || images[0]?.name || 'Playground conversation');
+        await ensureConversation(text || images[0]?.name || 'Chat conversation');
       } catch (e) {
         addToast(playgroundErrorMessage(e, 'Could not start a saved conversation — this turn runs unsaved'), 'alert');
       }
@@ -1537,7 +1547,7 @@
     const resize = () => {
       if (!active) return;
       node.style.height = 'auto';
-      node.style.height = `${node.scrollHeight}px`;
+      node.style.height = `${node.scrollHeight + node.offsetHeight - node.clientHeight}px`;
     };
     const observer = new ResizeObserver(entries => {
       const nextWidth = entries[0]?.contentRect.width;
@@ -1555,7 +1565,7 @@
 </script>
 
 <svelte:head>
-  <title>AT | Playground</title>
+  <title>AT | Chats</title>
 </svelte:head>
 
 {#snippet forkAction(index: number)}
@@ -1849,7 +1859,7 @@
       {#if legacyMcpUrls.length > 0}
         <div class="border border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 space-y-1.5">
           <p class="text-xs text-amber-900 dark:text-amber-200">
-            This conversation referenced {legacyMcpUrls.length} direct MCP server URL{legacyMcpUrls.length === 1 ? '' : 's'}, which the Playground no longer calls. Add the server under MCP sets to use its tools again.
+            This conversation referenced {legacyMcpUrls.length} direct MCP server URL{legacyMcpUrls.length === 1 ? '' : 's'}, which Chats no longer calls. Add the server under MCP sets to use its tools again.
           </p>
           <div class="flex flex-wrap gap-1.5">
             {#each legacyMcpUrls as url}
@@ -1992,6 +2002,7 @@
   <!-- Chat messages -->
   <div
     bind:this={chatContainer}
+    onscroll={handleChatScroll}
     class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
   >
     {#if loading || historyLoading}
@@ -2210,8 +2221,8 @@
         aria-describedby="playground-composer-hint"
         placeholder={models.length === 0 ? 'No models available' : 'Write a message…'}
         disabled={models.length === 0}
-        rows={3}
-        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 min-h-24 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-base sm:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
+        rows={1}
+        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-base sm:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
       ></textarea>
       <VoiceInput contextKey={voiceContext} disabled={models.length === 0 || streaming} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
 

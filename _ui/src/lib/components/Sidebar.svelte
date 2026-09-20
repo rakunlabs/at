@@ -11,7 +11,7 @@
   let { onclose }: Props = $props();
   const items = [
     {path:'/',label:'Home',icon:House},
-    {path:'/playground',label:'Playground',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
+    {path:'/playground',label:'Chats',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
     {path:'/agents',label:'Agents',icon:Bot}, {path:'/tasks',label:'Tasks',icon:ClipboardList},
     {path:'/organizations',label:'Organizations',icon:Building2}, {path:'/workflows',label:'Workflows',icon:Workflow},
     {path:'/runs',label:'Runs',icon:Activity}, {path:'/skills',label:'Skills',icon:WandSparkles},

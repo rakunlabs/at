@@ -879,9 +879,12 @@ whose symptom is identical to not configuring the feature at all.
 
 This is deliberately **not** a runtime/workspace setting. Whoever sets it decides
 whether callers may choose their own recorded IP, which is a property of the
-network the process is deployed in. Only list proxies that *overwrite* the header
-for inbound requests: trusting a proxy that appends to a client-supplied value
-trusts the client.
+network the process is deployed in. For `X-Forwarded-For`, only list proxies that
+append their observed socket peer or replace the header with it; passing through
+client input unchanged is unsafe. The right-to-left walk below makes appending
+safe. A same-host Turna service proxy needs `trusted_proxies: ["loopback"]`:
+`private` does not include `127.0.0.1` or `::1`. Prefer `X-Forwarded-For` over
+Turna's legacy `X-Real-IP`, which can preserve a caller-supplied value.
 
 Resolution (`clientIPResolver`, `internal/server/client-ip.go`) reads the header
 only when the peer is trusted, then walks the chain **right to left** and returns

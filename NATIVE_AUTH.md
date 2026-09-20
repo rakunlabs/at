@@ -25,14 +25,39 @@ server:
   # the per-source admission limiters would all collapse onto one address. List
   # the proxies whose forwarded client address is believed. Entries are CIDR
   # blocks, single IPs, or the aliases loopback / private. Omit when AT is
-  # exposed directly; only list proxies that OVERWRITE the header for inbound
-  # requests, because trusting one that appends to it trusts the client.
+  # exposed directly. X-Forwarded-For proxies must append their observed socket
+  # peer or replace the header with it; merely passing client input is unsafe.
   trusted_proxies: ["private"]
   trusted_proxy_header: X-Forwarded-For  # or X-Real-IP, or Forwarded (RFC 7239)
 store:
   postgres:
     datasource: postgres://at:REPLACE@postgres/at?sslmode=require
 ```
+
+### Turna on the same host
+
+For `Internet → Turna service middleware → AT` over localhost, merge this into
+AT's existing bootstrap configuration and restart AT:
+
+```yaml
+server:
+  trusted_proxies: ["loopback"]
+  trusted_proxy_header: X-Forwarded-For
+```
+
+`loopback` includes both `127.0.0.0/8` and `::1/128`; `private` includes neither.
+Without this trust, a Turna connection to `localhost` can make every sign-in
+record `::1`, even though the forwarded header contains the real client address.
+Turna's service middleware uses Go's reverse proxy, which appends the socket
+peer to `X-Forwarded-For`. AT reads the chain right-to-left, so a public client's
+forged prefix cannot replace the address Turna observed. Use this header rather
+than Turna's legacy `X-Real-IP`, which can preserve a caller-supplied value.
+
+Keep AT's backend listener private. If Turna connects from a container or another
+host, trust that actual proxy address instead of loopback. After restarting,
+sign in through the public Turna URL from another device and check the **new**
+sign-in event: it should report the client's public/NAT address. Existing `::1`
+events cannot be repaired because they did not record the original address.
 
 For automation migrating an existing bootstrap-token deployment, the optional
 `POST /auth/bootstrap` API remains available when its legacy token is configured

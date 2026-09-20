@@ -86,7 +86,7 @@
 
   <nav
     class="flex-1 min-h-0 overflow-y-auto px-1.5 py-1.5 space-y-0.5"
-    aria-label="Playground conversations"
+    aria-label="Chats conversations"
     onscroll={handleScroll}
   >
     {#if scratchDirty && !activeId}

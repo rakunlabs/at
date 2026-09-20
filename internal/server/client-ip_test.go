@@ -55,6 +55,10 @@ func TestClientIPResolver(t *testing.T) {
 		{"garbage ends the chain", []string{"10.0.0.0/8"}, "X-Forwarded-For", "10.0.0.5:1234", []string{"203.0.113.9, nonsense, 10.0.0.9"}, "10.0.0.5"},
 		{"empty header value", []string{"10.0.0.0/8"}, "X-Forwarded-For", "10.0.0.5:1234", []string{""}, "10.0.0.5"},
 		{"loopback alias", []string{"loopback"}, "X-Forwarded-For", "127.0.0.1:1234", []string{"203.0.113.9"}, "203.0.113.9"},
+		{"local proxy without trust reports ipv6 loopback", nil, "X-Forwarded-For", "[::1]:1234", []string{"203.0.113.9"}, "::1"},
+		{"private alias does not trust loopback", []string{"private"}, "X-Forwarded-For", "[::1]:1234", []string{"203.0.113.9"}, "::1"},
+		{"local proxy with loopback trust reports client", []string{"loopback"}, "X-Forwarded-For", "[::1]:1234", []string{"203.0.113.9"}, "203.0.113.9"},
+		{"local proxy appends observed client after forged prefix", []string{"loopback"}, "X-Forwarded-For", "[::1]:1234", []string{"198.51.100.1, 203.0.113.9"}, "203.0.113.9"},
 		{"ipv6 trusted peer", []string{"2001:db8::/32"}, "X-Forwarded-For", "[2001:db8::5]:1234", []string{"203.0.113.9"}, "203.0.113.9"},
 		{"peer port is dropped", []string{"10.0.0.0/8"}, "X-Forwarded-For", "192.0.2.10:9999", nil, "192.0.2.10"},
 
