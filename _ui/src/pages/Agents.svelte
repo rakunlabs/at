@@ -1,15 +1,10 @@
 <script lang="ts">
+  import { onMount, untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listAgents, createAgent, updateAgent, deleteAgent, exportAgent, importAgent, type Agent, type AgentScope } from '@/lib/api/agents';
+  import { createAgent, updateAgent, deleteAgent, exportAgent, importAgent, type Agent, type AgentScope } from '@/lib/api/agents';
   import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import { listActiveDelegations, type ActiveDelegation } from '@/lib/api/tasks';
-  import { listProviders, type ProviderRecord } from '@/lib/api/providers';
-  import { listSkills, type Skill } from '@/lib/api/skills';
-  import { listMCPSets, type MCPSet } from '@/lib/api/mcp-sets';
-  import { listWorkflows, type Workflow } from '@/lib/api/workflows';
-  import { listBuiltinTools, type BuiltinToolDef } from '@/lib/api/mcp';
-  import { listConnections, type Connection } from '@/lib/api/connections';
   import { getAgentBudget, setAgentBudget, type AgentBudget } from '@/lib/api/agent-budgets';
   import { Trash2, Plus, X, Pencil, Bot, RefreshCw, RefreshCcw, Save, Copy, ClipboardPaste, Wrench, ShieldCheck, Download, Upload, Workflow as WorkflowIcon } from 'lucide-svelte';
   import { agentAvatar, generateAvatar } from '@/lib/helper/avatar';
@@ -19,23 +14,23 @@
   import BudgetScheduleFields from '@/lib/components/BudgetScheduleFields.svelte';
   import AgentBuilderPanel from '@/lib/components/AgentBuilderPanel.svelte';
   import LoadIssues from '@/lib/components/LoadIssues.svelte';
-  import { createPageLoader } from '@/lib/helper/page-load.svelte';
-  import { isFeatureEnabled, loadFeatures } from '@/lib/store/features.svelte';
-  const pageLoad = createPageLoader();
+  import { createAgentPage } from '@/lib/helper/agent-page.svelte';
+  import { isFeatureEnabled, loadFeatures, storeFeatures } from '@/lib/store/features.svelte';
+  const page = createAgentPage();
   import { applyAgentDraftPatch, type AgentDraft, type AgentBuilderCatalog } from '@/lib/helper/agent-builder';
 
   storeNavbar.title = 'Agents';
 
   // ─── State ───
 
-  let agents = $state<Agent[]>([]);
-  let providers = $state<ProviderRecord[]>([]);
-  let skills = $state<Skill[]>([]);
-  let mcpSets = $state<MCPSet[]>([]);
-  let workflows = $state<Workflow[]>([]);
-  let builtinToolDefs = $state<BuiltinToolDef[]>([]);
-  let connections = $state<Connection[]>([]);
-  let loading = $state(true);
+  let agents = $derived(page.data.agents);
+  let providers = $derived(page.data.providers);
+  let skills = $derived(page.data.skills);
+  let mcpSets = $derived(page.data.mcpSets);
+  let workflows = $derived(page.data.workflows);
+  let builtinToolDefs = $derived(page.data.builtinToolDefs);
+  let connections = $derived(page.data.connections);
+  let loading = $derived(page.list.loading('Agents'));
   let showForm = $state(false);
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
@@ -55,33 +50,42 @@
 
   // Live "currently working" map: agent_id → list of active delegations
   let activeByAgent = $state<Record<string, ActiveDelegation[]>>({});
-  let activePollTimer: ReturnType<typeof setInterval> | null = null;
-
-  async function refreshActiveDelegations() {
-    try {
-      await loadFeatures().catch(() => {});
-      if (!isFeatureEnabled('tasks')) { activeByAgent = {}; return; }
-      const res = await listActiveDelegations();
-      const map: Record<string, ActiveDelegation[]> = {};
-      for (const d of res.delegations) {
-        if (!d.agent_id) continue;
-        if (!map[d.agent_id]) map[d.agent_id] = [];
-        map[d.agent_id].push(d);
-      }
-      activeByAgent = map;
-    } catch {
-      // Non-fatal: just hide the indicator if the endpoint is unreachable
+  $effect(() => {
+    // This endpoint is installation-admin-only. Unknown/disabled features must
+    // not create a timer. A feature toggle tears down the existing poller.
+    if (!storeFeatures.loaded || !isFeatureEnabled('tasks') || !isNativeAdmin()) {
       activeByAgent = {};
+      return;
     }
-  }
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    async function refresh() {
+      try {
+        const res = await listActiveDelegations();
+        if (stopped) return;
+        const map: Record<string, ActiveDelegation[]> = {};
+        for (const d of res.delegations || []) {
+          if (d.agent_id) (map[d.agent_id] ||= []).push(d);
+        }
+        activeByAgent = map;
+      } catch (error: any) {
+        if (stopped) return;
+        activeByAgent = {};
+        // The catalog may be stale after another administrator changed it.
+        if ([401, 403, 404].includes(error?.response?.status)) return;
+      }
+      if (!stopped) timer = setTimeout(refresh, 5000);
+    }
+    void refresh();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  });
 
   $effect(() => {
-    refreshActiveDelegations();
-    activePollTimer = setInterval(refreshActiveDelegations, 5000);
-    return () => {
-      if (activePollTimer) clearInterval(activePollTimer);
-      activePollTimer = null;
-    };
+    if (showForm) untrack(() => { void page.loadEditor(); });
+    return () => page.closeEditor();
   });
 
   // Form fields
@@ -258,24 +262,10 @@
   // ─── Load ───
 
   async function loadData() {
-    loading = true;
-    pageLoad.reset();
-    try {
-      // Fetch the full agent set (small) and do search/sort/paging client-side.
-      await Promise.all([
-        pageLoad.load('Agents', () => listAgents({ _offset: 0, _limit: 1000 }), result => { agents = result.data || []; }, 'agents'),
-        pageLoad.load('Providers', listProviders, result => { providers = result.data || []; }),
-        pageLoad.load('Skills', listSkills, result => { skills = result.data || []; }, 'skills'),
-        pageLoad.load('MCP sets', () => listMCPSets({ _limit: 500 }), result => { mcpSets = result.data || []; }, 'mcp_servers'),
-        pageLoad.load('Built-in tools', listBuiltinTools, result => { builtinToolDefs = result.tools || []; }, 'builtin_tools'),
-        pageLoad.load('Connections', listConnections, result => { connections = result || []; }, 'external_connections'),
-        pageLoad.load('Workflows', () => listWorkflows({ _limit: 500 }), result => { workflows = result.data || []; }, 'workflow_builder'),
-      ]);
-    } catch (e: any) {
-      addToast(e?.message || 'Failed to load data', 'alert');
-    } finally {
-      loading = false;
-    }
+    await page.loadList();
+    // Deleting the last row of a later page must not strand the remaining rows
+    // behind an empty table with no pagination controls.
+    offset = 0;
   }
 
   function handleSearch(value: string) {
@@ -343,7 +333,10 @@
     return Array.from(set).sort((x, y) => x.localeCompare(y));
   });
 
-  loadData();
+  onMount(() => {
+    void loadData();
+    void loadFeatures().catch(() => {});
+  });
 
   // ─── Form ───
 
@@ -555,7 +548,9 @@
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
     <div class="p-6 max-w-6xl mx-auto">
-      <LoadIssues issues={pageLoad.issues} retry={loadData} {loading} />
+      {#if agents.length > 0}
+        <LoadIssues issues={page.list.issues} retry={loadData} {loading} />
+      {/if}
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -635,10 +630,11 @@
           <div class={showAIBuilder ? 'grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] items-start' : ''}>
           {#if showAIBuilder}
             <div class="min-w-0 border-b xl:border-b-0 xl:border-l border-gray-200 dark:border-dark-border xl:col-start-2 xl:row-start-1">
-              {#key formVersion}<AgentBuilderPanel getDraft={getAgentDraft} getCatalog={getBuilderCatalog} applyPatch={applyBuilderPatch} bind:busy={builderBusy} onclose={() => { showAIBuilder = false; builderBusy = false; }} />{/key}
+              {#key formVersion}<AgentBuilderPanel getDraft={getAgentDraft} getCatalog={getBuilderCatalog} applyPatch={applyBuilderPatch} contextLoading={page.editorLoading} bind:busy={builderBusy} onclose={() => { showAIBuilder = false; builderBusy = false; }} />{/key}
             </div>
           {/if}
           <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="min-w-0 p-4 space-y-4 xl:col-start-1 xl:row-start-1">
+            <LoadIssues issues={page.editor.issues} retry={page.loadEditor} loading={page.editorLoading} />
             <!-- Profile Header: Avatar left, identity fields right -->
             <div class="flex flex-col sm:flex-row gap-4 items-start">
               <!-- Avatar (large, left side) -->
@@ -1109,10 +1105,10 @@
       <!-- Agent list -->
       {#if loading || agents.length > 0 || !showForm}
         <DataTable
-          error={pageLoad.error('Agents')}
+          error={page.list.error('Agents')}
           onretry={loadData}
           items={pagedAgents}
-          loading={pageLoad.loading('Agents')}
+          {loading}
           total={filteredTotal}
           bind:limit
           bind:offset

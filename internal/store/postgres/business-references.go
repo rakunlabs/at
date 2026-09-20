@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/doug-martin/goqu/v9/exp"
@@ -370,29 +371,66 @@ func mcpReadDTO(a service.AccessPrincipal, id, workspace string, c *service.MCPS
 	*urls = nil
 }
 
+// changedBotReferences retains only newly assigned references for validation.
+// The actual record is unchanged: old selections remain visible and removable,
+// and execution still resolves/authorizes their targets at use time.
+func changedBotReferences(current, previous service.BotConfig) service.BotConfig {
+	changes := current
+	if current.DefaultAgentID == previous.DefaultAgentID {
+		changes.DefaultAgentID = ""
+	}
+	changes.ChannelAgents = make(map[string]string)
+	for channel, id := range current.ChannelAgents {
+		if id != previous.ChannelAgents[channel] {
+			changes.ChannelAgents[channel] = id
+		}
+	}
+	changes.AllowedAgentIDs = slices.Clone(current.AllowedAgentIDs)
+	for i, id := range changes.AllowedAgentIDs {
+		if slices.Contains(previous.AllowedAgentIDs, id) {
+			changes.AllowedAgentIDs[i] = ""
+		}
+	}
+	changes.CustomCommands = slices.Clone(current.CustomCommands)
+	for i, command := range current.CustomCommands {
+		for _, old := range previous.CustomCommands {
+			if command.Command != old.Command {
+				continue
+			}
+			if command.AgentID == old.AgentID {
+				changes.CustomCommands[i].AgentID = ""
+			}
+			if command.OrganizationID == old.OrganizationID {
+				changes.CustomCommands[i].OrganizationID = ""
+			}
+		}
+	}
+	return changes
+}
+
 func (p *Postgres) botReferences(ctx context.Context, w *businessWrite, c service.BotConfig) error {
 	if c.UserContainers && !w.actor.PlatformAdmin {
 		return service.ErrAccessDenied
 	}
 	if err := p.businessReference(ctx, w, p.tableAgents, "id", c.DefaultAgentID); err != nil {
-		return err
+		return fmt.Errorf("bot default_agent_id %q must reference an agent in the bot's workspace: %w", c.DefaultAgentID, err)
 	}
-	for _, id := range c.ChannelAgents {
+	for channel, id := range c.ChannelAgents {
 		if err := p.businessReference(ctx, w, p.tableAgents, "id", id); err != nil {
-			return err
+			return fmt.Errorf("bot channel_agents[%q] %q must reference an agent in the bot's workspace: %w", channel, id, err)
 		}
 	}
-	for _, id := range c.AllowedAgentIDs {
+	for i, id := range c.AllowedAgentIDs {
 		if err := p.businessReference(ctx, w, p.tableAgents, "id", id); err != nil {
-			return err
+			return fmt.Errorf("bot allowed_agent_ids[%d] %q must reference an agent in the bot's workspace: %w", i, id, err)
 		}
 	}
-	for _, cmd := range c.CustomCommands {
+	for i, cmd := range c.CustomCommands {
 		if err := p.businessReference(ctx, w, p.tableAgents, "id", cmd.AgentID); err != nil {
-			return err
+			return fmt.Errorf("bot custom_commands[%d] (%q) agent_id %q must reference an agent in the bot's workspace: %w", i, cmd.Command, cmd.AgentID, err)
 		}
 		if err := p.businessReference(ctx, w, p.tableOrganizations, "id", cmd.OrganizationID); err != nil {
-			return err
+			return fmt.Errorf("bot custom_commands[%d] (%q) organization_id %q must reference an organization in the bot's workspace: %w", i, cmd.Command, cmd.OrganizationID, err)
 		}
 	}
 	return nil

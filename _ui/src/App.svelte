@@ -104,8 +104,7 @@
   {#if storeNavbar.sideBarOpen}<div class="hidden sm:block min-h-0"><Sidebar /></div>{/if}
   <dialog bind:this={mobileNavigation} class="mobile-navigation" aria-label="Navigation" onclose={closeNavigation} onclick={event => { if (event.target === mobileNavigation || (event.target instanceof Element && event.target.closest('a'))) closeNavigation(); }}>
     <div class="flex h-full flex-col bg-white dark:bg-dark-surface">
-      <button class="settings-button m-2 min-h-11 self-end" onclick={closeNavigation}>Close navigation</button>
-      <div class="min-h-0 flex-1"><Sidebar /></div>
+      <div class="min-h-0 flex-1"><Sidebar onclose={closeNavigation} /></div>
     </div>
   </dialog>
   <div class="grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] min-h-0 min-w-0"><div class="min-w-0"><Navbar onlogout={logout} {loggingOut} />{#if pwa.offline}<p role="status" class="border-b border-gray-200 dark:border-dark-border px-3 py-2 text-sm">You’re offline. Reconnect to send messages and save changes.</p>{/if}</div><div class={['min-h-0 min-w-0', settingsLayout ? 'flex flex-col overflow-hidden' : 'overflow-y-auto']}>

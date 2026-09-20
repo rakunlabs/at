@@ -29,6 +29,7 @@ const selections = ['skills', 'mcp_sets', 'workflows', 'builtin_tools'] as const
 const numbers = ['max_iterations', 'tool_timeout'] as const;
 
 export const agentBuilderTools: ToolDefinition[] = [
+  { type: 'function', function: { name: 'ask_agent_question', description: 'Ask a necessary clarification or answer a question that requires no form changes. Do not use this instead of update_agent_form when the user requests an edit.', parameters: { type: 'object', properties: { message: { type: 'string' } }, required: ['message'], additionalProperties: false } } },
   { type: 'function', function: { name: 'get_agent_form', description: 'Read the current unsaved agent form, including manual edits.', parameters: { type: 'object', properties: {}, additionalProperties: false } } },
   { type: 'function', function: { name: 'list_agent_resources', description: 'List the available provider/models, skills, MCP sets, workflows and built-in tools. Use exact identifiers from this catalog.', parameters: { type: 'object', properties: {}, additionalProperties: false } } },
   { type: 'function', function: {

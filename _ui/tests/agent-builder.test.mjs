@@ -5,7 +5,7 @@ import ts from 'typescript';
 
 const source = await readFile(new URL('../src/lib/helper/agent-builder.ts', import.meta.url), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { applyAgentDraftPatch } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
+const { applyAgentDraftPatch, agentBuilderTools } = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
 const catalog = {
   providers: [
     { key: 'openai', type: 'openai', models: ['model-a'], default_model: 'model-a' },
@@ -61,7 +61,7 @@ test('invalid tool arguments, unsupported fields and iteration limits cannot alt
 
 const chatSource = await readFile(new URL('../src/lib/helper/chat.ts', import.meta.url), 'utf8');
 const chatCode = ts.transpileModule(chatSource.replace("import { authFetch as fetch } from '../api/transport';", 'const fetch = (...args) => globalThis.agentBuilderFetch(...args);'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
-const { streamChatCompletion } = await import(`data:text/javascript;base64,${Buffer.from(chatCode).toString('base64')}`);
+const { streamChatCompletion, getTextContent, mergeDeltaContent } = await import(`data:text/javascript;base64,${Buffer.from(chatCode).toString('base64')}`);
 const toolChunk = { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-1', function: { name: 'update_agent_form', arguments: '{"name":"Reviewer"}' } }] } }] };
 
 test('form tools are delivered only after a complete successful stream', async () => {
@@ -99,5 +99,100 @@ test('existing chat callers retain their non-strict streaming contract', async (
   globalThis.agentBuilderFetch = async () => new Response(`data: ${JSON.stringify(toolChunk)}\n\n`);
   await streamChatCompletion('api/v1/chat/completions', { model: 'p/m', messages: [], stream: true }, { onDelta() {}, onError() {}, onToolCalls() { delivered = true; } }, new AbortController().signal);
   assert.equal(delivered, true);
+  delete globalThis.agentBuilderFetch;
+});
+
+globalThis.builderRunTest = { agentBuilderTools, streamChatCompletion, getTextContent, mergeDeltaContent };
+const runSource = (await readFile(new URL('../src/lib/helper/agent-builder-run.ts', import.meta.url), 'utf8'))
+  .replace(/^import[^\n]+\n/gm, '');
+const runCode = ts.transpileModule(`const { agentBuilderTools, streamChatCompletion, getTextContent, mergeDeltaContent } = globalThis.builderRunTest;\n${runSource}`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ES2022 } }).outputText;
+const { runAgentBuilderTurn } = await import(`data:text/javascript;base64,${Buffer.from(runCode).toString('base64')}`);
+delete globalThis.builderRunTest;
+
+function streamTool(name, args, finish = 'tool_calls') {
+  return new Response([
+    { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call-' + name, function: { name, arguments: JSON.stringify(args) } }] } }] },
+    { choices: [{ delta: {}, finish_reason: finish }] },
+  ].map(chunk => `data: ${JSON.stringify(chunk)}\n\n`).join(''));
+}
+function streamText(text) {
+  return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: text }, finish_reason: 'stop' }] })}\n\n`);
+}
+function builderTurn() {
+  const state = { form: draft(), updates: [], messages: [] };
+  return { state, turn: {
+    model: 'openai/model-a', messages: [{ role: 'user', content: 'Improve the prompt' }],
+    signal: new AbortController().signal, getDraft: () => state.form, getCatalog: () => catalog,
+    applyPatch: patch => {
+      const before = state.form;
+      state.form = applyAgentDraftPatch(before, patch, catalog);
+      return Object.keys(state.form).filter(key => JSON.stringify(before[key]) !== JSON.stringify(state.form[key]));
+    },
+    onMessages: value => { state.messages = value; }, onUpdates: value => { state.updates = value; },
+  } };
+}
+
+test('builder advertises and requires form tools, applies the edit, then summarizes without tools', async () => {
+  const { state, turn } = builderTurn();
+  const requests = [];
+  globalThis.agentBuilderFetch = async (_, init) => {
+    const body = JSON.parse(init.body); requests.push(body);
+    if (requests.length === 1) return streamTool('get_agent_form', {});
+    if (requests.length === 2) return streamTool('update_agent_form', { system_prompt: 'Review Go concurrency carefully.' });
+    return streamText('Updated the prompt. Use Update to save.');
+  };
+  await runAgentBuilderTurn(turn);
+  assert.equal(state.form.system_prompt, 'Review Go concurrency carefully.');
+  assert.equal(state.form.description, 'Manual description');
+  assert.deepEqual(state.updates, ['system_prompt']);
+  assert.deepEqual(requests.map(r => r.tool_choice), ['required', 'required', 'none']);
+  assert.ok(requests[0].tools.some(t => t.function.name === 'update_agent_form'));
+  assert.match(requests[0].messages[0].content, /Original prompt/);
+  assert.equal(requests[2].tools, undefined);
+  assert.ok(requests[2].messages.some(m => m.role === 'tool' && m.content.includes('"saved":false')));
+  delete globalThis.agentBuilderFetch;
+});
+
+test('text claiming inability to edit is an explicit failure, not a successful builder turn', async () => {
+  const { state, turn } = builderTurn();
+  globalThis.agentBuilderFetch = async () => streamText('I cannot edit the form.');
+  await assert.rejects(runAgentBuilderTurn(turn), /did not apply any form changes/);
+  assert.deepEqual(state.form, draft());
+  delete globalThis.agentBuilderFetch;
+});
+
+test('clarification has an explicit tool path and leaves the form alone', async () => {
+  const { state, turn } = builderTurn();
+  globalThis.agentBuilderFetch = async () => streamTool('ask_agent_question', { message: 'Which language should it review?' });
+  await runAgentBuilderTurn(turn);
+  assert.equal(state.messages.at(-1).content, 'Which language should it review?');
+  assert.deepEqual(state.form, draft());
+  delete globalThis.agentBuilderFetch;
+});
+
+test('invalid form tool arguments can be corrected within the same turn', async () => {
+  const { state, turn } = builderTurn();
+  let calls = 0;
+  globalThis.agentBuilderFetch = async (_, init) => {
+    calls++;
+    if (calls === 1) return streamTool('update_agent_form', { name: 'Changed', skills: ['invented'] });
+    if (calls === 2) {
+      assert.equal(state.form.name, 'Reviewer');
+      assert.ok(JSON.parse(init.body).messages.some(m => m.role === 'tool' && m.content.includes('Unknown skills')));
+      return streamTool('update_agent_form', { name: 'Changed' });
+    }
+    return streamText('Name changed.');
+  };
+  await runAgentBuilderTurn(turn);
+  assert.equal(state.form.name, 'Changed');
+  assert.deepEqual(state.form.skills, ['old-skill']);
+  delete globalThis.agentBuilderFetch;
+});
+
+test('a truncated builder tool never mutates the form', async () => {
+  const { state, turn } = builderTurn();
+  globalThis.agentBuilderFetch = async () => streamTool('update_agent_form', { name: 'Changed' }, 'length');
+  await assert.rejects(runAgentBuilderTurn(turn));
+  assert.deepEqual(state.form, draft());
   delete globalThis.agentBuilderFetch;
 });

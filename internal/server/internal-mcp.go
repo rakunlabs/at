@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -137,7 +138,7 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 	result, err := s.callMCPSetTool(ctx, name, req.ToolName, req.Arguments)
 	if err != nil {
 		slog.Error("call mcp set tool failed", "set", name, "tool", req.ToolName, "error", err)
-		httpResponse(w, fmt.Sprintf("tool execution failed: %v", err), http.StatusInternalServerError)
+		httpResponse(w, fmt.Sprintf("tool execution failed: %v", err), mcpToolErrorStatus(err))
 		return
 	}
 
@@ -146,6 +147,23 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 			{"type": "text", "text": result},
 		},
 	}, http.StatusOK)
+}
+
+// Runtime routing wraps and joins executor errors. Preserve their admission
+// semantics rather than presenting invalid resource references as retryable 500s.
+func mcpToolErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, service.ErrAccessResourceNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, service.ErrWorkspaceRequired):
+		return http.StatusBadRequest
+	case errors.Is(err, service.ErrAccessDenied):
+		return http.StatusForbidden
+	case errors.Is(err, service.ErrWorkspaceConflict):
+		return http.StatusConflict
+	default:
+		return http.StatusInternalServerError
+	}
 }
 
 // ─── Direct MCPSet Resolution (no HTTP round-trip) ───

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import ToolActivity from '@/lib/components/ToolActivity.svelte';
+  import { toolResultsByMessage } from '@/lib/helper/tool-activity';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { getInfo } from '@/lib/api/gateway';
@@ -195,7 +197,9 @@
   let selectedModel = $state('');
   let systemPrompt = $state('');
   let userInput = $state('');
+  let activeTool = $state<{ messageIndex: number; callID: string } | null>(null);
   let messages = $state<ChatMessage[]>([]);
+  let toolResults = $derived(toolResultsByMessage(messages));
   let loading = $state(true);
   let streaming = $state(false);
 
@@ -1226,7 +1230,7 @@
       }
       return `Error: unknown tool source type`;
     } catch (e: any) {
-      return `Error: ${e.message || 'tool execution failed'}`;
+      return `Error: ${e?.response?.data?.message || e?.response?.data?.error?.message || e.message || 'tool execution failed'}`;
     }
   }
 
@@ -1435,6 +1439,7 @@
 
         // Execute each tool call and add tool result messages
         for (const tc of pendingToolCalls) {
+          activeTool = { messageIndex: lastIdx, callID: tc.id };
           const result = await executeToolCall(tc);
           messages = [
             ...messages,
@@ -1446,6 +1451,7 @@
           ];
           meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, imageNames: [] }];
         }
+        activeTool = null;
         scrollToBottom();
 
         // Reset streaming state before recursive call
@@ -1471,6 +1477,7 @@
     } finally {
       streaming = false;
       abortController = null;
+      activeTool = null;
     }
   }
 
@@ -1518,10 +1525,31 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) {
       e.preventDefault();
-      sendMessage();
+      if (!e.repeat) void sendMessage();
     }
+  }
+
+  function growComposer(node: HTMLTextAreaElement, _value: string) {
+    let active = true;
+    let width = 0;
+    const resize = () => {
+      if (!active) return;
+      node.style.height = 'auto';
+      node.style.height = `${node.scrollHeight}px`;
+    };
+    const observer = new ResizeObserver(entries => {
+      const nextWidth = entries[0]?.contentRect.width;
+      if (nextWidth !== width) { width = nextWidth; resize(); }
+    });
+    observer.observe(node);
+    queueMicrotask(resize);
+    return {
+      // Also grow for paste/voice input and shrink when a sent draft is cleared.
+      update(_value: string) { queueMicrotask(resize); },
+      destroy() { active = false; observer.disconnect(); },
+    };
   }
 
 </script>
@@ -2039,7 +2067,7 @@
           </div>
         {:else if msg.role === 'assistant'}
           <div class="flex justify-start group">
-            <div class="max-w-[75%]">
+            <div class={msg.tool_calls?.length ? 'min-w-0 w-full sm:max-w-[85%]' : 'max-w-[75%]'}>
               <div class="px-4 py-2.5 text-sm leading-relaxed bg-white dark:bg-dark-elevated border border-gray-200 dark:border-dark-border-subtle shadow-sm text-gray-800 dark:text-dark-text">
                 {#if typeof msg.content === 'string'}
                   {#if !msg.content && streaming && i === messages.length - 1}
@@ -2065,25 +2093,18 @@
                     {/if}
                   {/each}
                 {/if}
-                <!-- Tool call indicators -->
+                <!-- Results remain attached to their originating call. -->
                 {#if msg.tool_calls && msg.tool_calls.length > 0}
                   <div class="mt-2 pt-2 border-t border-gray-200 dark:border-dark-border space-y-1">
                     {#each msg.tool_calls as tc}
-                      <div class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-muted">
-                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"></span>
-                        <span class="font-mono">{tc.function.name}</span>
-                        <span class="text-gray-300 dark:text-dark-border">
-                          {#if toolSourceMap[tc.function.name]?.type === 'mcp'}
-                            (MCP)
-                          {:else if toolSourceMap[tc.function.name]?.type === 'skill'}
-                            (Skill: {toolSourceMap[tc.function.name]?.skillName})
-                          {:else if toolSourceMap[tc.function.name]?.type === 'builtin'}
-                            (Built-in)
-                          {:else if toolSourceMap[tc.function.name]?.type === 'frontend'}
-                            (Chat)
-                          {/if}
-                        </span>
-                      </div>
+                      {@const source = toolSourceMap[tc.function.name]}
+                      <ToolActivity
+                        call={tc}
+                        result={toolResults.get(i)?.get(tc.id)}
+                        running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
+                        queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
+                        source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'frontend' ? 'Chat' : ''}
+                      />
                     {/each}
                   </div>
                 {/if}
@@ -2095,7 +2116,7 @@
             </div>
           </div>
         {/if}
-        <!-- tool messages are hidden (internal) -->
+        <!-- Tool messages are rendered in the originating assistant's cards. -->
       {/each}
     {/if}
   </div>
@@ -2158,7 +2179,7 @@
       </div>
     {/if}
 
-    <div class="flex flex-wrap sm:flex-nowrap items-center gap-2">
+    <div class="flex flex-wrap sm:flex-nowrap items-end gap-2">
       <!-- Hidden file input -->
       <input
         bind:this={fileInput}
@@ -2182,12 +2203,15 @@
 
       <textarea
         bind:value={userInput}
+        use:growComposer={userInput}
         onkeydown={handleKeydown}
         onpaste={handlePaste}
-        placeholder={models.length === 0 ? 'No models available' : 'Type a message... (Enter to send, Shift+Enter for new line)'}
+        aria-label="Message"
+        aria-describedby="playground-composer-hint"
+        placeholder={models.length === 0 ? 'No models available' : 'Write a message…'}
         disabled={models.length === 0}
-        rows={1}
-        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 min-h-11 sm:min-h-10 flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
+        rows={3}
+        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 min-h-24 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-base sm:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted transition-colors"
       ></textarea>
       <VoiceInput contextKey={voiceContext} disabled={models.length === 0 || streaming} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
 
@@ -2204,12 +2228,14 @@
           onclick={sendMessage}
           disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing}
           class="ml-auto min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 px-3 py-2 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 flex items-center justify-center gap-1.5 transition-colors"
-          title="Send"
+          title="Send (Ctrl+Enter / ⌘+Enter)"
+          aria-label="Send message"
         >
           <Send size={14} />
         </button>
       {/if}
     </div>
+    <p id="playground-composer-hint" class="mt-1.5 text-xs text-gray-500 dark:text-dark-text-muted">Enter for a new line · Ctrl+Enter / ⌘+Enter to send</p>
   </div>
 
   <!-- Save-as-agent overlay: turns the current workbench into a reusable agent -->

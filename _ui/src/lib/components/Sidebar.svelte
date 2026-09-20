@@ -6,7 +6,9 @@
   import { loadFeatures } from '../store/features.svelte';
   import { routeFeatureEnabled } from '../helper/feature-routes';
   onMount(() => { void loadFeatures().catch(() => {}); });
-  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, Tally5, TerminalSquare } from 'lucide-svelte';
+  import { House, MessageSquare, Bot, Workflow, ClipboardList, FolderOpen, Settings, Activity, BookOpen, Building2, Clapperboard, WandSparkles, Radio, Package, Tally5, TerminalSquare, X } from 'lucide-svelte';
+  interface Props { onclose?: () => void }
+  let { onclose }: Props = $props();
   const items = [
     {path:'/',label:'Home',icon:House},
     {path:'/playground',label:'Playground',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
@@ -37,7 +39,12 @@
   ];
 </script>
 <aside class="app-sidebar border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col h-full overflow-y-auto">
-  <a href="#/" class="flex items-center gap-2 px-3 py-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-accent"><BrandLogo decorative />AT</a>
+  <div class="flex items-center justify-between gap-2 pr-2">
+    <a href="#/" class="flex items-center gap-2 px-3 py-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-accent"><BrandLogo decorative />AT</a>
+    {#if onclose}
+      <button type="button" aria-label="Close navigation" onclick={onclose} class="flex size-11 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><X size={20} /></button>
+    {/if}
+  </div>
   <nav aria-label="Main navigation" class="flex-1 px-2 space-y-1 pb-4">
     <!-- Keyed by path: the list shrinks once the feature catalog loads (everything
          reads enabled until then), and an unkeyed each reuses each index's DOM —

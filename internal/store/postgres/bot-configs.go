@@ -243,19 +243,30 @@ func (p *Postgres) UpdateBotConfig(ctx context.Context, id string, bot service.B
 	if !w.actor.Allows("credentials.manage", service.AccessResource{WorkspaceID: w.actor.WorkspaceID, ID: id}) {
 		return nil, service.ErrAccessDenied
 	}
-	if err = p.botReferences(ctx, w, bot); err != nil {
+	// Compare against the stored row under lock, never against a caller-supplied
+	// baseline. An unrelated edit must not re-admit every legacy reference: an
+	// agent deleted since the last save otherwise makes the entire bot uneditable.
+	lockSQL, _, err := w.tx.From(p.tableBotConfigs).Select(botConfigColumns...).
+		Where(w.predicate, goqu.C("id").Eq(id)).ForUpdate(goqu.Wait).ToSQL()
+	if err != nil {
+		return nil, fmt.Errorf("build bot update lock: %w", err)
+	}
+	var previousRow botConfigRow
+	if err := scanBotConfigRow(w.tx.QueryRowContext(ctx, lockSQL), &previousRow); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("lock bot config for update: %w", err)
+	}
+	previous, err := botConfigRowToRecord(previousRow)
+	if err != nil {
+		return nil, err
+	}
+	if err = p.botReferences(ctx, w, changedBotReferences(bot, *previous)); err != nil {
 		return nil, err
 	}
 	if bot.Token == "***" {
-		var token string
-		found, e := w.tx.From(p.tableBotConfigs).Select("token").Where(w.predicate, goqu.C("id").Eq(id)).ScanValContext(ctx, &token)
-		if e != nil {
-			return nil, fmt.Errorf("preserve bot token: %w", e)
-		}
-		if !found {
-			return nil, nil
-		}
-		bot.Token = token
+		bot.Token = previous.Token
 	}
 	channelAgentsJSON, err := json.Marshal(bot.ChannelAgents)
 	if err != nil {

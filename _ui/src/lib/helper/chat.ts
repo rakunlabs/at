@@ -126,6 +126,7 @@ export async function streamChatCompletion(
     model: string;
     messages: Array<{ role: string; content: any; tool_calls?: any[]; tool_call_id?: string }>;
     tools?: ToolDefinition[];
+    tool_choice?: 'auto' | 'none' | 'required';
     stream: boolean;
     stream_options?: { include_usage: boolean };
   },
