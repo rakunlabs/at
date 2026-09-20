@@ -104,6 +104,31 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/playground/conversations/{id}/messages", "models.use", "", ""},
 		{"POST", "/playground/conversations/{id}/messages", "models.use", "", ""},
 		{"DELETE", "/playground/conversations/{id}/messages", "models.use", "", ""},
+		{"GET", "/playground/defaults", "models.use", "", ""},
+		{"PUT", "/playground/defaults", "models.use", "", ""},
+		// The Playground's tool plane. These endpoints dispatch server-side
+		// tools for a browser-driven loop, so they ride the same `models.use`
+		// entry capability as the Playground itself; what a caller may actually
+		// run is decided one layer down by the workspace execution policy
+		// (CheckExecution: tool/inline_tool class, trusted-host for host tools,
+		// `platform.files` for the legacy host-path file tools). Admission and
+		// execution are deliberately separate: the capability says "may use the
+		// workbench", the policy says "may run this".
+		{"GET", "/mcp/builtin-tools", "models.use", "", ""},
+		{"POST", "/mcp/call-builtin-tool", "models.use", "", ""},
+		{"POST", "/mcp/call-skill-tool", "models.use", "", ""},
+		{"GET", "/mcp/set-tools/{name}", "mcp.read", "", ""},
+		{"POST", "/mcp/set-tools/{name}/call", "mcp.use", "", ""},
+		// Read-only catalogs the capability-admitted surfaces depend on: the
+		// Playground tool picker and the Agents editor both need to enumerate
+		// skills, MCP sets and connections to configure an agent. Management of
+		// all three stays installation administration — only the list is open,
+		// and it is already the capability the store enforces on these tables.
+		// `ListConnections` blanks credentials for a caller without
+		// `credentials.manage`, so the list carries no secret.
+		{"GET", "/skills", "skills.read", "", ""},
+		{"GET", "/mcp/sets", "mcp.read", "", ""},
+		{"GET", "/connections", "connections.read", "", ""},
 		// Chat sessions are per-account: rows are owner-scoped in the handlers
 		// and the list predicate (an administrator additionally sees ownerless
 		// bot/legacy rows), so the capability only gates entry — agents.read

@@ -12,10 +12,11 @@
     mergeDeltaContent,
     streamChatCompletion,
   } from '@/lib/helper/chat';
-  import { listMCPTools, callMCPTool, callSkillTool, listBuiltinTools, callBuiltinTool, type MCPToolInfo, type BuiltinToolDef } from '@/lib/api/mcp';
+  import { callSkillTool, listBuiltinTools, callBuiltinTool, type BuiltinToolDef } from '@/lib/api/mcp';
   import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
-  import { listAgents, type Agent, type SkillRef } from '@/lib/api/agents';
+  import { listAgents, createAgent, updateAgent, type Agent, type AgentScope, type SkillRef } from '@/lib/api/agents';
+  import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
   import {
     type PlaygroundConversation,
@@ -37,6 +38,8 @@
     playgroundRoute,
     playgroundTitleFrom,
     truncatePlaygroundMessages,
+    getPlaygroundDefaults,
+    savePlaygroundDefaults,
   } from '@/lib/api/playground';
   import {
     MEDIA_ALLOWED_LABEL,
@@ -49,7 +52,7 @@
     uploadMedia,
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
-  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Bot } from 'lucide-svelte';
   import { onDestroy, untrack } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -217,18 +220,33 @@
   // ─── Tools State ───
 
   let showToolsConfig = $state(false);
-  let mcpUrls = $state<string[]>([]);
-  let mcpNewUrl = $state('');
-  let mcpHeaders = $state<Record<string, string>>({});
-  let mcpNewHeaderKey = $state('');
-  let mcpNewHeaderValue = $state('');
-  let showMcpHeaders = $state(false);
+  /**
+   * Direct MCP URLs are no longer configurable here: tools now come from MCP
+   * sets registered in the installation, which carry credentials, stdio
+   * processes and execution admission. Anything a saved conversation already
+   * had is kept in `config` (never rewritten) and surfaced as a notice so the
+   * missing tools are explained rather than silently gone.
+   */
+  let legacyMcpUrls = $state<string[]>([]);
+  let legacyMcpHeaders = $state<Record<string, string>>({});
   let availableMCPSets = $state<MCPSet[]>([]);
   let selectedMCPSetNames = $state<string[]>([]);
   let agents = $state<Agent[]>([]);
-  let selectedAgentId = $state('');
+  /** Agent bound to this conversation; supplies the base setup. */
+  let boundAgentId = $state('');
+  let agentPickerId = $state('');
   let skills = $state<Skill[]>([]);
   let selectedSkillNames = $state<string[]>([]);
+  // "Save as agent" dialog.
+  let showSaveAgent = $state(false);
+  let saveAgentName = $state('');
+  let saveAgentScope = $state<AgentScope>('personal');
+  let saveAgentMode = $state<'create' | 'update'>('create');
+  let savingAgent = $state(false);
+  // Per-account preset bookkeeping: never save one back before it loaded, or
+  // an empty initial state would overwrite the stored preset.
+  let defaultsLoaded = $state(false);
+  let defaultsTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Built-in server tools
   let builtinTools = $state<BuiltinToolDef[]>([]);
@@ -362,25 +380,29 @@
 
   function currentConfig(): Record<string, unknown> {
     return {
-      mcp_urls: [...mcpUrls],
-      mcp_headers: { ...mcpHeaders },
+      // Preserved, not offered: a conversation saved before direct MCP URLs
+      // were removed keeps its record instead of having it rewritten away.
+      mcp_urls: [...legacyMcpUrls],
+      mcp_headers: { ...legacyMcpHeaders },
       mcp_sets: [...selectedMCPSetNames],
       skills: [...selectedSkillNames],
       builtin_tools: [...enabledBuiltinTools],
       frontend_tools: [...enabledFrontendTools],
+      agent_id: boundAgentId,
     };
   }
 
   function applyConfig(config: Record<string, unknown> | null | undefined) {
     const c = config ?? {};
     const names = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
-    mcpUrls = names(c.mcp_urls);
+    legacyMcpUrls = names(c.mcp_urls);
     selectedMCPSetNames = names(c.mcp_sets);
     selectedSkillNames = names(c.skills);
     enabledBuiltinTools = names(c.builtin_tools);
     enabledFrontendTools = names(c.frontend_tools);
+    boundAgentId = typeof c.agent_id === 'string' ? c.agent_id : '';
     const headers = c.mcp_headers;
-    mcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
+    legacyMcpHeaders = headers && typeof headers === 'object' && !Array.isArray(headers)
       ? Object.fromEntries(Object.entries(headers as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string'))
       : {};
     showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
@@ -751,7 +773,58 @@
     }
   }
 
-  loadInfo();
+  /**
+   * The account's saved starting point. It seeds a NEW conversation only — an
+   * opened conversation carries its own config, and overwriting that with a
+   * preset would silently rewrite saved history. Applied after the model list
+   * resolves so a stale model is not selected.
+   */
+  async function loadDefaults() {
+    try {
+      const prefs = await getPlaygroundDefaults();
+      defaultsLoaded = true;
+      if (conversationId || params.id) return;
+      if (prefs.model && models.includes(prefs.model)) selectedModel = prefs.model;
+      if (prefs.system_prompt && !systemPrompt.trim()) systemPrompt = prefs.system_prompt;
+      if (prefs.agent_id) boundAgentId = prefs.agent_id;
+      if (prefs.mcp_sets?.length) selectedMCPSetNames = [...prefs.mcp_sets];
+      if (prefs.skills?.length) selectedSkillNames = [...prefs.skills];
+      if (prefs.builtin_tools?.length) enabledBuiltinTools = [...prefs.builtin_tools];
+      if (prefs.frontend_tools?.length) enabledFrontendTools = [...prefs.frontend_tools];
+      showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
+      if (selectedMCPSetNames.length || selectedSkillNames.length || enabledBuiltinTools.length || enabledFrontendTools.length) {
+        void refreshTools();
+      }
+    } catch {
+      // A deployment without preference storage simply has no preset.
+    }
+  }
+
+  /**
+   * Remembers the current selection for the next new conversation. Debounced
+   * and best-effort: this is a convenience, never a precondition for chatting,
+   * so a failure is silent rather than a toast on every toggle.
+   */
+  async function saveDefaults() {
+    if (!defaultsLoaded) return;
+    if (defaultsTimer) clearTimeout(defaultsTimer);
+    defaultsTimer = setTimeout(() => {
+      defaultsTimer = null;
+      void savePlaygroundDefaults({
+        model: selectedModel,
+        agent_id: boundAgentId,
+        system_prompt: systemPrompt,
+        mcp_sets: [...selectedMCPSetNames],
+        skills: [...selectedSkillNames],
+        builtin_tools: [...enabledBuiltinTools],
+        frontend_tools: [...enabledFrontendTools],
+      }).catch(() => {});
+    }, 1200);
+  }
+
+  // Defaults are applied after the model list so a saved model can be matched
+  // against what this deployment actually offers.
+  loadInfo().then(loadDefaults);
   loadAgents();
   loadSkills();
   loadBuiltinTools();
@@ -848,43 +921,15 @@
 
   // ─── Tools Management ───
 
-  function addMcpUrl() {
-    const url = mcpNewUrl.trim();
-    if (!url) return;
-    if (mcpUrls.includes(url)) {
-      addToast('URL already added', 'alert');
-      return;
-    }
-    mcpUrls = [...mcpUrls, url];
-    mcpNewUrl = '';
-    refreshTools();
-  }
-
-  function removeMcpUrl(index: number) {
-    mcpUrls = mcpUrls.filter((_, i) => i !== index);
-    refreshTools();
-  }
-
-  function addMcpHeader() {
-    const key = mcpNewHeaderKey.trim();
-    const value = mcpNewHeaderValue.trim();
-    if (!key) return;
-    mcpHeaders = { ...mcpHeaders, [key]: value };
-    mcpNewHeaderKey = '';
-    mcpNewHeaderValue = '';
-    refreshTools();
-  }
-
-  function removeMcpHeader(key: string) {
-    const { [key]: _, ...rest } = mcpHeaders;
-    mcpHeaders = rest;
-    refreshTools();
+  /** Drops the saved direct-MCP record once the user has acknowledged it. */
+  function dismissLegacyMcpUrls() {
+    legacyMcpUrls = [];
+    legacyMcpHeaders = {};
+    scheduleSettingsSave();
   }
 
   function clearAllToolSelections() {
     selectedMCPSetNames = [];
-    mcpUrls = [];
-    mcpHeaders = {};
     selectedSkillNames = [];
     enabledBuiltinTools = [];
     enabledFrontendTools = [];
@@ -895,36 +940,116 @@
     return typeof skill === 'string' ? skill : skill.id;
   }
 
-  function onAgentSelected() {
-    if (!selectedAgentId) return;
-    const agent = agents.find(a => a.id === selectedAgentId);
+  const boundAgent = $derived(boundAgentId ? agents.find(a => a.id === boundAgentId) : undefined);
+
+  /**
+   * Binding an agent makes its configuration the conversation's base — model,
+   * system prompt and tools — and records which agent that was, so reopening
+   * the conversation shows it. Everything stays editable afterwards: the point
+   * of the workbench is to start from an agent and add to it. Selections are
+   * merged rather than replaced so a half-configured conversation is not
+   * discarded by picking an agent.
+   */
+  function bindAgent(agentId: string) {
+    const agent = agents.find(a => a.id === agentId);
     if (!agent) return;
+    boundAgentId = agent.id;
+    agentPickerId = '';
 
-    // Merge agent's MCP Sets (avoid duplicates)
+    const model = joinModel(agent.config.provider, agent.config.model);
+    // Only adopt a model this deployment actually offers; an agent may point
+    // at a provider the caller's workspace cannot reach.
+    if (model && models.includes(model)) selectedModel = model;
+
     const newSets = agent.config.mcp_sets?.filter(s => !selectedMCPSetNames.includes(s)) || [];
-    if (newSets.length > 0) {
-      selectedMCPSetNames = [...selectedMCPSetNames, ...newSets];
-    }
+    if (newSets.length > 0) selectedMCPSetNames = [...selectedMCPSetNames, ...newSets];
 
-    // Merge agent's MCP URLs (avoid duplicates)
-    const newUrls = agent.config.mcp_urls?.filter(u => !mcpUrls.includes(u)) || [];
-    if (newUrls.length > 0) {
-      mcpUrls = [...mcpUrls, ...newUrls];
-    }
-
-    // Merge agent's skills (avoid duplicates)
     const newSkills = agent.config.skills?.map(skillRefId).filter(s => s && !selectedSkillNames.includes(s)) || [];
-    if (newSkills.length > 0) {
-      selectedSkillNames = [...selectedSkillNames, ...newSkills];
-    }
+    if (newSkills.length > 0) selectedSkillNames = [...selectedSkillNames, ...newSkills];
 
-    // Apply agent's system prompt if we don't have one
+    const newBuiltins = agent.config.builtin_tools?.filter(t => !enabledBuiltinTools.includes(t)) || [];
+    if (newBuiltins.length > 0) enabledBuiltinTools = [...enabledBuiltinTools, ...newBuiltins];
+
     if (agent.config.system_prompt && !systemPrompt.trim()) {
       systemPrompt = agent.config.system_prompt;
     }
 
-    selectedAgentId = '';
     refreshTools();
+    scheduleSettingsSave();
+    void saveDefaults();
+  }
+
+  /** Unbinds without touching the setup it contributed: this is a label, not a lock. */
+  function clearBoundAgent() {
+    boundAgentId = '';
+    scheduleSettingsSave();
+    void saveDefaults();
+  }
+
+  function openSaveAgent(mode: 'create' | 'update') {
+    saveAgentMode = mode;
+    saveAgentName = mode === 'update' ? (boundAgent?.name ?? '') : (boundAgent ? `${boundAgent.name}_v2` : '');
+    saveAgentScope = 'personal';
+    showSaveAgent = true;
+  }
+
+  /**
+   * Turns the current workbench into an agent. The mapping is exact for
+   * everything AgentConfig has a field for; the browser-only chat tools
+   * (todo bookkeeping, the question prompt) have no server-side equivalent and
+   * are dropped with a notice rather than silently.
+   *
+   * Worth knowing: the Playground runs its tool loop in the browser, while a
+   * saved agent runs server-side (Sessions, delegation, workflows) under the
+   * loop governor. The configuration transfers exactly; the execution
+   * environment is not identical.
+   */
+  async function saveAsAgent() {
+    const name = saveAgentName.trim();
+    if (!name) {
+      addToast('Agent name is required', 'warn');
+      return;
+    }
+    const { provider_key, model } = splitModel(selectedModel);
+    if (!provider_key) {
+      addToast('Select a model before saving an agent', 'warn');
+      return;
+    }
+    savingAgent = true;
+    try {
+      const config = {
+        description: '',
+        provider: provider_key,
+        model,
+        system_prompt: systemPrompt,
+        skills: [...selectedSkillNames],
+        mcp_sets: [...selectedMCPSetNames],
+        mcp_urls: [],
+        builtin_tools: [...enabledBuiltinTools],
+        max_iterations: 10,
+        tool_timeout: 60,
+      };
+      let saved: Agent;
+      if (saveAgentMode === 'update' && boundAgent) {
+        saved = await updateAgent(boundAgent.id, { name, config: { ...boundAgent.config, ...config } });
+        addToast(`Agent "${name}" updated`);
+      } else {
+        saved = await createAgent({ name, scope: saveAgentScope, config });
+        addToast(`Agent "${name}" created`);
+      }
+      await loadAgents();
+      boundAgentId = saved.id;
+      showSaveAgent = false;
+      if (enabledFrontendTools.length > 0) {
+        addToast('Chat tools (todo, question) run only in the Playground and were not saved to the agent', 'warn');
+      }
+      scheduleSettingsSave();
+      void saveDefaults();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to save agent', 'alert');
+    } finally {
+      savingAgent = false;
+    }
   }
 
   function toggleSkill(skillName: string) {
@@ -967,35 +1092,18 @@
     refreshTools();
   }
 
-  /** Discover tools from MCP servers, selected skills, enabled builtins, and frontend tools. Build the dispatch map. */
+  /** Discover tools from MCP sets, selected skills, enabled builtins, and frontend tools. Build the dispatch map. */
   async function refreshTools() {
     loadingTools = true;
+    void saveDefaults();
     const newTools: ToolDefinition[] = [];
     const newSourceMap: Record<string, ToolSource> = {};
     const newSkillPrompts: string[] = [];
 
     try {
-      // 1. Discover MCP tools
-      if (mcpUrls.length > 0) {
-        const res = await listMCPTools(mcpUrls, mcpHeaders);
-        if (res.errors && res.errors.length > 0) {
-          for (const err of res.errors) {
-            addToast(`MCP: ${err}`, 'alert');
-          }
-        }
-        for (const t of res.tools ?? []) {
-          if (newSourceMap[t.name]) continue;
-          newTools.push({
-            type: 'function',
-            function: {
-              name: t.name,
-              description: t.description,
-              parameters: t.input_schema || { type: 'object', properties: {} },
-            },
-          });
-          newSourceMap[t.name] = { type: 'mcp', serverUrl: t.server_url };
-        }
-      }
+      // Tools come from installation-registered sources only. Direct MCP URLs
+      // are no longer discovered here — register the server as an MCP set so it
+      // carries credentials and execution admission with it.
 
       // 2. Discover MCP Set tools (server-side resolution)
       for (const setName of selectedMCPSetNames) {
@@ -1105,10 +1213,6 @@
         const res = await callMCPSetTool(source.mcpSetName, tc.function.name, args);
         const text = res.content?.map(c => c.text).join('\n') ?? '';
         return text || 'Tool executed successfully (no output)';
-      } else if (source.type === 'mcp' && source.serverUrl) {
-        const res = await callMCPTool(source.serverUrl, tc.function.name, args, mcpHeaders);
-        if (res.error) return `Error: ${res.error}`;
-        return res.result;
       } else if (source.type === 'skill' && source.skillName) {
         const res = await callSkillTool(source.skillName, tc.function.name, args);
         if (res.error) return `Error: ${res.error}`;
@@ -1420,12 +1524,6 @@
     }
   }
 
-  function handleMcpUrlKeydown(e: KeyboardEvent) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      addMcpUrl();
-    }
-  }
 </script>
 
 <svelte:head>
@@ -1654,33 +1752,48 @@
   <!-- Tools configuration panel -->
   {#if showToolsConfig}
     <div class="border-b border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50 px-4 py-3 shrink-0 space-y-3 max-h-80 overflow-y-auto">
-      <!-- Agent selector (quick-fill MCP URLs + skills from agent config) -->
-      {#if agents.length > 0}
-        <label class="block">
-          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Import from Agent</span>
+      <!-- Agent: bound to this conversation, and saveable back as a new agent -->
+      <label class="block">
+        <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Agent</span>
+        {#if boundAgentId}
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">
+              <Bot size={12} />
+              {boundAgent?.name ?? boundAgentId}
+              {#if boundAgent?.scope === 'personal'}<span class="opacity-70">· personal</span>{:else if boundAgent?.scope === 'global'}<span class="opacity-70">· global</span>{/if}
+            </span>
+            <button onclick={clearBoundAgent} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Unbind</button>
+            {#if boundAgent?.scope === 'personal'}
+              <button onclick={() => openSaveAgent('update')} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Update agent</button>
+            {/if}
+            <button onclick={() => openSaveAgent('create')} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Save as new agent</button>
+          </div>
+          <p class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Everything below stays editable — add tools on top, then save it as your own agent.</p>
+        {:else}
           <div class="flex gap-2">
             <div class="relative flex-1">
               <select
-                bind:value={selectedAgentId}
+                bind:value={agentPickerId}
                 class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
               >
-                <option value="">Select an agent...</option>
+                <option value="">Start from an agent…</option>
                 {#each agents as agent}
-                  <option value={agent.id}>{agent.name}{agent.config.description ? ` — ${agent.config.description}` : ''}</option>
+                  <option value={agent.id}>{agent.name}{agent.scope === 'personal' ? ' (personal)' : agent.scope === 'global' ? ' (global)' : ''}{agent.config.description ? ` — ${agent.config.description}` : ''}</option>
                 {/each}
               </select>
               <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
             </div>
             <button
-              onclick={onAgentSelected}
-              disabled={!selectedAgentId}
+              onclick={() => bindAgent(agentPickerId)}
+              disabled={!agentPickerId}
               class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 transition-colors"
             >
-              Import
+              Use
             </button>
+            <button onclick={() => openSaveAgent('create')} class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Save as agent</button>
           </div>
-        </label>
-      {/if}
+        {/if}
+      </label>
 
       <!-- MCP Sets (Internal MCPs) -->
       {#if availableMCPSets.length > 0}
@@ -1702,91 +1815,22 @@
         </label>
       {/if}
 
-      <!-- MCP Server URLs -->
-      <label class="block">
-        <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP Servers</span>
-        <div class="space-y-1.5">
-          {#each mcpUrls as url, i}
-            <div class="flex gap-2 items-center">
-              <code class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1 text-xs font-mono text-gray-700 dark:text-dark-text truncate">{url}</code>
-              <button
-                onclick={() => removeMcpUrl(i)}
-                class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
-                title="Remove"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          {/each}
-          <div class="flex gap-2">
-            <input
-              type="text"
-              bind:value={mcpNewUrl}
-              onkeydown={handleMcpUrlKeydown}
-              placeholder="http://localhost:8000/mcp"
-              class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
-            />
-            <button
-              onclick={addMcpUrl}
-              disabled={!mcpNewUrl.trim()}
-              class="px-2.5 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary disabled:opacity-30 transition-colors flex items-center gap-1"
-            >
-              <Plus size={12} />
-              Add
-            </button>
+      <!-- Direct MCP URLs were removed: register the server as an MCP set so it
+           carries its credentials, processes and execution admission. A saved
+           conversation keeps its old record until it is dismissed. -->
+      {#if legacyMcpUrls.length > 0}
+        <div class="border border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 space-y-1.5">
+          <p class="text-xs text-amber-900 dark:text-amber-200">
+            This conversation referenced {legacyMcpUrls.length} direct MCP server URL{legacyMcpUrls.length === 1 ? '' : 's'}, which the Playground no longer calls. Add the server under MCP sets to use its tools again.
+          </p>
+          <div class="flex flex-wrap gap-1.5">
+            {#each legacyMcpUrls as url}
+              <code class="border border-amber-300 dark:border-amber-900/50 bg-white/60 dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-amber-900 dark:text-amber-200 truncate max-w-full">{url}</code>
+            {/each}
           </div>
-          <!-- Headers toggle -->
-          {#if mcpUrls.length > 0 || Object.keys(mcpHeaders).length > 0}
-            <button
-              onclick={() => showMcpHeaders = !showMcpHeaders}
-              class="text-xs text-gray-400 dark:text-dark-text-muted hover:text-gray-600 dark:hover:text-dark-text-secondary transition-colors flex items-center gap-1"
-            >
-              <ChevronDown size={10} class="transition-transform {showMcpHeaders ? 'rotate-180' : ''}" />
-              Headers {Object.keys(mcpHeaders).length > 0 ? `(${Object.keys(mcpHeaders).length})` : ''}
-            </button>
-          {/if}
-          {#if showMcpHeaders}
-            <div class="pl-2 border-l-2 border-gray-200 dark:border-dark-border space-y-1.5">
-              {#each Object.entries(mcpHeaders) as [key, value]}
-                <div class="flex gap-1.5 items-center">
-                  <code class="border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-gray-600 dark:text-dark-text-secondary">{key}</code>
-                  <span class="text-gray-300 dark:text-dark-text-faint text-[10px]">:</span>
-                  <code class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-gray-500 dark:text-dark-text-muted truncate">{value}</code>
-                  <button
-                    onclick={() => removeMcpHeader(key)}
-                    class="p-0.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 transition-colors"
-                    title="Remove header"
-                  >
-                    <X size={10} />
-                  </button>
-                </div>
-              {/each}
-              <div class="flex gap-1.5">
-                <input
-                  type="text"
-                  bind:value={mcpNewHeaderKey}
-                  placeholder="Header name"
-                  class="w-32 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
-                />
-                <input
-                  type="text"
-                  bind:value={mcpNewHeaderValue}
-                  placeholder="Value"
-                  onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addMcpHeader(); } }}
-                  class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-2 py-1 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
-                />
-                <button
-                  onclick={addMcpHeader}
-                  disabled={!mcpNewHeaderKey.trim()}
-                  class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary disabled:opacity-30 transition-colors"
-                >
-                  <Plus size={10} />
-                </button>
-              </div>
-            </div>
-          {/if}
+          <button onclick={dismissLegacyMcpUrls} class="text-[10px] text-amber-800 dark:text-amber-300 underline hover:no-underline">Dismiss</button>
         </div>
-      </label>
+      {/if}
 
       <!-- Skills -->
       {#if skills.length > 0}
@@ -1859,12 +1903,12 @@
           <span>{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
           <span class="text-gray-300 dark:text-dark-border">|</span>
           <span class="truncate flex-1">{discoveredTools.map(t => t.function.name).join(', ')}</span>
-        {:else if mcpUrls.length > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
+        {:else if selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
           <span>No tools discovered</span>
         {:else}
-          <span>Add MCP servers, enable skills, or toggle tools above</span>
+          <span>Pick an agent, select MCP sets or skills, or toggle tools above</span>
         {/if}
-        {#if toolCount > 0 || selectedMCPSetNames.length > 0 || mcpUrls.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
+        {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
           <button
             onclick={clearAllToolSelections}
             class="ml-auto shrink-0 px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 transition-colors"
@@ -2167,6 +2211,53 @@
       {/if}
     </div>
   </div>
+
+  <!-- Save-as-agent overlay: turns the current workbench into a reusable agent -->
+  {#if showSaveAgent}
+    <div class="absolute inset-0 z-40 bg-gray-900/30 dark:bg-black/50 flex items-center justify-center p-4">
+      <div class="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-lg max-w-md w-full">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+          <span class="text-sm font-medium text-gray-900 dark:text-dark-text">{saveAgentMode === 'update' ? 'Update agent' : 'Save as agent'}</span>
+          <button onclick={() => showSaveAgent = false} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted transition-colors"><X size={14} /></button>
+        </div>
+        <form onsubmit={(e) => { e.preventDefault(); void saveAsAgent(); }} class="px-4 py-3 space-y-3">
+          <label class="block">
+            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1 block">Name</span>
+            <input
+              type="text"
+              bind:value={saveAgentName}
+              placeholder="e.g., research_buddy"
+              class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 transition-colors"
+            />
+          </label>
+          {#if saveAgentMode === 'create'}
+            <label class="block">
+              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1 block">Availability</span>
+              <select
+                bind:value={saveAgentScope}
+                class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 transition-colors"
+              >
+                <option value="personal">Personal — only you</option>
+                <option value="workspace">Workspace — shared with this workspace</option>
+                {#if isNativeAdmin()}
+                  <option value="global">Global — every workspace</option>
+                {/if}
+              </select>
+            </label>
+          {/if}
+          <p class="text-[10px] text-gray-400 dark:text-dark-text-muted">
+            Saves the model, system prompt, skills, MCP sets and server tools. Chat tools (todo, question) run only here and are not included. A saved agent runs server-side in Sessions, so its tool loop is governed differently than this workbench.
+          </p>
+          <div class="flex justify-end gap-2 pt-1">
+            <button type="button" onclick={() => showSaveAgent = false} class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated transition-colors">Cancel</button>
+            <button type="submit" disabled={savingAgent || !saveAgentName.trim()} class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 transition-colors">
+              {savingAgent ? 'Saving…' : saveAgentMode === 'update' ? 'Update' : 'Create agent'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  {/if}
 
   <!-- Question modal overlay -->
   {#if pendingQuestion}

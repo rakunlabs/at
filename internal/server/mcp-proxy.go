@@ -246,7 +246,18 @@ func (s *Server) SkillCallToolAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, execErr := s.executeSkillTool(r.Context(), tool, req.Arguments)
+	// executeSkillTool admits through CheckExecution, which is fail-closed on an
+	// unbound context — so without this binding the endpoint denied every call,
+	// including an administrator's. Binding here (as dispatchBuiltinTool already
+	// does for built-ins) is what subjects a browser-driven skill tool to the
+	// workspace execution policy instead of refusing it outright.
+	ctx, bindErr := s.bindRuntimePrincipal(r.Context(), "tool")
+	if bindErr != nil {
+		httpResponse(w, "runtime identity unavailable", http.StatusForbidden)
+		return
+	}
+
+	result, execErr := s.executeSkillTool(ctx, tool, req.Arguments)
 
 	resp := skillCallToolResponse{Result: result}
 	if execErr != nil {

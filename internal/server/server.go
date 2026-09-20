@@ -1215,6 +1215,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
 	apiGroup.POST("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
 	apiGroup.DELETE("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+	apiGroup.GET("/v1/playground/defaults", s.PlaygroundDefaultsAPI)
+	apiGroup.PUT("/v1/playground/defaults", s.PlaygroundDefaultsAPI)
 
 	// Configurable media storage: administrator settings plus per-user,
 	// owner-scoped image objects (Playground attachments).

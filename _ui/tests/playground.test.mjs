@@ -11,7 +11,7 @@ let failure;
 globalThis.playgroundAxiosMock = {
   create(config) {
     assert.deepEqual(config, { baseURL: 'api/v1' });
-    return Object.fromEntries(['get', 'post', 'patch', 'delete'].map(method => [method, async (...args) => {
+    return Object.fromEntries(['get', 'post', 'put', 'patch', 'delete'].map(method => [method, async (...args) => {
       calls.push([method, ...args]);
       if (failure) throw failure;
       return { data: response };
@@ -304,6 +304,27 @@ test('failures propagate without retrying or swallowing the request', async () =
     await assert.rejects(operation, error => error === failure);
     assert.equal(calls.length, before + 1);
   }
+});
+
+test('per-account defaults round-trip and carry no user id', async () => {
+  // An account that never saved a preset reads `{}`, not a 404 — the page
+  // always asks, so "no preset" must not be an error path.
+  response = undefined;
+  assert.deepEqual(await api.getPlaygroundDefaults(), {});
+  response = { model: 'openai/gpt-4o', agent_id: 'a1', mcp_sets: ['ops'] };
+  assert.deepEqual(await api.getPlaygroundDefaults(), response);
+
+  // Bodies are rebuilt from the allowlist: the endpoint rejects unknown
+  // fields, and the owner is the authenticated account server-side, so no
+  // user id is ever put on the wire.
+  await api.savePlaygroundDefaults({ model: 'openai/gpt-4o', skills: ['research'], user_id: 'someone-else', nope: 1 });
+  await api.savePlaygroundDefaults({});
+  assert.deepEqual(calls, [
+    ['get', '/playground/defaults'],
+    ['get', '/playground/defaults'],
+    ['put', '/playground/defaults', { model: 'openai/gpt-4o', skills: ['research'] }],
+    ['put', '/playground/defaults', {}],
+  ]);
 });
 
 test('routes and derived titles stay bounded and URL safe', () => {

@@ -119,7 +119,22 @@ func (s *Server) CallMCPSetToolAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := s.callMCPSetTool(r.Context(), name, req.ToolName, req.Arguments)
+	// The set's own tools admit individually inside the runtime (skill tools
+	// through CheckExecution, built-ins through dispatchBuiltinTool), and all of
+	// those are fail-closed on an unbound context. Bind the caller's runtime
+	// identity here so the workspace execution policy decides, and gate the set
+	// itself the way the agent loops do.
+	ctx, bindErr := s.bindRuntimePrincipal(r.Context(), "tool")
+	if bindErr != nil {
+		httpResponse(w, "runtime identity unavailable", http.StatusForbidden)
+		return
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: name}); err != nil {
+		httpResponse(w, "mcp set execution denied", http.StatusForbidden)
+		return
+	}
+
+	result, err := s.callMCPSetTool(ctx, name, req.ToolName, req.Arguments)
 	if err != nil {
 		slog.Error("call mcp set tool failed", "set", name, "tool", req.ToolName, "error", err)
 		httpResponse(w, fmt.Sprintf("tool execution failed: %v", err), http.StatusInternalServerError)

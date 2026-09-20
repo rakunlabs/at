@@ -761,6 +761,63 @@ Regression: `TestAgentOwnershipTiersPostgres`,
 `TestChatSessionForRequestOwnership`
 (`internal/server/chat-session-ownership_test.go`).
 
+### The Playground as an agent workbench
+
+Playground transcripts were already per-account (`playground_conversations.owner_user_id`,
+owner resolved from the authenticated subject, foreign rows answer 404). Three
+things were not, and they are what made the surface unusable for anyone but an
+installation administrator:
+
+**Its tool plane was administration-only.** `/playground` is admitted at
+`models.use`, but every endpoint its browser-side loop dispatches through had no
+`BusinessRoutePolicy` and fell through to `requireWorkspacePlatform(true)`, so a
+member got chat and no tools. They now ride the same entry capability
+(`models.use` for built-ins and skill tools, `mcp.read`/`mcp.use` for MCP sets),
+with the read-only catalogs they need to offer a choice — `GET /skills`,
+`GET /mcp/sets`, `GET /connections` — opened at the capability the store already
+enforces on those tables. `ListConnections` blanks credentials without
+`credentials.manage`, so the list carries no secret; creating or editing any of
+the three stays installation administration, which is why `uiRouteProbes` names
+their *management* call.
+
+**Nothing bound a runtime identity.** `executeSkillTool` admits through
+`CheckExecution`, which is fail-closed on an unbound context, so
+`POST /mcp/call-skill-tool` and the skill tools inside an MCP set denied every
+call — including an administrator's. `SkillCallToolAPI` and `CallMCPSetToolAPI`
+now bind the caller's runtime principal the way `dispatchBuiltinTool` always
+did, and the set is additionally gated by `mcp.use` against its own record. What
+a caller may actually run is therefore decided by the workspace execution policy
+(tool/inline_tool class, trusted-host for host tools, `platform.files` for the
+legacy host-path file tools) rather than by route configuration. Admission says
+"may use the workbench"; the policy says "may run this".
+
+**Settings lived only on the conversation.** `GET/PUT /api/v1/playground/defaults`
+stores a per-account preset in the existing `user_preferences` table (no
+migration) and seeds a *new* conversation only — an opened conversation keeps
+its own persisted config, because applying a preset over it would rewrite saved
+history. The owner is the authenticated subject; the installation-wide
+`/user-preferences` endpoints, which take a `user_id` from the caller, stay
+administration.
+
+On top of that the Playground is now where a personal agent is authored:
+selecting an agent **binds** it to the conversation (`config.agent_id`) and
+seeds model, system prompt, skills, MCP sets and built-in tools; everything
+stays editable, and **Save as agent** writes the result back through the normal
+agents API — personal by default, so it lands in the tier described above and is
+immediately usable in Sessions. Two honest limits are stated in the dialog
+rather than discovered later: the browser-only chat tools (`todo_*`, `question`)
+have no `AgentConfig` field and are dropped, and the Playground runs its tool
+loop in the browser while a saved agent runs server-side under `loopgov`, so the
+configuration transfers exactly and the execution environment does not.
+
+Direct MCP URLs were removed from the Playground: tools come from registered MCP
+sets, which carry credentials, stdio processes and execution admission with
+them. The `/mcp/list-tools` and `/mcp/call-tool` proxy endpoints are untouched
+and remain installation administration. A conversation that stored `mcp_urls`
+keeps the record — it is shown as a notice naming the URLs, never silently
+dropped, and is only cleared when the reader dismisses it. Regression:
+`internal/server/playground-defaults_test.go`, `_ui/tests/playground.test.mjs`.
+
 Scoping one of those APIs backend-side is what moves its route back.
 `TestUICapabilityRoutesAreCapabilityAdmitted` and `TestUIPlatformOnlySurfaces`
 (`internal/server/ui-navigation_test.go`) read the two lists out of

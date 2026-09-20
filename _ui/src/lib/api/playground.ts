@@ -143,6 +143,44 @@ export async function forkPlaygroundConversation(id: string, fromSequence: numbe
   return res.data;
 }
 
+// ─── Per-account defaults ───
+
+/**
+ * The caller's saved starting point for a NEW conversation. Existing
+ * conversations keep their own persisted config; this only seeds the next one,
+ * so a tuned workbench survives "New chat" instead of resetting to the
+ * alphabetically first model. Owner is the authenticated account server-side —
+ * there is no user id on the wire.
+ */
+export interface PlaygroundDefaults {
+  model?: string;
+  agent_id?: string;
+  system_prompt?: string;
+  mcp_sets?: string[];
+  skills?: string[];
+  builtin_tools?: string[];
+  frontend_tools?: string[];
+}
+
+/** An account that never saved a preset reads `{}` rather than a 404. */
+export async function getPlaygroundDefaults(): Promise<PlaygroundDefaults> {
+  const res = await api.get<PlaygroundDefaults>('/playground/defaults');
+  return res.data || {};
+}
+
+const DEFAULTS_FIELDS = ['model', 'agent_id', 'system_prompt', 'mcp_sets', 'skills', 'builtin_tools', 'frontend_tools'] as const;
+
+/** Bodies are rebuilt from the allowlist: the endpoint rejects unknown fields. */
+export async function savePlaygroundDefaults(input: PlaygroundDefaults): Promise<PlaygroundDefaults> {
+  const body: Record<string, unknown> = {};
+  for (const field of DEFAULTS_FIELDS) {
+    const value = input[field];
+    if (value !== undefined) body[field] = value;
+  }
+  const res = await api.put<PlaygroundDefaults>('/playground/defaults', body);
+  return res.data || {};
+}
+
 // ─── Messages ───
 
 /** Chronological ascending. `meta.next_before` is the OLDEST returned message. */

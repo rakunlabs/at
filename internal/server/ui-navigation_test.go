@@ -42,11 +42,19 @@ var uiPlatformOutsideAPIGroup = []string{
 	"/users", "/settings/users", "/settings/authentication", "/settings/system",
 }
 
+// Skills, Connections and MCP sets are probed with their *management* call, not
+// their list. Their read routes are capability-admitted so the surfaces that are
+// (the Playground's tool picker, the Agents editor) can enumerate them to
+// configure an agent — but creating or editing one is still installation
+// administration, which is what those pages are for. The probe therefore has to
+// name what the page does, or this test would demand the page be shown to
+// members who cannot use any of its controls.
 var uiRouteProbes = map[string]uiRouteProbe{
 	// Capability-admitted.
 	"/providers":        {"GET", "/providers"},
 	"/routing-profiles": {"GET", "/routing-profiles"},
 	"/agents":           {"GET", "/agents"},
+	"/sessions":         {"GET", "/chat/sessions"},
 	"/workflows":        {"GET", "/workflows"},
 	"/runs":             {"GET", "/runs"},
 	"/bots":             {"GET", "/bots"},
@@ -59,17 +67,16 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/settings/features": {"PUT", "/features"},
 	"/settings/media":    {"GET", "/media/settings"},
 	"/playground":        {"POST", "/chat/completions"},
-	"/sessions":          {"GET", "/chat/sessions"},
-	"/skills":            {"GET", "/skills"},
+	"/skills":            {"POST", "/skills"},
 	"/marketplaces":      {"GET", "/marketplaces"},
 	"/integrations":      {"GET", "/integration-packs"},
 	"/variables":         {"GET", "/variables"},
 	"/node-configs":      {"GET", "/node-configs"},
 	"/webhooks":          {"GET", "/triggers"},
 	"/crons":             {"GET", "/triggers"},
-	"/connections":       {"GET", "/connections"},
+	"/connections":       {"POST", "/connections"},
 	"/mcp-servers":       {"GET", "/mcp/servers"},
-	"/mcps":              {"GET", "/mcp/sets"},
+	"/mcps":              {"POST", "/mcp/sets"},
 	"/usage":             {"GET", "/usage/summary"},
 	"/llm-calls":         {"GET", "/llm-calls"},
 }
