@@ -1206,17 +1206,18 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/chat/completions", s.AdminChatCompletions)
 
 	// Playground history (per-user private transcripts of the Chat playground).
-	apiGroup.GET("/v1/playground/conversations", s.PlaygroundConversationsAPI)
-	apiGroup.POST("/v1/playground/conversations", s.PlaygroundConversationsAPI)
-	apiGroup.GET("/v1/playground/conversations/{id}", s.PlaygroundConversationAPI)
-	apiGroup.PATCH("/v1/playground/conversations/{id}", s.PlaygroundConversationAPI)
-	apiGroup.DELETE("/v1/playground/conversations/{id}", s.PlaygroundConversationAPI)
-	apiGroup.POST("/v1/playground/conversations/{id}/fork", s.PlaygroundForkAPI)
-	apiGroup.GET("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
-	apiGroup.POST("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
-	apiGroup.DELETE("/v1/playground/conversations/{id}/messages", s.PlaygroundMessagesAPI)
-	apiGroup.GET("/v1/playground/defaults", s.PlaygroundDefaultsAPI)
-	apiGroup.PUT("/v1/playground/defaults", s.PlaygroundDefaultsAPI)
+	apiGroup.GET("/v1/chats/conversations", s.PlaygroundConversationsAPI)
+	apiGroup.POST("/v1/chats/completions", s.AdminChatCompletions)
+	apiGroup.POST("/v1/chats/conversations", s.PlaygroundConversationsAPI)
+	apiGroup.GET("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)
+	apiGroup.PATCH("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)
+	apiGroup.DELETE("/v1/chats/conversations/{id}", s.PlaygroundConversationAPI)
+	apiGroup.POST("/v1/chats/conversations/{id}/fork", s.PlaygroundForkAPI)
+	apiGroup.GET("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+	apiGroup.POST("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+	apiGroup.DELETE("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
+	apiGroup.GET("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
+	apiGroup.PUT("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
 
 	// Configurable media storage: administrator settings plus per-user,
 	// owner-scoped image objects (Playground attachments).
@@ -1484,6 +1485,10 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 		return nil
 	}
 	return func(ctx context.Context, event workflow.UsageEvent) error {
+		// A cancelled turn may already have consumed tokens. Preserve attribution
+		// and workspace scope while allowing a bounded accounting write to finish.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
 		// Look up model pricing to estimate cost.
 		var costCents float64
 		if s.agentBudgetStore != nil {
@@ -1507,6 +1512,8 @@ func (s *Server) recordUsageFunc() workflow.RecordUsageFunc {
 				status = "ok"
 			}
 			if err := s.costEventStore.RecordCostEvent(ctx, service.CostEvent{
+				UserID:           event.UserID,
+				Source:           event.Source,
 				OrganizationID:   event.OrganizationID,
 				AgentID:          event.AgentID,
 				TaskID:           event.TaskID,

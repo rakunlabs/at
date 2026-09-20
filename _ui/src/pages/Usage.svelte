@@ -49,6 +49,8 @@
   let models = $state<string[]>([]);
   let agentIds = $state<string[]>([]);
   let orgIds = $state<string[]>([]);
+  let userIds = $state<string[]>([]);
+  let sources = $state<string[]>([]);
 
   let bucket = $state<Bucket>('day');
 
@@ -60,6 +62,18 @@
   let byOrg = $state<UsageSummary[]>([]);
   let byBillingCode = $state<UsageSummary[]>([]);
   let byStatus = $state<UsageSummary[]>([]);
+  let byUser = $state<UsageSummary[]>([]);
+  let bySource = $state<UsageSummary[]>([]);
+  let availableUsers = $state<Array<{ value: string; label: string }>>([]);
+  const sourceOptions = [
+    { value: 'chats', label: 'Chats' },
+    { value: 'sessions', label: 'Sessions' },
+    { value: 'assistant', label: 'AI assistants' },
+    { value: 'gateway', label: 'API gateway' },
+    { value: '', label: 'Other / historical' },
+  ];
+  const userLabel = (row: UsageSummary) => row.label || row.key || 'Unattributed / system';
+  const sourceLabel = (row: UsageSummary) => sourceOptions.find(option => option.value === (row.key || ''))?.label || row.key;
   let budgets = $state<BudgetUtilization[]>([]);
 
   let availableProviders = $state<string[]>([]);
@@ -99,6 +113,8 @@
     model: models.length ? models : undefined,
     agent_id: agentIds.length ? agentIds : undefined,
     org_id: orgIds.length ? orgIds : undefined,
+    user_id: userIds.length ? userIds : undefined,
+    source: sources.length ? sources : undefined,
   });
 
   async function loadAll() {
@@ -114,6 +130,11 @@
         pageLoad.load('Organization usage', () => getUsageGrouped(filter(), 'org', 10), value => { byOrg = value; }),
         pageLoad.load('Billing code usage', () => getUsageGrouped(filter(), 'billing_code', 10), value => { byBillingCode = value; }),
         pageLoad.load('Status usage', () => getUsageGrouped(filter(), 'status'), value => { byStatus = value; }),
+        pageLoad.load('User usage', () => getUsageGrouped(filter(), 'user', 20), value => { byUser = value; }),
+        pageLoad.load('Source usage', () => getUsageGrouped(filter(), 'source'), value => { bySource = value; }),
+        pageLoad.load('User filter', () => getUsageGrouped({ from, to }, 'user'), value => {
+          availableUsers = value.map(row => ({ value: row.key || '', label: userLabel(row) }));
+        }),
         pageLoad.load('Budgets', getBudgetUtilization, value => { budgets = value; }),
       ]);
     } catch (e: any) {
@@ -307,6 +328,8 @@
   <!-- Filters -->
   <div class="flex flex-wrap items-center gap-2 mb-4 pb-3 border-b border-gray-200 dark:border-dark-border">
     <DateRangePicker bind:from bind:to bind:preset onchange={handleRangeChange} />
+    <MultiSelect label="User" options={availableUsers} bind:selected={userIds} onchange={handleFilterChange} />
+    <MultiSelect label="Source" options={sourceOptions} bind:selected={sources} onchange={handleFilterChange} />
     <MultiSelect
       label="Provider"
       options={availableProviders}
@@ -412,6 +435,43 @@
       </div>
     </div>
   {/if}
+
+  <p class="mb-3 text-xs text-gray-600 dark:text-dark-text-secondary">User attribution starts with this update. Older calls and system activity appear as unattributed. LLM time is the sum of model-call durations, not time spent on the page.</p>
+  {#each [{ title: 'User usage', rows: byUser, users: true }, { title: 'Source usage', rows: bySource, users: false }] as section}
+    <section class="mb-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+        <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text">{section.title}{section.users ? ' · Top 20 by cost' : ''}</h3>
+        {#if section.users}<p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Select a user to filter all charts and see their Chats / Sessions breakdown below.</p>{/if}
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs text-left">
+          <thead class="text-gray-600 dark:text-dark-text-secondary border-b border-gray-200 dark:border-dark-border">
+            <tr><th class="px-4 py-2">{section.users ? 'User' : 'Source'}</th><th class="px-3 py-2 text-right">Calls</th><th class="px-3 py-2 text-right">Input</th><th class="px-3 py-2 text-right">Output</th><th class="px-3 py-2 text-right">Cache read / write</th><th class="px-3 py-2 text-right">Cost</th><th class="px-3 py-2 text-right">LLM time</th><th class="px-3 py-2 text-right">Errors</th></tr>
+          </thead>
+          <tbody class="text-gray-800 dark:text-dark-text tabular-nums">
+            {#each section.rows as row}
+              <tr class="border-b last:border-b-0 border-gray-100 dark:border-dark-border">
+                <td class="px-4 py-2">
+                  {#if section.users}
+                    <button class="max-w-64 truncate text-left underline underline-offset-2 hover:text-purple-700 dark:hover:text-purple-300 focus-visible:outline-2 focus-visible:outline-accent" title={row.key || 'No recorded user'} onclick={() => { userIds = [row.key || '']; loadAll(); }}>{userLabel(row)}</button>
+                  {:else}{sourceLabel(row)}{/if}
+                </td>
+                <td class="px-3 py-2 text-right">{fmtNum(row.request_count)}</td>
+                <td class="px-3 py-2 text-right">{fmtNum(row.input_tokens)}</td>
+                <td class="px-3 py-2 text-right">{fmtNum(row.output_tokens)}</td>
+                <td class="px-3 py-2 text-right whitespace-nowrap">{fmtNum(row.cache_read_tokens)} / {fmtNum(row.cache_write_tokens)}</td>
+                <td class="px-3 py-2 text-right">{fmtCost(row.cost_cents)}</td>
+                <td class="px-3 py-2 text-right">{fmtLatency(row.total_latency_ms)}</td>
+                <td class="px-3 py-2 text-right">{fmtNum(row.error_count)}</td>
+              </tr>
+            {:else}
+              <tr><td colspan="8" class="px-4 py-6 text-gray-600 dark:text-dark-text-secondary">{pageLoad.loading(section.title) ? 'Loading usage…' : pageLoad.error(section.title) || 'No usage in this date range for the selected filters.'}</td></tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {/each}
 
   <!-- Time-series charts -->
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">

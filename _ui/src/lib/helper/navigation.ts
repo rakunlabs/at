@@ -22,7 +22,7 @@ const capabilityRoutes: Record<string, string> = {
   '/bots': 'bots.read', '/organizations': 'organizations.read', '/tasks': 'tasks.read',
   '/studio': 'files.read', '/files': 'files.read',
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
-  '/playground': 'models.use',
+  '/chats': 'models.use',
   '/usage': 'usage.read', '/llm-calls': 'traces.read',
 };
 // Installation-administration surfaces. The second row is the set whose APIs are

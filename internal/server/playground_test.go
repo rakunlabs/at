@@ -48,7 +48,7 @@ func playgroundFixture(t *testing.T) (*Server, []string, []string) {
 }
 
 func playgroundRequest(s *Server, token, method, path, body string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, "/at/api/v1/playground/conversations"+path, strings.NewReader(body))
+	r := httptest.NewRequest(method, "/at/api/v1/chats/conversations"+path, strings.NewReader(body))
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}

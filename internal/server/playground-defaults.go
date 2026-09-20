@@ -38,7 +38,7 @@ type playgroundDefaults struct {
 	FrontendTools []string `json:"frontend_tools,omitempty"`
 }
 
-// PlaygroundDefaultsAPI handles GET and PUT /api/v1/playground/defaults.
+// PlaygroundDefaultsAPI handles GET and PUT /api/v1/chats/defaults.
 //
 // The owner is resolved by playgroundAccess (the authenticated subject) and is
 // never read from the request, matching the rest of the Playground surface:

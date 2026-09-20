@@ -10,6 +10,8 @@ export interface UsageFilter {
   provider?: string[];
   model?: string[];
   agent_id?: string[];
+  user_id?: string[];
+  source?: string[];
   org_id?: string[];
   project_id?: string[];
   goal_id?: string[];
@@ -18,6 +20,7 @@ export interface UsageFilter {
 
 export interface UsageSummary {
   key?: string;
+  label?: string;
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens: number;
@@ -56,7 +59,7 @@ export interface BudgetUtilization extends BudgetSchedule {
   usage_percent: number;
 }
 
-export type GroupBy = 'provider' | 'model' | 'agent' | 'org' | 'project' | 'goal' | 'billing_code' | 'status';
+export type GroupBy = 'provider' | 'model' | 'agent' | 'org' | 'project' | 'goal' | 'billing_code' | 'status' | 'user' | 'source';
 export type Bucket = 'hour' | 'day';
 
 // Convert a UsageFilter into the flattened query-string object axios expects.
@@ -70,6 +73,8 @@ function toParams(filter: UsageFilter): URLSearchParams {
   for (const v of filter.provider || []) p.append('provider', v);
   for (const v of filter.model || []) p.append('model', v);
   for (const v of filter.agent_id || []) p.append('agent_id', v);
+  for (const v of filter.user_id || []) p.append('user_id', v);
+  for (const v of filter.source || []) p.append('source', v);
   for (const v of filter.org_id || []) p.append('org_id', v);
   for (const v of filter.project_id || []) p.append('project_id', v);
   for (const v of filter.goal_id || []) p.append('goal_id', v);

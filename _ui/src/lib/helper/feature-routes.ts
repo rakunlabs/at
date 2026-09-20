@@ -51,7 +51,7 @@ export const routeFeatures: Record<string, string> = {
   '/usage': FEATURE_USAGE_ANALYTICS,
   '/settings/tokens': FEATURE_API_TOKENS,
   '/routing-profiles': FEATURE_ROUTING_PROFILES,
-  '/playground': FEATURE_PLAYGROUND,
+  '/chats': FEATURE_PLAYGROUND,
   '/sessions': FEATURE_CHAT_SESSIONS,
   '/bots': FEATURE_BOTS,
   '/agents': FEATURE_AGENTS,

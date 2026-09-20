@@ -95,17 +95,18 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		// the same rank as every other execution surface, so members keep it
 		// and viewers do not.
 		{"POST", "/chat/completions", "models.use", "", ""},
-		{"GET", "/playground/conversations", "models.use", "", ""},
-		{"POST", "/playground/conversations", "models.use", "", ""},
-		{"GET", "/playground/conversations/{id}", "models.use", "", ""},
-		{"PATCH", "/playground/conversations/{id}", "models.use", "", ""},
-		{"DELETE", "/playground/conversations/{id}", "models.use", "", ""},
-		{"POST", "/playground/conversations/{id}/fork", "models.use", "", ""},
-		{"GET", "/playground/conversations/{id}/messages", "models.use", "", ""},
-		{"POST", "/playground/conversations/{id}/messages", "models.use", "", ""},
-		{"DELETE", "/playground/conversations/{id}/messages", "models.use", "", ""},
-		{"GET", "/playground/defaults", "models.use", "", ""},
-		{"PUT", "/playground/defaults", "models.use", "", ""},
+		{"GET", "/chats/conversations", "models.use", "", ""},
+		{"POST", "/chats/completions", "models.use", "", ""},
+		{"POST", "/chats/conversations", "models.use", "", ""},
+		{"GET", "/chats/conversations/{id}", "models.use", "", ""},
+		{"PATCH", "/chats/conversations/{id}", "models.use", "", ""},
+		{"DELETE", "/chats/conversations/{id}", "models.use", "", ""},
+		{"POST", "/chats/conversations/{id}/fork", "models.use", "", ""},
+		{"GET", "/chats/conversations/{id}/messages", "models.use", "", ""},
+		{"POST", "/chats/conversations/{id}/messages", "models.use", "", ""},
+		{"DELETE", "/chats/conversations/{id}/messages", "models.use", "", ""},
+		{"GET", "/chats/defaults", "models.use", "", ""},
+		{"PUT", "/chats/defaults", "models.use", "", ""},
 		// The Playground's tool plane. These endpoints dispatch server-side
 		// tools for a browser-driven loop, so they ride the same `models.use`
 		// entry capability as the Playground itself; what a caller may actually

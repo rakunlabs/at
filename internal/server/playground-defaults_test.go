@@ -8,7 +8,7 @@ import (
 )
 
 func playgroundDefaultsRequest(s *Server, token, method, body string) *httptest.ResponseRecorder {
-	r := httptest.NewRequest(method, "/at/api/v1/playground/defaults", strings.NewReader(body))
+	r := httptest.NewRequest(method, "/at/api/v1/chats/defaults", strings.NewReader(body))
 	if token != "" {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -89,8 +89,8 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 		"GET /skills":                     "skills.read",
 		"GET /mcp/sets":                   "mcp.read",
 		"GET /connections":                "connections.read",
-		"GET /playground/defaults":        "models.use",
-		"PUT /playground/defaults":        "models.use",
+		"GET /chats/defaults":             "models.use",
+		"PUT /chats/defaults":             "models.use",
 	} {
 		if got := policies[pattern]; got != want {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)

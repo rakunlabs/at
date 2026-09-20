@@ -450,6 +450,8 @@ type BuiltinToolDispatcher func(ctx context.Context, name string, args map[strin
 // Only AgentID, Model, and Usage are required; the remaining fields are
 // best-effort attribution that callers provide when available.
 type UsageEvent struct {
+	UserID         string
+	Source         string
 	AgentID        string
 	Model          string
 	Provider       string

@@ -1,5 +1,6 @@
 <script lang="ts">
   import BrandLogo from './BrandLogo.svelte';
+  import { storeInfo } from '../store/store.svelte';
   import { location } from 'svelte-spa-router';
   import { routeAllowed, inSettingsArea } from '../helper/navigation';
   import { onMount } from 'svelte';
@@ -11,7 +12,7 @@
   let { onclose }: Props = $props();
   const items = [
     {path:'/',label:'Home',icon:House},
-    {path:'/playground',label:'Chats',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
+    {path:'/chats',label:'Chats',icon:MessageSquare}, {path:'/sessions',label:'Sessions',icon:MessageSquare},
     {path:'/agents',label:'Agents',icon:Bot}, {path:'/tasks',label:'Tasks',icon:ClipboardList},
     {path:'/organizations',label:'Organizations',icon:Building2}, {path:'/workflows',label:'Workflows',icon:Workflow},
     {path:'/runs',label:'Runs',icon:Activity}, {path:'/skills',label:'Skills',icon:WandSparkles},
@@ -40,7 +41,7 @@
 </script>
 <aside class="app-sidebar border-r border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface flex flex-col h-full overflow-y-auto">
   <div class="flex items-center justify-between gap-2 pr-2">
-    <a href="#/" class="flex items-center gap-2 px-3 py-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-accent"><BrandLogo decorative />AT</a>
+    <a href="#/" class="flex min-w-0 items-center gap-2 px-3 py-2 text-base font-semibold focus-visible:outline-2 focus-visible:outline-accent"><BrandLogo decorative /><span class="truncate" title={storeInfo.name || 'AT'}>{storeInfo.name || 'AT'}</span></a>
     {#if onclose}
       <button type="button" aria-label="Close navigation" onclick={onclose} class="flex size-11 shrink-0 items-center justify-center text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent"><X size={20} /></button>
     {/if}

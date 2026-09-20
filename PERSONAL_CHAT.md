@@ -8,7 +8,7 @@ clients. Both clients use the same authoritative PostgreSQL transcript.
 - Native administrators use persistent web chat at `#/chat` and
   `#/chat/<conversation-id>`, with history, model/system settings, rename/delete,
   safe Markdown, cancellation and durable-status recovery.
-- The tool/image playground remains at `#/playground`. Legacy-mode `#/chat`
+- The tool/image Chats surface lives at `#/chats`. Legacy-mode `#/chat`
   retains that playground; private persistent conversations require native auth.
 - Mobile access uses the installable `_ui/` PWA and the same browser session and conversation/message IDs as desktop.
   It supports text chat, model selection, history, streaming and cancellation.

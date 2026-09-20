@@ -120,7 +120,7 @@ var featureDefinitions = []featureDefinition{
 	{
 		Key:         service.FeaturePlayground,
 		Name:        "Chats",
-		Description: "The scratch chat surface, admin chat completions, saved playground conversations and their media attachments.",
+		Description: "Chats, their model completions, saved conversations and media attachments.",
 		Group:       "workspace",
 		Parent:      service.FeatureChatWorkbench,
 	},

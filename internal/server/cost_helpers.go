@@ -4,8 +4,29 @@ import (
 	"context"
 	"strings"
 
+	"github.com/rakunlabs/ada/middleware/auth/identity"
+
 	"github.com/rakunlabs/at/internal/service"
 )
+
+type userUsageKey struct{}
+
+type userUsageAttribution struct {
+	userID string
+	source string
+}
+
+// Browser accounting trusts the authenticated principal, never request.user or
+// metadata. Token gateway traffic remains token-attributed.
+func withUserUsage(ctx context.Context, source string) context.Context {
+	userID := ""
+	if a, ok := service.AccessPrincipalFromContext(ctx); ok {
+		userID = a.UserID
+	} else if id := identity.FromContext(ctx); id != nil {
+		userID = id.Subject
+	}
+	return context.WithValue(ctx, userUsageKey{}, userUsageAttribution{userID: userID, source: source})
+}
 
 func (s *Server) estimateGatewayUsageCostCents(ctx context.Context, providerKey, actualModel, fullModel string, usage service.Usage) float64 {
 	if s.agentBudgetStore == nil {

@@ -66,7 +66,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/pricing":           {"GET", "/model-pricing"},
 	"/settings/features": {"PUT", "/features"},
 	"/settings/media":    {"GET", "/media/settings"},
-	"/playground":        {"POST", "/chat/completions"},
+	"/chats":             {"POST", "/chats/completions"},
 	"/skills":            {"POST", "/skills"},
 	"/marketplaces":      {"GET", "/marketplaces"},
 	"/integrations":      {"GET", "/integration-packs"},

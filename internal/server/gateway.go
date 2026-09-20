@@ -1069,6 +1069,7 @@ func (s *Server) handleStreamingChat(
 
 		for chunk := range chunks {
 			if chunk.Error != nil {
+				s.recordUsageAsync(r.Context(), auth, fullModel, usageOrZero(streamUsage), time.Since(streamStart).Milliseconds(), "error", "provider_error", fmt.Sprint(chunk.Error))
 				slog.Error("stream chunk error", "provider", providerKey, "error", chunk.Error)
 				s.recordLLMCallAsync(r.Context(), llmAuditParams{
 					auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
@@ -1185,9 +1186,11 @@ func (s *Server) handleStreamingChat(
 			})
 		}
 
-		// Fire-and-forget usage recording for DB tokens (true streaming).
-		if streamUsage != nil {
-			s.recordUsageAsync(r.Context(), auth, fullModel, *streamUsage, time.Since(streamStart).Milliseconds(), "ok", "", "")
+		// Preserve partial usage when the caller cancels the stream.
+		if err := r.Context().Err(); err != nil {
+			s.recordUsageAsync(r.Context(), auth, fullModel, usageOrZero(streamUsage), time.Since(streamStart).Milliseconds(), "error", classifyHTTPError(err), err.Error())
+		} else {
+			s.recordUsageAsync(r.Context(), auth, fullModel, usageOrZero(streamUsage), time.Since(streamStart).Milliseconds(), "ok", "", "")
 		}
 		s.recordLLMCallAsync(r.Context(), llmAuditParams{
 			auth: auth, source: audit.resolveSource(), endpoint: audit.endpoint,
@@ -1524,10 +1527,14 @@ func (s *Server) recordUsageAsync(ctx context.Context, auth *authResult, fullMod
 // successful response always reports usage, so a zero-token row there would be
 // pure noise and the shortcut stands.
 func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel string, usage service.Usage, latencyMs int64, status, errCode, errMsg string, recordEmpty bool) {
-	if auth == nil || auth.token == nil || auth.token.ID == "" {
+	actor, browserCall := ctx.Value(userUsageKey{}).(userUsageAttribution)
+	tokenID := ""
+	if auth != nil && auth.token != nil {
+		tokenID = auth.token.ID
+	}
+	if tokenID == "" && !browserCall {
 		return // config token or unrestricted — no tracking
 	}
-	tokenID := auth.token.ID
 
 	// Default successful status if caller left it empty.
 	if status == "" {
@@ -1535,12 +1542,12 @@ func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel st
 	}
 	// Skip entirely if we have nothing to record.
 	hasUsage := usage.TotalTokenCount() > 0 || usage.PromptTokens > 0 || usage.CompletionTokens > 0 || usage.CacheReadTokens > 0 || usage.CacheWriteTokens > 0
-	if !hasUsage && status == "ok" && !recordEmpty {
+	if !hasUsage && status == "ok" && !recordEmpty && !browserCall {
 		return
 	}
 
 	// 1. token_usage: cumulative counters.
-	if s.tokenUsageStore != nil && hasUsage {
+	if s.tokenUsageStore != nil && hasUsage && tokenID != "" {
 		go func() {
 			if err := s.tokenUsageStore.RecordUsage(context.WithoutCancel(ctx), tokenID, fullModel, usage); err != nil {
 				slog.Error("failed to record token usage", "token_id", tokenID, "model", fullModel, "error", err)
@@ -1560,13 +1567,22 @@ func (s *Server) recordUsage(ctx context.Context, auth *authResult, fullModel st
 		// There is no billing_code on APIToken today; use the token Name as a
 		// human-readable attribution tag for gateway-originated calls.
 		billingCode := ""
-		if auth.token != nil && auth.token.Name != "" {
+		if auth != nil && auth.token != nil && auth.token.Name != "" {
 			billingCode = "token:" + auth.token.Name
+		}
+		agentID, source := "", actor.source
+		workspaceID := ""
+		if tokenID != "" {
+			agentID, source = "gateway:"+tokenID, "gateway"
+			workspaceID = auth.token.WorkspaceID
 		}
 
 		go func() {
 			if err := s.costEventStore.RecordCostEvent(context.WithoutCancel(ctx), service.CostEvent{
-				AgentID:          "gateway:" + tokenID, // gateway calls have no agent; tag with token ID
+				WorkspaceID:      workspaceID,
+				AgentID:          agentID,
+				UserID:           actor.userID,
+				Source:           source,
 				Provider:         providerKey,
 				Model:            actualModel,
 				BillingCode:      billingCode,

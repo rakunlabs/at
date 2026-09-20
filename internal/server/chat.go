@@ -7,15 +7,21 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/rakunlabs/at/internal/service"
 )
 
-// AdminChatCompletions handles POST /api/v1/chat/completions.
-// This is the admin-side chat endpoint used by the workflow editor's AI panel.
-// Unlike the gateway endpoint, it does not require Bearer token auth — it is
-// protected by ForwardAuth (if configured), same as all other admin routes.
+// AdminChatCompletions handles browser model calls from /api/v1/chats/completions
+// and the shared /api/v1/chat/completions used by embedded AI assistants.
+// Both use authenticated workspace admission rather than gateway API tokens.
 func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
+	source := "assistant"
+	if strings.HasSuffix(r.URL.Path, "/chats/completions") {
+		source = "chats"
+	}
+	r = r.WithContext(withUserUsage(r.Context(), source))
 	// Parse request (same format as gateway). Capture the raw bytes first
 	// so the LLM audit log can persist the exact request.
 	rawBody, _ := io.ReadAll(r.Body)
@@ -111,13 +117,19 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 			traceID: traceID, sessionID: sessionID, userField: req.User,
 			requestBody: rawBody, requestedModel: req.Model,
 		}
-		s.handleStreamingChat(w, r, nil, info.provider, info.RetryAfterCap(), providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts, audit)
+		committed, err := s.handleStreamingChat(w, r, nil, info.provider, info.RetryAfterCap(), providerKey, actualModel, req.Model, messages, tools, req.StreamOptions, opts, audit)
+		if err != nil && !committed {
+			clearStreamHeaders(w)
+			httpResponseJSON(w, map[string]any{"error": map[string]any{"message": err.Error(), "type": "server_error"}}, http.StatusBadGateway)
+		}
 		return
 	}
 
 	// Non-streaming
+	started := time.Now()
 	resp, err := provider.Chat(r.Context(), actualModel, messages, tools, opts)
 	if err != nil {
+		s.recordUsageAsync(r.Context(), nil, req.Model, service.Usage{}, time.Since(started).Milliseconds(), "error", classifyHTTPError(err), err.Error())
 		slog.Error("admin chat provider failed", "provider", providerKey, "error", err)
 		httpResponseJSON(w, map[string]any{
 			"error": map[string]any{
@@ -129,6 +141,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Forward provider headers
+	s.recordUsageAsync(r.Context(), nil, req.Model, resp.Usage, time.Since(started).Milliseconds(), "ok", "", "")
 	for k, v := range resp.Header {
 		for _, val := range v {
 			w.Header().Add(k, val)

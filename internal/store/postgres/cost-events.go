@@ -17,6 +17,8 @@ import (
 
 type costEventRow struct {
 	ID               string         `db:"id"`
+	UserID           string         `db:"user_id"`
+	Source           string         `db:"source"`
 	OrganizationID   sql.NullString `db:"organization_id"`
 	AgentID          string         `db:"agent_id"`
 	TaskID           sql.NullString `db:"task_id"`
@@ -43,7 +45,7 @@ var costEventColumns = []interface{}{
 	"billing_code", "run_id", "provider", "model",
 	"input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "cost_cents",
 	"latency_ms", "status", "error_code", "error_message",
-	"created_at",
+	"created_at", "user_id", "source",
 }
 
 func scanCostEventRow(scanner interface {
@@ -55,13 +57,22 @@ func scanCostEventRow(scanner interface {
 		&row.Provider, &row.Model, &row.InputTokens, &row.OutputTokens,
 		&row.CacheReadTokens, &row.CacheWriteTokens, &row.CostCents,
 		&row.LatencyMs, &row.Status, &row.ErrorCode, &row.ErrorMessage,
-		&row.CreatedAt,
+		&row.CreatedAt, &row.UserID, &row.Source,
 	)
 }
 
 func (p *Postgres) RecordCostEvent(ctx context.Context, event service.CostEvent) error {
 	id := ulid.Make().String()
 	now := time.Now().UTC()
+	workspaceID := event.WorkspaceID
+	if principal, _, ok := service.ExecutionFromContext(ctx); ok {
+		workspaceID = principal.WorkspaceID
+	} else if principal, ok := service.AccessPrincipalFromContext(ctx); ok && principal.WorkspaceID != "" {
+		workspaceID = principal.WorkspaceID
+	}
+	if workspaceID == "" {
+		workspaceID = service.DefaultWorkspaceID
+	}
 
 	status := event.Status
 	if status == "" {
@@ -71,6 +82,9 @@ func (p *Postgres) RecordCostEvent(ctx context.Context, event service.CostEvent)
 	query, _, err := p.goqu.Insert(p.tableCostEvents).Rows(
 		goqu.Record{
 			"id":                 id,
+			"workspace_id":       workspaceID,
+			"user_id":            event.UserID,
+			"source":             event.Source,
 			"organization_id":    nullString(event.OrganizationID),
 			"agent_id":           event.AgentID,
 			"task_id":            nullString(event.TaskID),
@@ -241,6 +255,8 @@ func (p *Postgres) sumCostCentsSince(ctx context.Context, column, value, since s
 func costEventRowToRecord(row costEventRow) *service.CostEvent {
 	return &service.CostEvent{
 		ID:               row.ID,
+		UserID:           row.UserID,
+		Source:           row.Source,
 		OrganizationID:   row.OrganizationID.String,
 		AgentID:          row.AgentID,
 		TaskID:           row.TaskID.String,

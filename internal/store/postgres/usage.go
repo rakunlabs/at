@@ -74,6 +74,8 @@ func applyUsageFilter(filter service.UsageFilter, startIdx int) (string, []inter
 	addIn("provider", filter.Providers)
 	addIn("model", filter.Models)
 	addIn("agent_id", filter.AgentIDs)
+	addIn("user_id", filter.UserIDs)
+	addIn("source", filter.Sources)
 	addIn("organization_id", filter.OrgIDs)
 	addIn("project_id", filter.ProjectIDs)
 	addIn("goal_id", filter.GoalIDs)
@@ -144,6 +146,10 @@ func usageGroupColumn(groupBy string) (string, error) {
 		return "billing_code", nil
 	case "status":
 		return "status", nil
+	case "user", "user_id":
+		return "user_id", nil
+	case "source":
+		return "source", nil
 	default:
 		return "", fmt.Errorf("invalid group_by: %q", groupBy)
 	}
@@ -162,9 +168,15 @@ func (p *Postgres) GetUsageGrouped(ctx context.Context, filter service.UsageFilt
 		limitClause = fmt.Sprintf(" LIMIT %d", limit)
 	}
 
+	// Resolve labels only for users present in the already workspace-filtered
+	// accounting set. Do not expose the installation's account directory.
+	label := "''"
+	if col == "user_id" {
+		label = fmt.Sprintf("COALESCE((SELECT username FROM %s WHERE id = e.user_id), '')", p.tableAuthUsers.GetTable())
+	}
 	q := fmt.Sprintf(
-		`SELECT %s AS _key, %s FROM %s%s GROUP BY %s ORDER BY cost_cents DESC, request_count DESC%s`,
-		col, usageAggregateSelect, p.tableCostEvents.GetTable(), where, col, limitClause,
+		`SELECT %s AS _key, %s AS label, %s FROM %s e%s GROUP BY %s ORDER BY cost_cents DESC, request_count DESC, %s ASC%s`,
+		col, label, usageAggregateSelect, p.tableCostEvents.GetTable(), where, col, col, limitClause,
 	)
 
 	rows, err := p.db.QueryContext(ctx, q, args...)
@@ -180,6 +192,7 @@ func (p *Postgres) GetUsageGrouped(ctx context.Context, filter service.UsageFilt
 		var first, last sql.NullTime
 		if err := rows.Scan(
 			&key,
+			&row.Label,
 			&row.InputTokens, &row.OutputTokens, &row.CacheReadTokens, &row.CacheWriteTokens, &row.TotalTokens,
 			&row.RequestCount, &row.ErrorCount, &row.CostCents,
 			&row.AvgLatencyMs, &row.MaxLatencyMs, &row.TotalLatencyMs,

@@ -49,11 +49,11 @@ test('conversation reads use the recency cursor and preserve the DTO verbatim', 
   response = conversation();
   assert.deepEqual(await api.getPlaygroundConversation('a/b'), response);
   assert.deepEqual(calls, [
-    ['get', '/playground/conversations?limit=50'],
-    ['get', '/playground/conversations?limit=200&before=c2'],
-    ['get', '/playground/conversations'],
-    ['get', '/playground/conversations'],
-    ['get', '/playground/conversations/a%2Fb'],
+    ['get', '/chats/conversations?limit=50'],
+    ['get', '/chats/conversations?limit=200&before=c2'],
+    ['get', '/chats/conversations'],
+    ['get', '/chats/conversations'],
+    ['get', '/chats/conversations/a%2Fb'],
   ]);
 });
 
@@ -88,12 +88,12 @@ test('create and patch send only allowlisted keys, and never an empty patch', as
   await api.patchPlaygroundConversation('c1', { title: 'Renamed' });
   await api.patchPlaygroundConversation('a/b', { config: {}, provider_key: 'p', bogus: 1 });
   assert.deepEqual(calls, [
-    ['post', '/playground/conversations', { title: 'T', system_prompt: 'S', provider_key: 'p', model: 'm', config: { skills: ['a'] } }],
-    ['post', '/playground/conversations', { title: 'T' }],
-    ['post', '/playground/conversations', { title: 'T' }],
-    ['post', '/playground/conversations', {}],
-    ['patch', '/playground/conversations/c1', { title: 'Renamed' }],
-    ['patch', '/playground/conversations/a%2Fb', { config: {}, provider_key: 'p' }],
+    ['post', '/chats/conversations', { title: 'T', system_prompt: 'S', provider_key: 'p', model: 'm', config: { skills: ['a'] } }],
+    ['post', '/chats/conversations', { title: 'T' }],
+    ['post', '/chats/conversations', { title: 'T' }],
+    ['post', '/chats/conversations', {}],
+    ['patch', '/chats/conversations/c1', { title: 'Renamed' }],
+    ['patch', '/chats/conversations/a%2Fb', { config: {}, provider_key: 'p' }],
   ]);
 });
 
@@ -114,10 +114,10 @@ test('delete, fork and truncate carry exact paths and bodies', async () => {
   await api.forkPlaygroundConversation('c1', 4, 'Branch');
   assert.equal(await api.truncatePlaygroundMessages('a/b', 12), undefined);
   assert.deepEqual(calls, [
-    ['delete', '/playground/conversations/a%2Fb'],
-    ['post', '/playground/conversations/c1/fork', { from_sequence: 4 }],
-    ['post', '/playground/conversations/c1/fork', { from_sequence: 4, title: 'Branch' }],
-    ['delete', '/playground/conversations/a%2Fb/messages?from_sequence=12'],
+    ['delete', '/chats/conversations/a%2Fb'],
+    ['post', '/chats/conversations/c1/fork', { from_sequence: 4 }],
+    ['post', '/chats/conversations/c1/fork', { from_sequence: 4, title: 'Branch' }],
+    ['delete', '/chats/conversations/a%2Fb/messages?from_sequence=12'],
   ]);
 });
 
@@ -129,9 +129,9 @@ test('message reads page upward from the oldest returned id', async () => {
   await api.listPlaygroundMessages('c1', { limit: 200, before: page.meta.next_before });
   await api.listPlaygroundMessages('a/b');
   assert.deepEqual(calls, [
-    ['get', '/playground/conversations/c1/messages?limit=200'],
-    ['get', '/playground/conversations/c1/messages?limit=200&before=m1'],
-    ['get', '/playground/conversations/a%2Fb/messages'],
+    ['get', '/chats/conversations/c1/messages?limit=200'],
+    ['get', '/chats/conversations/c1/messages?limit=200&before=m1'],
+    ['get', '/chats/conversations/a%2Fb/messages'],
   ]);
 });
 
@@ -144,7 +144,7 @@ test('append sends role, provider, model and data only, in order', async () => {
     { role: 'tool', provider_key: 'anthropic', model: 'claude', data: { content: 'ok', tool_call_id: 't1' } },
   ]);
   assert.deepEqual(result, stored);
-  assert.deepEqual(calls, [['post', '/playground/conversations/a%2Fb/messages', { messages: [
+  assert.deepEqual(calls, [['post', '/chats/conversations/a%2Fb/messages', { messages: [
     { role: 'user', provider_key: 'openai', model: 'gpt-4o', data: { content: 'hi' } },
     { role: 'assistant', provider_key: 'anthropic', model: 'claude', data: { content: '', tool_calls: [{ id: 't1' }] } },
     { role: 'tool', provider_key: 'anthropic', model: 'claude', data: { content: 'ok', tool_call_id: 't1' } },
@@ -320,16 +320,16 @@ test('per-account defaults round-trip and carry no user id', async () => {
   await api.savePlaygroundDefaults({ model: 'openai/gpt-4o', skills: ['research'], user_id: 'someone-else', nope: 1 });
   await api.savePlaygroundDefaults({});
   assert.deepEqual(calls, [
-    ['get', '/playground/defaults'],
-    ['get', '/playground/defaults'],
-    ['put', '/playground/defaults', { model: 'openai/gpt-4o', skills: ['research'] }],
-    ['put', '/playground/defaults', {}],
+    ['get', '/chats/defaults'],
+    ['get', '/chats/defaults'],
+    ['put', '/chats/defaults', { model: 'openai/gpt-4o', skills: ['research'] }],
+    ['put', '/chats/defaults', {}],
   ]);
 });
 
 test('routes and derived titles stay bounded and URL safe', () => {
-  assert.equal(api.playgroundRoute('c1'), '/playground/c1');
-  assert.equal(api.playgroundRoute('a/b'), '/playground/a%2Fb');
+  assert.equal(api.playgroundRoute('c1'), '/chats/c1');
+  assert.equal(api.playgroundRoute('a/b'), '/chats/a%2Fb');
   assert.equal(api.playgroundTitleFrom('  hello   there \n world '), 'hello there world');
   assert.equal(api.playgroundTitleFrom(''), 'Untitled conversation');
   assert.equal(api.playgroundTitleFrom('   '), 'Untitled conversation');

@@ -1086,6 +1086,8 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 				// / "anthropic"). The dashboard groups by user-facing provider.
 				if recordUsage := s.recordUsageFunc(); recordUsage != nil {
 					_ = recordUsage(ctx, workflow.UsageEvent{
+						UserID:         session.OwnerUserID,
+						Source:         "sessions",
 						OrganizationID: session.OrganizationID,
 						AgentID:        session.AgentID,
 						TaskID:         traceTaskID,
@@ -1113,22 +1115,21 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		// Record token usage for cost tracking.
 		// Same rule as the error path above: store the provider KEY, not the
 		// generic API family.
-		if resp.Usage.TotalTokenCount() > 0 {
-			recordUsage := s.recordUsageFunc()
-			if recordUsage != nil {
-				if usageErr := recordUsage(ctx, workflow.UsageEvent{
-					OrganizationID: session.OrganizationID,
-					AgentID:        session.AgentID,
-					TaskID:         traceTaskID,
-					Model:          model,
-					Provider:       providerKey,
-					Usage:          resp.Usage,
-					LatencyMs:      latencyMs,
-					Status:         "ok",
-				}); usageErr != nil {
-					slog.Warn("agentic loop: failed to record usage",
-						"agent_id", session.AgentID, "error", usageErr)
-				}
+		if recordUsage := s.recordUsageFunc(); recordUsage != nil {
+			if usageErr := recordUsage(ctx, workflow.UsageEvent{
+				UserID:         session.OwnerUserID,
+				Source:         "sessions",
+				OrganizationID: session.OrganizationID,
+				AgentID:        session.AgentID,
+				TaskID:         traceTaskID,
+				Model:          model,
+				Provider:       providerKey,
+				Usage:          resp.Usage,
+				LatencyMs:      latencyMs,
+				Status:         "ok",
+			}); usageErr != nil {
+				slog.Warn("agentic loop: failed to record usage",
+					"agent_id", session.AgentID, "error", usageErr)
 			}
 		}
 

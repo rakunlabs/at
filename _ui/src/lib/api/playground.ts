@@ -103,18 +103,18 @@ const pagePath = (path: string, params?: PlaygroundPageParams) => {
   return suffix ? `${path}?${suffix}` : path;
 };
 
-const conversationPath = (id: string) => `/playground/conversations/${encodeURIComponent(id)}`;
+const conversationPath = (id: string) => `/chats/conversations/${encodeURIComponent(id)}`;
 
 // ─── Conversations ───
 
 /** Recency ordered (`updated_at DESC`). `before` pages towards older entries. */
 export async function listPlaygroundConversations(params?: PlaygroundPageParams): Promise<PlaygroundList<PlaygroundConversation>> {
-  const res = await api.get<PlaygroundList<PlaygroundConversation>>(pagePath('/playground/conversations', params));
+  const res = await api.get<PlaygroundList<PlaygroundConversation>>(pagePath('/chats/conversations', params));
   return res.data;
 }
 
 export async function createPlaygroundConversation(input: PlaygroundConversationInput = {}): Promise<PlaygroundConversation> {
-  const res = await api.post<PlaygroundConversation>('/playground/conversations', playgroundConversationBody(input) ?? {});
+  const res = await api.post<PlaygroundConversation>('/chats/conversations', playgroundConversationBody(input) ?? {});
   return res.data;
 }
 
@@ -164,7 +164,7 @@ export interface PlaygroundDefaults {
 
 /** An account that never saved a preset reads `{}` rather than a 404. */
 export async function getPlaygroundDefaults(): Promise<PlaygroundDefaults> {
-  const res = await api.get<PlaygroundDefaults>('/playground/defaults');
+  const res = await api.get<PlaygroundDefaults>('/chats/defaults');
   return res.data || {};
 }
 
@@ -177,7 +177,7 @@ export async function savePlaygroundDefaults(input: PlaygroundDefaults): Promise
     const value = input[field];
     if (value !== undefined) body[field] = value;
   }
-  const res = await api.put<PlaygroundDefaults>('/playground/defaults', body);
+  const res = await api.put<PlaygroundDefaults>('/chats/defaults', body);
   return res.data || {};
 }
 
@@ -341,7 +341,7 @@ export function playgroundErrorStatus(error: unknown): number {
 
 // ─── Presentation helpers ───
 
-export const playgroundRoute = (id: string) => `/playground/${encodeURIComponent(id)}`;
+export const playgroundRoute = (id: string) => `/chats/${encodeURIComponent(id)}`;
 
 /** Derive a conversation title from the first user message. */
 export function playgroundTitleFrom(text: string, max = 60): string {

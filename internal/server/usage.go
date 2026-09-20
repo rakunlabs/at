@@ -21,13 +21,15 @@ import (
 //   provider      = repeated; any provider key in the set
 //   model         = repeated
 //   agent_id      = repeated
+//   user_id       = repeated, authenticated account id (empty = unattributed)
+//   source        = repeated (chats, sessions, assistant, gateway; empty = historical/other)
 //   org_id        = repeated
 //   project_id    = repeated
 //   goal_id       = repeated
 //   billing_code  = repeated
 //
 // Additional params:
-//   group_by  (for /usage/grouped) = provider|model|agent|org|project|goal|billing_code|status
+//   group_by  (for /usage/grouped) = provider|model|agent|org|project|goal|billing_code|status|user|source
 //   bucket    (for /usage/timeseries) = hour|day (default day)
 //   limit     (for /usage/grouped)  = top-N cap; 0 means no cap
 
@@ -49,6 +51,8 @@ func parseUsageFilter(r *http.Request) service.UsageFilter {
 		Providers:    pickAll("provider"),
 		Models:       pickAll("model"),
 		AgentIDs:     pickAll("agent_id"),
+		UserIDs:      pickAll("user_id"),
+		Sources:      pickAll("source"),
 		OrgIDs:       pickAll("org_id", "organization_id"),
 		ProjectIDs:   pickAll("project_id"),
 		GoalIDs:      pickAll("goal_id"),
@@ -83,7 +87,7 @@ func (s *Server) GetUsageGroupedAPI(w http.ResponseWriter, r *http.Request) {
 
 	groupBy := r.URL.Query().Get("group_by")
 	if groupBy == "" {
-		httpResponse(w, "group_by is required (provider|model|agent|org|project|goal|billing_code|status)", http.StatusBadRequest)
+		httpResponse(w, "group_by is required (provider|model|agent|org|project|goal|billing_code|status|user|source)", http.StatusBadRequest)
 		return
 	}
 

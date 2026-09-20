@@ -859,7 +859,7 @@ owner resolved from the authenticated subject, foreign rows answer 404). Three
 things were not, and they are what made the surface unusable for anyone but an
 installation administrator:
 
-**Its tool plane was administration-only.** `/playground` is admitted at
+**Its tool plane was administration-only.** `/chats` is admitted at
 `models.use`, but every endpoint its browser-side loop dispatches through had no
 `BusinessRoutePolicy` and fell through to `requireWorkspacePlatform(true)`, so a
 member got chat and no tools. They now ride the same entry capability
@@ -882,7 +882,7 @@ a caller may actually run is therefore decided by the workspace execution policy
 legacy host-path file tools) rather than by route configuration. Admission says
 "may use the workbench"; the policy says "may run this".
 
-**Settings lived only on the conversation.** `GET/PUT /api/v1/playground/defaults`
+**Settings lived only on the conversation.** `GET/PUT /api/v1/chats/defaults`
 stores a per-account preset in the existing `user_preferences` table (no
 migration) and seeds a *new* conversation only — an opened conversation keeps
 its own persisted config, because applying a preset over it would rewrite saved
@@ -890,16 +890,19 @@ history. The owner is the authenticated subject; the installation-wide
 `/user-preferences` endpoints, which take a `user_id` from the caller, stay
 administration.
 
-On top of that the Playground is now where a personal agent is authored:
-selecting an agent **binds** it to the conversation (`config.agent_id`) and
-seeds model, system prompt, skills, MCP sets and built-in tools; everything
-stays editable, and **Save as agent** writes the result back through the normal
-agents API — personal by default, so it lands in the tier described above and is
-immediately usable in Sessions. Two honest limits are stated in the dialog
-rather than discovered later: the browser-only chat tools (`todo_*`, `question`)
-have no `AgentConfig` field and are dropped, and the Playground runs its tool
-loop in the browser while a saved agent runs server-side under `loopgov`, so the
-configuration transfers exactly and the execution environment does not.
+Selecting an agent **binds** it to the conversation (`config.agent_id`) and
+adopts its model. Its name appears beside the transcript trash action. The
+agent's system prompt is read-only while bound; the personal prompt is retained
+for unbinding. Skills, MCP sets and built-in tools are the deduplicated union of
+the agent's current configuration and separately persisted personal selections
+(`chat-agent.ts`). A purple left border and Agent label identify inherited
+choices; a filled background identifies personal choices, including both at
+once. Removing an agent drops only inherited contributions. **Copy to my
+settings** copies the effective prompt and union into personal settings and
+unbinds, making them editable. There is no Save as agent action in Chats.
+Older saved tool lists retain their explicit selections because their original
+provenance cannot be reconstructed. Tool discovery waits for catalogs and
+discards stale results. Regression: `_ui/tests/chat-agent.test.mjs`.
 
 Direct MCP URLs were removed from the Playground: tools come from registered MCP
 sets, which carry credentials, stdio processes and execution admission with
@@ -1526,6 +1529,37 @@ explicit 400 after resolving stored auth, and the Providers editor explains that
 a separate API-key OpenAI provider is required instead of offering an empty Fetch.
 
 LLM providers, gateway API tokens, and bot adapters are configured at runtime through the UI (`/api/v1/providers`, `/api/v1/api-tokens`, `/api/v1/bots`) and persisted in the database. They are NOT accepted via YAML or env. The only YAML / env knobs are bootstrap-only: log level, server bind, store backend, telemetry.
+
+### Chats URLs and per-user usage
+
+Chats uses `#/chats` / `#/chats/{id}` and `/api/v1/chats/{conversations,defaults,completions}`.
+Navigation, feature admission and workspace capability policies use those paths.
+Historical database tables, preference keys and the persisted `playground` feature
+key retain their names so saved conversations and disabled-feature settings survive.
+The shared `/api/v1/chat/completions` endpoint remains for other AI assistants.
+
+Migration 60 adds `cost_events.user_id` and `source`. Browser chat accounting derives
+the user from the authenticated principal (never the request's `user` or metadata),
+and Sessions uses the persisted session owner for every loop iteration. Chats had
+previously skipped accounting because `recordUsage` required an API token; it now
+records browser calls, including streaming failures and calls without reported
+tokens. Sources are `chats`, `sessions`, `assistant` and `gateway`; historical/system
+rows without attribution remain explicitly unassigned. No guessed historical users.
+Cost-event writes stamp the execution/browser workspace, or the gateway token's
+workspace, instead of implicitly falling into Default.
+
+Usage accepts repeated `user_id` and `source` filters and groups by `user` / `source`.
+User labels resolve only for accounts represented by the workspace-scoped aggregate;
+the UI does not call the installation account directory. A user selection filters
+all charts and source breakdowns. Summed LLM duration is model time, not page dwell
+time. Existing `usage.read` admission and platform-admin global scope remain.
+Regression: `internal/server/user-usage_test.go`,
+`internal/store/postgres/user-usage_test.go`.
+
+API Tokens treats disabled optional restriction catalogs (Webhook targets / MCP
+servers) as inactive features rather than page failures: their disabled notices
+are omitted from the reference `LoadIssues`, while real request failures retain
+their error/retry controls. The primary token-list error handling is independent.
 
 ## Unified LLM Tracing (traces / observations)
 

@@ -151,7 +151,7 @@ func playgroundQueryLimit(r *http.Request) uint {
 	return uint(n)
 }
 
-// PlaygroundConversationsAPI handles GET and POST /v1/playground/conversations.
+// PlaygroundConversationsAPI handles GET and POST /v1/chats/conversations.
 func (s *Server) PlaygroundConversationsAPI(w http.ResponseWriter, r *http.Request) {
 	store, owner := s.playgroundAccess(w, r)
 	if store == nil {
@@ -208,7 +208,7 @@ func (s *Server) PlaygroundConversationsAPI(w http.ResponseWriter, r *http.Reque
 }
 
 // PlaygroundConversationAPI handles GET, PATCH and DELETE on a single
-// /v1/playground/conversations/{id}.
+// /v1/chats/conversations/{id}.
 func (s *Server) PlaygroundConversationAPI(w http.ResponseWriter, r *http.Request) {
 	store, owner := s.playgroundAccess(w, r)
 	if store == nil {
@@ -268,7 +268,7 @@ func (s *Server) PlaygroundConversationAPI(w http.ResponseWriter, r *http.Reques
 }
 
 // PlaygroundForkAPI handles POST
-// /v1/playground/conversations/{id}/fork. It answers with the NEW
+// /v1/chats/conversations/{id}/fork. It answers with the NEW
 // conversation, so the client can navigate straight to the branch; the source
 // is left untouched.
 func (s *Server) PlaygroundForkAPI(w http.ResponseWriter, r *http.Request) {
@@ -302,7 +302,7 @@ func (s *Server) PlaygroundForkAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 // PlaygroundMessagesAPI handles GET, POST and DELETE on
-// /v1/playground/conversations/{id}/messages.
+// /v1/chats/conversations/{id}/messages.
 func (s *Server) PlaygroundMessagesAPI(w http.ResponseWriter, r *http.Request) {
 	store, owner := s.playgroundAccess(w, r)
 	if store == nil {

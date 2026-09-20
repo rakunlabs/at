@@ -64,7 +64,7 @@ func TestFeatureKeyForAPIRequest(t *testing.T) {
 		},
 		{
 			name:   "playground conversations belong to playground",
-			path:   "/api/v1/playground/conversations/abc/messages",
+			path:   "/api/v1/chats/conversations/abc/messages",
 			method: http.MethodGet,
 			want:   service.FeaturePlayground,
 		},

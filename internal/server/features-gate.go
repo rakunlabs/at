@@ -265,7 +265,7 @@ func featureKeyForRoute(path, method, basePath string) string {
 		}
 
 		return service.FeatureChatWorkbench
-	case "playground":
+	case "chats":
 		return service.FeaturePlayground
 	case "media":
 		// Media storage configuration is an installation setting, not a chat

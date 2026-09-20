@@ -96,9 +96,9 @@ export default {
   '/variables': guarded(Secrets, '/variables'),
   // One entry, optional param. Two separate entries would be two distinct
   // wrapped objects and would straddle the router's `{#if componentParams}`
-  // boundary, so navigating `/playground` → `/playground/:id` would unmount and
+  // boundary, so navigating `/chats` → `/chats/:id` would unmount and
   // remount the page — killing the in-flight turn the lazy save depends on.
-  '/playground/:id?': guarded(Chat, '/playground'),
+  '/chats/:id?': guarded(Chat, '/chats'),
   '/sessions': guarded(ChatSessions, '/sessions'),
   '/tokens': redirect('/settings/tokens'),
   '/node-configs': guarded(NodeConfigs, '/node-configs'),

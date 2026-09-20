@@ -211,7 +211,11 @@ type AgentBudgetStorer interface {
 
 // CostEvent records a single LLM call cost with full attribution.
 type CostEvent struct {
+	// WorkspaceID is supplied internally for machine calls without a browser principal.
+	WorkspaceID      string  `json:"-"`
 	ID               string  `json:"id"`
+	UserID           string  `json:"user_id,omitempty"`
+	Source           string  `json:"source,omitempty"`
 	OrganizationID   string  `json:"organization_id,omitempty"`
 	AgentID          string  `json:"agent_id"`
 	TaskID           string  `json:"task_id,omitempty"`
@@ -249,6 +253,8 @@ type UsageFilter struct {
 	Providers    []string // match any
 	Models       []string
 	AgentIDs     []string
+	UserIDs      []string
+	Sources      []string
 	OrgIDs       []string
 	ProjectIDs   []string
 	GoalIDs      []string
@@ -262,6 +268,7 @@ type UsageFilter struct {
 // returned by /usage/grouped (keyed by the requested GroupBy dimension).
 type UsageSummary struct {
 	Key              string  `json:"key,omitempty"`
+	Label            string  `json:"label,omitempty"`
 	InputTokens      int64   `json:"input_tokens"`
 	OutputTokens     int64   `json:"output_tokens"`
 	CacheReadTokens  int64   `json:"cache_read_tokens"`
