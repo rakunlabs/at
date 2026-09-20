@@ -24,6 +24,7 @@ const capabilityRoutes: Record<string, string> = {
   '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
   '/chats': 'models.use',
   '/usage': 'usage.read', '/llm-calls': 'traces.read',
+  '/settings/trace-export': 'workspace.write',
 };
 // Installation-administration surfaces. The second row is the set whose APIs are
 // registered on `apiGroup` without a business policy: skills and skill
@@ -74,6 +75,7 @@ export const configurationLinks = [
   { path: '/settings/users', label: 'Users', description: 'Installation accounts and full account recovery' },
   { path: '/settings/execution', label: 'Execution', description: 'Restricted and trusted-host policy' },
   { path: '/settings/media', label: 'Media storage', description: 'Where image attachments in Chats are stored' },
+  { path: '/settings/trace-export', label: 'Trace export', description: 'Workspace trace delivery to OpenTelemetry or Langfuse' },
   { path: '/providers', label: 'Model providers', description: 'Model connections and credentials' },
   { path: '/routing-profiles', label: 'Routing profiles', description: 'Named model chains with automatic fallback' },
   { path: '/connections', label: 'Connections', description: 'External-service credentials and connectors' },

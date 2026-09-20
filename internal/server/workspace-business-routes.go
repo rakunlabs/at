@@ -23,6 +23,9 @@ type BusinessRoutePolicy struct{ Method, Pattern, Capability, Kind, IDParam stri
 func workspaceBusinessPolicies() []BusinessRoutePolicy {
 	routes := []BusinessRoutePolicy{
 		{"GET", "/info", "workspace.read", "", ""},
+		{"GET", "/trace-export", "workspace.write", "", ""},
+		{"PUT", "/trace-export", "workspace.write", "", ""},
+		{"POST", "/trace-export/test", "workspace.write", "", ""},
 		{"GET", "/bots/video-templates", "platform.manage", "", ""},
 		{"POST", "/bots/{id}/start", "bots.write", "bots", "id"},
 		{"POST", "/bots/{id}/stop", "bots.write", "bots", "id"},

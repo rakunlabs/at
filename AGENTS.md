@@ -1586,6 +1586,41 @@ missing historical IDs are not guessed or rewritten.
 
 ## Stdio MCP processes & the MCP program library
 
+### Workspace trace export
+
+Settings → Trace export (`/settings/trace-export`) configures a separate OTLP
+destination per selected workspace. GET/PUT `/api/v1/trace-export` and POST
+`/api/v1/trace-export/test` require `workspace.write` (workspace admin rank).
+Migration 61 stores a versioned config blob in `trace_export_settings`; it uses
+the installation encryption key when configured, participates in key rotation,
+and is removed with its workspace. Reads redact header values and the Langfuse
+secret to `***`; replaying that sentinel preserves the stored value, while
+clearing a secret/removing a header removes it. Version CAS refuses stale saves.
+
+HTTP uses the complete trace URL (collector `/v1/traces`, Langfuse
+`/api/public/otel/v1/traces`); gRPC takes `http://host:4317` for plaintext or
+`https://host:4317` for TLS. Langfuse is HTTP/protobuf-only, with Basic auth from
+its keys and `x-langfuse-ingestion-version: 4` by default. Test connection sends
+a real synthetic Export request using unsaved form values, including saved
+masked credentials, and returns acceptance, latency and its OTEL trace ID.
+HTTP redirects, HTML successes, partial rejections and RPC failures do not pass.
+Acceptance proves ingestion at that endpoint, not downstream collector delivery.
+
+`internal/service/traceexport` builds OTLP directly so global SDK/environment
+exporter settings cannot redirect a workspace destination. Trace IDs are stable
+hashes of workspace + token + AT trace ID; span/parent IDs hash observation IDs.
+The recorder stamps workspace identity from gateway tokens or execution/browser
+contexts into writes and delivery. Four workers share a bounded 256-observation
+queue, collect batches of up to 32 and read current settings at delivery time
+(cross-replica changes require no restart). Delivery has a 10s deadline and one
+retry for transient failures; shutdown cancels delivery, and queue overflow or
+final failures are logged. This is best-effort live export, not a durable outbox
+or historical backfill. Local trace retention and bootstrap OTEL remain separate.
+Prompt/response/tool/error content requires both `include_content` and the
+installation `llm_audit` body-capture feature, with bounded inline content.
+Regressions: `internal/service/traceexport/export_test.go`,
+`internal/server/trace-export_test.go`, `internal/store/postgres/trace-export_test.go`.
+
 Stdio MCP upstreams (`command`/`args`/`env` in `mcp_upstreams`) run in a
 process-wide lazy pool (`service.StdioProcessManager`, keyed by resolved
 command+args). Three lifecycle properties are load-bearing:

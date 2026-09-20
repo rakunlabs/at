@@ -51,16 +51,17 @@ var uiPlatformOutsideAPIGroup = []string{
 // members who cannot use any of its controls.
 var uiRouteProbes = map[string]uiRouteProbe{
 	// Capability-admitted.
-	"/providers":        {"GET", "/providers"},
-	"/routing-profiles": {"GET", "/routing-profiles"},
-	"/agents":           {"GET", "/agents"},
-	"/sessions":         {"GET", "/chat/sessions"},
-	"/workflows":        {"GET", "/workflows"},
-	"/runs":             {"GET", "/runs"},
-	"/bots":             {"GET", "/bots"},
-	"/organizations":    {"GET", "/organizations"},
-	"/tasks":            {"GET", "/tasks"},
-	"/settings/tokens":  {"GET", "/api-tokens"},
+	"/providers":             {"GET", "/providers"},
+	"/routing-profiles":      {"GET", "/routing-profiles"},
+	"/agents":                {"GET", "/agents"},
+	"/sessions":              {"GET", "/chat/sessions"},
+	"/workflows":             {"GET", "/workflows"},
+	"/runs":                  {"GET", "/runs"},
+	"/bots":                  {"GET", "/bots"},
+	"/organizations":         {"GET", "/organizations"},
+	"/tasks":                 {"GET", "/tasks"},
+	"/settings/tokens":       {"GET", "/api-tokens"},
+	"/settings/trace-export": {"GET", "/trace-export"},
 	// Installation administration.
 	"/terminal":          {"GET", "/terminals"},
 	"/pricing":           {"GET", "/model-pricing"},

@@ -66,6 +66,8 @@ const ObservationPreviewBytes = 4096
 // by TraceID).
 type LLMCall struct {
 	ID string `json:"id"`
+	// WorkspaceID is server-owned write/delivery attribution, not request input.
+	WorkspaceID string `json:"-"`
 	// ObservationType is one of ObservationGeneration / ObservationTool /
 	// ObservationEvent. Empty is treated as "generation" (pre-migration
 	// rows and gateway callers).

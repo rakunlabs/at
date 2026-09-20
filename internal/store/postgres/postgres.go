@@ -634,6 +634,9 @@ func (p *Postgres) RotateEncryptionKey(ctx context.Context, newKey []byte) error
 	if err := p.rotateMediaSettingsKey(ctx, tx, p.encKey, newKey); err != nil {
 		return fmt.Errorf("rotate media storage settings: %w", err)
 	}
+	if err := p.rotateTraceExportKey(ctx, tx, p.encKey, newKey); err != nil {
+		return fmt.Errorf("rotate trace export settings: %w", err)
+	}
 
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit transaction: %w", err)

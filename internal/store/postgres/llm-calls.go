@@ -155,6 +155,7 @@ func (p *Postgres) RecordLLMCall(ctx context.Context, call service.LLMCall) erro
 	query, _, err := p.goqu.Insert(p.tableLLMCalls).Rows(
 		goqu.Record{
 			"id":                     id,
+			"workspace_id":           llmCallWriteWorkspace(ctx, call),
 			"observation_type":       obsType,
 			"parent_observation_id":  call.ParentObservationID,
 			"name":                   call.Name,
@@ -208,6 +209,19 @@ func (p *Postgres) RecordLLMCall(ctx context.Context, call service.LLMCall) erro
 	}
 
 	return nil
+}
+
+func llmCallWriteWorkspace(ctx context.Context, call service.LLMCall) string {
+	if p, _, ok := service.ExecutionFromContext(ctx); ok {
+		return p.WorkspaceID
+	}
+	if p, ok := service.AccessPrincipalFromContext(ctx); ok {
+		return p.WorkspaceID
+	}
+	if call.WorkspaceID != "" {
+		return call.WorkspaceID
+	}
+	return service.DefaultWorkspaceID
 }
 
 func (p *Postgres) ListLLMCalls(ctx context.Context, q *query.Query) (*service.ListResult[service.LLMCall], error) {

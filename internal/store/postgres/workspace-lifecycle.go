@@ -23,7 +23,7 @@ var workspaceDeletionTables = []string{
 	"agent_task_sessions", "agent_config_revisions", "cost_events", "llm_calls", "approvals", "tasks", "projects", "goals", "labels",
 	"agents", "organizations", "bot_configs", "providers", "skills", "skill_servers", "variables", "node_configs",
 	"mcp_servers", "mcp_sets", "marketplaces", "marketplace_sources", "pack_sources", "guides", "connections", "connectors",
-	"routing_profiles",
+	"routing_profiles", "trace_export_settings",
 }
 
 func (p *Postgres) DeleteWorkspace(ctx context.Context, confirmation string) (*service.WorkspaceDeletion, error) {

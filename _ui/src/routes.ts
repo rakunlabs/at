@@ -26,6 +26,7 @@ import WorkspaceSettings from '@/pages/WorkspaceSettings.svelte';
 import Permissions from '@/pages/Permissions.svelte';
 import ExecutionSettings from '@/pages/ExecutionSettings.svelte';
 import MediaSettings from '@/pages/MediaSettings.svelte';
+import TraceExportSettings from '@/pages/TraceExportSettings.svelte';
 import Organizations from '@/pages/Organizations.svelte';
 import OrganizationDetail from '@/pages/OrganizationDetail.svelte';
 import Tasks from '@/pages/Tasks.svelte';
@@ -121,6 +122,7 @@ export default {
   '/settings/permissions': Permissions,
   '/settings/execution': ExecutionSettings,
   '/settings/media': MediaSettings,
+  '/settings/trace-export': TraceExportSettings,
   '/settings/users': Users,
   '/settings/features': Features,
   '/settings/tokens': guarded(Tokens, '/settings/tokens'),

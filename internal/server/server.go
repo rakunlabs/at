@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rakunlabs/ada"
@@ -290,7 +291,9 @@ type Server struct {
 	// llmCallStore is the persistent store for the LLM call audit log
 	// (full request/response bodies, Langfuse-style tracing). Gated by
 	// the llm_audit feature flag.
-	llmCallStore service.LLMCallStorer
+	llmCallStore       service.LLMCallStorer
+	traceExportQueue   chan service.LLMCall
+	traceExportDropLog atomic.Int64
 
 	// llmAudit caches the llm_audit feature toggle so the per-call hot
 	// path avoids a DB read on every gateway request.
@@ -603,6 +606,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 			}
 		}
 	}()
+
+	s.startTraceExport(ctx)
 
 	// Start the workspace janitor (loopgov.WorkspaceRoot/<task-id> +
 	// .at-tool-output/<run-id>). On a long-running deployment, the
@@ -1084,6 +1089,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 
 	// LLM call audit (full request/response bodies, Langfuse-style tracing)
 	apiGroup.GET("/v1/llm-calls", s.ListLLMCallsAPI)
+	apiGroup.GET("/v1/trace-export", s.TraceExportSettingsAPI)
+	apiGroup.PUT("/v1/trace-export", s.TraceExportSettingsAPI)
+	apiGroup.POST("/v1/trace-export/test", s.TraceExportSettingsAPI)
 	apiGroup.GET("/v1/llm-calls/traces", s.ListLLMCallTracesAPI)
 	apiGroup.GET("/v1/llm-calls/conversations", s.ListLLMCallConversationsAPI)
 	apiGroup.GET("/v1/llm-calls/{id}", s.GetLLMCallAPI)

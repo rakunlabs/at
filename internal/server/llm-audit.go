@@ -178,6 +178,7 @@ func (s *Server) recordLLMCallAsync(ctx context.Context, p llmAuditParams) strin
 		if err := s.llmCallStore.RecordLLMCall(bg, call); err != nil {
 			slog.Error("failed to record llm call", "trace_id", call.TraceID, "model", call.Model, "error", err.Error())
 		}
+		s.enqueueTraceExport(call, bodies, reqBody, respBody)
 		s.emitLLMSpan(call, reqBody, respBody)
 	}()
 
@@ -230,6 +231,7 @@ func (s *Server) buildLLMCall(ctx context.Context, p llmAuditParams) service.LLM
 
 	return service.LLMCall{
 		ID:                  ulid.Make().String(),
+		WorkspaceID:         traceExportWorkspace(ctx, p.auth),
 		ObservationType:     obsType,
 		ParentObservationID: p.parentObservationID,
 		Name:                p.name,
