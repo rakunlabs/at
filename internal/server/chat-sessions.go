@@ -151,6 +151,27 @@ func (s *Server) CreateChatSessionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.Config.OrganizationChat {
+		if req.OrganizationID == "" || req.TaskID != "" {
+			httpResponse(w, "organization chat requires organization_id and no task_id", http.StatusBadRequest)
+			return
+		}
+		ctx, err := s.bindRuntimePrincipal(r.Context(), "chat")
+		if err != nil {
+			httpResponse(w, fmt.Sprintf("organization chat unavailable: %v", err), http.StatusForbidden)
+			return
+		}
+		org, err := s.chatOrganization(ctx, req.OrganizationID)
+		if err != nil {
+			httpResponse(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		req.AgentID = org.HeadAgentID
+		req.Config = service.ChatSessionConfig{OrganizationChat: true, DisableTaskResultSync: true}
+		if req.Name == "" {
+			req.Name = org.Name
+		}
+	}
 	if req.AgentID == "" {
 		httpResponse(w, "agent_id is required", http.StatusBadRequest)
 		return
@@ -214,9 +235,16 @@ func (s *Server) UpdateChatSessionAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if existing, status, msg := s.chatSessionForRequest(r, id); existing == nil {
+	existing, status, msg := s.chatSessionForRequest(r, id)
+	if existing == nil {
 		httpResponse(w, msg, status)
 		return
+	}
+	if existing.Config.OrganizationChat || req.Config.OrganizationChat {
+		if !existing.Config.OrganizationChat || req.AgentID != "" || req.OrganizationID != "" || req.TaskID != "" || req.Config != (service.ChatSessionConfig{}) {
+			httpResponse(w, "organization chat target and task links are managed by the server; create a new session to change target", http.StatusBadRequest)
+			return
+		}
 	}
 
 	userEmail := s.getUserEmail(r)
@@ -402,6 +430,17 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		return fmt.Errorf("session %q not found", sessionID)
 	}
 
+	// Organization conversations follow the currently active head, including
+	// after an administrator changes the organization roster.
+	var chatOrg *service.Organization
+	if session.Config.OrganizationChat {
+		var err error
+		chatOrg, err = s.chatOrganization(ctx, session.OrganizationID)
+		if err != nil {
+			return err
+		}
+		session.AgentID = chatOrg.HeadAgentID
+	}
 	// 2. Load agent config.
 	if s.agentStore == nil {
 		return fmt.Errorf("agent store not configured")
@@ -416,6 +455,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}
 	if agent == nil {
 		return fmt.Errorf("agent %q not found", session.AgentID)
+	}
+	if chatOrg != nil {
+		agent = organizationChatAgent(agent, chatOrg)
 	}
 
 	// 3. Resolve provider.
@@ -490,6 +532,9 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 	}()
 
 	var allTools []service.Tool
+	if chatOrg != nil {
+		allTools = append(allTools, organizationChatTools()...)
+	}
 	mcpSetToolMap := make(map[string]string) // tool name -> MCP set name (for direct dispatch)
 
 	// Collect MCP URLs from legacy mcp_urls.
@@ -1208,7 +1253,11 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 			// over statically registered handlers (builtin/delegate/etc).
 			skillHi, isSkillTool := skillRuntime.HandlerFor(tc.Name)
 
-			if tc.Name == workflow.LoadSkillToolName {
+			if session.Config.OrganizationChat && isOrganizationChatTool(tc.Name) {
+				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+				result, callErr = s.executeOrganizationChatTool(toolCtx, session, tc.Name, tc.Arguments)
+				cancel()
+			} else if tc.Name == workflow.LoadSkillToolName {
 				// Activate a skill. Its SystemPrompt is embedded inline in
 				// the tool_result text so the LLM picks it up on the next
 				// turn — preserving correct assistant→user tool-call

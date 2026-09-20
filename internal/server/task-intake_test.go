@@ -105,7 +105,7 @@ func TestIntakeTask_ValidOrgAndHeadAgent(t *testing.T) {
 	}
 
 	body := `{"title":"Fix login bug","description":"Login fails on Safari"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/org1/tasks", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(installRuntimeFixture(t, s), http.MethodPost, "/api/v1/organizations/org1/tasks", strings.NewReader(body))
 	req.SetPathValue("id", "org1")
 	w := httptest.NewRecorder()
 	s.IntakeTaskAPI(w, req)
@@ -232,7 +232,7 @@ func TestIntakeTask_IdentifierFormat(t *testing.T) {
 	}
 
 	body := `{"title":"Test"}`
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/organizations/org1/tasks", strings.NewReader(body))
+	req := httptest.NewRequestWithContext(installRuntimeFixture(t, s), http.MethodPost, "/api/v1/organizations/org1/tasks", strings.NewReader(body))
 	req.SetPathValue("id", "org1")
 	w := httptest.NewRecorder()
 	s.IntakeTaskAPI(w, req)

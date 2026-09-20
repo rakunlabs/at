@@ -29,7 +29,7 @@ func (s *Server) AdminChatCompletions(w http.ResponseWriter, r *http.Request) {
 		}, http.StatusBadRequest)
 		return
 	}
-	traceID, sessionID := auditTraceInfo(r)
+	traceID, sessionID := auditTraceInfo(r, req.Metadata)
 
 	// Parse model: "provider_key/actual_model"
 	providerKey, actualModel, err := parseModelID(req.Model)

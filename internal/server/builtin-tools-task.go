@@ -322,7 +322,8 @@ func taskOperatingProtocolPrompt(task *service.Task) string {
 
 ## Task Operating Protocol
 You are operating inside task %s: %s.
-- Treat follow-up work derived from this task as child work. Use task_create_child, or task_create without root=true, for derived work items.
+- Keep ordinary reasoning, questions, reviews and small follow-up steps inside this task. Do not create tasks merely to communicate with another agent; use consult_agent when available for brief advice on supplied material.
+- Create a child task only for a distinct deliverable that needs separate execution or tracking. Use task_create_child, or task_create without root=true, for that derived work. A delegate_to_* call already creates and runs its child task; do not also create or process a duplicate.
 - Do not create unrelated root tasks while answering questions or continuing this task. Only use task_create with root=true when the user explicitly asks for an independent task, and include a reason.
 - Before creating a child task, prefer task_current or task_children when you need to check existing subtasks and avoid duplicates.
 - After task_process starts background work, call task_wait once. Never use bash sleep commands or repeatedly poll task_get/task_children while waiting.
@@ -863,7 +864,7 @@ func (s *Server) execTaskProcess(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("no agent assigned and organization has no head agent")
 	}
 
-	if err := s.startDelegationRun(s.ctx, org, task, agentID, task.RequestDepth, nil); err != nil {
+	if err := s.startDelegationRun(context.WithoutCancel(ctx), org, task, agentID, task.RequestDepth, nil); err != nil {
 		return "", fmt.Errorf("start delegation: %w", err)
 	}
 

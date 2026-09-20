@@ -275,7 +275,7 @@ func (p *Postgres) UpdateChatSession(ctx context.Context, id string, session ser
 	// Only update config when the caller supplied session metadata (avoids
 	// wiping config on unrelated partial updates).
 	if session.Config.Platform != "" || session.Config.PlatformUserID != "" || session.Config.PlatformChannelID != "" || session.Config.BotConfigID != "" ||
-		session.Config.ActiveTaskID != "" || session.Config.HistoryLimit > 0 || session.Config.TaskDiscussionMode || session.Config.DisableTaskResultSync {
+		session.Config.ActiveTaskID != "" || session.Config.HistoryLimit > 0 || session.Config.TaskDiscussionMode || session.Config.DisableTaskResultSync || session.Config.OrganizationChat {
 		record["config"] = types.RawJSON(configJSON)
 	}
 

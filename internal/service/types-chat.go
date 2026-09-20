@@ -11,6 +11,8 @@ import (
 
 // ChatSessionConfig holds extensible session metadata.
 type ChatSessionConfig struct {
+	// OrganizationChat is a conversational front door, not a production task.
+	OrganizationChat  bool   `json:"organization_chat,omitempty"`
 	Platform          string `json:"platform,omitempty"`
 	PlatformUserID    string `json:"platform_user_id,omitempty"`
 	PlatformChannelID string `json:"platform_channel_id,omitempty"`
@@ -29,6 +31,12 @@ type ChatSessionConfig struct {
 	// DisableTaskResultSync prevents a normal chat response from overwriting
 	// the task result or changing its terminal status.
 	DisableTaskResultSync bool `json:"disable_task_result_sync,omitempty"`
+}
+
+// OrganizationChatTaskCreator atomically selects an existing task or creates
+// and links new work, so concurrent chat turns cannot start duplicate jobs.
+type OrganizationChatTaskCreator interface {
+	CreateOrganizationChatTask(ctx context.Context, sessionID string, task Task, newTask bool) (*Task, bool, error)
 }
 
 // ChatSession represents a persistent chat session tied to an agent.

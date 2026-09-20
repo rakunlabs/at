@@ -6,6 +6,7 @@ import type { ListResult, ListParams } from './types';
 const api = axios.create({ baseURL: 'api/v1' });
 
 export interface ChatSessionConfig {
+  organization_chat?: boolean;
   platform?: string;
   platform_user_id?: string;
   platform_channel_id?: string;

@@ -279,6 +279,8 @@
 
   /** Empty string means "unsaved scratch buffer". */
   let conversationId = $state('');
+  // Used only while saving is unavailable; keep unsaved turns correlated too.
+  let scratchSessionId = '';
   let conversation = $state<PlaygroundConversation | null>(null);
   let parentTitle = $state('');
   let meta = $state<MessageMeta[]>([]);
@@ -544,6 +546,7 @@
     if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; }
     resetBuffer();
     conversationId = id;
+    scratchSessionId = '';
     conversation = null;
     parentTitle = '';
     historyTruncated = false;
@@ -1378,6 +1381,10 @@
     // otherwise a second Enter could start a concurrent completion — and the
     // placeholder pushed below must not end up in the request.
     const history = messages.slice();
+    if (!conversationId && !scratchSessionId) {
+      scratchSessionId = `playground-${Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('')}`;
+    }
+    const sessionId = conversationId || scratchSessionId;
 
     // Add assistant placeholder. It records the pair selected right now, so a
     // mid-conversation switch is attributed to the turn that used it.
@@ -1411,6 +1418,7 @@
         'api/v1/chat/completions',
         {
           model: selectedModel,
+          metadata: { session_id: sessionId },
           messages: reqMessages,
           tools: discoveredTools.length > 0 ? discoveredTools : undefined,
           stream: true,

@@ -97,6 +97,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		ctx = registeredCtx
 		defer cleanup()
 	}
+	ctx = withConsultationBudget(ctx)
 
 	// a) Enforce depth limit.
 	maxDepth := org.MaxDelegationDepth
@@ -163,7 +164,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	}
 	if agent == nil {
 		slog.Warn("org-delegation: agent not found", "agent_id", agentID, "task_id", task.ID)
-		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusDone, fmt.Sprintf("agent %s not found", agentID)); updateErr != nil {
+		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusBlocked, fmt.Sprintf("agent %s not found", agentID)); updateErr != nil {
 			return fmt.Errorf("org-delegation: update task for missing agent: %w", updateErr)
 		}
 		return nil
@@ -177,7 +178,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	if lookupErr != nil {
 		slog.Warn("org-delegation: provider not found",
 			"provider", agent.Config.Provider, "agent_id", agentID, "task_id", task.ID)
-		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusDone, fmt.Sprintf("provider %s not found", agent.Config.Provider)); updateErr != nil {
+		if updateErr := s.completeTaskWithStatus(ctx, task, service.TaskStatusBlocked, fmt.Sprintf("provider %s unavailable: %v", agent.Config.Provider, lookupErr)); updateErr != nil {
 			return fmt.Errorf("org-delegation: update task for missing provider: %w", updateErr)
 		}
 		return nil
@@ -293,6 +294,8 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		delegateTools = append(delegateTools, tool)
 		delegateToolMap[toolName] = oa.AgentID
 	}
+
+	consultTool := s.orgConsultationTool(ctx, org.ID, agentID)
 
 	// e2) Load skill tools for this agent.
 	type skillToolHandler struct {
@@ -526,6 +529,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 	systemPrompt += orgContextPrompt(org, depth)
 
 	systemPrompt += taskOperatingProtocolPrompt(task)
+	if consultTool != nil {
+		systemPrompt += orgCollaborationPrompt
+	}
 
 	// Delegation context: tell a child WHO delegated the task and WHY,
 	// referencing the parent task. No-op for root tasks.
@@ -774,6 +780,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 		})
 	}
 	llmTools = append(llmTools, builtinToolDefs...)
+	if consultTool != nil {
+		llmTools = append(llmTools, *consultTool)
+	}
 	// MCP-set tools (workflows, upstreams, server-side skill/builtin/HTTP).
 	// Stripped to name/description/schema so tool handlers never reach the LLM.
 	for _, t := range mcpSetTools {
@@ -876,7 +885,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				slog.Warn("org-delegation: rate-limit, retrying",
 					"agent_id", agentID, "task_id", task.ID, "attempt", attempt+1,
 					"sleep", sleep, "provider", rle.Provider, "retry_after", rle.RetryAfter)
-				time.Sleep(sleep)
+				if attempt == 2 || !waitDelegationRetry(ctx, sleep) {
+					break
+				}
 				continue
 			}
 			// Retry on 5xx server errors and rate limits (string-match
@@ -887,7 +898,9 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 				strings.Contains(errStr, "status 429") || strings.Contains(errStr, "unknown error") {
 				slog.Warn("org-delegation: transient LLM error, retrying",
 					"agent_id", agentID, "task_id", task.ID, "attempt", attempt+1, "error", chatErr)
-				time.Sleep(time.Duration(attempt+1) * 3 * time.Second) // 3s, 6s, 9s backoff
+				if attempt == 2 || !waitDelegationRetry(ctx, time.Duration(attempt+1)*3*time.Second) {
+					break
+				}
 				continue
 			}
 			break // non-retryable error
@@ -921,7 +934,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			}
 			slog.Error("org-delegation: chat failed",
 				"agent_id", agentID, "task_id", task.ID, "iteration", iteration, "error", chatErr)
-			_ = s.completeTaskWithStatus(ctx, task, service.TaskStatusCancelled, fmt.Sprintf("chat failed: %v", chatErr))
+			s.persistDelegationFailure(ctx, task, chatErr)
 			return fmt.Errorf("org-delegation: chat failed (iteration %d): %w", iteration, chatErr)
 		}
 
@@ -1049,7 +1062,16 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 			slog.Debug("org-delegation: tool call",
 				"tool", tc.Name, "task_id", task.ID, "iteration", iteration)
 
-			if reportAgentID, ok := delegateToolMap[tc.Name]; ok {
+			if tc.Name == consultAgentTool && consultTool != nil {
+				toolCtx, cancel := context.WithTimeout(ctx, toolTimeout)
+				result, callErr := s.consultOrgAgent(toolCtx, org, task, agentID, tc.Arguments, observationContext, genObsID)
+				cancel()
+				if callErr != nil {
+					result = fmt.Sprintf("Error: consultation failed: %v", callErr)
+				}
+				result, toolResults[i] = agentloop.ToolResult(resultGovernor, task.ID, tc, result)
+				recordToolObs(tc, result, callErr, time.Since(toolStarted).Milliseconds())
+			} else if reportAgentID, ok := delegateToolMap[tc.Name]; ok {
 				delegatedAgents[reportAgentID] = true
 				wg.Add(1)
 				go func(idx int, toolCall service.ToolCall, targetAgentID string, started time.Time) {
@@ -1086,16 +1108,23 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 					childCtx := contextWithOrgTraceID(ctx, childTraceID)
 
 					var result string
-					if delegErr := s.runOrgDelegation(childCtx, org, childTask, targetAgentID, depth+1); delegErr != nil {
+					delegErr := s.runOrgDelegation(childCtx, org, childTask, targetAgentID, depth+1)
+					if delegErr != nil {
+						s.persistDelegationFailure(childCtx, childTask, delegErr)
 						result = fmt.Sprintf("Error: delegation failed: %v", delegErr)
 					} else {
 						updated, getErr := s.taskStore.GetTask(ctx, childTask.ID)
 						if getErr != nil {
-							result = fmt.Sprintf("Delegation completed but failed to fetch result: %v", getErr)
-						} else if updated != nil && updated.Result != "" {
-							result = updated.Result
+							delegErr = fmt.Errorf("fetch delegation result: %w", getErr)
+							result = fmt.Sprintf("Error: %v", delegErr)
+						} else if updated != nil {
+							result = delegationTaskResult(updated)
+							if updated.Status != service.TaskStatusDone {
+								delegErr = fmt.Errorf("delegated task ended with status %s", updated.Status)
+							}
 						} else {
-							result = "Delegation completed (no result returned)."
+							delegErr = fmt.Errorf("delegated task %s no longer exists", childTask.ID)
+							result = fmt.Sprintf("Error: %v", delegErr)
 						}
 					}
 
@@ -1114,7 +1143,7 @@ func (s *Server) runOrgDelegation(ctx context.Context, org *service.Organization
 						recordObservation(ctx, agentloop.NewToolObservation(agentloop.ToolObservationParams{
 							Context: observationContext, ParentObservationID: genObsID,
 							Tool: toolCall, Output: result, LatencyMs: time.Since(started).Milliseconds(),
-							Iteration: iteration,
+							Iteration: iteration, Err: delegErr,
 							Metadata: map[string]any{
 								"child_task_id":  childTask.ID,
 								"child_trace_id": childTraceID,

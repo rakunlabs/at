@@ -1,6 +1,8 @@
 package server
 
 import (
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -32,5 +34,28 @@ func TestGatewayConversationCorrelation(t *testing.T) {
 				t.Fatalf("session %q want %q", session, tt.want)
 			}
 		})
+	}
+}
+
+func TestAdminChatConversationCorrelation(t *testing.T) {
+	s, costs, calls := meteredProxyServer(t, &countingStreamProvider{name: "reply"}, "")
+	seenTraces := map[string]bool{}
+	for i, session := range []string{"conversation-1", "conversation-1", "conversation-2"} {
+		body := fmt.Sprintf(`{"model":"anthropic/claude-3-5-sonnet","stream":true,"messages":[{"role":"user","content":"hello"}],"metadata":{"session_id":%q}}`, session)
+		r := httptest.NewRequest(http.MethodPost, "/api/v1/chat/completions", strings.NewReader(body))
+		w := httptest.NewRecorder()
+		s.AdminChatCompletions(w, r)
+		if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "reply") {
+			t.Fatalf("chat response %d: %s", w.Code, w.Body)
+		}
+		_, observations := waitForRecords(t, costs, calls, 0, i+1)
+		call := observations[i]
+		if call.SessionID != session || call.Source != "chat" {
+			t.Fatalf("chat correlation: session=%q source=%q, want %q/chat", call.SessionID, call.Source, session)
+		}
+		if call.TraceID == "" || seenTraces[call.TraceID] {
+			t.Fatalf("each request needs its own trace, got %q", call.TraceID)
+		}
+		seenTraces[call.TraceID] = true
 	}
 }

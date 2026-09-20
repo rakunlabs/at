@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -91,6 +92,11 @@ func (s *Server) IntakeTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Generate org-scoped identifier.
+	ctx, err = s.bindRuntimePrincipal(ctx, "task")
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("cannot start task: %v", err), http.StatusForbidden)
+		return
+	}
 	counter, err := s.organizationStore.IncrementIssueCounter(ctx, orgID)
 	if err != nil {
 		slog.Error("increment issue counter failed", "org_id", orgID, "error", err)
@@ -129,7 +135,7 @@ func (s *Server) IntakeTaskAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.startDelegationRun(s.ctx, org, record, org.HeadAgentID, 0, nil); err != nil {
+	if err := s.startDelegationRun(context.WithoutCancel(ctx), org, record, org.HeadAgentID, 0, nil); err != nil {
 		if errors.Is(err, errDelegationAlreadyRunning) {
 			httpResponse(w, err.Error(), http.StatusConflict)
 			return

@@ -129,6 +129,7 @@ export async function streamChatCompletion(
     tool_choice?: 'auto' | 'none' | 'required';
     stream: boolean;
     stream_options?: { include_usage: boolean };
+    metadata?: Record<string, string>;
   },
   callbacks: StreamCallbacks,
   signal: AbortSignal,

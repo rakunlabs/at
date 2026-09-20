@@ -21,6 +21,7 @@ type activeDelegation struct {
 	OrgID     string             `json:"org_id"`
 	StartedAt time.Time          `json:"started_at"`
 	Cancel    context.CancelFunc `json:"-"`
+	ctx       context.Context
 }
 
 type activeDelegationContextKey struct{}
@@ -43,6 +44,7 @@ func (s *Server) tryRegisterDelegation(parent context.Context, taskID, agentID, 
 		OrgID:     orgID,
 		StartedAt: time.Now(),
 		Cancel:    cancel,
+		ctx:       ctx,
 	}
 	if _, loaded := s.activeDelegations.LoadOrStore(taskID, deleg); loaded {
 		cancel()
@@ -87,6 +89,20 @@ func (s *Server) reserveDelegationRun(parent context.Context, taskID, agentID, o
 	if err != nil {
 		return nil, err
 	}
+	// A detached request retains its runtime identity but must still stop when
+	// this server shuts down (including bot callers using WithoutCancel).
+	if s.ctx != nil {
+		deleg := ctx.Value(activeDelegationContextKey{}).(*activeDelegation)
+		stop := context.AfterFunc(s.ctx, deleg.Cancel)
+		previousCleanup := cleanup
+		cleanup = func() { stop(); previousCleanup() }
+	}
+	if owner, ok := parent.Value(activeDelegationContextKey{}).(*activeDelegation); ok && owner.ctx != nil && owner.TaskID != taskID {
+		deleg := ctx.Value(activeDelegationContextKey{}).(*activeDelegation)
+		stop := context.AfterFunc(owner.ctx, deleg.Cancel)
+		previousCleanup := cleanup
+		cleanup = func() { stop(); previousCleanup() }
+	}
 	if orgTraceIDFromContext(ctx) == "" {
 		ctx = contextWithOrgTraceID(ctx, ulid.Make().String())
 	}
@@ -125,7 +141,8 @@ func (s *Server) startReservedDelegationRun(
 		defer reservation.cleanup()
 
 		runErr := s.runOrgDelegation(reservation.ctx, org, task, agentID, depth)
-		postRunCtx := context.WithoutCancel(reservation.ctx)
+		postRunCtx, cancel := context.WithTimeout(context.WithoutCancel(reservation.ctx), 30*time.Second)
+		defer cancel()
 		if runErr != nil {
 			slog.Error("org-delegation: background run failed",
 				"org_id", org.ID,
@@ -133,20 +150,40 @@ func (s *Server) startReservedDelegationRun(
 				"agent_id", agentID,
 				"error", runErr,
 			)
-			if s.taskStore != nil {
-				result := fmt.Sprintf("delegation failed: %v", runErr)
-				if statusErr := s.taskStore.UpdateTaskStatus(postRunCtx, task.ID, service.TaskStatusCancelled, result); statusErr != nil {
-					slog.Error("org-delegation: failed to persist terminal failure",
-						"task_id", task.ID,
-						"error", statusErr,
-					)
-				}
-			}
+			s.persistDelegationFailure(reservation.ctx, task, runErr)
 		}
 		if onDone != nil {
 			onDone(postRunCtx, runErr)
 		}
 	}()
+}
+
+// Preserve cancellation semantics, but distinguish a failed run from a user's
+// Stop. Use a live bounded context so cancelled children do not remain running.
+func (s *Server) persistDelegationFailure(ctx context.Context, task *service.Task, runErr error) {
+	if s.taskStore == nil {
+		return
+	}
+	status := service.TaskStatusBlocked
+	if ctx.Err() != nil || errors.Is(runErr, context.Canceled) {
+		status = service.TaskStatusCancelled
+	}
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if err := s.taskStore.UpdateTaskStatus(writeCtx, task.ID, status, fmt.Sprintf("delegation failed: %v", runErr)); err != nil {
+		slog.Error("persist delegation failure failed", "task_id", task.ID, "error", err)
+	}
+}
+
+func waitDelegationRetry(ctx context.Context, delay time.Duration) bool {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
 }
 
 // isDelegationActive returns true if a delegation goroutine is running for

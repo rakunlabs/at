@@ -5,9 +5,11 @@
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listAgents, type Agent } from '@/lib/api/agents';
+  import { listOrganizations, type Organization } from '@/lib/api/organizations';
   import { listBotConfigs, type BotConfig } from '@/lib/api/bots';
   import {
     listChatSessions,
+    getChatSession,
     createChatSession,
     deleteChatSession,
     updateChatSession,
@@ -31,6 +33,13 @@
 
   let sessions = $state<ChatSession[]>([]);
   let agents = $state<Agent[]>([]);
+  let organizations = $state<Organization[]>([]);
+  let organizationError = $state('');
+  let loadingOrganizations = $state(false);
+  let showNewSession = $state(false);
+  let targetType = $state<'agent' | 'organization'>('agent');
+  let newTargetId = $state('');
+  let creatingSession = $state(false);
   let bots = $state<BotConfig[]>([]);
   // Sidebar filter: 'all' | 'web' (no bot_config_id) | bot ID
   let botFilter = $state<string>('all');
@@ -239,6 +248,46 @@
       agents = (res.data || []).slice().sort((a, b) => tierRank(a) - tierRank(b) || a.name.localeCompare(b.name));
     } catch {
       // Agents may not be configured
+    }
+  }
+
+  async function loadOrganizations() {
+    loadingOrganizations = true;
+    organizationError = '';
+    try {
+      const res = await listOrganizations();
+      organizations = (res.data || []).slice().sort((a, b) => a.name.localeCompare(b.name));
+    } catch (e: any) {
+      organizationError = e?.response?.data?.message || 'Could not load organizations. Check your access or retry.';
+    } finally {
+      loadingOrganizations = false;
+    }
+  }
+
+  function openNewSession() {
+    showNewSession = true;
+    showSessionList = true;
+    newTargetId = '';
+    void loadOrganizations();
+  }
+
+  async function createTargetSession() {
+    if (!newTargetId || creatingSession) return;
+    creatingSession = true;
+    try {
+      if (targetType === 'agent') {
+        if (await quickCreateSession(newTargetId)) showNewSession = false;
+      } else {
+        const org = organizations.find(o => o.id === newTargetId);
+        const session = await createChatSession({ organization_id: newTargetId, name: org?.name || 'Organization chat', config: { organization_chat: true } });
+        sessions = [session, ...sessions];
+        showNewSession = false;
+        await selectSession(session.id);
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Could not create the conversation.', 'alert');
+    } finally {
+      creatingSession = false;
     }
   }
 
@@ -483,6 +532,7 @@
 
   async function switchAgent(agentId: string) {
     if (!selectedSessionId) return;
+    if (selectedSession?.config?.organization_chat) return;
     showAgentPicker = false;
 
     try {
@@ -505,7 +555,7 @@
         showAgentPicker = true;
         break;
       case '/new':
-        quickCreateSession();
+        openNewSession();
         break;
       case '/clear':
         if (selectedSessionId) {
@@ -640,6 +690,10 @@
           toolEvents = [];
         }
         scrollToBottom();
+        try {
+          const updated = await getChatSession(sessionId);
+          sessions = sessions.map(s => s.id === updated.id ? updated : s);
+        } catch { /* The transcript remains usable; the next reload refreshes links. */ }
       },
       sentAttachments,
     );
@@ -895,7 +949,7 @@
           <span class="text-violet-500 dark:text-violet-400">Task thread</span>
           <span>·</span>
         {/if}
-        <span>{getAgentName(session.agent_id)}</span>
+        <span>{session.config?.organization_chat ? 'Organization · ' : ''}{getAgentName(session.agent_id)}</span>
         {#if !nested && !isTaskThreadSession(session) && session.config?.bot_config_id}
           <span>·</span>
           <span class="text-blue-500 dark:text-blue-400" title={getBotName(session.config.bot_config_id)}>{getBotShortName(session.config.bot_config_id)}</span>
@@ -933,7 +987,7 @@
     <div class="flex items-center justify-between px-3 h-10 shrink-0 border-b border-gray-200 dark:border-dark-border">
       <h1 class="text-sm font-semibold text-gray-900 dark:text-dark-text">Sessions</h1>
       <button
-        onclick={() => quickCreateSession()}
+        onclick={openNewSession}
         disabled={sending}
         class="flex items-center gap-1 px-2 py-1 rounded text-xs font-medium bg-gray-900 text-white dark:bg-accent dark:text-gray-950 disabled:opacity-40"
         title="New session (or type /new)"
@@ -941,6 +995,34 @@
         <Plus size={16} /> New
       </button>
     </div>
+
+    {#if showNewSession}
+      <form onsubmit={(e) => { e.preventDefault(); void createTargetSession(); }} class="space-y-3 border-b border-gray-200 bg-gray-50 p-3 text-xs dark:border-dark-border dark:bg-dark-base">
+        <label class="block space-y-1"><span class="font-medium text-gray-900 dark:text-dark-text">Talk to</span>
+          <select bind:value={targetType} onchange={() => { newTargetId = ''; }} disabled={creatingSession} class="w-full border border-gray-300 bg-white px-2 py-2 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
+            <option value="agent">Agent</option><option value="organization">Organization</option>
+          </select>
+        </label>
+        <label class="block space-y-1"><span class="font-medium text-gray-900 dark:text-dark-text">{targetType === 'agent' ? 'Agent' : 'Organization'}</span>
+          <select bind:value={newTargetId} disabled={creatingSession || (targetType === 'organization' && loadingOrganizations)} class="w-full border border-gray-300 bg-white px-2 py-2 text-sm dark:border-dark-border dark:bg-dark-surface dark:text-dark-text">
+            <option value="">Select {targetType === 'agent' ? 'an agent' : 'an organization'}…</option>
+            {#if targetType === 'agent'}
+              {#each agents as agent (agent.id)}<option value={agent.id}>{agent.name}</option>{/each}
+            {:else}
+              {#each organizations as org (org.id)}<option value={org.id} disabled={!org.head_agent_id}>{org.name}{!org.head_agent_id ? ' — no head agent' : ''}</option>{/each}
+            {/if}
+          </select>
+        </label>
+        {#if targetType === 'organization'}
+          <p class="text-gray-600 dark:text-dark-text-secondary">Discuss ideas with the team’s head agent. A task starts only when you ask for work to be done.</p>
+          {#if loadingOrganizations}<p role="status">Loading organizations…</p>{:else if organizationError}<p role="alert" class="text-red-700 dark:text-red-300">{organizationError}</p><button type="button" onclick={loadOrganizations} class="underline">Retry</button>{:else if !organizations.length}<p>No organizations available in this workspace.</p>{/if}
+        {/if}
+        <div class="flex gap-2">
+          <button type="submit" disabled={!newTargetId || creatingSession} class="min-h-11 border border-gray-900 bg-gray-900 px-3 py-1.5 text-white disabled:opacity-40 dark:border-accent dark:bg-accent dark:text-gray-950">{creatingSession ? 'Starting…' : 'Start chat'}</button>
+          <button type="button" onclick={() => { showNewSession = false; }} disabled={creatingSession} class="min-h-11 border border-gray-300 px-3 py-1.5 dark:border-dark-border dark:text-dark-text">Cancel</button>
+        </div>
+      </form>
+    {/if}
 
     <label class="flex items-center gap-2 m-2 px-2 h-8 shrink-0 rounded border border-gray-200 dark:border-dark-border focus-within:ring-1 focus-within:ring-accent text-gray-500 dark:text-dark-text-secondary">
       <Search size={14} />
@@ -1040,7 +1122,7 @@
           {/if}
         </div>
         {#if toolActivityCount > 0}<button onclick={() => { showToolActivity = !showToolActivity; }} aria-pressed={showToolActivity} class="flex shrink-0 items-center gap-1.5 text-xs text-gray-500 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text" title={showToolActivity ? 'Hide tool activity' : 'Show tool activity'}><Wrench size={13} /><span class="hidden sm:inline">Activity</span> {toolActivityCount}</button>{/if}
-        {#if selectedSession.task_id}<a href={`#/tasks/${selectedSession.task_id}`} class="flex shrink-0 items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"><GitBranch size={12} /> Task</a>{/if}
+        {#if selectedSession.task_id || selectedSession.config?.active_task_id}<a href={`#/tasks/${selectedSession.task_id || selectedSession.config.active_task_id}`} class="flex shrink-0 items-center gap-1 text-xs text-violet-600 dark:text-violet-400 hover:underline"><GitBranch size={12} /> Task</a>{/if}
         <button onclick={refreshMessages} disabled={sending || loadingMessages} title="Refresh messages" class="p-1.5 rounded text-gray-500 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated disabled:opacity-40"><RotateCcw size={14} /></button>
       </div>
     {/if}
@@ -1429,7 +1511,7 @@
       {/if}
 
       <!-- Agent picker dropdown -->
-      {#if showAgentPicker}
+      {#if showAgentPicker && !selectedSession?.config?.organization_chat}
         <div class="absolute bottom-full left-0 right-0 mx-3 mb-1 bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border rounded-lg shadow-lg overflow-hidden z-10">
           <div class="px-3 py-2 text-sm font-medium text-gray-600 dark:text-dark-text-secondary border-b border-gray-100 dark:border-dark-border/50">Switch agent</div>
           {#each agents as agent (agent.id)}
@@ -1504,7 +1586,7 @@
         {#if selectedSession}
           <button
             onclick={() => { showAgentPicker = !showAgentPicker; showSlashMenu = false; }}
-            disabled={sending || loadingMessages}
+            disabled={sending || loadingMessages || !!selectedSession.config?.organization_chat}
             aria-expanded={showAgentPicker}
             class={`${secondaryControl} max-w-full px-3`}
             title="Switch agent (/agents)"

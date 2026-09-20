@@ -49,6 +49,45 @@ make env-down           # docker compose down --volumes
 
 ## Loop Governor
 
+### Organization collaboration and task ownership
+
+Organization task runs expose `consult_agent` for brief advice/review from active,
+execution-authorized teammates (peers and managers included), independently of
+the report-to tree. It creates no task: the caller remains responsible for the
+deliverable. `delegate_to_*` still creates and executes a child task for a distinct
+deliverable under the existing direct-report/depth rules. Task prompts distinguish
+the two and discourage duplicate task creation around delegation calls.
+
+Role-specific production pipelines retain their required specialists and stage
+order; consultation is never a replacement for research, artifact writes or media
+generation. Successful delegation results stay byte-for-byte intact (JSON and
+exact-path handoffs); unsuccessful results retain leading `[BLOCKED]`,
+`[ITERATION_LIMIT]` and similar markers while also reporting task status. This
+preserves the YouTube Shorts Director's stage-failure contract. Regression:
+`production-delegation_test.go` exercises three sequential specialist stages.
+
+Consultation (`internal/server/org-consultation.go`) is one text-only model call
+using the target agent's system prompt/model and explicitly supplied context.
+It receives no tools, files or conversation history and cannot recursively consult
+or delegate. The whole delegation tree shares eight consultation attempts per run,
+including background `task_process` children. Input is bounded at 16 KiB; calls
+inherit the caller's tool deadline with a 90-second additional ceiling. Normal
+execution authorization, live organization membership, provider access, spending
+budgets and loopgov input windowing apply. Usage is charged to the consultant on
+the existing task; generation/tool observations share its trace/session. Incomplete,
+empty and refused answers become tool errors for the owner to handle.
+
+Task intake, Process and `task_process` retain the initiating request's runtime
+identity when detaching from HTTP/tool cancellation; using `Server.ctx` lost that
+identity and failed after accepting the job. Reservations additionally inherit
+server shutdown and, for background children, the owning delegation's cancellation
+(not the short-lived tool call's deadline). Retry delays are cancellation-aware.
+Missing agents/providers and execution failures are blocked, not successful;
+explicit cancellation stays cancelled. Failed child runs persist terminal state
+through a bounded uncancelled context, and delegation results include the child's
+status so a blocker cannot masquerade as a completed deliverable. Regressions:
+`org-consultation_test.go`, `task-launch_test.go`, `delegations_test.go`.
+
 The agentic loops (`internal/server/org-delegation.go`, `internal/server/chat-sessions.go`, `internal/service/workflow/nodes/agent-call.go`) are governed by `internal/service/loopgov`, which enforces:
 
 - A sliding-window message budget on every `provider.Chat` call (optional rolling-summary fallback; default is "drop oldest")
@@ -743,6 +782,28 @@ Sessions later moved out the same way — see *Per-user chat sessions and agent
 tiers* below.
 
 ### Per-user chat sessions and agent tiers
+
+Sessions → New can target an agent or an organization. An organization chat
+stores `config.organization_chat` and `organization_id`, resolves the active head
+on each turn, and uses a conversational copy of its prompt with only three scoped
+tools: `organization_start_task`, `organization_task_status`, and
+`organization_task_feedback`. The original production agent/config is unchanged;
+requesting actual work launches its normal organization pipeline. Ordinary chat
+does not create a task or expose production tools. The selected work is persisted
+in `config.active_task_id`, not `task_id`, so discussion never overwrites a
+production result or acquires task-linked delegation tools. Feedback records a
+comment; it does not silently restart production. New work requires explicit
+`new_task=true` once the previous job is terminal. The task link is shown in the
+session header after a turn completes.
+
+`CreateOrganizationChatTask` locks the session row and atomically creates the
+task, execution provenance and active-task link, so concurrent requests across
+replicas select the same job. Browser updates cannot retarget an organization
+chat or forge its active task. Organization membership, head availability,
+workspace execution authority and feature admission are checked again at use.
+No migration: the mode and link use existing session JSONB. Regressions:
+`internal/server/organization-chat_test.go`,
+`internal/store/postgres/organization-chat_test.go`.
 
 Chat sessions (`/sessions`, `/api/v1/chat/sessions*`) are **per-account**.
 Migration 58 adds `chat_sessions.owner_user_id`; the HTTP handlers stamp it

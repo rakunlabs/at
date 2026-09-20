@@ -8,6 +8,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 	"github.com/oklog/ulid/v2"
+	"github.com/worldline-go/types"
 
 	"github.com/rakunlabs/at/internal/service"
 )
@@ -34,6 +35,22 @@ func (p *Postgres) CreateExecutionChildTask(ctx context.Context, task service.Ta
 }
 
 func (p *Postgres) CreateExecutionTask(ctx context.Context, task service.Task) (*service.Task, error) {
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin task execution: %w", err)
+	}
+	defer tx.Rollback()
+	created, err := p.createExecutionTaskTx(ctx, tx, task)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit task execution: %w", err)
+	}
+	return created, nil
+}
+
+func (p *Postgres) createExecutionTaskTx(ctx context.Context, tx *goqu.TxDatabase, task service.Task) (*service.Task, error) {
 	for name, id := range map[string]string{"tasks.run": task.ParentID, "agents.run": task.AssignedAgentID, "organizations.run": task.OrganizationID} {
 		if name == "tasks.run" && id == "" {
 			continue
@@ -58,11 +75,6 @@ func (p *Postgres) CreateExecutionTask(ctx context.Context, task service.Task) (
 	if err != nil {
 		return nil, fmt.Errorf("encode child execution provenance: %w", err)
 	}
-	tx, err := p.goqu.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin child execution: %w", err)
-	}
-	defer tx.Rollback()
 	// Repeat ownership checks on the transaction used for insertion. Resource
 	// references are never accepted on an agent's/model's assertion alone.
 	for table, id := range map[string]string{"tasks": task.ParentID, "agents": task.AssignedAgentID, "organizations": task.OrganizationID} {
@@ -91,8 +103,58 @@ func (p *Postgres) CreateExecutionTask(ctx context.Context, task service.Task) (
 	if err != nil {
 		return nil, fmt.Errorf("insert child provenance: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, fmt.Errorf("commit child execution: %w", err)
-	}
 	return &task, nil
+}
+
+func (p *Postgres) CreateOrganizationChatTask(ctx context.Context, sessionID string, task service.Task, newTask bool) (*service.Task, bool, error) {
+	initiator, _, ok := service.ExecutionFromContext(ctx)
+	if !ok {
+		return nil, false, service.ErrExecutionDenied
+	}
+	tx, err := p.goqu.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, false, fmt.Errorf("begin organization chat task: %w", err)
+	}
+	defer tx.Rollback()
+	var session chatSessionRow
+	found, err := tx.From(p.tableChatSessions).Where(goqu.Ex{"id": sessionID, "workspace_id": initiator.WorkspaceID}).ForUpdate(goqu.Wait).ScanStructContext(ctx, &session)
+	if err != nil {
+		return nil, false, fmt.Errorf("lock organization chat: %w", err)
+	}
+	if !found || (session.OwnerUserID != "" && session.OwnerUserID != initiator.UserID) || session.OrganizationID != task.OrganizationID {
+		return nil, false, service.ErrExecutionDenied
+	}
+	var cfg service.ChatSessionConfig
+	if err := json.Unmarshal(session.Config, &cfg); err != nil || !cfg.OrganizationChat {
+		return nil, false, service.ErrExecutionDenied
+	}
+	if cfg.ActiveTaskID != "" {
+		var current taskRow
+		found, err := tx.From(p.tableTasks).Where(goqu.Ex{"id": cfg.ActiveTaskID, "workspace_id": initiator.WorkspaceID, "organization_id": task.OrganizationID}).ScanStructContext(ctx, &current)
+		if err != nil || !found {
+			return nil, false, fmt.Errorf("selected organization task is unavailable")
+		}
+		if !newTask {
+			return taskRowToRecord(current), false, nil
+		}
+		if current.Status != service.TaskStatusDone && current.Status != service.TaskStatusCancelled && current.Status != service.TaskStatusBlocked {
+			return nil, false, fmt.Errorf("a task is already pending in this conversation")
+		}
+	}
+	created, err := p.createExecutionTaskTx(ctx, tx, task)
+	if err != nil {
+		return nil, false, err
+	}
+	cfg.ActiveTaskID = created.ID
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		return nil, false, fmt.Errorf("encode organization chat: %w", err)
+	}
+	if _, err := tx.Update(p.tableChatSessions).Set(goqu.Record{"config": types.RawJSON(data), "updated_at": time.Now().UTC()}).Where(goqu.Ex{"id": sessionID}).Executor().ExecContext(ctx); err != nil {
+		return nil, false, fmt.Errorf("link organization chat task: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, fmt.Errorf("commit organization chat task: %w", err)
+	}
+	return created, true, nil
 }

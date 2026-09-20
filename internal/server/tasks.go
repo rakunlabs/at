@@ -469,6 +469,11 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Assign the task to the head agent if not already assigned.
+	ctx, err = s.bindRuntimePrincipal(ctx, "task")
+	if err != nil {
+		httpResponse(w, fmt.Sprintf("cannot start task: %v", err), http.StatusForbidden)
+		return
+	}
 	if task.OrganizationID != orgID || task.AssignedAgentID != org.HeadAgentID {
 		task.OrganizationID = orgID
 		task.AssignedAgentID = org.HeadAgentID
@@ -482,10 +487,7 @@ func (s *Server) ProcessTaskAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Pre-mint the run trace so the trigger event and delegation share it.
-	delegationParent := s.ctx
-	if delegationParent == nil {
-		delegationParent = context.Background()
-	}
+	delegationParent := context.WithoutCancel(ctx)
 	runTraceID := ulid.Make().String()
 	delegationParent = contextWithOrgTraceID(delegationParent, runTraceID)
 	if err := s.startDelegationRun(delegationParent, org, task, org.HeadAgentID, 0, nil); err != nil {

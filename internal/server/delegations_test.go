@@ -127,8 +127,8 @@ func TestStartDelegationRunPersistsFailureBeforeCallback(t *testing.T) {
 		if got.traceID == "" {
 			t.Fatal("completion context has no trace ID")
 		}
-		if got.status != service.TaskStatusCancelled {
-			t.Fatalf("status = %q, want %q", got.status, service.TaskStatusCancelled)
+		if got.status != service.TaskStatusBlocked {
+			t.Fatalf("status = %q, want %q", got.status, service.TaskStatusBlocked)
 		}
 		if !strings.Contains(got.result, "delegation failed:") {
 			t.Fatalf("result = %q, want delegation failure", got.result)
@@ -160,7 +160,7 @@ func TestProcessTaskRejectsDuplicateDelegation(t *testing.T) {
 	}
 	defer cleanup()
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/tasks/task-1/process", nil)
+	req := httptest.NewRequestWithContext(installRuntimeFixture(t, s), http.MethodPost, "/api/v1/tasks/task-1/process", nil)
 	req.SetPathValue("id", task.ID)
 	w := httptest.NewRecorder()
 	s.ProcessTaskAPI(w, req)
