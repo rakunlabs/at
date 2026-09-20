@@ -1,4 +1,8 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const pageLoad = createPageLoader();
+  const references = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listTokens, createToken, deleteToken, updateToken, setTokenPaused, rotateToken, getTokenUsage, resetTokenUsage, type APIToken, type CreateTokenResponse, type TokenUsage } from '@/lib/api/tokens';
@@ -103,14 +107,13 @@
   // ─── Data Loading ───
   async function loadTokens() {
     loading = true;
+    pageLoad.reset();
     try {
       const params: any = { _offset: offset, _limit: limit };
       if (searchQuery) params['name[like]'] = `%${searchQuery}%`;
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
-      const res = await listTokens(params);
-      tokens = res.data || [];
-      total = res.meta?.total || 0;
+      await pageLoad.load('API tokens', () => listTokens(params), res => { tokens = res.data || []; total = res.meta?.total || 0; }, 'api_tokens');
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load tokens', 'alert');
     } finally {
@@ -131,31 +134,24 @@
   }
 
   async function loadProviders() {
-    try {
-      const info = await getInfo();
-      providers = info.providers;
-    } catch (_) {}
+    await references.load('Providers', getInfo, info => { providers = info.providers; });
   }
 
   async function loadWebhooks() {
-    try {
-      const [wfsResult, allTriggers] = await Promise.all([
-        listWorkflows(),
-        listAllTriggers({ type: 'http' }),
-      ]);
+    await references.load('Webhook targets', async () => {
+      const [wfsResult, allTriggers] = await Promise.all([listWorkflows(), listAllTriggers({ type: 'http' })]);
+      return { wfsResult, allTriggers };
+    }, ({ wfsResult, allTriggers }) => {
       workflows = wfsResult.data || [];
       const wfMap = new Map(workflows.map((wf) => [wf.id, wf.name]));
       webhookTriggers = allTriggers
         .filter((t) => wfMap.has(t.workflow_id))
         .map((t) => ({ trigger: t, workflowName: wfMap.get(t.workflow_id)! }));
-    } catch (_) {}
+    }, 'workflow_builder');
   }
 
   async function loadMcpServers() {
-    try {
-      const res = await listMCPServers({ _limit: 100 });
-      mcpServers = res.data || [];
-    } catch (_) {}
+    await references.load('MCP servers', () => listMCPServers({ _limit: 100 }), res => { mcpServers = res.data || []; }, 'mcp_servers');
   }
 
   loadTokens();
@@ -598,6 +594,8 @@
 </svelte:head>
 
 <div class="p-6 max-w-6xl mx-auto">
+  <LoadIssues issues={pageLoad.issues} retry={loadTokens} {loading} />
+  <LoadIssues issues={references.issues} retry={() => { references.reset(); void Promise.all([loadProviders(), loadWebhooks(), loadMcpServers()]); }} />
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
@@ -1295,6 +1293,8 @@
 
   <!-- Token list -->
   <DataTable
+    error={pageLoad.error('API tokens')}
+    onretry={loadTokens}
     items={tokens}
     {loading}
     {total}

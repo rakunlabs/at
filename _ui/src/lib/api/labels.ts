@@ -13,8 +13,9 @@ export interface Label {
 }
 
 export async function listLabels(params?: ListParams): Promise<ListResult<Label>> {
-  const res = await api.get<ListResult<Label>>('/labels', { params });
-  return res.data;
+  const res = await api.get<Label[]>('/labels', { params });
+  const data = res.data || [];
+  return { data, meta: { total: data.length, offset: 0, limit: data.length } };
 }
 
 export async function getLabel(id: string): Promise<Label> {

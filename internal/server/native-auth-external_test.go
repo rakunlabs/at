@@ -94,8 +94,8 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	accepted := map[string]bool{"userinfo": true, "jwks": true, "both": true, "nested_roles": true, "no_discovery": true, "allowed_email": true, "allowed_domain": true}
-	for _, name := range []string{"userinfo", "jwks", "both", "nested_roles", "no_discovery", "allowed_email", "allowed_domain", "denied_email", "denied_domain", "denied_unverified", "audience", "nonce", "signature", "expiry", "userinfo_subject", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
+	accepted := map[string]bool{"userinfo": true, "jwks": true, "both": true, "nested_roles": true, "no_discovery": true, "allowed_email": true, "allowed_domain": true, "unverified_email": true, "email_without_verification": true}
+	for _, name := range []string{"userinfo", "jwks", "both", "nested_roles", "no_discovery", "allowed_email", "allowed_domain", "unverified_email", "email_without_verification", "denied_email", "denied_domain", "denied_unverified", "audience", "nonce", "signature", "expiry", "userinfo_subject", "cross_browser", "state", "provider_version", "callback_path", "account_switch"} {
 		t.Run(name, func(t *testing.T) {
 			var issuer, nonce, challenge string
 			var discovery atomic.Int64
@@ -145,8 +145,11 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 					// An address the provider will not vouch for is not an
 					// identity, so a configured allowlist must refuse it even
 					// when it is the listed one.
-					if name == "denied_unverified" {
+					if name == "denied_unverified" || name == "unverified_email" {
 						claims["email_verified"] = false
+					}
+					if name == "email_without_verification" {
+						delete(claims, "email_verified")
 					}
 					json.NewEncoder(w).Encode(claims)
 				default:
@@ -157,7 +160,7 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 			issuer = idp.URL
 			provider := service.AuthIdentityProvider{ID: "provider", Label: "Test", Enabled: true, Version: 1, ClientID: "client", Scopes: []string{"openid"}, SubjectClaim: "sub", AuthURL: issuer + "/authorize", TokenURL: issuer + "/token", UserInfoURL: issuer + "/userinfo", JWKSURL: issuer + "/jwks"}
 			switch name {
-			case "userinfo", "nested_roles", "no_discovery", "allowed_email", "allowed_domain", "denied_email", "denied_domain", "denied_unverified":
+			case "userinfo", "nested_roles", "no_discovery", "allowed_email", "allowed_domain", "denied_email", "denied_domain", "denied_unverified", "unverified_email", "email_without_verification":
 				provider.JWKSURL = ""
 			case "jwks":
 				provider.UserInfoURL = ""
@@ -280,9 +283,13 @@ func TestExternalOAuth2LoginAndReplicaFlow(t *testing.T) {
 				if s.last.Subject != "stable-subject" {
 					t.Fatalf("subject claim not honoured: %q", s.last.Subject)
 				}
-				// A just-in-time account is named `external-<ulid>` locally, so
-				// the provider's username is carried on the link — but only as
-				// a label: the subject above is still what identifies it.
+				if name != "jwks" {
+					verified := name != "unverified_email" && name != "email_without_verification"
+					if s.last.Email != "same@example.test" || s.last.EmailVerified != verified {
+						t.Fatalf("reported email/verification lost: %+v", s.last)
+					}
+				}
+				// The username seeds new accounts, but the subject identifies them.
 				if s.last.Username != "ada.lovelace" {
 					t.Fatalf("preferred_username not carried onto the link: %q", s.last.Username)
 				}

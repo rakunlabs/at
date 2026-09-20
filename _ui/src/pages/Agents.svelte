@@ -17,6 +17,12 @@
   import DataTable from '@/lib/components/DataTable.svelte';
   import SortableHeader, { type SortEntry } from '@/lib/components/SortableHeader.svelte';
   import BudgetScheduleFields from '@/lib/components/BudgetScheduleFields.svelte';
+  import AgentBuilderPanel from '@/lib/components/AgentBuilderPanel.svelte';
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  import { isFeatureEnabled, loadFeatures } from '@/lib/store/features.svelte';
+  const pageLoad = createPageLoader();
+  import { applyAgentDraftPatch, type AgentDraft, type AgentBuilderCatalog } from '@/lib/helper/agent-builder';
 
   storeNavbar.title = 'Agents';
 
@@ -34,6 +40,9 @@
   let editingId = $state<string | null>(null);
   let deleteConfirm = $state<string | null>(null);
   let saving = $state(false);
+  let showAIBuilder = $state(false);
+  let builderBusy = $state(false);
+  let formVersion = $state(0);
   let searchQuery = $state('');
   let sorts = $state<SortEntry[]>([]);
   
@@ -50,6 +59,8 @@
 
   async function refreshActiveDelegations() {
     try {
+      await loadFeatures().catch(() => {});
+      if (!isFeatureEnabled('tasks')) { activeByAgent = {}; return; }
       const res = await listActiveDelegations();
       const map: Record<string, ActiveDelegation[]> = {};
       for (const d of res.delegations) {
@@ -107,6 +118,39 @@
    * through this map before falling back to global variables.
    */
   let formConnections = $state<Record<string, string>>({});
+
+  function getAgentDraft(): AgentDraft {
+    return {
+      name: formName, description: formDescription, group: formGroup,
+      provider: formProvider, model: formModel, reasoning_effort: formReasoningEffort,
+      system_prompt: formSystemPrompt, skills: [...formSkills], mcp_sets: [...formMCPSets],
+      workflows: [...formWorkflows], builtin_tools: [...formBuiltinTools],
+      max_iterations: formMaxIterations, tool_timeout: formToolTimeout,
+    };
+  }
+
+  function getBuilderCatalog(): AgentBuilderCatalog {
+    // Project only form choices. Never send provider configs or connection secrets.
+    return {
+      providers: providers.filter(p => !p.config.disabled).map(p => ({ key: p.key, type: p.config.type, models: [...(p.config.models || [])], default_model: p.config.model || '' })),
+      skills: skills.map(s => ({ id: s.id, name: s.name, description: s.description })),
+      mcp_sets: mcpSets.map(s => ({ id: s.id, name: s.name })),
+      workflows: workflows.map(w => ({ id: w.id, name: w.name })),
+      builtin_tools: builtinToolDefs.map(t => ({ id: t.name, name: t.name, description: t.description })),
+    };
+  }
+
+  function applyBuilderPatch(patch: unknown): string[] {
+    if (!showForm || saving) throw new Error('The agent form is not available for changes.');
+    const before = getAgentDraft();
+    const draft = applyAgentDraftPatch(before, patch, getBuilderCatalog());
+    formName = draft.name; formDescription = draft.description; formGroup = draft.group;
+    formProvider = draft.provider; formModel = draft.model; formReasoningEffort = draft.reasoning_effort;
+    formSystemPrompt = draft.system_prompt; formSkills = draft.skills; formMCPSets = draft.mcp_sets;
+    formWorkflows = draft.workflows; formBuiltinTools = draft.builtin_tools;
+    formMaxIterations = draft.max_iterations; formToolTimeout = draft.tool_timeout;
+    return (Object.keys(draft) as (keyof AgentDraft)[]).filter(key => JSON.stringify(before[key]) !== JSON.stringify(draft[key]));
+  }
 
   // Copy / Paste via system clipboard
   
@@ -215,24 +259,18 @@
 
   async function loadData() {
     loading = true;
+    pageLoad.reset();
     try {
       // Fetch the full agent set (small) and do search/sort/paging client-side.
-      const [aResult, pResult, sResult, mResult, btResult, cResult, wResult] = await Promise.all([
-        listAgents({ _offset: 0, _limit: 1000 }),
-        listProviders(),
-        listSkills(),
-        listMCPSets({ _limit: 500 }),
-        listBuiltinTools(),
-        listConnections().catch(() => [] as Connection[]),
-        listWorkflows({ _limit: 500 }).catch(() => ({ data: [] as Workflow[], meta: {} as any })),
+      await Promise.all([
+        pageLoad.load('Agents', () => listAgents({ _offset: 0, _limit: 1000 }), result => { agents = result.data || []; }, 'agents'),
+        pageLoad.load('Providers', listProviders, result => { providers = result.data || []; }),
+        pageLoad.load('Skills', listSkills, result => { skills = result.data || []; }, 'skills'),
+        pageLoad.load('MCP sets', () => listMCPSets({ _limit: 500 }), result => { mcpSets = result.data || []; }, 'mcp_servers'),
+        pageLoad.load('Built-in tools', listBuiltinTools, result => { builtinToolDefs = result.tools || []; }, 'builtin_tools'),
+        pageLoad.load('Connections', listConnections, result => { connections = result || []; }, 'external_connections'),
+        pageLoad.load('Workflows', () => listWorkflows({ _limit: 500 }), result => { workflows = result.data || []; }, 'workflow_builder'),
       ]);
-      agents = aResult.data || [];
-      providers = pResult.data || [];
-      skills = sResult.data || [];
-      mcpSets = mResult.data || [];
-      builtinToolDefs = btResult.tools || [];
-      connections = cResult || [];
-      workflows = wResult.data || [];
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -310,6 +348,9 @@
   // ─── Form ───
 
   function resetForm() {
+    formVersion++;
+    showAIBuilder = false;
+    builderBusy = false;
     formName = '';
     formDescription = '';
     formGroup = '';
@@ -384,6 +425,7 @@
   }
 
   async function handleSubmit() {
+    if (saving || builderBusy) return;
     if (!formName.trim()) {
       addToast('Agent name is required', 'warn');
       return;
@@ -513,6 +555,7 @@
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
     <div class="p-6 max-w-6xl mx-auto">
+      <LoadIssues issues={pageLoad.issues} retry={loadData} {loading} />
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -566,8 +609,8 @@
       <!-- Inline Form -->
       {#if showForm}
         <div class="border border-gray-200 dark:border-dark-border mb-6 bg-white dark:bg-dark-surface overflow-hidden">
-          <div class="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
-            <div class="flex items-center gap-2">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base/50">
+            <div class="flex flex-wrap items-center gap-2">
               <span class="text-sm font-medium text-gray-900 dark:text-dark-text">
                 {editingId ? `Edit: ${formName}` : 'New Agent'}
               </span>
@@ -582,21 +625,28 @@
                   Paste
                 </button>
               {/if}
+              <button type="button" disabled={saving} aria-expanded={showAIBuilder} onclick={() => { showAIBuilder = !showAIBuilder; if (!showAIBuilder) builderBusy = false; }} class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border transition-colors {showAIBuilder ? 'bg-accent-muted text-accent dark:text-accent-text border-accent/30' : 'border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-100 dark:hover:bg-dark-elevated'}"><Bot size={14} />AI Builder</button>
             </div>
             <button onclick={resetForm} class="p-1 hover:bg-gray-200 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary transition-colors">
               <X size={14} />
             </button>
           </div>
 
-          <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-4 space-y-4">
+          <div class={showAIBuilder ? 'grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_22rem] items-start' : ''}>
+          {#if showAIBuilder}
+            <div class="min-w-0 border-b xl:border-b-0 xl:border-l border-gray-200 dark:border-dark-border xl:col-start-2 xl:row-start-1">
+              {#key formVersion}<AgentBuilderPanel getDraft={getAgentDraft} getCatalog={getBuilderCatalog} applyPatch={applyBuilderPatch} bind:busy={builderBusy} onclose={() => { showAIBuilder = false; builderBusy = false; }} />{/key}
+            </div>
+          {/if}
+          <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="min-w-0 p-4 space-y-4 xl:col-start-1 xl:row-start-1">
             <!-- Profile Header: Avatar left, identity fields right -->
-            <div class="flex gap-6 items-start">
+            <div class="flex flex-col sm:flex-row gap-4 items-start">
               <!-- Avatar (large, left side) -->
-              <div class="group relative shrink-0 w-[200px] h-[200px]">
+              <div class="group relative shrink-0 w-24 h-24">
                 <img
                   src={generateAvatar(formAvatarSeed || formName || 'agent', 200)}
                   alt="Agent avatar"
-                  class="w-[200px] h-[200px] bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border"
+                  class="w-24 h-24 bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border"
                 />
                 <!-- Overlay buttons — visible on hover -->
                 <div class="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -631,7 +681,7 @@
               </div>
 
               <!-- Identity fields (right side) -->
-              <div class="flex-1 space-y-3">
+              <div class="w-full min-w-0 flex-1 space-y-3">
                 <!-- Name -->
                 <div>
                   <label for="form-name" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Name</label>
@@ -677,7 +727,7 @@
                 </div>
 
                 <!-- Group + Provider + Model -->
-                <div class="grid grid-cols-3 gap-3">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label for="form-group" class="block text-xs font-medium text-gray-500 dark:text-dark-text-muted mb-1">Group</label>
                     <input
@@ -1040,7 +1090,7 @@
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={saving || builderBusy}
                 class="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover transition-colors disabled:opacity-50"
               >
                 <Save size={14} />
@@ -1052,14 +1102,17 @@
               </button>
             </div>
           </form>
+          </div>
         </div>
       {/if}
 
       <!-- Agent list -->
       {#if loading || agents.length > 0 || !showForm}
         <DataTable
+          error={pageLoad.error('Agents')}
+          onretry={loadData}
           items={pagedAgents}
-          {loading}
+          loading={pageLoad.loading('Agents')}
           total={filteredTotal}
           bind:limit
           bind:offset

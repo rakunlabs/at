@@ -371,7 +371,9 @@ func (e *nativeExternalAuth) adapter(ctx context.Context, p service.AuthIdentity
 		secure = cookie.SecureNever
 	}
 	base := strings.TrimSuffix(e.a.session.Cookie.Path, "/") + "/auth/external/" + p.ID
-	opts := oauth2.Options{HTTPClient: client, CallbackBaseURL: e.a.cfg.Origin, CallbackBasePath: base, FlowStore: f, FlowTTL: 5 * time.Minute, FlowCookie: cookie.Options{Path: base + "/", Secure: secure, SameSite: http.SameSiteLaxMode}, EmailVerifyCheck: true}
+	// Keep reported email as metadata even without verification. Admission
+	// checks EmailVerified separately before trusting an allowlisted address.
+	opts := oauth2.Options{HTTPClient: client, CallbackBaseURL: e.a.cfg.Origin, CallbackBasePath: base, FlowStore: f, FlowTTL: 5 * time.Minute, FlowCookie: cookie.Options{Path: base + "/", Secure: secure, SameSite: http.SameSiteLaxMode}, EmailVerifyCheck: false}
 	opts.XUserClaims.Subject = []string{p.SubjectClaim}
 	return oauth2.NewWithContext(ctx, "callback", cfg, opts)
 }
@@ -631,10 +633,8 @@ func (e *nativeExternalAuth) callbackResult(w http.ResponseWriter, r *http.Reque
 	roles := service.MergeClaimValues(id.Roles, service.HarvestClaimValues(id.Claims, p.RolesClaims))
 	asserted, _ := json.Marshal(map[string]any{"provider_id": p.ID, "issuer": namespace, "roles": roles, "scopes": id.Scopes, "claims": rawAssertions})
 	verifiedEmail, _ := id.Claims["email_verified"].(bool)
-	// The local username of a just-in-time account is `external-<ulid>`, which
-	// is the account ID again. The provider's own username is the only name an
-	// administrator recognises, so it is carried on the link as display
-	// metadata — the account remains keyed on provider ID plus subject.
+	// The provider username seeds new accounts and remains refreshable display
+	// metadata on the link. Identity is always provider ID plus subject.
 	link := service.AuthIdentityLink{ProviderID: p.ID, Issuer: namespace, Subject: id.Subject, Username: service.ClaimUsername(id.Claims, id.Name), Email: id.Email, EmailVerified: verifiedEmail && id.Email != "", AssertedPermissions: asserted}
 	// Admission runs here, before any account is created or any link is
 	// refreshed, and for link and reauth as well as login. Gating provisioning

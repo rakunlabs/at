@@ -150,7 +150,11 @@ func (s *Server) featureGateMiddleware() func(http.Handler) http.Handler {
 					return
 				}
 				if !enabled {
-					httpResponse(w, fmt.Sprintf("feature %q is disabled", featureKey), http.StatusNotFound)
+					httpResponseJSON(w, map[string]string{
+						"message": fmt.Sprintf("feature %q is disabled", featureKey),
+						"code":    "feature_disabled",
+						"feature": featureKey,
+					}, http.StatusNotFound)
 					return
 				}
 			}

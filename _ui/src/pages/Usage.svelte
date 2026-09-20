@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
@@ -100,27 +103,19 @@
 
   async function loadAll() {
     loading = true;
+    pageLoad.reset();
     try {
-      const [sum, ts, byP, byM, byA, byO, byBC, byS, bud] = await Promise.all([
-        getUsageSummary(filter()),
-        getUsageTimeSeries(filter(), bucket),
-        getUsageGrouped(filter(), 'provider'),
-        getUsageGrouped(filter(), 'model', 10),
-        getUsageGrouped(filter(), 'agent', 10),
-        getUsageGrouped(filter(), 'org', 10),
-        getUsageGrouped(filter(), 'billing_code', 10),
-        getUsageGrouped(filter(), 'status'),
-        getBudgetUtilization(),
+      await Promise.all([
+        pageLoad.load('Usage summary', () => getUsageSummary(filter()), value => { summary = value; }),
+        pageLoad.load('Usage timeline', () => getUsageTimeSeries(filter(), bucket), value => { timeseries = value; }),
+        pageLoad.load('Provider usage', () => getUsageGrouped(filter(), 'provider'), value => { byProvider = value; }),
+        pageLoad.load('Model usage', () => getUsageGrouped(filter(), 'model', 10), value => { byModel = value; }),
+        pageLoad.load('Agent usage', () => getUsageGrouped(filter(), 'agent', 10), value => { byAgent = value; }),
+        pageLoad.load('Organization usage', () => getUsageGrouped(filter(), 'org', 10), value => { byOrg = value; }),
+        pageLoad.load('Billing code usage', () => getUsageGrouped(filter(), 'billing_code', 10), value => { byBillingCode = value; }),
+        pageLoad.load('Status usage', () => getUsageGrouped(filter(), 'status'), value => { byStatus = value; }),
+        pageLoad.load('Budgets', getBudgetUtilization, value => { budgets = value; }),
       ]);
-      summary = sum;
-      timeseries = ts;
-      byProvider = byP;
-      byModel = byM;
-      byAgent = byA;
-      byOrg = byO;
-      byBillingCode = byBC;
-      byStatus = byS;
-      budgets = bud;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load usage data', 'alert');
     } finally {
@@ -287,6 +282,7 @@
 </svelte:head>
 
 <div class="p-6 max-w-7xl mx-auto">
+  <LoadIssues issues={pageLoad.issues} retry={loadAll} {loading} />
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">

@@ -102,6 +102,8 @@ export function mergeDeltaContent(
 // ─── SSE Streaming ───
 
 export interface StreamCallbacks {
+  /** Form-editing callers must not execute calls from failed/truncated streams. */
+  requireComplete?: boolean;
   onDelta: (deltaContent: string | ContentPart[]) => void;
   onToolCalls: (toolCalls: ToolCall[]) => void;
   onError: (error: string) => void;
@@ -160,6 +162,8 @@ export async function streamChatCompletion(
   // function.name, subsequent deltas for the same index append to
   // function.arguments.
   const accumulatedToolCalls: ToolCall[] = [];
+  let finishReason = '';
+  let streamError = '';
 
   while (true) {
     const { done, value } = await reader.read();
@@ -178,6 +182,8 @@ export async function streamChatCompletion(
 
       try {
         const chunk = JSON.parse(data);
+        if (chunk.error) streamError = chunk.error.message || 'The model stream failed.';
+        if (chunk.choices?.[0]?.finish_reason) finishReason = chunk.choices[0].finish_reason;
 
         // Usage data arrives in a final chunk with empty choices.
         if (chunk.usage && callbacks.onUsage) {
@@ -225,6 +231,16 @@ export async function streamChatCompletion(
         // Skip unparseable chunks
       }
     }
+  }
+
+  if (callbacks.requireComplete) {
+    if (signal.aborted) throw new DOMException('Request aborted', 'AbortError');
+    if (streamError) throw new Error(streamError);
+    if (!['stop', 'tool_calls', 'function_call'].includes(finishReason)) {
+      throw new Error(finishReason === 'length' ? 'The model response was truncated. Ask for a smaller change.' : 'The model did not complete its response. Try again.');
+    }
+    const ids = accumulatedToolCalls.map(call => call.id);
+    if (ids.some(id => !id) || new Set(ids).size !== ids.length) throw new Error('The model returned invalid tool call IDs. Try again.');
   }
 
   // Deliver fully assembled tool calls once after stream completes

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
@@ -87,13 +90,12 @@
   // ─── Load ───
   async function load() {
     loading = true;
+    pageLoad.reset();
     try {
-      const [cs, conns] = await Promise.all([
-        listConnectors().catch(() => [] as Connector[]),
-        listConnections().catch(() => [] as Connection[]),
+      await Promise.all([
+        pageLoad.load('Connector catalog', listConnectors, result => { connectors = result || []; }, 'external_connections'),
+        pageLoad.load('Connections', listConnections, result => { connections = result || []; }, 'external_connections'),
       ]);
-      connectors = cs;
-      connections = conns;
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load connections', 'alert');
     } finally {
@@ -508,6 +510,7 @@
 </script>
 
 <div class="p-6 max-w-6xl mx-auto">
+  <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
   <!-- Header -->
   <div class="flex items-start justify-between mb-6">
     <div>
@@ -547,10 +550,12 @@
     </div>
   </div>
 
-  {#if loading}
+  {#if pageLoad.loading('Connections')}
     <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-10 text-center text-sm text-gray-400 dark:text-dark-text-muted">
       Loading connections…
     </div>
+  {:else if pageLoad.error('Connections') && !connections.length}
+    <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Connections could not be loaded. Retry above.</p>
   {:else if sections().length === 0}
     <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface px-4 py-10 text-center">
       <Cable size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />

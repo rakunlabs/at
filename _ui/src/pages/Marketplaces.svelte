@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
@@ -80,17 +83,14 @@
 
   async function loadAll() {
     loading = true;
+    pageLoad.reset();
     try {
-      const [marketRes, skillRes, mcpRes, mcpSetRes] = await Promise.all([
-        listMarketplaces({ _limit: 500, _sort: 'name' }),
-        listSkills({ _limit: 500, _sort: 'name' }),
-        listMCPServers({ _limit: 500, _sort: 'name' }),
-        listMCPSets({ _limit: 500, _sort: 'name' }),
+      await Promise.all([
+        pageLoad.load('Marketplaces', () => listMarketplaces({ _limit: 500, _sort: 'name' }), result => { marketplaces = result.data || []; }, 'marketplaces'),
+        pageLoad.load('Skills', () => listSkills({ _limit: 500, _sort: 'name' }), result => { skills = result.data || []; }, 'skills'),
+        pageLoad.load('MCP servers', () => listMCPServers({ _limit: 500, _sort: 'name' }), result => { mcpServers = result.data || []; }, 'mcp_servers'),
+        pageLoad.load('MCP sets', () => listMCPSets({ _limit: 500, _sort: 'name' }), result => { mcpSets = result.data || []; }, 'mcp_servers'),
       ]);
-      marketplaces = marketRes.data || [];
-      skills = skillRes.data || [];
-      mcpServers = mcpRes.data || [];
-      mcpSets = mcpSetRes.data || [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load marketplaces', 'alert');
     } finally {
@@ -491,6 +491,7 @@
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
     <div class="p-6 max-w-6xl mx-auto space-y-6">
+      <LoadIssues issues={pageLoad.issues} retry={loadAll} {loading} />
       <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div class="flex items-center gap-2">
@@ -806,8 +807,10 @@
         <div class="text-xs text-gray-400 dark:text-dark-text-muted">{filteredMarketplaces.length} of {marketplaces.length} marketplaces</div>
       </div>
 
-      {#if loading}
+      {#if pageLoad.loading('Marketplaces')}
         <div class="border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-8 text-center text-sm text-gray-400 dark:text-dark-text-muted">Loading marketplaces...</div>
+      {:else if pageLoad.error('Marketplaces') && !marketplaces.length}
+        <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Marketplaces could not be loaded. Retry above.</p>
       {:else if filteredMarketplaces.length === 0}
         <div class="border border-dashed border-gray-300 dark:border-dark-border bg-white dark:bg-dark-surface p-8 text-center">
           <Package size={24} class="mx-auto text-gray-300 dark:text-dark-text-muted mb-2" />

@@ -130,13 +130,8 @@ export interface AgentSpend {
 }
 
 export async function getAgentBudget(agentId: string): Promise<AgentBudget | null> {
-  try {
-    const res = await api.get<AgentBudget>(`/agents/${agentId}/budget`);
-    return res.data;
-  } catch (error: any) {
-    if (error?.response?.status === 404) return null;
-    throw error;
-  }
+  const res = await api.get<AgentBudget | null>(`/agents/${encodeURIComponent(agentId)}/budget`);
+  return res.data;
 }
 
 export async function setAgentBudget(agentId: string, data: Partial<AgentBudget>): Promise<AgentBudget> {

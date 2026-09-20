@@ -1,4 +1,8 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const references = createPageLoader();
+  const taskLoad = createPageLoader();
   import { untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -48,16 +52,11 @@
   let agents = $state<Agent[]>([]);
 
   async function loadReferenceData() {
-    try {
-      const [orgRes, agentRes] = await Promise.all([
-        listOrganizations({ _limit: 200 }),
-        listAgents({ _limit: 200 }),
-      ]);
-      organizations = orgRes.data || [];
-      agents = agentRes.data || [];
-    } catch {
-      // Non-fatal: dropdowns will be empty
-    }
+    references.reset();
+    await Promise.all([
+      references.load('Organizations', () => listOrganizations({ _limit: 200 }), result => { organizations = result.data || []; }, 'organizations'),
+      references.load('Agents', () => listAgents({ _limit: 200 }), result => { agents = result.data || []; }, 'agents'),
+    ]);
   }
 
   function orgName(id: string): string {
@@ -198,15 +197,14 @@
 
   async function load() {
     loading = true;
+    taskLoad.reset();
     try {
       const params: any = { _offset: offset, _limit: limit };
       applyFilters(params);
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
       else params._sort = '-updated_at'; // default: newest first
-      const res = await listTasks(params);
-      tasks = res.data || [];
-      total = res.meta?.total || 0;
+      await taskLoad.load('Tasks', () => listTasks(params), res => { tasks = res.data || []; total = res.meta?.total || 0; }, 'tasks');
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load tasks', 'alert');
     } finally {
@@ -217,12 +215,11 @@
   // Load all tasks for board view (no pagination)
   async function loadAll() {
     loading = true;
+    taskLoad.reset();
     try {
       const params: any = { _limit: 500, _sort: '-updated_at' };
       applyFilters(params);
-      const res = await listTasks(params);
-      allTasks = res.data || [];
-      total = res.meta?.total || 0;
+      await taskLoad.load('Tasks', () => listTasks(params), res => { allTasks = res.data || []; total = res.meta?.total || 0; }, 'tasks');
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load tasks', 'alert');
     } finally {
@@ -466,6 +463,8 @@
 </svelte:head>
 
 <div class="p-6 flex flex-col" style="height: calc(100vh - 3rem);">
+  <LoadIssues issues={references.issues} retry={loadReferenceData} />
+  <LoadIssues issues={taskLoad.issues} retry={() => viewMode === 'board' ? loadAll() : load()} {loading} />
   <!-- Header -->
   <div class="flex items-center justify-between mb-4 shrink-0">
     <div class="flex items-center gap-2">
@@ -735,14 +734,14 @@
             <div class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading tasks...</div>
           </div>
         {:else}
-          <KanbanBoard
+          {#if !taskLoad.error('Tasks') || allTasks.length}<KanbanBoard
             tasks={filteredAllTasks}
             columns={board.columns}
             {organizations}
             {agents}
             onStatusChange={handleBoardStatusChange}
             onProcess={handleProcess}
-          />
+          />{/if}
         {/if}
       </div>
     </div>
@@ -750,6 +749,8 @@
     <!-- List view -->
     <div class="flex-1 min-h-0 overflow-auto">
       <DataTable
+        error={taskLoad.error('Tasks')}
+        onretry={load}
         items={filteredTasks}
         {loading}
         {total}

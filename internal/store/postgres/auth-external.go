@@ -368,7 +368,7 @@ func (p *Postgres) CompleteAuthExternalIdentity(ctx context.Context, l service.A
 		u = authUserRowToRecord(row)
 	} else {
 		// Hard bound on JIT accounts, independent of process-local rate limit.
-		n, e := tx.From(p.tableAuthUsers).Where(goqu.C("username").Like("external-%")).CountContext(ctx)
+		n, e := tx.From(p.tableAuthUsers).Where(goqu.Ex{"externally_provisioned": true}).CountContext(ctx)
 		if e != nil {
 			return nil, nil, fmt.Errorf("count external users: %w", e)
 		}
@@ -376,8 +376,32 @@ func (p *Postgres) CompleteAuthExternalIdentity(ctx context.Context, l service.A
 			return nil, nil, service.ErrAuthSessionLimit
 		}
 		id := ulid.Make().String()
-		u = &service.AuthUser{ID: id, Username: "external-" + strings.ToLower(id), SessionVersion: 1}
-		_, err = tx.Insert(p.tableAuthUsers).Rows(goqu.Record{"id": u.ID, "username": u.Username, "password_hash": "", "admin": false, "disabled": false, "session_version": u.SessionVersion}).Executor().ExecContext(ctx)
+		username := l.Username
+		if username == "" {
+			username = "external-" + strings.ToLower(id)
+		}
+		u = &service.AuthUser{ID: id, Username: username, SessionVersion: 1}
+		// Let the unique constraint arbitrate concurrent local account creation
+		// too. A conflicting handle is never grounds to adopt another account.
+		for attempt := 0; attempt < 5; attempt++ {
+			result, e := tx.Insert(p.tableAuthUsers).Rows(goqu.Record{"id": u.ID, "username": u.Username, "password_hash": "", "admin": false, "disabled": false, "session_version": u.SessionVersion, "externally_provisioned": true}).OnConflict(goqu.DoNothing()).Executor().ExecContext(ctx)
+			if e != nil {
+				err = e
+				break
+			}
+			n, e := result.RowsAffected()
+			if e != nil {
+				err = e
+				break
+			}
+			if n != 0 {
+				err = nil
+				break
+			}
+			err = service.ErrAuthConflict
+			suffix := strings.ToLower(ulid.Make().String())
+			u.Username = username + "-" + suffix[len(suffix)-8:]
+		}
 	}
 	if err != nil {
 		return nil, nil, fmt.Errorf("admit external user: %w", err)

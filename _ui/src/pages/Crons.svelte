@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import {
@@ -67,13 +70,12 @@
 
   async function load() {
     loading = true;
+    pageLoad.reset();
     try {
-      const [trigs, wfRes] = await Promise.all([
-        listAllTriggers({ type: 'cron' }),
-        listWorkflows({ _limit: 1000 }).catch(() => ({ data: [], meta: { total: 0, offset: 0, limit: 0 } })),
+      await Promise.all([
+        pageLoad.load('Schedules', () => listAllTriggers({ type: 'cron' }), result => { triggers = result || []; }, 'workflow_builder'),
+        pageLoad.load('Workflows', () => listWorkflows({ _limit: 1000 }), result => { workflows = result.data || []; }, 'workflow_builder'),
       ]);
-      triggers = trigs;
-      workflows = wfRes.data || [];
     } catch (e: any) {
       addToast(e?.response?.data?.message || 'Failed to load cron jobs', 'alert');
     } finally {
@@ -248,6 +250,7 @@
 </svelte:head>
 
 <div class="p-6 max-w-6xl mx-auto">
+  <LoadIssues issues={pageLoad.issues} retry={load} {loading} />
   <!-- Header -->
   <div class="flex items-center justify-between mb-4">
     <div class="flex items-center gap-2">
@@ -418,8 +421,10 @@
   {/if}
 
   <!-- List -->
-  {#if loading}
+  {#if pageLoad.loading('Schedules')}
     <div class="text-center py-12 text-gray-400 dark:text-dark-text-muted text-sm">Loading cron jobs...</div>
+  {:else if pageLoad.error('Schedules') && !triggers.length}
+    <p class="text-sm text-gray-600 dark:text-dark-text-secondary">Schedules could not be loaded. Retry above.</p>
   {:else if triggers.length === 0}
     <div class="text-center py-12 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
       <Clock size={24} class="mx-auto mb-2 text-gray-300 dark:text-dark-text-muted" />

@@ -98,8 +98,8 @@ func (p *Postgres) DeleteAuthUser(ctx context.Context, id string) (bool, error) 
 }
 
 // ListAuthUserIdentities reports the external identities behind a page of
-// accounts. Externally provisioned accounts are named `external-<ulid>`, so
-// without this an administrator list is a column of indistinguishable IDs.
+// accounts, including current provider names and email verification metadata
+// even when the account username is a legacy generated name.
 func (p *Postgres) ListAuthUserIdentities(ctx context.Context, ids []string) (map[string][]service.AuthUserIdentity, error) {
 	out := map[string][]service.AuthUserIdentity{}
 	if len(ids) == 0 {

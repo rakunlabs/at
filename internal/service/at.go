@@ -18,21 +18,32 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/rakunlabs/query"
 )
 
 // ListMeta contains pagination metadata.
 type ListMeta struct {
-	Total  uint64 `json:"total,omitempty"`
-	Offset uint64 `json:"offset,omitempty"`
-	Limit  uint64 `json:"limit,omitempty"`
+	Total  uint64 `json:"total"`
+	Offset uint64 `json:"offset"`
+	Limit  uint64 `json:"limit"`
 }
 
 // ListResult is a generic paginated response.
 type ListResult[T any] struct {
 	Data []T      `json:"data"`
 	Meta ListMeta `json:"meta"`
+}
+
+// MarshalJSON keeps an empty collection iterable, including when a store returns
+// a zero-value result. A missing individual resource still has its own 404 path.
+func (r ListResult[T]) MarshalJSON() ([]byte, error) {
+	type result ListResult[T]
+	if r.Data == nil {
+		r.Data = []T{}
+	}
+	return json.Marshal(result(r))
 }
 
 // Storer is the composite interface aggregating all domain store interfaces.

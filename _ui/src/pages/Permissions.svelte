@@ -6,6 +6,7 @@
   import { isNativeAdmin, storeAuth } from '../lib/store/auth.svelte';
   import { storeNavbar } from '../lib/store/store.svelte';
   import { authErrorMessage } from '../lib/api/auth';
+  import PermissionScope from '../lib/components/PermissionScope.svelte';
 
   storeNavbar.title = 'Permissions';
 
@@ -25,7 +26,9 @@
   // A disabled provider keeps working in existing mappings but is not offered,
   // so fall back to the raw identifier rather than silently rewriting it.
   let providerListed = $derived(!provider || loginProviders.some(p => p.id === provider));
-  let capabilities = $derived(registry.filter(c => !c.platform_only && c.key.includes(search)));
+  let capabilities = $derived(registry.filter(c => !c.platform_only && c.key.includes(search.toLowerCase())));
+  let workspaceName = $derived(workspaceState.items.find(w => w.id === workspaceState.access?.workspace_id)?.name || 'Selected workspace');
+  let invalidSelection = $derived(!!editing?.keys.some(key => editing?.resource_ids?.[key]?.length === 0));
   async function load() { if (!manage) return; busy = true; error = ''; try { const [b,c,m] = await Promise.all([workspaceAPI.get('permissions'), workspaceAPI.get('permissions/capabilities'), workspaceAPI.get('permission-mappings')]); bundles = b.data.items || []; registry = c.data.items || []; mappings = m.data.items || []; } catch (e) { error = authErrorMessage(e, 'Could not load workspace permissions.'); } finally { busy = false; }
     try { loginProviders = (await identityAPI.get('login-providers')).data || []; } catch { loginProviders = []; } }
   function editMapping(m?: Mapping) {
@@ -35,9 +38,9 @@
   onMount(() => { explain = !manage; void load(); });
   async function run(fn: () => Promise<void>) { if (busy) return; busy = true; error = notice = ''; try { await fn(); notice = 'Permissions updated.'; } catch (e) { error = authErrorMessage(e, 'Permission change failed. Reload and retry.'); } finally { busy = false; } }
   async function inspect() { busy = true; error = ''; loadedUser = ''; try { const [g,e] = await Promise.all([workspaceAPI.get(`user-permissions/${encodeURIComponent(user)}`), workspaceAPI.get(`users-effective/${encodeURIComponent(user)}`)]); grants = g.data.permission_ids || []; effective = e.data; denies = effective?.denied || []; loadedUser = user; explain = true; } catch (e) { effective = null; error = authErrorMessage(e, 'Could not inspect this workspace member.'); } finally { busy = false; } }
-  function edit(bundle?: Bundle) { editing = bundle ? structuredClone($state.snapshot(bundle)) : {id:'',key:'',name:'',description:'',keys:[],key_patterns:{},resource_ids:{}}; }
+  function edit(bundle?: Bundle) { search = ''; editing = bundle ? structuredClone($state.snapshot(bundle)) : {id:'',key:'',name:'',description:'',keys:[],key_patterns:{},resource_ids:{}}; editing.key_patterns ||= {}; }
   function toggleKey(key: string, checked: boolean) { if (!editing) return; editing.keys = checked ? [...editing.keys, key] : editing.keys.filter(k => k !== key); if (!checked) { delete editing.key_patterns[key]; delete editing.resource_ids?.[key]; } }
-  function selector(key: string, kind: 'key_patterns' | 'resource_ids', value: string) { if (!editing) return; const entries = value.split('\n').map(v => v.trim()).filter(Boolean); const map = editing[kind] ||= {}; if (entries.length) map[key] = entries; else delete map[key]; }
+  function selector(key: string, kind: 'key_patterns' | 'resource_ids', values: string[] | undefined) { if (!editing) return; const map = editing[kind] ||= {}; if (values !== undefined) map[key] = values; else delete map[key]; }
 </script>
 <svelte:head><title>AT | Permissions</title></svelte:head>
 <div class="settings-page settings-form"><header><h1 class="settings-title">Permissions</h1><p class="settings-subtitle">Reusable permission bundles, direct assignments and explicit per-user denies.</p></header>
@@ -46,11 +49,13 @@
   <section class="settings-section"><div class="flex flex-wrap justify-between gap-3"><h2 class="settings-section-title">Permission bundles</h2><div class="flex gap-2"><button class="settings-button" disabled={busy} onclick={load}>Reload</button><button class="settings-button" disabled={busy} onclick={() => edit()}>New bundle</button></div></div>
     {#if !bundles.length}<p class="settings-note">No custom bundles. Each member's workspace role still supplies baseline access; bundles only add to it.</p>{/if}
     <ul class="settings-list">{#each bundles as b}<li class="flex flex-wrap justify-between gap-3"><div><strong>{b.name}</strong><p class="settings-note">{b.description || b.key} · {b.keys.length} capabilities</p></div><div class="flex gap-2"><button class="settings-button" disabled={busy} onclick={() => edit(b)}>Edit</button><button class="settings-button" disabled={busy} onclick={() => { if (confirm(`Delete permission bundle “${b.name}”?`)) void run(async () => { await workspaceAPI.delete(`permissions/${encodeURIComponent(b.id)}`); await load(); }); }}>Delete</button></div></li>{/each}</ul>
-    {#if editing}<form class="settings-section" onsubmit={e => { e.preventDefault(); void run(async () => { const {id,...body} = editing!; if (id) await workspaceAPI.put(`permissions/${encodeURIComponent(id)}`, body); else await workspaceAPI.post('permissions', body); editing = null; await load(); }); }}>
+    {#if editing}<form class="border-t border-gray-200 dark:border-dark-border pt-4 space-y-4" onsubmit={e => { e.preventDefault(); if (invalidSelection) return; void run(async () => { const {id,...body} = editing!; if (id) await workspaceAPI.put(`permissions/${encodeURIComponent(id)}`, body); else await workspaceAPI.post('permissions', body); editing = null; await load(); }); }}>
       <h3 class="settings-subsection-title">{editing.id ? 'Edit bundle' : 'New bundle'}</h3><div class="grid sm:grid-cols-2 gap-3"><label>Key<input bind:value={editing.key} required /></label><label>Name<input bind:value={editing.name} required /></label></div><label>Description<input bind:value={editing.description} /></label>
-      <label>Filter capability registry<input type="search" bind:value={search} /></label><p class="settings-note">Select known workspace capabilities. Empty selector fields mean unrestricted within this workspace. IDs and paths intersect within each grant; grants combine. Path globs are rooted and * does not cross /.</p>
-      <div class="max-h-96 overflow-y-auto space-y-4">{#each capabilities as c}<div class="border-b border-gray-200 dark:border-dark-border pb-3"><label><input type="checkbox" checked={editing.keys.includes(c.key)} onchange={e => toggleKey(c.key, e.currentTarget.checked)} />{c.key}</label>{#if editing.keys.includes(c.key)}<div class="grid sm:grid-cols-2 gap-3 mt-3"><label>Resource IDs (one per line)<textarea rows="2" value={editing.resource_ids?.[c.key]?.join('\n') || ''} oninput={e => selector(c.key, 'resource_ids', e.currentTarget.value)}></textarea></label><label>Path patterns (one per line)<textarea rows="2" value={editing.key_patterns[c.key]?.join('\n') || ''} oninput={e => selector(c.key, 'key_patterns', e.currentTarget.value)}></textarea></label></div>{/if}</div>{/each}</div>
-      <div class="flex gap-3"><button class="settings-primary" disabled={busy || !editing.keys.length}>Save bundle</button><button type="button" class="settings-button" onclick={() => editing = null}>Cancel</button></div>
+      <div class="bg-gray-50 dark:bg-dark-base px-3 py-3 space-y-1"><p class="text-sm font-medium">Workspace: {workspaceName}</p><p class="settings-note">Choose what this bundle allows. By default, each permission applies to all resources in this workspace. Bundles add access; they do not narrow permissions supplied by a role or another bundle.</p></div>
+      <div class="flex flex-wrap items-end justify-between gap-3"><label class="flex-1">Find permissions<input type="search" bind:value={search} placeholder="Search agents, workflows, files…" /></label><span class="settings-note pb-2">{editing.keys.length} selected</span></div>
+      <div class="space-y-3">{#each capabilities as c (c.key)}<div class="border-b border-gray-200 dark:border-dark-border pb-3"><label class="min-h-11 sm:min-h-0"><input type="checkbox" checked={editing.keys.includes(c.key)} onchange={e => toggleKey(c.key, e.currentTarget.checked)} /><span class="font-medium">{c.key}</span></label>{#if editing.keys.includes(c.key)}<PermissionScope capability={c.key} ids={editing.resource_ids?.[c.key]} patterns={editing.key_patterns[c.key]} onids={values => selector(c.key, 'resource_ids', values)} onpatterns={values => selector(c.key, 'key_patterns', values)} />{/if}</div>{/each}{#if !capabilities.length}<p class="settings-note">No permissions match “{search}”. Try another search.</p>{/if}</div>
+      {#if invalidSelection}<p role="alert" class="settings-error">Some permissions are set to selected resources without a selection. Choose at least one resource for each before saving.</p>{/if}
+      <div class="flex gap-3"><button class="settings-primary" disabled={busy || !editing.keys.length || invalidSelection}>Save bundle</button><button type="button" class="settings-button" onclick={() => editing = null}>Cancel</button></div>
     </form>{/if}
   </section>
   <section class="settings-section"><h2 class="settings-section-title">Member assignments and denies</h2><form class="flex flex-wrap items-end gap-3" onsubmit={e => { e.preventDefault(); void inspect(); }}><label class="flex-1">User ID<input bind:value={user} required /></label><button class="settings-button" disabled={busy}>Inspect access</button></form>

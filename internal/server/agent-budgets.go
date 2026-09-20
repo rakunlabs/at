@@ -32,7 +32,23 @@ func (s *Server) GetAgentBudgetAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if record == nil {
-		httpResponse(w, fmt.Sprintf("budget for agent %q not found", agentID), http.StatusNotFound)
+		// No configured budget is a normal state of an existing agent. Resolve
+		// its identity before returning that state, so foreign/missing agents
+		// still follow the same not-found contract as GetAgent.
+		if s.agentStore == nil {
+			httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+			return
+		}
+		agent, err := s.agentStore.GetAgent(r.Context(), agentID)
+		if err != nil {
+			httpResponse(w, fmt.Sprintf("failed to get agent: %v", err), http.StatusInternalServerError)
+			return
+		}
+		if agent == nil {
+			httpResponse(w, fmt.Sprintf("agent %q not found", agentID), http.StatusNotFound)
+			return
+		}
+		httpResponseJSON(w, nil, http.StatusOK)
 		return
 	}
 	record, err = s.deriveAgentBudget(r.Context(), record, time.Now())

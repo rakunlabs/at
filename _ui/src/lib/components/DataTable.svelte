@@ -6,6 +6,8 @@
   interface Props {
     items: T[];
     loading?: boolean;
+    error?: string;
+    onretry?: () => void;
     tableLabel?: string;
     tableClass?: string;
     
@@ -35,6 +37,8 @@
   let { 
     items = [], 
     loading = false,
+    error = '',
+    onretry,
     tableLabel = 'Data table',
     tableClass = '',
     total = 0,
@@ -121,6 +125,8 @@
 
   {#if loading}
     <div class="px-4 py-10 text-center text-gray-400 dark:text-dark-text-muted text-sm">Loading...</div>
+  {:else if error && items.length === 0}
+    <div class="px-4 py-10 text-center space-y-3"><p role="alert" class="text-sm text-gray-700 dark:text-dark-text-secondary">{error}</p>{#if onretry}<button type="button" class="settings-button" onclick={onretry}>Retry loading</button>{/if}</div>
   {:else if items.length === 0}
     {#if empty}
       {@render empty()}
@@ -129,9 +135,9 @@
         {#if Icon}
           <Icon size={24} class="mx-auto text-gray-300 dark:text-dark-text-faint mb-2" />
         {/if}
-        <div class="text-gray-400 dark:text-dark-text-muted mb-1">{emptyTitle}</div>
+        <div class="text-gray-600 dark:text-dark-text-secondary mb-1">{searchValue ? 'No matching results' : emptyTitle}</div>
         {#if emptyDescription}
-          <div class="text-xs text-gray-400 dark:text-dark-text-muted mb-3">{emptyDescription}</div>
+          <div class="text-xs text-gray-500 dark:text-dark-text-muted mb-3">{searchValue ? 'Try another search or clear the filter.' : emptyDescription}</div>
         {/if}
         {#if emptyAction}
           {@render emptyAction()}

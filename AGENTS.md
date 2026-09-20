@@ -407,6 +407,30 @@ costs nothing and is what makes the failure recoverable.
 
 ## Runtime configuration
 
+### Empty collections and independent page loading
+
+Collection reads return 200 even when empty. `service.ListResult.MarshalJSON`
+normalizes nil `data` to `[]`; `ListMeta` always includes total/offset/limit,
+including zero. `httpResponseJSON` additionally normalizes nil bare slices and
+slice-valued `items`/`data` map envelopes on 200 responses. It does not rewrite
+optional records, nested configuration, byte payloads or custom marshalers.
+Individual missing/foreign resources and unknown endpoints remain 404; store
+failures remain errors. An existing agent without a configured budget returns
+200/null from `/agents/{id}/budget`, after checking the parent agent exists.
+Feature-disabled routes retain 404 and now include `code: feature_disabled` and
+`feature`, so callers can distinguish admission from an empty result.
+
+`_ui/src/lib/helper/page-load.svelte.ts` commits independent page resources as
+they arrive, retains prior data on failure, reports per-section issues and skips
+requests for known-disabled features. `LoadIssues.svelte` renders persistent
+availability messages and retry. Use DataTable's `error`/`onretry` props for a
+failed primary list, rather than presenting "No items" after a failed request.
+Agent, Bot, Marketplace, Connection, Schedule, Webhook, Usage, Task and Token
+surfaces use this pattern. The labels API intentionally returns a bare array;
+`api/labels.ts` adapts it to the frontend's ListResult interface.
+Regressions: `collection-contract_test.go`, `list-result_test.go`,
+`_ui/tests/page-load.test.mjs`.
+
 ### Feature catalog
 
 Settings → Features is a two-level tree of ~38 keys. The catalog
@@ -561,11 +585,17 @@ sign-in metadata survives event retention. History begins at deployment.
 `/settings/users` is the installation-admin account directory. Three properties
 of it are load-bearing:
 
-**An account is named by its identity link, not by its username.** Just-in-time
-external provisioning mints `external-<lowercased ULID>`
-(`auth-external.go:CompleteAuthExternalIdentity`), which is the account ID again
-with a prefix and identifies nobody; the prefix is also the hard-cap predicate
-for JIT accounts, so it cannot be changed. `ListAuthUserIdentities` therefore
+**New OAuth accounts take the provider's username.** Just-in-time provisioning
+(`auth-external.go:CompleteAuthExternalIdentity`) seeds `auth_users.username`
+from the normalized `ClaimUsername` value (`preferred_username` first). A unique
+constraint conflict adds an eight-character random suffix and retries, never
+adopts the conflicting account; absent names fall back to
+`external-<lowercased ULID>`. Subsequent sign-ins refresh link metadata but keep
+the account username stable. Existing accounts retain their names. Migration 59
+adds `auth_users.externally_provisioned`, backfills the previously counted
+`external-%` rows, and moves the 1000-account JIT ceiling to that durable marker,
+so renaming or removing an identity link cannot bypass the ceiling.
+`ListAuthUserIdentities` still
 joins `auth_identity_links` for the page and the row is labelled from the link
 (`authUserLabel` in `_ui/src/lib/api/auth.ts`) in decreasing order of what a
 person recognises: the username the provider reports, then a verified email,
@@ -1083,10 +1113,10 @@ removes an entry to cut off — able to keep doing so, which makes the control
 unable to revoke anything. The address checked is the one about to be written to
 the link, so the decision cannot disagree with the record it admits.
 
-**A non-empty list requires a verified address.** The strategy runs with
-`EmailVerifyCheck`, so an address the provider did not assert
-`email_verified: true` for arrives as `""` and is refused. `AuthEmailAdmits`
-re-states the rule against both inputs rather than relying on that, because the
+**A non-empty list requires a verified address.** The strategy preserves reported
+emails even without `email_verified: true`, storing the address and its
+verification flag together on the identity link and refreshing both at sign-in.
+`AuthEmailAdmits` requires both a non-empty address and verified status, because the
 value of an allowlist is entirely in what it refuses: an address a provider hands
 to whoever claims it is not an identity, and accepting one would let anybody who
 can type a listed address into a public IdP's unverified profile walk in. The

@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const references = createPageLoader();
   import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { tick } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
@@ -289,16 +292,11 @@
   }
 
   async function loadReferenceData() {
-    try {
-      const [orgRes, agentRes] = await Promise.all([
-        listOrganizations({ _limit: 200 }),
-        listAgents({ _limit: 200 }),
-      ]);
-      organizations = orgRes.data || [];
-      agents = agentRes.data || [];
-    } catch {
-      // Non-fatal
-    }
+    references.reset();
+    await Promise.all([
+      references.load('Organizations', () => listOrganizations({ _limit: 200 }), result => { organizations = result.data || []; }, 'organizations'),
+      references.load('Agents', () => listAgents({ _limit: 200 }), result => { agents = result.data || []; }, 'agents'),
+    ]);
   }
 
   // ─── Load ───
@@ -1002,6 +1000,7 @@
   </div>
 {:else if task}
   <div class="h-full overflow-y-auto">
+    <LoadIssues issues={references.issues} retry={loadReferenceData} />
     <div class="max-w-6xl mx-auto p-6">
       <!-- Back navigation + Refresh -->
       <div class="flex items-center justify-between mb-4">

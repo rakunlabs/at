@@ -1,4 +1,7 @@
 <script lang="ts">
+  import LoadIssues from '@/lib/components/LoadIssues.svelte';
+  import { createPageLoader } from '@/lib/helper/page-load.svelte';
+  const pageLoad = createPageLoader();
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listBotConfigs, createBotConfig, updateBotConfig, deleteBotConfig, startBot, stopBot, getBotStatus, listBotVideoTemplates, type BotConfig, type BotCustomCommand, type BotStatus, type BotVideoTemplate } from '@/lib/api/bots';
@@ -93,6 +96,7 @@
 
   async function loadData() {
     loading = true;
+    pageLoad.reset();
     try {
       const params: any = { _offset: offset, _limit: limit };
       if (searchQuery) {
@@ -101,16 +105,12 @@
       const sortParam = buildSortParam(sorts);
       if (sortParam) params._sort = sortParam;
 
-      const [bResult, aResult, oResult] = await Promise.all([
-        listBotConfigs(params),
-        listAgents({ _limit: 500 }),
-        listOrganizations({ _limit: 200 }),
+      await Promise.all([
+        pageLoad.load('Bots', () => listBotConfigs(params), result => { bots = result.data || []; total = result.meta?.total || 0; }, 'bots'),
+        pageLoad.load('Agents', () => listAgents({ _limit: 500 }), result => { agents = result.data || []; }, 'agents'),
+        pageLoad.load('Organizations', () => listOrganizations({ _limit: 200 }), result => { orgs = result.data || []; }, 'organizations'),
       ]);
-      bots = bResult.data || [];
-      total = bResult.meta?.total || 0;
-      agents = aResult.data || [];
-      orgs = oResult.data || [];
-      await loadStatuses();
+      if (!pageLoad.error('Bots')) await loadStatuses();
     } catch (e: any) {
       addToast(e?.message || 'Failed to load data', 'alert');
     } finally {
@@ -369,6 +369,7 @@
 <div class="flex h-full">
   <div class="flex-1 overflow-y-auto">
     <div class="p-6 max-w-6xl mx-auto">
+      <LoadIssues issues={pageLoad.issues} retry={loadData} {loading} />
       <!-- Header -->
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
@@ -1006,8 +1007,10 @@
       <!-- Bot list -->
       {#if loading || bots.length > 0 || !showForm}
         <DataTable
+          error={pageLoad.error('Bots')}
+          onretry={loadData}
+          loading={pageLoad.loading('Bots')}
           items={bots}
-          {loading}
           {total}
           bind:limit
           bind:offset

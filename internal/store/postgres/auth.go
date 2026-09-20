@@ -64,9 +64,8 @@ func (p *Postgres) ListAuthUsers(ctx context.Context, q service.AuthUserQuery) (
 		// is matched literally rather than as a pattern.
 		replacer := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 		pattern := "%" + replacer.Replace(q.Search) + "%"
-		// The email and the provider's username live on the identity link, not
-		// the account: an external account's own username is a generated ULID,
-		// so matching only the account would leave every SSO user unfindable.
+		// Search the current provider metadata as well as the stable account
+		// username, which may predate a provider rename or use a legacy ULID.
 		// The provider's username is included because it is what an
 		// administrator is told the person is called, and it is often the only
 		// name a provider that releases no email ever reports.
