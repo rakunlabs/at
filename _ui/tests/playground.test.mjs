@@ -39,7 +39,7 @@ const message = (overrides = {}) => ({
   data: { content: 'hi' }, created_at: '2026-09-10T00:00:00Z', ...overrides,
 });
 
-test('conversation reads use the recency cursor and preserve the DTO verbatim', async () => {
+test('conversation reads use the creation cursor and preserve the DTO verbatim', async () => {
   response = { data: [conversation(), conversation({ id: 'c2', forked_from_id: 'c1', forked_from_sequence: 4 })], meta: { limit: 50, next_before: 'c2' } };
   assert.deepEqual(await api.listPlaygroundConversations({ limit: 50 }), response);
   // `before` is a conversation id and is omitted when empty, never sent blank.
@@ -55,6 +55,13 @@ test('conversation reads use the recency cursor and preserve the DTO verbatim', 
     ['get', '/chats/conversations'],
     ['get', '/chats/conversations/a%2Fb'],
   ]);
+});
+
+test('conversation ordering stays newest-created first after local merges', () => {
+  const oldest = conversation({ id: 'c1', created_at: '2026-09-08T00:00:00Z', updated_at: '2026-09-12T00:00:00Z' });
+  const newest = conversation({ id: 'c3', created_at: '2026-09-10T00:00:00Z' });
+  const middle = conversation({ id: 'c2', created_at: '2026-09-09T00:00:00Z' });
+  assert.deepEqual(api.sortPlaygroundConversations([oldest, newest, middle]).map(c => c.id), ['c3', 'c2', 'c1']);
 });
 
 test('absent fork lineage stays absent — never null', async () => {

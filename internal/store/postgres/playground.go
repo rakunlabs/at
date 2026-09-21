@@ -219,16 +219,15 @@ func (p *Postgres) CreatePlaygroundConversation(ctx context.Context, c service.P
 	return &out, nil
 }
 
-// Conversations are ordered by recency so the history sidebar shows the most
-// recently used first. The cursor is the full (updated_at, id) keyset of the
-// anchor row, because updated_at alone is not unique and IDs alone do not
-// follow recency.
+// Conversations are ordered newest-created first so opening or updating one
+// never moves it around in the history sidebar. The cursor is the full
+// (created_at, id) keyset because created_at alone is not unique.
 func (p *Postgres) ListPlaygroundConversations(ctx context.Context, owner, before string, limit uint) ([]service.PlaygroundConversation, error) {
 	items := []service.PlaygroundConversation{}
 	if owner == "" {
 		return items, service.ErrPlaygroundNotFound
 	}
-	q := p.goqu.From(p.tablePlaygroundChats).Select(playgroundConversationColumns...).Where(goqu.Ex{"owner_user_id": owner}).Order(goqu.I("updated_at").Desc(), goqu.I("id").Desc()).Limit(playgroundLimit(limit))
+	q := p.goqu.From(p.tablePlaygroundChats).Select(playgroundConversationColumns...).Where(goqu.Ex{"owner_user_id": owner}).Order(goqu.I("created_at").Desc(), goqu.I("id").Desc()).Limit(playgroundLimit(limit))
 	if before != "" {
 		var anchor playgroundConversationRow
 		found, err := p.goqu.From(p.tablePlaygroundChats).Select(playgroundConversationColumns...).Where(goqu.Ex{"id": before, "owner_user_id": owner}).ScanStructContext(ctx, &anchor)
@@ -239,8 +238,8 @@ func (p *Postgres) ListPlaygroundConversations(ctx context.Context, owner, befor
 			return nil, service.ErrPlaygroundNotFound
 		}
 		q = q.Where(goqu.Or(
-			goqu.I("updated_at").Lt(anchor.UpdatedAt),
-			goqu.And(goqu.I("updated_at").Eq(anchor.UpdatedAt), goqu.I("id").Lt(anchor.ID)),
+			goqu.I("created_at").Lt(anchor.CreatedAt),
+			goqu.And(goqu.I("created_at").Eq(anchor.CreatedAt), goqu.I("id").Lt(anchor.ID)),
 		))
 	}
 	var rows []playgroundConversationRow

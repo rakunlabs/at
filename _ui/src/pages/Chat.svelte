@@ -67,6 +67,7 @@
     savePlaygroundDefaults,
     listChatPresets,
     saveChatPresets,
+    sortPlaygroundConversations,
   } from '@/lib/api/playground';
   import { formatMessageTime, formatLocalDateTime } from '@/lib/helper/format';
   import {
@@ -607,7 +608,7 @@
   // ─── Conversation list ───
 
   function mergeConversation(c: PlaygroundConversation) {
-    conversations = [c, ...conversations.filter(x => x.id !== c.id)];
+    conversations = sortPlaygroundConversations([c, ...conversations.filter(x => x.id !== c.id)]);
   }
 
   async function loadConversations(more = false) {
@@ -618,9 +619,9 @@
       const before = more ? conversationsCursor : '';
       const res = await listPlaygroundConversations({ limit: 50, before: before || undefined });
       const page = res.data ?? [];
-      conversations = more
+      conversations = sortPlaygroundConversations(more
         ? [...conversations, ...page.filter(c => !conversations.some(x => x.id === c.id))]
-        : page;
+        : page);
       conversationsCursor = res.meta?.next_before ?? '';
     } catch (e) {
       addToast(playgroundErrorMessage(e, 'Failed to load conversations'), 'alert');
@@ -836,7 +837,7 @@
           if (meta[index]) meta[index] = { ...meta[index], sequence: s.sequence, created_at: s.created_at || meta[index].created_at };
         });
       }
-      // An append bumps `updated_at` server-side, so mirror the promotion.
+      // Keep the local row fresh without changing its creation-time position.
       const current = conversations.find(c => c.id === id);
       if (current) mergeConversation({ ...current, updated_at: new Date().toISOString() });
     } catch (e) {

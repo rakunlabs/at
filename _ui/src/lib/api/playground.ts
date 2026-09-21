@@ -107,10 +107,15 @@ const conversationPath = (id: string) => `/chats/conversations/${encodeURICompon
 
 // ─── Conversations ───
 
-/** Recency ordered (`updated_at DESC`). `before` pages towards older entries. */
+/** Creation ordered (`created_at DESC`). `before` pages towards older entries. */
 export async function listPlaygroundConversations(params?: PlaygroundPageParams): Promise<PlaygroundList<PlaygroundConversation>> {
   const res = await api.get<PlaygroundList<PlaygroundConversation>>(pagePath('/chats/conversations', params));
   return res.data;
+}
+
+/** Keep sidebar order stable when a fetched or updated row is merged locally. */
+export function sortPlaygroundConversations(items: PlaygroundConversation[]): PlaygroundConversation[] {
+  return [...items].sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id));
 }
 
 export async function createPlaygroundConversation(input: PlaygroundConversationInput = {}): Promise<PlaygroundConversation> {

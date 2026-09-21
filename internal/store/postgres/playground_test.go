@@ -410,16 +410,16 @@ func TestPlaygroundConversationPagination(t *testing.T) {
 	for range 3 {
 		created = append(created, playgroundConversation(t, p, "user-a").ID)
 	}
-	// Touching the oldest conversation moves it to the head of the list.
+	// Touching the oldest conversation must not move it in the list.
 	if _, err := p.AppendPlaygroundMessages(ctx, "user-a", created[0], []service.PlaygroundMessage{{Role: "user"}}); err != nil {
 		t.Fatal(err)
 	}
 	page, err := p.ListPlaygroundConversations(ctx, "user-a", "", 2)
-	if err != nil || len(page) != 2 || page[0].ID != created[0] || page[1].ID != created[2] {
-		t.Fatalf("recency order: %+v %v", page, err)
+	if err != nil || len(page) != 2 || page[0].ID != created[2] || page[1].ID != created[1] {
+		t.Fatalf("creation order: %+v %v", page, err)
 	}
 	rest, err := p.ListPlaygroundConversations(ctx, "user-a", page[1].ID, 2)
-	if err != nil || len(rest) != 1 || rest[0].ID != created[1] {
+	if err != nil || len(rest) != 1 || rest[0].ID != created[0] {
 		t.Fatalf("cursor page: %+v %v", rest, err)
 	}
 	if items, err := p.ListPlaygroundConversations(ctx, "user-a", rest[0].ID, 2); err != nil || len(items) != 0 {
