@@ -1730,6 +1730,44 @@ Episodic production is filesystem-backed so bash skill handlers and the UI share
 
 Note: `internal/server/workflow_seeds/` is legacy/unreferenced — Integration Packs are the supported install mechanism.
 
+## Built-in "get" tools take one identifier or a list
+
+Every record-fetching built-in (`agent_get`, `task_get`, `org_get`,
+`workflow_get`, `trigger_get`, `skill_get`, `mcp_server_get`, `mcp_set_get`,
+`provider_get`, `bot_get`, `variable_get`, `connection_get`, `node_config_get`,
+`guide_get`, `llm_observation_get`) goes through `multiGet`
+(`internal/server/builtin-tools-multiget.go`).
+
+The failure it fixes: the argument was read as `args["id"].(string)`, so a model
+asking for several records in one call sent an array into a single-string read,
+got the zero value, and was told **"id is required"** — an argument that was
+present and understood by the person reading the call. The same happened for a
+comma-separated list and for the plural `ids` key, both of which models produce
+unprompted. `multiGetIDs` accepts all of those, trims, drops blanks and
+de-duplicates with first-seen order preserved. Splitting is on commas and
+newlines only, **never on interior spaces**: several of these arguments accept a
+name where an identifier is expected, and names contain spaces.
+
+`multiIDSchema` declares the array form as `anyOf: [string, array<string>]`,
+which is what makes the multi-record call discoverable rather than merely
+tolerated. That branch has to survive the restrictive Gemini schema subset —
+`collapseGeminiAnyOf` keeps a genuine two-branch union — so the tool never
+advertises a shape the adapter has stripped.
+
+Response shape is deliberately asymmetric:
+
+- **one identifier** → the fetcher's own JSON and its own error, byte-for-byte
+  what the tool returned before. Nothing that works today changes meaning.
+- **several** → `{requested, found, failed, results:[{<key>, ok, data|error}]}`
+  in the requested order, with each record embedded as JSON rather than a
+  re-encoded string. A missing or failing entry is reported **per item**: one
+  unknown ID in a list of five must not discard the four that resolved, and a
+  single error string would not say which one was at fault.
+
+Bounded at `multiGetLimit` (25, the ceiling `batch_execute` already uses) and
+cancellation-checked between entries. Regression:
+`internal/server/builtin-tools-multiget_test.go`.
+
 ## Memory
 
 AT does not ship a native long-term agent memory store. Agents that need memory should use an external memory MCP (for example a custom Postgres/vector/Engram/Mem0/Letta MCP) attached through MCP Sets or MCP server URLs. Keep memory read/write policy, retention, and embedding/search strategy inside that MCP; AT only discovers and calls the tools.

@@ -74,25 +74,22 @@ func (s *Server) execWorkflowGet(ctx context.Context, args map[string]any) (stri
 		return "", fmt.Errorf("workflow store not configured")
 	}
 
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		wf, err := s.workflowStore.GetWorkflow(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get workflow: %w", err)
+		}
+		if wf == nil {
+			return "", fmt.Errorf("workflow %q not found", id)
+		}
 
-	wf, err := s.workflowStore.GetWorkflow(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get workflow: %w", err)
-	}
-	if wf == nil {
-		return "", fmt.Errorf("workflow %q not found", id)
-	}
+		data, err := json.MarshalIndent(wf, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal workflow: %w", err)
+		}
 
-	data, err := json.MarshalIndent(wf, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal workflow: %w", err)
-	}
-
-	return string(data), nil
+		return string(data), nil
+	})
 }
 
 // execWorkflowCreate creates a new workflow.
@@ -604,21 +601,18 @@ func (s *Server) execTriggerGet(ctx context.Context, args map[string]any) (strin
 		return "", fmt.Errorf("trigger store not configured")
 	}
 
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		trigger, err := s.triggerStore.GetTrigger(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get trigger: %w", err)
+		}
+		if trigger == nil {
+			return "", fmt.Errorf("trigger %q not found", id)
+		}
 
-	trigger, err := s.triggerStore.GetTrigger(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get trigger: %w", err)
-	}
-	if trigger == nil {
-		return "", fmt.Errorf("trigger %q not found", id)
-	}
-
-	data, _ := json.MarshalIndent(trigger, "", "  ")
-	return string(data), nil
+		data, _ := json.MarshalIndent(trigger, "", "  ")
+		return string(data), nil
+	})
 }
 
 // execTriggerUpdate updates a trigger.

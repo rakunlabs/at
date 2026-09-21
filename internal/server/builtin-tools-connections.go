@@ -74,29 +74,27 @@ func (s *Server) execConnectionGet(ctx context.Context, args map[string]any) (st
 	if s.connectionStore == nil {
 		return "", fmt.Errorf("connection store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
 	reveal, _ := args["reveal"].(bool)
 
-	rec, err := s.connectionStore.GetConnection(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get connection %q: %w", id, err)
-	}
-	if rec == nil {
-		return "", fmt.Errorf("connection %q not found", id)
-	}
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		rec, err := s.connectionStore.GetConnection(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get connection %q: %w", id, err)
+		}
+		if rec == nil {
+			return "", fmt.Errorf("connection %q not found", id)
+		}
 
-	resp := toConnectionResponse(*rec, reveal)
-	usage, _ := s.computeConnectionUsage(ctx)
-	resp.UsedByAgents = usage[id]
+		resp := toConnectionResponse(*rec, reveal)
+		usage, _ := s.computeConnectionUsage(ctx)
+		resp.UsedByAgents = usage[id]
 
-	out, err := json.MarshalIndent(resp, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal connection: %w", err)
-	}
-	return string(out), nil
+		out, err := json.MarshalIndent(resp, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal connection: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 // decodeConnectionCredentials coerces an args["credentials"] value

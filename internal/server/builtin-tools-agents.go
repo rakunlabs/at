@@ -156,27 +156,24 @@ func (s *Server) execAgentList(ctx context.Context, args map[string]any) (string
 	return string(data), nil
 }
 
-// execAgentGet gets a single agent by ID.
+// execAgentGet gets one agent, or several when `id` carries a list.
 func (s *Server) execAgentGet(ctx context.Context, args map[string]any) (string, error) {
 	if s.agentStore == nil {
 		return "", fmt.Errorf("agent store not configured")
 	}
 
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		record, err := s.agentStore.GetAgent(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("failed to get agent: %w", err)
+		}
+		if record == nil {
+			return "", fmt.Errorf("agent %q not found", id)
+		}
 
-	record, err := s.agentStore.GetAgent(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("failed to get agent: %w", err)
-	}
-	if record == nil {
-		return "", fmt.Errorf("agent %q not found", id)
-	}
-
-	data, _ := json.MarshalIndent(record, "", "  ")
-	return string(data), nil
+		data, _ := json.MarshalIndent(record, "", "  ")
+		return string(data), nil
+	})
 }
 
 // execAgentUpdate updates an existing agent.

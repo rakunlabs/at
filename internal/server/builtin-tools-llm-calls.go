@@ -169,22 +169,20 @@ func (s *Server) execLLMObservationGet(ctx context.Context, args map[string]any)
 		return "", fmt.Errorf("LLM call store not configured")
 	}
 
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	call, err := s.llmCallStore.GetLLMCall(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get LLM observation: %w", err)
-	}
-	if call == nil {
-		return "", fmt.Errorf("LLM observation %q not found", id)
-	}
-	rehydrateLLMCall(call)
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		call, err := s.llmCallStore.GetLLMCall(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get LLM observation: %w", err)
+		}
+		if call == nil {
+			return "", fmt.Errorf("LLM observation %q not found", id)
+		}
+		rehydrateLLMCall(call)
 
-	data, err := json.MarshalIndent(call, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("serialize LLM observation: %w", err)
-	}
-	return string(data), nil
+		data, err := json.MarshalIndent(call, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("serialize LLM observation: %w", err)
+		}
+		return string(data), nil
+	})
 }

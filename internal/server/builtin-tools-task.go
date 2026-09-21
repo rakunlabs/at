@@ -661,17 +661,17 @@ func (s *Server) execTaskList(ctx context.Context, args map[string]any) (string,
 	return string(data), nil
 }
 
-// execTaskGet gets a single task with optional subtasks.
+// execTaskGet gets a task with optional subtasks, or several tasks when `id`
+// carries a list.
 func (s *Server) execTaskGet(ctx context.Context, args map[string]any) (string, error) {
 	if s.taskStore == nil {
 		return "", fmt.Errorf("task store not configured")
 	}
 
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
+	return multiGet(ctx, args, "id", s.taskGetOne)
+}
 
+func (s *Server) taskGetOne(ctx context.Context, id string) (string, error) {
 	task, err := s.taskStore.GetTask(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("failed to get task: %w", err)

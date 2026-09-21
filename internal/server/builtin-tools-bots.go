@@ -58,23 +58,21 @@ func (s *Server) execBotGet(ctx context.Context, args map[string]any) (string, e
 	if s.botConfigStore == nil {
 		return "", fmt.Errorf("bot config store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	record, err := s.botConfigStore.GetBotConfig(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get bot config %q: %w", id, err)
-	}
-	if record == nil {
-		return "", fmt.Errorf("bot config %q not found", id)
-	}
-	redactBotToken(record)
-	out, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal bot config: %w", err)
-	}
-	return string(out), nil
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		record, err := s.botConfigStore.GetBotConfig(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get bot config %q: %w", id, err)
+		}
+		if record == nil {
+			return "", fmt.Errorf("bot config %q not found", id)
+		}
+		redactBotToken(record)
+		out, err := json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal bot config: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 // execBotUpdate applies a partial update to a bot config. The caller's

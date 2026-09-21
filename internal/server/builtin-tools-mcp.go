@@ -71,22 +71,20 @@ func (s *Server) execMCPServerGet(ctx context.Context, args map[string]any) (str
 	if s.mcpServerStore == nil {
 		return "", fmt.Errorf("mcp server store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	record, err := s.mcpServerStore.GetMCPServer(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get mcp server %q: %w", id, err)
-	}
-	if record == nil {
-		return "", fmt.Errorf("mcp server %q not found", id)
-	}
-	out, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal mcp server: %w", err)
-	}
-	return string(out), nil
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		record, err := s.mcpServerStore.GetMCPServer(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get mcp server %q: %w", id, err)
+		}
+		if record == nil {
+			return "", fmt.Errorf("mcp server %q not found", id)
+		}
+		out, err := json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal mcp server: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 func (s *Server) execMCPServerCreate(ctx context.Context, args map[string]any) (string, error) {
@@ -219,22 +217,20 @@ func (s *Server) execMCPSetGet(ctx context.Context, args map[string]any) (string
 	if s.mcpSetStore == nil {
 		return "", fmt.Errorf("mcp set store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	record, err := s.mcpSetStore.GetMCPSet(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get mcp set %q: %w", id, err)
-	}
-	if record == nil {
-		return "", fmt.Errorf("mcp set %q not found", id)
-	}
-	out, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal mcp set: %w", err)
-	}
-	return string(out), nil
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		record, err := s.mcpSetStore.GetMCPSet(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get mcp set %q: %w", id, err)
+		}
+		if record == nil {
+			return "", fmt.Errorf("mcp set %q not found", id)
+		}
+		out, err := json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal mcp set: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 func (s *Server) execMCPSetCreate(ctx context.Context, args map[string]any) (string, error) {

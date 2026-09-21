@@ -68,53 +68,50 @@ func (s *Server) execProviderList(ctx context.Context, args map[string]any) (str
 	return string(data), nil
 }
 
-// execProviderGet gets details for a single provider by key.
-// API keys are redacted for security.
+// execProviderGet gets details for one provider by key, or several when `key`
+// carries a list. API keys are redacted for security.
 func (s *Server) execProviderGet(ctx context.Context, args map[string]any) (string, error) {
 	if s.store == nil {
 		return "", fmt.Errorf("provider store not configured")
 	}
 
-	key, _ := args["key"].(string)
-	if key == "" {
-		return "", fmt.Errorf("key is required")
-	}
+	return multiGet(ctx, args, "key", func(ctx context.Context, key string) (string, error) {
+		record, err := s.store.GetProvider(ctx, key)
+		if err != nil {
+			return "", fmt.Errorf("failed to get provider: %w", err)
+		}
+		if record == nil {
+			return "", fmt.Errorf("provider %q not found", key)
+		}
 
-	record, err := s.store.GetProvider(ctx, key)
-	if err != nil {
-		return "", fmt.Errorf("failed to get provider: %w", err)
-	}
-	if record == nil {
-		return "", fmt.Errorf("provider %q not found", key)
-	}
+		// Redact secrets.
+		redactProviderRecord(record)
 
-	// Redact secrets.
-	redactProviderRecord(record)
+		// Build a clean response.
+		models := record.Config.Models
+		if len(models) == 0 && record.Config.Model != "" {
+			models = []string{strings.TrimSpace(record.Config.Model)}
+		}
+		// Trim whitespace from all model names.
+		for j := range models {
+			models[j] = strings.TrimSpace(models[j])
+		}
 
-	// Build a clean response.
-	models := record.Config.Models
-	if len(models) == 0 && record.Config.Model != "" {
-		models = []string{strings.TrimSpace(record.Config.Model)}
-	}
-	// Trim whitespace from all model names.
-	for j := range models {
-		models[j] = strings.TrimSpace(models[j])
-	}
+		out := map[string]any{
+			"key":           record.Key,
+			"type":          record.Config.Type,
+			"default_model": strings.TrimSpace(record.Config.Model),
+			"models":        models,
+			"base_url":      record.Config.BaseURL,
+			"auth_type":     record.Config.AuthType,
+			"extra_headers": record.Config.ExtraHeaders,
+			"created_at":    record.CreatedAt,
+			"updated_at":    record.UpdatedAt,
+		}
 
-	out := map[string]any{
-		"key":           record.Key,
-		"type":          record.Config.Type,
-		"default_model": strings.TrimSpace(record.Config.Model),
-		"models":        models,
-		"base_url":      record.Config.BaseURL,
-		"auth_type":     record.Config.AuthType,
-		"extra_headers": record.Config.ExtraHeaders,
-		"created_at":    record.CreatedAt,
-		"updated_at":    record.UpdatedAt,
-	}
-
-	data, _ := json.MarshalIndent(out, "", "  ")
-	return string(data), nil
+		data, _ := json.MarshalIndent(out, "", "  ")
+		return string(data), nil
+	})
 }
 
 // ─── Provider Write Tool Executors (Phase 2) ───

@@ -59,22 +59,20 @@ func (s *Server) execNodeConfigGet(ctx context.Context, args map[string]any) (st
 	if s.nodeConfigStore == nil {
 		return "", fmt.Errorf("node config store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	rec, err := s.nodeConfigStore.GetNodeConfig(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get node config %q: %w", id, err)
-	}
-	if rec == nil {
-		return "", fmt.Errorf("node config %q not found", id)
-	}
-	out, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal node config: %w", err)
-	}
-	return string(out), nil
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		rec, err := s.nodeConfigStore.GetNodeConfig(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get node config %q: %w", id, err)
+		}
+		if rec == nil {
+			return "", fmt.Errorf("node config %q not found", id)
+		}
+		out, err := json.MarshalIndent(rec, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal node config: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 func (s *Server) execNodeConfigCreate(ctx context.Context, args map[string]any) (string, error) {

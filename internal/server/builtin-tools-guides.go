@@ -36,22 +36,20 @@ func (s *Server) execGuideGet(ctx context.Context, args map[string]any) (string,
 	if s.guideStore == nil {
 		return "", fmt.Errorf("guide store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	rec, err := s.guideStore.GetGuide(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get guide %q: %w", id, err)
-	}
-	if rec == nil {
-		return "", fmt.Errorf("guide %q not found", id)
-	}
-	out, err := json.MarshalIndent(rec, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal guide: %w", err)
-	}
-	return string(out), nil
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		rec, err := s.guideStore.GetGuide(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get guide %q: %w", id, err)
+		}
+		if rec == nil {
+			return "", fmt.Errorf("guide %q not found", id)
+		}
+		out, err := json.MarshalIndent(rec, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal guide: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 func (s *Server) execGuideCreate(ctx context.Context, args map[string]any) (string, error) {

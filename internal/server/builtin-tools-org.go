@@ -97,17 +97,17 @@ func (s *Server) execOrgList(ctx context.Context, args map[string]any) (string, 
 	return string(data), nil
 }
 
-// execOrgGet gets a single organization with its agent roster.
+// execOrgGet gets one organization with its agent roster, or several when
+// `id` carries a list.
 func (s *Server) execOrgGet(ctx context.Context, args map[string]any) (string, error) {
 	if s.organizationStore == nil {
 		return "", fmt.Errorf("organization store not configured")
 	}
 
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
+	return multiGet(ctx, args, "id", s.orgGetOne)
+}
 
+func (s *Server) orgGetOne(ctx context.Context, id string) (string, error) {
 	org, err := s.organizationStore.GetOrganization(ctx, id)
 	if err != nil {
 		return "", fmt.Errorf("failed to get organization: %w", err)

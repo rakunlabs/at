@@ -150,22 +150,20 @@ func (s *Server) execSkillGet(ctx context.Context, args map[string]any) (string,
 	if s.skillStore == nil {
 		return "", fmt.Errorf("skill store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	record, err := s.skillStore.GetSkill(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get skill %q: %w", id, err)
-	}
-	if record == nil {
-		return "", fmt.Errorf("skill %q not found", id)
-	}
-	out, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal skill: %w", err)
-	}
-	return string(out), nil
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		record, err := s.skillStore.GetSkill(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get skill %q: %w", id, err)
+		}
+		if record == nil {
+			return "", fmt.Errorf("skill %q not found", id)
+		}
+		out, err := json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal skill: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 // decodeSkillTools coerces an args["tools"] value (typically []any from

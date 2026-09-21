@@ -55,22 +55,20 @@ func (s *Server) execVariableGet(ctx context.Context, args map[string]any) (stri
 	if s.variableStore == nil {
 		return "", fmt.Errorf("variable store not configured")
 	}
-	id, _ := args["id"].(string)
-	if id == "" {
-		return "", fmt.Errorf("id is required")
-	}
-	record, err := s.variableStore.GetVariable(ctx, id)
-	if err != nil {
-		return "", fmt.Errorf("get variable %q: %w", id, err)
-	}
-	if record == nil {
-		return "", fmt.Errorf("variable %q not found", id)
-	}
-	out, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("marshal variable: %w", err)
-	}
-	return string(out), nil
+	return multiGet(ctx, args, "id", func(ctx context.Context, id string) (string, error) {
+		record, err := s.variableStore.GetVariable(ctx, id)
+		if err != nil {
+			return "", fmt.Errorf("get variable %q: %w", id, err)
+		}
+		if record == nil {
+			return "", fmt.Errorf("variable %q not found", id)
+		}
+		out, err := json.MarshalIndent(record, "", "  ")
+		if err != nil {
+			return "", fmt.Errorf("marshal variable: %w", err)
+		}
+		return string(out), nil
+	})
 }
 
 // execVariableCreate creates or upserts a variable by key. Mirrors
