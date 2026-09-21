@@ -349,7 +349,7 @@ func (b *mcpRuntimeBuilder) buildGateway(ctx context.Context, srv *service.MCPSe
 		})
 	}
 
-	b.addBuiltins(runtime, srv.Config)
+	b.addBuiltins(ctx, runtime, srv.Config)
 	b.addWorkflows(ctx, runtime, srv.Config)
 	return runtime
 }
@@ -364,7 +364,7 @@ func (b *mcpRuntimeBuilder) buildSet(ctx context.Context, setName string) (*mcpR
 
 	runtime := newMCPRuntime()
 	b.addSkills(ctx, runtime, srv.Config)
-	b.addBuiltins(runtime, srv.Config)
+	b.addBuiltins(ctx, runtime, srv.Config)
 	b.addWorkflows(ctx, runtime, srv.Config)
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)
 	b.addHTTPTools(runtime, srv, false)
@@ -426,8 +426,11 @@ func (b *mcpRuntimeBuilder) addUpstreams(runtime *mcpRuntime, upstreams []servic
 	}
 }
 
-func (b *mcpRuntimeBuilder) addBuiltins(runtime *mcpRuntime, config service.MCPServerConfig) {
+func (b *mcpRuntimeBuilder) addBuiltins(ctx context.Context, runtime *mcpRuntime, config service.MCPServerConfig) {
 	for _, toolName := range config.EnabledBuiltinTools {
+		if b.server.checkBuiltinToolFeatures(ctx, toolName) != nil {
+			continue
+		}
 		if !isKnownBuiltinTool(toolName) {
 			continue
 		}

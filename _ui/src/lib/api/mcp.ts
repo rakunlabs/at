@@ -30,6 +30,9 @@ export interface BuiltinToolDef {
   name: string;
   description: string;
   input_schema: Record<string, any>;
+  family?: string;
+  group?: string;
+  disabled_by?: string;
 }
 
 export interface BuiltinToolListResponse {
@@ -96,8 +99,10 @@ export async function callSkillTool(
 /**
  * List available server-side built-in tool definitions.
  */
-export async function listBuiltinTools(): Promise<BuiltinToolListResponse> {
-  const res = await api.get<BuiltinToolListResponse>('/mcp/builtin-tools');
+export async function listBuiltinTools(includeDisabled = false): Promise<BuiltinToolListResponse> {
+  const res = await api.get<BuiltinToolListResponse>('/mcp/builtin-tools', {
+    params: includeDisabled ? { include_disabled: true } : undefined,
+  });
   return res.data;
 }
 

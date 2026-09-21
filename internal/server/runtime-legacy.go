@@ -27,6 +27,11 @@ func (s *Server) bindLegacyRuntime(ctx context.Context, source string) (context.
 		return nil, service.ErrExecutionDenied
 	}
 	validate := func(ctx context.Context, p service.ExecutionProvenance, a service.ExecutionAction) (service.ExecutionValidation, error) {
+		if a.Kind == "tool" && isKnownBuiltinTool(a.Name) {
+			if err := s.checkBuiltinToolFeatures(ctx, a.Name); err != nil {
+				return service.ExecutionValidation{}, err
+			}
+		}
 		if p.WorkspaceID != "legacy-default" || p.UserID != "legacy-installation" || p.ServiceID != "" {
 			return service.ExecutionValidation{}, service.ErrExecutionDenied
 		}

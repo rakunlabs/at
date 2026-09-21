@@ -653,6 +653,14 @@ func (n *agentCallNode) Run(ctx context.Context, reg *workflow.Registry, inputs 
 		// skills the LLM has activated so far.
 		llmTools := append([]service.Tool{}, baseLLMTools...)
 		llmTools = append(llmTools, skillRuntime.ActiveSkillTools()...)
+		available := make([]service.Tool, 0, len(llmTools))
+		for _, tool := range llmTools {
+			if handler, ok := toolHandlers[tool.Name]; ok && handler.handlerType == "builtin" && service.CheckExecution(ctx, service.ExecutionAction{Kind: "tool", Name: tool.Name}) != nil {
+				continue
+			}
+			available = append(available, tool)
+		}
+		llmTools = available
 
 		// Check for cancellation between iterations.
 		if err := ctx.Err(); err != nil {

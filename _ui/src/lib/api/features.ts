@@ -37,6 +37,7 @@ export const FEATURE_BUILTIN_TOOLS = 'builtin_tools';
 export const FEATURE_BUILTIN_SHELL = 'builtin_shell';
 export const FEATURE_BUILTIN_SCRIPT = 'builtin_script';
 export const FEATURE_BUILTIN_HTTP = 'builtin_http';
+export const FEATURE_BUILTIN_OTHER = 'builtin_other';
 export const FEATURE_TERMINAL = 'terminal';
 export const FEATURE_EXTERNAL_CONNECTIONS = 'external_connections';
 export const FEATURE_INTEGRATION_PACKS = 'integration_packs';

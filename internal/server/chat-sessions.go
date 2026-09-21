@@ -1064,6 +1064,10 @@ func (s *Server) runAgenticLoopMessage(ctx context.Context, sessionID string, da
 		}
 
 		// Apply the loop governor to window history with rolling summary fallback.
+		llmTools = slices.DeleteFunc(llmTools, func(tool service.Tool) bool {
+			handler, ok := toolHandlers[tool.Name]
+			return ok && handler.handlerType == "builtin" && s.checkBuiltinToolFeatures(ctx, tool.Name) != nil
+		})
 		resp, windowed, latencyMs, err := agentloop.CallProvider(
 			ctx, s.loopGov, scopedProvider, model, session.AgentID, loopRunID, llmMessages, llmTools, agent.Config.ReasoningEffort,
 		)

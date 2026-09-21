@@ -88,6 +88,9 @@ type builtinToolDef struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"input_schema"`
+	Family      string         `json:"family,omitempty"`
+	Group       string         `json:"group,omitempty"`
+	DisabledBy  string         `json:"disabled_by,omitempty"`
 }
 
 // knownBuiltinTools is the set of all valid builtin tool names.
@@ -123,26 +126,29 @@ func builtinToolDefsForWorkflow() []workflow.BuiltinToolDef {
 // BuiltinToolListAPI handles GET /api/v1/mcp/builtin-tools.
 // Returns the static list of server-side built-in tool definitions.
 func (s *Server) BuiltinToolListAPI(w http.ResponseWriter, r *http.Request) {
-	tools := builtinTools
-	if s.featureStore != nil {
-		filtered := make([]builtinToolDef, 0, len(builtinTools))
-		for _, tool := range builtinTools {
-			featureKey := builtinToolFeatureKey(tool.Name)
-			if featureKey == "" {
-				filtered = append(filtered, tool)
-				continue
-			}
-			enabled, err := s.isFeatureEnabled(r.Context(), featureKey)
-			if err != nil {
-				slog.Error("builtin tool feature check failed", "tool", tool.Name, "feature", featureKey, "error", err)
-				httpResponse(w, fmt.Sprintf("failed to check feature %q: %v", featureKey, err), http.StatusInternalServerError)
-				return
-			}
-			if enabled {
-				filtered = append(filtered, tool)
+	flags, err := s.featureFlags(r.Context())
+	if err != nil {
+		httpResponse(w, "failed to check built-in tool features", http.StatusInternalServerError)
+		return
+	}
+	tools := make([]builtinToolDef, 0, len(builtinTools))
+	for _, tool := range builtinTools {
+		tool.Family = builtinToolFamily(tool.Name)
+		tool.Group = builtinToolFeatureKey(tool.Name)
+		if tool.Group == "" {
+			tool.Group = "helpers"
+		}
+		for _, key := range builtinToolFeatureKeys(tool.Name) {
+			if !featureEnabledIn(key, flags) {
+				tool.DisabledBy = key
+				break
 			}
 		}
-		tools = filtered
+		// Configuration clients may request disabled metadata to explain saved
+		// selections. Execution/discovery clients only receive available tools.
+		if tool.DisabledBy == "" || r.URL.Query().Get("include_disabled") == "true" {
+			tools = append(tools, tool)
+		}
 	}
 
 	httpResponseJSON(w, map[string]any{

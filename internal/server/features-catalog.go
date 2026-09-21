@@ -264,6 +264,13 @@ var featureDefinitions = []featureDefinition{
 		Parent:      service.FeatureBuiltinTools,
 	},
 	{
+		Key:         service.FeatureBuiltinOther,
+		Name:        "Other Built-in Tools",
+		Description: "File, task, administration and helper tools. Turn this off to use only the independently selected Shell, Script and HTTP tools. Each tool still requires its own resource feature and execution permissions.",
+		Group:       "tools",
+		Parent:      service.FeatureBuiltinTools,
+	},
+	{
 		Key:         service.FeatureTerminal,
 		Name:        "Host Terminals",
 		Description: "Browser-attached tmux terminals on the host. Disabling blocks creating and attaching; existing tmux sessions keep running.",
@@ -452,6 +459,7 @@ var featurePresets = []featurePreset{
 			service.FeatureBuiltinShell,
 			service.FeatureBuiltinScript,
 			service.FeatureBuiltinHTTP,
+			service.FeatureBuiltinOther,
 			service.FeatureFiles,
 			service.FeatureConnections,
 			service.FeatureExternalConnections,

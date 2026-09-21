@@ -79,7 +79,7 @@ func (s *Server) buildExecutionMCPConfig(ctx context.Context, srv *service.MCPSe
 		client, err := s.newExecutionMCPClient(ctx, u)
 		return mcpClientLease{client: client, owned: true}, err
 	}}
-	b.addBuiltins(runtime, srv.Config)
+	b.addBuiltins(ctx, runtime, srv.Config)
 	b.addWorkflows(ctx, runtime, srv.Config)
 	b.addUpstreams(runtime, srv.Config.MCPUpstreams)
 	// Custom HTTP templates still use unscoped credential expansion in the

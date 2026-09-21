@@ -130,6 +130,11 @@ func (s *Server) runtimeAuthentication(next http.Handler) http.Handler {
 }
 
 func (s *Server) revalidateRuntimeExecution(ctx context.Context, provenance service.ExecutionProvenance, action service.ExecutionAction) (service.ExecutionValidation, error) {
+	if action.Kind == "tool" && isKnownBuiltinTool(action.Name) {
+		if err := s.checkBuiltinToolFeatures(ctx, action.Name); err != nil {
+			return service.ExecutionValidation{}, fmt.Errorf("%w: %w", service.ErrExecutionDenied, err)
+		}
+	}
 	old, ok := service.AccessPrincipalFromContext(ctx)
 	if !ok || old.UserID != provenance.UserID || old.WorkspaceID != provenance.WorkspaceID || old.SessionID != provenance.SessionID {
 		return service.ExecutionValidation{}, service.ErrExecutionDenied

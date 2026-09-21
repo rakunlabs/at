@@ -517,6 +517,16 @@ Behaviour worth knowing:
 - `builtin_tools` is a real master switch: `dispatchBuiltinTool` checks it for
   every tool, including the ones no specific feature owns (`todo_*`,
   `batch_execute`, user preferences), which would otherwise stay usable.
+- `builtin_other` independently gates all built-ins outside Shell, Script and
+  HTTP. Resource features remain additional dependencies: Files may be enabled
+  while its tools are off. Discovery and dispatch use `builtinToolFeatureKeys`;
+  runtime revalidation and per-iteration tool lists also respect disabling.
+  The configuration-only `include_disabled=true` option on the built-in catalog
+  supplies family/group and `disabled_by` metadata for Chat/Agent pickers; those
+  entries must never be sent as runnable tools. `BuiltinToolPicker.svelte` groups
+  individual selections and preserves unavailable saved choices with an explicit
+  explanation. Gateway + chat presets leave Other off; agent platform and full
+  include it. Missing overrides preserve existing installations' behavior.
 - `provider_setup` deliberately leaves `GET /api/v1/providers` open; model
   pickers across the UI need the list when management is closed.
 - `guides` is presented as **Documentation** and owns the whole `/docs` surface —

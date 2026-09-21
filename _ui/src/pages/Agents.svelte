@@ -1,4 +1,6 @@
 <script lang="ts">
+  import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
+  import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
   import { onMount, untrack } from 'svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
@@ -140,7 +142,7 @@
       skills: skills.map(s => ({ id: s.id, name: s.name, description: s.description })),
       mcp_sets: mcpSets.map(s => ({ id: s.id, name: s.name })),
       workflows: workflows.map(w => ({ id: w.id, name: w.name })),
-      builtin_tools: builtinToolDefs.map(t => ({ id: t.name, name: t.name, description: t.description })),
+      builtin_tools: builtinToolDefs.filter(t => !builtinDisabledBy(t, isFeatureEnabled)).map(t => ({ id: t.name, name: t.name, description: t.description })),
     };
   }
 
@@ -942,17 +944,7 @@
                   Builtin Tools
                 </span>
               </span>
-              <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 bg-gray-50/50 dark:bg-dark-base/30 p-3 border border-gray-200 dark:border-dark-border">
-                {#each builtinToolDefs as tool}
-                  <label class="flex items-center gap-2 cursor-pointer" title={tool.description}>
-                    <input type="checkbox" bind:group={formBuiltinTools} value={tool.name} class="text-gray-900 dark:text-accent focus:ring-gray-900/10 dark:focus:ring-accent/20 dark:bg-dark-elevated dark:border-dark-border-subtle" />
-                    <span class="text-xs text-gray-700 dark:text-dark-text-secondary truncate">{tool.name}</span>
-                  </label>
-                {/each}
-                {#if builtinToolDefs.length === 0}
-                  <div class="col-span-full text-xs text-gray-400 dark:text-dark-text-muted italic text-center">No builtin tools available</div>
-                {/if}
-              </div>
+              <BuiltinToolPicker tools={builtinToolDefs} bind:selected={formBuiltinTools} />
             </div>
 
             <!-- Confirmation Required Tools -->

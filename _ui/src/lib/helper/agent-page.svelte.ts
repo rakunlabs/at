@@ -46,7 +46,7 @@ export function createAgentPage() {
       editor.load('Providers', listProviders, result => { data.providers = result.data || []; }),
       isFeatureEnabled('skills') && editor.load('Skills', listSkills, result => { data.skills = result.data || []; }),
       isFeatureEnabled('mcp_servers') && editor.load('MCP sets', () => listMCPSets({ _limit: 500 }), result => { data.mcpSets = result.data || []; }),
-      isFeatureEnabled('builtin_tools') && editor.load('Built-in tools', listBuiltinTools, result => { data.builtinToolDefs = result.tools || []; }),
+      isFeatureEnabled('builtin_tools') && editor.load('Built-in tools', () => listBuiltinTools(true), result => { data.builtinToolDefs = result.tools || []; }),
       isFeatureEnabled('external_connections') && editor.load('Connections', listConnections, result => { data.connections = result || []; }),
       isFeatureEnabled('workflow_builder') && editor.load('Workflows', () => listWorkflows({ _limit: 500 }), result => { data.workflows = result.data || []; }),
     ]);

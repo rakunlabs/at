@@ -54,6 +54,7 @@ const (
 	FeatureBuiltinShell  = "builtin_shell"
 	FeatureBuiltinScript = "builtin_script"
 	FeatureBuiltinHTTP   = "builtin_http"
+	FeatureBuiltinOther  = "builtin_other"
 	FeatureTerminal      = "terminal"
 
 	// Data & integrations.

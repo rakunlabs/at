@@ -15,6 +15,9 @@
     streamChatCompletion,
   } from '@/lib/helper/chat';
   import { callSkillTool, listBuiltinTools, callBuiltinTool, type BuiltinToolDef } from '@/lib/api/mcp';
+  import BuiltinToolPicker from '@/lib/components/BuiltinToolPicker.svelte';
+  import { builtinDisabledBy } from '@/lib/helper/builtin-tools';
+  import { isFeatureEnabled } from '@/lib/store/features.svelte';
   import { workspaceTransport } from '@/lib/api/transport';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listAgents, type Agent } from '@/lib/api/agents';
@@ -758,7 +761,7 @@
 
   async function loadBuiltinTools() {
     try {
-      const res = await listBuiltinTools();
+      const res = await listBuiltinTools(true);
       builtinTools = res.tools ?? [];
     } catch {
       // Built-in tools endpoint may not be available
@@ -1006,15 +1009,6 @@
     refreshTools();
   }
 
-  function toggleBuiltinTool(toolName: string) {
-    if (enabledBuiltinTools.includes(toolName)) {
-      enabledBuiltinTools = enabledBuiltinTools.filter(t => t !== toolName);
-    } else {
-      enabledBuiltinTools = [...enabledBuiltinTools, toolName];
-    }
-    refreshTools();
-  }
-
   function toggleFrontendTool(toolName: string) {
     if (enabledFrontendTools.includes(toolName)) {
       enabledFrontendTools = enabledFrontendTools.filter(t => t !== toolName);
@@ -1104,7 +1098,7 @@
       // 4. Add enabled built-in server tools
       for (const toolName of selections.builtin_tools) {
         const def = builtinTools.find(t => t.name === toolName);
-        if (!def || newSourceMap[def.name]) continue;
+        if (!def || builtinDisabledBy(def, isFeatureEnabled) || newSourceMap[def.name]) continue;
         newTools.push({
           type: 'function',
           function: {
@@ -1847,27 +1841,10 @@
       {/if}
 
       <!-- Server Tools (built-in) -->
-      {#if builtinTools.length > 0}
+      {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0 || inherited.builtin_tools.length > 0}
         <div role="group" aria-label="Server Tools" class="block">
           <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
-          <div class="flex flex-wrap gap-1.5">
-            {#each builtinTools as tool}
-              <button
-                onclick={() => toggleBuiltinTool(tool.name)}
-                aria-pressed={enabledBuiltinTools.includes(tool.name)}
-                aria-label={`${tool.name}${inherited.builtin_tools.includes(tool.name) ? ' · From agent' : ''}${enabledBuiltinTools.includes(tool.name) ? ' · Selected by you' : ''}`}
-                style:border-left-width={inherited.builtin_tools.includes(tool.name) ? '4px' : undefined}
-                style:border-left-color={inherited.builtin_tools.includes(tool.name) ? 'var(--color-purple-400)' : undefined}
-                class="px-2.5 py-1 text-xs border {enabledBuiltinTools.includes(tool.name)
-                  ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                  : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-                title={tool.description}
-              >
-                {tool.name}
-                {#if inherited.builtin_tools.includes(tool.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
-              </button>
-            {/each}
-          </div>
+          <BuiltinToolPicker tools={builtinTools} bind:selected={enabledBuiltinTools} inherited={inherited.builtin_tools} onchange={refreshTools} />
         </div>
       {/if}
 

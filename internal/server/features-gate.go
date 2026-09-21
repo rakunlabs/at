@@ -378,10 +378,44 @@ func featureKeyForRoute(path, method, basePath string) string {
 	}
 }
 
-// builtinToolFeatureKey names the feature that owns a built-in tool, or "" for
-// the ones that are always available (todo bookkeeping, batching, user
-// preferences). Callers check service.FeatureBuiltinTools separately, so this
-// only has to resolve the specific owner.
+// builtinToolFeatureKeys includes both the tool family and its resource owner.
+// Turning Files on must not implicitly enable file tools when Other is off.
+func builtinToolFeatureKeys(name string) []string {
+	keys := []string{service.FeatureBuiltinTools, builtinToolFamily(name)}
+	if owner := builtinToolFeatureKey(name); owner != "" && owner != keys[1] {
+		keys = append(keys, owner)
+	}
+	return keys
+}
+
+func builtinToolFamily(name string) string {
+	switch name {
+	case "bash_execute":
+		return service.FeatureBuiltinShell
+	case "js_execute":
+		return service.FeatureBuiltinScript
+	case "http_request", "url_fetch":
+		return service.FeatureBuiltinHTTP
+	default:
+		return service.FeatureBuiltinOther
+	}
+}
+
+func (s *Server) checkBuiltinToolFeatures(ctx context.Context, name string) error {
+	flags, err := s.featureFlags(ctx)
+	if err != nil {
+		return fmt.Errorf("check built-in tool features: %w", err)
+	}
+	for _, key := range builtinToolFeatureKeys(name) {
+		if !featureEnabledIn(key, flags) {
+			return fmt.Errorf("feature %q is disabled", key)
+		}
+	}
+	return nil
+}
+
+// builtinToolFeatureKey names the resource feature that owns a built-in tool.
+// Family and master-switch dependencies are supplied by builtinToolFeatureKeys.
 func builtinToolFeatureKey(name string) string {
 	switch name {
 	case "bash_execute":
