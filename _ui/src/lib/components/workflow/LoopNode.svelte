@@ -21,7 +21,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-45 max-w-60 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
@@ -38,6 +38,6 @@
       <div class="text-gray-400 text-[11px]">Set JS expression for items</div>
     {/if}
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <Handle id="item" type="output" port="data" position="right" label="item" />
 </div>

@@ -102,4 +102,20 @@ func TestWorkflowHTTPWorkspaceIsolation(t *testing.T) {
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &runs) != nil || len(runs.Runs) != 1 || runs.Runs[0].WorkflowID != ids[f.workspace] {
 		t.Fatalf("run list leaked workspace: %d %s", w.Code, w.Body.String())
 	}
+
+	t.Run("test-run admission before SSE", func(t *testing.T) {
+		body := `{"inputs":{},"test":{"target_node_id":"missing"}}`
+		w := call(http.MethodPost, "/workflows/run-stream/"+ids[f.workspace], f.workspace, body)
+		if w.Code != http.StatusBadRequest || strings.Contains(w.Header().Get("Content-Type"), "event-stream") {
+			t.Fatalf("invalid test run committed SSE: %d %s", w.Code, w.Body.String())
+		}
+		w = call(http.MethodPost, "/workflows/run/"+ids[f.workspace], f.workspace, body)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "run-stream") {
+			t.Fatalf("production endpoint accepted test options: %d %s", w.Code, w.Body.String())
+		}
+		w = call(http.MethodPost, "/workflows/run-stream/"+ids[other.ID], f.workspace, body)
+		if w.Code != http.StatusNotFound && w.Code != http.StatusForbidden {
+			t.Fatalf("test options bypassed workspace admission: %d %s", w.Code, w.Body.String())
+		}
+	})
 }

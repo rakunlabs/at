@@ -62,6 +62,7 @@ type Scheduler struct {
 	runRegistrar          RunRegistrar
 	enabledCheck          func(context.Context) bool
 	executionContext      func(context.Context, string) (context.Context, error)
+	durableLaunch         func(context.Context, string, service.WorkflowGraph, map[string]any, []string, string) error
 
 	cluster *cluster.Cluster
 
@@ -107,6 +108,10 @@ func NewScheduler(st ScheduleStorer, lookup ProviderLookup, skillLookup SkillLoo
 // Must be called before Start.
 func (s *Scheduler) SetRunRegistrar(r RunRegistrar) {
 	s.runRegistrar = r
+}
+
+func (s *Scheduler) SetDurableLauncher(launch func(context.Context, string, service.WorkflowGraph, map[string]any, []string, string) error) {
+	s.durableLaunch = launch
 }
 
 // SetExecutionContext installs a resolver for persisted trigger initiators.
@@ -526,6 +531,17 @@ func (s *Scheduler) makeCronFunc(trigger service.Trigger) func(ctx context.Conte
 					entryNodeIDs = append(entryNodeIDs, n.ID)
 				}
 			}
+		}
+
+		if HasDurableWait(graphToRun, entryNodeIDs) {
+			if s.durableLaunch == nil {
+				logi.Ctx(runCtx).Error("scheduler: durable workflow launcher unavailable", "workflow_id", wf.ID)
+				return nil
+			}
+			if err := s.durableLaunch(runCtx, wf.ID, graphToRun, inputs, entryNodeIDs, "cron"); err != nil {
+				logi.Ctx(runCtx).Error("scheduler: durable workflow launch failed", "workflow_id", wf.ID, "error", err)
+			}
+			return nil
 		}
 
 		logi.Ctx(runCtx).Info("scheduler: workflow started",

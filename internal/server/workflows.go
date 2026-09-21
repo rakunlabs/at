@@ -299,8 +299,9 @@ func (s *Server) DeleteWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 
 // runWorkflowRequest is the JSON body for POST /api/v1/workflows/run/:id.
 type runWorkflowRequest struct {
-	Inputs       map[string]any `json:"inputs"`
-	EntryNodeIDs []string       `json:"entry_node_ids,omitempty"`
+	Inputs       map[string]any           `json:"inputs"`
+	EntryNodeIDs []string                 `json:"entry_node_ids,omitempty"`
+	Test         *workflow.TestRunOptions `json:"test,omitempty"`
 }
 
 // runWorkflowResponse is returned when a workflow is started (async) or completed (sync).
@@ -387,6 +388,24 @@ func (s *Server) RunWorkflowAPI(w http.ResponseWriter, r *http.Request) {
 		req.Inputs = make(map[string]any)
 	}
 
+	if req.Test != nil {
+		httpResponse(w, "test runs are only supported by the run-stream endpoint", http.StatusBadRequest)
+		return
+	}
+	if workflow.HasDurableWait(graphToRun, req.EntryNodeIDs) {
+		entries, err := prepareWorkflowStreamRun(graphToRun, req)
+		if err != nil {
+			httpResponse(w, err.Error(), 400)
+			return
+		}
+		job, err := s.enqueueDurableWorkflow(r.Context(), id, graphToRun, req.Inputs, entries, "api")
+		if err != nil {
+			httpResponse(w, err.Error(), 400)
+			return
+		}
+		httpResponseJSON(w, map[string]any{"run_id": job.ID, "workflow_id": id, "status": "queued", "durable": true}, http.StatusAccepted)
+		return
+	}
 	syncMode := r.URL.Query().Get("sync") == "true"
 
 	// Both sync and async modes run the engine in a goroutine that outlives
@@ -659,12 +678,30 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var req runWorkflowRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8<<20)).Decode(&req); err != nil {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
 	if req.Inputs == nil {
 		req.Inputs = make(map[string]any)
+	}
+
+	entryNodeIDs, err := prepareWorkflowStreamRun(graphToRun, req)
+	if err != nil {
+		httpResponse(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.Test == nil && workflow.HasDurableWait(graphToRun, entryNodeIDs) {
+		job, err := s.enqueueDurableWorkflow(r.Context(), id, graphToRun, req.Inputs, entryNodeIDs, "api")
+		if err != nil {
+			httpResponse(w, err.Error(), 400)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		data, _ := json.Marshal(map[string]any{"event_type": "durable_started", "run_id": job.ID, "execution": durableSummary(job)})
+		fmt.Fprintf(w, "data: %s\n\n", data)
+		return
 	}
 
 	// Set SSE headers before any response body.
@@ -694,7 +731,11 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 		slog.String("request_id", requestID),
 	))
 
-	runID, ctx, cleanup := s.registerRun(parentCtx, id, "stream")
+	runMode := "stream"
+	if req.Test != nil {
+		runMode = "stream-test"
+	}
+	runID, ctx, cleanup := s.registerRun(parentCtx, id, runMode)
 	defer cleanup()
 
 	providerLookup := func(key string) (service.LLMProvider, string, error) {
@@ -796,27 +837,8 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 	eventCh := make(chan workflow.NodeEvent, 64)
 	engine.SetEventChannel(eventCh)
 
-	// Collect entry node IDs.
-	var entryNodeIDs []string
-	allInputNodeIDs := make(map[string]bool)
-	for _, n := range graphToRun.Nodes {
-		if n.Type == "input" {
-			allInputNodeIDs[n.ID] = true
-			entryNodeIDs = append(entryNodeIDs, n.ID)
-		}
-	}
-	if len(req.EntryNodeIDs) > 0 {
-		for _, eid := range req.EntryNodeIDs {
-			if !allInputNodeIDs[eid] {
-				writeSSE(map[string]any{"event_type": "error", "error": fmt.Sprintf("entry_node_id %q is not an input node", eid)})
-				return
-			}
-		}
-		entryNodeIDs = req.EntryNodeIDs
-	}
-
 	// Send initial run_started event.
-	writeSSE(map[string]any{"event_type": "run_started", "run_id": runID, "workflow_id": id})
+	writeSSE(map[string]any{"event_type": "run_started", "run_id": runID, "workflow_id": id, "test_mode": req.Test != nil})
 
 	// Run engine in a goroutine; stream events from the channel.
 	doneCh := make(chan struct{})
@@ -828,7 +850,11 @@ func (s *Server) RunWorkflowStreamAPI(w http.ResponseWriter, r *http.Request) {
 		defer close(eventCh)
 
 		logi.Ctx(ctx).Info("workflow stream started", "id", id, "run_id", runID)
-		runResult, runErr = engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, nil)
+		if req.Test != nil {
+			runResult, runErr = engine.RunTest(ctx, graphToRun, req.Inputs, entryNodeIDs, *req.Test)
+		} else {
+			runResult, runErr = engine.Run(ctx, graphToRun, req.Inputs, entryNodeIDs, nil)
+		}
 		if runErr != nil {
 			logi.Ctx(ctx).Error("workflow stream failed", "id", id, "run_id", runID, "error", runErr)
 		} else {

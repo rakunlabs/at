@@ -457,6 +457,15 @@ func (s *Server) execWorkflowRun(ctx context.Context, args map[string]any) (stri
 		}
 	}
 
+	if workflow.HasDurableWait(graphToRun, entryNodeIDs) {
+		job, err := s.enqueueDurableWorkflow(ctx, id, graphToRun, inputs, entryNodeIDs, "api")
+		if err != nil {
+			return "", fmt.Errorf("queue durable workflow: %w", err)
+		}
+		data, _ := json.Marshal(map[string]any{"run_id": job.ID, "workflow_id": id, "status": "queued", "durable": true})
+		return string(data), nil
+	}
+
 	if syncMode && hasOutputNode {
 		result, err := engine.Run(ctx, graphToRun, inputs, entryNodeIDs, nil)
 		if err != nil {

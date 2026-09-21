@@ -24,5 +24,11 @@
 //   - exec           — sandboxed shell command execution (/bin/sh -c)
 //   - email          — send email via SMTP with NodeConfig-based server settings
 //   - log            — log data at configurable level and pass through unchanged
+//   - edit_fields    — project/set object fields with literals or JSON Pointers
+//   - filter         — keep array items using typed, no-code conditions
+//   - switch         — first/all matching cases with stable output IDs
+//   - merge          — append/zip/key-join two per-invocation inputs
+//   - aggregate      — collect/count/sum/average/min/max over an array
+//   - wait           — durable duration/approval boundary (no sleeping goroutine)
 //   - chat_reply     — sends a message to a chat session from a workflow
 package nodes

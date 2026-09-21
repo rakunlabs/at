@@ -29,7 +29,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-45 max-w-60 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
@@ -61,7 +61,7 @@
       <span class="text-[9px] px-1 py-px rounded bg-gray-100 text-gray-500 border border-gray-200">HTML</span>
     {/if}
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="success" type="output" port="data" label="success" />
     <Handle id="error" type="output" port="data" label="error" />

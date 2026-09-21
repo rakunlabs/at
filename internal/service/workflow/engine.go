@@ -2,12 +2,15 @@ package workflow
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/oklog/ulid/v2"
 
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/logi"
@@ -30,12 +33,26 @@ type EarlyOutput struct {
 // NodeEvent is emitted during workflow execution to provide real-time
 // per-node progress updates. Used by the SSE streaming endpoint.
 type NodeEvent struct {
-	NodeID     string         `json:"node_id"`
-	NodeType   string         `json:"node_type"`
-	EventType  string         `json:"event_type"`     // "started", "completed", "error", "skipped"
-	Data       map[string]any `json:"data,omitempty"` // output data (for completed)
-	DurationMs int64          `json:"duration_ms,omitempty"`
-	Error      string         `json:"error,omitempty"`
+	Attempt               int            `json:"attempt,omitempty"`
+	MaxAttempts           int            `json:"max_attempts,omitempty"`
+	RetryDelayMS          int64          `json:"retry_delay_ms,omitempty"`
+	ErrorPolicy           string         `json:"error_policy,omitempty"`
+	PinSignature          string         `json:"pin_signature,omitempty"`
+	ResultKind            string         `json:"result_kind,omitempty"`
+	Selection             []string       `json:"selection,omitempty"`
+	Pinned                bool           `json:"pinned,omitempty"`
+	ExecutionID           string         `json:"execution_id,omitempty"`    // unique per invocation, including fan-out items
+	Inputs                map[string]any `json:"inputs,omitempty"`          // gathered input before mapping
+	ResolvedInputs        map[string]any `json:"resolved_inputs,omitempty"` // input after mapping, if configured
+	InputsOmitted         bool           `json:"inputs_omitted,omitempty"`
+	ResolvedInputsOmitted bool           `json:"resolved_inputs_omitted,omitempty"`
+	DataOmitted           bool           `json:"data_omitted,omitempty"`
+	NodeID                string         `json:"node_id"`
+	NodeType              string         `json:"node_type"`
+	EventType             string         `json:"event_type"`     // "started", "completed", "error", "skipped"
+	Data                  map[string]any `json:"data,omitempty"` // output data (for completed)
+	DurationMs            int64          `json:"duration_ms,omitempty"`
+	Error                 string         `json:"error,omitempty"`
 }
 
 // Engine executes a workflow graph using a two-phase approach:
@@ -49,7 +66,10 @@ type NodeEvent struct {
 // from those entry points is executed. Annotation nodes (group, sticky_note)
 // and unrelated trigger branches are silently excluded.
 type Engine struct {
-	dependencies *Dependencies
+	dependencies  *Dependencies
+	testPins      map[string]PinnedNode
+	pinSignatures map[string]string
+	resumeNodes   map[string]service.WorkflowNodeCheckpoint
 
 	// eventCh receives real-time node execution events when set.
 	// The channel is optional; when nil, no events are emitted.
@@ -215,6 +235,9 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 		if !ok {
 			return nil, fmt.Errorf("node %q: referenced by edge but not found in graph", id)
 		}
+		if _, err := ParseNodeExecutionPolicy(n.Data); err != nil {
+			return nil, fmt.Errorf("%s: %w", rawNodeRef(n), err)
+		}
 
 		factory := GetNodeFactory(n.Type)
 		if factory == nil {
@@ -264,6 +287,10 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 		})
 	}
 
+	if err := validateDataNodeInputs(states); err != nil {
+		return nil, err
+	}
+
 	// Validate port type compatibility on all edges.
 	// Build a port-meta lookup from nodes that implement NodeMetaProvider.
 	type portKey struct {
@@ -272,6 +299,10 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 	}
 	portTypes := make(map[portKey]PortMeta)
 	for id, st := range states {
+		policy, _ := ParseNodeExecutionPolicy(st.node.Data)
+		if policy.OnError == "error_output" {
+			portTypes[portKey{id, NodeFailurePort}] = PortMeta{Name: NodeFailurePort, Type: PortTypeData}
+		}
 		mp, ok := st.noder.(NodeMetaProvider)
 		if !ok {
 			continue
@@ -307,6 +338,12 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 
 		srcMeta, srcHasMeta := portTypes[portKey{edge.Source, srcPort}]
 		tgtMeta, tgtHasMeta := portTypes[portKey{edge.Target, tgtPort}]
+		if srcState.node.Type == "switch" && !srcHasMeta {
+			return nil, fmt.Errorf("%s: output %q does not exist; update connections to removed Switch cases", nodeRef(srcState), srcPort)
+		}
+		if srcPort == NodeFailurePort && !srcHasMeta {
+			return nil, fmt.Errorf("%s: enable execution.on_error=error_output before connecting the failure output", nodeRef(srcState))
+		}
 
 		// Only validate when both ends have declared metadata.
 		if srcHasMeta && tgtHasMeta {
@@ -322,6 +359,23 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 
 	// Validate all nodes.
 	for _, st := range states {
+		if _, done := e.resumeNodes[st.node.ID]; done {
+			continue
+		}
+		if pin, ok := e.testPins[st.node.ID]; ok {
+			if meta, ok := st.noder.(NodeMetaProvider); ok && pin.ResultKind == "selection" {
+				ports := make(map[string]bool)
+				for _, port := range meta.Meta().Outputs {
+					ports[port.Name] = true
+				}
+				for _, port := range pin.Selection {
+					if !ports[port] {
+						return nil, fmt.Errorf("%s: pin selects unknown output %q", nodeRef(st), port)
+					}
+				}
+			}
+			continue // no provider/credential lookup for a mocked node
+		}
 		if err := st.noder.Validate(ctx, reg); err != nil {
 			return nil, fmt.Errorf("%s: validation failed: %w", nodeRef(st), err)
 		}
@@ -346,6 +400,18 @@ func (e *Engine) parseGraph(ctx context.Context, graph service.WorkflowGraph, re
 // to respond immediately while the rest of the graph continues in the
 // background. Pass nil if early output notification is not needed.
 func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entryNodeIDs []string, outputCh chan<- EarlyOutput) (*RunResult, error) {
+	engine := *e
+	engine.testPins = nil // production Run never inherits test fixtures
+	engine.pinSignatures = make(map[string]string)
+	if engine.eventCh != nil {
+		for _, node := range graph.Nodes {
+			engine.pinSignatures[node.ID] = NodePinSignature(graph, inputs, entryNodeIDs, node.ID)
+		}
+	}
+	return engine.run(ctx, graph, inputs, entryNodeIDs, outputCh)
+}
+
+func (e *Engine) run(ctx context.Context, graph service.WorkflowGraph, inputs map[string]any, entryNodeIDs []string, outputCh chan<- EarlyOutput) (*RunResult, error) {
 	// Ensure outputCh is always signaled exactly once so callers never block.
 	var outputOnce sync.Once
 	signalOutput := func(outputs map[string]any, err error) {
@@ -377,6 +443,11 @@ func (e *Engine) Run(ctx context.Context, graph service.WorkflowGraph, inputs ma
 
 	// Compute the set of nodes reachable from the entry nodes via edges.
 	reachable := reachableNodes(entryNodeIDs, graph.Nodes, graph.Edges)
+	if HasDurableWait(graph, entryNodeIDs) {
+		err := fmt.Errorf("Wait requires a durable workflow launch; partial tests and nested calls cannot cross a Wait node")
+		signalOutput(nil, err)
+		return nil, err
+	}
 	if len(reachable) == 0 {
 		signalOutput(map[string]any{}, nil)
 		return &RunResult{Outputs: map[string]any{}}, nil
@@ -479,49 +550,109 @@ type outputSignal func(map[string]any, error)
 
 // executeNode is the single execution path for main and fan-out nodes.
 func (e *Engine) executeNode(ctx context.Context, st *nodeState, reg *Registry, inputs map[string]any, signalOutput outputSignal) (NodeResult, bool, error) {
+	policy, err := ParseNodeExecutionPolicy(st.node.Data)
+	if err != nil {
+		return nil, false, fmt.Errorf("%s: %w", nodeRef(st), err)
+	}
 	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "node", Name: st.noder.Type()}); err != nil {
 		return nil, false, err
 	}
-	e.emitEvent(NodeEvent{
-		NodeID:    st.node.ID,
-		NodeType:  st.noder.Type(),
-		EventType: "started",
-	})
+	executionID := ulid.Make().String()
+	if pin, ok := e.testPins[st.node.ID]; ok {
+		encoded, _ := json.Marshal(pin.Data) // bounded and validated by RunTest
+		var data map[string]any
+		_ = json.Unmarshal(encoded, &data)
+		preview, _ := snapshotNodeData(data)
+		e.emitEvent(NodeEvent{ExecutionID: executionID, NodeID: st.node.ID, NodeType: st.noder.Type(), EventType: "started", Pinned: true})
+		e.emitEvent(NodeEvent{ExecutionID: executionID, NodeID: st.node.ID, NodeType: st.noder.Type(), EventType: "completed", Pinned: true, Data: preview, PinSignature: pin.Signature, ResultKind: pin.ResultKind, Selection: pin.Selection})
+		if pin.ResultKind == "selection" {
+			return NewSelectionResult(data, pin.Selection), false, nil
+		}
+		return NewResult(data), false, nil
+	}
+	startedEvent := NodeEvent{
+		MaxAttempts: policy.MaxAttempts,
+		ExecutionID: executionID,
+		NodeID:      st.node.ID,
+		NodeType:    st.noder.Type(),
+		EventType:   "started",
+	}
+	if e.eventCh != nil {
+		startedEvent.Inputs, startedEvent.InputsOmitted = snapshotNodeData(inputs)
+	}
+	mappedInputs, mappingErr := mapNodeInputs(st.noder, st.node.Data, inputs)
+	if e.eventCh != nil && mappingErr == nil && st.node.Data["input_mappings"] != nil {
+		startedEvent.ResolvedInputs, startedEvent.ResolvedInputsOmitted = snapshotNodeData(mappedInputs)
+	}
+	e.emitEvent(startedEvent)
+	if mappingErr != nil {
+		e.emitEvent(NodeEvent{ExecutionID: executionID, NodeID: st.node.ID, NodeType: st.noder.Type(), EventType: "error", Error: mappingErr.Error()})
+		return nil, false, fmt.Errorf("%s: %w", nodeRef(st), mappingErr)
+	}
 	logi.Ctx(ctx).Debug("node started", nodeLogAttrs(st)...)
 
 	startTime := time.Now()
-	result, err := st.noder.Run(ctx, reg, inputs)
+	result, attempts, err := e.executeAttempts(ctx, st, reg, mappedInputs, executionID, policy)
 	durationMs := time.Since(startTime).Milliseconds()
 	if err != nil {
 		if errors.Is(err, ErrStopBranch) {
 			e.emitEvent(NodeEvent{
-				NodeID:     st.node.ID,
-				NodeType:   st.noder.Type(),
-				EventType:  "skipped",
-				DurationMs: durationMs,
+				ExecutionID: executionID,
+				NodeID:      st.node.ID,
+				NodeType:    st.noder.Type(),
+				EventType:   "skipped",
+				DurationMs:  durationMs,
 			})
+			return nil, true, nil
+		}
+		if policy.OnError != "stop" && ctx.Err() == nil && !errors.Is(err, context.Canceled) && !errors.Is(err, service.ErrAccessDenied) && !errors.Is(err, service.ErrExecutionDenied) {
+			data := nodeFailureData(st, mappedInputs, attempts, err)
+			preview, omitted := snapshotNodeData(data)
+			e.emitEvent(NodeEvent{ExecutionID: executionID, NodeID: st.node.ID, NodeType: st.noder.Type(), EventType: "error_handled", Error: err.Error(), ErrorPolicy: policy.OnError, Attempt: attempts, MaxAttempts: policy.MaxAttempts, DurationMs: durationMs, Data: preview, DataOmitted: omitted})
+			if policy.OnError == "error_output" {
+				return NewSelectionResult(data, []string{NodeFailurePort}), false, nil
+			}
+			// Continue means skip this failed branch; independent branches still
+			// run. Never fabricate valid data or activate both conditional routes.
 			return nil, true, nil
 		}
 
 		e.emitEvent(NodeEvent{
-			NodeID:     st.node.ID,
-			NodeType:   st.noder.Type(),
-			EventType:  "error",
-			Error:      err.Error(),
-			DurationMs: durationMs,
+			ExecutionID: executionID,
+			NodeID:      st.node.ID,
+			NodeType:    st.noder.Type(),
+			EventType:   "error",
+			Attempt:     attempts,
+			MaxAttempts: policy.MaxAttempts,
+			Error:       err.Error(),
+			DurationMs:  durationMs,
 		})
 		return nil, false, fmt.Errorf("%s: %w", nodeRef(st), err)
 	}
 	logi.Ctx(ctx).Debug("node completed", nodeLogAttrs(st)...)
 
 	completedEvent := NodeEvent{
-		NodeID:     st.node.ID,
-		NodeType:   st.noder.Type(),
-		EventType:  "completed",
-		DurationMs: durationMs,
+		Attempt:     attempts,
+		MaxAttempts: policy.MaxAttempts,
+		ExecutionID: executionID,
+		NodeID:      st.node.ID,
+		NodeType:    st.noder.Type(),
+		EventType:   "completed",
+		DurationMs:  durationMs,
 	}
-	if result != nil {
-		completedEvent.Data = truncateOutputData(result.Data())
+	if result != nil && e.eventCh != nil {
+		completedEvent.Data, completedEvent.DataOmitted = snapshotNodeData(result.Data())
+		completedEvent.ResultKind = "result"
+		if selection, ok := result.(NodeResultSelection); ok {
+			completedEvent.ResultKind = "selection"
+			completedEvent.Selection = append([]string(nil), selection.Selection()...)
+		}
+		if _, ok := result.(NodeResultFanOut); ok {
+			completedEvent.ResultKind = "fan_out"
+		}
+		if !completedEvent.DataOmitted && completedEvent.Data != nil && completedEvent.ResultKind != "fan_out" {
+			completedEvent.PinSignature = e.pinSignatures[st.node.ID]
+		}
 	}
 	e.emitEvent(completedEvent)
 
@@ -560,6 +691,11 @@ func (e *Engine) gatherInputs(nodeID string, states map[string]*nodeState, nodeO
 			}
 
 			upstreamData := upstream.Data()
+			if conn.port == NodeFailurePort {
+				if _, ok := upstream.(NodeResultSelection); !ok {
+					continue
+				}
+			}
 
 			// Check if the upstream result has selection routing.
 			if sel, ok := upstream.(NodeResultSelection); ok {
@@ -832,38 +968,6 @@ func reachableNodes(entryNodeIDs []string, nodes []service.WorkflowNode, edges [
 	}
 
 	return reachable
-}
-
-// truncateOutputData creates a shallow copy of node output data suitable
-// for SSE streaming. Large string values are truncated and large slices
-// are capped to keep event payloads reasonable.
-func truncateOutputData(data map[string]any) map[string]any {
-	if data == nil {
-		return nil
-	}
-	const maxStringLen = 500
-	const maxSliceLen = 5
-
-	out := make(map[string]any, len(data))
-	for k, v := range data {
-		switch val := v.(type) {
-		case string:
-			if len(val) > maxStringLen {
-				out[k] = val[:maxStringLen] + "..."
-			} else {
-				out[k] = val
-			}
-		case []any:
-			if len(val) > maxSliceLen {
-				out[k] = val[:maxSliceLen]
-			} else {
-				out[k] = val
-			}
-		default:
-			out[k] = v
-		}
-	}
-	return out
 }
 
 // topoSort performs a topological sort using Kahn's algorithm.

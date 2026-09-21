@@ -1,6 +1,9 @@
 import axios from 'axios';
 import { authFetch as fetch } from './transport';
 import type { ListResult, ListParams } from './types';
+import type { WorkflowTestRunOptions } from '@/lib/workflow/test-runs';
+import type { WorkflowStreamEvent } from '@/lib/workflow/run-events';
+export type { WorkflowStreamEvent } from '@/lib/workflow/run-events';
 
 const api = axios.create({
   baseURL: 'api/v1',
@@ -159,6 +162,36 @@ export async function setActiveVersion(workflowId: string, version: number): Pro
   await api.put(`/workflows/${workflowId}/active-version`, { version });
 }
 
+export interface WorkflowExecutionRecord {
+  id: string;
+  workflow_id: string;
+  owner_user_id: string;
+  status: 'queued' | 'running' | 'waiting' | 'completed' | 'blocked' | 'cancelled' | 'expired';
+  revision: number;
+  can_decide?: boolean;
+  wait_node_id: string;
+  wait_mode: string;
+  wait_prompt: string;
+  wake_at?: string | null;
+  expires_at?: string | null;
+  error: string;
+  created_at: string;
+  updated_at: string;
+  in_flight?: string;
+  waiting_data?: Record<string, unknown>;
+  outputs?: Record<string, unknown>;
+}
+
+export async function listWorkflowExecutions(workflowId: string): Promise<WorkflowExecutionRecord[]> {
+  return (await api.get<{ data: WorkflowExecutionRecord[] }>(`/workflows/${workflowId}/executions`)).data.data;
+}
+export async function getWorkflowExecution(workflowId: string, id: string): Promise<WorkflowExecutionRecord> {
+  return (await api.get<WorkflowExecutionRecord>(`/workflows/${workflowId}/executions/${id}`)).data;
+}
+export async function decideWorkflowExecution(workflowId: string, id: string, revision: number, action: 'approve' | 'reject' | 'cancel'): Promise<void> {
+  await api.post(`/workflows/${workflowId}/executions/${id}/${action}`, { revision });
+}
+
 // ─── Node Type Metadata API ───
 
 /** Fetch the complete catalog of registered node types with port schemas. */
@@ -168,19 +201,6 @@ export async function getNodeTypes(): Promise<NodeTypeMeta[]> {
 }
 
 // ─── Streaming Run API ───
-
-export interface WorkflowStreamEvent {
-  event_type: string;
-  node_id?: string;
-  node_type?: string;
-  data?: Record<string, any>;
-  duration_ms?: number;
-  error?: string;
-  run_id?: string;
-  workflow_id?: string;
-  outputs?: Record<string, any>;
-  status?: string;
-}
 
 /**
  * Run a workflow with SSE streaming of per-node events.
@@ -200,6 +220,7 @@ export function runWorkflowStream(
   onDone?: () => void,
   version?: number,
   entryNodeIds?: string[],
+  test?: WorkflowTestRunOptions,
 ): AbortController {
   const controller = new AbortController();
 
@@ -209,6 +230,7 @@ export function runWorkflowStream(
   const url = `api/v1/workflows/run-stream/${id}${qs ? '?' + qs : ''}`;
 
   const body: Record<string, any> = { inputs };
+  if (test) body.test = test;
   if (entryNodeIds && entryNodeIds.length > 0) {
     body.entry_node_ids = entryNodeIds;
   }
@@ -222,7 +244,9 @@ export function runWorkflowStream(
     .then(async (response) => {
       if (!response.ok) {
         const text = await response.text();
-        onEvent({ event_type: 'error', error: text || `HTTP ${response.status}` });
+        let message = text;
+        try { const body = JSON.parse(text); message = body.message || body.error?.message || text; } catch { /* Plain-text errors are also supported. */ }
+        onEvent({ event_type: 'error', error: message || `HTTP ${response.status}` });
         onDone?.();
         return;
       }

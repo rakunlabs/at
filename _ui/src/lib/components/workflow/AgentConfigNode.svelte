@@ -15,7 +15,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-36 max-w-52 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
@@ -34,7 +34,7 @@
       <div class="text-gray-400 text-[11px] italic">No agent selected</div>
     {/if}
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="top" class="!gap-1">
     <Handle id="agent" type="output" port="config" label="agent" />
   </HandleGroup>

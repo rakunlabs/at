@@ -1,0 +1,55 @@
+/* Workflow cards use one readable scale; notes and groups keep their own sizing.
+ * Handle layout remains owned by Kaykay so measured connection positions follow
+ * the card dimensions at every zoom level. */
+@reference "./global.css";
+
+.workflow-node-card {
+  @apply w-64 min-h-24 select-none border border-gray-300 bg-white text-sm shadow-sm dark:border-dark-border-subtle dark:bg-dark-surface;
+}
+
+.workflow-node-card > .border-b {
+  @apply min-h-12 gap-2 border-gray-200 bg-gray-50 px-3 py-3 dark:border-dark-border dark:bg-dark-elevated;
+}
+
+.workflow-node-card > .border-b > span:first-child {
+  @apply inline-flex min-h-7 min-w-8 items-center justify-center rounded-none px-1.5 text-xs;
+}
+
+.workflow-node-card > .border-b > span:nth-child(2) {
+  @apply min-w-0 break-words text-sm font-semibold;
+}
+
+.workflow-node-card > .px-2\.5 {
+  @apply px-3 py-3;
+}
+
+.workflow-node-card :is(.text-\[9px\], .text-\[10px\], .text-\[11px\]) {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+
+.workflow-node-card :is(.text-gray-300, .text-gray-400, .text-gray-500) {
+  @apply text-gray-600 dark:text-dark-text-secondary;
+}
+
+.workflow-node-card :is(.text-gray-600, .text-gray-700, .text-gray-900) {
+  @apply dark:text-dark-text;
+}
+
+.workflow-node-card .font-mono {
+  overflow-wrap: anywhere;
+}
+
+.workflow-workbench .kaykay-node.status-running {
+  animation: none;
+}
+
+.workflow-workbench button:focus-visible {
+  outline: 2px solid var(--color-blue-500);
+  outline-offset: 2px;
+}
+
+.workflow-workbench .kaykay-node:focus-visible {
+  outline: 2px solid var(--color-blue-500);
+  outline-offset: 4px;
+}

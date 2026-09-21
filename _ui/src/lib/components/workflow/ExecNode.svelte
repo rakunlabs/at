@@ -27,7 +27,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-45 max-w-60 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
@@ -58,7 +58,7 @@
       <div class="text-[9px] text-gray-400 mt-0.5">timeout: {data.timeout}s</div>
     {/if}
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="true" type="output" port="data" label="ok" />
     <Handle id="false" type="output" port="data" label="fail" />

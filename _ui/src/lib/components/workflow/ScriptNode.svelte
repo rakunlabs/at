@@ -24,7 +24,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-45 max-w-60 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
@@ -55,7 +55,7 @@
       <code class="font-mono bg-gray-50 px-0.5 rounded">return</code> → true, <code class="font-mono bg-gray-50 px-0.5 rounded">throw</code> → false
     </div>
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="true" type="output" port="data" label="true" />
     <Handle id="false" type="output" port="data" label="false" />

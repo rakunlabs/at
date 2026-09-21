@@ -15,6 +15,7 @@
   import { listNodeConfigs } from '@/lib/api/node-configs';
   import { getNodeTypes, type NodeTypeMeta, type PortMeta, type FieldMeta } from '@/lib/api/workflows';
   import { createDefaultWorkflowNodeData, getWorkflowNodeDimensions, isWorkflowNodeType, workflowNodeDefinitions, workflowNodeTypes } from '@/lib/workflow/node-definitions';
+  import { canvasInputHandle } from '@/lib/workflow/ports';
   import { Send, Square, X, ChevronDown, Bot } from 'lucide-svelte';
   import Markdown from '@/lib/components/Markdown.svelte';
 
@@ -449,7 +450,7 @@ ${nodeConfigsInfo.length > 0 ? nodeConfigsInfo.map(c => `- id="${c.id}" name="${
             source,
             source_handle,
             target,
-            target_handle,
+            target_handle: canvasInputHandle(flow.getNode(target)?.type ?? '', target_handle),
           });
           if (!added) {
             return JSON.stringify({ error: `Failed to add edge. Verify that source node "${source}" has output handle "${source_handle}" and target node "${target}" has input handle "${target_handle}". Check handle IDs match exactly.` });

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -87,6 +88,7 @@ type httpRequestNode struct {
 	proxy              string
 	insecureSkipVerify bool
 	retry              bool
+	commonRetry        bool
 }
 
 func init() {
@@ -118,6 +120,14 @@ func newHTTPRequestNode(node service.WorkflowNode) (workflow.Noder, error) {
 	proxy, _ := node.Data["proxy"].(string)
 	insecure, _ := node.Data["insecure_skip_verify"].(bool)
 	retry, _ := node.Data["retry"].(bool)
+	policy, err := workflow.ParseNodeExecutionPolicy(node.Data)
+	if err != nil {
+		return nil, err
+	}
+	commonRetry := policy.MaxAttempts > 1
+	if commonRetry {
+		retry = false
+	} // one retry owner, never multiply attempts
 
 	return &httpRequestNode{
 		urlTmpl:            urlStr,
@@ -128,6 +138,7 @@ func newHTTPRequestNode(node service.WorkflowNode) (workflow.Noder, error) {
 		proxy:              proxy,
 		insecureSkipVerify: insecure,
 		retry:              retry,
+		commonRetry:        commonRetry,
 	}, nil
 }
 
@@ -218,6 +229,12 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 	if err != nil {
 		return nil, fmt.Errorf("http_request: read response: %w", err)
 	}
+	if n.commonRetry && workflow.RetryableHTTPStatus(resp.StatusCode) {
+		return nil, &httpExecutionError{
+			cause: &service.UpstreamError{Provider: "http_request", StatusCode: resp.StatusCode, Message: http.StatusText(resp.StatusCode)},
+			delay: httpNodeRetryAfter(resp.Header.Get("Retry-After")),
+		}
+	}
 
 	// Try to parse as JSON; fall back to string.
 	var parsed any
@@ -247,6 +264,28 @@ func (n *httpRequestNode) Run(ctx context.Context, reg *workflow.Registry, input
 	}
 
 	return workflow.NewSelectionResult(outData, selection), nil
+}
+
+type httpExecutionError struct {
+	cause *service.UpstreamError
+	delay time.Duration
+}
+
+func (e *httpExecutionError) Error() string             { return e.cause.Error() }
+func (e *httpExecutionError) Unwrap() error             { return e.cause }
+func (e *httpExecutionError) RetryDelay() time.Duration { return e.delay }
+
+func httpNodeRetryAfter(header string) time.Duration {
+	if seconds, err := strconv.ParseInt(strings.TrimSpace(header), 10, 64); err == nil && seconds >= 0 {
+		if seconds > 300 {
+			return 6 * time.Minute
+		} // decline retry; do not overflow
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(header); err == nil && at.After(time.Now()) {
+		return time.Until(at)
+	}
+	return 0
 }
 
 // buildClient creates an ok.Client with the node's proxy / TLS / retry settings.

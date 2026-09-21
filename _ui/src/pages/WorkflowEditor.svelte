@@ -1,16 +1,31 @@
 <script lang="ts">
+  import { tick, untrack, onDestroy } from 'svelte';
   import { push } from 'svelte-spa-router';
   import { storeNavbar, storeTheme } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listWorkflows, getWorkflow, updateWorkflow, runWorkflow, runWorkflowStream, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
+  import { listWorkflows, getWorkflow, updateWorkflow, runWorkflowStream, listWorkflowVersions, getWorkflowVersion, setActiveVersion, type Workflow, type WorkflowVersion, type WorkflowNode, type WorkflowEdge } from '@/lib/api/workflows';
   import { workflowRun, clearRunState, handleStreamEvent, getNodeStatuses } from '@/lib/store/workflow-run.svelte';
-  import { cloneWorkflowNodeData, createDefaultWorkflowNodeData, getWorkflowNodeDimensions, validateWorkflowNodeDefinitions, workflowPaletteGroups, type WorkflowNodeType } from '@/lib/workflow/node-definitions';
+  import { cloneWorkflowNodeData, createDefaultWorkflowNodeData, getWorkflowNodeDimensions, getWorkflowNodeDefinition, isWorkflowNodeType, validateWorkflowNodeDefinitions, type WorkflowNodeType } from '@/lib/workflow/node-definitions';
   import { listProviders, type ProviderRecord } from '@/lib/api/providers';
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listNodeConfigs, type NodeConfig } from '@/lib/api/node-configs';
-  import { Canvas, Controls, Minimap, GroupNode, getFlow, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
-  import { ArrowLeft, Save, Play, Plus, X, Bot, ChevronRight, History, Check, Clock } from 'lucide-svelte';
+  import { Canvas, Controls, Minimap, GroupNode, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
+  import { ArrowLeft, Save, Play, Plus, X, Bot, History, Check, Clock, Undo2, Redo2, Maximize } from 'lucide-svelte';
   import ChatPanel from '@/lib/components/workflow/ChatPanel.svelte';
+  import NodePalette from '@/lib/components/workflow/NodePalette.svelte';
+  import NodeDataView from '@/lib/components/workflow/NodeDataView.svelte';
+  import InputMapper from '@/lib/components/workflow/InputMapper.svelte';
+  import NodeExecutionSettings from '@/lib/components/workflow/NodeExecutionSettings.svelte';
+  import DataOperationNode from '@/lib/components/workflow/DataOperationNode.svelte';
+  import DataOperationProps from '@/lib/components/workflow/DataOperationProps.svelte';
+  import WaitNode from '@/lib/components/workflow/WaitNode.svelte';
+  import WaitProps from '@/lib/components/workflow/WaitProps.svelte';
+  import SavedWorkflowRuns from '@/lib/components/workflow/SavedWorkflowRuns.svelte';
+  import { switchOutputPorts } from '@/lib/workflow/data-operations';
+  import { canvasInputHandle, storedInputHandle } from '@/lib/workflow/ports';
+  import { findNodePlacement } from '@/lib/workflow/node-placement';
+  import { buildTestRunOptions, pinNodeOutput, pinUnavailableReason, type PinnedNode } from '@/lib/workflow/test-runs';
+  import '@/style/workflow.css';
 
   import InputNode from '@/lib/components/workflow/InputNode.svelte';
   import OutputNode from '@/lib/components/workflow/OutputNode.svelte';
@@ -66,6 +81,12 @@
 
   // ─── Props Component Map ───
   const propsComponents: Record<string, any> = {
+    wait: WaitProps,
+    edit_fields: DataOperationProps,
+    filter: DataOperationProps,
+    switch: DataOperationProps,
+    merge: DataOperationProps,
+    aggregate: DataOperationProps,
     input: InputProps,
     output: OutputProps,
     llm_call: LLMCallProps,
@@ -100,6 +121,12 @@
 
   // ─── Node Types ───
   const nodeTypes: NodeTypes = {
+    wait: WaitNode,
+    edit_fields: DataOperationNode,
+    filter: DataOperationNode,
+    switch: DataOperationNode,
+    merge: DataOperationNode,
+    aggregate: DataOperationNode,
     input: InputNode,
     output: OutputNode,
     llm_call: LLMCallNode,
@@ -147,13 +174,18 @@
   let selectedNodeData = $state<Record<string, any>>({});
   let selectedNodeType = $state<string>('');
   let selectedNodeOriginalData = $state<Record<string, any>>({});
+  let inspectorTab = $state<'parameters' | 'input' | 'output' | 'settings'>('parameters');
 
   // Run inputs
   let showRunPanel = $state(false);
+  let showSavedRuns = $state(false);
+  let savedRunsRefresh = $state(0);
   let showChatPanel = $state(false);
   let runInputsJson = $state('');
   let runInputMode = $state<'text' | 'json'>('text');
-  let runSync = $state(true);
+  let runTargetNodeId = $state<string | null>(null);
+  let pinnedNodes = $state<Record<string, PinnedNode>>({});
+  let usePinnedData = $state(true);
   let runEntryNodeId = $state<string>(''); // '' means all input nodes
   let runFormValues = $state<Record<string, any>>({});
   let runUseForm = $state(false);
@@ -203,11 +235,29 @@
   let settingActive = $state(false);
 
   // Canvas ref
-  let canvasRef: { getFlow: () => FlowState } | undefined = $state();
+  let canvasRef: { getFlow: () => FlowState; clientToCanvas: (x: number, y: number) => { x: number; y: number } | null; getContainer: () => HTMLDivElement | null } | undefined = $state();
+  let showPalette = $state(false);
+  let pendingConnection = $state<{ nodeId: string; handleId: string } | null>(null);
+  let flow = $derived(canvasRef?.getFlow());
+  let outputHandles = $derived(selectedNodeId && flow ? Object.entries(flow.handle_registry)
+    .filter(([key, handle]) => key === `${selectedNodeId}:${handle.id}` && handle.type === 'output')
+    .map(([, handle]) => handle) : []);
+  let inputHandles = $derived(selectedNodeId && flow ? Object.entries(flow.handle_registry)
+    .filter(([key, handle]) => key === `${selectedNodeId}:${handle.id}` && handle.type === 'input')
+    .map(([, handle]) => ({ ...handle, id: storedInputHandle(selectedNodeType, handle.id) })) : []);
+
+  $effect(() => {
+    const currentFlow = flow;
+    const locked = viewingVersion != null;
+    if (currentFlow) untrack(() => currentFlow.setLocked(locked));
+  });
 
   // Stream run state
   let streamAbort: AbortController | null = $state(null);
+  let runGeneration = 0;
   let nodeStatuses = $derived(getNodeStatuses());
+  clearRunState();
+  onDestroy(() => { runGeneration++; streamAbort?.abort(); });
 
   // ─── Helpers ───
 
@@ -224,13 +274,13 @@
     }));
   }
 
-  function toFlowEdges(edges: WorkflowEdge[]): FlowEdge[] {
+  function toFlowEdges(edges: WorkflowEdge[], nodes = workflow?.graph.nodes ?? []): FlowEdge[] {
     return edges.map((e) => ({
       id: e.id,
       source: e.source,
       target: e.target,
       source_handle: e.source_handle,
-      target_handle: e.target_handle,
+      target_handle: canvasInputHandle(nodes.find(node => node.id === e.target)?.type ?? '', e.target_handle),
     }));
   }
 
@@ -255,7 +305,7 @@
       source: e.source,
       target: e.target,
       source_handle: e.source_handle,
-      target_handle: e.target_handle,
+      target_handle: storedInputHandle(flow.getNode(e.target)?.type ?? '', e.target_handle),
     }));
     return { nodes, edges };
   }
@@ -349,11 +399,16 @@
     try {
       const v = await getWorkflowVersion(workflow.id, version);
       const flow = canvasRef.getFlow();
-      // Clear existing nodes and edges, then load the version's graph
-      for (const edge of flow.edges) flow.removeEdge(edge.id);
-      for (const node of flow.nodes) flow.removeNode(node.id);
-      for (const node of toFlowNodes(v.graph.nodes)) flow.addNode(node);
-      for (const edge of toFlowEdges(v.graph.edges)) flow.addEdge(edge);
+      // Load atomically: addEdge requires mounted handles and can otherwise
+      // silently drop edges while switching graphs.
+      flow.fromJSON({ nodes: toFlowNodes(v.graph.nodes), edges: toFlowEdges(v.graph.edges, v.graph.nodes) });
+      closePropertyEditor();
+      showPalette = false;
+      showChatPanel = false;
+      pendingConnection = null;
+      clearRunState();
+      pinnedNodes = {};
+      runTargetNodeId = null;
       viewingVersion = version;
       addToast(`Loaded version ${version}`, 'info');
     } catch (e: any) {
@@ -364,11 +419,12 @@
   function loadCurrentToCanvas() {
     if (!workflow || !canvasRef) return;
     const flow = canvasRef.getFlow();
-    for (const edge of flow.edges) flow.removeEdge(edge.id);
-    for (const node of flow.nodes) flow.removeNode(node.id);
-    for (const node of toFlowNodes(workflow.graph.nodes)) flow.addNode(node);
-    for (const edge of toFlowEdges(workflow.graph.edges)) flow.addEdge(edge);
+    flow.fromJSON({ nodes: toFlowNodes(workflow.graph.nodes), edges: toFlowEdges(workflow.graph.edges) });
+    closePropertyEditor();
     viewingVersion = null;
+    clearRunState();
+    pinnedNodes = {};
+    runTargetNodeId = null;
     addToast('Loaded latest version', 'info');
   }
 
@@ -390,9 +446,10 @@
   // ─── Save ───
 
   async function handleSave() {
-    if (!workflow || !canvasRef) return;
+    if (!workflow || !canvasRef || viewingVersion != null || saving) return;
     saving = true;
     try {
+      if (hasNodeEdits() && !applyNodeData()) return;
       const flow = canvasRef.getFlow();
       const graph = flowToGraph(flow);
       workflow = await updateWorkflow(workflow.id, {
@@ -414,15 +471,19 @@
   // ─── Run ───
 
   async function handleRun() {
-    if (!workflow) return;
+    if (!workflow || running) return;
+    const generation = ++runGeneration;
     running = true;
     runResult = null;
     runError = null;
     clearRunState();
 
     try {
+      const target = runTargetNodeId;
+      const test = buildTestRunOptions(target, pinnedNodes, usePinnedData);
       // Save first
-      if (canvasRef) {
+      if (canvasRef && viewingVersion == null) {
+        if (hasNodeEdits() && !applyNodeData()) throw new Error('Node changes could not be applied. Check the failure output connections.');
         const flow = canvasRef.getFlow();
         const graph = flowToGraph(flow);
         workflow = await updateWorkflow(workflow.id, {
@@ -431,6 +492,7 @@
           graph,
         });
       }
+      if (generation !== runGeneration) return;
       const inputs = runUseForm
         ? { ...runFormValues }
         : runInputMode === 'json'
@@ -446,6 +508,14 @@
         workflow.id,
         inputs,
         (event) => {
+          if (generation !== runGeneration) return;
+          if (event.event_type === 'durable_started') {
+            showSavedRuns = true;
+            showRunPanel = false;
+            savedRunsRefresh++;
+            addToast('Workflow queued. Follow its progress in Saved runs.', 'info');
+            return;
+          }
           handleStreamEvent(event);
           // Also update the local runResult/runError for the panel display.
           if (event.event_type === 'done') {
@@ -455,13 +525,16 @@
           }
         },
         () => {
+          if (generation !== runGeneration) return;
           running = false;
           streamAbort = null;
         },
-        runVersion,
+        runVersion ?? viewingVersion ?? undefined,
         entryNodeIds,
+        test,
       );
     } catch (e: any) {
+      if (generation !== runGeneration) return;
       if (e instanceof SyntaxError) {
         runError = 'Invalid JSON in inputs';
       } else {
@@ -471,19 +544,67 @@
     }
   }
 
+  function stopRun() {
+    runGeneration++;
+    streamAbort?.abort();
+    streamAbort = null;
+    running = false;
+    runError = 'Run stopped';
+    workflowRun.status = 'error';
+    workflowRun.error = runError;
+    for (const state of Object.values(workflowRun.nodeRunStates)) {
+      if (state.status === 'running') {
+        state.status = 'error';
+        state.error = 'Run stopped';
+        state.retry_delay_ms = undefined;
+      }
+    }
+  }
+
+  function prepareStepRun() {
+    if (!selectedNodeId || running) return;
+    runTargetNodeId = selectedNodeId;
+    runVersion = viewingVersion ?? undefined;
+    showRunPanel = true;
+  }
+
+  function pinSelectedOutput() {
+    if (!selectedNodeId || running) return;
+    try {
+      if (Object.keys(pinnedNodes).length >= 32 && !pinnedNodes[selectedNodeId]) throw new Error('A test run supports up to 32 pins. Unpin another step first.');
+      pinnedNodes = { ...pinnedNodes, [selectedNodeId]: pinNodeOutput(workflowRun.nodeRunStates[selectedNodeId]) };
+      addToast('Output pinned for test runs in this editor session', 'info');
+    } catch (error: any) { addToast(error.message || 'Cannot pin this output', 'alert'); }
+  }
+
+  function unpinNode(id: string) {
+    const next = { ...pinnedNodes };
+    delete next[id];
+    pinnedNodes = next;
+  }
+
   // ─── Add Node ───
 
   let nodeCounter = $state(0);
 
-  function addNode(type: string, position?: { x: number; y: number }) {
-    if (!canvasRef) return;
+  async function addNode(type: string, position?: { x: number; y: number }) {
+    if (!canvasRef || viewingVersion != null || !isWorkflowNodeType(type)) return;
     const flow = canvasRef.getFlow();
-    nodeCounter++;
+    do { nodeCounter++; } while (flow.getNode(`${type}_${nodeCounter}`));
     const defaultData: Record<string, any> = {
       ...createDefaultWorkflowNodeData(type),
       node_number: nodeCounter,
     };
-    const pos = position ?? { x: 200 + nodeCounter * 30, y: 150 + nodeCounter * 30 };
+    const source = pendingConnection ? flow.getNode(pendingConnection.nodeId) : undefined;
+    const sourcePosition = source ? flow.getAbsolutePosition(source.id) : undefined;
+    const center = flow.screenToCanvas({ x: flow.canvas_width / 2, y: flow.canvas_height / 2 });
+    const preferred = source && sourcePosition
+      ? { x: sourcePosition.x + source.computed_width + 100, y: sourcePosition.y }
+      : { x: center.x - 130, y: center.y - 60 };
+    const pos = position ?? findNodePlacement(preferred, getWorkflowNodeDimensions(type) ?? { width: 256, height: 140 },
+      flow.nodes.filter(node => node.type !== 'group').map(node => ({
+        ...flow.getAbsolutePosition(node.id), width: node.computed_width || 256, height: node.computed_height || 140,
+      })));
     const nodeOpts: Record<string, any> = {
       id: `${type}_${nodeCounter}`,
       type,
@@ -496,6 +617,33 @@
       nodeOpts.height = dimensions.height;
     }
     flow.addNode(nodeOpts as FlowNode);
+    const connection = pendingConnection;
+    pendingConnection = null;
+    showPalette = false;
+    await tick();
+    // Kaykay registers handles in its first layout frame, after Svelte mounts.
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+    if (flow.locked || !flow.getNode(nodeOpts.id)) return;
+    if (connection && source) {
+      const targets = [...(flow.getNode(nodeOpts.id)?.handles.values() ?? [])].filter(handle =>
+        handle.type === 'input' && flow.canConnect(source.id, connection.handleId, nodeOpts.id, handle.id));
+      if (targets.length === 1) {
+        flow.addEdge({ id: `edge_${nodeOpts.id}_${Date.now()}`, source: source.id, source_handle: connection.handleId, target: nodeOpts.id, target_handle: targets[0].id });
+      } else {
+        addToast(targets.length ? 'Step added. Connect the input you want to use.' : 'Step added. No compatible input for this output.', 'info');
+      }
+    }
+    flow.selectNode(nodeOpts.id);
+    selectNodeForEditor(nodeOpts.id);
+    if (!position) {
+      await tick();
+      const rect = canvasRef?.getContainer()?.getBoundingClientRect();
+      if (rect) flow.setViewport({
+        x: rect.width / 2 - (pos.x + 128) * flow.viewport.zoom,
+        y: rect.height / 2 - (pos.y + 60) * flow.viewport.zoom,
+        zoom: flow.viewport.zoom,
+      });
+    }
   }
 
   // ─── Drag & Drop ───
@@ -503,7 +651,7 @@
   let draggingOver = $state(false);
 
   function handleDragStart(e: DragEvent, type: string) {
-    if (!e.dataTransfer) return;
+    if (!e.dataTransfer || viewingVersion != null) return;
     e.dataTransfer.setData('application/at-node-type', type);
     e.dataTransfer.effectAllowed = 'copy';
   }
@@ -526,22 +674,16 @@
     if (!type) return;
     e.preventDefault();
 
-    // Convert drop coordinates to canvas coordinates.
-    const canvasEl = (e.currentTarget as HTMLElement).querySelector('.kaykay-canvas');
-    if (!canvasEl) return;
-    const rect = canvasEl.getBoundingClientRect();
-    const flow = canvasRef.getFlow();
-    const canvasPos = flow.screenToCanvas({
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-    });
-
-    addNode(type, canvasPos);
+    const canvasPos = canvasRef.clientToCanvas(e.clientX, e.clientY);
+    if (canvasPos) addNode(type, canvasPos);
   }
 
   // ─── Palette Collapse ───
 
-  let collapsedGroups = $state<Record<string, boolean>>({});
+  function openPalette() {
+    pendingConnection = null;
+    showPalette = true;
+  }
 
   // ─── Property Editor ───
 
@@ -560,6 +702,7 @@
         return;
       }
       selectedNodeId = nodeId;
+      inspectorTab = 'parameters';
       selectedNodeType = node.type;
       const defaults = createDefaultWorkflowNodeData(node.type);
       const hydratedData = { ...defaults, ...node.data };
@@ -569,7 +712,8 @@
   }
 
   function onNodeClick(nodeId: string) {
-    selectNodeForEditor(nodeId);
+    showSavedRuns = false;
+    if (nodeId !== selectedNodeId) selectNodeForEditor(nodeId);
   }
 
   function onSelectionChange(nodeIds: string[], _edgeIds: string[]) {
@@ -596,9 +740,20 @@
     }
   }
 
-  function applyNodeData() {
-    if (!canvasRef || !selectedNodeId) return;
+  function applyNodeData(): boolean {
+    if (!canvasRef || !selectedNodeId || viewingVersion != null) return false;
     const flow = canvasRef.getFlow();
+    if (selectedNodeData.execution?.on_error !== 'error_output' && flow.edges.some(edge => edge.source === selectedNodeId && edge.source_handle === '__error')) {
+      addToast('Remove failure-output connections before changing the error policy.', 'alert');
+      return false;
+    }
+    if (selectedNodeType === 'switch') {
+      const ports = new Set([...switchOutputPorts(selectedNodeData).map(port => port.id), '__error']);
+      if (flow.edges.some(edge => edge.source === selectedNodeId && !ports.has(edge.source_handle))) {
+        addToast('Remove connections to deleted Switch cases before applying. Renaming or reordering cases keeps their connections.', 'alert');
+        return false;
+      }
+    }
 
     // Handle script node input_count changes — remap edges to new handle IDs.
     if (selectedNodeType === 'script') {
@@ -642,6 +797,7 @@
     flow.updateNodeData(selectedNodeId, cloneWorkflowNodeData(selectedNodeData));
     selectedNodeOriginalData = cloneWorkflowNodeData(selectedNodeData);
     addToast('Node updated', 'info');
+    return true;
   }
 
   // ─── Init ───
@@ -654,6 +810,11 @@
 
 </script>
 
+<svelte:window onkeydown={event => {
+  if (event.key === 'Escape' && showPalette) { showPalette = false; pendingConnection = null; }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); handleSave(); }
+}} />
+
 <svelte:head>
   <title>AT | {workflow?.name || 'Workflow'}</title>
 </svelte:head>
@@ -661,9 +822,9 @@
 {#if loading}
   <div class="p-8 text-center text-sm text-gray-500 dark:text-dark-text-muted">Loading workflow...</div>
 {:else if workflow}
-  <div class="flex flex-col h-full overflow-hidden">
+  <div class="workflow-workbench flex flex-col h-full overflow-hidden">
     <!-- Toolbar -->
-    <div class="flex items-center justify-between px-3 py-1.5 bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border shrink-0">
+    <div class="flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-dark-surface border-b border-gray-200 dark:border-dark-border shrink-0">
       <div class="flex items-center gap-3">
         <button
           onclick={() => push('/workflows')}
@@ -695,7 +856,9 @@
           />
         </div>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex flex-wrap items-center gap-2">
+        <button onclick={() => { showSavedRuns = !showSavedRuns; if (showSavedRuns) { showRunPanel = false; showVersionPanel = false; showChatPanel = false; } }} class="flex min-h-9 items-center gap-1 border border-gray-300 px-2 py-1 text-xs text-gray-700 dark:border-dark-border-subtle dark:text-dark-text"><Clock size={14} />Saved runs</button>
+        <button onclick={openPalette} disabled={viewingVersion != null} class="flex min-h-9 items-center gap-2 border border-gray-300 px-3 py-1.5 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Plus size={16} /> Add step</button>
         {#if workflow.active_version != null}
           <span class="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded {viewingVersion != null ? 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800' : 'text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border'}">
             {#if viewingVersion != null}
@@ -710,7 +873,7 @@
           </span>
         {/if}
         <button
-          onclick={() => { showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
+          onclick={() => { showSavedRuns = false; showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
           class="flex items-center gap-1 px-2 py-1 text-xs {showVersionPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
         >
           <History size={12} />
@@ -718,21 +881,22 @@
         </button>
         <button
           onclick={handleSave}
-          disabled={saving}
+          disabled={saving || viewingVersion != null}
           class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50 "
         >
           <Save size={12} />
           {saving ? 'Saving...' : 'Save'}
         </button>
         <button
-          onclick={() => { showChatPanel = !showChatPanel; }}
+          onclick={() => { showSavedRuns = false; showChatPanel = !showChatPanel; }}
+          disabled={viewingVersion != null}
           class="flex items-center gap-1 px-2 py-1 text-xs {showChatPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
         >
           <Bot size={12} />
           AI
         </button>
         <button
-          onclick={() => (showRunPanel = !showRunPanel)}
+          onclick={() => { showSavedRuns = false; runTargetNodeId = null; showRunPanel = !showRunPanel; }}
           class="flex items-center gap-1 px-2 py-1 text-xs text-white bg-green-600 rounded hover:bg-green-700 "
         >
           <Play size={12} />
@@ -757,45 +921,18 @@
     {/if}
 
     <!-- Main area -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="relative flex flex-1 min-h-0 overflow-hidden">
       <!-- Node Palette -->
-      <div class="w-44 bg-white dark:bg-dark-surface border-r border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto">
-        <div class="p-2">
-          {#each workflowPaletteGroups as group}
-            <button
-              onclick={() => { collapsedGroups[group.label] = !collapsedGroups[group.label]; }}
-              class="w-full flex items-center gap-1 mt-2 first:mt-0 mb-1 text-left group"
-            >
-              <ChevronRight
-                size={10}
-                class="text-gray-400 dark:text-dark-text-faint {collapsedGroups[group.label] ? '' : 'rotate-90'}"
-              />
-              <span class="text-[10px] font-medium text-gray-400 dark:text-dark-text-faint uppercase tracking-wider">{group.label}</span>
-            </button>
-            {#if !collapsedGroups[group.label]}
-              {#each group.nodes as opt}
-                <button
-                  draggable="true"
-                  ondragstart={(e) => handleDragStart(e, opt.type)}
-                  onclick={() => addNode(opt.type)}
-                  class="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-left text-gray-700 dark:text-dark-text-secondary rounded hover:bg-gray-100 dark:hover:bg-dark-highest mb-0.5 cursor-grab active:cursor-grabbing"
-                >
-                  <Plus size={11} class="text-gray-400 dark:text-dark-text-faint shrink-0" />
-                  <div>
-                    <div class="font-medium">{opt.label}</div>
-                    <div class="text-[10px] text-gray-400 dark:text-dark-text-faint">{opt.description}</div>
-                  </div>
-                </button>
-              {/each}
-            {/if}
-          {/each}
+      {#if showPalette}
+        <div class="absolute inset-y-0 left-0 z-30 max-w-full lg:static">
+          <NodePalette onadd={type => addNode(type)} ondragstart={handleDragStart} onclose={() => { showPalette = false; pendingConnection = null; }} disabled={viewingVersion != null} />
         </div>
-      </div>
+      {/if}
 
       <!-- Canvas -->
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
-        class="flex-1 relative bg-gray-50 dark:bg-dark-base {storeTheme.mode === 'dark' ? 'kaykay-dark' : ''} {draggingOver ? 'ring-2 ring-inset ring-blue-400 dark:ring-accent' : ''}"
+        class="isolate flex-1 min-w-0 relative bg-gray-50 dark:bg-dark-base {storeTheme.mode === 'dark' ? 'kaykay-dark' : ''} {draggingOver ? 'ring-2 ring-inset ring-blue-400 dark:ring-accent' : ''}"
         role="application"
         ondragover={handleDragOver}
         ondragleave={handleDragLeave}
@@ -807,7 +944,7 @@
           edges={toFlowEdges(workflow.graph.edges)}
           {nodeTypes}
           node_statuses={nodeStatuses}
-          config={{ snap_to_grid: true, grid_size: 20, default_edge_type: 'bezier' }}
+          config={{ snap_to_grid: true, grid_size: 20, default_edge_type: 'bezier', prevent_cycles: true }}
           callbacks={{ on_node_click: onNodeClick, on_selection_change: onSelectionChange }}
         >
           {#snippet controls()}
@@ -816,6 +953,23 @@
           {/snippet}
 
         </Canvas>
+        {#if flow}
+          <div class="absolute top-3 left-3 flex items-center gap-1 border border-gray-200 bg-white p-1 dark:border-dark-border dark:bg-dark-surface" aria-label="Canvas actions">
+            <button onclick={() => flow?.undo()} disabled={!flow.canUndo || viewingVersion != null} aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" class="p-2 text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Undo2 size={16} /></button>
+            <button onclick={() => flow?.redo()} disabled={!flow.canRedo || viewingVersion != null} aria-label="Redo" title="Redo" class="p-2 text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Redo2 size={16} /></button>
+            <button onclick={() => flow?.fitView()} aria-label="Fit workflow to view" title="Fit workflow to view" class="p-2 text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-elevated"><Maximize size={16} /></button>
+            <span class="px-2 text-xs tabular-nums text-gray-600 dark:text-dark-text-secondary">{Math.round(flow.viewport.zoom * 100)}%</span>
+          </div>
+          {#if flow.nodes.length === 0 && !showPalette}
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div class="pointer-events-auto max-w-xs border border-gray-200 bg-white p-5 dark:border-dark-border dark:bg-dark-surface">
+                <h2 class="text-base font-semibold text-gray-900 dark:text-dark-text">Build your first step</h2>
+                <p class="mt-2 text-sm text-gray-600 dark:text-dark-text-secondary">Start with Input, add an action, then connect an Output to return the result.</p>
+                <button onclick={() => addNode('input')} disabled={viewingVersion != null} class="mt-4 flex items-center gap-2 bg-gray-900 px-3 py-2 text-sm text-white disabled:opacity-50 dark:bg-accent dark:text-gray-950"><Plus size={16} /> Add Input</button>
+              </div>
+            </div>
+          {/if}
+        {/if}
       </div>
 
       <!-- AI Chat Panel -->
@@ -903,25 +1057,44 @@
       {/if}
 
       <!-- Property Editor Panel -->
-      {#if selectedNodeId && !noPropertyPanelTypes.has(selectedNodeType)}
+      {#if selectedNodeId && !noPropertyPanelTypes.has(selectedNodeType) && !showSavedRuns}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
-          class="w-60 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col outline-none"
+          class="absolute inset-y-0 right-0 z-20 w-80 max-w-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 min-h-0 flex flex-col outline-none xl:static xl:w-96"
           tabindex="-1"
           onmousedown={(e) => { e.stopPropagation(); e.currentTarget.focus(); }}
         >
           <div class="flex items-center justify-between px-3 h-8 border-b border-gray-200 dark:border-dark-border shrink-0">
             <div class="flex items-center gap-2">
-              <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Properties</span>
+              <span class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">{getWorkflowNodeDefinition(selectedNodeType)?.label ?? 'Properties'}</span>
               {#if hasNodeEdits()}
                 <span class="text-[10px] font-medium leading-none text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-1.5 py-0.5">Unsaved</span>
               {/if}
             </div>
-            <button onclick={closePropertyEditor} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
+            <button onclick={closePropertyEditor} aria-label="Close node properties" class="p-2 text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text">
               <X size={14} />
             </button>
           </div>
+          <nav aria-label="Node inspector sections" class="flex border-b border-gray-200 dark:border-dark-border">
+            {#each ['parameters', 'input', 'output', 'settings'] as tab}
+              <button onclick={() => inspectorTab = tab as typeof inspectorTab} aria-pressed={inspectorTab === tab} class="flex-1 border-b-2 px-2 py-2 text-xs font-medium {inspectorTab === tab ? 'border-blue-600 text-blue-700 dark:border-blue-400 dark:text-blue-400' : 'border-transparent text-gray-600 hover:bg-gray-50 dark:text-dark-text-secondary dark:hover:bg-dark-elevated'}">{tab === 'parameters' ? 'Parameters' : tab === 'input' ? 'Input' : tab === 'output' ? 'Output' : 'Settings'}</button>
+            {/each}
+          </nav>
+          <div class="border-b border-gray-200 px-3 py-2 dark:border-dark-border">
+            <button onclick={prepareStepRun} disabled={running} class="flex items-center gap-2 border border-gray-300 px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Play size={14} /> Execute step</button>
+          </div>
           <div class="p-3 space-y-3 overflow-y-auto min-h-0 flex-1">
+            {#if inspectorTab === 'parameters'}
+            {#if outputHandles.length && viewingVersion == null}
+              <div class="border-b border-gray-200 pb-3 dark:border-dark-border">
+                <p class="mb-2 text-xs text-gray-600 dark:text-dark-text-secondary">Add the next step from an output:</p>
+                <div class="flex flex-wrap gap-2">
+                  {#each outputHandles as handle (handle.id)}
+                    <button onclick={() => { if (hasNodeEdits() && !applyNodeData()) return; pendingConnection = { nodeId: selectedNodeId!, handleId: handle.id }; showPalette = true; closePropertyEditor(); }} class="flex items-center gap-1 border border-gray-300 px-2 py-2 text-xs text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Plus size={14} />{handle.label || handle.id}</button>
+                  {/each}
+                </div>
+              </div>
+            {/if}
             <!-- Common: Label (not shown for sticky notes which use 'text' instead) -->
             {#if selectedNodeType !== 'sticky_note'}
               <div>
@@ -940,6 +1113,7 @@
               {@const PropsComponent = propsComponents[selectedNodeType]}
               <PropsComponent
                 data={selectedNodeData}
+                nodeType={selectedNodeType}
                 {providers}
                 {skills}
                 {nodeConfigs}
@@ -948,26 +1122,42 @@
               />
             {/if}
 
-            <!-- Run Result (shown when node has run data) -->
-            {#if selectedNodeId && workflowRun.nodeRunStates[selectedNodeId]}
+            {:else if inspectorTab === 'settings'}
+              <NodeExecutionSettings data={selectedNodeData} nodeType={selectedNodeType} disabled={viewingVersion != null || running} />
+            {:else}
               {@const nodeState = workflowRun.nodeRunStates[selectedNodeId]}
-              {#if nodeState.status === 'completed' || nodeState.status === 'error'}
-                <div class="border-t border-gray-200 dark:border-dark-border pt-2 mt-2">
-                  <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Result</span>
-                  {#if nodeState.status === 'completed' && nodeState.data}
-                    <div class="mt-1 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded max-h-60 overflow-y-auto">
-                      <pre class="text-[11px] font-mono text-green-800 dark:text-green-300 whitespace-pre-wrap break-all">{JSON.stringify(nodeState.data, null, 2)}</pre>
-                    </div>
-                  {/if}
-                  {#if nodeState.status === 'error' && nodeState.error}
-                    <div class="mt-1 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded max-h-40 overflow-y-auto">
-                      <pre class="text-[11px] font-mono text-red-600 dark:text-red-400 whitespace-pre-wrap break-all">{nodeState.error}</pre>
-                    </div>
-                  {/if}
-                  {#if nodeState.duration_ms != null}
-                    <div class="mt-1 text-[10px] text-gray-400 dark:text-dark-text-muted">Duration: {nodeState.duration_ms < 1000 ? `${nodeState.duration_ms}ms` : `${(nodeState.duration_ms / 1000).toFixed(1)}s`}</div>
-                  {/if}
-                </div>
+              <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Last run snapshot. Editing the workflow does not update this data.</p>
+              {#if (nodeState?.invocations ?? 0) > 1}
+                <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{nodeState?.invocations} invocations — showing the latest-started invocation only.</p>
+              {/if}
+              {#if nodeState?.error}<p role="alert" class="break-words border border-red-300 bg-red-50 p-3 text-xs text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300">{nodeState.error}</p>{/if}
+              {#if nodeState?.error_policy}<p class="text-xs text-amber-800 dark:text-amber-300">{nodeState.error_policy === 'error_output' ? 'Failure handled: sent to the failure output.' : 'Failure handled: skipped this branch; independent branches continue.'}</p>{/if}
+              {#if nodeState?.attempt_history?.length}
+                <details class="border border-gray-200 p-2 text-xs dark:border-dark-border" open={(nodeState.max_attempts ?? 1) > 1}>
+                  <summary class="cursor-pointer text-gray-700 dark:text-dark-text-secondary">Attempts ({nodeState.attempt_history.length}/{nodeState.max_attempts ?? 1})</summary>
+                  <ol class="mt-2 space-y-2">
+                    {#each nodeState.attempt_history as attempt (attempt.attempt)}
+                      <li class="break-words text-gray-700 dark:text-dark-text-secondary">Attempt {attempt.attempt}: {attempt.status}{attempt.duration_ms != null ? ` · ${attempt.duration_ms} ms` : ''}{#if attempt.error}<p class="mt-1 text-red-700 dark:text-red-400">{attempt.error}</p>{/if}</li>
+                    {/each}
+                  </ol>
+                  {#if nodeState.retry_delay_ms != null}<p class="mt-2 text-gray-600 dark:text-dark-text-secondary">Waiting {nodeState.retry_delay_ms} ms before retry.</p>{/if}
+                </details>
+              {/if}
+              {#if inspectorTab === 'input'}
+                <InputMapper data={selectedNodeData} ports={inputHandles} state={nodeState} disabled={viewingVersion != null || running} />
+              {:else}
+                {#if nodeState}<p class="text-xs text-gray-600 dark:text-dark-text-secondary">Status: {nodeState.pinned ? 'Pinned output used (node not executed)' : nodeState.skipped ? 'Skipped — inactive branch' : nodeState.status}{nodeState.duration_ms != null ? ` · ${nodeState.duration_ms} ms` : ''}</p>{/if}
+                {#if pinnedNodes[selectedNodeId]}
+                  <div class="space-y-2 border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-200">
+                    <p>Output pinned for this editor session. Production runs ignore pins.</p>
+                    <details><summary class="cursor-pointer py-1">View pinned data</summary><pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(pinnedNodes[selectedNodeId].data, null, 2)}</pre></details>
+                    <button onclick={() => unpinNode(selectedNodeId!)} disabled={running} class="border border-blue-300 px-3 py-1.5 disabled:opacity-50 dark:border-blue-700">Unpin output</button>
+                  </div>
+                {:else}
+                  <button onclick={pinSelectedOutput} disabled={running || !!pinUnavailableReason(nodeState)} class="border border-gray-300 px-3 py-2 text-xs text-gray-700 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text">Pin output for tests</button>
+                  {#if pinUnavailableReason(nodeState)}<p class="text-xs text-gray-600 dark:text-dark-text-secondary">{pinUnavailableReason(nodeState)}</p>{/if}
+                {/if}
+                <NodeDataView value={nodeState?.data} omitted={nodeState?.data_omitted} />
               {/if}
             {/if}
 
@@ -975,6 +1165,7 @@
           <div class="px-3 py-2 border-t border-gray-200 dark:border-dark-border shrink-0">
             <button
               onclick={applyNodeData}
+              disabled={viewingVersion != null || !hasNodeEdits()}
               class="w-full px-2 py-1 text-xs text-white bg-gray-900 dark:bg-accent rounded hover:bg-gray-800 dark:hover:bg-accent-hover "
             >
               Apply
@@ -984,15 +1175,33 @@
       {/if}
 
       <!-- Run Panel -->
+      {#if showSavedRuns}<SavedWorkflowRuns workflowId={workflow.id} refreshKey={savedRunsRefresh} onclose={() => showSavedRuns = false} />{/if}
       {#if showRunPanel}
-        <div class="w-72 bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto">
+        <div class="absolute inset-y-0 right-0 z-30 w-80 max-w-full bg-white dark:bg-dark-surface border-l border-gray-200 dark:border-dark-border shrink-0 overflow-y-auto xl:static">
           <div class="flex items-center justify-between px-3 py-2 border-b border-gray-200 dark:border-dark-border">
-            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">Run Workflow</span>
-            <button onclick={() => { showRunPanel = false; }} class="text-gray-400 dark:text-dark-text-faint hover:text-gray-600 dark:hover:text-dark-text-secondary">
+            <span class="text-xs font-medium text-gray-700 dark:text-dark-text-secondary">{runTargetNodeId ? 'Test step' : 'Run Workflow'}</span>
+            <button onclick={() => { showRunPanel = false; }} aria-label="Close run panel" class="p-2 text-gray-600 dark:text-dark-text-secondary hover:text-gray-900 dark:hover:text-dark-text">
               <X size={14} />
             </button>
           </div>
           <div class="p-3 space-y-3">
+            {#if runTargetNodeId}
+              <div class="space-y-2 border border-gray-200 p-3 text-xs text-gray-700 dark:border-dark-border dark:text-dark-text-secondary">
+                <p class="font-semibold text-gray-900 dark:text-dark-text">{String(flow?.getNode(runTargetNodeId)?.data.label || runTargetNodeId)}</p>
+                <p>Runs this step and its required upstream nodes. Later steps and unrelated branches will not run. The selected step executes even if its output is pinned.</p>
+                <button onclick={() => runTargetNodeId = null} disabled={running} class="underline">Switch to full workflow</button>
+              </div>
+            {/if}
+            {#if Object.keys(pinnedNodes).length}
+              <div class="space-y-2 border border-blue-200 p-3 text-xs text-gray-700 dark:border-blue-900 dark:text-dark-text-secondary">
+                <label class="flex items-start gap-2"><input type="checkbox" bind:checked={usePinnedData} disabled={running} /> Use pinned outputs (test mode)</label>
+                <p>{Object.keys(pinnedNodes).length} pinned step(s). Upstream steps still run unless pinned too. Pins are checked against node configuration, upstream wiring and run inputs.</p>
+                {#each Object.keys(pinnedNodes) as id (id)}
+                  <div class="flex items-start justify-between gap-2"><span class="min-w-0 break-words">{String(flow?.getNode(id)?.data.label || id)}</span><button onclick={() => unpinNode(id)} disabled={running} class="shrink-0 text-blue-700 dark:text-blue-400">Unpin</button></div>
+                {/each}
+                <button onclick={() => pinnedNodes = {}} disabled={running} class="underline">Clear all pins</button>
+              </div>
+            {/if}
             <!-- Entry Point selector (always show if multiple) -->
             {#if getInputNodes().length > 1}
               <div>
@@ -1112,21 +1321,6 @@
               </div>
             {/if}
 
-            <!-- Sync/Async mode -->
-            <div class="flex items-center justify-between">
-              <span class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Mode</span>
-              <div class="flex rounded overflow-hidden border border-gray-300 dark:border-dark-border-subtle">
-                <button
-                  onclick={() => { runSync = true; }}
-                  class="px-1.5 py-0.5 text-[10px] font-medium {runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
-                >Sync</button>
-                <button
-                  onclick={() => { runSync = false; }}
-                  class="px-1.5 py-0.5 text-[10px] font-medium border-l border-gray-300 dark:border-dark-border-subtle {!runSync ? 'bg-gray-700 dark:bg-accent text-white' : 'bg-white dark:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:bg-gray-100 dark:hover:bg-dark-highest'}"
-                >Async</button>
-              </div>
-            </div>
-
             {#if versions.length > 0}
               <div>
                 <label for="run-version-select" class="text-[10px] font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wider">Run Version</label>
@@ -1151,8 +1345,11 @@
               class="w-full flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-white bg-green-600 rounded hover:bg-green-700 disabled:opacity-50 "
             >
               <Play size={12} />
-              {running ? 'Running...' : 'Execute'}
+              {running ? 'Running...' : runTargetNodeId ? 'Run to this step' : usePinnedData && Object.keys(pinnedNodes).length ? 'Run test with pins' : 'Execute'}
             </button>
+            {#if running}
+              <button onclick={stopRun} class="w-full border border-red-300 px-3 py-2 text-sm text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950">Stop run</button>
+            {/if}
 
             {#if runError}
               <div class="p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-xs text-red-700 dark:text-red-400">

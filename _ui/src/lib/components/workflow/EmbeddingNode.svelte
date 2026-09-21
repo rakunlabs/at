@@ -16,7 +16,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-45 max-w-60 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
@@ -43,7 +43,7 @@
       <div class="text-gray-400 text-[11px]">Configure provider & model</div>
     {/if}
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="right" class="!gap-1">
     <Handle id="embedding" type="output" port="embedding" label="embedding" />
     <Handle id="data" type="output" port="data" label="data" />

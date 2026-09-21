@@ -1,6 +1,7 @@
 export const WORKFLOW_PALETTE_GROUPS = [
   'Entry',
   'Processing',
+  'Data',
   'Media',
   'Flow Control',
   'Resources',
@@ -24,8 +25,8 @@ export interface WorkflowNodeDefinition {
   dimensions?: WorkflowNodeDimensions;
 }
 
-// Keep this ordered by palette group and display order. A null group means the
-// editor can render the node, but it is not available in the palette.
+// Entries within each palette group follow this display order. A null group
+// means the editor can render the node, but it is not available in the palette.
 export const workflowNodeDefinitions = [
   {
     type: 'input',
@@ -204,11 +205,35 @@ export const workflowNodeDefinitions = [
     createDefaultData: () => ({ label: 'Conditional', expression: '' }),
   },
   {
+    type: 'edit_fields', label: 'Edit Fields', description: 'Select, rename and set fields', paletteGroup: 'Data',
+    createDefaultData: () => ({ label: 'Edit Fields', keep_input: true, fields: [] }),
+  },
+  {
+    type: 'filter', label: 'Filter', description: 'Keep items matching conditions', paletteGroup: 'Data',
+    createDefaultData: () => ({ label: 'Filter', items_path: '', match: 'all', conditions: [{ path: '', operator: 'exists', value_type: 'string', value: '' }] }),
+  },
+  {
+    type: 'aggregate', label: 'Aggregate', description: 'Collect, count and summarize items', paletteGroup: 'Data',
+    createDefaultData: () => ({ label: 'Aggregate', operation: 'collect', items_path: '', field_path: '' }),
+  },
+  {
+    type: 'switch', label: 'Switch', description: 'Route data to matching cases', paletteGroup: 'Flow Control',
+    createDefaultData: () => ({ label: 'Switch', match_mode: 'first', rules: [{ id: 'case_1', label: 'Case 1', path: '/status', operator: 'eq', value_type: 'string', value: 'ready' }] }),
+  },
+  {
+    type: 'merge', label: 'Merge', description: 'Append, pair or join two inputs', paletteGroup: 'Flow Control',
+    createDefaultData: () => ({ label: 'Merge', mode: 'append', join_type: 'inner', left_key: '/id', right_key: '/id' }),
+  },
+  {
     type: 'loop',
     label: 'Loop',
     description: 'For-each fan-out',
     paletteGroup: 'Flow Control',
     createDefaultData: () => ({ label: 'Loop', expression: '' }),
+  },
+  {
+    type: 'wait', label: 'Wait / Approval', description: 'Pause until time or approval', paletteGroup: 'Flow Control',
+    createDefaultData: () => ({ label: 'Wait / Approval', mode: 'duration', seconds: 60, expires_seconds: 604800, prompt: '' }),
   },
   {
     type: 'skill_config',

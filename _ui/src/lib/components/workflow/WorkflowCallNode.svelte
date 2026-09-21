@@ -17,7 +17,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-45 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-indigo-500 ring-2 ring-indigo-500/25'
   ]}
 >
@@ -44,9 +44,8 @@
     <Handle id="inputs" type="input" port="data" label="inputs" />
   </HandleGroup>
 
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="right">
     <Handle id="output" type="output" port="data" label="output" />
   </HandleGroup>
 </div>
-

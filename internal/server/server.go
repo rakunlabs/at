@@ -103,6 +103,7 @@ type Server struct {
 
 	// workflowStore is the persistent store for workflow definitions.
 	workflowStore service.WorkflowStorer
+	durableWake   chan struct{}
 
 	// workflowVersionStore is the persistent store for workflow version history.
 	workflowVersionStore service.WorkflowVersionStorer
@@ -619,6 +620,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	// Start the LLM audit janitor: prunes llm_calls rows and spilled
 	// request/response bodies older than LLMCallRetention (default 7d).
 	s.startLLMAuditJanitor(ctx)
+	s.startDurableWorkflows(ctx)
 
 	// Initialize cron trigger scheduler if trigger store is available.
 	{
@@ -693,6 +695,10 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 		s.scheduler.SetWorkflowByNameLookup(s.workflowByNameLookupFunc())
 		s.scheduler.SetWorkflowExecutor(s.workflowExecutorFunc())
 		s.scheduler.SetLoopGov(s.loopGov)
+		s.scheduler.SetDurableLauncher(func(ctx context.Context, id string, graph service.WorkflowGraph, inputs map[string]any, entries []string, source string) error {
+			_, err := s.enqueueDurableWorkflow(ctx, id, graph, inputs, entries, source)
+			return err
+		})
 		s.scheduler.SetEnabledCheck(func(ctx context.Context) bool {
 			enabled, err := s.isFeatureEnabled(ctx, service.FeatureCronTriggers)
 			if err != nil {
@@ -857,6 +863,9 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.POST("/v1/workflows", s.CreateWorkflowAPI)
 	apiGroup.POST("/v1/workflows/run/{id}", s.RunWorkflowAPI)
 	apiGroup.POST("/v1/workflows/run-stream/{id}", s.RunWorkflowStreamAPI)
+	apiGroup.GET("/v1/workflows/{id}/executions", s.ListWorkflowExecutionsAPI)
+	apiGroup.GET("/v1/workflows/{id}/executions/{execution}", s.GetWorkflowExecutionAPI)
+	apiGroup.POST("/v1/workflows/{id}/executions/{execution}/{action}", s.DecideWorkflowExecutionAPI)
 	apiGroup.GET("/v1/workflows/{id}", s.GetWorkflowAPI)
 	apiGroup.PUT("/v1/workflows/{id}", s.UpdateWorkflowAPI)
 	apiGroup.DELETE("/v1/workflows/{id}", s.DeleteWorkflowAPI)

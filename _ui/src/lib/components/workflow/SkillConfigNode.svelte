@@ -15,7 +15,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-36 max-w-52 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-green-500 ring-2 ring-green-500/25'
   ]}
 >
@@ -36,7 +36,7 @@
       <div class="text-gray-400 text-[11px]">No skills selected</div>
     {/if}
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <HandleGroup position="top" class="!gap-1">
     <Handle id="skills" type="output" port="config" label="skills" />
   </HandleGroup>

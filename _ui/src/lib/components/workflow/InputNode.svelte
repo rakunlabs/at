@@ -22,7 +22,7 @@
 
 <div
   class={[
-    'bg-white border border-gray-300 rounded-md min-w-40 text-xs shadow-sm select-none',
+    'workflow-node-card',
     selected && 'border-blue-500 ring-2 ring-blue-500/25'
   ]}
 >
@@ -46,6 +46,6 @@
       <div class="text-gray-400 text-[11px]">Workflow input data</div>
     {/if}
   </div>
-  <NodePreview state={runState} />
+  <NodePreview state={runState} nodeId={id} />
   <Handle id="output" type="output" port="data" position="right" label="out" />
 </div>

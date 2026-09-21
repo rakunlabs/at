@@ -678,6 +678,23 @@ func (s *Server) WebhookAPI(w http.ResponseWriter, r *http.Request) {
 			hasOutputNode = true
 		}
 	}
+	if workflow.HasDurableWait(graphToRun, entryNodeIDs) {
+		// Live readers cannot be checkpointed. Durable webhook payloads have a
+		// text body and an optional parsed JSON body, both explicit wire values.
+		inputs["body"] = string(bodyBytes)
+		var bodyJSON any
+		if json.Unmarshal(bodyBytes, &bodyJSON) == nil {
+			inputs["body_json"] = bodyJSON
+		}
+		job, err := s.enqueueDurableWorkflow(ctx, wf.ID, graphToRun, inputs, entryNodeIDs, "webhook")
+		cleanup()
+		if err != nil {
+			httpResponse(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		httpResponseJSON(w, map[string]any{"run_id": job.ID, "workflow_id": wf.ID, "status": "queued", "durable": true}, http.StatusAccepted)
+		return
+	}
 
 	if syncMode && hasOutputNode {
 		// Synchronous with output node: run the engine in a goroutine and

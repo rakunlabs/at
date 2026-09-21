@@ -31,6 +31,36 @@ Built-in node types. Each file defines one node type and registers it via `init(
 | `log.go` | `log` | Log data at configurable level, pass through unchanged |
 | `skill-config.go` | `skill_config` | Resource node: outputs skill names for agent_call |
 | `mcp-config.go` | `mcp_config` | Resource node: outputs MCP server URLs for agent_call |
+| `edit-fields.go` | `edit_fields` | Project/set top-level fields on one object or each object in an array |
+| `filter.go` | `filter` | Typed AND/OR predicates over items; always emits an array |
+| `switch.go` | `switch` | First/all matching rules; stable `case_<id>` handles + fallback |
+| `merge.go` | `merge` | Append, zip or scalar-key join over two inputs in one invocation |
+| `aggregate.go` | `aggregate` | Collect/count/sum/average/min/max over an array |
+| `wait.go` | `wait` | Durable timer/approval boundary; returns NodeResultWait, never sleeps |
+
+The five data-operation nodes are registered as non-host execution capabilities in
+their own `init()` functions. They use no JS VM, network, secrets or shell. Explicit
+workspace node grants still apply. `data-values.go` shares typed literals, predicates
+and collection helpers; paths use `workflow.ResolveJSONPointer` / `ValidateJSONPointer`.
+Missing, null, false and zero are distinct. Configuration literals store
+`value_type` plus a string `value`; only JSON/number/boolean types parse that string.
+
+Input/output is `data` except Merge's `left`/`right` inputs and Switch's named outputs.
+Edit Fields preserves object/array shape and reads assignments from the original
+item independently. Filter always emits `[]` when nothing matches (it does not stop
+the branch). Switch routes the unchanged payload. Merge emits an array; zip/key-join
+rows are `{left,right}` pairs so fields cannot collide. Join keys are non-null scalars,
+typed and exact; duplicate keys produce all matching pairs in stable input order.
+Aggregate emits `data: {value,count}`; empty collect/count/sum are `[]`/0/0 and empty
+average/min/max are null. Missing/non-numeric aggregate values fail, never disappear
+from a total. Inputs/results are bounded at 10,000 collection items; assignments at
+64, conditions at 32, Switch rules at 16 and literals at 32 KiB. Long loops check ctx.
+
+These are per-invocation array operations, **not global fan-out collectors**.
+`validateDataNodeInputs` enforces one producer per declared input and rejects a Merge
+whose upstream Loop contexts are independent. Nested Loop contexts and static inputs
+can merge within each invocation. Existing arbitrary-node OR-join behavior is unchanged.
+Regression: `data-nodes_test.go`.
 
 ## Patterns
 

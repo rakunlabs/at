@@ -74,10 +74,13 @@
     Insecure TLS
   </label>
   <label class="flex items-center gap-1.5 text-[10px] font-medium text-gray-500 uppercase tracking-wider cursor-pointer">
-    <input type="checkbox" bind:checked={data.retry} class="rounded border-gray-300" />
-    Retry
+    <input type="checkbox" bind:checked={data.retry} disabled={(data.execution?.max_attempts ?? 1) > 1} class="rounded border-gray-300" />
+    Legacy HTTP retry
   </label>
 </div>
+{#if (data.execution?.max_attempts ?? 1) > 1}
+  <p class="text-xs text-gray-600 dark:text-dark-text-secondary">Common retry is active in Settings; legacy HTTP retry is bypassed.</p>
+{/if}
 <!-- Port descriptions -->
 <div class="border-t border-gray-200 pt-2 mt-2 space-y-2">
   <div>
