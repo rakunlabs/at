@@ -266,6 +266,12 @@ func featureKeyForRoute(path, method, basePath string) string {
 
 		return service.FeatureChatWorkbench
 	case "chats":
+		// The local-MCP registry is its own switch: an installation may want
+		// Chats without browsers reaching machines on the user's network.
+		if seg(1) == "local-mcp-servers" {
+			return service.FeatureChatLocalMCP
+		}
+
 		return service.FeaturePlayground
 	case "media":
 		// Media storage configuration is an installation setting, not a chat

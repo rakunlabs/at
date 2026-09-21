@@ -24,6 +24,25 @@
   import { agentSelections, mergeChatSelections } from '@/lib/helper/chat-agent';
   import { listMCPSets, listMCPSetTools, callMCPSetTool, type MCPSet } from '@/lib/api/mcp-sets';
   import {
+    listLocalMCPServers,
+    saveLocalMCPServers,
+    revealLocalMCPHeaders,
+    reportLocalToolObservation,
+    type LocalMCPServer,
+  } from '@/lib/api/local-mcp';
+  import {
+    REDACTED,
+    approvalFor,
+    approveLocalMCP,
+    clipLocalToolResult,
+    localMCPToolName,
+    localMCPUrlProblem,
+    revokeLocalMCP,
+    toolsAddedSinceApproval,
+  } from '@/lib/helper/local-mcp';
+  import { LocalMCPClient, type LocalMCPTool } from '@/lib/helper/local-mcp-client';
+  import { FEATURE_CHAT_LOCAL_MCP } from '@/lib/api/features';
+  import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
     type PlaygroundMessage,
@@ -79,13 +98,20 @@
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
-    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'mcpset';
+    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'mcpset' | 'local';
     /** MCP server URL (when type === 'mcp') */
     serverUrl?: string;
     /** Skill name (when type === 'skill') */
     skillName?: string;
     /** MCP Set name (when type === 'mcpset') */
     mcpSetName?: string;
+    /**
+     * Registry record id (when type === 'local'). `localToolName` is the name
+     * the remote server knows, which differs from the exposed name when a
+     * server-side tool already held it.
+     */
+    localServerId?: string;
+    localToolName?: string;
   }
 
   interface TodoItem {
@@ -256,6 +282,103 @@
 
   // Frontend-only tools
   let enabledFrontendTools = $state<string[]>([...FRONTEND_TOOL_NAMES]);
+
+  // ─── Local MCP servers ───
+  //
+  // MCP endpoints running on this person's own machine. Unlike every other
+  // tool source on this page, these are dialled from the browser: the server
+  // stores the record and never connects to it.
+
+  let localServers = $state<LocalMCPServer[]>([]);
+  let localServersLoaded = $state(false);
+  /** Per-record discovery state, keyed by record id. */
+  let localStatus = $state<Record<string, { tools: string[]; error: string; hint: string; busy: boolean }>>({});
+  /** Approval is per device, so it is read from local storage, not the record. */
+  let localApprovedIds = $state<string[]>([]);
+  let localMCPAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_LOCAL_MCP));
+  let activeLocalServers = $derived(
+    localServers.filter(s => localApprovedIds.includes(s.id)),
+  );
+
+  /**
+   * Editor state for the registry, which lives in the tools panel.
+   *
+   * `localEditorOpen` is explicit rather than derived from whether the draft
+   * fields have content: a new record starts with every field empty, so
+   * inferring it left the Add action with no visible effect.
+   */
+  let localEditorOpen = $state(false);
+  let localDraftId = $state('');
+  let localDraftName = $state('');
+  let localDraftUrl = $state('');
+  let localDraftHeaderKey = $state('');
+  let localDraftHeaderValue = $state('');
+  let localDraftHeaders = $state<Record<string, string>>({});
+  let localDraftError = $state('');
+  let localSaving = $state(false);
+  /** Approval dialog: the tools are shown before the server may be used. */
+  let localApprovalFor = $state<LocalMCPServer | null>(null);
+  let localApprovalTools = $state<LocalMCPTool[]>([]);
+
+  /**
+   * One client per record for the page session, so a stateful server keeps its
+   * Mcp-Session-Id across calls. Keyed by id + url: editing the URL must not
+   * keep talking to the old address.
+   */
+  const localClients = new Map<string, LocalMCPClient>();
+  const localHeaderCache = new Map<string, Record<string, string>>();
+
+  /**
+   * Correlation for the turn in flight. The conversation is the session; each
+   * turn is its own trace, matching how the server-side loops record. Set
+   * before the first completion so a tool this browser runs lands on the same
+   * trace as the generation that asked for it.
+   */
+  let turnTraceId = $state('');
+  let turnSessionId = $state('');
+
+  function localStorageSafe(): Storage | undefined {
+    try {
+      return window.localStorage;
+    } catch {
+      return undefined;
+    }
+  }
+
+  function refreshLocalApprovals() {
+    localApprovedIds = localServers.filter(s => approvalFor(s.id, localStorageSafe())).map(s => s.id);
+  }
+
+  /**
+   * Headers are revealed per record at the point of dialling rather than being
+   * handed out with the list, so the page does not hold every credential for
+   * the whole session.
+   */
+  async function localClientFor(server: LocalMCPServer, signal?: AbortSignal): Promise<LocalMCPClient> {
+    const key = `${server.id}|${server.url}`;
+    const cached = localClients.get(key);
+    if (cached && !signal) return cached;
+
+    let headers = localHeaderCache.get(key);
+    if (!headers) {
+      const names = Object.keys(server.headers ?? {});
+      headers = names.length > 0 ? await revealLocalMCPHeaders(server.id) : {};
+      localHeaderCache.set(key, headers);
+    }
+    const client = new LocalMCPClient(server.url, { headers, signal });
+    if (!signal) localClients.set(key, client);
+
+    return client;
+  }
+
+  function forgetLocalClient(server: LocalMCPServer) {
+    for (const key of [...localClients.keys()]) {
+      if (key.startsWith(`${server.id}|`)) localClients.delete(key);
+    }
+    for (const key of [...localHeaderCache.keys()]) {
+      if (key.startsWith(`${server.id}|`)) localHeaderCache.delete(key);
+    }
+  }
 
   // Todo panel
   let todos = $state<TodoItem[]>([]);
@@ -829,7 +952,7 @@
   // Defaults are applied after the model list so a saved model can be matched
   // against what this deployment actually offers.
   loadInfo().then(loadDefaults);
-  const catalogsReady = Promise.all([loadAgents(), loadSkills(), loadBuiltinTools(), loadMCPSets()]);
+  const catalogsReady = Promise.all([loadAgents(), loadSkills(), loadBuiltinTools(), loadMCPSets(), loadLocalServers()]);
   loadConversations();
 
   // ─── Scroll ───
@@ -1022,6 +1145,35 @@
     refreshTools();
   }
 
+  /**
+   * Lists a local server's tools and records why it failed when it did.
+   *
+   * A browser reports a refused connection and a refused cross-origin request
+   * identically, so the recorded hint names the headers the MCP server has to
+   * return rather than repeating "failed to fetch", which the reader cannot
+   * act on.
+   */
+  async function discoverLocalTools(server: LocalMCPServer): Promise<LocalMCPTool[]> {
+    localStatus = { ...localStatus, [server.id]: { tools: [], error: '', hint: '', busy: true } };
+    try {
+      const client = await localClientFor(server);
+      const tools = await client.listTools();
+      localStatus = {
+        ...localStatus,
+        [server.id]: { tools: tools.map(t => t.name), error: '', hint: '', busy: false },
+      };
+
+      return tools;
+    } catch (e: any) {
+      forgetLocalClient(server);
+      localStatus = {
+        ...localStatus,
+        [server.id]: { tools: [], error: e?.message || 'could not be reached', hint: e?.hint || '', busy: false },
+      };
+      throw e;
+    }
+  }
+
   /** Discover tools from MCP sets, selected skills, enabled builtins, and frontend tools. Build the dispatch map. */
   let toolDiscoveryVersion = 0;
   async function refreshTools() {
@@ -1117,6 +1269,36 @@
         newTools.push(def);
         newSourceMap[def.function.name] = { type: 'frontend' };
       }
+
+      // 6. Local MCP servers, dialled from this browser.
+      //
+      // Registered last on purpose: a program on somebody's laptop must not be
+      // able to take over the name of a built-in or MCP-set tool the
+      // conversation already relies on, so it yields the name on collision.
+      if (localMCPAvailable) {
+        for (const server of localServers) {
+          if (!localApprovedIds.includes(server.id)) continue;
+          try {
+            const tools = await discoverLocalTools(server);
+            if (version !== toolDiscoveryVersion) return;
+            for (const tool of tools) {
+              const exposed = localMCPToolName(tool.name, server.name, name => !!newSourceMap[name]);
+              newTools.push({
+                type: 'function',
+                function: {
+                  name: exposed,
+                  description: `${tool.description ?? ''}${tool.description ? ' ' : ''}(runs on ${server.name}, your machine)`.trim(),
+                  parameters: tool.inputSchema || { type: 'object', properties: {} },
+                },
+              });
+              newSourceMap[exposed] = { type: 'local', localServerId: server.id, localToolName: tool.name };
+            }
+          } catch {
+            // discoverLocalTools records the reason on localStatus; a local
+            // server being unreachable must not empty the tool list.
+          }
+        }
+      }
     } catch (e: any) {
       addToast(e.message || 'Failed to discover tools', 'alert');
     } finally {
@@ -1158,6 +1340,8 @@
         const res = await callBuiltinTool(tc.function.name, args);
         if (res.error) return `Error: ${res.error}`;
         return res.result;
+      } else if (source.type === 'local') {
+        return await executeLocalTool(source, tc.function.name, args);
       } else if (source.type === 'frontend') {
         return await executeFrontendTool(tc.function.name, args);
       }
@@ -1165,6 +1349,198 @@
     } catch (e: any) {
       return `Error: ${e?.response?.data?.message || e?.response?.data?.error?.message || e.message || 'tool execution failed'}`;
     }
+  }
+
+  /**
+   * Run a tool on an MCP server on this machine.
+   *
+   * The result is bounded here because Chats is not governed by loopgov — that
+   * governs the three server-side loops — so nothing else would stop a local
+   * tool from filling the context window.
+   *
+   * The call is reported to Traces as a client-asserted observation. Without
+   * it a conversation's trace shows its generations with the tool steps
+   * between them missing, which reads as an unexplained gap rather than an
+   * absence.
+   */
+  async function executeLocalTool(source: ToolSource, exposedName: string, args: Record<string, any>): Promise<string> {
+    const server = localServers.find(s => s.id === source.localServerId);
+    if (!server) return `Error: local MCP server is no longer configured`;
+    // Re-checked every call: the switch may have been turned off mid-turn.
+    if (!localApprovedIds.includes(server.id)) {
+      return `Error: ${server.name} is not enabled on this device`;
+    }
+
+    const remoteName = source.localToolName || exposedName;
+    const started = Date.now();
+    let status: 'ok' | 'error' = 'ok';
+    let output = '';
+    let failure = '';
+    try {
+      const client = await localClientFor(server, abortController?.signal);
+      output = clipLocalToolResult(await client.callTool(remoteName, args));
+    } catch (e: any) {
+      status = 'error';
+      failure = [e?.message, e?.hint].filter(Boolean).join(' — ') || 'local tool call failed';
+      forgetLocalClient(server);
+    }
+
+    void reportLocalToolObservation({
+      trace_id: turnTraceId,
+      session_id: turnSessionId,
+      name: remoteName,
+      server: server.name,
+      status,
+      latency_ms: Date.now() - started,
+      error: failure,
+      input: JSON.stringify(args ?? {}),
+      output,
+    });
+
+    // A local failure is returned to the model as a tool error rather than
+    // ending the turn: it can try a different tool or explain itself.
+    if (status === 'error') return `Error: ${failure}`;
+
+    return output || 'Tool executed successfully (no output)';
+  }
+
+  // ─── Local MCP registry editing ───
+
+  async function loadLocalServers() {
+    if (!localMCPAvailable) {
+      localServersLoaded = true;
+
+      return;
+    }
+    try {
+      localServers = await listLocalMCPServers();
+      refreshLocalApprovals();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to load local MCP servers', 'alert');
+    } finally {
+      localServersLoaded = true;
+    }
+  }
+
+  function resetLocalDraft() {
+    localDraftError = '';
+    localDraftHeaderKey = '';
+    localDraftHeaderValue = '';
+    localDraftId = '';
+    localDraftName = '';
+    localDraftUrl = '';
+    localDraftHeaders = {};
+  }
+
+  /** Opens the editor on an existing record, or empty for a new one. */
+  function editLocalServer(server?: LocalMCPServer) {
+    resetLocalDraft();
+    if (server) {
+      localDraftId = server.id;
+      localDraftName = server.name;
+      localDraftUrl = server.url;
+      // Values arrive redacted; replaying the sentinel preserves the stored one.
+      localDraftHeaders = { ...(server.headers ?? {}) };
+    }
+    localEditorOpen = true;
+  }
+
+  function closeLocalEditor() {
+    resetLocalDraft();
+    localEditorOpen = false;
+  }
+
+  function addLocalDraftHeader() {
+    const key = localDraftHeaderKey.trim();
+    if (!key) return;
+    localDraftHeaders = { ...localDraftHeaders, [key]: localDraftHeaderValue };
+    localDraftHeaderKey = '';
+    localDraftHeaderValue = '';
+  }
+
+  async function saveLocalServer() {
+    const problem = localMCPUrlProblem(localDraftUrl);
+    if (!localDraftName.trim()) {
+      localDraftError = 'Name is required';
+
+      return;
+    }
+    if (problem) {
+      localDraftError = problem;
+
+      return;
+    }
+
+    const entry: LocalMCPServer = {
+      id: localDraftId,
+      name: localDraftName.trim(),
+      url: localDraftUrl.trim(),
+      headers: Object.keys(localDraftHeaders).length > 0 ? localDraftHeaders : undefined,
+    };
+    const next = localDraftId
+      ? localServers.map(s => (s.id === localDraftId ? entry : s))
+      : [...localServers, entry];
+
+    localSaving = true;
+    try {
+      localServers = await saveLocalMCPServers(next);
+      if (localDraftId) {
+        const edited = localServers.find(s => s.id === localDraftId);
+        // The address may have changed; the old session must not be reused.
+        if (edited) forgetLocalClient(edited);
+      }
+      refreshLocalApprovals();
+      closeLocalEditor();
+      void refreshTools();
+    } catch (e: any) {
+      localDraftError = e?.response?.data?.message || 'Failed to save';
+    } finally {
+      localSaving = false;
+    }
+  }
+
+  async function removeLocalServer(server: LocalMCPServer) {
+    try {
+      localServers = await saveLocalMCPServers(localServers.filter(s => s.id !== server.id));
+      revokeLocalMCP(server.id, localStorageSafe());
+      forgetLocalClient(server);
+      refreshLocalApprovals();
+      if (localDraftId === server.id) closeLocalEditor();
+      void refreshTools();
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to remove', 'alert');
+    }
+  }
+
+  /**
+   * Opening the approval dialog connects first, so the person decides against
+   * the tools the server actually offers rather than a name and a URL.
+   */
+  async function beginLocalApproval(server: LocalMCPServer) {
+    localApprovalFor = server;
+    localApprovalTools = [];
+    try {
+      localApprovalTools = await discoverLocalTools(server);
+    } catch {
+      /* the failure is rendered from localStatus */
+    }
+  }
+
+  function confirmLocalApproval() {
+    const server = localApprovalFor;
+    if (!server) return;
+    approveLocalMCP(server.id, localApprovalTools.map(t => t.name), localStorageSafe());
+    refreshLocalApprovals();
+    localApprovalFor = null;
+    void refreshTools();
+  }
+
+  /** One action, effective immediately: the next turn offers nothing from it. */
+  function disableLocalServer(server: LocalMCPServer) {
+    revokeLocalMCP(server.id, localStorageSafe());
+    forgetLocalClient(server);
+    refreshLocalApprovals();
+    void refreshTools();
   }
 
   /** Execute a frontend-only tool (runs entirely in the browser). */
@@ -1330,6 +1706,10 @@
       scratchSessionId = `chats-${Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('')}`;
     }
     const sessionId = conversationId || scratchSessionId;
+    // One trace per turn, the conversation as the session — the same shape the
+    // server-side loops record, so a browser-run tool can be placed on it.
+    turnSessionId = sessionId;
+    turnTraceId = `chats-turn-${Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join('')}`;
 
     // Add assistant placeholder. It records the pair selected right now, so a
     // mid-conversation switch is attributed to the turn that used it.
@@ -1392,6 +1772,7 @@
           },
         },
         controller.signal,
+        { 'x-at-trace-id': turnTraceId },
       );
 
       // After streaming completes, check if there are tool calls to execute
@@ -1879,6 +2260,124 @@
         </div>
       </div>
 
+      <!-- Local MCP servers.
+           Unlike every other source here these are dialled by this browser:
+           the server stores the address and never connects to it, which is
+           what makes a loopback URL mean this machine. -->
+      {#if localMCPAvailable}
+        <div role="group" aria-label="Local MCP servers" class="block">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">On this machine</span>
+            <button
+              onclick={() => editLocalServer()}
+              class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated"
+            >
+              Add server
+            </button>
+          </div>
+
+          {#if localServers.length === 0 && !localEditorOpen}
+            <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+              An MCP server running on your own computer. Your browser connects to it directly, so it must allow this page (CORS) — and it is reachable only from this device.
+            </p>
+          {/if}
+
+          <div class="space-y-1.5">
+            {#each localServers as server}
+              {@const approved = localApprovedIds.includes(server.id)}
+              {@const status = localStatus[server.id]}
+              {@const added = toolsAddedSinceApproval(approvalFor(server.id, localStorageSafe()), status?.tools ?? [])}
+              <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{server.name}</span>
+                  <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{server.url}</code>
+                  {#if approved}
+                    <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                      Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ''}
+                    </span>
+                  {:else}
+                    <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
+                      Not enabled on this device
+                    </span>
+                  {/if}
+                  <div class="ml-auto flex items-center gap-1">
+                    {#if approved}
+                      <button onclick={() => disableLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
+                    {:else}
+                      <button onclick={() => beginLocalApproval(server)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable…</button>
+                    {/if}
+                    <button onclick={() => editLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Edit</button>
+                    <button onclick={() => removeLocalServer(server)} class="p-0.5 text-gray-400 hover:text-red-500" aria-label={`Remove ${server.name}`}><X size={12} /></button>
+                  </div>
+                </div>
+                {#if added.length > 0}
+                  <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                    New since you enabled it: {added.join(', ')}
+                  </p>
+                {/if}
+                {#if status?.error}
+                  <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
+                  {#if status.hint}
+                    <p class="mt-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted">{status.hint}</p>
+                  {/if}
+                {/if}
+              </div>
+            {/each}
+          </div>
+
+          {#if localEditorOpen}
+            <div class="mt-1.5 border border-gray-300 dark:border-dark-border-subtle p-2.5 space-y-2">
+              <div class="grid grid-cols-4 gap-2 items-center">
+                <label class="contents">
+                  <span class="text-xs text-gray-600 dark:text-dark-text-secondary">Name</span>
+                  <input bind:value={localDraftName} placeholder="laptop" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text" />
+                </label>
+                <label class="contents">
+                  <span class="text-xs text-gray-600 dark:text-dark-text-secondary">URL</span>
+                  <input bind:value={localDraftUrl} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text" />
+                </label>
+                <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
+                  Full endpoint URL, used exactly as entered. Loopback and private addresses only — a reachable server belongs in an MCP set, where execution policy and tracing apply.
+                </div>
+              </div>
+
+              <div class="grid grid-cols-4 gap-2 items-start">
+                <span class="text-xs text-gray-600 dark:text-dark-text-secondary pt-1">Headers</span>
+                <div class="col-span-3 space-y-1">
+                  {#each Object.entries(localDraftHeaders) as [hk, hv]}
+                    <div class="flex items-center gap-1">
+                      <span class="text-[10px] font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
+                      <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{hv === REDACTED ? 'stored' : hv}</span>
+                      <button
+                        onclick={() => { const next = { ...localDraftHeaders }; delete next[hk]; localDraftHeaders = next; }}
+                        class="ml-auto p-0.5 text-gray-400 hover:text-red-500"
+                        aria-label={`Remove header ${hk}`}
+                      ><X size={10} /></button>
+                    </div>
+                  {/each}
+                  <div class="flex items-center gap-1">
+                    <input bind:value={localDraftHeaderKey} placeholder="Authorization" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
+                    <input bind:value={localDraftHeaderValue} placeholder="value" type="password" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
+                    <button onclick={addLocalDraftHeader} class="px-2 py-1 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">Add</button>
+                  </div>
+                  <p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Stored encrypted and never shown again.</p>
+                </div>
+              </div>
+
+              {#if localDraftError}
+                <p class="text-[11px] text-red-600 dark:text-red-400">{localDraftError}</p>
+              {/if}
+              <div class="flex items-center gap-2">
+                <button onclick={saveLocalServer} disabled={localSaving} class="px-2.5 py-1 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50">
+                  {localSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button onclick={closeLocalEditor} class="px-2.5 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary">Cancel</button>
+              </div>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
       <!-- Discovered tools summary + clear button -->
       <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted pt-1 border-t border-gray-200 dark:border-dark-border">
         {#if loadingTools}
@@ -2065,7 +2564,7 @@
                           result={toolResults.get(i)?.get(tc.id)}
                           running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
                           queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
-                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'frontend' ? 'Chat' : ''}
+                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'frontend' ? 'Chat' : ''}
                         />
                       {/if}
                     {/each}
@@ -2086,6 +2585,26 @@
 
   <!-- Input area -->
   <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-3 shrink-0">
+    <!-- Local tools are approved once per server, so the fact that a model can
+         run something on this computer has to stay visible and revocable while
+         it is true — not only at the moment it was granted. -->
+    {#if activeLocalServers.length > 0}
+      <div role="status" class="mb-2 flex items-center gap-2 border border-emerald-300 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-900/10 px-2.5 py-1.5 text-[11px] text-emerald-900 dark:text-emerald-300">
+        <Wrench size={12} class="shrink-0" />
+        <span class="flex-1">
+          Local tools active on this device: {activeLocalServers.map(s => s.name).join(', ')}
+        </span>
+        {#each activeLocalServers as server}
+          <button
+            onclick={() => disableLocalServer(server)}
+            class="shrink-0 px-2 py-0.5 border border-emerald-300 dark:border-emerald-900/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            Disable {server.name}
+          </button>
+        {/each}
+      </div>
+    {/if}
+
     <!-- Media storage hint: one quiet, dismissible notice, never a toast per image -->
     {#if mediaStorageOff && !mediaHintDismissed}
       <div role="status" class="mb-2 flex items-start gap-2 border border-amber-300 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-900/10 px-2.5 py-1.5 text-[11px] text-amber-800 dark:text-amber-300">
@@ -2266,6 +2785,70 @@
   {/snippet}
 </div>
 </div>
+
+<!-- Approval for a local MCP server.
+     Approval is per device and deliberately not part of the stored record:
+     the same loopback URL is a different program on a laptop and a desktop,
+     so a synced approval would authorize, here, something inspected there.
+     The tools are listed first because a name and a URL are not enough to
+     decide with — after this, the model calls them without asking again. -->
+{#if localApprovalFor}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div class="w-full max-w-lg border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Enable {localApprovalFor.name} on this device</h2>
+        <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+          Your browser will call <code class="font-mono">{localApprovalFor.url}</code> on this computer. The model chooses the arguments, and after this it runs these tools without asking again.
+        </p>
+      </div>
+      <div class="p-4 space-y-3 max-h-80 overflow-y-auto">
+        {#if localStatus[localApprovalFor.id]?.busy}
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">Connecting…</p>
+        {:else if localStatus[localApprovalFor.id]?.error}
+          <p class="text-xs text-red-600 dark:text-red-400">{localStatus[localApprovalFor.id].error}</p>
+          {#if localStatus[localApprovalFor.id].hint}
+            <p class="text-[11px] text-gray-500 dark:text-dark-text-muted">{localStatus[localApprovalFor.id].hint}</p>
+          {/if}
+        {:else if localApprovalTools.length === 0}
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">This server advertises no tools.</p>
+        {:else}
+          <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{localApprovalTools.length} tool{localApprovalTools.length === 1 ? '' : 's'}:</p>
+          <ul class="space-y-1.5">
+            {#each localApprovalTools as tool}
+              <li class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                <code class="text-[11px] font-mono text-gray-800 dark:text-dark-text">{tool.name}</code>
+                {#if tool.description}
+                  <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">{tool.description}</p>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+      <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border flex items-center gap-2">
+        <button
+          onclick={confirmLocalApproval}
+          disabled={localApprovalTools.length === 0}
+          class="px-3 py-1.5 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50"
+        >
+          Enable on this device
+        </button>
+        <button
+          onclick={() => { localApprovalFor = null; }}
+          class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary"
+        >
+          Cancel
+        </button>
+        <button
+          onclick={() => localApprovalFor && beginLocalApproval(localApprovalFor)}
+          class="ml-auto px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <!-- Markdown typography is provided globally via `.markdown-body` rules in
      src/style/global.css. No component-local overrides needed. -->

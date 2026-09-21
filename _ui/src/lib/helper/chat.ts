@@ -133,10 +133,14 @@ export async function streamChatCompletion(
   },
   callbacks: StreamCallbacks,
   signal: AbortSignal,
+  // Correlation headers (x-at-trace-id). The server reads them through
+  // auditTraceInfo, so a browser-driven turn can group its own observations —
+  // including tools it ran itself — onto one trace.
+  headers?: Record<string, string>,
 ): Promise<void> {
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(headers ?? {}) },
     body: JSON.stringify(body),
     signal,
   });

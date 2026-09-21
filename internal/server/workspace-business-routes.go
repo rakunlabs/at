@@ -113,6 +113,13 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"DELETE", "/chats/conversations/{id}/messages", "models.use", "", ""},
 		{"GET", "/chats/defaults", "models.use", "", ""},
 		{"PUT", "/chats/defaults", "models.use", "", ""},
+		// The personal local-MCP registry and the client-asserted tool
+		// observations a local tool call produces. Both are owner-scoped in
+		// the handler and ride the Chats entry capability.
+		{"GET", "/chats/local-mcp-servers", "models.use", "", ""},
+		{"PUT", "/chats/local-mcp-servers", "models.use", "", ""},
+		{"POST", "/chats/local-mcp-servers/{id}/reveal", "models.use", "", ""},
+		{"POST", "/chats/tool-observations", "models.use", "", ""},
 		// The Playground's tool plane. These endpoints dispatch server-side
 		// tools for a browser-driven loop, so they ride the same `models.use`
 		// entry capability as the Playground itself; what a caller may actually

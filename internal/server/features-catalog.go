@@ -125,6 +125,14 @@ var featureDefinitions = []featureDefinition{
 		Parent:      service.FeatureChatWorkbench,
 	},
 	{
+		Key:  service.FeatureChatLocalMCP,
+		Name: "Local MCP servers in Chats",
+		Description: "Let a person register MCP servers running on their own machine and call their tools from Chats. The browser connects to them; the server stores the endpoints and never dials one. " +
+			"A sibling of Chats rather than a child because the catalog nests two levels; the surface itself lives inside Chats and disappears with it.",
+		Group:  "workspace",
+		Parent: service.FeatureChatWorkbench,
+	},
+	{
 		Key:         service.FeatureChatSessions,
 		Name:        "Chat Sessions",
 		Description: "Persistent agent chat sessions, their stored messages and tool-call confirmations. Independent of Chats.",

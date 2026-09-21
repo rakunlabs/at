@@ -1633,6 +1633,98 @@ Execution-policy resource IDs are unchanged: they were always keyed on the
 configured URL, never the normalized one. Regression:
 `TestMCPEndpointURLIsVerbatim`, `TestHTTPMCPClientDialsConfiguredPath`.
 
+### Local MCP servers in Chats
+
+Every other MCP path in the product dials from the server process, so
+`localhost` in an upstream URL is the *server's* loopback and an MCP server
+running on a person's own computer is unreachable. Chats is the one surface
+where that is fixable without a new distribution artifact: its agentic loop
+already runs in the browser (`executeToolCall` in `_ui/src/pages/Chat.svelte`),
+and the browser sits on the user's machine.
+
+A **local MCP server** is a per-account record (name, URL, optional headers)
+stored in `user_preferences` under `local_mcp_servers` with `Secret: true`, so
+the blob is encrypted by the existing path and no migration is needed. Managed
+at `GET`/`PUT /api/v1/chats/local-mcp-servers` plus
+`POST /api/v1/chats/local-mcp-servers/{id}/reveal`, all owner-scoped through
+`playgroundAccess` and admitted on `models.use`. Feature key `chat_local_mcp`
+(a sibling of `playground` under `chat_workbench`, because the catalog nests
+two levels).
+
+**The server stores these and never dials one.** The record type has no
+conversion into an `MCPUpstream` and no MCP runtime reads the preference key.
+That is the security position, not an implementation detail: the addresses are
+loopback and private by construction, so a server-side dial would be a request
+from AT into AT's own network chosen by any account — the SSRF
+`internal/service/execution-mcp.go` already refuses on the scoped path and the
+legacy Chats path does not check.
+
+`service.ValidateLocalMCPURL` accepts only `http`/`https` to loopback,
+`.localhost`, `.local`, RFC1918, CGNAT (100.64/10) and link-local hosts; a
+public endpoint is refused and the message names MCP sets. This is not defence
+against the person configuring it — they control their own browser — it is
+what stops the feature becoming a workspace-policy bypass: a public MCP routed
+through the page would run with no `CheckExecution`, no `mcp_tool` admission
+and no server-side trace, while being exactly as usable as one in an MCP set.
+The URL is dialled verbatim, like every other MCP URL.
+
+Header values are redacted to `***` on ordinary reads, the sentinel preserves
+the stored value on write, and real values come only from the per-record
+reveal, called at the point the browser is about to dial — so the page does not
+hold every credential for the whole session.
+
+**Approval is per device** (`localStorage`, `at.local-mcp.approved`), not part
+of the record. `http://127.0.0.1:3000/mcp` is a different program on a laptop
+and on a desktop, so a synced approval would authorize, on the second machine,
+a server inspected on the first. A record arriving on a new device lists as
+*not enabled here*; the approval dialog connects first and shows the tool names
+and descriptions, because a name and a URL are not enough to decide with. It is
+**one approval per server, not per call** — the accepted cost is that a
+prompt-injected page can make the model call a local tool with arguments the
+user never sees, countered by visibility rather than interruption: the tool
+list at approval time, local calls rendered in the transcript, an
+always-present "local tools active" strip above the composer naming each
+server, a one-click per-device disable, and tools added since approval labelled
+as new.
+
+Local tools are registered **last** in `refreshTools` and yield the name on
+collision (`localMCPToolName` → `<server>__<tool>`): a program on somebody's
+laptop must not be able to take over the name of a built-in or MCP-set tool the
+conversation relies on. Results are bounded at 64 KiB in the browser, because
+Chats is not governed by `loopgov` — that governs the three server-side loops —
+and there is no workspace to spill the remainder into, so the notice asks for a
+narrower result instead of naming a file.
+
+Each call is reported to `POST /api/v1/chats/tool-observations` as a `tool`
+observation with `metadata.origin: browser_local` and `client_asserted: true`.
+The marking is load-bearing: every other observation is written by the process
+that did the work, and a reader comparing a local tool's reported duration
+against a provider's has to know which is which. Owner, workspace, source and
+timestamps are stamped server-side; content is included only when the
+`llm_audit` body-capture feature is on, which is stricter than server-executed
+tools (whose previews are unconditional) because a local tool's input and
+output never passed through this process. A failed report never fails the turn.
+The Chats client now also sends a per-turn `x-at-trace-id`, which is what lets
+a browser-run tool share the generation's trace — and incidentally makes Chats
+turns group in Traces at all.
+
+**Two browser constraints are inherent, not bugs.** The MCP server must send
+`Access-Control-Allow-Origin` for AT's origin and
+`Access-Control-Expose-Headers: Mcp-Session-Id` (without the latter the session
+cannot be read, so a stateful server is used statelessly rather than failing as
+a protocol error), and a page on a public origin reaching a private address
+needs `Access-Control-Allow-Private-Network: true` on the preflight in current
+Chrome. A browser reports a refused connection and a refused cross-origin
+request identically, so the error names both causes and lists the required
+headers rather than repeating "failed to fetch".
+
+**stdio MCP servers are out of scope**: a browser cannot spawn a process. That
+needs a local bridge, which is a separate change. Local tools are Chats-only —
+Sessions, org delegation, workflow nodes and the gateway have no browser.
+
+Regressions: `internal/service/types-local-mcp_test.go`,
+`internal/server/chat-local-mcp_test.go`, `_ui/tests/local-mcp.test.mjs`.
+
 ### Workspace trace export
 
 Settings → Trace export (`/settings/trace-export`) configures a separate OTLP

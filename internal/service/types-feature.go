@@ -31,7 +31,10 @@ const (
 	FeatureRoutingProfiles = "routing_profiles"
 
 	// Workspace.
-	FeaturePlayground         = "playground"
+	FeaturePlayground = "playground"
+	// FeatureChatLocalMCP gates the personal registry of MCP servers running
+	// on an account holder's own machine, which their browser dials directly.
+	FeatureChatLocalMCP       = "chat_local_mcp"
 	FeatureChatSessions       = "chat_sessions"
 	FeatureBots               = "bots"
 	FeatureAudioTranscription = "audio_transcription"
