@@ -10,7 +10,7 @@
   import { listSkills, type Skill } from '@/lib/api/skills';
   import { listNodeConfigs, type NodeConfig } from '@/lib/api/node-configs';
   import { Canvas, Controls, Minimap, GroupNode, type FlowNode, type FlowEdge, type FlowState, type NodeTypes } from 'kaykay';
-  import { ArrowLeft, Save, Play, Plus, X, Bot, History, Check, Clock, Undo2, Redo2, Maximize } from 'lucide-svelte';
+  import { ArrowLeft, Save, Play, Plus, X, Bot, History, Check, Clock, Undo2, Redo2 } from 'lucide-svelte';
   import ChatPanel from '@/lib/components/workflow/ChatPanel.svelte';
   import NodePalette from '@/lib/components/workflow/NodePalette.svelte';
   import NodeDataView from '@/lib/components/workflow/NodeDataView.svelte';
@@ -800,6 +800,13 @@
     return true;
   }
 
+  // ─── Toolbar button styles (single variant set, uniform geometry) ───
+
+  const toolbarBtn = 'inline-flex h-8 shrink-0 items-center gap-1.5 border px-2.5 text-xs leading-none disabled:opacity-50';
+  const toolbarBtnDefault = `${toolbarBtn} border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-dark-border-subtle dark:bg-dark-surface dark:text-dark-text-secondary dark:hover:bg-dark-elevated`;
+  const toolbarBtnActive = `${toolbarBtn} border-gray-900 bg-gray-900 text-white hover:bg-gray-800 dark:border-accent dark:bg-accent dark:text-gray-950 dark:hover:bg-accent-hover`;
+  const toolbarBtnPrimary = `${toolbarBtn} border-green-600 bg-green-600 text-white hover:bg-green-700`;
+
   // ─── Init ───
 
   loadWorkflow().then(() => loadVersions());
@@ -857,49 +864,54 @@
         </div>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button onclick={() => { showSavedRuns = !showSavedRuns; if (showSavedRuns) { showRunPanel = false; showVersionPanel = false; showChatPanel = false; } }} class="flex min-h-9 items-center gap-1 border border-gray-300 px-2 py-1 text-xs text-gray-700 dark:border-dark-border-subtle dark:text-dark-text"><Clock size={14} />Saved runs</button>
-        <button onclick={openPalette} disabled={viewingVersion != null} class="flex min-h-9 items-center gap-2 border border-gray-300 px-3 py-1.5 text-sm text-gray-900 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-border-subtle dark:text-dark-text dark:hover:bg-dark-elevated"><Plus size={16} /> Add step</button>
         {#if workflow.active_version != null}
-          <span class="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded {viewingVersion != null ? 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800' : 'text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated border border-gray-200 dark:border-dark-border'}">
+          <span class="inline-flex h-8 shrink-0 items-center gap-1 border px-2 text-[11px] font-medium leading-none {viewingVersion != null ? 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800' : 'text-gray-500 dark:text-dark-text-muted bg-gray-100 dark:bg-dark-elevated border-gray-200 dark:border-dark-border'}">
             {#if viewingVersion != null}
               v{viewingVersion}
               {#if viewingVersion === workflow.active_version}
-                <Check size={10} class="text-green-600" />
+                <Check size={12} class="text-green-600" />
               {/if}
             {:else}
               v{workflow.active_version}
-              <Check size={10} class="text-green-600" />
+              <Check size={12} class="text-green-600" />
             {/if}
           </span>
         {/if}
-        <button
-          onclick={() => { showSavedRuns = false; showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showVersionPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
-        >
-          <History size={12} />
-          Versions
+        <button onclick={openPalette} disabled={viewingVersion != null} class={toolbarBtnDefault}>
+          <Plus size={14} />
+          Add step
         </button>
         <button
-          onclick={handleSave}
-          disabled={saving || viewingVersion != null}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle rounded hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50 "
+          onclick={() => { showSavedRuns = !showSavedRuns; if (showSavedRuns) { showRunPanel = false; showVersionPanel = false; showChatPanel = false; } }}
+          class={showSavedRuns ? toolbarBtnActive : toolbarBtnDefault}
         >
-          <Save size={12} />
-          {saving ? 'Saving...' : 'Save'}
+          <Clock size={14} />
+          Saved runs
+        </button>
+        <button
+          onclick={() => { showSavedRuns = false; showVersionPanel = !showVersionPanel; if (showVersionPanel) loadVersions(); }}
+          class={showVersionPanel ? toolbarBtnActive : toolbarBtnDefault}
+        >
+          <History size={14} />
+          Versions
         </button>
         <button
           onclick={() => { showSavedRuns = false; showChatPanel = !showChatPanel; }}
           disabled={viewingVersion != null}
-          class="flex items-center gap-1 px-2 py-1 text-xs {showChatPanel ? 'text-white bg-gray-900 dark:bg-accent' : 'text-gray-700 dark:text-dark-text-secondary bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border-subtle'} rounded hover:bg-gray-800 dark:hover:bg-accent-hover hover:text-white "
+          class={showChatPanel ? toolbarBtnActive : toolbarBtnDefault}
         >
-          <Bot size={12} />
+          <Bot size={14} />
           AI
+        </button>
+        <button onclick={handleSave} disabled={saving || viewingVersion != null} class={toolbarBtnDefault}>
+          <Save size={14} />
+          {saving ? 'Saving...' : 'Save'}
         </button>
         <button
           onclick={() => { showSavedRuns = false; runTargetNodeId = null; showRunPanel = !showRunPanel; }}
-          class="flex items-center gap-1 px-2 py-1 text-xs text-white bg-green-600 rounded hover:bg-green-700 "
+          class={toolbarBtnPrimary}
         >
-          <Play size={12} />
+          <Play size={14} />
           Run
         </button>
       </div>
@@ -954,11 +966,9 @@
 
         </Canvas>
         {#if flow}
-          <div class="absolute top-3 left-3 flex items-center gap-1 border border-gray-200 bg-white p-1 dark:border-dark-border dark:bg-dark-surface" aria-label="Canvas actions">
-            <button onclick={() => flow?.undo()} disabled={!flow.canUndo || viewingVersion != null} aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" class="p-2 text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Undo2 size={16} /></button>
-            <button onclick={() => flow?.redo()} disabled={!flow.canRedo || viewingVersion != null} aria-label="Redo" title="Redo" class="p-2 text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Redo2 size={16} /></button>
-            <button onclick={() => flow?.fitView()} aria-label="Fit workflow to view" title="Fit workflow to view" class="p-2 text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-elevated"><Maximize size={16} /></button>
-            <span class="px-2 text-xs tabular-nums text-gray-600 dark:text-dark-text-secondary">{Math.round(flow.viewport.zoom * 100)}%</span>
+          <div class="canvas-actions absolute top-3 left-3 z-[1000] flex items-center gap-[2px] bg-white p-1 dark:bg-dark-surface" aria-label="Canvas actions">
+            <button onclick={() => flow?.undo()} disabled={!flow.canUndo || viewingVersion != null} aria-label="Undo" title="Undo (Ctrl/Cmd+Z)" class="flex h-8 w-8 items-center justify-center text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Undo2 size={16} /></button>
+            <button onclick={() => flow?.redo()} disabled={!flow.canRedo || viewingVersion != null} aria-label="Redo" title="Redo" class="flex h-8 w-8 items-center justify-center text-gray-700 hover:bg-gray-100 disabled:opacity-40 dark:text-dark-text dark:hover:bg-dark-elevated"><Redo2 size={16} /></button>
           </div>
           {#if flow.nodes.length === 0 && !showPalette}
             <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -1387,5 +1397,22 @@
 
   :global(.kaykay-controls-btn[title="Lock"]) {
     display: none !important;
+  }
+
+  /* Matches kaykay's Controls chrome (shadow, z-index, faded until hovered) so
+     the undo/redo group reads as the same class of canvas overlay. No opacity
+     transition: this UI does not animate state changes. */
+  .canvas-actions {
+    box-shadow: 0 2px 8px #00000026;
+    opacity: 0.4;
+  }
+
+  .canvas-actions:hover,
+  .canvas-actions:focus-within {
+    opacity: 1;
+  }
+
+  :global(.kaykay-dark) .canvas-actions {
+    box-shadow: 0 2px 8px rgb(0 0 0 / 40%);
   }
 </style>
