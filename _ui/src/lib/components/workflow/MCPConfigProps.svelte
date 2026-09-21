@@ -10,9 +10,9 @@
     oninput={(e) => { data.mcp_urls = (e.target as HTMLTextAreaElement).value.split('\n').map((s: string) => s.trim()).filter(Boolean); }}
     rows={3}
     class="mt-0.5 w-full px-2 py-1 text-xs border border-gray-300 rounded font-mono focus:outline-none focus:ring-1 focus:ring-gray-400 resize-y"
-    placeholder="https://mcp-server.example.com/sse"
+    placeholder="https://mcp-server.example.com/mcp"
   ></textarea></label>
-  <div class="mt-0.5 text-[10px] text-gray-400">One URL per line</div>
+  <div class="mt-0.5 text-[10px] text-gray-400">One full endpoint URL per line, used exactly as entered</div>
 </div>
 <div class="mt-1 px-2 py-1.5 bg-green-50 border border-green-200 rounded text-[10px] text-green-700">
   Connect this node's <span class="font-mono font-medium">mcp_urls</span> output to an Agent Call's <span class="font-mono font-medium">mcp</span> input.

@@ -152,26 +152,75 @@ func TestHTTPMCPClient_StreamableHTTP(t *testing.T) {
 	}
 }
 
-func TestNormalizeMCPEndpointURL(t *testing.T) {
+// The configured URL is dialled verbatim. AT used to append /mcp to anything
+// whose path did not already end in it, which made an endpoint like /mcp/api
+// or /sse unreachable and said nothing about why.
+func TestMCPEndpointURLIsVerbatim(t *testing.T) {
 	tests := []struct {
 		name string
 		in   string
 		want string
 	}{
-		{"host only", "http://127.0.0.1:8787", "http://127.0.0.1:8787/mcp"},
-		{"host slash", "http://127.0.0.1:8787/", "http://127.0.0.1:8787/mcp"},
+		{"host only", "http://127.0.0.1:8787", "http://127.0.0.1:8787"},
+		{"host slash", "http://127.0.0.1:8787/", "http://127.0.0.1:8787/"},
 		{"full endpoint", "http://127.0.0.1:8787/mcp", "http://127.0.0.1:8787/mcp"},
-		{"full endpoint slash", "http://127.0.0.1:8787/mcp/", "http://127.0.0.1:8787/mcp"},
+		{"trailing slash kept", "http://127.0.0.1:8787/mcp/", "http://127.0.0.1:8787/mcp/"},
 		{"query preserved", "http://127.0.0.1:8787/mcp?token=abc", "http://127.0.0.1:8787/mcp?token=abc"},
-		{"base path", "https://example.com/bridge", "https://example.com/bridge/mcp"},
+		{"nested path not rewritten", "https://example.com/mcp/api", "https://example.com/mcp/api"},
+		{"sse path not rewritten", "https://example.com/sse", "https://example.com/sse"},
+		{"base path not rewritten", "https://example.com/bridge", "https://example.com/bridge"},
+		{"whitespace trimmed", "  https://example.com/mcp/api\n", "https://example.com/mcp/api"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := normalizeMCPEndpointURL(tt.in); got != tt.want {
-				t.Errorf("normalizeMCPEndpointURL(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := mcpEndpointURL(tt.in); got != tt.want {
+				t.Errorf("mcpEndpointURL(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
+	}
+}
+
+// A path the normalizer would have rewritten must be the path that is
+// requested, end to end through the client.
+func TestHTTPMCPClientDialsConfiguredPath(t *testing.T) {
+	var gotPaths []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPaths = append(gotPaths, r.URL.Path)
+		var req MCPRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Errorf("decode request: %v", err)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch req.Method {
+		case "initialize":
+			w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"protocolVersion":"2025-03-26","serverInfo":{"name":"t","version":"1"}}}`))
+		case "tools/list":
+			w.Write([]byte(`{"jsonrpc":"2.0","id":` + itoa(req.ID) + `,"result":{"tools":[]}}`))
+		default:
+			// notifications/initialized, notifications/cancelled, ...
+			w.WriteHeader(http.StatusAccepted)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := NewHTTPMCPClient(context.Background(), strings.TrimSuffix(srv.URL, "/")+"/mcp/api")
+	if err != nil {
+		t.Fatalf("NewHTTPMCPClient: %v", err)
+	}
+	defer client.Close()
+
+	if _, err := client.ListTools(context.Background()); err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	for _, p := range gotPaths {
+		if p != "/mcp/api" {
+			t.Fatalf("request path = %q, want /mcp/api", p)
+		}
+	}
+	if len(gotPaths) == 0 {
+		t.Fatal("no requests recorded")
 	}
 }
 

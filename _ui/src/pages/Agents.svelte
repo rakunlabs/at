@@ -980,7 +980,7 @@
                         value={url}
                         oninput={(e) => updateMcpInput(i, (e.target as HTMLInputElement).value)}
                         class="flex-1 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
-                        placeholder="http://localhost:8000/sse"
+                        placeholder="https://mcp-server.example.com/mcp"
                       />
                       <button
                         type="button"

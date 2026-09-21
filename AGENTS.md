@@ -1609,6 +1609,30 @@ missing historical IDs are not guessed or rewritten.
 
 ## Stdio MCP processes & the MCP program library
 
+### HTTP MCP upstream URLs are used verbatim
+
+**Breaking change.** `NewHTTPMCPClient` used to run the configured URL through a
+normalizer that appended `/mcp` to anything whose path did not already end in
+it. A base URL was the historical storage form, so the rewrite was meant as
+compatibility — but it also rewrote URLs a person had typed in full:
+`https://host/mcp/api` was dialled as `/mcp/api/mcp` and `https://host/sse` as
+`/sse/mcp`. A server whose endpoint path is anything other than `…/mcp` was
+therefore unaddressable, and the only symptom was a 404 from a URL that appears
+correct in the editor.
+
+`mcpEndpointURL` (`internal/service/client.go`) now only trims whitespace. The
+URL stored on an `MCPUpstream`, an MCP set's `urls` or an agent's legacy
+`mcp_urls` is the URL that is dialled.
+
+**Upgrade note**: an upstream stored as a bare base URL (`http://host:8787`,
+no path) previously worked because `/mcp` was appended; it now hits the root
+path and must be corrected to the full endpoint. AT's own gateway is unaffected
+— both `POST /gateway/v1/mcp/{name}` and `…/{name}/mcp` are registered, so the
+loopback URLs built in `org-delegation.go` and `chat-sessions.go` keep resolving.
+Execution-policy resource IDs are unchanged: they were always keyed on the
+configured URL, never the normalized one. Regression:
+`TestMCPEndpointURLIsVerbatim`, `TestHTTPMCPClientDialsConfiguredPath`.
+
 ### Workspace trace export
 
 Settings → Trace export (`/settings/trace-export`) configures a separate OTLP

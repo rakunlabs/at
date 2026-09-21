@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -98,7 +97,7 @@ type HTTPMCPClient struct {
 func NewHTTPMCPClient(ctx context.Context, baseURL string, opts ...HTTPMCPClientOption) (*HTTPMCPClient, error) {
 	client := &HTTPMCPClient{
 		baseURL:     baseURL,
-		endpointURL: normalizeMCPEndpointURL(baseURL),
+		endpointURL: mcpEndpointURL(baseURL),
 		httpClient:  &http.Client{},
 		nextID:      1,
 	}
@@ -128,27 +127,16 @@ func (c *HTTPMCPClient) getNextID() int {
 	return int(atomic.AddInt32(&c.nextID, 1) - 1)
 }
 
-// normalizeMCPEndpointURL accepts either a server base URL (http://host:8787)
-// or a full Streamable HTTP MCP endpoint (http://host:8787/mcp?token=...).
-// AT historically stored the base URL and appended /mcp; most MCP registry
-// docs publish the full endpoint, so accepting both avoids easy /mcp/mcp
-// misconfiguration.
-func normalizeMCPEndpointURL(raw string) string {
-	trimmed := strings.TrimSpace(raw)
-	u, err := url.Parse(trimmed)
-	if err != nil || u.Scheme == "" || u.Host == "" {
-		return strings.TrimRight(trimmed, "/") + "/mcp"
-	}
-
-	path := strings.TrimRight(u.Path, "/")
-	if path == "" {
-		u.Path = "/mcp"
-	} else if !strings.HasSuffix(path, "/mcp") {
-		u.Path = path + "/mcp"
-	} else {
-		u.Path = path
-	}
-	return u.String()
+// mcpEndpointURL is the configured URL, used verbatim.
+//
+// AT used to accept a base URL and append /mcp, which meant an explicitly
+// configured endpoint was rewritten: /mcp/api became /mcp/api/mcp and /sse
+// became /sse/mcp. A server whose path does not happen to end in /mcp could
+// therefore not be addressed at all, and the rewrite was invisible until the
+// upstream answered 404. The URL a person typed is now the URL that is
+// dialled; only surrounding whitespace is removed.
+func mcpEndpointURL(raw string) string {
+	return strings.TrimSpace(raw)
 }
 
 func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPResponse, error) {

@@ -1144,10 +1144,13 @@
                             <input
                               type="text"
                               bind:value={formMCPUpstreams[i].url}
-                              placeholder="https://other-server:8000/sse"
+                              placeholder="https://other-server:8000/mcp"
                               class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted "
                             />
                           </label>
+                          <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
+                            Full endpoint URL, used exactly as entered — no path is appended.
+                          </div>
                         </div>
 
                         <div class="grid grid-cols-4 gap-2 items-start">
