@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getExecutionBinding, saveExecutionBinding, revokeExecutionBinding, type ExecutionBinding, type BindingCandidate } from '@/lib/api/execution-bindings';
   import { startBot } from '@/lib/api/bots';
+  import { routeAllowed } from '@/lib/helper/navigation';
 
   interface Props { kind: 'bot' | 'mcp'; subjectId: string; onchange?: () => void }
   let { kind, subjectId, onchange }: Props = $props();
@@ -81,9 +82,11 @@
     {kind === 'bot' ? 'Bot messages' : 'MCP tool calls'} run with the selected account's permissions, independently of your login session.
     After changing permissions or execution policy, renew this binding.
   </p>
-  <p class="text-xs text-gray-600 dark:text-dark-text-secondary max-w-prose">
-    Configure the workspace's <a href="#/settings/execution" class="underline underline-offset-2 hover:text-gray-900 dark:hover:text-dark-text">execution policy</a> first, including allowed tools. Builtin management tools currently require trusted-host mode.
-  </p>
+  {#if routeAllowed('/settings/execution')}
+    <p class="text-xs text-gray-600 dark:text-dark-text-secondary max-w-prose">
+      Configure the workspace's <a href="#/settings/execution" class="underline underline-offset-2 hover:text-gray-900 dark:hover:text-dark-text">execution policy</a> first, including allowed tools. Builtin management tools currently require trusted-host mode.
+    </p>
+  {/if}
   {#if loading}
     <p role="status" class="text-sm text-gray-600 dark:text-dark-text-secondary">Loading execution identity…</p>
   {:else}

@@ -120,7 +120,7 @@ export default {
   '/settings/authentication': AuthenticationSettings,
   '/settings/workspace': WorkspaceSettings,
   '/settings/permissions': Permissions,
-  '/settings/execution': ExecutionSettings,
+  '/settings/execution': guarded(ExecutionSettings, '/settings/execution', adminOnly),
   '/settings/media': MediaSettings,
   '/settings/trace-export': TraceExportSettings,
   '/settings/users': Users,

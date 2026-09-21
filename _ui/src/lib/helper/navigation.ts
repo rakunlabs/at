@@ -21,7 +21,7 @@ const capabilityRoutes: Record<string, string> = {
   '/workflows': 'workflows.read', '/runs': 'workflows.read',
   '/bots': 'bots.read', '/organizations': 'organizations.read', '/tasks': 'tasks.read',
   '/studio': 'files.read', '/files': 'files.read',
-  '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read', '/settings/execution': 'workspace.read',
+  '/settings/tokens': 'tokens.read', '/settings/permissions': 'permissions.read',
   '/chats': 'models.use',
   '/usage': 'usage.read', '/llm-calls': 'traces.read',
   '/settings/trace-export': 'workspace.write',
@@ -36,6 +36,9 @@ const capabilityRoutes: Record<string, string> = {
 // usage.read, traces.read and agents.read (chat sessions are owner-scoped in
 // the handlers), which the role ladder hands out at member/admin rank.
 const platformRoutes = [
+  // Policy reads are workspace-admitted, but this configuration surface is
+  // only useful to installation administrators who can change the policy.
+  '/settings/execution',
   '/terminal', '/users', '/pricing', '/settings/users', '/settings/authentication', '/settings/features', '/settings/media', '/settings/system',
   '/skills', '/marketplaces', '/integrations', '/variables',
   '/node-configs', '/webhooks', '/crons', '/connections', '/mcp-servers', '/mcps',

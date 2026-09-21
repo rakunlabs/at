@@ -32,7 +32,6 @@ type uiRouteProbe struct{ method, path string }
 var uiCapabilityElsewhere = map[string]string{
 	"/files":                "registerRuntimeRoutes: /api/v1/files/* via workspaceAuthentication",
 	"/studio":               "registerRuntimeRoutes: /api/v1/files/* via workspaceAuthentication",
-	"/settings/execution":   "registerRuntimeRoutes: /api/v1/workspaces/{workspace}/execution-policy",
 	"/settings/permissions": "workspaceRoutePolicies: /api/v1/permissions",
 }
 
@@ -40,6 +39,9 @@ var uiCapabilityElsewhere = map[string]string{
 // auth administration), so there is no business policy to assert against.
 var uiPlatformOutsideAPIGroup = []string{
 	"/users", "/settings/users", "/settings/authentication", "/settings/system",
+	// RuntimeExecutionPolicyAPI permits workspace reads, but policy changes
+	// require an installation administrator via PrepareExecutionPolicyChange.
+	"/settings/execution",
 }
 
 // Skills, Connections and MCP sets are probed with their *management* call, not

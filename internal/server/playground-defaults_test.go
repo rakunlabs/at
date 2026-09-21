@@ -19,6 +19,24 @@ func playgroundDefaultsRequest(s *Server, token, method, body string) *httptest.
 	return w
 }
 
+func TestPlaygroundFrontendToolsDefaultsRoundTrip(t *testing.T) {
+	for _, input := range []string{`{}`, `{"frontend_tools":[]}`, `{"frontend_tools":["question"]}`} {
+		t.Run(input, func(t *testing.T) {
+			var prefs playgroundDefaults
+			if err := json.Unmarshal([]byte(input), &prefs); err != nil {
+				t.Fatal(err)
+			}
+			stored, err := json.Marshal(prefs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(stored) != input {
+				t.Fatalf("default vs explicit tool choice lost: got %s, want %s", stored, input)
+			}
+		})
+	}
+}
+
 // The saved workbench preset is per account: it is keyed on the authenticated
 // subject, never on a user ID in the request, so one account's setup cannot be
 // read or overwritten through another's session. An account that never saved
@@ -63,6 +81,20 @@ func TestPlaygroundDefaultsOwnerScope(t *testing.T) {
 	}
 	if got.Model != "test/text-model" {
 		t.Fatalf("second account overwrote the first: %+v", got)
+	}
+
+	// Explicitly disabling all browser tools must survive storage; an absent
+	// field instead opts into the UI's shipped defaults.
+	if w = playgroundDefaultsRequest(s, tokens[0], "PUT", `{"frontend_tools":[]}`); w.Code != 200 {
+		t.Fatalf("disable chat tools: %d %s", w.Code, w.Body)
+	}
+	w = playgroundDefaultsRequest(s, tokens[0], "GET", "")
+	var disabled map[string]json.RawMessage
+	if err := json.Unmarshal(w.Body.Bytes(), &disabled); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != 200 || string(disabled["frontend_tools"]) != "[]" {
+		t.Fatalf("empty selection was lost: %d %s", w.Code, w.Body)
 	}
 
 	// Unknown fields are refused like the rest of the Playground surface.

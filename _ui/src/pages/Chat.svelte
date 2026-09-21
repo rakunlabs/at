@@ -255,14 +255,15 @@
 
 
   // Frontend-only tools
-  let enabledFrontendTools = $state<string[]>([]);
+  let enabledFrontendTools = $state<string[]>([...FRONTEND_TOOL_NAMES]);
 
   // Todo panel
   let todos = $state<TodoItem[]>([]);
   let showTodoPanel = $state(false);
 
-  // Question modal
+  // Pending question is answered inline in its originating assistant message.
   let pendingQuestion = $state<PendingQuestion | null>(null);
+  let questionSelections = $state<string[]>([]);
 
   // Discovered tools and dispatch map
   let discoveredTools = $state<ToolDefinition[]>([]);
@@ -794,13 +795,12 @@
       if (prefs.mcp_sets?.length) selectedMCPSetNames = [...prefs.mcp_sets];
       if (prefs.skills?.length) selectedSkillNames = [...prefs.skills];
       if (prefs.builtin_tools?.length) enabledBuiltinTools = [...prefs.builtin_tools];
-      if (prefs.frontend_tools?.length) enabledFrontendTools = [...prefs.frontend_tools];
+      enabledFrontendTools = [...(prefs.frontend_tools ?? FRONTEND_TOOL_NAMES)];
       showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
-      if (boundAgentId || selectedMCPSetNames.length || selectedSkillNames.length || enabledBuiltinTools.length || enabledFrontendTools.length) {
-        void refreshTools();
-      }
     } catch {
       // A deployment without preference storage simply has no preset.
+    } finally {
+      if (!conversationId && !params.id) void refreshTools();
     }
   }
 
@@ -1192,14 +1192,25 @@
         const custom = args.custom ?? true;
 
         // Create a promise that resolves when the user answers
-        const answer = await new Promise<string>((resolve) => {
+        questionSelections = [];
+        const signal = abortController?.signal;
+        const answer = await new Promise<string>((resolve, reject) => {
+          const cancel = () => {
+            pendingQuestion = null;
+            reject(new DOMException('Question cancelled', 'AbortError'));
+          };
+          if (signal?.aborted) { cancel(); return; }
+          signal?.addEventListener('abort', cancel, { once: true });
           pendingQuestion = {
             question,
             header,
             options,
             multiple,
             custom,
-            resolve,
+            resolve: answer => {
+              signal?.removeEventListener('abort', cancel);
+              resolve(answer);
+            },
           };
           scrollToBottom();
         });
@@ -1393,6 +1404,7 @@
         for (const tc of pendingToolCalls) {
           activeTool = { messageIndex: lastIdx, callID: tc.id };
           const result = await executeToolCall(tc);
+          controller.signal.throwIfAborted();
           messages = [
             ...messages,
             {
@@ -2045,13 +2057,17 @@
                   <div class="mt-2 pt-2 border-t border-gray-200 dark:border-dark-border space-y-1">
                     {#each msg.tool_calls as tc}
                       {@const source = toolSourceMap[tc.function.name]}
-                      <ToolActivity
-                        call={tc}
-                        result={toolResults.get(i)?.get(tc.id)}
-                        running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
-                        queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
-                        source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'frontend' ? 'Chat' : ''}
-                      />
+                      {#if pendingQuestion && activeTool?.messageIndex === i && activeTool?.callID === tc.id && tc.function.name === 'question'}
+                        {@render questionPrompt()}
+                      {:else}
+                        <ToolActivity
+                          call={tc}
+                          result={toolResults.get(i)?.get(tc.id)}
+                          running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
+                          queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
+                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'frontend' ? 'Chat' : ''}
+                        />
+                      {/if}
                     {/each}
                   </div>
                 {/if}
@@ -2145,7 +2161,7 @@
         class="inline-flex size-11 sm:size-10 shrink-0 items-center justify-center border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-gray-500 focus-visible:outline-2 focus-visible:outline-accent "
         title={`Attach image — paste or drop works too. Saved to history up to 16 MB (${MEDIA_ALLOWED_LABEL}).`}
       >
-        <ImagePlus size={14} />
+        <ImagePlus size={18} />
       </button>
 
       <textarea
@@ -2154,65 +2170,73 @@
         onkeydown={handleKeydown}
         onpaste={handlePaste}
         aria-label="Message"
-        aria-describedby="chats-composer-hint"
         placeholder={models.length === 0 ? 'No models available' : 'Write a message…'}
         disabled={models.length === 0}
         rows={1}
-        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-4 py-2 text-base sm:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
+        class="order-first sm:order-none basis-full sm:basis-auto min-w-0 min-h-11 sm:min-h-10 max-h-[min(16rem,35dvh)] overflow-y-auto flex-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-[9px] sm:py-2 text-base sm:text-sm leading-6 sm:leading-[22px] resize-none focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle disabled:bg-gray-50 dark:disabled:bg-dark-base disabled:text-gray-400 dark:disabled:text-dark-text-muted "
       ></textarea>
       <VoiceInput contextKey={voiceContext} disabled={models.length === 0 || streaming} bind:recording={chatRecording} bind:transcribing={chatTranscribing} ontext={text => { userInput = (userInput ? userInput + ' ' : '') + text; }} />
 
       {#if streaming}
         <button
           onclick={stopStreaming}
-          class="ml-auto min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 px-3 py-2 bg-red-600 text-white hover:bg-red-700 flex items-center justify-center gap-1.5 "
+          class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-red-600 text-white hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-accent"
           title="Stop"
+          aria-label="Stop response"
         >
-          <Square size={14} />
+          <Square size={18} />
         </button>
       {:else}
         <button
           onclick={sendMessage}
           disabled={(!userInput.trim() && pendingImages.length === 0) || !selectedModel || models.length === 0 || chatRecording || chatTranscribing || loadingTools || (!!boundAgentId && !boundAgent)}
-          class="ml-auto min-h-11 min-w-11 sm:min-h-10 sm:min-w-10 px-3 py-2 bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 flex items-center justify-center gap-1.5 "
+          class="ml-auto inline-flex size-11 sm:size-10 shrink-0 items-center justify-center bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 disabled:hover:bg-gray-900 focus-visible:outline-2 focus-visible:outline-accent"
           title="Send (Ctrl+Enter / ⌘+Enter)"
           aria-label="Send message"
         >
-          <Send size={14} />
+          <Send size={18} />
         </button>
       {/if}
     </div>
-    <p id="chats-composer-hint" class="hidden sm:block mt-1.5 text-xs text-gray-500 dark:text-dark-text-muted">Enter for a new line · Ctrl+Enter / ⌘+Enter to send</p>
   </div>
 
-  <!-- Question modal overlay -->
-  {#if pendingQuestion}
-    <div class="absolute inset-0 z-40 bg-gray-900/30 dark:bg-black/50 flex items-center justify-center p-4">
-      <div class="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border shadow-lg max-w-md w-full">
-        <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border">
-          <div class="flex items-center gap-2">
+  {#snippet questionPrompt()}
+    {#if pendingQuestion}
+      <details class="bg-white dark:bg-dark-surface border border-gray-200 dark:border-dark-border w-full">
+        <summary class="px-4 py-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-dark-elevated focus-visible:outline-2 focus-visible:outline-accent">
+          <span class="inline-flex items-center gap-2">
             <MessageCircleQuestion size={16} class="text-blue-500 shrink-0" />
             {#if pendingQuestion.header}
               <span class="text-sm font-medium text-gray-800 dark:text-dark-text">{pendingQuestion.header}</span>
             {:else}
               <span class="text-sm font-medium text-gray-800 dark:text-dark-text">Question</span>
             {/if}
-          </div>
-        </div>
+          </span>
+          <span class="block mt-2 text-sm text-gray-700 dark:text-dark-text-secondary whitespace-pre-wrap break-words">{pendingQuestion.question}</span>
+          <span class="block mt-1 text-xs text-gray-500 dark:text-dark-text-muted">Waiting for your answer · Click to answer</span>
+        </summary>
         <div class="px-4 py-3">
-          <p class="text-sm text-gray-700 dark:text-dark-text-secondary mb-3 whitespace-pre-wrap">{pendingQuestion.question}</p>
+          {#if pendingQuestion.multiple}<p class="mb-3 text-xs text-gray-500 dark:text-dark-text-muted">Select one or more options, then submit.</p>{/if}
           <div class="space-y-1.5">
             {#each pendingQuestion.options as opt}
               <button
-                onclick={() => { const q = pendingQuestion; if (q) { pendingQuestion = null; q.resolve(opt.label); } }}
+                aria-pressed={pendingQuestion.multiple ? questionSelections.includes(opt.label) : undefined}
+                onclick={() => { const q = pendingQuestion; if (!q) return; if (q.multiple) { questionSelections = questionSelections.includes(opt.label) ? questionSelections.filter(label => label !== opt.label) : [...questionSelections, opt.label]; } else { pendingQuestion = null; q.resolve(opt.label); } }}
                 class="w-full text-left px-3 py-2 text-sm border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-700 dark:text-dark-text-secondary "
               >
-                <div class="font-medium">{opt.label}</div>
+                <div class="font-medium">{opt.label}{#if pendingQuestion.multiple && questionSelections.includes(opt.label)}<span class="ml-2 text-xs">Selected</span>{/if}</div>
                 {#if opt.description}
                   <div class="text-xs text-gray-500 dark:text-dark-text-muted mt-0.5">{opt.description}</div>
                 {/if}
               </button>
             {/each}
+            {#if pendingQuestion.multiple}
+              <button
+                disabled={questionSelections.length === 0}
+                onclick={() => { const q = pendingQuestion; if (q && questionSelections.length) { pendingQuestion = null; q.resolve(questionSelections.join(', ')); } }}
+                class="px-3 py-2 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-accent"
+              >Submit selected answers</button>
+            {/if}
             {#if pendingQuestion.custom !== false}
               <div class="pt-1.5">
                 <form
@@ -2221,9 +2245,10 @@
                 >
                   <input
                     name="custom_answer"
+                    aria-label="Your answer"
                     type="text"
                     placeholder="Type your own answer..."
-                    class="flex-1 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
+                    class="min-w-0 flex-1 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
                   />
                   <button
                     type="submit"
@@ -2236,9 +2261,9 @@
             {/if}
           </div>
         </div>
-      </div>
-    </div>
-  {/if}
+      </details>
+    {/if}
+  {/snippet}
 </div>
 </div>
 

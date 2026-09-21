@@ -35,7 +35,8 @@ type playgroundDefaults struct {
 	// FrontendTools are browser-only helpers (todo bookkeeping, the question
 	// prompt). They have no server-side equivalent and are stored purely so
 	// the next conversation starts with the same switches.
-	FrontendTools []string `json:"frontend_tools,omitempty"`
+	// Preserve an explicit empty selection; nil means use the UI defaults.
+	FrontendTools []string `json:"frontend_tools,omitzero"`
 }
 
 // PlaygroundDefaultsAPI handles GET and PUT /api/v1/chats/defaults.
