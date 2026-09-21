@@ -21,23 +21,10 @@ const playgroundDefaultsMaxBytes = 64 << 10
 // only seeds the next one, which is what makes a tuned setup survive "New
 // chat" instead of resetting to the alphabetically first model.
 //
-// Every field is a selection the client already persists per conversation. The
-// server does not interpret them beyond bounding their size — the Playground's
-// tool loop runs in the browser, and validating a tool name here would mean
-// re-implementing that resolution twice.
-type playgroundDefaults struct {
-	Model        string   `json:"model,omitempty"`
-	AgentID      string   `json:"agent_id,omitempty"`
-	SystemPrompt string   `json:"system_prompt,omitempty"`
-	MCPSets      []string `json:"mcp_sets,omitempty"`
-	Skills       []string `json:"skills,omitempty"`
-	BuiltinTools []string `json:"builtin_tools,omitempty"`
-	// FrontendTools are browser-only helpers (todo bookkeeping, the question
-	// prompt). They have no server-side equivalent and are stored purely so
-	// the next conversation starts with the same switches.
-	// Preserve an explicit empty selection; nil means use the UI defaults.
-	FrontendTools []string `json:"frontend_tools,omitzero"`
-}
+// It is an alias, not a copy, of the selection payload a named preset carries
+// (see service.ChatPreset): a preset is a default with a name, so the two wire
+// shapes must not be able to drift apart.
+type playgroundDefaults = service.ChatWorkbenchSetup
 
 // PlaygroundDefaultsAPI handles GET and PUT /api/v1/chats/defaults.
 //

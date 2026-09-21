@@ -113,6 +113,10 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"DELETE", "/chats/conversations/{id}/messages", "models.use", "", ""},
 		{"GET", "/chats/defaults", "models.use", "", ""},
 		{"PUT", "/chats/defaults", "models.use", "", ""},
+		// Named setups are the same per-account payload as the singleton
+		// default, so they ride the same entry capability.
+		{"GET", "/chats/presets", "models.use", "", ""},
+		{"PUT", "/chats/presets", "models.use", "", ""},
 		// The personal local-MCP registry and the client-asserted tool
 		// observations a local tool call produces. Both are owner-scoped in
 		// the handler and ride the Chats entry capability.

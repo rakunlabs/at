@@ -900,6 +900,74 @@ history. The owner is the authenticated subject; the installation-wide
 `/user-preferences` endpoints, which take a `user_id` from the caller, stay
 administration.
 
+**Named presets** (`GET/PUT /api/v1/chats/presets`, `models.use`) are the same
+payload under a name, so the server shares one struct — `playgroundDefaults` is
+an *alias* of `service.ChatWorkbenchSetup`, which `service.ChatPreset` embeds.
+A preset is a default with a name; if the two wire shapes could drift, a setup
+saved through one surface would come back incomplete through the other. They
+live in `user_preferences` under `playground_presets` (no migration; the
+historical `playground_` prefix is kept because the table is keyed by name and
+renaming would orphan written rows).
+
+Unlike the singleton default, a preset is applied **deliberately, to the
+conversation already open** — switching setups mid-session is the reason for
+having more than one — and it writes the conversation's own `config`, so a
+reload keeps it. The transcript is never touched. PUT replaces the whole list
+rather than patching one entry (the local-MCP registry shape): add, rename,
+overwrite and delete are one call, at the cost of last-writer-wins between two
+tabs, which for a personal picker beats a version column on a preference row.
+Identity is server-assigned — a submitted `id` matching nothing stored becomes
+a new entry with a minted one, so a client cannot claim an id it observed
+elsewhere or backdate `created_at`. Names are unique case-insensitively: the
+list is a picker, and two entries a reader cannot tell apart are a defect.
+
+The toolbar switcher is controlled by a **derived** id, not a bound one: once
+any selection diverges from the applied preset it reports "No preset" rather
+than a stale name, and selecting "No preset" is a state, not an action — it
+clears the claim, never the reader's selections. A preset naming a deleted
+agent or an unavailable model drops that reference and says so, because binding
+a missing agent blocks sending with a warning and silently rewriting the model
+pair would be worse than a toast. `frontend_tools` is the one selection where
+nil and `[]` differ (shipped defaults vs. explicitly none), so normalization
+preserves an empty non-nil list. Regressions:
+`internal/server/chat-presets_test.go`, the preset cases in
+`_ui/tests/playground.test.mjs`.
+
+**The workbench is a dialog.** The setup used to be two collapsible strips
+under the toolbar — system prompt and tools — each capped inside the chat
+column at `max-h-80`, so together they took a third of the page while still
+scrolling their own contents: the setup was cramped and the transcript was
+too. They are one modal now (`showWorkbench`), because they answer one
+question — what this conversation runs with. The system prompt leads it (a
+bound agent still makes it read-only), then presets, the agent binding and the
+five tool catalogues; the discovered-tool summary and **Clear my selections**
+sit in a footer outside the scrolling body, since that summary is the answer to
+"did that work?" and the reader who has scrolled to the bottom of the
+catalogues is exactly who needs it. The toolbar keeps only the model select and
+the preset switcher — the two controls worth one click — and its Workbench
+button carries a dot when a system prompt is set, because the prompt is
+otherwise no longer visible from the page. Escape, the backdrop and **Done**
+all close it, and the panel is focused on open since Escape is handled there.
+
+**Transcript timestamps.** `playground_messages.created_at` always existed and
+the browser discarded it; worse, `persistPending()` ran only *after* the
+completion, and the store stamps one `clock_timestamp()` per append, so a
+question and its answer were recorded as having happened at the same instant —
+the moment the answer finished. `sendMessage` now persists the user message
+**before** running the completion, which costs one same-origin request per turn
+and buys a server-authoritative send time plus a question that survives a turn
+that never finishes. `MessageMeta.created_at` is set optimistically from the
+browser clock and replaced by the stored value the moment the append returns,
+so a reload shows the same stamp as the live transcript. An assistant entry is
+stamped when its response *finishes* (including a turn that goes on to call
+tools, and including an interrupted response that kept partial text); it stays
+`''` while streaming, because showing a start time under a growing answer would
+date it minutes early. `formatMessageTime` (`_ui/src/lib/helper/format.ts`)
+renders the clock time alone for today and prefixes the date once the entry is
+older — a bare `09:14` on a conversation resumed days later is actively
+misleading — and returns `''` rather than a placeholder when there is nothing
+to show.
+
 Selecting an agent **binds** it to the conversation (`config.agent_id`) and
 adopts its model. Its name appears beside the transcript trash action. The
 agent's system prompt is read-only while bound; the personal prompt is retained

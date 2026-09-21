@@ -48,6 +48,7 @@
     type PlaygroundMessage,
     type PlaygroundMessageInput,
     type PlaygroundRole,
+    type ChatPreset,
     PLAYGROUND_MESSAGE_BATCH_MAX,
     appendPlaygroundMessages,
     createPlaygroundConversation,
@@ -64,7 +65,10 @@
     truncatePlaygroundMessages,
     getPlaygroundDefaults,
     savePlaygroundDefaults,
+    listChatPresets,
+    saveChatPresets,
   } from '@/lib/api/playground';
+  import { formatMessageTime, formatLocalDateTime } from '@/lib/helper/format';
   import {
     MEDIA_ALLOWED_LABEL,
     MEDIA_MAX_UPLOAD_BYTES,
@@ -76,7 +80,7 @@
     uploadMedia,
   } from '@/lib/api/media';
   import ConversationList from '@/lib/components/playground/ConversationList.svelte';
-  import { Send, Trash2, ChevronDown, Square, Settings, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Bot } from 'lucide-svelte';
+  import { Send, Trash2, ChevronDown, Square, ImagePlus, X, RotateCcw, Wrench, Plus, Loader2, ListChecks, MessageCircleQuestion, PanelLeft, GitBranch, CloudOff, ImageOff, Bot } from 'lucide-svelte';
   import { onDestroy, untrack } from 'svelte';
   import { push } from 'svelte-spa-router';
   import VoiceInput from '@/lib/components/VoiceInput.svelte';
@@ -142,6 +146,14 @@
     /** The provider/model pair that produced (or accompanied) this message. */
     provider_key: string;
     model: string;
+    /**
+     * When this entry came into being — a user message when it was sent, an
+     * assistant message when its response finished. Set optimistically from
+     * the browser clock and replaced by the stored `created_at` the moment the
+     * append returns, so a reload shows the same stamp as the live transcript.
+     * `''` while a response is still streaming: it has no completion time yet.
+     */
+    created_at: string;
     /** Original file names of attached images, consumed when stripping. */
     imageNames: string[];
   }
@@ -238,7 +250,6 @@
   let voiceContext = $state(0);
   let abortController = $state<AbortController | null>(null);
   let chatContainer: HTMLDivElement | undefined = $state();
-  let showSystemPrompt = $state(false);
   let pendingImages = $state<PendingImage[]>([]);
   let fileInput: HTMLInputElement | undefined = $state();
   let dragging = $state(false);
@@ -252,7 +263,18 @@
 
   // ─── Tools State ───
 
-  let showToolsConfig = $state(false);
+  /**
+   * The workbench — preset list, agent binding, system prompt and the five
+   * tool catalogues — opens as a modal.
+   *
+   * It used to be two strips under the toolbar, one per concern, each capped
+   * at a fixed height inside the chat column. Between them they took a third
+   * of the page while still scrolling their own contents, so the setup was
+   * cramped and the transcript was too. They are one dialog now because they
+   * are one subject: what this conversation runs with.
+   */
+  let showWorkbench = $state(false);
+  let workbenchPanel: HTMLDivElement | undefined = $state();
   /**
    * Direct MCP URLs are no longer configurable here: tools now come from MCP
    * sets registered in the installation, which carry credentials, stdio
@@ -274,6 +296,18 @@
   // an empty initial state would overwrite the stored preset.
   let defaultsLoaded = $state(false);
   let defaultsTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // ─── Named presets ───
+  //
+  // Several saved setups the reader can switch between. The singleton default
+  // above still seeds a NEW conversation automatically; a preset is applied
+  // deliberately, including to the conversation already open — switching
+  // between setups mid-session is the reason for having more than one.
+  let presets = $state<ChatPreset[]>([]);
+  /** The preset last applied. Only *reported* while the setup still matches. */
+  let appliedPresetId = $state('');
+  let presetDraftName = $state('');
+  let presetSaving = $state(false);
 
   // Built-in server tools
   let builtinTools = $state<BuiltinToolDef[]>([]);
@@ -702,7 +736,7 @@
       historyTruncated = !!cursor;
 
       messages = loaded.map(toChatMessage);
-      meta = loaded.map(m => ({ sequence: m.sequence, provider_key: m.provider_key, model: m.model, imageNames: [] }));
+      meta = loaded.map(m => ({ sequence: m.sequence, provider_key: m.provider_key, model: m.model, created_at: m.created_at, imageNames: [] }));
       if (c.forked_from_id) void loadParentTitle(c.forked_from_id);
       void refreshTools();
       scrollToBottom(true);
@@ -729,6 +763,13 @@
     if (id === routedId) return;
     routedId = id;
     untrack(() => { void openConversation(id); });
+  });
+
+  // Move focus into the dialog when it opens: Escape is handled on the panel,
+  // so a reader whose focus was still on the page behind it could not close
+  // the thing covering the page.
+  $effect(() => {
+    if (showWorkbench) workbenchPanel?.focus();
   });
 
   // ─── Persistence ───
@@ -790,7 +831,9 @@
         if (conversationId !== id) return;
         stored.forEach((s, k) => {
           const index = indexes[offset + k];
-          if (meta[index]) meta[index] = { ...meta[index], sequence: s.sequence };
+          // Adopt the stored stamp over the optimistic one: the transcript
+          // must not change what it says about a message after a reload.
+          if (meta[index]) meta[index] = { ...meta[index], sequence: s.sequence, created_at: s.created_at || meta[index].created_at };
         });
       }
       // An append bumps `updated_at` server-side, so mirror the promotion.
@@ -949,9 +992,157 @@
     }, 1200);
   }
 
+  // ─── Named presets ───
+
+  async function loadPresets() {
+    try {
+      presets = await listChatPresets();
+    } catch {
+      // A deployment without preference storage simply has no presets.
+    }
+  }
+
+  /** Order-insensitive: a tool selection is a set, not a sequence. */
+  function sameSelection(a: string[] | undefined, b: string[] | undefined): boolean {
+    const left = [...(a ?? [])].sort();
+    const right = [...(b ?? [])].sort();
+
+    return left.length === right.length && left.every((v, i) => v === right[i]);
+  }
+
+  /** The current workbench state in preset form. */
+  function currentSetup(): Omit<ChatPreset, 'id' | 'name'> {
+    return {
+      model: selectedModel,
+      agent_id: boundAgentId,
+      // The personal prompt, not the effective one: a bound agent supplies its
+      // own at use, and storing that copy would freeze a stale version of it.
+      system_prompt: systemPrompt,
+      mcp_sets: [...selectedMCPSetNames],
+      skills: [...selectedSkillNames],
+      builtin_tools: [...enabledBuiltinTools],
+      frontend_tools: [...enabledFrontendTools],
+    };
+  }
+
+  function presetMatchesCurrent(preset: ChatPreset): boolean {
+    return (preset.model ?? '') === selectedModel
+      && (preset.agent_id ?? '') === boundAgentId
+      && (preset.system_prompt ?? '') === systemPrompt
+      && sameSelection(preset.mcp_sets, selectedMCPSetNames)
+      && sameSelection(preset.skills, selectedSkillNames)
+      && sameSelection(preset.builtin_tools, enabledBuiltinTools)
+      && sameSelection(preset.frontend_tools ?? FRONTEND_TOOL_NAMES, enabledFrontendTools);
+  }
+
+  /**
+   * The preset the current setup actually is. A name that kept claiming a
+   * preset after the reader changed a tool would describe state that is no
+   * longer there, so divergence reports "no preset" rather than a stale name.
+   */
+  const activePresetId = $derived.by(() => {
+    const preset = presets.find(p => p.id === appliedPresetId);
+
+    return preset && presetMatchesCurrent(preset) ? preset.id : '';
+  });
+
+  /** The entry the name box addresses — what Overwrite and Delete act on. */
+  const draftPreset = $derived.by(() => {
+    const name = presetDraftName.trim().toLowerCase();
+
+    return name ? presets.find(p => p.name.toLowerCase() === name) : undefined;
+  });
+
+  /**
+   * Applies a saved setup to the conversation in front of the reader. The
+   * transcript is untouched; only the setup changes, and the conversation's
+   * own stored config is updated to match so a reload keeps it.
+   */
+  function applyPreset(id: string) {
+    const preset = presets.find(p => p.id === id);
+    if (!preset) {
+      // "No preset" is a state, not an action: it reports that the setup
+      // matches nothing saved, and must not wipe the reader's selections.
+      appliedPresetId = '';
+
+      return;
+    }
+
+    // Both references can have gone stale since the preset was saved. Binding
+    // a missing agent blocks sending with a warning and selecting an absent
+    // model would silently rewrite the conversation's pair, so each is dropped
+    // and named rather than applied blind.
+    let agentId = preset.agent_id ?? '';
+    if (agentId && !agents.some(a => a.id === agentId)) {
+      addToast(`"${preset.name}" names an agent that is no longer available — applied without it.`, 'warn');
+      agentId = '';
+    }
+    if (preset.model && !models.includes(preset.model)) {
+      addToast(`"${preset.name}" names the model ${preset.model}, which this workspace does not offer — kept ${selectedModel}.`, 'warn');
+    } else if (preset.model) {
+      selectedModel = preset.model;
+    }
+
+    boundAgentId = agentId;
+    agentPickerId = '';
+    systemPrompt = preset.system_prompt ?? '';
+    selectedMCPSetNames = [...(preset.mcp_sets ?? [])];
+    selectedSkillNames = [...(preset.skills ?? [])];
+    enabledBuiltinTools = [...(preset.builtin_tools ?? [])];
+    enabledFrontendTools = [...(preset.frontend_tools ?? FRONTEND_TOOL_NAMES)];
+    showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
+
+    appliedPresetId = preset.id;
+    presetDraftName = preset.name;
+    void refreshTools();
+    scheduleSettingsSave();
+  }
+
+  /**
+   * Saves the current setup under the typed name. An existing name overwrites
+   * that entry rather than adding a second one the reader cannot tell apart —
+   * the server refuses duplicates case-insensitively anyway.
+   */
+  async function savePreset() {
+    const name = presetDraftName.trim();
+    if (!name || presetSaving) return;
+
+    const existing = draftPreset;
+    const entry: ChatPreset = { id: existing?.id ?? '', name, ...currentSetup() };
+    const next = existing ? presets.map(p => (p.id === existing.id ? entry : p)) : [...presets, entry];
+
+    presetSaving = true;
+    try {
+      // Identity is assigned server-side, so the saved list is authoritative.
+      presets = await saveChatPresets(next);
+      appliedPresetId = presets.find(p => p.name.toLowerCase() === name.toLowerCase())?.id ?? '';
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to save the preset'), 'alert');
+    } finally {
+      presetSaving = false;
+    }
+  }
+
+  /** Deleting a preset removes a saved setup, never the current selections. */
+  async function deletePreset(id: string) {
+    if (!id || presetSaving) return;
+
+    presetSaving = true;
+    try {
+      presets = await saveChatPresets(presets.filter(p => p.id !== id));
+      if (appliedPresetId === id) appliedPresetId = '';
+      presetDraftName = '';
+    } catch (e) {
+      addToast(playgroundErrorMessage(e, 'Failed to delete the preset'), 'alert');
+    } finally {
+      presetSaving = false;
+    }
+  }
+
   // Defaults are applied after the model list so a saved model can be matched
   // against what this deployment actually offers.
   loadInfo().then(loadDefaults);
+  loadPresets();
   const catalogsReady = Promise.all([loadAgents(), loadSkills(), loadBuiltinTools(), loadMCPSets(), loadLocalServers()]);
   loadConversations();
 
@@ -1638,7 +1829,7 @@
     // Add user message to chat
     const pair = splitModel(selectedModel);
     messages = [...messages, { role: 'user', content: userContent }];
-    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, imageNames: images.map(i => i.name) }];
+    meta = [...meta, { sequence: null, provider_key: pair.provider_key, model: pair.model, created_at: new Date().toISOString(), imageNames: images.map(i => i.name) }];
     userInput = '';
     pendingImages = [];
     confirmClear = false;
@@ -1654,6 +1845,13 @@
       }
     }
 
+    // Persist the question BEFORE answering it. The store stamps one
+    // clock_timestamp per append, so saving the whole turn at the end gave the
+    // user's message the completion time — a question and its answer recorded
+    // as having happened at the same instant. It also means a turn that never
+    // finishes still leaves the question in history. A failure here is
+    // non-destructive: the message stays unsaved and rides the next append.
+    await persistPending();
     await runCompletion();
     await persistPending();
   }
@@ -1693,7 +1891,7 @@
         role: 'assistant',
         content: `Stopped after ${MAX_TOOL_ITERATIONS} tool call iterations to prevent infinite loops.`,
       }];
-      meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, imageNames: [] }];
+      meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: new Date().toISOString(), imageNames: [] }];
       return;
     }
 
@@ -1713,8 +1911,11 @@
 
     // Add assistant placeholder. It records the pair selected right now, so a
     // mid-conversation switch is attributed to the turn that used it.
+    // The stamp stays empty until the response finishes: an entry that is
+    // still streaming has no completion time, and showing the start time under
+    // a growing answer would date it minutes early.
     messages = [...messages, { role: 'assistant', content: '' }];
-    meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, imageNames: [] }];
+    meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: '', imageNames: [] }];
     streaming = true;
     const controller = new AbortController();
     abortController = controller;
@@ -1775,6 +1976,12 @@
         { 'x-at-trace-id': turnTraceId },
       );
 
+      // The response is complete — stamp it. A turn that goes on to call tools
+      // stamps here too: this assistant message is finished, the tool results
+      // and the follow-up are separate entries with their own times.
+      const answeredIdx = messages.length - 1;
+      if (meta[answeredIdx]) meta[answeredIdx] = { ...meta[answeredIdx], created_at: new Date().toISOString() };
+
       // After streaming completes, check if there are tool calls to execute
       if (pendingToolCalls.length > 0) {
         // Attach tool calls to the assistant message
@@ -1794,7 +2001,7 @@
               tool_call_id: tc.id,
             },
           ];
-          meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, imageNames: [] }];
+          meta = [...meta, { sequence: null, provider_key: turnPair.provider_key, model: turnPair.model, created_at: new Date().toISOString(), imageNames: [] }];
         }
         activeTool = null;
         scrollToBottom();
@@ -1820,6 +2027,13 @@
         }
       }
     } finally {
+      // An interrupted or failed response that kept its partial text is still
+      // an entry in the transcript, so it is stamped when it stopped rather
+      // than left undated. Idempotent: a completed response already has one.
+      const endedIdx = messages.length - 1;
+      if (messages[endedIdx]?.role === 'assistant' && meta[endedIdx] && !meta[endedIdx].created_at) {
+        meta[endedIdx] = { ...meta[endedIdx], created_at: new Date().toISOString() };
+      }
       streaming = false;
       abortController = null;
       activeTool = null;
@@ -1930,6 +2144,16 @@
   {/if}
 {/snippet}
 
+{#snippet messageTime(index: number)}
+  {@const stamp = meta[index]?.created_at ?? ''}
+  {#if stamp}
+    <span
+      class="text-[10px] text-gray-400 dark:text-dark-text-muted tabular-nums whitespace-nowrap"
+      title={formatLocalDateTime(stamp)}
+    >{formatMessageTime(stamp)}</span>
+  {/if}
+{/snippet}
+
 {#snippet omittedImage(part: ContentPart, tone: string)}
   <div class="mb-2 flex items-center gap-1.5 border border-dashed px-2 py-1 text-[11px] {tone}">
     <ImageOff size={11} class="shrink-0" />
@@ -1999,28 +2223,43 @@
       <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
     </div>
 
-    <!-- System prompt toggle -->
-    <button
-      onclick={() => (showSystemPrompt = !showSystemPrompt)}
-      aria-label="System prompt"
-      aria-expanded={showSystemPrompt}
-      class={['h-9 w-9 shrink-0 inline-flex items-center justify-center border focus-visible:outline-2 focus-visible:outline-accent ', showSystemPrompt ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-      title="System prompt"
-    >
-      <Settings size={14} />
-    </button>
+    <!-- Preset switcher. Controlled by the derived id, not bound: once the
+         setup diverges from the applied preset it reports none. -->
+    {#if presets.length > 0}
+      <div class="relative min-w-0 shrink basis-28 max-w-44">
+        <select
+          value={activePresetId}
+          onchange={(e) => applyPreset(e.currentTarget.value)}
+          aria-label="Preset"
+          title="Apply a saved setup to this conversation"
+          class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent "
+        >
+          <option value="">No preset</option>
+          {#each presets as preset}
+            <option value={preset.id}>{preset.name}</option>
+          {/each}
+        </select>
+        <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
+      </div>
+    {/if}
 
-    <!-- Tools toggle -->
+    <!-- Workbench: one entry point for the setup, system prompt included. A
+         dot marks a prompt that is set, because the prompt is now behind a
+         dialog and its presence is not otherwise visible from the page. -->
     <button
-      onclick={() => (showToolsConfig = !showToolsConfig)}
-      aria-label={`Tools${toolCount > 0 ? ` (${toolCount})` : ''}`}
-      aria-expanded={showToolsConfig}
-      class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showToolsConfig ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
-      title="Tools (MCP, Skills, Built-in, Chat)"
+      onclick={() => (showWorkbench = true)}
+      aria-label={`Workbench${toolCount > 0 ? ` (${toolCount} tools)` : ''}`}
+      aria-expanded={showWorkbench}
+      aria-haspopup="dialog"
+      class={['h-9 min-w-9 px-2 shrink-0 inline-flex items-center justify-center gap-1.5 border text-xs focus-visible:outline-2 focus-visible:outline-accent ', showWorkbench ? 'bg-gray-100 border-gray-400 text-gray-900 dark:bg-dark-elevated dark:border-dark-text-muted dark:text-dark-text' : 'border-gray-300 text-gray-600 hover:bg-gray-50 dark:border-dark-border-subtle dark:text-dark-text-secondary dark:hover:bg-dark-elevated']}
+      title="Workbench — system prompt, agent, presets and tools"
     >
       <Wrench size={14} />
       {#if toolCount > 0}
         <span class="tabular-nums">{toolCount}</span>
+      {/if}
+      {#if effectiveSystemPrompt.trim()}
+        <span class="w-1.5 h-1.5 bg-gray-400 dark:bg-dark-text-muted" title="A system prompt is set"></span>
       {/if}
     </button>
 
@@ -2067,7 +2306,7 @@
       {/if}
 
       {#if boundAgentId}
-        <button onclick={() => showToolsConfig = !showToolsConfig} title={boundAgent?.name ?? boundAgentId} aria-label="Configure selected agent" aria-expanded={showToolsConfig} class="h-9 inline-flex min-w-0 max-w-40 items-center justify-center gap-1.5 px-2.5 border border-gray-300 dark:border-dark-border-subtle text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline-2 focus-visible:outline-accent ">
+        <button onclick={() => (showWorkbench = true)} title={boundAgent?.name ?? boundAgentId} aria-label="Configure selected agent" aria-expanded={showWorkbench} aria-haspopup="dialog" class="h-9 inline-flex min-w-0 max-w-40 items-center justify-center gap-1.5 px-2.5 border border-gray-300 dark:border-dark-border-subtle text-xs text-purple-700 dark:text-purple-300 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline-2 focus-visible:outline-accent ">
           <Bot size={14} class="shrink-0" /><span class="truncate">{boundAgent?.name ?? 'Unavailable agent'}</span>
         </button>
       {/if}
@@ -2106,302 +2345,388 @@
     </div>
   {/if}
 
-  <!-- System prompt -->
-  {#if showSystemPrompt}
-    <div class="border-b border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50 px-4 py-2.5 shrink-0">
-      {#if boundAgentId}
-        <p class="mb-1 text-xs text-purple-700 dark:text-purple-300">From {boundAgent?.name ?? 'agent'} · Read-only. Copy to your settings to edit.</p>
-      {/if}
-      <textarea
-        value={effectiveSystemPrompt}
-        readonly={!!boundAgentId}
-        oninput={(e) => { systemPrompt = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
-        aria-label="System prompt"
-        placeholder="System prompt (optional)"
-        rows={2}
-        class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
-      ></textarea>
-    </div>
-  {/if}
-
-  <!-- Tools configuration panel -->
-  {#if showToolsConfig}
-    <div class="border-b border-gray-200 dark:border-dark-border bg-gray-50/50 dark:bg-dark-base/50 px-4 py-3 shrink-0 space-y-3 max-h-80 overflow-y-auto">
-      <!-- Agent contributions remain separate from personal selections. -->
-      <div class="block">
-        <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Agent</span>
-        {#if boundAgentId}
-          <div class="flex flex-wrap items-center gap-2">
-            <button onclick={clearBoundAgent} disabled={streaming} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Remove agent</button>
-            <button onclick={adoptAgentSettings} disabled={streaming || !boundAgent} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Copy to my settings</button>
-          </div>
-          <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Purple left border: from agent. Filled background: selected by you. Both marks mean both sources. Copying makes the prompt editable and removes the agent binding.</p>
-          {#if !boundAgent}<p role="status" class="mt-1 text-xs text-amber-700 dark:text-amber-300">Agent unavailable. Remove it or reload before sending a message.</p>{/if}
-        {:else}
-          <div class="flex gap-2">
-            <div class="relative flex-1">
-              <select
-                bind:value={agentPickerId}
-                aria-label="Agent"
-                class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
-              >
-                <option value="">Choose an agent…</option>
-                {#each agents as agent}
-                  <option value={agent.id}>{agent.name}{agent.scope === 'personal' ? ' (personal)' : agent.scope === 'global' ? ' (global)' : ''}{agent.config.description ? ` — ${agent.config.description}` : ''}</option>
-                {/each}
-              </select>
-              <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
-            </div>
-            <button
-              onclick={() => bindAgent(agentPickerId)}
-              disabled={!agentPickerId || streaming}
-              class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 "
-            >
-              Use
-            </button>
-          </div>
-        {/if}
-      </div>
-
-      <!-- MCP Sets (Internal MCPs) -->
-      {#if availableMCPSets.length > 0}
-        <div role="group" aria-label="MCP" class="block">
-          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
-          <div class="flex flex-wrap gap-1.5">
-            {#each availableMCPSets as mcpSet}
-              <button
-                onclick={() => toggleMCPSet(mcpSet.name)}
-                aria-pressed={selectedMCPSetNames.includes(mcpSet.name)}
-                aria-label={`${mcpSet.name}${inherited.mcp_sets.includes(mcpSet.name) ? ' · From agent' : ''}${selectedMCPSetNames.includes(mcpSet.name) ? ' · Selected by you' : ''}`}
-                style:border-left-width={inherited.mcp_sets.includes(mcpSet.name) ? '4px' : undefined}
-                style:border-left-color={inherited.mcp_sets.includes(mcpSet.name) ? 'var(--color-purple-400)' : undefined}
-                class="px-2.5 py-1 text-xs border {selectedMCPSetNames.includes(mcpSet.name)
-                  ? 'bg-purple-700 dark:bg-purple-600 text-white border-purple-700 dark:border-purple-600'
-                  : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-                title={mcpSet.description || mcpSet.name}
-              >
-                {mcpSet.name}
-                {#if inherited.mcp_sets.includes(mcpSet.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      <!-- Direct MCP URLs were removed: register the server as an MCP set so it
-           carries its credentials, processes and execution admission. A saved
-           conversation keeps its old record until it is dismissed. -->
-      {#if legacyMcpUrls.length > 0}
-        <div class="border border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 space-y-1.5">
-          <p class="text-xs text-amber-900 dark:text-amber-200">
-            This conversation referenced {legacyMcpUrls.length} direct MCP server URL{legacyMcpUrls.length === 1 ? '' : 's'}, which Chats no longer calls. Add the server under MCP sets to use its tools again.
-          </p>
-          <div class="flex flex-wrap gap-1.5">
-            {#each legacyMcpUrls as url}
-              <code class="border border-amber-300 dark:border-amber-900/50 bg-white/60 dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-amber-900 dark:text-amber-200 truncate max-w-full">{url}</code>
-            {/each}
-          </div>
-          <button onclick={dismissLegacyMcpUrls} class="text-[10px] text-amber-800 dark:text-amber-300 underline hover:no-underline">Dismiss</button>
-        </div>
-      {/if}
-
-      <!-- Skills -->
-      {#if skills.length > 0}
-        <div role="group" aria-label="Skills" class="block">
-          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
-          <div class="flex flex-wrap gap-1.5">
-            {#each skills as skill}
-              <button
-                onclick={() => toggleSkill(skill.name)}
-                aria-pressed={selectedSkillNames.includes(skill.name)}
-                aria-label={`${skill.name}${inherited.skills.includes(skill.name) ? ' · From agent' : ''}${selectedSkillNames.includes(skill.name) ? ' · Selected by you' : ''}`}
-                style:border-left-width={inherited.skills.includes(skill.name) ? '4px' : undefined}
-                style:border-left-color={inherited.skills.includes(skill.name) ? 'var(--color-purple-400)' : undefined}
-                class="px-2.5 py-1 text-xs border {selectedSkillNames.includes(skill.name)
-                  ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                  : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-                title={skill.description || skill.name}
-              >
-                {skill.name}
-                {#if inherited.skills.includes(skill.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
-                {#if skill.tools.length > 0}
-                  <span class="ml-1 opacity-60">({skill.tools.length})</span>
-                {/if}
-              </button>
-            {/each}
-          </div>
-        </div>
-      {/if}
-
-      <!-- Server Tools (built-in) -->
-      {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0 || inherited.builtin_tools.length > 0}
-        <div role="group" aria-label="Server Tools" class="block">
-          <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
-          <BuiltinToolPicker tools={builtinTools} bind:selected={enabledBuiltinTools} inherited={inherited.builtin_tools} onchange={refreshTools} />
-        </div>
-      {/if}
-
-      <!-- Chat Tools (frontend-only) -->
-      <div role="group" aria-label="Chat Tools" class="block">
-        <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
-        <div class="flex flex-wrap gap-1.5">
-          {#each FRONTEND_TOOLS as tool}
-            <button
-              onclick={() => toggleFrontendTool(tool.function.name)}
-              aria-pressed={enabledFrontendTools.includes(tool.function.name)}
-              class="px-2.5 py-1 text-xs border {enabledFrontendTools.includes(tool.function.name)
-                ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
-                : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-              title={tool.function.description}
-            >
-              {tool.function.name}
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <!-- Local MCP servers.
-           Unlike every other source here these are dialled by this browser:
-           the server stores the address and never connects to it, which is
-           what makes a loopback URL mean this machine. -->
-      {#if localMCPAvailable}
-        <div role="group" aria-label="Local MCP servers" class="block">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">On this machine</span>
-            <button
-              onclick={() => editLocalServer()}
-              class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated"
-            >
-              Add server
-            </button>
-          </div>
-
-          {#if localServers.length === 0 && !localEditorOpen}
-            <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
-              An MCP server running on your own computer. Your browser connects to it directly, so it must allow this page (CORS) — and it is reachable only from this device.
+  <!-- Workbench.
+       One dialog rather than two strips under the toolbar. The strips were
+       capped at a fixed height inside the chat column, so between them they
+       took a third of the page while still scrolling their own contents —
+       the setup was cramped and the transcript was too. Everything here
+       answers one question: what this conversation runs with. -->
+  {#if showWorkbench}
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onclick={(e) => { if (e.target === e.currentTarget) showWorkbench = false; }}
+    >
+      <div
+        bind:this={workbenchPanel}
+        tabindex="-1"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Workbench"
+        onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); showWorkbench = false; } }}
+        class="flex w-full max-w-3xl max-h-[85vh] flex-col border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface focus:outline-none"
+      >
+        <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base shrink-0">
+          <div class="min-w-0">
+            <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Workbench</h2>
+            <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+              What this conversation runs with. Changes take effect on the next message and are saved with the conversation.
             </p>
-          {/if}
+          </div>
+          <button
+            onclick={() => (showWorkbench = false)}
+            aria-label="Close"
+            class="p-1 shrink-0 text-gray-400 dark:text-dark-text-muted hover:bg-gray-200 dark:hover:bg-dark-elevated hover:text-gray-600 dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+          >
+            <X size={16} />
+          </button>
+        </div>
 
-          <div class="space-y-1.5">
-            {#each localServers as server}
-              {@const approved = localApprovedIds.includes(server.id)}
-              {@const status = localStatus[server.id]}
-              {@const added = toolsAddedSinceApproval(approvalFor(server.id, localStorageSafe()), status?.tools ?? [])}
-              <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{server.name}</span>
-                  <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{server.url}</code>
-                  {#if approved}
-                    <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
-                      Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ''}
-                    </span>
-                  {:else}
-                    <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
-                      Not enabled on this device
-                    </span>
-                  {/if}
-                  <div class="ml-auto flex items-center gap-1">
-                    {#if approved}
-                      <button onclick={() => disableLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
-                    {:else}
-                      <button onclick={() => beginLocalApproval(server)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable…</button>
-                    {/if}
-                    <button onclick={() => editLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Edit</button>
-                    <button onclick={() => removeLocalServer(server)} class="p-0.5 text-gray-400 hover:text-red-500" aria-label={`Remove ${server.name}`}><X size={12} /></button>
-                  </div>
-                </div>
-                {#if added.length > 0}
-                  <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
-                    New since you enabled it: {added.join(', ')}
-                  </p>
-                {/if}
-                {#if status?.error}
-                  <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
-                  {#if status.hint}
-                    <p class="mt-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted">{status.hint}</p>
-                  {/if}
-                {/if}
-              </div>
-            {/each}
+        <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+          <!-- System prompt. It leads because it is the instruction the tools
+               below serve, and because a bound agent makes it read-only — a fact
+               better learned before the reader types into it. -->
+          <div class="block">
+            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
+            {#if boundAgentId}
+              <p class="mb-1 text-xs text-purple-700 dark:text-purple-300">From {boundAgent?.name ?? 'agent'} · Read-only. Copy to your settings to edit.</p>
+            {/if}
+            <textarea
+              value={effectiveSystemPrompt}
+              readonly={!!boundAgentId}
+              oninput={(e) => { systemPrompt = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
+              aria-label="System prompt"
+              placeholder="System prompt (optional)"
+              rows={4}
+              class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 read-only:bg-gray-50 dark:read-only:bg-dark-base "
+            ></textarea>
           </div>
 
-          {#if localEditorOpen}
-            <div class="mt-1.5 border border-gray-300 dark:border-dark-border-subtle p-2.5 space-y-2">
-              <div class="grid grid-cols-4 gap-2 items-center">
-                <label class="contents">
-                  <span class="text-xs text-gray-600 dark:text-dark-text-secondary">Name</span>
-                  <input bind:value={localDraftName} placeholder="laptop" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text" />
-                </label>
-                <label class="contents">
-                  <span class="text-xs text-gray-600 dark:text-dark-text-secondary">URL</span>
-                  <input bind:value={localDraftUrl} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text" />
-                </label>
-                <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
-                  Full endpoint URL, used exactly as entered. Loopback and private addresses only — a reachable server belongs in an MCP set, where execution policy and tracing apply.
-                </div>
-              </div>
-
-              <div class="grid grid-cols-4 gap-2 items-start">
-                <span class="text-xs text-gray-600 dark:text-dark-text-secondary pt-1">Headers</span>
-                <div class="col-span-3 space-y-1">
-                  {#each Object.entries(localDraftHeaders) as [hk, hv]}
-                    <div class="flex items-center gap-1">
-                      <span class="text-[10px] font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
-                      <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{hv === REDACTED ? 'stored' : hv}</span>
-                      <button
-                        onclick={() => { const next = { ...localDraftHeaders }; delete next[hk]; localDraftHeaders = next; }}
-                        class="ml-auto p-0.5 text-gray-400 hover:text-red-500"
-                        aria-label={`Remove header ${hk}`}
-                      ><X size={10} /></button>
-                    </div>
-                  {/each}
-                  <div class="flex items-center gap-1">
-                    <input bind:value={localDraftHeaderKey} placeholder="Authorization" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
-                    <input bind:value={localDraftHeaderValue} placeholder="value" type="password" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
-                    <button onclick={addLocalDraftHeader} class="px-2 py-1 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">Add</button>
-                  </div>
-                  <p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Stored encrypted and never shown again.</p>
-                </div>
-              </div>
-
-              {#if localDraftError}
-                <p class="text-[11px] text-red-600 dark:text-red-400">{localDraftError}</p>
-              {/if}
-              <div class="flex items-center gap-2">
-                <button onclick={saveLocalServer} disabled={localSaving} class="px-2.5 py-1 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50">
-                  {localSaving ? 'Saving…' : 'Save'}
+          <!-- Named setups. The per-account default still seeds a new
+               conversation on its own; these are applied deliberately. -->
+          <div class="block">
+            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Preset</span>
+            <div class="flex flex-wrap gap-2">
+              <input
+                bind:value={presetDraftName}
+                placeholder="Preset name"
+                aria-label="Preset name"
+                maxlength={80}
+                class="min-w-0 flex-1 basis-40 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
+              />
+              <button
+                onclick={savePreset}
+                disabled={!presetDraftName.trim() || presetSaving}
+                title={draftPreset ? `Replace "${draftPreset.name}" with the current setup` : 'Save the current setup under this name'}
+                class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 "
+              >
+                {draftPreset ? 'Overwrite' : 'Save setup'}
+              </button>
+              {#if draftPreset}
+                <button
+                  onclick={() => deletePreset(draftPreset.id)}
+                  disabled={presetSaving}
+                  title={`Delete the saved setup "${draftPreset.name}". The current selections stay.`}
+                  class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30 "
+                >
+                  Delete
                 </button>
-                <button onclick={closeLocalEditor} class="px-2.5 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary">Cancel</button>
+              {/if}
+            </div>
+            <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">
+              Saves the model, agent, system prompt and every tool selection under a name. Switch between saved setups from the toolbar; applying one changes this conversation's setup, never its transcript.
+            </p>
+          </div>
+
+          <!-- Agent contributions remain separate from personal selections. -->
+          <div class="block">
+            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Agent</span>
+            {#if boundAgentId}
+              <div class="flex flex-wrap items-center gap-2">
+                <button onclick={clearBoundAgent} disabled={streaming} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Remove agent</button>
+                <button onclick={adoptAgentSettings} disabled={streaming || !boundAgent} class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-30 ">Copy to my settings</button>
+              </div>
+              <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Purple left border: from agent. Filled background: selected by you. Both marks mean both sources. Copying makes the prompt editable and removes the agent binding.</p>
+              {#if !boundAgent}<p role="status" class="mt-1 text-xs text-amber-700 dark:text-amber-300">Agent unavailable. Remove it or reload before sending a message.</p>{/if}
+            {:else}
+              <div class="flex gap-2">
+                <div class="relative flex-1">
+                  <select
+                    bind:value={agentPickerId}
+                    aria-label="Agent"
+                    class="w-full border border-gray-300 dark:border-dark-border-subtle px-3 py-1.5 text-sm appearance-none bg-white dark:bg-dark-elevated dark:text-dark-text pr-8 focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
+                  >
+                    <option value="">Choose an agent…</option>
+                    {#each agents as agent}
+                      <option value={agent.id}>{agent.name}{agent.scope === 'personal' ? ' (personal)' : agent.scope === 'global' ? ' (global)' : ''}{agent.config.description ? ` — ${agent.config.description}` : ''}</option>
+                    {/each}
+                  </select>
+                  <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
+                </div>
+                <button
+                  onclick={() => bindAgent(agentPickerId)}
+                  disabled={!agentPickerId || streaming}
+                  class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 "
+                >
+                  Use
+                </button>
+              </div>
+            {/if}
+          </div>
+
+          <!-- MCP Sets (Internal MCPs) -->
+          {#if availableMCPSets.length > 0}
+            <div role="group" aria-label="MCP" class="block">
+              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
+              <div class="flex flex-wrap gap-1.5">
+                {#each availableMCPSets as mcpSet}
+                  <button
+                    onclick={() => toggleMCPSet(mcpSet.name)}
+                    aria-pressed={selectedMCPSetNames.includes(mcpSet.name)}
+                    aria-label={`${mcpSet.name}${inherited.mcp_sets.includes(mcpSet.name) ? ' · From agent' : ''}${selectedMCPSetNames.includes(mcpSet.name) ? ' · Selected by you' : ''}`}
+                    style:border-left-width={inherited.mcp_sets.includes(mcpSet.name) ? '4px' : undefined}
+                    style:border-left-color={inherited.mcp_sets.includes(mcpSet.name) ? 'var(--color-purple-400)' : undefined}
+                    class="px-2.5 py-1 text-xs border {selectedMCPSetNames.includes(mcpSet.name)
+                      ? 'bg-purple-700 dark:bg-purple-600 text-white border-purple-700 dark:border-purple-600'
+                      : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                    title={mcpSet.description || mcpSet.name}
+                  >
+                    {mcpSet.name}
+                    {#if inherited.mcp_sets.includes(mcpSet.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
+                  </button>
+                {/each}
               </div>
             </div>
           {/if}
-        </div>
-      {/if}
 
-      <!-- Discovered tools summary + clear button -->
-      <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted pt-1 border-t border-gray-200 dark:border-dark-border">
-        {#if loadingTools}
-          <Loader2 size={12} class="animate-spin" />
-          <span>Discovering tools...</span>
-        {:else if toolCount > 0}
-          <Wrench size={12} />
-          <span>{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
-          <span class="text-gray-300 dark:text-dark-border">|</span>
-          <span class="truncate flex-1">{discoveredTools.map(t => t.function.name).join(', ')}</span>
-        {:else if selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
-          <span>No tools discovered</span>
-        {:else}
-          <span>Pick an agent, select MCP sets or skills, or toggle tools above</span>
-        {/if}
-        {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
+          <!-- Direct MCP URLs were removed: register the server as an MCP set so it
+               carries its credentials, processes and execution admission. A saved
+               conversation keeps its old record until it is dismissed. -->
+          {#if legacyMcpUrls.length > 0}
+            <div class="border border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 space-y-1.5">
+              <p class="text-xs text-amber-900 dark:text-amber-200">
+                This conversation referenced {legacyMcpUrls.length} direct MCP server URL{legacyMcpUrls.length === 1 ? '' : 's'}, which Chats no longer calls. Add the server under MCP sets to use its tools again.
+              </p>
+              <div class="flex flex-wrap gap-1.5">
+                {#each legacyMcpUrls as url}
+                  <code class="border border-amber-300 dark:border-amber-900/50 bg-white/60 dark:bg-dark-elevated px-2 py-0.5 text-[10px] font-mono text-amber-900 dark:text-amber-200 truncate max-w-full">{url}</code>
+                {/each}
+              </div>
+              <button onclick={dismissLegacyMcpUrls} class="text-[10px] text-amber-800 dark:text-amber-300 underline hover:no-underline">Dismiss</button>
+            </div>
+          {/if}
+
+          <!-- Skills -->
+          {#if skills.length > 0}
+            <div role="group" aria-label="Skills" class="block">
+              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Skills</span>
+              <div class="flex flex-wrap gap-1.5">
+                {#each skills as skill}
+                  <button
+                    onclick={() => toggleSkill(skill.name)}
+                    aria-pressed={selectedSkillNames.includes(skill.name)}
+                    aria-label={`${skill.name}${inherited.skills.includes(skill.name) ? ' · From agent' : ''}${selectedSkillNames.includes(skill.name) ? ' · Selected by you' : ''}`}
+                    style:border-left-width={inherited.skills.includes(skill.name) ? '4px' : undefined}
+                    style:border-left-color={inherited.skills.includes(skill.name) ? 'var(--color-purple-400)' : undefined}
+                    class="px-2.5 py-1 text-xs border {selectedSkillNames.includes(skill.name)
+                      ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
+                      : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                    title={skill.description || skill.name}
+                  >
+                    {skill.name}
+                    {#if inherited.skills.includes(skill.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
+                    {#if skill.tools.length > 0}
+                      <span class="ml-1 opacity-60">({skill.tools.length})</span>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
+          <!-- Server Tools (built-in) -->
+          {#if builtinTools.length > 0 || enabledBuiltinTools.length > 0 || inherited.builtin_tools.length > 0}
+            <div role="group" aria-label="Server Tools" class="block">
+              <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Server Tools</span>
+              <BuiltinToolPicker tools={builtinTools} bind:selected={enabledBuiltinTools} inherited={inherited.builtin_tools} onchange={refreshTools} />
+            </div>
+          {/if}
+
+          <!-- Chat Tools (frontend-only) -->
+          <div role="group" aria-label="Chat Tools" class="block">
+            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
+            <div class="flex flex-wrap gap-1.5">
+              {#each FRONTEND_TOOLS as tool}
+                <button
+                  onclick={() => toggleFrontendTool(tool.function.name)}
+                  aria-pressed={enabledFrontendTools.includes(tool.function.name)}
+                  class="px-2.5 py-1 text-xs border {enabledFrontendTools.includes(tool.function.name)
+                    ? 'bg-gray-900 dark:bg-accent text-white border-gray-900 dark:border-accent'
+                    : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                  title={tool.function.description}
+                >
+                  {tool.function.name}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Local MCP servers.
+               Unlike every other source here these are dialled by this browser:
+               the server stores the address and never connects to it, which is
+               what makes a loopback URL mean this machine. -->
+          {#if localMCPAvailable}
+            <div role="group" aria-label="Local MCP servers" class="block">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">On this machine</span>
+                <button
+                  onclick={() => editLocalServer()}
+                  class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated"
+                >
+                  Add server
+                </button>
+              </div>
+
+              {#if localServers.length === 0 && !localEditorOpen}
+                <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                  An MCP server running on your own computer. Your browser connects to it directly, so it must allow this page (CORS) — and it is reachable only from this device.
+                </p>
+              {/if}
+
+              <div class="space-y-1.5">
+                {#each localServers as server}
+                  {@const approved = localApprovedIds.includes(server.id)}
+                  {@const status = localStatus[server.id]}
+                  {@const added = toolsAddedSinceApproval(approvalFor(server.id, localStorageSafe()), status?.tools ?? [])}
+                  <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{server.name}</span>
+                      <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{server.url}</code>
+                      {#if approved}
+                        <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                          Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ''}
+                        </span>
+                      {:else}
+                        <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
+                          Not enabled on this device
+                        </span>
+                      {/if}
+                      <div class="ml-auto flex items-center gap-1">
+                        {#if approved}
+                          <button onclick={() => disableLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
+                        {:else}
+                          <button onclick={() => beginLocalApproval(server)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable…</button>
+                        {/if}
+                        <button onclick={() => editLocalServer(server)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Edit</button>
+                        <button onclick={() => removeLocalServer(server)} class="p-0.5 text-gray-400 hover:text-red-500" aria-label={`Remove ${server.name}`}><X size={12} /></button>
+                      </div>
+                    </div>
+                    {#if added.length > 0}
+                      <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                        New since you enabled it: {added.join(', ')}
+                      </p>
+                    {/if}
+                    {#if status?.error}
+                      <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
+                      {#if status.hint}
+                        <p class="mt-0.5 text-[10px] text-gray-500 dark:text-dark-text-muted">{status.hint}</p>
+                      {/if}
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+
+              {#if localEditorOpen}
+                <div class="mt-1.5 border border-gray-300 dark:border-dark-border-subtle p-2.5 space-y-2">
+                  <div class="grid grid-cols-4 gap-2 items-center">
+                    <label class="contents">
+                      <span class="text-xs text-gray-600 dark:text-dark-text-secondary">Name</span>
+                      <input bind:value={localDraftName} placeholder="laptop" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs dark:bg-dark-elevated dark:text-dark-text" />
+                    </label>
+                    <label class="contents">
+                      <span class="text-xs text-gray-600 dark:text-dark-text-secondary">URL</span>
+                      <input bind:value={localDraftUrl} placeholder="http://127.0.0.1:3000/mcp" class="col-span-3 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-xs font-mono dark:bg-dark-elevated dark:text-dark-text" />
+                    </label>
+                    <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
+                      Full endpoint URL, used exactly as entered. Loopback and private addresses only — a reachable server belongs in an MCP set, where execution policy and tracing apply.
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-4 gap-2 items-start">
+                    <span class="text-xs text-gray-600 dark:text-dark-text-secondary pt-1">Headers</span>
+                    <div class="col-span-3 space-y-1">
+                      {#each Object.entries(localDraftHeaders) as [hk, hv]}
+                        <div class="flex items-center gap-1">
+                          <span class="text-[10px] font-mono text-gray-600 dark:text-dark-text-secondary">{hk}:</span>
+                          <span class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted truncate">{hv === REDACTED ? 'stored' : hv}</span>
+                          <button
+                            onclick={() => { const next = { ...localDraftHeaders }; delete next[hk]; localDraftHeaders = next; }}
+                            class="ml-auto p-0.5 text-gray-400 hover:text-red-500"
+                            aria-label={`Remove header ${hk}`}
+                          ><X size={10} /></button>
+                        </div>
+                      {/each}
+                      <div class="flex items-center gap-1">
+                        <input bind:value={localDraftHeaderKey} placeholder="Authorization" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
+                        <input bind:value={localDraftHeaderValue} placeholder="value" type="password" class="flex-1 border border-gray-300 dark:border-dark-border-subtle px-2 py-1 text-[11px] font-mono dark:bg-dark-elevated dark:text-dark-text" />
+                        <button onclick={addLocalDraftHeader} class="px-2 py-1 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">Add</button>
+                      </div>
+                      <p class="text-[10px] text-gray-400 dark:text-dark-text-muted">Stored encrypted and never shown again.</p>
+                    </div>
+                  </div>
+
+                  {#if localDraftError}
+                    <p class="text-[11px] text-red-600 dark:text-red-400">{localDraftError}</p>
+                  {/if}
+                  <div class="flex items-center gap-2">
+                    <button onclick={saveLocalServer} disabled={localSaving} class="px-2.5 py-1 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50">
+                      {localSaving ? 'Saving…' : 'Save'}
+                    </button>
+                    <button onclick={closeLocalEditor} class="px-2.5 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary">Cancel</button>
+                  </div>
+                </div>
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        <!-- What the selections above actually produced. It sits outside the
+             scrolling body because it is the answer to "did that work?", and
+             a reader who has scrolled to the bottom of the tool catalogues is
+             exactly who needs to read it. -->
+        <div class="shrink-0 flex items-center gap-2 px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base text-xs text-gray-500 dark:text-dark-text-muted">
+          <div class="flex min-w-0 flex-1 items-center gap-2">
+            {#if loadingTools}
+              <Loader2 size={12} class="shrink-0 animate-spin" />
+              <span>Discovering tools...</span>
+            {:else if toolCount > 0}
+              <Wrench size={12} class="shrink-0" />
+              <span class="shrink-0">{toolCount} tool{toolCount !== 1 ? 's' : ''} available</span>
+              <span class="text-gray-300 dark:text-dark-border">|</span>
+              <span class="truncate" title={discoveredTools.map(t => t.function.name).join(', ')}>{discoveredTools.map(t => t.function.name).join(', ')}</span>
+            {:else if selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
+              <span>No tools discovered</span>
+            {:else}
+              <span>Pick an agent, select MCP sets or skills, or toggle tools above</span>
+            {/if}
+          </div>
+          {#if toolCount > 0 || selectedMCPSetNames.length > 0 || selectedSkillNames.length > 0 || enabledBuiltinTools.length > 0 || enabledFrontendTools.length > 0}
+            <button
+              onclick={clearAllToolSelections}
+              class="shrink-0 px-2 py-1 text-[11px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 focus-visible:outline-2 focus-visible:outline-accent "
+              title="Clear your selections; tools supplied by the agent stay available"
+            >
+              Clear my selections
+            </button>
+          {/if}
           <button
-            onclick={clearAllToolSelections}
-            class="ml-auto shrink-0 px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-400 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400 hover:border-red-300 dark:hover:border-red-800 "
-            title="Clear your selections; tools supplied by the agent stay available"
+            onclick={() => (showWorkbench = false)}
+            class="shrink-0 px-3 py-1 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent "
           >
-            Clear my selections
+            Done
           </button>
-        {/if}
+        </div>
       </div>
     </div>
   {/if}
@@ -2520,6 +2845,7 @@
                     Retry
                   </button>
                 {/if}
+                {@render messageTime(i)}
               </div>
             </div>
           </div>
@@ -2572,6 +2898,7 @@
                 {/if}
               </div>
               <div class="mt-1 flex items-center gap-3">
+                {@render messageTime(i)}
                 {@render modelBadge(i)}
                 {@render forkAction(i)}
               </div>

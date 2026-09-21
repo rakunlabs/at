@@ -327,6 +327,41 @@ test('per-account defaults round-trip and carry no user id', async () => {
   ]);
 });
 
+test('named presets send the whole list and carry only allowlisted fields', async () => {
+  // A list is never `null`: the page iterates it without a nil check, and an
+  // account that never saved one is not an error path.
+  response = undefined;
+  assert.deepEqual(await api.listChatPresets(), []);
+  response = { presets: [] };
+  assert.deepEqual(await api.listChatPresets(), []);
+  response = { presets: [{ id: 'p1', name: 'Research', model: 'openai/gpt-4o', skills: ['web'] }] };
+  assert.deepEqual(await api.listChatPresets(), response.presets);
+
+  // The body is rebuilt from the allowlist — the endpoint rejects unknown
+  // fields — and the owner is the authenticated account server-side, so no
+  // user id reaches the wire. A new entry sends `id: ''`; identity is the
+  // server's to assign.
+  response = { presets: [] };
+  await api.saveChatPresets([
+    { id: '', name: 'New', model: 'openai/gpt-4o', owner_user_id: 'someone-else', nope: 1 },
+    { id: 'p1', name: 'Research', frontend_tools: [] },
+  ]);
+  // Deleting is the same call with the entry left out.
+  await api.saveChatPresets([]);
+  assert.deepEqual(calls, [
+    ['get', '/chats/presets'],
+    ['get', '/chats/presets'],
+    ['get', '/chats/presets'],
+    ['put', '/chats/presets', { presets: [
+      { id: '', name: 'New', model: 'openai/gpt-4o' },
+      // An explicit empty selection survives; it means "no browser tools",
+      // which is not the same as leaving the field out.
+      { id: 'p1', name: 'Research', frontend_tools: [] },
+    ] }],
+    ['put', '/chats/presets', { presets: [] }],
+  ]);
+});
+
 test('routes and derived titles stay bounded and URL safe', () => {
   assert.equal(api.playgroundRoute('c1'), '/chats/c1');
   assert.equal(api.playgroundRoute('a/b'), '/chats/a%2Fb');

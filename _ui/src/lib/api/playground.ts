@@ -181,6 +181,54 @@ export async function savePlaygroundDefaults(input: PlaygroundDefaults): Promise
   return res.data || {};
 }
 
+// ─── Named presets ───
+
+/**
+ * A named workbench setup. Same payload as `PlaygroundDefaults` plus identity,
+ * because a preset is a default with a name — the server shares one struct for
+ * both so the two shapes cannot drift.
+ *
+ * Unlike the singleton default, which only seeds a NEW conversation, a preset
+ * is applied on demand — including to the conversation already open, since
+ * switching setups mid-session is the reason for having more than one.
+ */
+export interface ChatPreset extends PlaygroundDefaults {
+  /** Server-assigned. Send `''` (or omit) to create a new entry. */
+  id: string;
+  name: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+const PRESET_FIELDS = ['id', 'name', ...DEFAULTS_FIELDS] as const;
+
+/** Never `null`: the page iterates the list without a nil check. */
+export async function listChatPresets(): Promise<ChatPreset[]> {
+  const res = await api.get<{ presets: ChatPreset[] }>('/chats/presets');
+  return res.data?.presets ?? [];
+}
+
+/**
+ * Replaces the whole list. Add, rename, overwrite and delete are all this one
+ * call, so the caller sends the list it wants to end up with. Identity
+ * (`id`, `created_at`) is resolved server-side against what is stored.
+ */
+export async function saveChatPresets(presets: ChatPreset[]): Promise<ChatPreset[]> {
+  const body = {
+    presets: presets.map(preset => {
+      const source = preset as unknown as Record<string, unknown>;
+      const out: Record<string, unknown> = {};
+      for (const field of PRESET_FIELDS) {
+        const value = source[field];
+        if (value !== undefined) out[field] = value;
+      }
+      return out;
+    }),
+  };
+  const res = await api.put<{ presets: ChatPreset[] }>('/chats/presets', body);
+  return res.data?.presets ?? [];
+}
+
 // ─── Messages ───
 
 /** Chronological ascending. `meta.next_before` is the OLDEST returned message. */

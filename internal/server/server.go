@@ -1235,6 +1235,8 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.DELETE("/v1/chats/conversations/{id}/messages", s.PlaygroundMessagesAPI)
 	apiGroup.GET("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
 	apiGroup.PUT("/v1/chats/defaults", s.PlaygroundDefaultsAPI)
+	apiGroup.GET("/v1/chats/presets", s.ChatPresetsAPI)
+	apiGroup.PUT("/v1/chats/presets", s.ChatPresetsAPI)
 	// Personal registry of MCP servers running on the account holder's own
 	// machines. Stored and validated here; dialled only by their browser.
 	apiGroup.GET("/v1/chats/local-mcp-servers", s.LocalMCPServersAPI)
