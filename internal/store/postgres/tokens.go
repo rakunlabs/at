@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
+	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/oklog/ulid/v2"
 	"github.com/rakunlabs/at/internal/service"
 	"github.com/rakunlabs/query"
@@ -16,8 +17,17 @@ import (
 
 // ─── API Token CRUD ───
 
+// Capabilities still govern token management. Ownership additionally hides
+// personal tokens from other members, including those granted tokens.write.
+func tokenOwnershipPredicate(a service.AccessPrincipal) exp.Expression {
+	if a.PlatformAdmin || service.WorkspaceRoleRank(a.Role) >= service.WorkspaceRoleRank("admin") {
+		return goqu.L("TRUE")
+	}
+	return goqu.Or(goqu.C("owner_user_id").Eq(""), goqu.C("owner_user_id").Eq(a.UserID))
+}
+
 func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.ListResult[service.APIToken], error) {
-	sql, total, err := p.buildListQuery(ctx, p.tableAPITokens, q, "paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by", "workspace_id")
+	sql, total, err := p.buildListQuery(ctx, p.tableAPITokens, q, "paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by", "workspace_id", "owner_user_id")
 	if err != nil {
 		return nil, fmt.Errorf("build list tokens query: %w", err)
 	}
@@ -40,7 +50,7 @@ func (p *Postgres) ListAPITokens(ctx context.Context, q *query.Query) (*service.
 			&t.AllowedMCPsMode, &t.AllowedMCPs,
 			&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 			&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
-			&t.WorkspaceID,
+			&t.WorkspaceID, &t.OwnerUserID,
 		); err != nil {
 			return nil, fmt.Errorf("scan api_token row: %w", err)
 		}
@@ -71,7 +81,7 @@ func (p *Postgres) AuthorizeAPITokenManagement(ctx context.Context, id, capabili
 		return service.ErrAccessDenied
 	}
 	var owned string
-	found, err := p.goqu.From(p.tableAPITokens).Select("id").Where(goqu.Ex{"id": id, "workspace_id": a.WorkspaceID}).ScanValContext(ctx, &owned)
+	found, err := p.goqu.From(p.tableAPITokens).Select("id").Where(goqu.Ex{"id": id, "workspace_id": a.WorkspaceID}, tokenOwnershipPredicate(a)).ScanValContext(ctx, &owned)
 	if err != nil {
 		return fmt.Errorf("authorize token management: %w", err)
 	}
@@ -83,7 +93,7 @@ func (p *Postgres) AuthorizeAPITokenManagement(ctx context.Context, id, capabili
 
 func (p *Postgres) GetAPITokenByHash(ctx context.Context, hash string) (*service.APIToken, error) {
 	query, _, err := p.goqu.From(p.tableAPITokens).
-		Select("paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by", "workspace_id").
+		Select("paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by", "workspace_id", "owner_user_id").
 		Where(goqu.I("token_hash").Eq(hash)).
 		ToSQL()
 	if err != nil {
@@ -100,7 +110,7 @@ func (p *Postgres) GetAPITokenByHash(ctx context.Context, hash string) (*service
 		&t.AllowedMCPsMode, &t.AllowedMCPs,
 		&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 		&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
-		&t.WorkspaceID,
+		&t.WorkspaceID, &t.OwnerUserID,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -118,6 +128,9 @@ func (p *Postgres) CreateAPIToken(ctx context.Context, token service.APIToken, t
 		return nil, err
 	}
 	defer w.tx.Rollback()
+	if token.OwnerUserID != "" && token.OwnerUserID != w.actor.UserID {
+		return nil, service.ErrAccessDenied
+	}
 	if token.WorkspaceID != "" && token.WorkspaceID != w.actor.WorkspaceID {
 		return nil, service.ErrAccessDenied
 	}
@@ -126,6 +139,7 @@ func (p *Postgres) CreateAPIToken(ctx context.Context, token service.APIToken, t
 	now := types.NewTime(time.Now().UTC())
 
 	record := goqu.Record{
+		"owner_user_id":          token.OwnerUserID,
 		"workspace_id":           token.WorkspaceID,
 		"id":                     id,
 		"name":                   token.Name,
@@ -239,7 +253,7 @@ func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.
 
 	// Re-fetch the updated token.
 	fetchQuery, _, err := p.goqu.From(p.tableAPITokens).
-		Select("paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by").
+		Select("paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by", "owner_user_id").
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -256,6 +270,7 @@ func (p *Postgres) UpdateAPIToken(ctx context.Context, id string, token service.
 		&t.AllowedMCPsMode, &t.AllowedMCPs,
 		&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 		&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
+		&t.OwnerUserID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("fetch updated api_token %q: %w", id, err)
@@ -303,7 +318,7 @@ func (p *Postgres) RotateAPIToken(ctx context.Context, id, tokenHash, tokenPrefi
 	}
 
 	fetchQuery, _, err := p.goqu.From(p.tableAPITokens).
-		Select("paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by").
+		Select("paused", "id", "name", "token_prefix", "allowed_providers_mode", "allowed_providers", "allowed_models_mode", "allowed_models", "allowed_webhooks_mode", "allowed_webhooks", "allowed_mcps_mode", "allowed_mcps", "expires_at", "total_token_limit", "spend_limit_cents", "limit_reset_interval", "last_reset_at", "created_at", "last_used_at", "created_by", "updated_by", "owner_user_id").
 		Where(w.predicate, goqu.I("id").Eq(id)).
 		ToSQL()
 	if err != nil {
@@ -320,6 +335,7 @@ func (p *Postgres) RotateAPIToken(ctx context.Context, id, tokenHash, tokenPrefi
 		&t.AllowedMCPsMode, &t.AllowedMCPs,
 		&t.ExpiresAt, &t.TotalTokenLimit, &t.SpendLimitCents, &t.LimitResetInterval, &t.LastResetAt,
 		&t.CreatedAt, &t.LastUsedAt, &t.CreatedBy, &t.UpdatedBy,
+		&t.OwnerUserID,
 	); err != nil {
 		return nil, fmt.Errorf("fetch rotated api_token %q: %w", id, err)
 	}

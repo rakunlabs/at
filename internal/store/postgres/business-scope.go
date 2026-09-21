@@ -142,7 +142,14 @@ func (p *Postgres) businessReadScope(ctx context.Context, table interface{}) (ex
 		}
 		return nil, service.ErrAccessDenied
 	}
-	return businessPredicate(a, cap, id)
+	predicate, err := businessPredicate(a, cap, id)
+	if err != nil {
+		return nil, err
+	}
+	if table == p.tableAPITokens {
+		predicate = goqu.And(predicate, tokenOwnershipPredicate(a))
+	}
+	return predicate, nil
 }
 
 type businessWrite struct {
@@ -170,7 +177,22 @@ func (p *Postgres) beginBusinessWrite(ctx context.Context, table interface{}, ca
 		tx.Rollback()
 		return nil, service.ErrAccessDenied
 	}
-	return &businessWrite{tx: tx, actor: a, predicate: goqu.C("workspace_id").Eq(a.WorkspaceID)}, nil
+	predicate := exp.Expression(goqu.C("workspace_id").Eq(a.WorkspaceID))
+	if table == p.tableAPITokens {
+		predicate = goqu.And(predicate, tokenOwnershipPredicate(a))
+		if id != "" {
+			var foundID string
+			found, err := tx.From(table).Select("id").Where(predicate, goqu.C("id").Eq(id)).ForUpdate(goqu.Wait).ScanValContext(ctx, &foundID)
+			if err != nil || !found {
+				tx.Rollback()
+				if err != nil {
+					return nil, fmt.Errorf("lock token ownership: %w", err)
+				}
+				return nil, service.ErrAccessResourceNotFound
+			}
+		}
+	}
+	return &businessWrite{tx: tx, actor: a, predicate: predicate}, nil
 }
 
 func (p *Postgres) legacyBusinessPrincipal(ctx context.Context, q workspaceReader, lock bool) (service.AccessPrincipal, error) {

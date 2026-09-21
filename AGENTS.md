@@ -1394,6 +1394,19 @@ minutes. A paused token stays paused: pause is a separate availability decision
 and rotating must not silently reopen a closed token. Regression:
 `internal/server/token-rotate_test.go`.
 
+API Tokens creation offers **Workspace / Personal** ownership (`scope` on POST).
+Migration 62 adds `tokens.owner_user_id`; empty preserves existing workspace
+tokens. Personal ownership is stamped from the authenticated principal, never a
+submitted owner ID, and is immutable after creation. Existing `tokens.read` /
+`tokens.write` admission still applies (members can receive write via a permission
+bundle). Personal tokens are visible/manageable only by their owner, workspace
+admins/owners, and platform administrators within the selected workspace. The
+store applies ownership before pagination/counting, on resource resolution, and
+under the write transaction for edit/delete/pause/rotate; usage and reset use the
+same management guard. Gateway hash lookup remains independent of management
+visibility. Account deletion removes personal tokens. Regressions:
+`token-ownership_test.go` in server and postgres.
+
 Workspace startup selection is account-configurable under **Settings → Workspace
 → Workspace on sign-in**: Default (the shipped default), last used, or a specific
 accessible workspace. Migration 49 stores `workspace_preferences`; GET/PUT

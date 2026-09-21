@@ -6,6 +6,7 @@ const api = axios.create({
 });
 
 export interface APIToken {
+  owner_user_id: string;
   paused: boolean;
   id: string;
   name: string;
@@ -41,6 +42,7 @@ export interface TokenUsage {
 }
 
 export interface CreateTokenRequest {
+  scope?: 'personal' | 'workspace';
   name: string;
   allowed_providers_mode?: string;
   allowed_providers?: string[];

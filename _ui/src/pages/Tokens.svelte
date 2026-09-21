@@ -45,6 +45,7 @@
   // Create form
   let showCreate = $state(false);
   let formName = $state('');
+  let formScope = $state<'personal' | 'workspace'>('workspace');
   let formExpiresAt = $state('');
   let formProvidersMode = $state<'all' | 'none' | 'list'>('all');
   let formSelectedProviders = $state<string[]>([]);
@@ -185,6 +186,7 @@
   // ─── Actions ───
   function resetForm() {
     formName = '';
+    formScope = 'workspace';
     formExpiresAt = '';
     formProvidersMode = 'all';
     formSelectedProviders = [];
@@ -208,7 +210,7 @@
 
     creating = true;
     try {
-      const req: any = { name: formName.trim() };
+      const req: any = { name: formName.trim(), scope: formScope };
 
       if (formProvidersMode !== 'all') {
         req.allowed_providers_mode = formProvidersMode;
@@ -661,6 +663,20 @@
   {#if showCreate}
     <div class="mb-4 border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface p-4">
       <h3 class="text-sm font-medium text-gray-900 dark:text-dark-text mb-3">Create API Token</h3>
+
+      <div class="grid grid-cols-1 sm:grid-cols-4 gap-3 mb-3">
+        <label for="create-token-owner" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Ownership</label>
+        <div class="sm:col-span-3 min-w-0">
+          <select id="create-token-owner" bind:value={formScope} aria-describedby="create-token-owner-help" class="w-full border border-gray-200 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated text-gray-900 dark:text-dark-text px-2.5 py-1.5 text-sm">
+            <option value="workspace">Workspace</option>
+            <option value="personal">Personal — just for me</option>
+          </select>
+          <p id="create-token-owner-help" class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">
+            {formScope === 'personal' ? 'Visible to you and workspace administrators. Administrators can edit and delete it.' : 'Visible to workspace members with token access.'}
+            Ownership is set at creation. Token management permissions still apply.
+          </p>
+        </div>
+      </div>
 
       <div class="grid grid-cols-4 gap-3 mb-3">
         <label for="create-token-name" class="text-xs text-gray-600 dark:text-dark-text-secondary py-2">Name</label>
@@ -1312,7 +1328,7 @@
     {#snippet header()}
       <SortableHeader field="name" label="Name" {sorts} onsort={handleSort} />
       <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Token</th>
-      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Scope</th>
+      <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Access</th>
       <th class="text-left px-4 py-2 font-medium text-gray-500 dark:text-dark-text-muted text-xs uppercase tracking-wider">Usage</th>
       <SortableHeader field="expires_at" label="Expires" {sorts} onsort={handleSort} />
       <SortableHeader field="created_by" label="Created By" {sorts} onsort={handleSort} />
@@ -1324,6 +1340,9 @@
         <tr class={editingTokenId === token.id ? 'bg-red-50/30 dark:bg-red-900/10' : 'hover:bg-gray-50/50 dark:hover:bg-dark-elevated/50 '}>
           <td class="px-4 py-2.5 font-medium text-gray-900 dark:text-dark-text text-sm">
             {token.name}
+            <div class="mt-1 text-xs font-normal text-gray-600 dark:text-dark-text-secondary" title={token.owner_user_id ? `Owner: ${token.owner_user_id}` : 'Workspace-owned token'}>
+              {token.owner_user_id ? 'Personal' : 'Workspace'}
+            </div>
             {#if token.paused}
               <span class="mt-1 flex items-center gap-1 text-xs text-amber-800 dark:text-amber-300" title="New requests are rejected until this token is resumed.">
                 <Pause size={12} aria-hidden="true" /> Paused

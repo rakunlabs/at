@@ -47,7 +47,11 @@ func (p *Postgres) workspaceResource(ctx context.Context, q workspaceReader, act
 		delete(where, "id")
 		where["slug"] = id
 	}
-	found, err := q.From(p.workspaceTable(table)).Select(selects...).Where(where).ScanStructContext(ctx, &row)
+	ds := q.From(p.workspaceTable(table)).Select(selects...).Where(where)
+	if kind == "tokens" {
+		ds = ds.Where(tokenOwnershipPredicate(actor))
+	}
+	found, err := ds.ScanStructContext(ctx, &row)
 	if err != nil {
 		return nil, fmt.Errorf("resolve workspace resource: %w", err)
 	}

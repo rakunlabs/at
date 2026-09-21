@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 
 // createTokenRequest is the JSON body for POST /api/v1/api-tokens.
 type createTokenRequest struct {
+	Scope                string   `json:"scope,omitempty"`
 	Name                 string   `json:"name"`
 	AllowedProvidersMode string   `json:"allowed_providers_mode,omitempty"` // "all" (default/""), "none", or "list"
 	AllowedProviders     []string `json:"allowed_providers,omitempty"`      // used when mode = "list"
@@ -130,6 +132,19 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 		httpResponse(w, fmt.Sprintf("invalid request body: %v", err), http.StatusBadRequest)
 		return
 	}
+	if req.Scope != "" && req.Scope != "workspace" && req.Scope != "personal" {
+		httpResponse(w, "scope must be workspace or personal", http.StatusBadRequest)
+		return
+	}
+	ownerUserID := ""
+	if req.Scope == "personal" {
+		principal, ok := service.AccessPrincipalFromContext(r.Context())
+		if !ok || principal.UserID == "" {
+			workspaceError(w, service.ErrAccessDenied)
+			return
+		}
+		ownerUserID = principal.UserID
+	}
 
 	// Backward compat: fold legacy allowed_rag_mcps* fields into allowed_mcps*.
 	if req.AllowedMCPsMode == "" && req.LegacyRAGMCPsMode != "" {
@@ -172,6 +187,7 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 
 	userEmail := s.getUserEmail(r)
 	token := service.APIToken{
+		OwnerUserID:          ownerUserID,
 		Name:                 req.Name,
 		TokenPrefix:          tokenPrefix,
 		AllowedProvidersMode: req.AllowedProvidersMode,
@@ -193,6 +209,10 @@ func (s *Server) CreateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 	created, err := s.tokenStore.CreateAPIToken(r.Context(), token, tokenHash)
 	if err != nil {
 		slog.Error("create api token failed", "error", err)
+		if errors.Is(err, service.ErrAccessDenied) || errors.Is(err, service.ErrAccessResourceNotFound) {
+			workspaceError(w, err)
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to create token: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -218,6 +238,10 @@ func (s *Server) DeleteAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 
 	if err := s.tokenStore.DeleteAPIToken(r.Context(), id); err != nil {
 		slog.Error("delete api token failed", "id", id, "error", err)
+		if errors.Is(err, service.ErrAccessDenied) || errors.Is(err, service.ErrAccessResourceNotFound) {
+			workspaceError(w, err)
+			return
+		}
 		httpResponse(w, fmt.Sprintf("failed to delete token: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -296,6 +320,10 @@ func (s *Server) UpdateAPITokenAPI(w http.ResponseWriter, r *http.Request) {
 	updated, err := s.tokenStore.UpdateAPIToken(r.Context(), id, token)
 	if err != nil {
 		slog.Error("update api token failed", "id", id, "error", err)
+		if errors.Is(err, service.ErrAccessDenied) || errors.Is(err, service.ErrAccessResourceNotFound) {
+			workspaceError(w, err)
+			return
+		}
 		if strings.Contains(err.Error(), "not found") {
 			httpResponse(w, "token not found", http.StatusNotFound)
 			return
