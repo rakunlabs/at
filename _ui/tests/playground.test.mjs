@@ -342,7 +342,7 @@ test('named presets send the whole list and carry only allowlisted fields', asyn
   response = { presets: [] };
   assert.deepEqual(await api.listChatPresets(), []);
   response = { presets: [{ id: 'p1', name: 'Research', model: 'openai/gpt-4o', skills: ['web'] }] };
-  assert.deepEqual(await api.listChatPresets(), response.presets);
+  assert.deepEqual(await api.listChatPresets(), [{ ...response.presets[0], scope: 'personal', can_edit: true }]);
 
   // The body is rebuilt from the allowlist — the endpoint rejects unknown
   // fields — and the owner is the authenticated account server-side, so no
@@ -366,6 +366,27 @@ test('named presets send the whole list and carry only allowlisted fields', asyn
       { id: 'p1', name: 'Research', frontend_tools: [] },
     ] }],
     ['put', '/chats/presets', { presets: [] }],
+  ]);
+});
+
+test('workspace presets expose ownership and use item CRUD', async () => {
+  response = { presets: [{ id: 'w1', name: 'Shared', can_edit: false, owner_user_id: 'u1' }] };
+  assert.deepEqual(await api.listWorkspaceChatPresets(), [{ ...response.presets[0], scope: 'workspace' }]);
+
+  response = { id: 'w2', name: 'Derived', can_edit: true };
+  assert.deepEqual(
+    await api.createWorkspaceChatPreset({ name: 'Derived', model: 'openai/gpt-4o', scope: 'personal', nope: 1 }),
+    { ...response, scope: 'workspace' },
+  );
+  response = { id: 'w2', name: 'Derived v2', can_edit: true };
+  await api.updateWorkspaceChatPreset('w/2', { name: 'Derived v2', frontend_tools: [] });
+  await api.deleteWorkspaceChatPreset('w/2');
+
+  assert.deepEqual(calls, [
+    ['get', '/chats/workspace-presets'],
+    ['post', '/chats/workspace-presets', { name: 'Derived', model: 'openai/gpt-4o' }],
+    ['put', '/chats/workspace-presets/w%2F2', { name: 'Derived v2', frontend_tools: [] }],
+    ['delete', '/chats/workspace-presets/w%2F2'],
   ]);
 });
 

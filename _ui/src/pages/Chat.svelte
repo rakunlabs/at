@@ -54,6 +54,7 @@
   import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
+    type PlaygroundDefaults,
     type PlaygroundMessage,
     type PlaygroundMessageInput,
     type PlaygroundRole,
@@ -76,6 +77,10 @@
     savePlaygroundDefaults,
     listChatPresets,
     saveChatPresets,
+    listWorkspaceChatPresets,
+    createWorkspaceChatPreset,
+    updateWorkspaceChatPreset,
+    deleteWorkspaceChatPreset,
     sortPlaygroundConversations,
   } from '@/lib/api/playground';
   import { formatMessageTime, formatLocalDateTime } from '@/lib/helper/format';
@@ -149,6 +154,8 @@
     custom?: boolean;
     resolve: (answer: string) => void;
   }
+
+  type WorkbenchTab = 'prompt' | 'agent' | 'chat';
 
   /**
    * Durable-history bookkeeping kept strictly parallel to `messages`: index `i`
@@ -292,6 +299,12 @@
    */
   let showWorkbench = $state(false);
   let workbenchPanel: HTMLDivElement | undefined = $state();
+  let workbenchTab = $state<WorkbenchTab>('prompt');
+  const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
+    { id: 'prompt', label: 'System prompt' },
+    { id: 'agent', label: 'Agent & server tools' },
+    { id: 'chat', label: 'Chat tools' },
+  ];
   /**
    * Direct MCP URLs are no longer configurable here: tools now come from MCP
    * sets registered in the installation, which carry credentials, stdio
@@ -320,10 +333,13 @@
   // above still seeds a NEW conversation automatically; a preset is applied
   // deliberately, including to the conversation already open — switching
   // between setups mid-session is the reason for having more than one.
-  let presets = $state<ChatPreset[]>([]);
+  let personalPresets = $state<ChatPreset[]>([]);
+  let workspacePresets = $state<ChatPreset[]>([]);
+  let presets = $derived([...personalPresets, ...workspacePresets]);
   /** The preset last applied. Only *reported* while the setup still matches. */
   let appliedPresetId = $state('');
   let presetDraftName = $state('');
+  let presetSaveScope = $state<'personal' | 'workspace'>('personal');
   let presetSaving = $state(false);
 
   // Built-in server tools
@@ -454,6 +470,9 @@
   let extensionsScanned = $state(false);
   let extensionApprovalTarget = $state<ExtensionDescriptor | null>(null);
   let extensionApprovalTools = $state<ExtensionTool[]>([]);
+  let extensionInspectorTarget = $state<ExtensionDescriptor | null>(null);
+  let extensionInspectorTools = $state<ExtensionTool[]>([]);
+  let extensionInspectorPanel: HTMLDivElement | undefined = $state();
   let activeExtensions = $derived(extensions.filter(e => extensionApprovedIds.includes(e.id)));
 
   let extensionBridge: ExtensionBridge | null = null;
@@ -589,6 +608,31 @@
     }
   }
 
+  async function inspectExtensionTools(ext: ExtensionDescriptor) {
+    extensionInspectorTarget = ext;
+    extensionInspectorTools = [];
+    try {
+      extensionInspectorTools = await discoverExtensionTools(ext);
+    } catch {
+      /* the shared extension status renders the failure and retry path */
+    }
+  }
+
+  function handleWorkbenchTabsKeydown(event: KeyboardEvent) {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+    event.preventDefault();
+    const current = workbenchTabs.findIndex(tab => tab.id === workbenchTab);
+    const next = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? workbenchTabs.length - 1
+        : (current + (event.key === 'ArrowRight' ? 1 : -1) + workbenchTabs.length) % workbenchTabs.length;
+    workbenchTab = workbenchTabs[next].id;
+    requestAnimationFrame(() => {
+      workbenchPanel?.querySelector<HTMLButtonElement>(`#workbench-tab-${workbenchTab}`)?.focus();
+    });
+  }
+
   function confirmExtensionApproval() {
     const ext = extensionApprovalTarget;
     if (!ext) return;
@@ -602,6 +646,7 @@
   function disableExtension(ext: ExtensionDescriptor) {
     revokeExtension(ext.id, localStorageSafe());
     refreshExtensionApprovals();
+    if (extensionInspectorTarget?.id === ext.id) extensionInspectorTarget = null;
     void refreshTools();
   }
 
@@ -982,6 +1027,10 @@
     if (showWorkbench) workbenchPanel?.focus();
   });
 
+  $effect(() => {
+    if (extensionInspectorTarget) extensionInspectorPanel?.focus();
+  });
+
   // ─── Persistence ───
 
   async function ensureConversation(seedTitle: string): Promise<string> {
@@ -1208,11 +1257,9 @@
   // ─── Named presets ───
 
   async function loadPresets() {
-    try {
-      presets = await listChatPresets();
-    } catch {
-      // A deployment without preference storage simply has no presets.
-    }
+    const [personal, workspace] = await Promise.allSettled([listChatPresets(), listWorkspaceChatPresets()]);
+    if (personal.status === 'fulfilled') personalPresets = personal.value;
+    if (workspace.status === 'fulfilled') workspacePresets = workspace.value;
   }
 
   /** Order-insensitive: a tool selection is a set, not a sequence. */
@@ -1224,7 +1271,7 @@
   }
 
   /** The current workbench state in preset form. */
-  function currentSetup(): Omit<ChatPreset, 'id' | 'name'> {
+  function currentSetup(): PlaygroundDefaults {
     return {
       model: selectedModel,
       agent_id: boundAgentId,
@@ -1262,8 +1309,9 @@
   /** The entry the name box addresses — what Overwrite and Delete act on. */
   const draftPreset = $derived.by(() => {
     const name = presetDraftName.trim().toLowerCase();
+    const source = presetSaveScope === 'workspace' ? workspacePresets : personalPresets;
 
-    return name ? presets.find(p => p.name.toLowerCase() === name) : undefined;
+    return name ? source.find(p => p.name.toLowerCase() === name) : undefined;
   });
 
   /**
@@ -1306,7 +1354,16 @@
     showTodoPanel = enabledFrontendTools.includes('todo_write') || enabledFrontendTools.includes('todo_read');
 
     appliedPresetId = preset.id;
-    presetDraftName = preset.name;
+    if (preset.scope === 'workspace' && !preset.can_edit) {
+      // Applying a teammate's preset never points Overwrite/Delete at their
+      // record. Start a personal copy with a distinct name; the reader may
+      // switch the target to Workspace before saving it as another shared one.
+      presetSaveScope = 'personal';
+      presetDraftName = `${preset.name} copy`;
+    } else {
+      presetSaveScope = preset.scope;
+      presetDraftName = preset.name;
+    }
     void refreshTools();
     scheduleSettingsSave();
   }
@@ -1321,14 +1378,31 @@
     if (!name || presetSaving) return;
 
     const existing = draftPreset;
-    const entry: ChatPreset = { id: existing?.id ?? '', name, ...currentSetup() };
-    const next = existing ? presets.map(p => (p.id === existing.id ? entry : p)) : [...presets, entry];
+    if (existing && !existing.can_edit) {
+      addToast('Only the person who shared this workspace preset can overwrite it. Choose a new name to save a copy.', 'warn');
+      return;
+    }
 
     presetSaving = true;
     try {
-      // Identity is assigned server-side, so the saved list is authoritative.
-      presets = await saveChatPresets(next);
-      appliedPresetId = presets.find(p => p.name.toLowerCase() === name.toLowerCase())?.id ?? '';
+      if (presetSaveScope === 'workspace') {
+        const entry = existing
+          ? await updateWorkspaceChatPreset(existing.id, { name, ...currentSetup() })
+          : await createWorkspaceChatPreset({ name, ...currentSetup() });
+        workspacePresets = existing
+          ? workspacePresets.map(p => (p.id === entry.id ? entry : p))
+          : [...workspacePresets, entry];
+        appliedPresetId = entry.id;
+      } else {
+        const entry: ChatPreset = {
+          id: existing?.id ?? '', name, ...currentSetup(), scope: 'personal', can_edit: true,
+        };
+        const next = existing
+          ? personalPresets.map(p => (p.id === existing.id ? entry : p))
+          : [...personalPresets, entry];
+        personalPresets = await saveChatPresets(next);
+        appliedPresetId = personalPresets.find(p => p.name.toLowerCase() === name.toLowerCase())?.id ?? '';
+      }
     } catch (e) {
       addToast(playgroundErrorMessage(e, 'Failed to save the preset'), 'alert');
     } finally {
@@ -1337,13 +1411,18 @@
   }
 
   /** Deleting a preset removes a saved setup, never the current selections. */
-  async function deletePreset(id: string) {
-    if (!id || presetSaving) return;
+  async function deletePreset(preset: ChatPreset) {
+    if (!preset.id || presetSaving || !preset.can_edit) return;
 
     presetSaving = true;
     try {
-      presets = await saveChatPresets(presets.filter(p => p.id !== id));
-      if (appliedPresetId === id) appliedPresetId = '';
+      if (preset.scope === 'workspace') {
+        await deleteWorkspaceChatPreset(preset.id);
+        workspacePresets = workspacePresets.filter(p => p.id !== preset.id);
+      } else {
+        personalPresets = await saveChatPresets(personalPresets.filter(p => p.id !== preset.id));
+      }
+      if (appliedPresetId === preset.id) appliedPresetId = '';
       presetDraftName = '';
     } catch (e) {
       addToast(playgroundErrorMessage(e, 'Failed to delete the preset'), 'alert');
@@ -2531,9 +2610,20 @@
           class="h-9 w-full truncate border border-gray-300 dark:border-dark-border-subtle pl-2.5 pr-8 text-xs appearance-none bg-white dark:bg-dark-surface text-gray-700 dark:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent "
         >
           <option value="">No preset</option>
-          {#each presets as preset}
-            <option value={preset.id}>{preset.name}</option>
-          {/each}
+          {#if personalPresets.length > 0}
+            <optgroup label="My presets">
+              {#each personalPresets as preset}
+                <option value={preset.id}>{preset.name}</option>
+              {/each}
+            </optgroup>
+          {/if}
+          {#if workspacePresets.length > 0}
+            <optgroup label="Workspace presets">
+              {#each workspacePresets as preset}
+                <option value={preset.id}>{preset.name}{preset.can_edit ? ' · yours' : ''}</option>
+              {/each}
+            </optgroup>
+          {/if}
         </select>
         <ChevronDown size={14} class="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 dark:text-dark-text-muted" />
       </div>
@@ -2614,7 +2704,7 @@
         disabled={streaming || saving || (messages.length === 0 && !systemPrompt && pendingImages.length === 0)}
         aria-label={confirmClear ? 'Confirm clearing the transcript' : 'Clear transcript'}
         title={conversationId ? 'Clear transcript (deletes saved messages)' : 'Clear transcript'}
-        class={['h-9 min-w-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-2 border text-xs focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-30 disabled:cursor-not-allowed', confirmClear ? 'border-red-600 bg-red-600 text-white hover:bg-red-700' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400']}
+        class={['h-9 min-w-9 shrink-0 inline-flex items-center justify-center gap-1.5 px-2 border text-xs focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-30 disabled:cursor-not-allowed', confirmClear ? 'border-red-600 text-red-600 dark:text-red-400 hover:border-red-700' : 'border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400']}
       >
         <Trash2 size={14} />
         {#if confirmClear}Confirm?{/if}
@@ -2679,11 +2769,101 @@
           </button>
         </div>
 
-        <div class="flex-1 overflow-y-auto px-4 py-3 space-y-4">
+        <!-- Presets stay above the tabs: they describe and replace the complete
+             setup, so burying them inside one category makes their scope look
+             smaller than it is. -->
+        <div class="shrink-0 border-b border-gray-200 dark:border-dark-border px-4 py-3">
+          <div class="flex items-center justify-between gap-3 mb-1.5">
+            <div>
+              <h3 class="text-xs font-medium text-gray-800 dark:text-dark-text">Preset</h3>
+              <p class="text-[11px] text-gray-500 dark:text-dark-text-muted">Save or replace the complete setup shown below.</p>
+            </div>
+            {#if activePresetId}
+              <span class="shrink-0 border border-emerald-300 dark:border-emerald-900/60 px-1.5 py-0.5 text-[10px] text-emerald-700 dark:text-emerald-300">Applied</span>
+            {/if}
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <select
+              bind:value={presetSaveScope}
+              aria-label="Preset visibility"
+              class="border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated dark:text-dark-text px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+            >
+              <option value="personal">Only me</option>
+              <option value="workspace">Workspace</option>
+            </select>
+            <input
+              bind:value={presetDraftName}
+              placeholder="Preset name"
+              aria-label="Preset name"
+              maxlength={80}
+              class="min-w-0 flex-1 basis-40 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400"
+            />
+            <button
+              onclick={savePreset}
+              title={draftPreset && !draftPreset.can_edit
+                ? 'Only its creator can overwrite this workspace preset'
+                : draftPreset
+                  ? `Replace "${draftPreset.name}" with the current setup`
+                  : `Save the current setup for ${presetSaveScope === 'workspace' ? 'this workspace' : 'yourself'}`}
+              class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30"
+              disabled={!presetDraftName.trim() || presetSaving || !!(draftPreset && !draftPreset.can_edit)}
+            >
+              {draftPreset && !draftPreset.can_edit ? 'Owned by teammate' : draftPreset ? 'Overwrite' : presetSaveScope === 'workspace' ? 'Share setup' : 'Save setup'}
+            </button>
+            {#if draftPreset?.can_edit}
+              <button
+                onclick={() => deletePreset(draftPreset)}
+                disabled={presetSaving}
+                title={`Delete the saved setup "${draftPreset.name}". The current selections stay.`}
+                class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:border-red-300 dark:hover:border-red-800 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30"
+              >
+                Delete
+              </button>
+            {/if}
+          </div>
+          {#if draftPreset && !draftPreset.can_edit}
+            <p class="mt-1.5 text-xs text-amber-700 dark:text-amber-300">This workspace preset belongs to another member. Change the name to save a derived preset; the original stays unchanged.</p>
+          {/if}
+        </div>
+
+        <div
+          role="tablist"
+          tabindex="-1"
+          aria-label="Workbench sections"
+          onkeydown={handleWorkbenchTabsKeydown}
+          class="shrink-0 flex overflow-x-auto border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base px-2"
+        >
+          {#each workbenchTabs as tab}
+            <button
+              id={`workbench-tab-${tab.id}`}
+              role="tab"
+              aria-selected={workbenchTab === tab.id}
+              aria-controls={`workbench-panel-${tab.id}`}
+              tabindex={workbenchTab === tab.id ? 0 : -1}
+              onclick={() => (workbenchTab = tab.id)}
+              class={[
+                'min-h-10 shrink-0 border-b-2 px-3 text-xs font-medium focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent',
+                workbenchTab === tab.id
+                  ? 'border-gray-900 text-gray-900 dark:border-accent dark:text-dark-text'
+                  : 'border-transparent text-gray-500 hover:text-gray-800 dark:text-dark-text-muted dark:hover:text-dark-text',
+              ]}
+            >
+              {tab.label}
+            </button>
+          {/each}
+        </div>
+
+        <div
+          id={`workbench-panel-${workbenchTab}`}
+          role="tabpanel"
+          aria-labelledby={`workbench-tab-${workbenchTab}`}
+          class="flex-1 overflow-y-auto px-4 py-4 space-y-4"
+        >
           <!-- System prompt. It leads because it is the instruction the tools
                below serve, and because a bound agent makes it read-only — a fact
                better learned before the reader types into it. -->
-          <div class="block">
+          {#if workbenchTab === 'prompt'}
+          <div class="block max-w-2xl">
             <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">System prompt</span>
             {#if boundAgentId}
               <p class="mb-1 text-xs text-purple-700 dark:text-purple-300">From {boundAgent?.name ?? 'agent'} · Read-only. Copy to your settings to edit.</p>
@@ -2698,44 +2878,13 @@
               class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 read-only:bg-gray-50 dark:read-only:bg-dark-base "
             ></textarea>
           </div>
-
-          <!-- Named setups. The per-account default still seeds a new
-               conversation on its own; these are applied deliberately. -->
-          <div class="block">
-            <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Preset</span>
-            <div class="flex flex-wrap gap-2">
-              <input
-                bind:value={presetDraftName}
-                placeholder="Preset name"
-                aria-label="Preset name"
-                maxlength={80}
-                class="min-w-0 flex-1 basis-40 border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 "
-              />
-              <button
-                onclick={savePreset}
-                disabled={!presetDraftName.trim() || presetSaving}
-                title={draftPreset ? `Replace "${draftPreset.name}" with the current setup` : 'Save the current setup under this name'}
-                class="px-3 py-1.5 text-sm bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover disabled:opacity-30 "
-              >
-                {draftPreset ? 'Overwrite' : 'Save setup'}
-              </button>
-              {#if draftPreset}
-                <button
-                  onclick={() => deletePreset(draftPreset.id)}
-                  disabled={presetSaving}
-                  title={`Delete the saved setup "${draftPreset.name}". The current selections stay.`}
-                  class="px-3 py-1.5 text-sm border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-red-50 dark:hover:bg-red-900/20 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-30 "
-                >
-                  Delete
-                </button>
-              {/if}
-            </div>
-            <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">
-              Saves the model, agent, system prompt and every tool selection under a name. Switch between saved setups from the toolbar; applying one changes this conversation's setup, never its transcript.
-            </p>
-          </div>
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+            The prompt guides the whole conversation. Presets also capture the model, agent, prompt, and every tool selection without changing the transcript.
+          </p>
+          {/if}
 
           <!-- Agent contributions remain separate from personal selections. -->
+          {#if workbenchTab === 'agent'}
           <div class="block">
             <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Agent</span>
             {#if boundAgentId}
@@ -2848,8 +2997,10 @@
               <BuiltinToolPicker tools={builtinTools} bind:selected={enabledBuiltinTools} inherited={inherited.builtin_tools} onchange={refreshTools} />
             </div>
           {/if}
+          {/if}
 
           <!-- Chat Tools (frontend-only) -->
+          {#if workbenchTab === 'chat'}
           <div role="group" aria-label="Chat Tools" class="block">
             <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">Chat Tools</span>
             <div class="flex flex-wrap gap-1.5">
@@ -2866,6 +3017,7 @@
                 </button>
               {/each}
             </div>
+            <p class="mt-2 max-w-2xl text-xs text-gray-500 dark:text-dark-text-muted">These tools run in this chat interface and help the model manage the conversation while you are here.</p>
           </div>
 
           <!-- Local MCP servers.
@@ -2984,6 +3136,8 @@
                 </div>
               {/if}
             </div>
+          {:else}
+            <p class="text-xs text-gray-500 dark:text-dark-text-muted">Tools on this machine are not available in this installation.</p>
           {/if}
 
           <!-- Browser extensions.
@@ -3032,9 +3186,13 @@
                         <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{ext.version}</code>
                       {/if}
                       {#if approved}
-                        <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
-                          Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ''}
-                        </span>
+                        <button
+                          onclick={() => inspectExtensionTools(ext)}
+                          class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 focus-visible:outline-2 focus-visible:outline-accent"
+                          title={`View tools connected through ${ext.name}`}
+                        >
+                          Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ' · View tools'}
+                        </button>
                       {:else}
                         <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
                           Not enabled on this device
@@ -3072,6 +3230,9 @@
                 {/each}
               </div>
             </div>
+          {:else}
+            <p class="text-xs text-gray-500 dark:text-dark-text-muted">Browser extensions are not available in this installation.</p>
+          {/if}
           {/if}
         </div>
 
@@ -3621,6 +3782,69 @@
         >
           Retry
         </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Connected extension tool details. Unlike the approval dialog, this is
+     informational: opening it never changes device approval. -->
+{#if extensionInspectorTarget}
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+    onclick={(e) => { if (e.target === e.currentTarget) extensionInspectorTarget = null; }}
+  >
+    <div
+      bind:this={extensionInspectorPanel}
+      role="dialog"
+      tabindex="-1"
+      aria-modal="true"
+      aria-labelledby="extension-tools-title"
+      onkeydown={(e) => { if (e.key === 'Escape') extensionInspectorTarget = null; }}
+      class="flex w-full max-w-lg max-h-[80vh] flex-col border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface"
+    >
+      <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+        <div class="min-w-0">
+          <h2 id="extension-tools-title" class="text-sm font-medium text-gray-900 dark:text-dark-text">{extensionInspectorTarget.name} tools</h2>
+          <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">Tools currently connected to this chat through the browser extension.</p>
+        </div>
+        <button
+          onclick={() => (extensionInspectorTarget = null)}
+          aria-label="Close extension tools"
+          class="shrink-0 p-1 text-gray-400 dark:text-dark-text-muted hover:bg-gray-200 dark:hover:bg-dark-elevated hover:text-gray-600 dark:hover:text-dark-text-secondary focus-visible:outline-2 focus-visible:outline-accent"
+        ><X size={16} /></button>
+      </div>
+      <div class="flex-1 overflow-y-auto p-4">
+        {#if extensionStatus[extensionInspectorTarget.id]?.busy}
+          <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-dark-text-muted"><Loader2 size={13} class="animate-spin" /> Asking the extension…</div>
+        {:else if extensionStatus[extensionInspectorTarget.id]?.error}
+          <div class="space-y-2">
+            <p class="text-xs text-red-600 dark:text-red-400">{extensionStatus[extensionInspectorTarget.id].error}</p>
+            <button onclick={() => extensionInspectorTarget && inspectExtensionTools(extensionInspectorTarget)} class="px-2.5 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated">Retry</button>
+          </div>
+        {:else if extensionInspectorTools.length === 0}
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">{extensionInspectorTarget.notice || 'This extension offers no tools right now.'}</p>
+        {:else}
+          <div class="mb-2 flex items-center justify-between gap-3">
+            <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{extensionInspectorTools.length} connected tool{extensionInspectorTools.length === 1 ? '' : 's'}</p>
+            <button onclick={() => extensionInspectorTarget && inspectExtensionTools(extensionInspectorTarget)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated">Refresh</button>
+          </div>
+          <ul class="divide-y divide-gray-100 dark:divide-dark-border border border-gray-200 dark:border-dark-border-subtle">
+            {#each extensionInspectorTools as tool}
+              <li class="px-3 py-2.5">
+                <code class="text-[11px] font-mono text-gray-800 dark:text-dark-text">{tool.name}</code>
+                {#if tool.description}
+                  <p class="mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-dark-text-muted">{tool.description}</p>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+      <div class="shrink-0 flex justify-end px-4 py-3 border-t border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+        <button onclick={() => (extensionInspectorTarget = null)} class="px-3 py-1.5 text-xs bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-accent">Done</button>
       </div>
     </div>
   </div>

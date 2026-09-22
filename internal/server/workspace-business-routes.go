@@ -117,6 +117,10 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		// default, so they ride the same entry capability.
 		{"GET", "/chats/presets", "models.use", "", ""},
 		{"PUT", "/chats/presets", "models.use", "", ""},
+		{"GET", "/chats/workspace-presets", "models.use", "", ""},
+		{"POST", "/chats/workspace-presets", "models.use", "", ""},
+		{"PUT", "/chats/workspace-presets/{id}", "models.use", "", ""},
+		{"DELETE", "/chats/workspace-presets/{id}", "models.use", "", ""},
 		// The personal local-MCP registry and the client-asserted tool
 		// observations a local tool call produces. Both are owner-scoped in
 		// the handler and ride the Chats entry capability.

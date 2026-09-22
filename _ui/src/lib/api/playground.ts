@@ -203,6 +203,9 @@ export interface ChatPreset extends PlaygroundDefaults {
   name: string;
   created_at?: string;
   updated_at?: string;
+  scope: 'personal' | 'workspace';
+  can_edit: boolean;
+  owner_user_id?: string;
 }
 
 const PRESET_FIELDS = ['id', 'name', ...DEFAULTS_FIELDS] as const;
@@ -210,7 +213,7 @@ const PRESET_FIELDS = ['id', 'name', ...DEFAULTS_FIELDS] as const;
 /** Never `null`: the page iterates the list without a nil check. */
 export async function listChatPresets(): Promise<ChatPreset[]> {
   const res = await api.get<{ presets: ChatPreset[] }>('/chats/presets');
-  return res.data?.presets ?? [];
+  return (res.data?.presets ?? []).map(preset => ({ ...preset, scope: 'personal', can_edit: true }));
 }
 
 /**
@@ -231,7 +234,36 @@ export async function saveChatPresets(presets: ChatPreset[]): Promise<ChatPreset
     }),
   };
   const res = await api.put<{ presets: ChatPreset[] }>('/chats/presets', body);
-  return res.data?.presets ?? [];
+  return (res.data?.presets ?? []).map(preset => ({ ...preset, scope: 'personal', can_edit: true }));
+}
+
+export async function listWorkspaceChatPresets(): Promise<ChatPreset[]> {
+  const res = await api.get<{ presets: ChatPreset[] }>('/chats/workspace-presets');
+  return (res.data?.presets ?? []).map(preset => ({ ...preset, scope: 'workspace', can_edit: !!preset.can_edit }));
+}
+
+function workspacePresetBody(preset: Pick<ChatPreset, 'name'> & PlaygroundDefaults): Record<string, unknown> {
+  const source = preset as unknown as Record<string, unknown>;
+  const out: Record<string, unknown> = { name: preset.name };
+  for (const field of DEFAULTS_FIELDS) {
+    const value = source[field];
+    if (value !== undefined) out[field] = value;
+  }
+  return out;
+}
+
+export async function createWorkspaceChatPreset(preset: Pick<ChatPreset, 'name'> & PlaygroundDefaults): Promise<ChatPreset> {
+  const res = await api.post<ChatPreset>('/chats/workspace-presets', workspacePresetBody(preset));
+  return { ...res.data, scope: 'workspace', can_edit: true };
+}
+
+export async function updateWorkspaceChatPreset(id: string, preset: Pick<ChatPreset, 'name'> & PlaygroundDefaults): Promise<ChatPreset> {
+  const res = await api.put<ChatPreset>(`/chats/workspace-presets/${encodeURIComponent(id)}`, workspacePresetBody(preset));
+  return { ...res.data, scope: 'workspace', can_edit: true };
+}
+
+export async function deleteWorkspaceChatPreset(id: string): Promise<void> {
+  await api.delete(`/chats/workspace-presets/${encodeURIComponent(id)}`);
 }
 
 // ─── Messages ───

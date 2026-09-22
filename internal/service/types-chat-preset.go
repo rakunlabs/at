@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -47,6 +49,30 @@ type ChatPreset struct {
 	CreatedAt string `json:"created_at,omitempty"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
+
+// WorkspaceChatPreset is a setup shared with every member of one workspace.
+// Everyone admitted to Chats may apply it; only the account that created it may
+// update or delete it. CanEdit is derived for the current caller and is never
+// persisted.
+type WorkspaceChatPreset struct {
+	ChatPreset
+
+	WorkspaceID string `json:"workspace_id"`
+	OwnerUserID string `json:"owner_user_id"`
+	CanEdit     bool   `json:"can_edit"`
+}
+
+// WorkspaceChatPresetStorer persists workspace-shared Chats presets. The actor
+// and selected workspace come from the access principal on ctx; implementations
+// must not trust ownership supplied by a request body.
+type WorkspaceChatPresetStorer interface {
+	ListWorkspaceChatPresets(ctx context.Context, workspaceID string) ([]WorkspaceChatPreset, error)
+	CreateWorkspaceChatPreset(ctx context.Context, preset WorkspaceChatPreset) (*WorkspaceChatPreset, error)
+	UpdateWorkspaceChatPreset(ctx context.Context, id string, preset WorkspaceChatPreset) (*WorkspaceChatPreset, error)
+	DeleteWorkspaceChatPreset(ctx context.Context, id string) error
+}
+
+var ErrChatPresetNameConflict = errors.New("a workspace preset already uses that name")
 
 // Bounds. A personal preset list is a handful of entries; these exist so a
 // client cannot store an unbounded blob in a preference row.

@@ -921,6 +921,16 @@ a new entry with a minted one, so a client cannot claim an id it observed
 elsewhere or backdate `created_at`. Names are unique case-insensitively: the
 list is a picker, and two entries a reader cannot tell apart are a defect.
 
+Migration 65 adds `workspace_chat_presets` for the shared half of the same
+picker (`/api/v1/chats/workspace-presets`). Every member admitted to Chats may
+list and apply workspace presets or publish a new one; `owner_user_id` is stamped
+from the authenticated principal, and only that immutable creator may update or
+delete the row. Applying somebody else's preset prepares a separately named
+personal copy in the editor rather than pointing Overwrite at their row; the
+reader may instead choose Workspace and publish that derived setup under a new
+workspace-unique, case-insensitive name. Personal presets remain in
+`user_preferences` unchanged and the toolbar groups both sources.
+
 The toolbar switcher is controlled by a **derived** id, not a bound one: once
 any selection diverges from the applied preset it reports "No preset" rather
 than a stale name, and selecting "No preset" is a state, not an action — it

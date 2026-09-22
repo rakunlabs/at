@@ -32,6 +32,17 @@ func decodeChatPresets(t *testing.T, w *httptest.ResponseRecorder) []service.Cha
 	return got.Presets
 }
 
+func workspaceChatPresetRequest(s *Server, token, method, path, body string) *httptest.ResponseRecorder {
+	r := httptest.NewRequest(method, "/at/api/v1/chats/workspace-presets"+path, strings.NewReader(body))
+	r.Header.Set("Authorization", "Bearer "+token)
+	r.Header.Set("X-AT-Workspace-ID", service.DefaultWorkspaceID)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	s.server.ServeHTTP(w, r)
+
+	return w
+}
+
 // Named presets are per account, and their identity is the server's to assign:
 // a client submits the whole list, so it must not be able to claim another
 // entry's id, backdate a creation time or read another account's setups.
@@ -169,5 +180,62 @@ func TestChatPresetSharesDefaultsPayload(t *testing.T) {
 		if string(flat[key]) != string(want) {
 			t.Fatalf("preset key %q is %s, defaults say %s", key, flat[key], want)
 		}
+	}
+}
+
+func TestWorkspaceChatPresetSharingAndOwnership(t *testing.T) {
+	s, owners, tokens := playgroundFixture(t)
+
+	w := workspaceChatPresetRequest(s, tokens[0], "POST", "", `{"name":"Shared research","model":"test/text-model","skills":["web"]}`)
+	if w.Code != 201 {
+		t.Fatalf("create workspace preset: %d %s", w.Code, w.Body)
+	}
+	var created service.WorkspaceChatPreset
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if created.ID == "" || created.OwnerUserID != owners[0] || !created.CanEdit || created.WorkspaceID != service.DefaultWorkspaceID {
+		t.Fatalf("wrong created preset: %+v", created)
+	}
+
+	// Another workspace member can discover and apply the payload, but ownership
+	// is explicit and the original cannot be overwritten or deleted by them.
+	w = workspaceChatPresetRequest(s, tokens[1], "GET", "", "")
+	if w.Code != 200 {
+		t.Fatalf("list as teammate: %d %s", w.Code, w.Body)
+	}
+	var listed workspaceChatPresetList
+	if err := json.Unmarshal(w.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed.Presets) != 1 || listed.Presets[0].CanEdit || listed.Presets[0].Skills[0] != "web" {
+		t.Fatalf("shared preset not readable as immutable: %+v", listed.Presets)
+	}
+	if denied := workspaceChatPresetRequest(s, tokens[1], "PUT", "/"+created.ID, `{"name":"Hijacked"}`); denied.Code != 404 {
+		t.Fatalf("teammate overwrote preset: %d %s", denied.Code, denied.Body)
+	}
+	if denied := workspaceChatPresetRequest(s, tokens[1], "DELETE", "/"+created.ID, ""); denied.Code != 404 {
+		t.Fatalf("teammate deleted preset: %d %s", denied.Code, denied.Body)
+	}
+
+	// Deriving is a create with a fresh name. The copy belongs to its creator and
+	// leaves the source untouched.
+	w = workspaceChatPresetRequest(s, tokens[1], "POST", "", `{"name":"Shared research copy","model":"test/text-model","skills":["web"]}`)
+	if w.Code != 201 {
+		t.Fatalf("derive workspace preset: %d %s", w.Code, w.Body)
+	}
+	var derived service.WorkspaceChatPreset
+	if err := json.Unmarshal(w.Body.Bytes(), &derived); err != nil {
+		t.Fatal(err)
+	}
+	if derived.OwnerUserID != owners[1] || !derived.CanEdit || derived.ID == created.ID {
+		t.Fatalf("wrong derived ownership: %+v", derived)
+	}
+
+	if duplicate := workspaceChatPresetRequest(s, tokens[1], "POST", "", `{"name":"SHARED RESEARCH COPY"}`); duplicate.Code != 409 {
+		t.Fatalf("case-insensitive duplicate accepted: %d %s", duplicate.Code, duplicate.Body)
+	}
+	if ownDelete := workspaceChatPresetRequest(s, tokens[0], "DELETE", "/"+created.ID, ""); ownDelete.Code != 204 {
+		t.Fatalf("owner delete: %d %s", ownDelete.Code, ownDelete.Body)
 	}
 }
