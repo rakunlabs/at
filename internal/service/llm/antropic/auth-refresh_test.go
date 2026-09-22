@@ -2,6 +2,7 @@ package antropic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -14,14 +15,24 @@ type oauthRefreshTransport func(*http.Request) (*http.Response, error)
 
 func (f oauthRefreshTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+func refreshRequestPayload(t *testing.T, r *http.Request) map[string]string {
+	t.Helper()
+	if got := r.Header.Get("Content-Type"); got != "application/json" {
+		t.Fatalf("Content-Type = %q, want application/json", got)
+	}
+	var payload map[string]string
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	return payload
+}
+
 func TestOAuthRefreshRetriesPersistenceWithoutRotatingAgain(t *testing.T) {
 	requests, writes := 0, 0
 	client := &http.Client{Transport: oauthRefreshTransport(func(r *http.Request) (*http.Response, error) {
 		requests++
-		if err := r.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		if r.PostForm.Get("refresh_token") != "old-refresh" {
+		payload := refreshRequestPayload(t, r)
+		if payload["refresh_token"] != "old-refresh" || payload["scope"] != ClaudeOAuthRefreshScopes {
 			t.Fatal("unexpected refresh credential")
 		}
 		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}`)), Header: make(http.Header)}, nil
@@ -75,10 +86,8 @@ func TestOAuthRefreshTransportFailureReleasesLock(t *testing.T) {
 func TestCoordinatedRefreshAdoptsStoredCredential(t *testing.T) {
 	exchanges := 0
 	client := &http.Client{Transport: oauthRefreshTransport(func(r *http.Request) (*http.Response, error) {
-		if err := r.ParseForm(); err != nil {
-			t.Fatal(err)
-		}
-		if r.PostForm.Get("refresh_token") != "stored-refresh" {
+		payload := refreshRequestPayload(t, r)
+		if payload["refresh_token"] != "stored-refresh" {
 			return &http.Response{StatusCode: 400, Body: io.NopCloser(strings.NewReader(`{"error":"invalid_grant"}`)), Header: make(http.Header)}, nil
 		}
 		exchanges++

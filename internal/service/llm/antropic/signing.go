@@ -19,8 +19,7 @@ const billingSalt = "59cf53e54c78"
 // the plugin's extractFirstUserMessageText. Returns "" when there is
 // no user message or no text content — the rest of the billing header
 // math then operates on an empty string, which is the correct degraded
-// behaviour (the upstream still accepts the request but with a slightly
-// less specific cch/suffix, matching the plugin).
+// behaviour for the version suffix.
 func extractFirstUserMessageText(messages []map[string]any) string {
 	for _, m := range messages {
 		role, _ := m["role"].(string)
@@ -45,12 +44,6 @@ func extractFirstUserMessageText(messages []map[string]any) string {
 		}
 	}
 	return ""
-}
-
-// computeCch is the first 5 hex characters of SHA-256(messageText).
-func computeCch(messageText string) string {
-	sum := sha256.Sum256([]byte(messageText))
-	return hex.EncodeToString(sum[:])[:5]
 }
 
 // computeVersionSuffix returns the 3-char version suffix that goes after
@@ -82,7 +75,7 @@ func computeVersionSuffix(messageText, version string) string {
 // system[0] block of OAuth-billed Anthropic requests. Format matches
 // the upstream Claude Code CLI:
 //
-//	x-anthropic-billing-header: cc_version=<version>.<suffix>; cc_entrypoint=<entrypoint>; cch=<hash5>;
+//	x-anthropic-billing-header: cc_version=<version>.<suffix>; cc_entrypoint=<entrypoint>; cch=00000;
 //
 // IMPORTANT: this string lives inside the request body's `system` field
 // as a text block, NOT as an HTTP header. The legacy code in this
@@ -98,9 +91,8 @@ func buildBillingHeaderValue(
 ) string {
 	text := extractFirstUserMessageText(messages)
 	suffix := computeVersionSuffix(text, version)
-	cch := computeCch(text)
 	return fmt.Sprintf(
-		"x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=%s; cch=%s;",
-		version, suffix, entrypoint, cch,
+		"x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=%s; cch=00000;",
+		version, suffix, entrypoint,
 	)
 }

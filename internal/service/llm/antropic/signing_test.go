@@ -3,52 +3,8 @@ package antropic
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"strings"
 	"testing"
 )
-
-// TestComputeCch_DeterministicAndShape pins the cch math: SHA-256 of
-// the input message text, first 5 hex chars. We compute the expected
-// value inline rather than hard-coding a string so the test still
-// passes if the underlying hash impl is FIPS-mode etc., as long as
-// the algorithm is consistent.
-func TestComputeCch_DeterministicAndShape(t *testing.T) {
-	tests := []struct {
-		name string
-		in   string
-	}{
-		{"empty", ""},
-		{"short", "hi"},
-		{"long", strings.Repeat("hello ", 200)},
-		{"unicode", "Türkçe karakter ölçümü ✨"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := computeCch(tt.in)
-			sum := sha256.Sum256([]byte(tt.in))
-			want := hex.EncodeToString(sum[:])[:5]
-			if got != want {
-				t.Errorf("computeCch(%q) = %q, want %q", tt.in, got, want)
-			}
-			if len(got) != 5 {
-				t.Errorf("cch length = %d, want 5", len(got))
-			}
-		})
-	}
-}
-
-// TestComputeCch_KnownVector pins the function against a fixed test
-// vector so a regression in the algorithm (wrong hash, wrong slice
-// width) is caught immediately. The vector is "hello", chosen because
-// SHA-256("hello") is well-known and Anthropic's billing pipeline
-// would reject any other hash.
-func TestComputeCch_KnownVector(t *testing.T) {
-	got := computeCch("hello")
-	want := "2cf24" // first 5 hex chars of sha256("hello")
-	if got != want {
-		t.Errorf("computeCch(\"hello\") = %q, want %q", got, want)
-	}
-}
 
 // TestComputeVersionSuffix_PadsShortMessages verifies the '0' padding
 // when the message is shorter than the highest sampled index (20).
@@ -148,11 +104,11 @@ func TestBuildBillingHeaderValue_Shape(t *testing.T) {
 	}
 	got := buildBillingHeaderValue(msgs, "2.1.112", "sdk-cli")
 
-	// Recompute the deterministic parts.
-	cch := computeCch("hi")
+	// Recompute the deterministic suffix. Claude Code 2.1.280 sends a
+	// fixed cch value on direct first-party requests.
 	suffix := computeVersionSuffix("hi", "2.1.112")
 	want := "x-anthropic-billing-header: cc_version=2.1.112." + suffix +
-		"; cc_entrypoint=sdk-cli; cch=" + cch + ";"
+		"; cc_entrypoint=sdk-cli; cch=00000;"
 
 	if got != want {
 		t.Errorf("billing header mismatch:\n got  %q\n want %q", got, want)

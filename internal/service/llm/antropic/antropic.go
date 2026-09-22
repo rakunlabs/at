@@ -1206,7 +1206,7 @@ func (p *Provider) buildRequestBody(model string, messages []service.Message, to
 		}
 
 		entrypoint := claudeCodeEntrypoint
-		transformAnthropicSystem(reqBody, claudeCodeCLIVersion, entrypoint)
+		transformAnthropicSystem(reqBody, claudeCodeVersion(), entrypoint)
 	}
 
 	// Default-on prompt caching: install ephemeral cache_control markers
@@ -1457,7 +1457,7 @@ func (p *Provider) setOAuthHeaders(req *http.Request, model string) {
 	// expects. Note the "(external, sdk-cli)" trailer — the older
 	// "(external, cli)" form is treated as a different client surface
 	// and gets stricter throttling.
-	req.Header.Set("User-Agent", "claude-cli/"+claudeCodeCLIVersion+" (external, sdk-cli)")
+	req.Header.Set("User-Agent", "claude-cli/"+claudeCodeVersion()+" (external, sdk-cli)")
 	req.Header.Set("x-app", "cli")
 	req.Header.Set("anthropic-dangerous-direct-browser-access", "true")
 
@@ -1499,33 +1499,24 @@ const claudeCodeSystemIdentity = "You are Claude Code, Anthropic's official CLI 
 //   - interleaved-thinking-2025-05-14: extended thinking interleaving
 //   - prompt-caching-scope-2026-01-05: prompt caching with OAuth tokens
 //   - context-management-2025-06-27: server-side context management
-//   - advisor-tool-2026-03-01: Claude Code advisor tooling
+//   - thinking-token-count-2026-05-13: streamed thinking token counts
 //
-// Haiku models reject `interleaved-thinking-2025-05-14`, so we strip it
-// for those — matching the plugin's per-model exclude list.
-//
-// We always include the `interleaved-thinking` flag for non-haiku
-// models (not just when the body has `thinking`) because the plugin
-// does — Anthropic's billing pipeline expects it on the baseline
-// Claude Code wire shape.
+// Current Claude Code does not send the claude-code, interleaved-thinking,
+// or thinking-token-count betas to Haiku. Advisor and extended-cache-TTL
+// flags are feature-specific and are not advertised because AT does not send
+// those request fields.
 func oauthBetaHeader(model string, _ map[string]any) string {
 	flags := []string{
-		"claude-code-20250219",
 		"oauth-2025-04-20",
-		"interleaved-thinking-2025-05-14",
 		"prompt-caching-scope-2026-01-05",
 		"context-management-2025-06-27",
-		"advisor-tool-2026-03-01",
 	}
-	if strings.Contains(strings.ToLower(model), "haiku") {
-		// Drop interleaved-thinking — haiku doesn't support it.
-		filtered := flags[:0]
-		for _, f := range flags {
-			if f != "interleaved-thinking-2025-05-14" {
-				filtered = append(filtered, f)
-			}
-		}
-		flags = filtered
+	if !strings.Contains(strings.ToLower(model), "haiku") {
+		flags = append([]string{
+			"claude-code-20250219",
+			"interleaved-thinking-2025-05-14",
+			"thinking-token-count-2026-05-13",
+		}, flags...)
 	}
 	return strings.Join(flags, ",")
 }
@@ -1539,7 +1530,7 @@ func oauthBetaHeader(model string, _ map[string]any) string {
 //
 // Override at runtime via the ANTHROPIC_CLI_VERSION env var if
 // Anthropic bumps the CLI before we publish a new release.
-const claudeCodeCLIVersion = "2.1.112"
+const claudeCodeCLIVersion = "2.1.280"
 
 // claudeCodeEntrypoint is the cc_entrypoint value embedded in the
 // billing system text block. Plugin uses "sdk-cli" (not "cli") so we

@@ -751,9 +751,13 @@ func (s *Server) ClaudeAuthCallbackAPI(w http.ResponseWriter, r *http.Request) {
 		"redirect_uri", antropic.ClaudeManualURI,
 		"token_url", antropic.ClaudeTokenURL,
 	)
-	tokenResp, err := antropic.ExchangeAuthCode(r.Context(), req.Code, flow.Verifier, antropic.ClaudeManualURI, httpClient)
+	tokenResp, err := antropic.ExchangeAuthCode(r.Context(), req.Code, flow.State, flow.Verifier, antropic.ClaudeManualURI, httpClient)
 	if err != nil {
 		slog.Error("claude auth callback: token exchange failed", "key", req.Key, "error", err)
+		if errors.Is(err, antropic.ErrOAuthStateMismatch) {
+			httpResponse(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		httpResponse(w, fmt.Sprintf("token exchange failed: %v", err), http.StatusBadGateway)
 		return
 	}
