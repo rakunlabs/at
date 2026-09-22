@@ -3354,7 +3354,7 @@
         {#if msg.role === 'user'}
           <div class="flex justify-end group">
             <div class="max-w-[75%]">
-              <div class="px-4 py-2.5 text-sm leading-relaxed bg-gray-900 dark:bg-accent text-white">
+              <div class="px-4 py-2.5 text-sm leading-relaxed bg-gray-900 dark:bg-[#2B2D42] text-white">
                 {#if typeof msg.content === 'string'}
                   <span class="whitespace-pre-wrap">{msg.content}</span>
                 {:else}

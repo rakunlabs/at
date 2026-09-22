@@ -1233,7 +1233,7 @@
                       {/each}
                     </div>
                   {/if}
-                  {#if getMessageText(msg.data)}<div class="px-4 py-2.5 bg-gray-900 dark:bg-accent text-white dark:text-gray-950 whitespace-pre-wrap break-words text-base sm:text-sm leading-relaxed">{getMessageText(msg.data)}</div>{/if}
+                  {#if getMessageText(msg.data)}<div class="px-4 py-2.5 bg-gray-900 dark:bg-[#2B2D42] text-white whitespace-pre-wrap break-words text-base sm:text-sm leading-relaxed">{getMessageText(msg.data)}</div>{/if}
                 </div>
               </div>
 
