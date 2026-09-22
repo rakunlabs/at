@@ -443,6 +443,7 @@
   // needs no change in Chats.
 
   let extensionsAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_EXTENSIONS));
+  let webConnectionEnabled = $state(false);
   let extensions = $state<ExtensionDescriptor[]>([]);
   /** Per-extension discovery state, keyed by extension id. */
   let extensionStatus = $state<Record<string, { tools: string[]; error: string; busy: boolean }>>({});
@@ -458,6 +459,7 @@
   let extensionBridge: ExtensionBridge | null = null;
   let extensionUnsubscribe: (() => void) | null = null;
   let extensionScanRequested = false;
+  let extensionScanGeneration = 0;
 
   /**
    * One bridge for the page session. It is created as soon as the feature is
@@ -466,7 +468,7 @@
    * that was not listening would show nothing until it was reloaded.
    */
   function ensureExtensionBridge(): ExtensionBridge | null {
-    if (!extensionsAvailable) return null;
+    if (!extensionsAvailable || !webConnectionEnabled) return null;
     if (extensionBridge) return extensionBridge;
     try {
       extensionBridge = new ExtensionBridge({ window, origin: window.location.origin });
@@ -500,6 +502,7 @@
    * which, and saying so is what keeps this from being a fingerprinting probe.
    */
   async function scanExtensions() {
+    const generation = ++extensionScanGeneration;
     const bridge = ensureExtensionBridge();
     if (!bridge) {
       extensions = [];
@@ -509,20 +512,25 @@
     }
     extensionsScanning = true;
     try {
-      extensions = await bridge.discover();
+      const found = await bridge.discover();
+      if (generation !== extensionScanGeneration || bridge !== extensionBridge) return;
+      extensions = found;
       refreshExtensionApprovals();
+      void refreshTools();
     } catch {
       // discover() resolves with what it collected; a throw here means the
       // bridge is gone, which the empty list already says.
-      extensions = [];
+      if (generation === extensionScanGeneration) extensions = [];
     } finally {
-      extensionsScanning = false;
-      extensionsScanned = true;
+      if (generation === extensionScanGeneration) {
+        extensionsScanning = false;
+        extensionsScanned = true;
+      }
     }
   }
 
   $effect(() => {
-    if (!extensionsAvailable) {
+    if (!extensionsAvailable || !webConnectionEnabled) {
       // The feature catalog arrives after mount and `isFeatureEnabled` reports
       // enabled until it does, so this is the path that runs when the
       // installation has it off — a disabled feature must not be left holding
@@ -534,6 +542,9 @@
       extensions = [];
       extensionApprovedIds = [];
       extensionScanRequested = false;
+      extensionScanGeneration += 1;
+      extensionsScanning = false;
+      untrack(() => { void refreshTools(); });
 
       return;
     }
@@ -1698,7 +1709,7 @@
       // Last for the same reason local MCP is late: an extension must not be
       // able to take over the name of a tool the conversation already relies
       // on, so it yields the name on collision.
-      if (extensionsAvailable) {
+      if (extensionsAvailable && webConnectionEnabled) {
         for (const ext of extensions) {
           if (!extensionApprovedIds.includes(ext.id)) continue;
           if (!ext.capabilities.includes(CAPABILITY_TOOLS)) continue;
@@ -1843,7 +1854,7 @@
     const ext = extensions.find(e => e.id === source.extensionId);
     if (!ext) return `Error: that browser extension is no longer connected`;
     // Re-checked every call: the switch may have been turned off mid-turn.
-    if (!extensionApprovedIds.includes(ext.id)) {
+    if (!webConnectionEnabled || !extensionApprovedIds.includes(ext.id)) {
       return `Error: ${ext.name} is not enabled on this device`;
     }
     const bridge = ensureExtensionBridge();
@@ -2985,9 +2996,13 @@
             <div role="group" aria-label="Browser extensions" class="block">
               <div class="flex items-center gap-2 mb-1">
                 <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Browser extensions</span>
+                <label class="flex items-center gap-1 text-xs">
+                  <input type="checkbox" bind:checked={webConnectionEnabled} />
+                  Web connection
+                </label>
                 <button
                   onclick={() => scanExtensions()}
-                  disabled={extensionsScanning}
+                  disabled={!webConnectionEnabled || extensionsScanning}
                   class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
                 >
                   {extensionsScanning ? 'Scanning…' : 'Scan again'}
@@ -2996,8 +3011,10 @@
 
               {#if extensions.length === 0}
                 <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
-                  {extensionsScanned && !extensionsScanning
-                    ? 'No extension answered. Open your extension and connect it to this site, then scan again — an extension stays silent until you allow it here.'
+                  {!webConnectionEnabled
+                    ? 'Turn on Web connection to make this chat available in your extension’s Agent list.'
+                    : extensionsScanned && !extensionsScanning
+                    ? 'In your extension, choose Agent, select this chat, and connect a tab. Then enable its tools here.'
                     : 'Looking for extensions that are connected to this site…'}
                 </p>
               {/if}

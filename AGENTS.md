@@ -1795,6 +1795,18 @@ Regressions: `internal/service/types-local-mcp_test.go`,
 
 ### Browser extensions in Chats
 
+The Chat tools panel has a per-page **Web connection** switch (off on initial
+load). Only while on does it create `ExtensionBridge`, discover extensions and
+advertise this chat as an agent destination. On construction and in response to
+`{channel:"at.extension.bridge", v:1, dir:"agent", event:"discover"}`, the bridge
+posts `{channel, v, dir:"agent", event:"announce", name:"AT Chat"}`. Disposal
+posts the corresponding `goodbye` and cancels pending calls. This lets extensions
+list live chats before origin approval, including already-open chats after an
+extension reload. Presence grants no tool access. The extension user selects a
+chat and connects a source tab; AT's existing per-device tool approval still
+applies. Async scans are generation-guarded so disabling or rescanning cannot
+restore stale extension lists.
+
 A local MCP server at least has an address. A **browser extension** has none:
 it cannot be dialled by AT, and it cannot be dialled by this page either. The
 only channel a page and an extension already share is `window.postMessage`

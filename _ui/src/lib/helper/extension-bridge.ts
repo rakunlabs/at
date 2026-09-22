@@ -252,11 +252,21 @@ export class ExtensionBridge {
     this.requestTimeoutMs = options.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
     this.onMessage = event => this.receive(event);
     this.win.addEventListener('message', this.onMessage);
+    this.announce('announce');
+  }
+
+  private announce(event: 'announce' | 'goodbye'): void {
+    if (!this.origin) return;
+    this.win.postMessage({
+      channel: EXTENSION_BRIDGE_CHANNEL, v: EXTENSION_BRIDGE_VERSION,
+      dir: 'agent', event, name: 'AT Chat',
+    }, this.origin);
   }
 
   /** Stops listening. Pending calls are rejected rather than left hanging. */
   dispose(): void {
     if (this.disposed) return;
+    this.announce('goodbye');
     this.disposed = true;
     this.win.removeEventListener('message', this.onMessage);
     // `resolve` / `reject` settle the entry themselves, so the map is walked
@@ -423,6 +433,12 @@ export class ExtensionBridge {
     if (!isRecord(data)) return;
     if (data.channel !== EXTENSION_BRIDGE_CHANNEL) return;
     if (data.v !== EXTENSION_BRIDGE_VERSION) return;
+
+    // A newly installed/restarted extension can discover an already-open chat.
+    if (data.dir === 'agent' && data.event === 'discover') {
+      this.announce('announce');
+      return;
+    }
 
     if (data.dir === 'event') {
       const extension = identifier(data.extension);

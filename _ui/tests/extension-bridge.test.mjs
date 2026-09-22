@@ -55,12 +55,29 @@ function newBridge(win, options = {}) {
   return new api.ExtensionBridge({ window: win, origin: ORIGIN, discoveryTimeoutMs: 20, requestTimeoutMs: 20, ...options });
 }
 
+test('an open bridge advertises Web connection, answers discovery and withdraws on dispose', () => {
+  const win = fakeWindow();
+  const bridge = newBridge(win);
+  assert.deepEqual(win.posted[0], {
+    message: envelope({ dir: 'agent', event: 'announce', name: 'AT Chat' }), targetOrigin: ORIGIN,
+  });
+  win.deliver(envelope({ dir: 'agent', event: 'discover' }), { origin: 'https://other.example' });
+  assert.equal(win.posted.length, 1);
+  win.deliver(envelope({ dir: 'agent', event: 'discover' }));
+  assert.equal(win.posted.at(-1).message.event, 'announce');
+  assert.equal(win.posted.length, 2);
+  bridge.dispose();
+  assert.equal(win.posted.at(-1).message.event, 'goodbye');
+  win.deliver(envelope({ dir: 'agent', event: 'discover' }));
+  assert.equal(win.posted.length, 3);
+});
+
 test('discovery broadcasts, collects every answer and keeps the first of a repeated id', async () => {
   const win = fakeWindow();
   const bridge = newBridge(win);
   const found = bridge.discover();
 
-  const request = win.posted[0].message;
+  const request = win.posted.find(entry => entry.message.dir === 'request').message;
   assert.equal(request.channel, api.EXTENSION_BRIDGE_CHANNEL);
   assert.equal(request.v, 1);
   assert.equal(request.dir, 'request');
@@ -149,7 +166,7 @@ test('tools are addressed to one extension and answers from another are ignored'
   const win = fakeWindow();
   const bridge = newBridge(win);
   const listed = bridge.listTools('page-bridge');
-  const request = win.posted[0].message;
+  const request = win.posted.find(entry => entry.message.dir === 'request').message;
   assert.equal(request.method, 'tools/list');
   assert.equal(request.extension, 'page-bridge');
 
@@ -179,7 +196,7 @@ test('a tool call sends name and arguments, and flattens the result to text', as
   const win = fakeWindow();
   const bridge = newBridge(win);
   const called = bridge.callTool('page-bridge', 'click', { uid: 'a1' });
-  const request = win.posted[0].message;
+  const request = win.posted.find(entry => entry.message.dir === 'request').message;
   assert.equal(request.method, 'tools/call');
   assert.deepEqual(request.params, { name: 'click', arguments: { uid: 'a1' } });
 
