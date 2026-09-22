@@ -20,6 +20,7 @@ export const FEATURE_API_TOKENS = 'api_tokens';
 export const FEATURE_ROUTING_PROFILES = 'routing_profiles';
 export const FEATURE_PLAYGROUND = 'playground';
 export const FEATURE_CHAT_LOCAL_MCP = 'chat_local_mcp';
+export const FEATURE_CHAT_EXTENSIONS = 'chat_extensions';
 export const FEATURE_CHAT_SESSIONS = 'chat_sessions';
 export const FEATURE_BOTS = 'bots';
 export const FEATURE_AUDIO_TRANSCRIPTION = 'audio_transcription';

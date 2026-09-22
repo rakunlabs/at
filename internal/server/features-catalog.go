@@ -133,6 +133,14 @@ var featureDefinitions = []featureDefinition{
 		Parent: service.FeatureChatWorkbench,
 	},
 	{
+		Key:  service.FeatureChatExtensions,
+		Name: "Browser extensions in Chats",
+		Description: "Let Chats discover browser extensions the person installed and call the tools they expose — browser automation, page capture, anything an extension can do that a server cannot reach. " +
+			"The page talks to the extension directly; AT never connects to one and stores nothing about them. Each extension is approved per device before the model may call it.",
+		Group:  "workspace",
+		Parent: service.FeatureChatWorkbench,
+	},
+	{
 		Key:         service.FeatureChatSessions,
 		Name:        "Chat Sessions",
 		Description: "Persistent agent chat sessions, their stored messages and tool-call confirmations. Independent of Chats.",

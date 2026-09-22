@@ -34,7 +34,11 @@ const (
 	FeaturePlayground = "playground"
 	// FeatureChatLocalMCP gates the personal registry of MCP servers running
 	// on an account holder's own machine, which their browser dials directly.
-	FeatureChatLocalMCP       = "chat_local_mcp"
+	FeatureChatLocalMCP = "chat_local_mcp"
+	// FeatureChatExtensions gates the browser-extension bridge in Chats: the
+	// page discovers extensions the person installed and calls their tools
+	// through the browser. Nothing is dialled by the server.
+	FeatureChatExtensions     = "chat_extensions"
 	FeatureChatSessions       = "chat_sessions"
 	FeatureBots               = "bots"
 	FeatureAudioTranscription = "audio_transcription"

@@ -41,7 +41,16 @@
     toolsAddedSinceApproval,
   } from '@/lib/helper/local-mcp';
   import { LocalMCPClient, type LocalMCPTool } from '@/lib/helper/local-mcp-client';
-  import { FEATURE_CHAT_LOCAL_MCP } from '@/lib/api/features';
+  import {
+    CAPABILITY_TOOLS,
+    ExtensionBridge,
+    approveExtension,
+    extensionApprovalFor,
+    revokeExtension,
+    type ExtensionDescriptor,
+    type ExtensionTool,
+  } from '@/lib/helper/extension-bridge';
+  import { FEATURE_CHAT_EXTENSIONS, FEATURE_CHAT_LOCAL_MCP } from '@/lib/api/features';
   import {
     type PlaygroundConversation,
     type PlaygroundConversationInput,
@@ -103,7 +112,7 @@
 
   /** Maps a tool name to its source for dispatch. */
   interface ToolSource {
-    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'mcpset' | 'local';
+    type: 'mcp' | 'skill' | 'builtin' | 'frontend' | 'mcpset' | 'local' | 'extension';
     /** MCP server URL (when type === 'mcp') */
     serverUrl?: string;
     /** Skill name (when type === 'skill') */
@@ -117,6 +126,13 @@
      */
     localServerId?: string;
     localToolName?: string;
+    /**
+     * Extension id (when type === 'extension'). `extensionToolName` is the name
+     * the extension knows, which differs from the exposed one when another
+     * source already held it.
+     */
+    extensionId?: string;
+    extensionToolName?: string;
   }
 
   interface TodoItem {
@@ -414,6 +430,188 @@
       if (key.startsWith(`${server.id}|`)) localHeaderCache.delete(key);
     }
   }
+
+  // ─── Browser extensions ───
+  //
+  // The second tool source this page dials itself, and the only one with no
+  // address at all: an extension has no URL, so neither AT nor this page can
+  // connect to one. What they share is `window.postMessage` through the
+  // extension's content script, which `lib/helper/extension-bridge` speaks.
+  //
+  // Nothing here is specific to one extension. The page broadcasts and every
+  // extension implementing the protocol answers for itself, so a second one
+  // needs no change in Chats.
+
+  let extensionsAvailable = $derived(isFeatureEnabled(FEATURE_CHAT_EXTENSIONS));
+  let extensions = $state<ExtensionDescriptor[]>([]);
+  /** Per-extension discovery state, keyed by extension id. */
+  let extensionStatus = $state<Record<string, { tools: string[]; error: string; busy: boolean }>>({});
+  /** Approval is per device, so it is read from local storage, not from a record. */
+  let extensionApprovedIds = $state<string[]>([]);
+  let extensionsScanning = $state(false);
+  /** True once a scan has finished, so "none found" is not shown before one ran. */
+  let extensionsScanned = $state(false);
+  let extensionApprovalTarget = $state<ExtensionDescriptor | null>(null);
+  let extensionApprovalTools = $state<ExtensionTool[]>([]);
+  let activeExtensions = $derived(extensions.filter(e => extensionApprovedIds.includes(e.id)));
+
+  let extensionBridge: ExtensionBridge | null = null;
+  let extensionUnsubscribe: (() => void) | null = null;
+  let extensionScanRequested = false;
+
+  /**
+   * One bridge for the page session. It is created as soon as the feature is
+   * on rather than at the first scan, because an extension announces itself
+   * the moment the person connects it from the extension's own UI — and a page
+   * that was not listening would show nothing until it was reloaded.
+   */
+  function ensureExtensionBridge(): ExtensionBridge | null {
+    if (!extensionsAvailable) return null;
+    if (extensionBridge) return extensionBridge;
+    try {
+      extensionBridge = new ExtensionBridge({ window, origin: window.location.origin });
+    } catch {
+      return null;
+    }
+    extensionUnsubscribe = extensionBridge.subscribe(event => {
+      // A tool-list change only matters for an extension already in use;
+      // anything else is a membership change and needs a fresh scan.
+      if (event.event === 'tools_changed' && extensionApprovedIds.includes(event.extension)) {
+        void refreshTools();
+
+        return;
+      }
+      void scanExtensions();
+    });
+
+    return extensionBridge;
+  }
+
+  function refreshExtensionApprovals() {
+    extensionApprovedIds = extensions.filter(e => extensionApprovalFor(e.id, localStorageSafe())).map(e => e.id);
+  }
+
+  /**
+   * Asks every installed extension to identify itself.
+   *
+   * Silence is a legitimate answer: an extension that has not been connected to
+   * this origin is expected not to reply, so "none found" covers both "none
+   * installed" and "none connected here" — the page must not claim to know
+   * which, and saying so is what keeps this from being a fingerprinting probe.
+   */
+  async function scanExtensions() {
+    const bridge = ensureExtensionBridge();
+    if (!bridge) {
+      extensions = [];
+      extensionApprovedIds = [];
+
+      return;
+    }
+    extensionsScanning = true;
+    try {
+      extensions = await bridge.discover();
+      refreshExtensionApprovals();
+    } catch {
+      // discover() resolves with what it collected; a throw here means the
+      // bridge is gone, which the empty list already says.
+      extensions = [];
+    } finally {
+      extensionsScanning = false;
+      extensionsScanned = true;
+    }
+  }
+
+  $effect(() => {
+    if (!extensionsAvailable) {
+      // The feature catalog arrives after mount and `isFeatureEnabled` reports
+      // enabled until it does, so this is the path that runs when the
+      // installation has it off — a disabled feature must not be left holding
+      // a live channel to whatever is listening on the page.
+      extensionUnsubscribe?.();
+      extensionUnsubscribe = null;
+      extensionBridge?.dispose();
+      extensionBridge = null;
+      extensions = [];
+      extensionApprovedIds = [];
+      extensionScanRequested = false;
+
+      return;
+    }
+    if (extensionScanRequested) return;
+    extensionScanRequested = true;
+    untrack(() => { void scanExtensions(); });
+  });
+
+  /** Lists one extension's tools and records why it failed when it did. */
+  async function discoverExtensionTools(ext: ExtensionDescriptor): Promise<ExtensionTool[]> {
+    const bridge = ensureExtensionBridge();
+    if (!bridge) return [];
+    extensionStatus = { ...extensionStatus, [ext.id]: { tools: [], error: '', busy: true } };
+    try {
+      const tools = await bridge.listTools(ext.id);
+      extensionStatus = {
+        ...extensionStatus,
+        [ext.id]: { tools: tools.map(t => t.name), error: '', busy: false },
+      };
+
+      return tools;
+    } catch (e: any) {
+      extensionStatus = {
+        ...extensionStatus,
+        [ext.id]: { tools: [], error: e?.message || 'the extension did not answer', busy: false },
+      };
+      throw e;
+    }
+  }
+
+  /**
+   * Opening the approval dialog lists the tools first, so the person decides
+   * against what the extension actually offers rather than against its name.
+   */
+  async function beginExtensionApproval(ext: ExtensionDescriptor) {
+    extensionApprovalTarget = ext;
+    extensionApprovalTools = [];
+    try {
+      extensionApprovalTools = await discoverExtensionTools(ext);
+    } catch {
+      /* the failure is rendered from extensionStatus */
+    }
+  }
+
+  function confirmExtensionApproval() {
+    const ext = extensionApprovalTarget;
+    if (!ext) return;
+    approveExtension(ext.id, extensionApprovalTools.map(t => t.name), localStorageSafe());
+    refreshExtensionApprovals();
+    extensionApprovalTarget = null;
+    void refreshTools();
+  }
+
+  /** One action, effective immediately: the next turn offers nothing from it. */
+  function disableExtension(ext: ExtensionDescriptor) {
+    revokeExtension(ext.id, localStorageSafe());
+    refreshExtensionApprovals();
+    void refreshTools();
+  }
+
+  /**
+   * Everything this browser may run on the person's own device, in one list.
+   *
+   * It is one strip rather than two because the question a reader has is "what
+   * can this page reach on my machine", not "which subsystem is it".
+   */
+  let activeBrowserTools = $derived([
+    ...activeLocalServers.map(server => ({
+      key: `local:${server.id}`,
+      name: server.name,
+      disable: () => disableLocalServer(server),
+    })),
+    ...activeExtensions.map(ext => ({
+      key: `extension:${ext.id}`,
+      name: ext.name,
+      disable: () => disableExtension(ext),
+    })),
+  ]);
 
   // Todo panel
   let todos = $state<TodoItem[]>([]);
@@ -877,6 +1075,9 @@
   onDestroy(() => {
     if (confirmClearTimer) clearTimeout(confirmClearTimer);
     if (settingsTimer) { clearTimeout(settingsTimer); settingsTimer = null; void saveSettings(); }
+    extensionUnsubscribe?.();
+    extensionBridge?.dispose();
+    extensionBridge = null;
   });
 
   // ─── Load providers/models ───
@@ -1491,6 +1692,37 @@
           }
         }
       }
+
+      // 7. Browser extensions, which answer this page directly.
+      //
+      // Last for the same reason local MCP is late: an extension must not be
+      // able to take over the name of a tool the conversation already relies
+      // on, so it yields the name on collision.
+      if (extensionsAvailable) {
+        for (const ext of extensions) {
+          if (!extensionApprovedIds.includes(ext.id)) continue;
+          if (!ext.capabilities.includes(CAPABILITY_TOOLS)) continue;
+          try {
+            const tools = await discoverExtensionTools(ext);
+            if (version !== toolDiscoveryVersion) return;
+            for (const tool of tools) {
+              const exposed = localMCPToolName(tool.name, ext.name, name => !!newSourceMap[name]);
+              newTools.push({
+                type: 'function',
+                function: {
+                  name: exposed,
+                  description: `${tool.description}${tool.description ? ' ' : ''}(runs in ${ext.name}, your browser)`.trim(),
+                  parameters: tool.inputSchema || { type: 'object', properties: {} },
+                },
+              });
+              newSourceMap[exposed] = { type: 'extension', extensionId: ext.id, extensionToolName: tool.name };
+            }
+          } catch {
+            // discoverExtensionTools records the reason on extensionStatus; an
+            // extension that stopped answering must not empty the tool list.
+          }
+        }
+      }
     } catch (e: any) {
       addToast(e.message || 'Failed to discover tools', 'alert');
     } finally {
@@ -1534,6 +1766,8 @@
         return res.result;
       } else if (source.type === 'local') {
         return await executeLocalTool(source, tc.function.name, args);
+      } else if (source.type === 'extension') {
+        return await executeExtensionTool(source, tc.function.name, args);
       } else if (source.type === 'frontend') {
         return await executeFrontendTool(tc.function.name, args);
       }
@@ -1591,6 +1825,56 @@
 
     // A local failure is returned to the model as a tool error rather than
     // ending the turn: it can try a different tool or explain itself.
+    if (status === 'error') return `Error: ${failure}`;
+
+    return output || 'Tool executed successfully (no output)';
+  }
+
+  /**
+   * Run a tool inside a browser extension.
+   *
+   * Bounded and traced exactly like a local MCP call, and for the same
+   * reasons: Chats is not governed by loopgov, and a trace that shows the
+   * generations without the tool steps between them reads as an unexplained
+   * gap rather than an absence. The extension is named in the observation
+   * because the work did not happen in this process.
+   */
+  async function executeExtensionTool(source: ToolSource, exposedName: string, args: Record<string, any>): Promise<string> {
+    const ext = extensions.find(e => e.id === source.extensionId);
+    if (!ext) return `Error: that browser extension is no longer connected`;
+    // Re-checked every call: the switch may have been turned off mid-turn.
+    if (!extensionApprovedIds.includes(ext.id)) {
+      return `Error: ${ext.name} is not enabled on this device`;
+    }
+    const bridge = ensureExtensionBridge();
+    if (!bridge) return `Error: the extension bridge is unavailable on this page`;
+
+    const remoteName = source.extensionToolName || exposedName;
+    const started = Date.now();
+    let status: 'ok' | 'error' = 'ok';
+    let output = '';
+    let failure = '';
+    try {
+      output = clipLocalToolResult(await bridge.callTool(ext.id, remoteName, args, abortController?.signal));
+    } catch (e: any) {
+      status = 'error';
+      failure = e?.message || 'the extension did not complete the call';
+    }
+
+    void reportLocalToolObservation({
+      trace_id: turnTraceId,
+      session_id: turnSessionId,
+      name: remoteName,
+      server: ext.name,
+      status,
+      latency_ms: Date.now() - started,
+      error: failure,
+      input: JSON.stringify(args ?? {}),
+      output,
+    });
+
+    // Returned to the model as a tool error rather than ending the turn: it
+    // can try another tool or explain itself.
     if (status === 'error') return `Error: ${failure}`;
 
     return output || 'Tool executed successfully (no output)';
@@ -2690,6 +2974,88 @@
               {/if}
             </div>
           {/if}
+
+          <!-- Browser extensions.
+               Discovery is generic: the page asks and every extension that
+               implements the bridge answers for itself, so nothing here names
+               a vendor. An extension that was never connected to this origin
+               stays silent by design, which is why "none found" is phrased as
+               an instruction rather than as a verdict. -->
+          {#if extensionsAvailable}
+            <div role="group" aria-label="Browser extensions" class="block">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide">Browser extensions</span>
+                <button
+                  onclick={() => scanExtensions()}
+                  disabled={extensionsScanning}
+                  class="ml-auto px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
+                >
+                  {extensionsScanning ? 'Scanning…' : 'Scan again'}
+                </button>
+              </div>
+
+              {#if extensions.length === 0}
+                <p class="text-[11px] text-gray-400 dark:text-dark-text-muted">
+                  {extensionsScanned && !extensionsScanning
+                    ? 'No extension answered. Open your extension and connect it to this site, then scan again — an extension stays silent until you allow it here.'
+                    : 'Looking for extensions that are connected to this site…'}
+                </p>
+              {/if}
+
+              <div class="space-y-1.5">
+                {#each extensions as ext}
+                  {@const approved = extensionApprovedIds.includes(ext.id)}
+                  {@const status = extensionStatus[ext.id]}
+                  {@const added = toolsAddedSinceApproval(extensionApprovalFor(ext.id, localStorageSafe()), status?.tools ?? [])}
+                  {@const serves = ext.capabilities.includes(CAPABILITY_TOOLS)}
+                  <div class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                    <div class="flex items-center gap-2 flex-wrap">
+                      <span class="text-xs font-medium text-gray-700 dark:text-dark-text">{ext.name}</span>
+                      {#if ext.version}
+                        <code class="text-[10px] font-mono text-gray-400 dark:text-dark-text-muted">{ext.version}</code>
+                      {/if}
+                      {#if approved}
+                        <span class="px-1.5 py-0.5 text-[10px] border border-emerald-300 dark:border-emerald-900/60 text-emerald-700 dark:text-emerald-300">
+                          Enabled here{status?.tools?.length ? ` · ${status.tools.length} tools` : ''}
+                        </span>
+                      {:else}
+                        <span class="px-1.5 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted">
+                          Not enabled on this device
+                        </span>
+                      {/if}
+                      <div class="ml-auto flex items-center gap-1">
+                        {#if approved}
+                          <button onclick={() => disableExtension(ext)} class="px-2 py-0.5 text-[10px] border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted hover:text-red-600 dark:hover:text-red-400">Disable</button>
+                        {:else if serves}
+                          <button onclick={() => beginExtensionApproval(ext)} class="px-2 py-0.5 text-[10px] border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white">Enable…</button>
+                        {/if}
+                      </div>
+                    </div>
+                    {#if ext.description}
+                      <p class="mt-1 text-[11px] text-gray-500 dark:text-dark-text-muted">{ext.description}</p>
+                    {/if}
+                    <!-- The extension's own words for why it is connected but
+                         idle. Without it, "0 tools" is indistinguishable from a
+                         fault the reader would go looking for. -->
+                    {#if ext.notice}
+                      <p class="mt-1 text-[11px] text-amber-700 dark:text-amber-300">{ext.notice}</p>
+                    {/if}
+                    {#if !serves}
+                      <p class="mt-1 text-[11px] text-gray-400 dark:text-dark-text-muted">This extension offers no tools to Chats.</p>
+                    {/if}
+                    {#if added.length > 0}
+                      <p class="mt-1 text-[10px] text-amber-700 dark:text-amber-300">
+                        New since you enabled it: {added.join(', ')}
+                      </p>
+                    {/if}
+                    {#if status?.error}
+                      <p class="mt-1 text-[10px] text-red-600 dark:text-red-400">{status.error}</p>
+                    {/if}
+                  </div>
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         <!-- What the selections above actually produced. It sits outside the
@@ -2891,7 +3257,7 @@
                           result={toolResults.get(i)?.get(tc.id)}
                           running={activeTool?.messageIndex === i && activeTool?.callID === tc.id}
                           queued={activeTool?.messageIndex === i && activeTool?.callID !== tc.id}
-                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'frontend' ? 'Chat' : ''}
+                          source={source?.type === 'mcpset' ? `MCP: ${source.mcpSetName}` : source?.type === 'skill' ? `Skill: ${source.skillName}` : source?.type === 'builtin' ? 'Built-in' : source?.type === 'local' ? `This machine: ${localServers.find(s => s.id === source.localServerId)?.name ?? 'local MCP'}` : source?.type === 'extension' ? `Extension: ${extensions.find(e => e.id === source.extensionId)?.name ?? source.extensionId}` : source?.type === 'frontend' ? 'Chat' : ''}
                         />
                       {/if}
                     {/each}
@@ -2913,21 +3279,23 @@
 
   <!-- Input area -->
   <div class="border-t border-gray-200 dark:border-dark-border bg-white dark:bg-dark-elevated px-4 py-3 shrink-0">
-    <!-- Local tools are approved once per server, so the fact that a model can
-         run something on this computer has to stay visible and revocable while
-         it is true — not only at the moment it was granted. -->
-    {#if activeLocalServers.length > 0}
-      <div role="status" class="mb-2 flex items-center gap-2 border border-emerald-300 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-900/10 px-2.5 py-1.5 text-[11px] text-emerald-900 dark:text-emerald-300">
+    <!-- Local MCP servers and browser extensions are each approved once, so the
+         fact that a model can run something on this computer has to stay
+         visible and revocable while it is true — not only at the moment it was
+         granted. One strip, because the reader's question is "what can this
+         page reach on my machine", not "which subsystem is it". -->
+    {#if activeBrowserTools.length > 0}
+      <div role="status" class="mb-2 flex flex-wrap items-center gap-2 border border-emerald-300 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-900/10 px-2.5 py-1.5 text-[11px] text-emerald-900 dark:text-emerald-300">
         <Wrench size={12} class="shrink-0" />
-        <span class="flex-1">
-          Local tools active on this device: {activeLocalServers.map(s => s.name).join(', ')}
+        <span class="flex-1 min-w-0">
+          Tools active on this device: {activeBrowserTools.map(t => t.name).join(', ')}
         </span>
-        {#each activeLocalServers as server}
+        {#each activeBrowserTools as active (active.key)}
           <button
-            onclick={() => disableLocalServer(server)}
+            onclick={active.disable}
             class="shrink-0 px-2 py-0.5 border border-emerald-300 dark:border-emerald-900/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/30 focus-visible:outline-2 focus-visible:outline-accent"
           >
-            Disable {server.name}
+            Disable {active.name}
           </button>
         {/each}
       </div>
@@ -3169,6 +3537,69 @@
         </button>
         <button
           onclick={() => localApprovalFor && beginLocalApproval(localApprovalFor)}
+          class="ml-auto px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted"
+        >
+          Retry
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
+
+<!-- Approval for a browser extension.
+     Per device for the same reason the local-MCP one is: the person installed
+     this extension on this machine, and an approval carried to another one
+     would authorize something they never inspected there. The tools are listed
+     first because a name is not enough to decide with — after this, the model
+     calls them without asking again, with arguments the reader never sees. -->
+{#if extensionApprovalTarget}
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div class="w-full max-w-lg border border-gray-200 dark:border-dark-border bg-white dark:bg-dark-surface">
+      <div class="px-4 py-3 border-b border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-dark-base">
+        <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Enable {extensionApprovalTarget.name} on this device</h2>
+        <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">
+          This extension runs in your browser with the access you granted it when you installed it. The model chooses the arguments, and after this it calls these tools without asking again.
+        </p>
+      </div>
+      <div class="p-4 space-y-3 max-h-80 overflow-y-auto">
+        {#if extensionStatus[extensionApprovalTarget.id]?.busy}
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">Asking the extension…</p>
+        {:else if extensionStatus[extensionApprovalTarget.id]?.error}
+          <p class="text-xs text-red-600 dark:text-red-400">{extensionStatus[extensionApprovalTarget.id].error}</p>
+        {:else if extensionApprovalTools.length === 0}
+          <p class="text-xs text-gray-500 dark:text-dark-text-muted">
+            {extensionApprovalTarget.notice || 'This extension offers no tools right now.'}
+          </p>
+        {:else}
+          <p class="text-xs text-gray-600 dark:text-dark-text-secondary">{extensionApprovalTools.length} tool{extensionApprovalTools.length === 1 ? '' : 's'}:</p>
+          <ul class="space-y-1.5">
+            {#each extensionApprovalTools as tool}
+              <li class="border border-gray-200 dark:border-dark-border-subtle px-2.5 py-1.5">
+                <code class="text-[11px] font-mono text-gray-800 dark:text-dark-text">{tool.name}</code>
+                {#if tool.description}
+                  <p class="mt-0.5 text-[11px] text-gray-500 dark:text-dark-text-muted">{tool.description}</p>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        {/if}
+      </div>
+      <div class="px-4 py-3 border-t border-gray-200 dark:border-dark-border flex items-center gap-2">
+        <button
+          onclick={confirmExtensionApproval}
+          disabled={extensionApprovalTools.length === 0}
+          class="px-3 py-1.5 text-xs border border-gray-900 dark:border-accent bg-gray-900 dark:bg-accent text-white disabled:opacity-50"
+        >
+          Enable on this device
+        </button>
+        <button
+          onclick={() => { extensionApprovalTarget = null; }}
+          class="px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary"
+        >
+          Cancel
+        </button>
+        <button
+          onclick={() => extensionApprovalTarget && beginExtensionApproval(extensionApprovalTarget)}
           class="ml-auto px-3 py-1.5 text-xs border border-gray-300 dark:border-dark-border-subtle text-gray-500 dark:text-dark-text-muted"
         >
           Retry

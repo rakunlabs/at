@@ -1793,6 +1793,80 @@ Sessions, org delegation, workflow nodes and the gateway have no browser.
 Regressions: `internal/service/types-local-mcp_test.go`,
 `internal/server/chat-local-mcp_test.go`, `_ui/tests/local-mcp.test.mjs`.
 
+### Browser extensions in Chats
+
+A local MCP server at least has an address. A **browser extension** has none:
+it cannot be dialled by AT, and it cannot be dialled by this page either. The
+only channel a page and an extension already share is `window.postMessage`
+through the extension's content script — so that is what
+`_ui/src/lib/helper/extension-bridge.ts` speaks, and why this is the one tool
+source with no URL anywhere in it. What it buys is the set of things a server
+categorically cannot reach: the person's other tabs, their session in them,
+`chrome.tabs` / `downloads` / `debugger`.
+
+**The discovery is generic, not a handshake with one vendor.** The page
+broadcasts `describe` and every extension implementing the protocol answers
+with its own `{id, name, version, capabilities, description, notice}`; tools
+are then listed and called per id. A second extension needs no change in AT.
+That generality is the whole reason a discovery step exists at all — a
+hardcoded exchange with one extension would have been half the code.
+
+The envelope is flat JSON on `channel: "at.extension.bridge"`, `v: 1`:
+
+| Direction | Shape |
+|---|---|
+| page → extension | `{channel, v, dir:"request", id, extension?, method, params?}` |
+| extension → page | `{channel, v, dir:"response", id, extension, result?, error?}` |
+| extension → page | `{channel, v, dir:"event", extension, event}` |
+
+Methods are `describe`, `tools/list` and `tools/call` (`{name, arguments}`),
+with `tools` the only capability defined today. Events are `announce`,
+`tools_changed` and `goodbye`. A request carrying no `extension` is a broadcast;
+everything else is addressed. `tools/call` may answer with an MCP content block
+array, `{isError:true, …}`, or a bare string — the protocol has to be cheap to
+implement or nobody implements it — and `isError` becomes a tool error rather
+than text that reads like success.
+
+**Silence is a defined answer.** An extension is expected not to reply until
+its user has connected it to this origin, so "no extension answered" covers
+both "none installed" and "none connected here". The page says exactly that and
+never claims to know which, because an unconditional reply would make this a
+fingerprinting probe for every site the extension runs on. The same reasoning
+is already visible in mcp-page-bridge, which marks `<html>` only on loopback
+origins. `announce` is what makes the connect flow feel immediate: the person
+connects the extension from its own popup and the open Chats tab updates
+without a reload, which is why the bridge is constructed when the feature is on
+rather than at the first scan.
+
+**This is not a security boundary between extensions.** Any content script on
+the page can post anything, including another extension's id. What actually
+gates it is that the person installed the extension, that the extension answers
+only origins its user connected it to, and the per-device approval — held in
+`localStorage` under `at.extensions.approved`, deliberately a separate key
+space from the local-MCP approvals so revoking one does not revoke the other.
+As with local MCP the approval dialog lists the tools first, later additions
+are labelled, and one click disables an extension mid-conversation.
+
+Extension tools are registered **last**, after local MCP, and yield the name on
+collision (`localMCPToolName`, reused): an extension must not be able to take
+over the name of a built-in the conversation already relies on. Results are
+clipped by `clipLocalToolResult` — Chats is not governed by `loopgov` and there
+is no workspace to spill into — and every call is reported to
+`POST /api/v1/chats/tool-observations` with the extension as `server`, so a
+trace does not show the generations with an unexplained gap between them.
+Descriptors and tool lists are clamped on arrival (8 extensions, 128 tools,
+bounded names and descriptions): the strings are chosen by third-party code and
+would otherwise be spent on the model's context.
+
+AT stores **nothing** about extensions — no record, no endpoint, no credential;
+the server is not involved in a call and never learns one happened beyond the
+observation row. Feature key `chat_extensions` (a sibling of `chat_local_mcp`
+under `chat_workbench`) gates the surface, and turning it off also disposes the
+live channel rather than only hiding the section. Chats-only: Sessions, org
+delegation, workflow nodes and the gateway have no browser.
+
+Regression: `_ui/tests/extension-bridge.test.mjs`.
+
 ### Workspace trace export
 
 Settings → Trace export (`/settings/trace-export`) configures a separate OTLP
