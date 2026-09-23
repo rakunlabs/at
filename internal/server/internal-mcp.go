@@ -86,14 +86,29 @@ func (s *Server) ListMCPSetToolsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	runtime, err := s.newMCPRuntimeBuilder().buildSet(r.Context(), name)
+	// Tool discovery opens configured upstreams and therefore belongs to the
+	// execution plane, not the management/read DTO plane. Bind the caller so the
+	// workspace execution policy is enforced, then resolve the unredacted set
+	// through ResolveMCPSetForUse. Using GetMCPSetByName here strips upstreams for
+	// callers without credentials.manage and incorrectly reports zero tools.
+	ctx, bindErr := s.bindRuntimePrincipal(r.Context(), "tool")
+	if bindErr != nil {
+		httpResponse(w, "runtime identity unavailable", http.StatusForbidden)
+		return
+	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: name}); err != nil {
+		httpResponse(w, "mcp set execution denied", http.StatusForbidden)
+		return
+	}
+
+	runtime, err := s.newMCPRuntimeBuilder().buildSet(ctx, name)
 	if err != nil {
 		slog.Error("list mcp set tools failed", "name", name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list tools: %v", err), http.StatusInternalServerError)
 		return
 	}
-	defer closeMCPRuntime(r.Context(), runtime)
-	tools := runtime.ListTools(r.Context())
+	defer closeMCPRuntime(ctx, runtime)
+	tools := runtime.ListTools(ctx)
 
 	httpResponseJSON(w, map[string]any{"tools": tools, "warnings": runtime.Diagnostics()}, http.StatusOK)
 }
@@ -177,7 +192,16 @@ func (s *Server) mcpSetToVirtualServer(ctx context.Context, name string) (*servi
 		return nil, fmt.Errorf("mcp set store not configured")
 	}
 
-	mcpSet, err := s.mcpSetStore.GetMCPSetByName(ctx, name)
+	var (
+		mcpSet *service.MCPSet
+		err    error
+	)
+	if credentials, ok := s.mcpSetStore.(service.WorkspaceCredentialStorer); ok {
+		mcpSet, err = credentials.ResolveMCPSetForUse(ctx, name)
+	} else {
+		// Non-persistent test stores do not carry the runtime credential seam.
+		mcpSet, err = s.mcpSetStore.GetMCPSetByName(ctx, name)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to get MCP set %q: %w", name, err)
 	}

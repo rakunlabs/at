@@ -116,7 +116,7 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 		"GET /mcp/builtin-tools":          "models.use",
 		"POST /mcp/call-builtin-tool":     "models.use",
 		"POST /mcp/call-skill-tool":       "models.use",
-		"GET /mcp/set-tools/{name}":       "mcp.read",
+		"GET /mcp/set-tools/{name}":       "mcp.use",
 		"POST /mcp/set-tools/{name}/call": "mcp.use",
 		"GET /skills":                     "skills.read",
 		"GET /mcp/sets":                   "mcp.read",
@@ -128,10 +128,23 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)
 		}
 	}
-	// Managing those resources is not opened by the read policies above.
-	for _, pattern := range []string{"POST /skills", "POST /mcp/sets", "POST /connections", "PUT /skills/{id}"} {
+	// Managing skills and connections is not opened by the read policies above.
+	// MCP Sets deliberately use their workspace mcp.write capability.
+	for _, pattern := range []string{"POST /skills", "POST /connections", "PUT /skills/{id}"} {
 		if got, ok := policies[pattern]; ok {
 			t.Errorf("%s became capability-admitted on %q; management must stay installation administration", pattern, got)
+		}
+	}
+	for pattern, want := range map[string]string{
+		"POST /mcp/sets":                     "mcp.write",
+		"PUT /mcp/sets/{id}":                 "mcp.write",
+		"DELETE /mcp/sets/{id}":              "mcp.write",
+		"GET /mcp/sets/{id}":                 "mcp.read",
+		"GET /mcp/sets/{id}/export":          "mcp.read",
+		"POST /mcp-templates/{slug}/install": "mcp.write",
+	} {
+		if got := policies[pattern]; got != want {
+			t.Errorf("%s admitted on %q, want %q", pattern, got, want)
 		}
 	}
 }

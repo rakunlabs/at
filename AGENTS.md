@@ -877,9 +877,14 @@ member got chat and no tools. They now ride the same entry capability
 with the read-only catalogs they need to offer a choice — `GET /skills`,
 `GET /mcp/sets`, `GET /connections` — opened at the capability the store already
 enforces on those tables. `ListConnections` blanks credentials without
-`credentials.manage`, so the list carries no secret; creating or editing any of
-the three stays installation administration, which is why `uiRouteProbes` names
-their *management* call.
+`credentials.manage`, so the list carries no secret. Skills and Connections
+management remains installation administration. MCP Sets are workspace
+configuration: `mcp.read` opens the page/list/export, `mcp.write` admits CRUD,
+import and template installation, and `mcp.use` governs Chat discovery and tool
+calls. A writer receives the current full set configuration so saving cannot
+erase redacted upstreams; read-only callers still need `credentials.manage` to
+see credential-bearing fields. Host binaries, stdio lifecycle and low-level
+upstream inspection remain installation administration.
 
 **Nothing bound a runtime identity.** `executeSkillTool` admits through
 `CheckExecution`, which is fail-closed on an unbound context, so

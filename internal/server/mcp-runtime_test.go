@@ -159,6 +159,23 @@ func (s *runtimeMCPSetStore) GetMCPSetByName(ctx context.Context, _ string) (*se
 	return s.set, nil
 }
 
+type runtimeCredentialMCPSetStore struct {
+	service.MCPSetStorer
+	service.WorkspaceCredentialStorer
+	readSet *service.MCPSet
+	useSet  *service.MCPSet
+	used    bool
+}
+
+func (s *runtimeCredentialMCPSetStore) GetMCPSetByName(context.Context, string) (*service.MCPSet, error) {
+	return s.readSet, nil
+}
+
+func (s *runtimeCredentialMCPSetStore) ResolveMCPSetForUse(context.Context, string) (*service.MCPSet, error) {
+	s.used = true
+	return s.useSet, nil
+}
+
 type runtimeSkillStore struct {
 	service.SkillStorer
 	skill *service.Skill
@@ -216,6 +233,37 @@ func TestMCPSetRuntimePropagatesContextAndPreservesPrecedence(t *testing.T) {
 	runtime.ListTools(ctx)
 	if upstream.listCtx != ctx {
 		t.Fatal("upstream discovery lost caller context")
+	}
+}
+
+func TestMCPSetRuntimeUsesUnredactedExecutionConfig(t *testing.T) {
+	store := &runtimeCredentialMCPSetStore{
+		readSet: &service.MCPSet{Name: "remote"},
+		useSet: &service.MCPSet{
+			Name: "remote",
+			Config: service.MCPServerConfig{
+				MCPUpstreams: []service.MCPUpstream{{URL: "https://mcp.example"}},
+			},
+		},
+	}
+	s := &Server{mcpSetStore: store}
+	upstream := &fakeRuntimeMCPClient{tools: []service.Tool{{Name: "remote_tool"}}}
+	builder := s.newMCPRuntimeBuilder()
+	builder.acquireUpstream = func(context.Context, service.MCPUpstream) (mcpClientLease, error) {
+		return mcpClientLease{client: upstream, owned: true}, nil
+	}
+
+	runtime, err := builder.buildSet(context.Background(), "remote")
+	if err != nil {
+		t.Fatalf("buildSet: %v", err)
+	}
+	defer runtime.Close(context.Background())
+	tools := runtime.ListTools(context.Background())
+	if !store.used {
+		t.Fatal("runtime used the redacted management reader instead of ResolveMCPSetForUse")
+	}
+	if len(tools) != 1 || tools[0].Name != "remote_tool" {
+		t.Fatalf("tools = %#v, want unredacted upstream tool", tools)
 	}
 }
 

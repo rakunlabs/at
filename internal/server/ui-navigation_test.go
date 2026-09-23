@@ -44,13 +44,10 @@ var uiPlatformOutsideAPIGroup = []string{
 	"/settings/execution",
 }
 
-// Skills, Connections and MCP sets are probed with their *management* call, not
-// their list. Their read routes are capability-admitted so the surfaces that are
-// (the Playground's tool picker, the Agents editor) can enumerate them to
-// configure an agent — but creating or editing one is still installation
-// administration, which is what those pages are for. The probe therefore has to
-// name what the page does, or this test would demand the page be shown to
-// members who cannot use any of its controls.
+// Skills and Connections are probed with their *management* call, not their
+// list. Their read routes are capability-admitted for dependent pickers, while
+// their management surfaces remain installation administration. MCP Sets are
+// different: their CRUD routes are workspace-scoped on mcp.read/mcp.write.
 var uiRouteProbes = map[string]uiRouteProbe{
 	// Capability-admitted.
 	"/providers":             {"GET", "/providers"},
@@ -64,6 +61,7 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/tasks":                 {"GET", "/tasks"},
 	"/settings/tokens":       {"GET", "/api-tokens"},
 	"/settings/trace-export": {"GET", "/trace-export"},
+	"/mcps":                  {"POST", "/mcp/sets"},
 	// Installation administration.
 	"/terminal":                 {"GET", "/terminals"},
 	"/pricing":                  {"GET", "/model-pricing"},
@@ -80,7 +78,6 @@ var uiRouteProbes = map[string]uiRouteProbe{
 	"/crons":                    {"GET", "/triggers"},
 	"/connections":              {"POST", "/connections"},
 	"/mcp-servers":              {"GET", "/mcp/servers"},
-	"/mcps":                     {"POST", "/mcp/sets"},
 	"/usage":                    {"GET", "/usage/summary"},
 	"/llm-calls":                {"GET", "/llm-calls"},
 }

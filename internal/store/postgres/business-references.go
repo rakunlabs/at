@@ -358,7 +358,13 @@ func (p *Postgres) mcpReferences(ctx context.Context, w *businessWrite, c servic
 }
 
 func mcpReadDTO(a service.AccessPrincipal, id, workspace string, c *service.MCPServerConfig, urls *[]string) {
-	if a.Allows("credentials.manage", service.AccessResource{WorkspaceID: workspace, ID: id}) {
+	resource := service.AccessResource{WorkspaceID: workspace, ID: id}
+	// A caller who can rewrite the complete MCP record must be able to load the
+	// current value first. Otherwise the editor receives an empty/redacted
+	// upstream list and a routine save silently deletes the existing endpoints.
+	// Read-only callers still get the safe DTO unless they separately hold the
+	// credentials capability.
+	if a.Allows("credentials.manage", resource) || a.Allows("mcp.write", resource) {
 		return
 	}
 	for i := range c.HTTPTools {

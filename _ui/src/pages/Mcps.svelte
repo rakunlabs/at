@@ -1,6 +1,8 @@
 <script lang="ts">
   import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
+  import { can } from '@/lib/store/workspace.svelte';
+  import { isNativeAdmin } from '@/lib/store/auth.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
   import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, getMCPSetStdioStatus, restartMCPSetStdio, stopMCPSetStdio, inspectMCPSetUpstreams, type MCPSet, type MCPStdioUpstreamStatus, type MCPUpstreamInspection } from '@/lib/api/mcp-sets';
   import { type MCPHTTPTool, type MCPUpstream } from '@/lib/api/mcp-servers';
@@ -21,6 +23,12 @@
 
   const tabRoute = routeChoice('tab', ['my-mcps', 'store', 'binaries'] as const, 'my-mcps');
   let activeTab = $derived(tabRoute.value);
+  let mayWrite = $derived(isNativeAdmin() || can('mcp.write'));
+  let platformAdmin = $derived(isNativeAdmin());
+
+  $effect(() => {
+    if (activeTab === 'binaries' && !platformAdmin) tabRoute.value = 'my-mcps';
+  });
 
   // ─── Store State ───
 
@@ -428,6 +436,7 @@
   }
 
   async function refreshAllStdioStatuses() {
+    if (!platformAdmin) return;
     await Promise.all((sets || []).filter(hasStdioUpstreams).map((s) => refreshStdioStatus(s.id)));
   }
 
@@ -504,7 +513,7 @@
 
   $effect(() => {
     // Refresh stdio statuses whenever the visible set list changes.
-    if (sets.length > 0) refreshAllStdioStatuses();
+    if (platformAdmin && sets.length > 0) refreshAllStdioStatuses();
   });
 
   // ─── Binaries tab (persistent MCP program library) ───
@@ -634,13 +643,15 @@
           <Store size={14} />
           MCP Store
         </button>
-        <button
-          onclick={() => (tabRoute.value = 'binaries')}
-          class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'binaries' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
-        >
-          <HardDrive size={14} />
-          Binaries
-        </button>
+        {#if platformAdmin}
+          <button
+            onclick={() => (tabRoute.value = 'binaries')}
+            class="flex items-center gap-1.5 px-1 pb-2 text-sm font-medium border-b-2 {activeTab === 'binaries' ? 'border-gray-900 dark:border-accent text-gray-900 dark:text-dark-text' : 'border-transparent text-gray-500 dark:text-dark-text-muted hover:text-gray-700 dark:hover:text-dark-text-secondary'}"
+          >
+            <HardDrive size={14} />
+            Binaries
+          </button>
+        {/if}
       </div>
 
       {#if activeTab === 'my-mcps'}
@@ -652,6 +663,9 @@
           <span class="text-xs text-gray-400 dark:text-dark-text-muted">({total})</span>
         </div>
         <div class="flex items-center gap-2">
+          {#if !mayWrite}
+            <span class="text-xs text-gray-500 dark:text-dark-text-muted" title="The mcp.write capability is required to change MCP Sets">Read only</span>
+          {/if}
           <button
             onclick={loadData}
             class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-600 dark:text-dark-text-muted dark:hover:text-dark-text-secondary "
@@ -659,28 +673,30 @@
           >
             <RefreshCw size={14} />
           </button>
-          <button
-            onclick={() => mcpImportFileInput?.click()}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
-            title="Import MCP from JSON file"
-          >
-            <Upload size={12} />
-            Import
-          </button>
-          <input
-            bind:this={mcpImportFileInput}
-            type="file"
-            accept=".json"
-            onchange={handleImportMCPFile}
-            class="hidden"
-          />
-          <button
-            onclick={openCreate}
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
-          >
-            <Plus size={12} />
-            New MCP
-          </button>
+          {#if mayWrite}
+            <button
+              onclick={() => mcpImportFileInput?.click()}
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated "
+              title="Import MCP from JSON file"
+            >
+              <Upload size={12} />
+              Import
+            </button>
+            <input
+              bind:this={mcpImportFileInput}
+              type="file"
+              accept=".json"
+              onchange={handleImportMCPFile}
+              class="hidden"
+            />
+            <button
+              onclick={openCreate}
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
+            >
+              <Plus size={12} />
+              New MCP
+            </button>
+          {/if}
         </div>
       </div>
       <!-- Category Filter Chips -->
@@ -785,7 +801,7 @@
                     <div class="border border-gray-200 dark:border-dark-border p-3 space-y-3 relative">
                       <div class="flex items-center justify-between">
                         <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted">Tool #{i + 1}</span>
-                        <button type="button" onclick={() => removeHTTPTool(i)} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 " title="Remove tool">
+                        <button type="button" onclick={() => removeHTTPTool(i)} class="p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300" title="Remove tool">
                           <Trash2 size={12} />
                         </button>
                       </div>
@@ -892,15 +908,17 @@
                       <Plus size={12} />
                       Add HTTP Tool
                     </button>
-                    <button
-                      type="button"
-                      onclick={() => { showAIPanel = !showAIPanel; }}
-                      class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
-                      title="Toggle AI HTTP Tool Builder"
-                    >
-                      <Bot size={12} />
-                      AI Builder
-                    </button>
+                    {#if platformAdmin}
+                      <button
+                        type="button"
+                        onclick={() => { showAIPanel = !showAIPanel; }}
+                        class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium {showAIPanel ? 'bg-accent-muted text-accent dark:text-accent-text border border-accent/30' : 'border border-gray-300 dark:border-dark-border-subtle text-gray-700 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated'}"
+                        title="Toggle AI HTTP Tool Builder"
+                      >
+                        <Bot size={12} />
+                        AI Builder
+                      </button>
+                    {/if}
                   </div>
                 </div>
               {/if}
@@ -1082,7 +1100,7 @@
                               Local
                             </button>
                           </div>
-                          <button type="button" onclick={() => { formMCPUpstreams = formMCPUpstreams.filter((_, idx) => idx !== i); }} class="p-1 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:hover:text-red-400 " title="Remove server">
+                          <button type="button" onclick={() => { formMCPUpstreams = formMCPUpstreams.filter((_, idx) => idx !== i); }} class="p-1 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300" title="Remove server">
                             <Trash2 size={12} />
                           </button>
                         </div>
@@ -1140,7 +1158,7 @@
                             </div>
                           </label>
                         </div>
-                        {#if editingId}
+                        {#if editingId && platformAdmin}
                           {@const st = (stdioStatus[editingId] || []).find((u) => u.index === i)}
                           <div class="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-dark-border text-xs">
                             {#if st?.running}
@@ -1220,7 +1238,7 @@
                             </div>
                           </label>
                         </div>
-                        {#if editingId}
+                        {#if editingId && platformAdmin}
                           {@const inspection = (upstreamInspections[editingId] || []).find((item) => item.index === i)}
                           <div class="flex items-start gap-2 pt-2 border-t border-gray-100 dark:border-dark-border text-xs">
                             <div class="min-w-0 flex-1">
@@ -1376,7 +1394,7 @@
                       >{checked.tools} discovered tools</span>
                     {/if}
                   {/if}
-                  {#if hasStdioUpstreams(set)}
+                  {#if platformAdmin && hasStdioUpstreams(set)}
                     {@const sum = stdioSummary(set.id)}
                     {#if sum}
                       <span
@@ -1399,7 +1417,7 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
-                  {#if (set.config?.mcp_upstreams ?? []).length > 0}
+                  {#if platformAdmin && (set.config?.mcp_upstreams ?? []).length > 0}
                     <button
                       onclick={() => handleInspectUpstreams(set.id)}
                       disabled={inspectionBusy[set.id]}
@@ -1410,7 +1428,7 @@
                       <Network size={14} class={inspectionBusy[set.id] ? 'animate-pulse' : ''} />
                     </button>
                   {/if}
-                  {#if hasStdioUpstreams(set)}
+                  {#if platformAdmin && hasStdioUpstreams(set)}
                     <button
                       onclick={() => handleRestartStdio(set.id)}
                       disabled={stdioBusy[set.id]}
@@ -1427,34 +1445,36 @@
                   >
                     <Download size={14} />
                   </button>
-                  <button
-                    onclick={() => openEdit(set)}
-                    class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
-                    title="Edit"
-                  >
-                    <Pencil size={14} />
-                  </button>
-                  {#if deleteConfirm === set.id}
+                  {#if mayWrite}
                     <button
-                      onclick={() => handleDelete(set.id)}
-                      class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                      onclick={() => openEdit(set)}
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text "
+                      title="Edit"
                     >
-                      Confirm
+                      <Pencil size={14} />
                     </button>
-                    <button
-                      onclick={() => (deleteConfirm = null)}
-                      class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
-                    >
-                      Cancel
-                    </button>
-                  {:else}
-                    <button
-                      onclick={() => (deleteConfirm = set.id)}
-                      class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
-                      title="Delete"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {#if deleteConfirm === set.id}
+                      <button
+                        onclick={() => handleDelete(set.id)}
+                        class="px-2 py-1 text-xs bg-red-600 text-white hover:bg-red-700 "
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onclick={() => (deleteConfirm = null)}
+                        class="px-2 py-1 text-xs border border-gray-300 dark:border-dark-border-subtle hover:bg-gray-50 dark:hover:bg-dark-elevated text-gray-600 dark:text-dark-text-secondary "
+                      >
+                        Cancel
+                      </button>
+                    {:else}
+                      <button
+                        onclick={() => (deleteConfirm = set.id)}
+                        class="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
+                        title="Delete"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    {/if}
                   {/if}
                 </div>
               </td>
@@ -1540,7 +1560,7 @@
                 </div>
 
                 <!-- Install button -->
-                {#if !installedSlugs.has(tmpl.slug)}
+                {#if !installedSlugs.has(tmpl.slug) && mayWrite}
                   <button
                     onclick={() => handleInstallTemplate(tmpl.slug)}
                     class="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-gray-900 dark:bg-accent text-white hover:bg-gray-800 dark:hover:bg-accent-hover "
@@ -1548,6 +1568,8 @@
                     <Download size={12} />
                     Install
                   </button>
+                {:else if !installedSlugs.has(tmpl.slug)}
+                  <p class="border border-gray-200 dark:border-dark-border px-3 py-1.5 text-center text-xs text-gray-500 dark:text-dark-text-muted">Requires mcp.write</p>
                 {/if}
               </div>
             {/each}
@@ -1556,7 +1578,7 @@
       {/if}
 
       <!-- Binaries Tab (persistent MCP program library) -->
-      {#if activeTab === 'binaries'}
+      {#if activeTab === 'binaries' && platformAdmin}
         <div class="flex items-center justify-between mb-4">
           <div class="flex items-center gap-2">
             <HardDrive size={16} class="text-gray-500 dark:text-dark-text-muted" />
@@ -1672,7 +1694,7 @@
                         {:else}
                           <button
                             onclick={() => (binDeleteConfirm = file.name)}
-                            class="p-1.5 hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-400 hover:text-red-600 dark:text-dark-text-muted dark:hover:text-red-400 "
+                            class="p-1.5 text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300"
                             title="Delete"
                           >
                             <Trash2 size={14} />

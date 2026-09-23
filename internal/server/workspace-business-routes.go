@@ -139,17 +139,31 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"GET", "/mcp/builtin-tools", "models.use", "", ""},
 		{"POST", "/mcp/call-builtin-tool", "models.use", "", ""},
 		{"POST", "/mcp/call-skill-tool", "models.use", "", ""},
-		{"GET", "/mcp/set-tools/{name}", "mcp.read", "", ""},
+		{"GET", "/mcp/set-tools/{name}", "mcp.use", "", ""},
 		{"POST", "/mcp/set-tools/{name}/call", "mcp.use", "", ""},
+		// MCP Sets are workspace configuration. Reading and writing their records
+		// follows the mcp capability pair; using the tools remains a separate
+		// mcp.use decision above. Host-level binaries and stdio process lifecycle
+		// routes intentionally remain installation administration.
+		{"GET", "/mcp/sets", "mcp.read", "", ""},
+		{"POST", "/mcp/sets", "mcp.write", "", ""},
+		{"POST", "/mcp/sets/import", "mcp.write", "", ""},
+		{"POST", "/mcp/sets/import/preview", "mcp.write", "", ""},
+		{"GET", "/mcp/sets/{id}", "mcp.read", "mcp", "id"},
+		{"PUT", "/mcp/sets/{id}", "mcp.write", "mcp", "id"},
+		{"DELETE", "/mcp/sets/{id}", "mcp.write", "mcp", "id"},
+		{"GET", "/mcp/sets/{id}/export", "mcp.read", "mcp", "id"},
+		{"GET", "/mcp-templates", "mcp.read", "", ""},
+		{"GET", "/mcp-templates/{slug}", "mcp.read", "", ""},
+		{"POST", "/mcp-templates/{slug}/install", "mcp.write", "", ""},
 		// Read-only catalogs the capability-admitted surfaces depend on: the
 		// Playground tool picker and the Agents editor both need to enumerate
 		// skills, MCP sets and connections to configure an agent. Management of
-		// all three stays installation administration — only the list is open,
-		// and it is already the capability the store enforces on these tables.
+		// skills and connections stays installation administration. MCP Sets are
+		// managed by the explicit mcp.read/mcp.write policies above.
 		// `ListConnections` blanks credentials for a caller without
 		// `credentials.manage`, so the list carries no secret.
 		{"GET", "/skills", "skills.read", "", ""},
-		{"GET", "/mcp/sets", "mcp.read", "", ""},
 		{"GET", "/connections", "connections.read", "", ""},
 		// Chat sessions are per-account: rows are owner-scoped in the handlers
 		// and the list predicate (an administrator additionally sees ownerless
