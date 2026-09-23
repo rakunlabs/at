@@ -61,10 +61,14 @@ manual overrides unless explicitly overwritten. Unknown, invalid or unavailable
 catalogs never silently fall back to zero prices or replace database records.
 `llm-prices` remains selectable for older saved mappings.
 
-Initial coverage: OpenAI, Anthropic, MiniMax, DeepSeek, xAI and a small verified
-Cohere subset. This is a curated starting catalog, not an assertion of complete
-provider coverage. Google AI pricing could not be retrieved during initial
-verification, so no unverified Gemini prices are included.
+Initial coverage: OpenAI, Anthropic, Google Gemini (Developer API and Vertex AI),
+MiniMax, DeepSeek, xAI and a small verified Cohere subset. This is a curated
+catalog, not an assertion of complete provider coverage.
+
+AT first checks the published catalog so prices can be refreshed without a new
+release. If that request or validation fails, it uses the copy of `index.json`
+embedded in the binary. Offline installations therefore retain the prices that
+were current when their AT binary was built.
 
 `schema.json` describes editable provider files. The Go validator is also used
 by the remote reader; the CI schema check enforces required keys and JSON types.

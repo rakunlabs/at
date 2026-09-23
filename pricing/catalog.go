@@ -2,6 +2,8 @@
 package pricing
 
 import (
+	"bytes"
+	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,6 +16,13 @@ import (
 )
 
 const URL = "https://raw.githubusercontent.com/rakunlabs/at/main/pricing/index.json"
+
+// embeddedCatalog keeps the catalog shipped with this AT build available to
+// installations that cannot reach GitHub. Online sync may still provide a
+// newer catalog without requiring a new binary.
+//
+//go:embed index.json
+var embeddedCatalog []byte
 
 type Catalog struct {
 	Version   int        `json:"version"`
@@ -66,6 +75,11 @@ func Parse(r io.Reader) (Catalog, error) {
 		return c, err
 	}
 	return c, c.Validate()
+}
+
+// ParseEmbedded returns the pricing catalog bundled into the AT binary.
+func ParseEmbedded() (Catalog, error) {
+	return Parse(bytes.NewReader(embeddedCatalog))
 }
 
 var slug = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)

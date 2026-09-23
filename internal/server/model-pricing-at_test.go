@@ -76,6 +76,9 @@ func TestATPricingMatching(t *testing.T) {
 		{"anthropic", "claude-sonnet-4-5-20250929", "claude-sonnet-4-5"},
 		{"openai", "MiniMax-M2.7", "MiniMax-M2.7"},
 		{"minimax", "MiniMax-M2.7", "MiniMax-M2.7"},
+		{"gemini", "gemini-2.5-flash", "gemini-2.5-flash"},
+		{"vertex-gemini", "gemini-2.5-flash", "gemini-2.5-flash"},
+		{"vertex", "gemini-2.5-flash", "gemini-2.5-flash"},
 		{"azure", "gpt-4o", ""},
 		{"bedrock", "claude-sonnet-4-5", ""},
 		{"vertex-gemini", "claude-sonnet-4-5", ""},
@@ -91,6 +94,36 @@ func TestATPricingMatching(t *testing.T) {
 				t.Fatalf("match = %+v, %v; want %q", got, ok, tt.want)
 			}
 		})
+	}
+}
+
+func TestATPricingEmbeddedFallbackCatalog(t *testing.T) {
+	items, err := embeddedATModelPricing()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) == 0 {
+		t.Fatal("bundled pricing catalog is empty")
+	}
+	got, _, _, ok := matchATModelPricing(items, "gemini", "gemini-2.5-flash")
+	if !ok || got.Provider != "google" || got.PromptPricePer1M != 0.3 || got.CompletionPricePer1M != 2.5 {
+		t.Fatalf("bundled Gemini pricing = %+v, %v", got, ok)
+	}
+}
+
+func TestATPricingFetchFallsBackToEmbeddedCatalog(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "offline", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	items, err := fetchATModelPricingWithFallback(context.Background(), srv.Client(), srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _, _, ok := matchATModelPricing(items, "gemini", "gemini-2.5-flash")
+	if !ok || got.Provider != "google" {
+		t.Fatalf("offline fallback Gemini pricing = %+v, %v", got, ok)
 	}
 }
 

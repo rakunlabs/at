@@ -1,0 +1,129 @@
+{
+  "provider": "google",
+  "models": [
+    {
+      "model": "gemini-3.8-flash",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard promotional rate through 2026-12-31. Hourly cache storage and tools are excluded.",
+      "input": 0.75,
+      "output": 3.75,
+      "cache_read": 0.075,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-3.7-flash",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard promotional rate through 2026-12-31. Hourly cache storage and tools are excluded.",
+      "input": 0.75,
+      "output": 3.75,
+      "cache_read": 0.075,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-3.5-flash",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard rate. Hourly cache storage and tools are excluded.",
+      "input": 1.5,
+      "output": 9,
+      "cache_read": 0.15,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-3.5-flash-lite",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard rate. Hourly cache storage and tools are excluded.",
+      "input": 0.3,
+      "output": 2.5,
+      "cache_read": 0.03,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-3.1-pro-preview@short",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard rate for prompts up to 200K tokens. Fixed profile; cache storage and tools are excluded.",
+      "manual_only": true,
+      "input": 2,
+      "output": 12,
+      "cache_read": 0.2,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-3.1-pro-preview@long",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard rate for prompts over 200K tokens; all tokens use this rate. Fixed profile; cache storage and tools are excluded.",
+      "manual_only": true,
+      "input": 4,
+      "output": 18,
+      "cache_read": 0.4,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-2.5-pro@short",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard rate for prompts up to 200K tokens. Fixed profile; cache storage and tools are excluded.",
+      "manual_only": true,
+      "input": 1.25,
+      "output": 10,
+      "cache_read": 0.125,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-2.5-pro@long",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard rate for prompts over 200K tokens; all tokens use this rate. Fixed profile; cache storage and tools are excluded.",
+      "manual_only": true,
+      "input": 2.5,
+      "output": 15,
+      "cache_read": 0.25,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-2.5-flash",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard text/image/video rate. Audio, cache storage and tools have separate prices and are excluded.",
+      "input": 0.3,
+      "output": 2.5,
+      "cache_read": 0.03,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-2.5-flash-lite",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard text/image/video rate. Audio, cache storage and tools have separate prices and are excluded.",
+      "input": 0.1,
+      "output": 0.4,
+      "cache_read": 0.01,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-2.0-flash",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard text/image/video rate. Audio and hourly cache storage have separate prices and are excluded.",
+      "input": 0.1,
+      "output": 0.4,
+      "cache_read": 0.025,
+      "cache_write": 0
+    },
+    {
+      "model": "gemini-2.0-flash-lite",
+      "source_url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "verified_at": "2026-09-23",
+      "notes": "Gemini Developer API paid Standard rate. Context caching is unavailable, so cache prices are zero.",
+      "input": 0.075,
+      "output": 0.3,
+      "cache_read": 0,
+      "cache_write": 0
+    }
+  ]
+}

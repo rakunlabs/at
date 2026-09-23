@@ -27,6 +27,25 @@ func TestPublishedCatalogMatchesProviders(t *testing.T) {
 	}
 }
 
+func TestEmbeddedCatalogMatchesPublishedCatalog(t *testing.T) {
+	want, err := ParseEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open("index.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	got, err := Parse(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatal("embedded pricing catalog differs from index.json")
+	}
+}
+
 const validCatalog = `{"version":1,"currency":"USD","unit":"per_1m_tokens","providers":[{"provider":"example","models":[{"model":"free","source_url":"https://example.com/pricing","verified_at":"2026-09-13","notes":"Explicitly free model","input":0,"output":0,"cache_read":0,"cache_write":0}]}]}`
 
 func TestCatalogValidation(t *testing.T) {

@@ -438,7 +438,7 @@
       <div>
         <h2 class="text-sm font-medium text-gray-900 dark:text-dark-text">Model Pricing</h2>
         <p class="text-xs text-gray-400 dark:text-dark-text-muted">Effective prices used by gateway cost tracking and token spend budgets.</p>
-        <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Prices are managed installation-wide; model suggestions and sync previews use your selected workspace.</p>
+        <p class="mt-1 text-xs text-gray-600 dark:text-dark-text-secondary">Prices are managed installation-wide; model suggestions and sync previews use your selected workspace. AT Pricing falls back to the catalog bundled with this server when the online catalog is unavailable.</p>
       </div>
     </div>
     <div class="flex flex-wrap items-center justify-end gap-2">

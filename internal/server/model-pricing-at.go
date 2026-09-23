@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -17,7 +18,32 @@ const atPricingURL = pricing.URL
 const atPricingMaxBytes = 8 << 20
 
 func fetchATModelPricing(ctx context.Context) ([]modelPricingSourceItem, error) {
-	return fetchATModelPricingURL(ctx, &http.Client{Timeout: 20 * time.Second}, atPricingURL)
+	return fetchATModelPricingWithFallback(ctx, &http.Client{Timeout: 20 * time.Second}, atPricingURL)
+}
+
+func fetchATModelPricingWithFallback(ctx context.Context, client *http.Client, catalogURL string) ([]modelPricingSourceItem, error) {
+	items, err := fetchATModelPricingURL(ctx, client, catalogURL)
+	if err == nil {
+		return items, nil
+	}
+	if ctx.Err() != nil {
+		return nil, err
+	}
+
+	items, embeddedErr := embeddedATModelPricing()
+	if embeddedErr != nil {
+		return nil, fmt.Errorf("fetch AT pricing catalog: %w; load bundled catalog: %v", err, embeddedErr)
+	}
+	slog.WarnContext(ctx, "AT pricing catalog unavailable; using bundled catalog", "error", err)
+	return items, nil
+}
+
+func embeddedATModelPricing() ([]modelPricingSourceItem, error) {
+	catalog, err := pricing.ParseEmbedded()
+	if err != nil {
+		return nil, err
+	}
+	return atModelPricingItems(catalog)
 }
 
 func fetchATModelPricingURL(ctx context.Context, client *http.Client, catalogURL string) ([]modelPricingSourceItem, error) {
@@ -48,6 +74,10 @@ func parseATModelPricing(r io.Reader) ([]modelPricingSourceItem, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse AT pricing catalog: %w", err)
 	}
+	return atModelPricingItems(c)
+}
+
+func atModelPricingItems(c pricing.Catalog) ([]modelPricingSourceItem, error) {
 	var items []modelPricingSourceItem
 	for _, p := range c.Providers {
 		for _, m := range p.Models {

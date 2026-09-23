@@ -44,7 +44,7 @@ var modelPricingSyncSources = []modelPricingSyncSource{
 			Source:      atPricingSource,
 			Label:       "AT Pricing",
 			URL:         atPricingURL,
-			Description: "Reviewed provider pricing maintained in rakunlabs/at on GitHub.",
+			Description: "Reviewed provider pricing from GitHub, with the catalog bundled in this AT binary as an offline fallback.",
 		},
 		fetchCatalog: fetchATModelPricing,
 	},
