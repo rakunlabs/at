@@ -300,11 +300,22 @@
   let showWorkbench = $state(false);
   let workbenchPanel: HTMLDivElement | undefined = $state();
   let workbenchTab = $state<WorkbenchTab>('prompt');
+  let workbenchBackdropPressStarted = false;
   const workbenchTabs: Array<{ id: WorkbenchTab; label: string }> = [
     { id: 'prompt', label: 'System prompt' },
     { id: 'agent', label: 'Agent & server tools' },
     { id: 'chat', label: 'Chat tools' },
   ];
+
+  function handleWorkbenchBackdropPointerDown(e: PointerEvent) {
+    workbenchBackdropPressStarted = e.target === e.currentTarget;
+  }
+
+  function handleWorkbenchBackdropClick(e: MouseEvent) {
+    const directBackdropClick = workbenchBackdropPressStarted && e.target === e.currentTarget;
+    workbenchBackdropPressStarted = false;
+    if (directBackdropClick) showWorkbench = false;
+  }
   /**
    * Direct MCP URLs are no longer configurable here: tools now come from MCP
    * sets registered in the installation, which carry credentials, stdio
@@ -2742,7 +2753,9 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      onclick={(e) => { if (e.target === e.currentTarget) showWorkbench = false; }}
+      onpointerdown={handleWorkbenchBackdropPointerDown}
+      onpointercancel={() => (workbenchBackdropPressStarted = false)}
+      onclick={handleWorkbenchBackdropClick}
     >
       <div
         bind:this={workbenchPanel}
@@ -2874,7 +2887,7 @@
               oninput={(e) => { systemPrompt = e.currentTarget.value; scheduleSettingsSave(); void saveDefaults(); }}
               aria-label="System prompt"
               placeholder="System prompt (optional)"
-              rows={4}
+              rows={8}
               class="w-full border border-gray-300 dark:border-dark-border-subtle dark:bg-dark-elevated dark:text-dark-text dark:placeholder:text-dark-text-muted px-3 py-1.5 text-sm resize-y focus:outline-none focus:ring-2 focus:ring-gray-900/10 focus:border-gray-400 read-only:bg-gray-50 dark:read-only:bg-dark-base "
             ></textarea>
           </div>
