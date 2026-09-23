@@ -182,6 +182,18 @@ func (r *mcpRuntime) ListTools(ctx context.Context) []service.Tool {
 	return r.Tools()
 }
 
+// Diagnostics returns discovery failures collected while resolving lazy tool
+// sources. ListTools remains best-effort because one unavailable upstream must
+// not hide tools from healthy sources; callers that present discovery state can
+// surface these warnings alongside the partial result.
+func (r *mcpRuntime) Diagnostics() []string {
+	out := make([]string, 0, len(r.diagnostics))
+	for _, err := range r.diagnostics {
+		out = append(out, err.Error())
+	}
+	return out
+}
+
 func (r *mcpRuntime) CallTool(ctx context.Context, name string, args map[string]any) (string, error) {
 	attempted := make(map[int]bool)
 	var callErrs []error

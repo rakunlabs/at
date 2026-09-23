@@ -2,7 +2,7 @@
   import { routeChoice } from '@/lib/helper/route-choice.svelte';
   import { storeNavbar } from '@/lib/store/store.svelte';
   import { addToast } from '@/lib/store/toast.svelte';
-  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, getMCPSetStdioStatus, restartMCPSetStdio, stopMCPSetStdio, type MCPSet, type MCPStdioUpstreamStatus } from '@/lib/api/mcp-sets';
+  import { listMCPSets, createMCPSet, updateMCPSet, deleteMCPSet, exportMCPSet, importMCPSet, getMCPSetStdioStatus, restartMCPSetStdio, stopMCPSetStdio, inspectMCPSetUpstreams, type MCPSet, type MCPStdioUpstreamStatus, type MCPUpstreamInspection } from '@/lib/api/mcp-sets';
   import { type MCPHTTPTool, type MCPUpstream } from '@/lib/api/mcp-servers';
   import { listMCPBinaries, uploadMCPBinary, deleteMCPBinary, listStdioProcesses, type MCPBinary, type StdioProcess } from '@/lib/api/mcp-binaries';
   import { listSkills, type Skill } from '@/lib/api/skills';
@@ -417,6 +417,8 @@
   // set id → per-upstream stdio status (index refers to config.mcp_upstreams)
   let stdioStatus = $state<Record<string, MCPStdioUpstreamStatus[]>>({});
   let stdioBusy = $state<Record<string, boolean>>({});
+  let upstreamInspections = $state<Record<string, MCPUpstreamInspection[]>>({});
+  let inspectionBusy = $state<Record<string, boolean>>({});
 
   async function refreshStdioStatus(setId: string) {
     try {
@@ -464,6 +466,40 @@
     const st = stdioStatus[setId];
     if (!st) return null;
     return { running: st.filter((u) => u.running).length, total: st.length };
+  }
+
+  async function handleInspectUpstreams(setId: string, index?: number) {
+    inspectionBusy[setId] = true;
+    try {
+      const result = await inspectMCPSetUpstreams(setId, index);
+      if (index === undefined) {
+        upstreamInspections[setId] = result.upstreams || [];
+      } else {
+        const retained = (upstreamInspections[setId] || []).filter((item) => item.index !== index);
+        upstreamInspections[setId] = [...retained, ...(result.upstreams || [])].sort((a, b) => a.index - b.index);
+      }
+      const failed = result.upstreams.filter((item) => item.error);
+      const toolCount = result.upstreams.reduce((sum, item) => sum + item.tool_count, 0);
+      if (failed.length > 0) {
+        addToast(`MCP check completed: ${toolCount} tools found, ${failed.length} upstream${failed.length === 1 ? '' : 's'} failed`, 'warn');
+      } else {
+        addToast(`MCP check completed: ${toolCount} tools found`);
+      }
+    } catch (e: any) {
+      addToast(e?.response?.data?.message || 'Failed to inspect MCP upstreams', 'alert');
+    } finally {
+      inspectionBusy[setId] = false;
+    }
+  }
+
+  function inspectionSummary(setId: string): { connected: number; total: number; tools: number } | null {
+    const items = upstreamInspections[setId];
+    if (!items) return null;
+    return {
+      connected: items.filter((item) => !item.error).length,
+      total: items.length,
+      tools: items.reduce((sum, item) => sum + item.tool_count, 0),
+    };
   }
 
   $effect(() => {
@@ -691,13 +727,16 @@
             <!-- Description -->
             <div class="grid grid-cols-4 gap-3 items-center">
               <label for="form-description" class="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">Description</label>
-              <input
-                id="form-description"
-                type="text"
-                bind:value={formDescription}
-                placeholder="What this MCP contains"
-                class="col-span-3 border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
-              />
+              <div class="col-span-3">
+                <input
+                  id="form-description"
+                  type="text"
+                  bind:value={formDescription}
+                  placeholder="What this MCP set contains"
+                  class="w-full border border-gray-300 dark:border-dark-border-subtle bg-white dark:bg-dark-elevated px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900/10 dark:focus:ring-accent/20 focus:border-gray-400 dark:focus:border-dark-border-subtle dark:text-dark-text dark:placeholder:text-dark-text-muted"
+                />
+                <p class="mt-1 text-xs text-gray-400 dark:text-dark-text-muted">Name and description identify this set inside AT. Upstream server details and tool descriptions are discovered from the MCP server.</p>
+              </div>
             </div>
 
             <!-- Category -->
@@ -1149,7 +1188,7 @@
                             />
                           </label>
                           <div class="col-start-2 col-span-3 text-[10px] text-gray-400 dark:text-dark-text-muted">
-                            Full endpoint URL, used exactly as entered — no path is appended.
+                            Streamable HTTP endpoint, used exactly as entered. JSON or SSE responses are detected automatically. Legacy GET <code class="font-mono">/sse</code> transport is not supported.
                           </div>
                         </div>
 
@@ -1181,6 +1220,41 @@
                             </div>
                           </label>
                         </div>
+                        {#if editingId}
+                          {@const inspection = (upstreamInspections[editingId] || []).find((item) => item.index === i)}
+                          <div class="flex items-start gap-2 pt-2 border-t border-gray-100 dark:border-dark-border text-xs">
+                            <div class="min-w-0 flex-1">
+                              {#if inspection?.error}
+                                <div class="text-red-600 dark:text-red-400 break-words">Connection failed: {inspection.error}</div>
+                              {:else if inspection}
+                                <div class="text-green-600 dark:text-green-400">
+                                  Connected · {inspection.tool_count} tool{inspection.tool_count === 1 ? '' : 's'} · {inspection.response_mode === 'sse' ? 'SSE response' : 'JSON response'} · {inspection.duration_ms} ms
+                                </div>
+                                {#if inspection.server_name || inspection.protocol_version}
+                                  <div class="mt-1 text-gray-400 dark:text-dark-text-muted">
+                                    {inspection.server_name || 'MCP server'}{inspection.server_version ? ` ${inspection.server_version}` : ''}{inspection.protocol_version ? ` · protocol ${inspection.protocol_version}` : ''}
+                                  </div>
+                                {/if}
+                                {#if inspection.tools.length > 0}
+                                  <div class="mt-1 font-mono text-gray-500 dark:text-dark-text-muted break-words" title={inspection.tools.map((tool) => tool.name).join(', ')}>
+                                    {inspection.tools.map((tool) => tool.name).join(', ')}
+                                  </div>
+                                {/if}
+                              {:else}
+                                <div class="text-gray-400 dark:text-dark-text-muted">Not checked. The test uses the saved URL and headers.</div>
+                              {/if}
+                            </div>
+                            <button
+                              type="button"
+                              onclick={() => handleInspectUpstreams(editingId!, i)}
+                              disabled={inspectionBusy[editingId]}
+                              class="shrink-0 flex items-center gap-1 px-2 py-1 border border-gray-300 dark:border-dark-border-subtle text-gray-600 dark:text-dark-text-secondary hover:bg-gray-50 dark:hover:bg-dark-elevated disabled:opacity-50"
+                            >
+                              <RefreshCw size={10} class={inspectionBusy[editingId] ? 'animate-spin' : ''} />
+                              Test saved endpoint
+                            </button>
+                          </div>
+                        {/if}
                       {/if}
                     </div>
                   {/each}
@@ -1292,6 +1366,15 @@
                   {/if}
                   {#if (set.config?.mcp_upstreams ?? []).length > 0}
                     <span class="px-1.5 py-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800 font-mono">{(set.config.mcp_upstreams ?? []).length} external</span>
+                    {@const checked = inspectionSummary(set.id)}
+                    {#if checked}
+                      <span
+                        class={["px-1.5 py-0.5 border font-mono", checked.connected === checked.total
+                          ? 'bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 border-green-200 dark:border-green-800'
+                          : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-800']}
+                        title={`${checked.connected}/${checked.total} upstreams connected`}
+                      >{checked.tools} discovered tools</span>
+                    {/if}
                   {/if}
                   {#if hasStdioUpstreams(set)}
                     {@const sum = stdioSummary(set.id)}
@@ -1316,6 +1399,17 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
+                  {#if (set.config?.mcp_upstreams ?? []).length > 0}
+                    <button
+                      onclick={() => handleInspectUpstreams(set.id)}
+                      disabled={inspectionBusy[set.id]}
+                      class="p-1.5 hover:bg-gray-100 dark:hover:bg-dark-elevated text-gray-400 hover:text-gray-700 dark:text-dark-text-muted dark:hover:text-dark-text disabled:opacity-50"
+                      title="Connect to saved upstreams and discover tools"
+                      aria-label={`Test ${set.name} upstreams and discover tools`}
+                    >
+                      <Network size={14} class={inspectionBusy[set.id] ? 'animate-pulse' : ''} />
+                    </button>
+                  {/if}
                   {#if hasStdioUpstreams(set)}
                     <button
                       onclick={() => handleRestartStdio(set.id)}

@@ -97,10 +97,34 @@ export interface MCPSetTool {
 
 export interface MCPSetToolsResult {
   tools: MCPSetTool[];
+  warnings?: string[];
 }
 
 export interface MCPSetToolCallResult {
   content: Array<{ type: string; text: string }>;
+}
+
+export interface MCPUpstreamInspection {
+  index: number;
+  transport: 'streamable_http' | 'stdio';
+  response_mode?: 'json' | 'sse';
+  protocol_version?: string;
+  server_name?: string;
+  server_version?: string;
+  tool_count: number;
+  tools: MCPSetTool[];
+  duration_ms: number;
+  error?: string;
+}
+
+export interface MCPUpstreamInspectionResult {
+  name: string;
+  upstreams: MCPUpstreamInspection[];
+}
+
+export async function inspectMCPSetUpstreams(id: string, index?: number): Promise<MCPUpstreamInspectionResult> {
+  const res = await api.post<MCPUpstreamInspectionResult>(`/mcp/sets/${id}/inspect-upstreams`, index === undefined ? {} : { index });
+  return res.data;
 }
 
 export async function listMCPSetTools(name: string): Promise<MCPSetToolsResult> {

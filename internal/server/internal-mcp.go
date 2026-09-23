@@ -86,14 +86,16 @@ func (s *Server) ListMCPSetToolsAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tools, err := s.listMCPSetTools(r.Context(), name)
+	runtime, err := s.newMCPRuntimeBuilder().buildSet(r.Context(), name)
 	if err != nil {
 		slog.Error("list mcp set tools failed", "name", name, "error", err)
 		httpResponse(w, fmt.Sprintf("failed to list tools: %v", err), http.StatusInternalServerError)
 		return
 	}
+	defer closeMCPRuntime(r.Context(), runtime)
+	tools := runtime.ListTools(r.Context())
 
-	httpResponseJSON(w, map[string]any{"tools": tools}, http.StatusOK)
+	httpResponseJSON(w, map[string]any{"tools": tools, "warnings": runtime.Diagnostics()}, http.StatusOK)
 }
 
 // CallMCPSetToolAPI handles POST /api/v1/mcp/sets/{name}/call-tool.

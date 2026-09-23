@@ -142,6 +142,10 @@ func TestMCPRuntimeUnknownToolIncludesDiscoveryFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "connection reset") || !strings.Contains(err.Error(), "broken upstream") {
 		t.Fatalf("CallTool error = %v, want retained discovery failure", err)
 	}
+	diagnostics := runtime.Diagnostics()
+	if len(diagnostics) != 1 || !strings.Contains(diagnostics[0], "connection reset") || !strings.Contains(diagnostics[0], "broken upstream") {
+		t.Fatalf("Diagnostics = %v, want retained discovery failure", diagnostics)
+	}
 }
 
 type runtimeMCPSetStore struct {

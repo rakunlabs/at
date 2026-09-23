@@ -327,6 +327,7 @@
   let legacyMcpHeaders = $state<Record<string, string>>({});
   let availableMCPSets = $state<MCPSet[]>([]);
   let selectedMCPSetNames = $state<string[]>([]);
+  let mcpSetStatus = $state<Record<string, { tools: string[]; warnings: string[]; error: string; busy: boolean }>>({});
   let agents = $state<Agent[]>([]);
   /** Agent bound to this conversation; supplies the base setup. */
   let boundAgentId = $state('');
@@ -1689,8 +1690,19 @@
 
       // 2. Discover MCP Set tools (server-side resolution)
       for (const setName of selections.mcp_sets) {
+        mcpSetStatus = { ...mcpSetStatus, [setName]: { tools: [], warnings: [], error: '', busy: true } };
         try {
           const res = await listMCPSetTools(setName);
+          if (version !== toolDiscoveryVersion) return;
+          mcpSetStatus = {
+            ...mcpSetStatus,
+            [setName]: {
+              tools: (res.tools ?? []).map(tool => tool.name),
+              warnings: res.warnings ?? [],
+              error: '',
+              busy: false,
+            },
+          };
           for (const t of res.tools ?? []) {
             if (newSourceMap[t.name]) continue;
             newTools.push({
@@ -1714,7 +1726,10 @@
             }
           }
         } catch (e: any) {
-          addToast(`MCP Set "${setName}": ${e?.response?.data?.message || e.message || 'failed to discover tools'}`, 'alert');
+          if (version !== toolDiscoveryVersion) return;
+          const message = e?.response?.data?.message || e.message || 'failed to discover tools';
+          mcpSetStatus = { ...mcpSetStatus, [setName]: { tools: [], warnings: [], error: message, busy: false } };
+          addToast(`MCP Set "${setName}": ${message}`, 'alert');
         }
       }
 
@@ -2939,6 +2954,7 @@
               <span class="text-xs font-medium text-gray-500 dark:text-dark-text-muted uppercase tracking-wide mb-1 block">MCP</span>
               <div class="flex flex-wrap gap-1.5">
                 {#each availableMCPSets as mcpSet}
+                  {@const status = mcpSetStatus[mcpSet.name]}
                   <button
                     onclick={() => toggleMCPSet(mcpSet.name)}
                     aria-pressed={selectedMCPSetNames.includes(mcpSet.name)}
@@ -2952,7 +2968,19 @@
                   >
                     {mcpSet.name}
                     {#if inherited.mcp_sets.includes(mcpSet.name)}<span class="ml-1 text-[10px]">· Agent</span>{/if}
+                    {#if status?.busy}
+                      <Loader2 size={10} class="ml-1 inline animate-spin" />
+                    {:else if status?.error || status?.warnings.length}
+                      <span class="ml-1 border border-red-300 bg-red-50 px-1 text-[10px] text-red-700 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300" title={status.error || status.warnings.join('\n')}>{status.tools.length > 0 ? `Partial · ${status.tools.length}` : 'Failed'}</span>
+                    {:else if status}
+                      <span class="ml-1 opacity-70">({status.tools.length})</span>
+                    {/if}
                   </button>
+                  {#if selectedMCPSetNames.includes(mcpSet.name) && !status?.busy && (status?.error || status?.warnings.length)}
+                    <p role="status" class="basis-full text-[10px] text-red-600 dark:text-red-400">
+                      {mcpSet.name}: {status.error || status.warnings[0]}
+                    </p>
+                  {/if}
                 {/each}
               </div>
             </div>

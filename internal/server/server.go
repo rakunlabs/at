@@ -1202,6 +1202,7 @@ func New(ctx context.Context, cfg config.Server, providers map[string]ProviderIn
 	apiGroup.GET("/v1/mcp/sets/{id}/stdio-status", s.MCPSetStdioStatusAPI)
 	apiGroup.POST("/v1/mcp/sets/{id}/stdio-restart", s.MCPSetStdioRestartAPI)
 	apiGroup.POST("/v1/mcp/sets/{id}/stdio-stop", s.MCPSetStdioStopAPI)
+	apiGroup.POST("/v1/mcp/sets/{id}/inspect-upstreams", s.MCPSetInspectUpstreamsAPI)
 
 	// Stdio MCP process introspection + persistent program library
 	// (binaries / config files referenced by stdio upstream commands).

@@ -90,8 +90,34 @@ type HTTPMCPClient struct {
 	httpClient      *http.Client
 	sessionID       string
 	protocolVersion string // negotiated during initialize
+	serverName      string
+	serverVersion   string
+	responseMode    string
 	nextID          int32
 	headers         map[string]string
+}
+
+// MCPConnectionInfo describes the transport negotiated by an MCP client.
+// Streamable HTTP always uses one configured endpoint; ResponseMode reports
+// whether the most recent request was answered as JSON or SSE.
+type MCPConnectionInfo struct {
+	Transport       string `json:"transport"`
+	ResponseMode    string `json:"response_mode,omitempty"`
+	ProtocolVersion string `json:"protocol_version,omitempty"`
+	ServerName      string `json:"server_name,omitempty"`
+	ServerVersion   string `json:"server_version,omitempty"`
+}
+
+// ConnectionInfo returns diagnostic metadata without exposing credentials or
+// the configured endpoint URL.
+func (c *HTTPMCPClient) ConnectionInfo() MCPConnectionInfo {
+	return MCPConnectionInfo{
+		Transport:       "streamable_http",
+		ResponseMode:    c.responseMode,
+		ProtocolVersion: c.protocolVersion,
+		ServerName:      c.serverName,
+		ServerVersion:   c.serverVersion,
+	}
 }
 
 func NewHTTPMCPClient(ctx context.Context, baseURL string, opts ...HTTPMCPClientOption) (*HTTPMCPClient, error) {
@@ -186,6 +212,16 @@ func (c *HTTPMCPClient) sendRequest(ctx context.Context, req MCPRequest) (*MCPRe
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return nil, fmt.Errorf("HTTP error %d: %s", resp.StatusCode, string(body))
+	}
+
+	mediaType := resp.Header.Get("Content-Type")
+	if mt, _, parseErr := mime.ParseMediaType(mediaType); parseErr == nil {
+		mediaType = mt
+	}
+	if mediaType == "text/event-stream" {
+		c.responseMode = "sse"
+	} else {
+		c.responseMode = "json"
 	}
 
 	mcpResp, err := decodeMCPResponseBody(resp, req.ID)
@@ -329,6 +365,8 @@ func (c *HTTPMCPClient) initialize(ctx context.Context) error {
 	if initResult.ProtocolVersion != "" {
 		c.protocolVersion = initResult.ProtocolVersion
 	}
+	c.serverName = initResult.ServerInfo.Name
+	c.serverVersion = initResult.ServerInfo.Version
 
 	slog.Info("MCP initialized", "server_name", initResult.ServerInfo.Name, "server_version", initResult.ServerInfo.Version, "protocol_version", c.protocolVersion)
 
