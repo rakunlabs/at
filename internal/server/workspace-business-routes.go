@@ -153,6 +153,7 @@ func workspaceBusinessPolicies() []BusinessRoutePolicy {
 		{"PUT", "/mcp/sets/{id}", "mcp.write", "mcp", "id"},
 		{"DELETE", "/mcp/sets/{id}", "mcp.write", "mcp", "id"},
 		{"GET", "/mcp/sets/{id}/export", "mcp.read", "mcp", "id"},
+		{"POST", "/mcp/sets/{id}/inspect-upstreams", "mcp.read", "mcp", "id"},
 		{"GET", "/mcp-templates", "mcp.read", "", ""},
 		{"GET", "/mcp-templates/{slug}", "mcp.read", "", ""},
 		{"POST", "/mcp-templates/{slug}/install", "mcp.write", "", ""},

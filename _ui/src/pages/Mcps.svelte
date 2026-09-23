@@ -24,6 +24,7 @@
   const tabRoute = routeChoice('tab', ['my-mcps', 'store', 'binaries'] as const, 'my-mcps');
   let activeTab = $derived(tabRoute.value);
   let mayWrite = $derived(isNativeAdmin() || can('mcp.write'));
+  let mayUse = $derived(isNativeAdmin() || can('mcp.use'));
   let platformAdmin = $derived(isNativeAdmin());
 
   $effect(() => {
@@ -1238,7 +1239,7 @@
                             </div>
                           </label>
                         </div>
-                        {#if editingId && platformAdmin}
+                        {#if editingId && mayUse}
                           {@const inspection = (upstreamInspections[editingId] || []).find((item) => item.index === i)}
                           <div class="flex items-start gap-2 pt-2 border-t border-gray-100 dark:border-dark-border text-xs">
                             <div class="min-w-0 flex-1">
@@ -1417,7 +1418,7 @@
               </td>
               <td class="px-4 py-2.5 text-right">
                 <div class="flex justify-end gap-1">
-                  {#if platformAdmin && (set.config?.mcp_upstreams ?? []).length > 0}
+                  {#if mayUse && (set.config?.mcp_upstreams ?? []).length > 0}
                     <button
                       onclick={() => handleInspectUpstreams(set.id)}
                       disabled={inspectionBusy[set.id]}

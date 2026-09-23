@@ -30,15 +30,49 @@ type mcpUpstreamInspection struct {
 // tools/list. Failures are returned per upstream so one unavailable server does
 // not hide the tools discovered from the others.
 func (s *Server) MCPSetInspectUpstreamsAPI(w http.ResponseWriter, r *http.Request) {
-	cfg, name, err := s.mcpRecordConfig(r, "sets")
+	ctx, bindErr := s.bindRuntimePrincipal(r.Context(), "mcp-inspect")
+	if bindErr != nil {
+		httpResponse(w, "runtime identity unavailable", http.StatusForbidden)
+		return
+	}
+	if s.mcpSetStore == nil {
+		httpResponse(w, "store not configured", http.StatusServiceUnavailable)
+		return
+	}
+
+	id := r.PathValue("id")
+	if id == "" {
+		httpResponse(w, "MCP set id is required", http.StatusBadRequest)
+		return
+	}
+	record, err := s.mcpSetStore.GetMCPSet(ctx, id)
 	if err != nil {
 		httpResponse(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	if cfg == nil {
+	if record == nil {
 		httpResponse(w, "MCP set not found", http.StatusNotFound)
 		return
 	}
+	if err := service.CheckExecution(ctx, service.ExecutionAction{Kind: "resource", Name: "mcp.use", ResourceID: record.Name}); err != nil {
+		httpResponse(w, "mcp set execution denied", http.StatusForbidden)
+		return
+	}
+	// Management reads redact upstreams for non-writers. Inspection is an
+	// execution action, so resolve the full config through the credential-use
+	// seam after both capability and execution-policy admission.
+	if credentials, ok := s.mcpSetStore.(service.WorkspaceCredentialStorer); ok {
+		record, err = credentials.ResolveMCPSetForUse(ctx, record.Name)
+		if err != nil {
+			httpResponse(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if record == nil {
+			httpResponse(w, "MCP set not found", http.StatusNotFound)
+			return
+		}
+	}
+	cfg, name := &record.Config, record.Name
 	var req struct {
 		Index *int `json:"index"`
 	}
@@ -63,8 +97,8 @@ func (s *Server) MCPSetInspectUpstreamsAPI(w http.ResponseWriter, r *http.Reques
 			entry.Transport = "streamable_http"
 		}
 		started := time.Now()
-		ctx, cancel := context.WithTimeout(r.Context(), mcpInspectTimeout)
-		lease, acquireErr := s.acquireMCPClient(ctx, upstream)
+		inspectCtx, cancel := context.WithTimeout(ctx, mcpInspectTimeout)
+		lease, acquireErr := s.acquireMCPClient(inspectCtx, upstream)
 		if acquireErr != nil {
 			entry.Error = acquireErr.Error()
 			entry.DurationMS = time.Since(started).Milliseconds()
@@ -73,7 +107,7 @@ func (s *Server) MCPSetInspectUpstreamsAPI(w http.ResponseWriter, r *http.Reques
 			continue
 		}
 
-		tools, listErr := lease.client.ListTools(ctx)
+		tools, listErr := lease.client.ListTools(inspectCtx)
 		if listErr != nil {
 			entry.Error = listErr.Error()
 		} else {
@@ -92,7 +126,7 @@ func (s *Server) MCPSetInspectUpstreamsAPI(w http.ResponseWriter, r *http.Reques
 		}
 		entry.DurationMS = time.Since(started).Milliseconds()
 		if lease.owned {
-			closeMCPClient(ctx, lease.client) // best-effort diagnostic cleanup
+			closeMCPClient(inspectCtx, lease.client) // best-effort diagnostic cleanup
 		}
 		cancel()
 		results = append(results, entry)

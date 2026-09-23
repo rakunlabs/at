@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/rakunlabs/at/internal/service"
+	"github.com/rakunlabs/at/internal/service/executiontest"
 )
 
 func TestMCPSetInspectUpstreams(t *testing.T) {
@@ -48,7 +49,7 @@ func TestMCPSetInspectUpstreams(t *testing.T) {
 		{URL: broken.URL},
 	}}}
 	s := &Server{mcpSetStore: &stdioTestSetStore{set: set}}
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/sets/set-1/inspect-upstreams", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/sets/set-1/inspect-upstreams", nil).WithContext(executiontest.Context(t))
 	req.SetPathValue("id", "set-1")
 	rr := httptest.NewRecorder()
 	s.MCPSetInspectUpstreamsAPI(rr, req)
@@ -72,5 +73,18 @@ func TestMCPSetInspectUpstreams(t *testing.T) {
 	}
 	if out.Upstreams[1].Error == "" {
 		t.Fatalf("broken upstream = %+v, want an error", out.Upstreams[1])
+	}
+}
+
+func TestMCPSetInspectUpstreamsRequiresRuntimeIdentity(t *testing.T) {
+	set := &service.MCPSet{ID: "set-1", Name: "remote tools"}
+	s := &Server{mcpSetStore: &stdioTestSetStore{set: set}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/mcp/sets/set-1/inspect-upstreams", nil)
+	req.SetPathValue("id", "set-1")
+	rr := httptest.NewRecorder()
+
+	s.MCPSetInspectUpstreamsAPI(rr, req)
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("inspect without runtime identity status = %d, want %d", rr.Code, http.StatusForbidden)
 	}
 }

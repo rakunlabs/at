@@ -883,8 +883,10 @@ configuration: `mcp.read` opens the page/list/export, `mcp.write` admits CRUD,
 import and template installation, and `mcp.use` governs Chat discovery and tool
 calls. A writer receives the current full set configuration so saving cannot
 erase redacted upstreams; read-only callers still need `credentials.manage` to
-see credential-bearing fields. Host binaries, stdio lifecycle and low-level
-upstream inspection remain installation administration.
+see credential-bearing fields. Upstream inspection is an `mcp.use` execution
+action and revalidates the workspace execution policy before loading the
+unredacted runtime config. Host binaries and stdio lifecycle remain installation
+administration.
 
 **Nothing bound a runtime identity.** `executeSkillTool` admits through
 `CheckExecution`, which is fail-closed on an unbound context, so

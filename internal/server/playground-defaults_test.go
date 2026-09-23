@@ -136,12 +136,13 @@ func TestPlaygroundToolPlaneAdmission(t *testing.T) {
 		}
 	}
 	for pattern, want := range map[string]string{
-		"POST /mcp/sets":                     "mcp.write",
-		"PUT /mcp/sets/{id}":                 "mcp.write",
-		"DELETE /mcp/sets/{id}":              "mcp.write",
-		"GET /mcp/sets/{id}":                 "mcp.read",
-		"GET /mcp/sets/{id}/export":          "mcp.read",
-		"POST /mcp-templates/{slug}/install": "mcp.write",
+		"POST /mcp/sets":                        "mcp.write",
+		"PUT /mcp/sets/{id}":                    "mcp.write",
+		"DELETE /mcp/sets/{id}":                 "mcp.write",
+		"GET /mcp/sets/{id}":                    "mcp.read",
+		"GET /mcp/sets/{id}/export":             "mcp.read",
+		"POST /mcp/sets/{id}/inspect-upstreams": "mcp.read",
+		"POST /mcp-templates/{slug}/install":    "mcp.write",
 	} {
 		if got := policies[pattern]; got != want {
 			t.Errorf("%s admitted on %q, want %q", pattern, got, want)
